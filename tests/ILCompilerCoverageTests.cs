@@ -4272,6 +4272,47 @@ func main(): int {
         Assert.Equal(55555, Assert.IsType<int>(result));
     }
 
+    // A NON-async lambda or local function declared inside an ASYNC method inherited the enclosing
+    // _currentAsync* return context (saved but never CLEARED for non-async nested bodies): the
+    // nested body took the async wrap path and `ret` a ValueTask<T> struct from a method whose CLR
+    // signature is T — callers read garbage (0 for int, null for string). Fixed by clearing the
+    // trio after SaveAndResetNestedMethodReturnContext in all three LambdaEmitter paths and the
+    // local-function emitter (async nested bodies re-establish it). Review-probe-found while
+    // routing the columnar async rung.
+    [Fact]
+    public void ILCompiler_NonAsyncNestedBodiesInsideAsync_DoNotInheritAsyncReturnContext()
+    {
+        var source = @"
+async func one(): int {
+    return 1
+}
+
+async func viaLambda(): int {
+    zero := () => 99
+    return zero() + await one()
+}
+
+async func viaString(): string {
+    mk := () => ""abc""
+    return mk()
+}
+
+async func viaLocalFn(): int {
+    func g(): int {
+        return 5
+    }
+    return g() + await one()
+}
+
+func main(): int {
+    s := await viaString()
+    return await viaLambda() * 1000 + await viaLocalFn() * 10 + s.Length
+}";
+        var result = CompileAndInvoke(source);
+        // pre-fix: lambdas/local fns returned 0/null -> 63 (0*1000 + 1*10 + ...) crashed on null.Length.
+        Assert.Equal(100063, Assert.IsType<int>(result));
+    }
+
     [Fact]
     public void ILCompiler_ThreeDeepStructTailWrite_StoresThrough()
     {

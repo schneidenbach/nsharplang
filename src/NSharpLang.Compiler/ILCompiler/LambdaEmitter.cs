@@ -141,6 +141,14 @@ public partial class ILCompiler
         // protected-region depth, async fault guard) while emitting this nested body into its own
         // IL generator. Restored below.
         var savedNestedReturnContext = SaveAndResetNestedMethodReturnContext();
+        // A nested NON-async body must not inherit the enclosing method's async return context — a
+        // plain lambda emitted inside an async method would otherwise take the async wrap path and
+        // `ret` a ValueTask<T> struct from a method whose CLR signature is T (callers read garbage:
+        // 0 for int, null for string — probe-found via the columnar async parity sweep). Cleared
+        // here, re-established below only for ASYNC nested bodies, restored with the saves above.
+        _currentAsyncReturnType = null;
+        _currentAsyncResultType = null;
+        _currentAsyncReturnsValueTask = false;
         var bodyReturnType = returnType;
         if (localFunctionDefinition?.Modifiers.HasFlag(Modifiers.Async) == true
             && TryUnwrapAsyncReturnType(returnType, out var asyncResultType, out var returnsValueTask))
@@ -571,6 +579,14 @@ public partial class ILCompiler
         // protected-region depth, async fault guard) while emitting this nested body into its own
         // IL generator. Restored below.
         var savedNestedReturnContext = SaveAndResetNestedMethodReturnContext();
+        // A nested NON-async body must not inherit the enclosing method's async return context — a
+        // plain lambda emitted inside an async method would otherwise take the async wrap path and
+        // `ret` a ValueTask<T> struct from a method whose CLR signature is T (callers read garbage:
+        // 0 for int, null for string — probe-found via the columnar async parity sweep). Cleared
+        // here, re-established below only for ASYNC nested bodies, restored with the saves above.
+        _currentAsyncReturnType = null;
+        _currentAsyncResultType = null;
+        _currentAsyncReturnsValueTask = false;
         var bodyReturnType = returnType;
         if (localFunctionDefinition?.Modifiers.HasFlag(Modifiers.Async) == true
             && TryUnwrapAsyncReturnType(returnType, out var asyncResultType, out var returnsValueTask))
@@ -785,6 +801,14 @@ public partial class ILCompiler
         // protected-region depth, async fault guard) while emitting this nested body into its own
         // IL generator. Restored below.
         var savedNestedReturnContext = SaveAndResetNestedMethodReturnContext();
+        // A nested NON-async body must not inherit the enclosing method's async return context — a
+        // plain lambda emitted inside an async method would otherwise take the async wrap path and
+        // `ret` a ValueTask<T> struct from a method whose CLR signature is T (callers read garbage:
+        // 0 for int, null for string — probe-found via the columnar async parity sweep). Cleared
+        // here, re-established below only for ASYNC nested bodies, restored with the saves above.
+        _currentAsyncReturnType = null;
+        _currentAsyncResultType = null;
+        _currentAsyncReturnsValueTask = false;
         var bodyReturnType = returnType;
         if (localFunctionDefinition?.Modifiers.HasFlag(Modifiers.Async) == true
             && TryUnwrapAsyncReturnType(returnType, out var asyncResultType, out var returnsValueTask))

@@ -86,7 +86,9 @@
 //                                         object-init pair layout with the RECEIVER in place of the type
 //                                         root: children [receiver, name0 (kind 6), value0, ...]; zero
 //                                         pairs = a pure clone. Kinds 48-51 are STATEMENT kinds
-//                                         (throw/try/catch/lock); 53 is the next free kind. )
+//                                         (throw/try/catch/lock). )
+//   AwaitExpression         -> kind 53  ( `await <expr>` (Await 69) -- prefix unary, ONE child
+//                                         [operand]; 54 is the next free kind. )
 // Deferred (refused with -1, or the chain simply STOPS at them): `?.`/`?[` null-conditional access, generic
 //   method calls (callee<T>(...)), named (`name:`) and ref/out call arguments,
 //   `is`/`as` type tests, range `..`; every other unlisted primary (this/base/default/alloc/array-literal/
@@ -1028,6 +1030,21 @@ func ParseUnaryExpressionNode(tokenKinds: int[], tokenStarts: int[], tokenValueL
             mustChildRun := st[2]
             AppendExpressionChild(st, outChildIndices, mustOperand)
             return EmitExpressionNode(st, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 45, -1, 0, mustChildRun, 1, mustStart, mustSpanEnd - mustStart)
+        }
+        // `await <operand>` (Await 69) -- the prefix await (AwaitExpression kind 53, ONE child; the
+        // operand recurses at THIS unary level, mirroring the production's prefix-unary production
+        // at Parser.cs ParseUnaryExpression so `await await x` chains).
+        if k == 69 {
+            awaitStart := tokenStarts[pos]
+            st[0] = pos + 1
+            awaitOperand := ParseUnaryExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
+            if awaitOperand < 0 {
+                return -1
+            }
+            awaitSpanEnd := outSpanStarts[awaitOperand] + outSpanLengths[awaitOperand]
+            awaitChildRun := st[2]
+            AppendExpressionChild(st, outChildIndices, awaitOperand)
+            return EmitExpressionNode(st, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 53, -1, 0, awaitChildRun, 1, awaitStart, awaitSpanEnd - awaitStart)
         }
         if k == 106 || k == 89 || k == 110 || k == 113 || k == 114 || k == 109 {
             opStart := tokenStarts[pos]

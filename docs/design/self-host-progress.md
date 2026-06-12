@@ -11,6 +11,76 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-12 — ASYNC rung A: the SYNC-LOWERING MIRROR — async funcs + await emit columnar
+
+The arc's main rung, riding the recon's headline (neither pipeline emits a state machine — the
+oracle's async is synchronous by design). FOUR pieces, each mirroring the oracle exactly:
+
+**Kernel (kind 53):** `await <operand>` parses as a prefix unary (token 69, the `must`-arm
+template — the operand recurses at the unary level so `await await x` chains); both kind ledgers
+updated (54 next free). The ASYNC modifier needs NO kernel change: the decl scanner already maps
+token 68 → Modifiers.Async (1<<11); the ADAPTER now reads `TopLevelDeclarationModifiers` and
+threads per-function `IsAsync` (the i-th kind-7 decl = the i-th `TopLevelFuncIndices` entry),
+replacing rung 0's blanket decline.
+
+**Signatures:** the declared return resolves to the INNER type; the METHOD's CLR return wraps —
+`ValueTask`/`ValueTask<T>` default, `Task`/`Task<T>` for `main` (case-insensitive, the oracle's
+entry-point rule), explicit `Task`/`ValueTask`(/`<T>`) annotations keep their declared family
+(`TryComputeAsyncReturnShape`, the WrapAsyncReturnType mirror). **The sibling table registers the
+WRAPPED type** — the slice's one real bug, found by probe: registering the inner type made every
+await of a sibling decline (the call site thought `fetch()` returned `int`). Generic async
+declines.
+
+**Bodies:** the whole async body runs inside the FAULT GUARD (the oracle's
+Begin/EndAsyncFaultGuard) — one protected region per body reusing the E2 machinery: returns WRAP
+(`new ValueTask<T>(v)` / `Task.FromResult<T>` / `default(ValueTask)` / `Task.CompletedTask`) then
+store+leave to the shared tail; a unit body falling off the end wraps the completed task;
+`catch (Exception)` converts to a FAULTED task (`Task.FromException(<T>)` + the ValueTask
+Task-wrapping ctor) — probe-pinned faulted-task parity (invoking a throwing async returns
+normally; the task carries the InvalidOperationException). Value async bodies must still
+always-return; unit-task asyncs are exempt (the analyzer's rule). Nested try/lock decline via the
+one-region rule (pinned — flips with nested-region support).
+
+**Await (`TryEmitBlockingAwait`):** the EmitAwaiterGetResult mirror — exactly the four BCL task
+shapes; ValueTask(/T) spills and converts via `AsTask()`; Task(/T) goes callvirt `GetAwaiter()`
+then the STRUCT awaiter spills for `call GetResult()`. Await is legal in NON-async functions too
+(probe-pinned: no diagnostic exists; identical lowering), and await-as-STATEMENT pops non-void
+results like a bare call. The parity HARNESS gained task-unwrapping (`ResolveTaskLikeResult` in
+both invoke paths — two correct emissions would otherwise compare distinct Task instances).
+
+**2-lens adversarial review (~50 probes): one ORACLE defect found+fixed, two columnar over-accepts
+found+fixed, everything else refuted.** (1) ORACLE: non-async LAMBDAS and LOCAL FUNCTIONS declared
+inside async bodies inherited the enclosing `_currentAsync*` return context (saved but never
+CLEARED) — the nested body took the async wrap path and `ret` a ValueTask&lt;T&gt; struct from a
+T-signature method; callers read 0/null (`zero := () => 99; return zero()` gave 0; string lambdas
+gave silent null). Newly EXPOSED by this rung's routing (rung 0 declined all async programs).
+Fixed front-door: the `_currentAsync*` trio now CLEARS after `SaveAndResetNestedMethodReturnContext`
+in all three LambdaEmitter paths + the local-function emitter (async nested bodies re-establish
+it); pinned by `ILCompiler_NonAsyncNestedBodiesInsideAsync_DoNotInheritAsyncReturnContext` AND two
+columnar parity functions at the now-correct values. (2) columnar: a bare `return` under an
+EXPLICIT `Task`/`ValueTask` annotation routed where the pipeline rejects NL305 (the unit-task
+exemption covers FALL-THROUGH bodies only — boundary probe-pinned); explicit-unit asyncs now
+decline bare returns. (3) columnar+pre-existing: a leading UNKNOWN token before `func`
+(`pub async func f`) routed — with the async wrap applied — where the pipeline rejects NL101; the
+adapter now requires each top-level func to be preceded only by modifier tokens chaining to the
+file start, a `}`, or an import/package header's dotted tail (empirically tokenized: `import
+System.Text` = 17,0,124,0). REFUTED: fault-guard interplay (throw-only/conditional/unit faulted
+tasks), await-of-faulted propagation (async re-faults, non-async sync-throws — both match),
+return widening/adoption under the wrap, all await positions, break/continue inside the guard,
+main casing, modifier/index alignment over interleaved decls, the full regression sweep, and
+idempotence.
+
+Parity: `ColumnarCodegen_Parity_Async` — 13 value functions (constants, sibling awaits, sequential
+awaits, awaits in if/while flow, params+locals across awaits, await-in-non-async, explicit
+Task<int>, unit Task/bare bodies, await-as-statement composition, async+collections+interpolation
+`sum=15`, lambda-in-async, local-func-in-async) + the `main` Task<int> surface pin + the
+faulted-task pin + decline pins (try-in-async, generic async, explicit-unit bare returns ×2,
+leading-garbage ×2). 318/318 dogfood. NEXT: async residual rungs (await-foreach kind 54, async
+iterators, task-typed params, try-in-async) as needed by route-all — then interfaces → route-all
+(gate: Phase P port) → emitter port (gate: SoA design doc).
+
+---
+
 ## 2026-06-12 — ASYNC rung 0: the modifier guard — a live method-surface divergence closed
 
 The async-arc recon (3 agents: oracle map / 15-probe sweep / kernel surface) re-shaped the arc and

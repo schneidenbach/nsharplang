@@ -791,23 +791,22 @@ internal static class NSharpCompilerDogfoodAdapter
                     return false;
             }
 
-            // ASYNC GUARD (async-arc rung 0, probe-found live divergence): an `async func` with no
-            // `await` in its body parses clean through every kernel — the body has no kind-69 token
-            // to refuse — and the func scan picks the bare `func` token, silently DROPPING the
-            // modifier: columnar emitted `String Fetch()` where the oracle emits the async-wrapped
-            // `ValueTask<string> Fetch()`. Until the async lowering is modeled, any async-flagged
-            // declaration declines the whole program. (Modifiers.Async == 1 << 11, the kernel's
-            // ModifierFlagOf mapping for token 68 — mirrored from Ast/Declarations.cs.)
+            // ASYNC modifiers (async-arc rung A; rung 0 was a blanket decline after the probe-found
+            // divergence where the modifier was silently DROPPED and columnar emitted an un-wrapped
+            // method surface). The kernel scans per-declaration modifier flags ((int)Modifiers;
+            // Async = 1 << 11). The i-th kind-7 declaration is the i-th entry of TopLevelFuncIndices
+            // (both walk the token stream in order), so each function input carries its own flag.
+            var funcAsyncFlags = new System.Collections.Generic.List<bool>();
             {
-                var asyncGuardModKinds = new int[rawCount + 1];
-                var asyncGuardModFlags = new int[rawCount + 1];
-                var asyncGuardModCount = bindings.TopLevelDeclarationModifiers(rawKinds, rawCount, asyncGuardModKinds, asyncGuardModFlags);
-                if (asyncGuardModCount != declCount)
+                var asyncModKinds = new int[rawCount + 1];
+                var asyncModFlags = new int[rawCount + 1];
+                var asyncModCount = bindings.TopLevelDeclarationModifiers(rawKinds, rawCount, asyncModKinds, asyncModFlags);
+                if (asyncModCount != declCount)
                     return false;
-                for (var d = 0; d < asyncGuardModCount; d++)
+                for (var d = 0; d < declCount; d++)
                 {
-                    if ((asyncGuardModFlags[d] & (1 << 11)) != 0)
-                        return false;
+                    if (declKinds[d] == 7)
+                        funcAsyncFlags.Add((asyncModFlags[d] & (1 << 11)) != 0);
                 }
             }
 
@@ -828,9 +827,29 @@ internal static class NSharpCompilerDogfoodAdapter
             var funcIndices = TopLevelFuncIndices(ck, n);
             if (funcIndices.Count == 0)
                 return false;
-            foreach (var funcIndex in funcIndices)
+            if (funcIndices.Count != funcAsyncFlags.Count)
+                return false; // the modifier scan and the func scan must agree on the function count.
+            for (var fi = 0; fi < funcIndices.Count; fi++)
             {
-                if (!TryParseColumnarFunctionAt(bindings, ck, cs, cv, n, funcIndex, source, out var input))
+                // OVER-ACCEPT guard (review-found): the kernel decl scans SKIP an unknown depth-0
+                // token before `func` — `pub async func f` routed (with the async wrap applied!)
+                // where the pipeline rejects NL101. Every top-level func token may be preceded only
+                // by MODIFIER tokens (static 63 / async 68) chaining back to the file start, a
+                // closing brace (the previous declaration's end), or an IMPORT/PACKAGE header's
+                // dotted-name tail (`import System.Text` = 17, 0, 124, 0 — empirically tokenized).
+                var precedingToken = funcIndices[fi] - 1;
+                while (precedingToken >= 0 && (ck[precedingToken] == 63 || ck[precedingToken] == 68))
+                    precedingToken--;
+                if (precedingToken >= 0 && ck[precedingToken] != 130)
+                {
+                    var headerWalk = precedingToken;
+                    while (headerWalk >= 0 && (ck[headerWalk] == 0 || ck[headerWalk] == 124))
+                        headerWalk--;
+                    if (headerWalk == precedingToken || headerWalk < 0
+                        || (ck[headerWalk] != 17 && ck[headerWalk] != 18))
+                        return false;
+                }
+                if (!TryParseColumnarFunctionAt(bindings, ck, cs, cv, n, funcIndices[fi], source, out var input, isAsync: funcAsyncFlags[fi]))
                     return false;
                 inputs.Add(input);
             }
@@ -1261,7 +1280,7 @@ internal static class NSharpCompilerDogfoodAdapter
     // node tables. Returns false on any parse failure or a missing body brace.
     private static bool TryParseColumnarFunctionAt(
         Bindings bindings, int[] ck, int[] cs, int[] cv, int n, int funcIndex, string source,
-        out Columnar.ColumnarFunctionInput input, bool isStatic = false)
+        out Columnar.ColumnarFunctionInput input, bool isStatic = false, bool isAsync = false)
     {
         input = null!;
         var cap = n + 1;
@@ -1375,7 +1394,8 @@ internal static class NSharpCompilerDogfoodAdapter
             fname, returnCanonical, paramNames, paramCanonicals,
             bk, bvs, bvl, bcs, bcc, bci, bres[0], isStatic, typeParamNames,
             typeParamSpecials, typeParamTypeConstraints,
-            returnTupleElementNames: returnTupleNames, paramTupleElementNames: paramTupleNames);
+            returnTupleElementNames: returnTupleNames, paramTupleElementNames: paramTupleNames,
+            isAsync: isAsync);
 
         // LOCAL FUNCTIONS (kind-41 statements that are DIRECT children of the root block): each node's
         // value span is the `func` keyword's byte span — re-locate the token and parse the nested

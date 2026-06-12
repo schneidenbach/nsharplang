@@ -18,10 +18,12 @@ public sealed class ColumnarFunctionInput
         int[] kinds, int[] valueStarts, int[] valueLengths, int[] childStart, int[] childCount, int[] childIndices,
         int bodyRoot, bool isStatic = false, string[]? typeParamNames = null,
         int[]? typeParamSpecialConstraints = null, string[][]? typeParamTypeConstraints = null,
-        string[]? returnTupleElementNames = null, string[]?[]? paramTupleElementNames = null)
+        string[]? returnTupleElementNames = null, string[]?[]? paramTupleElementNames = null,
+        bool isAsync = false)
     {
         Name = name;
         ReturnCanonical = returnCanonical;
+        IsAsync = isAsync;
         ParamNames = paramNames;
         ParamCanonicals = paramCanonicals;
         Kinds = kinds;
@@ -60,6 +62,13 @@ public sealed class ColumnarFunctionInput
     // shifted). Always false for a top-level function (those are CLR-static on the Program type, but their static-
     // ness is structural, not a member modifier). Set by the adapter from the kernel's outMethodStaticFlags.
     public bool IsStatic { get; }
+    // True for an `async func` (the adapter reads the kernel's per-declaration modifier flags). The
+    // emitter mirrors the oracle's SYNCHRONOUS async lowering: the declared return wraps into
+    // ValueTask/ValueTask<T> (Task/Task<T> for `main` — the entry-point rule), returns wrap into
+    // completed tasks, the body runs inside a fault guard whose catch converts to a faulted task,
+    // and `await` is a blocking GetAwaiter().GetResult(). Real state machines are deferred by
+    // design in BOTH pipelines (ILCompiler.Async.cs).
+    public bool IsAsync { get; }
     // Tuple ELEMENT NAMES declared on the RETURN type / each PARAM type (`(x: int, y: int)`), null when
     // unnamed or non-tuple — canonicals ERASE names (tuple identity is positional, .NET semantics), so
     // they travel here for the emitter's name->ItemN member mapping.
@@ -436,6 +445,17 @@ public sealed class ColumnarIlEmitter
     private Label _protectedDone;
     private bool _protectedDoneCreated;
     private bool _inProtectedRegion;
+    // ASYNC (the oracle's SYNC lowering — ILCompiler.Async.cs; real state machines deferred in BOTH
+    // pipelines): non-null = this body's WRAPPED CLR return (ValueTask/ValueTask<T>; Task/Task<T>
+    // for `main`). _returnType holds the INNER declared type so every return-value check works
+    // unchanged; returns WRAP before storing into the protected slot; the whole body runs inside
+    // the fault guard (EmitBody) whose catch converts the exception to a faulted task.
+    private readonly Type? _asyncReturnType;
+    private readonly Type? _asyncResultType;
+    private readonly bool _asyncReturnsValueTask;
+    // True when the async unit-ness came from an EXPLICIT `: Task`/`: ValueTask` annotation — a
+    // bare `return` is then a pipeline NL305 (the unit-task exemption covers fall-through only).
+    private readonly bool _asyncBareReturnDeclines;
     // Set while a FINALLY handler's statements emit: control transfers OUT of a finally (return, or
     // break/continue to a loop outside it) are illegal IL. The analyzer now rejects those shapes with
     // NL319 (oracle defect #20 fixed front-door), so they cannot reach any emitter on the production
@@ -511,9 +531,20 @@ public sealed class ColumnarIlEmitter
         IEnumerable<string>? visibleLocalFuncs = null,
         IReadOnlyDictionary<string, string?[]>? siblingReturnTupleNames = null,
         IReadOnlyDictionary<string, string?[]>? paramTupleNames = null,
-        HashSet<string>? enclosingBindingNames = null)
+        HashSet<string>? enclosingBindingNames = null,
+        Type? asyncReturnType = null,
+        bool asyncBareReturnDeclines = false)
     {
         _isConstructorBody = isConstructorBody;
+        _asyncReturnType = asyncReturnType;
+        _asyncBareReturnDeclines = asyncBareReturnDeclines;
+        if (asyncReturnType != null)
+        {
+            _asyncResultType = returnType == typeof(void) ? null : returnType;
+            _asyncReturnsValueTask = asyncReturnType == typeof(System.Threading.Tasks.ValueTask)
+                || (asyncReturnType.IsGenericType
+                    && asyncReturnType.GetGenericTypeDefinition() == typeof(System.Threading.Tasks.ValueTask<>));
+        }
         _enclosingBindingNames = enclosingBindingNames ?? s_noEnclosingBindings;
         _kinds = kinds;
         _valueStarts = valueStarts;
@@ -746,6 +777,60 @@ public sealed class ColumnarIlEmitter
                 return true;
         }
         return false;
+    }
+
+    // ASYNC return shape (the oracle's GetDeclaredFunctionReturnType + WrapAsyncReturnType): the
+    // declared canonical resolves to the INNER type (`void` for unit); the METHOD's CLR return is
+    // the wrap — ValueTask/ValueTask<T> by default, Task/Task<T> for `main` (case-insensitive, the
+    // oracle's IsEntryPointFunction rule). An EXPLICIT task-like annotation keeps its declared
+    // family with its declared inner. Unresolvable/unsupported inners decline.
+    private static bool TryComputeAsyncReturnShape(string name, string canonical,
+        IReadOnlyDictionary<string, ColumnarEnumDef>? enumRegistry,
+        IReadOnlyDictionary<string, ColumnarStructDef>? structRegistry,
+        IReadOnlyDictionary<string, ColumnarUnionDef>? unionRegistry,
+        out Type inner, out Type wrapped)
+    {
+        inner = typeof(void);
+        wrapped = null!;
+        var isEntryPoint = string.Equals(name, "main", StringComparison.OrdinalIgnoreCase);
+        if (canonical == "Task")
+        {
+            wrapped = typeof(System.Threading.Tasks.Task);
+            return true;
+        }
+        if (canonical == "ValueTask")
+        {
+            wrapped = typeof(System.Threading.Tasks.ValueTask);
+            return true;
+        }
+        if (canonical.StartsWith("Task<", StringComparison.Ordinal) && canonical[^1] == '>')
+        {
+            if (!TryResolveType(canonical.Substring(5, canonical.Length - 6), enumRegistry, structRegistry, unionRegistry, out inner)
+                || !IsSupportedType(inner) || ContainsBuilderBoundType(inner))
+                return false;
+            wrapped = typeof(System.Threading.Tasks.Task<>).MakeGenericType(inner);
+            return true;
+        }
+        if (canonical.StartsWith("ValueTask<", StringComparison.Ordinal) && canonical[^1] == '>')
+        {
+            if (!TryResolveType(canonical.Substring(10, canonical.Length - 11), enumRegistry, structRegistry, unionRegistry, out inner)
+                || !IsSupportedType(inner) || ContainsBuilderBoundType(inner))
+                return false;
+            wrapped = typeof(System.Threading.Tasks.ValueTask<>).MakeGenericType(inner);
+            return true;
+        }
+        if (canonical == "void")
+        {
+            wrapped = isEntryPoint ? typeof(System.Threading.Tasks.Task) : typeof(System.Threading.Tasks.ValueTask);
+            return true;
+        }
+        if (!TryResolveType(canonical, enumRegistry, structRegistry, unionRegistry, out inner)
+            || !IsSupportedType(inner) || ContainsBuilderBoundType(inner))
+            return false;
+        wrapped = isEntryPoint
+            ? typeof(System.Threading.Tasks.Task<>).MakeGenericType(inner)
+            : typeof(System.Threading.Tasks.ValueTask<>).MakeGenericType(inner);
+        return true;
     }
 
     // The production pipeline REJECTS closed-generic uses of `List<...>`/`Dictionary<...>` whenever a USER
@@ -3227,6 +3312,12 @@ public sealed class ColumnarIlEmitter
         var ordinalsByFunc = new Dictionary<string, int>[funcs.Count];
         var paramTypesByFunc = new Dictionary<string, Type>[funcs.Count];
         var returnTypeByFunc = new Type[funcs.Count];
+        // ASYNC: the per-function WRAPPED CLR return (the real method signature siblings call) —
+        // null for non-async. returnTypeByFunc holds the wrapped type for async funcs (call sites
+        // must see ValueTask<int>, never the inner int); the INNER type rides asyncInnerByFunc and
+        // becomes the body emitter's _returnType so return-value checks work unchanged.
+        var asyncWrappedByFunc = new Type?[funcs.Count];
+        var asyncInnerByFunc = new Type[funcs.Count];
         var siblings = new Dictionary<string, (MethodInfo Method, Type[] ParamTypes, Type ReturnType, Type[] TypeParams, int[] SpecialConstraints, Type?[] BaseConstraints)>(StringComparer.Ordinal);
         // Sibling RETURN tuple element names (a `(x: int, y: int)` return) — drives `t := mk()` / `mk().x`
         // name derivation; canonicals stay name-erased.
@@ -3346,7 +3437,19 @@ public sealed class ColumnarIlEmitter
             // no value); otherwise it must be a supported VALUE type. `void` is valid ONLY as a return type, so
             // it is handled here and NOT admitted by IsSupportedType (which gates params/locals/arrays/values).
             Type returnType;
-            if (fn.ReturnCanonical == "void")
+            Type? asyncWrappedReturn = null;
+            if (fn.IsAsync)
+            {
+                // ASYNC (the sync-lowering mirror): generic async declines; the declared return
+                // resolves to the INNER type and the METHOD signature wraps it — ValueTask(/T) by
+                // default, Task(/T) for `main` (the oracle's entry-point rule), explicit task-like
+                // annotations keep their declared family.
+                if (fn.TypeParamNames.Length > 0)
+                    return false;
+                if (!TryComputeAsyncReturnShape(fn.Name, fn.ReturnCanonical, enumRegistry, structRegistry, unionRegistry, out returnType, out asyncWrappedReturn))
+                    return false;
+            }
+            else if (fn.ReturnCanonical == "void")
                 returnType = typeof(void);
             else if (typeParamMap != null)
             {
@@ -3382,16 +3485,18 @@ public sealed class ColumnarIlEmitter
             else
             {
                 methods[f] = type.DefineMethod(
-                    fn.Name, MethodAttributes.Public | MethodAttributes.Static, returnType, paramTypes);
+                    fn.Name, MethodAttributes.Public | MethodAttributes.Static, asyncWrappedReturn ?? returnType, paramTypes);
             }
             ordinalsByFunc[f] = ordinals;
             paramTypesByFunc[f] = paramTypeMap;
-            returnTypeByFunc[f] = returnType;
+            returnTypeByFunc[f] = asyncWrappedReturn ?? returnType; // call sites see the WRAPPED type.
+            asyncWrappedByFunc[f] = asyncWrappedReturn;
+            asyncInnerByFunc[f] = returnType;
             // A duplicate top-level function name is an overload set the spike does not model — decline the
             // whole program rather than silently pick one (a real call would be ambiguous).
             if (fn.ReturnTupleElementNames != null)
                 siblingReturnTupleNames[fn.Name] = fn.ReturnTupleElementNames;
-            if (!siblings.TryAdd(fn.Name, (methods[f], paramTypes, returnType, fnTypeParams, fnSpecialConstraints, fnBaseConstraints)))
+            if (!siblings.TryAdd(fn.Name, (methods[f], paramTypes, asyncWrappedReturn ?? returnType, fnTypeParams, fnSpecialConstraints, fnBaseConstraints)))
                 return false;
         }
 
@@ -3446,13 +3551,18 @@ public sealed class ColumnarIlEmitter
                         (fnParamTupleNames ??= new Dictionary<string, string?[]>(StringComparer.Ordinal))[fn.ParamNames[pn]] = paramElementNames;
                 }
             }
+            // ASYNC bodies check return values against the INNER type; the method's CLR signature
+            // (and every sibling call site) sees the WRAPPED type.
+            var bodyReturnType = asyncWrappedByFunc[f] != null ? asyncInnerByFunc[f] : returnTypeByFunc[f];
             var emitter = new ColumnarIlEmitter(
                 fn.Kinds, fn.ValueStarts, fn.ValueLengths, fn.ChildStart, fn.ChildCount, fn.ChildIndices,
-                source, ordinalsByFunc[f], paramTypesByFunc[f], returnTypeByFunc[f], il, siblings, enumRegistry, structRegistry, unionRegistry, unionCaseRegistry, currentStruct: null,
+                source, ordinalsByFunc[f], paramTypesByFunc[f], bodyReturnType, il, siblings, enumRegistry, structRegistry, unionRegistry, unionCaseRegistry, currentStruct: null,
                 programType: type, lambdaCounter: lambdaCounter, displayClasses: displayClasses,
                 localFuncs: localFuncs, declaredLocalFuncNodes: declaredLocalFuncNodes,
-                siblingReturnTupleNames: siblingReturnTupleNames, paramTupleNames: fnParamTupleNames);
-            if (!emitter.EmitBody(fn.BodyRoot, returnTypeByFunc[f] == typeof(void)))
+                siblingReturnTupleNames: siblingReturnTupleNames, paramTupleNames: fnParamTupleNames,
+                asyncReturnType: asyncWrappedByFunc[f],
+                asyncBareReturnDeclines: fn.ReturnCanonical is "Task" or "ValueTask");
+            if (!emitter.EmitBody(fn.BodyRoot, bodyReturnType == typeof(void)))
                 return false;
             if (fn.LocalFunctions != null)
             {
@@ -3642,6 +3752,42 @@ public sealed class ColumnarIlEmitter
                 _liftedLocals[liftedParam] = (boxLocal, liftedParamType);
             }
         }
+        if (_asyncReturnType != null)
+        {
+            // ASYNC FAULT GUARD (the oracle's BeginAsyncFaultGuard/EndAsyncFaultGuard): the whole
+            // body is ONE protected region — every return WRAPS its value and leaves to the shared
+            // tail; a UNIT body falling off the end wraps the completed task; the catch converts
+            // the thrown exception into a faulted task (Task.FromException, + the ValueTask ctor).
+            // Value bodies must still always-return (the analyzer's rule — unit-task asyncs are
+            // exempt). Nested try/lock statements decline via _inProtectedRegion (one region per
+            // body — the existing rung scope), so the guard's region nesting stays flat.
+            if (_asyncResultType != null && !AlwaysReturns(bodyRoot))
+                return false;
+            _protectedResult = _il.DeclareLocal(_asyncReturnType);
+            _protectedDone = _il.DefineLabel();
+            _protectedDoneCreated = true;
+            _inProtectedRegion = true;
+            _il.BeginExceptionBlock();
+            var asyncFallsThrough = _asyncResultType == null && !AlwaysReturns(bodyRoot);
+            if (!EmitStatement(bodyRoot))
+                return false;
+            if (asyncFallsThrough)
+            {
+                EmitWrappedAsyncCompletedReturn(hasValueOnStack: false);
+                _il.Emit(OpCodes.Stloc, _protectedResult);
+                _il.Emit(OpCodes.Leave, _protectedDone);
+            }
+            _il.BeginCatchBlock(typeof(Exception));
+            EmitFaultedAsyncReturnMirror();
+            _il.Emit(OpCodes.Stloc, _protectedResult);
+            _il.Emit(OpCodes.Leave, _protectedDone);
+            _il.EndExceptionBlock();
+            _inProtectedRegion = false;
+            _il.MarkLabel(_protectedDone);
+            _il.Emit(OpCodes.Ldloc, _protectedResult);
+            _il.Emit(OpCodes.Ret);
+            return true;
+        }
         if (!isVoid)
         {
             if (!AlwaysReturns(bodyRoot) || !EmitStatement(bodyRoot))
@@ -3656,6 +3802,124 @@ public sealed class ColumnarIlEmitter
             _il.Emit(OpCodes.Ret);
         EmitProtectedReturnTail(isVoid: true);
         return true;
+    }
+
+    // ASYNC mirror of the oracle's EmitWrapCurrentAsyncReturn: wraps the (already-emitted) return
+    // value — or, with no value, the completed unit task — into the wrapped CLR return type.
+    // Unit + ValueTask -> default(ValueTask); unit + Task -> Task.CompletedTask;
+    // T + ValueTask<T> -> newobj ValueTask<T>(T); T + Task<T> -> Task.FromResult<T>(T).
+    private void EmitWrappedAsyncCompletedReturn(bool hasValueOnStack)
+    {
+        if (_asyncResultType == null)
+        {
+            if (_asyncReturnsValueTask)
+            {
+                var unitTemp = _il.DeclareLocal(typeof(System.Threading.Tasks.ValueTask));
+                _il.Emit(OpCodes.Ldloca, unitTemp);
+                _il.Emit(OpCodes.Initobj, typeof(System.Threading.Tasks.ValueTask));
+                _il.Emit(OpCodes.Ldloc, unitTemp);
+            }
+            else
+            {
+                _il.Emit(OpCodes.Call,
+                    typeof(System.Threading.Tasks.Task).GetProperty(nameof(System.Threading.Tasks.Task.CompletedTask))!.GetGetMethod()!);
+            }
+            return;
+        }
+        if (!hasValueOnStack)
+            throw new InvalidOperationException("async value return requires the value on the stack");
+        if (_asyncReturnsValueTask)
+        {
+            _il.Emit(OpCodes.Newobj, _asyncReturnType!.GetConstructor(new[] { _asyncResultType })!);
+        }
+        else
+        {
+            _il.Emit(OpCodes.Call, FindTaskStaticMethod("FromResult", generic: true).MakeGenericMethod(_asyncResultType!));
+        }
+    }
+
+    private static MethodInfo FindTaskStaticMethod(string methodName, bool generic)
+    {
+        foreach (var m in typeof(System.Threading.Tasks.Task).GetMethods(BindingFlags.Public | BindingFlags.Static))
+        {
+            if (m.Name == methodName && m.IsGenericMethodDefinition == generic && m.GetParameters().Length == 1)
+                return m;
+        }
+        throw new InvalidOperationException($"Could not resolve Task.{methodName}");
+    }
+
+    // ASYNC mirror of the oracle's EmitFaultedAsyncReturn: with an Exception on the stack, leaves a
+    // FAULTED task of the wrapped return type carrying it (Task.FromException(<T>), then the
+    // ValueTask(<T>) Task-wrapping ctor when the family is ValueTask).
+    private void EmitFaultedAsyncReturnMirror()
+    {
+        if (_asyncResultType == null)
+        {
+            _il.Emit(OpCodes.Call, FindTaskStaticMethod("FromException", generic: false));
+            if (_asyncReturnsValueTask)
+                _il.Emit(OpCodes.Newobj, typeof(System.Threading.Tasks.ValueTask).GetConstructor(new[] { typeof(System.Threading.Tasks.Task) })!);
+            return;
+        }
+        _il.Emit(OpCodes.Call, FindTaskStaticMethod("FromException", generic: true).MakeGenericMethod(_asyncResultType));
+        if (_asyncReturnsValueTask)
+        {
+            var taskOfT = typeof(System.Threading.Tasks.Task<>).MakeGenericType(_asyncResultType);
+            _il.Emit(OpCodes.Newobj, _asyncReturnType!.GetConstructor(new[] { taskOfT })!);
+        }
+    }
+
+    // ASYNC mirror of the oracle's EmitAwaiterGetResult — the BLOCKING await: ValueTask(/T) spills
+    // and converts via AsTask() first; Task(/T) goes callvirt GetAwaiter() then the STRUCT awaiter
+    // spills for `call GetResult()`. Only the four BCL task shapes are modelled — any other
+    // awaitable declines (the oracle's general GetAwaiter pattern is a later rung).
+    private bool TryEmitBlockingAwait(Type awaitableType, out Type resultType)
+    {
+        resultType = null!;
+        if (awaitableType == typeof(System.Threading.Tasks.ValueTask))
+        {
+            var vtLocal = _il.DeclareLocal(awaitableType);
+            _il.Emit(OpCodes.Stloc, vtLocal);
+            _il.Emit(OpCodes.Ldloca, vtLocal);
+            _il.Emit(OpCodes.Call, awaitableType.GetMethod(nameof(System.Threading.Tasks.ValueTask.AsTask), Type.EmptyTypes)!);
+            return TryEmitBlockingAwait(typeof(System.Threading.Tasks.Task), out resultType);
+        }
+        if (awaitableType.IsGenericType && !awaitableType.IsGenericTypeDefinition
+            && awaitableType.GetGenericTypeDefinition() == typeof(System.Threading.Tasks.ValueTask<>))
+        {
+            var vtLocal = _il.DeclareLocal(awaitableType);
+            _il.Emit(OpCodes.Stloc, vtLocal);
+            _il.Emit(OpCodes.Ldloca, vtLocal);
+            _il.Emit(OpCodes.Call, awaitableType.GetMethod("AsTask", Type.EmptyTypes)!);
+            return TryEmitBlockingAwait(
+                typeof(System.Threading.Tasks.Task<>).MakeGenericType(awaitableType.GetGenericArguments()[0]), out resultType);
+        }
+        if (awaitableType == typeof(System.Threading.Tasks.Task))
+        {
+            _il.Emit(OpCodes.Callvirt, awaitableType.GetMethod("GetAwaiter", Type.EmptyTypes)!);
+            var awaiterType = typeof(System.Runtime.CompilerServices.TaskAwaiter);
+            var awaiterLocal = _il.DeclareLocal(awaiterType);
+            _il.Emit(OpCodes.Stloc, awaiterLocal);
+            _il.Emit(OpCodes.Ldloca, awaiterLocal);
+            _il.Emit(OpCodes.Call, awaiterType.GetMethod("GetResult", Type.EmptyTypes)!);
+            resultType = typeof(void);
+            return true;
+        }
+        if (awaitableType.IsGenericType && !awaitableType.IsGenericTypeDefinition
+            && awaitableType.GetGenericTypeDefinition() == typeof(System.Threading.Tasks.Task<>))
+        {
+            var taskResult = awaitableType.GetGenericArguments()[0];
+            if (ContainsBuilderBoundType(taskResult) || !IsSupportedType(taskResult))
+                return false;
+            _il.Emit(OpCodes.Callvirt, awaitableType.GetMethod("GetAwaiter", Type.EmptyTypes)!);
+            var awaiterType = typeof(System.Runtime.CompilerServices.TaskAwaiter<>).MakeGenericType(taskResult);
+            var awaiterLocal = _il.DeclareLocal(awaiterType);
+            _il.Emit(OpCodes.Stloc, awaiterLocal);
+            _il.Emit(OpCodes.Ldloca, awaiterLocal);
+            _il.Emit(OpCodes.Call, awaiterType.GetMethod("GetResult", Type.EmptyTypes)!);
+            resultType = taskResult;
+            return true;
+        }
+        return false;
     }
 
     // The single body-level tail every protected-region `return` leaves to (E2): `done: [ldloc result;] ret`.
@@ -3868,6 +4132,18 @@ public sealed class ColumnarIlEmitter
                         return false;
                     if (_inProtectedRegion)
                     {
+                        if (_asyncReturnType != null)
+                        {
+                            // a bare `return` in a UNIT async body — legal ONLY when the unit-ness
+                            // is IMPLICIT (no annotation): the pipeline's NL305 unit-task exemption
+                            // covers fall-through bodies, and a bare return under an EXPLICIT
+                            // Task/ValueTask annotation is rejected as a non-value return path
+                            // (review-probe-pinned boundary). Wrap and route through the async tail.
+                            if (_asyncBareReturnDeclines)
+                                return false;
+                            EmitWrappedAsyncCompletedReturn(hasValueOnStack: false);
+                            _il.Emit(OpCodes.Stloc, _protectedResult!);
+                        }
                         _il.Emit(OpCodes.Leave, _protectedDone);
                         return true;
                     }
@@ -3906,6 +4182,10 @@ public sealed class ColumnarIlEmitter
                     return false; // exact or implicitly-widenable (`return n` on a long function) only.
                 if (_inProtectedRegion)
                 {
+                    // ASYNC: the INNER value wraps into the completed task before the store (the
+                    // oracle's EmitWrapCurrentAsyncReturn before its structured return).
+                    if (_asyncReturnType != null)
+                        EmitWrappedAsyncCompletedReturn(hasValueOnStack: true);
                     // E2: `ret` is invalid inside try/catch — store + leave to the body tail (spike rule 1).
                     _il.Emit(OpCodes.Stloc, _protectedResult!);
                     _il.Emit(OpCodes.Leave, _protectedDone);
@@ -4133,6 +4413,17 @@ public sealed class ColumnarIlEmitter
                     if (!EmitExpression(expr, out var callType))
                         return false;
                     if (callType != typeof(void))
+                        _il.Emit(OpCodes.Pop);
+                    return true;
+                }
+
+                if (_kinds[expr] == 53) // `await expr` as a statement — legal in N# (the await-statement rule).
+                {
+                    // The blocking await of a UNIT task leaves nothing; a value task's awaited result is
+                    // discarded with `pop`, exactly like a bare call statement.
+                    if (!EmitExpression(expr, out var awaitStmtType))
+                        return false;
+                    if (awaitStmtType != typeof(void))
                         _il.Emit(OpCodes.Pop);
                     return true;
                 }
@@ -5374,6 +5665,16 @@ public sealed class ColumnarIlEmitter
 
             case 7: // Parenthesized — emit the inner expression, propagating its type.
                 return EmitExpression(Child(idx, 0), out type);
+
+            case 53: // AwaitExpression [operand] — the oracle's SYNC lowering (no state machine in
+            {        // EITHER pipeline): a blocking GetAwaiter().GetResult() on the four BCL task
+                     // shapes (ValueTask(/T) converts via AsTask() first). Awaits are legal in
+                     // NON-async functions too (probe-pinned: no await-outside-async diagnostic
+                     // exists; the lowering is identical). Other awaitables decline.
+                if (_childCount[idx] != 1 || !EmitExpression(Child(idx, 0), out var awaitableType))
+                    return false;
+                return TryEmitBlockingAwait(awaitableType, out type);
+            }
 
             case 11: // Unary [operand] — int/long prefix `-`/`~`, or bool `!`. `++`/`--` decline.
             {

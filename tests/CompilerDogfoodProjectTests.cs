@@ -4725,17 +4725,100 @@ class B
         Assert.False(RouteColumnarProgram("record Pt {\n    X: int\n}\n\nfunc f(): string {\n    p := new Pt { X: 1 }\n    return $\"{p}\"\n}\n").Ok);
     }
 
-    // ASYNC GUARD (async-arc rung 0): an `async func` WITHOUT an await parses clean through every
-    // kernel and previously ROUTED with the modifier silently dropped — columnar emitted
-    // `String Fetch()` where the oracle's async lowering emits the wrapped `ValueTask<string>
-    // Fetch()` (a live method-surface divergence, recon probe-found). The adapter now reads the
-    // declaration modifiers and declines ANY async-flagged function until the async lowering is
-    // modeled. The with-await form declines at the parse stage (no kind-69 arm) — pinned too.
+    // ASYNC rung A — the SYNC-LOWERING mirror (neither pipeline emits a state machine; the oracle's
+    // ILCompiler.Async.cs defers them by design): the async modifier threads from the kernel's
+    // per-declaration flags; the declared return resolves to the INNER type and the METHOD wraps it
+    // (ValueTask/ValueTask<T> default, Task/Task<T> for `main` — the entry-point rule; explicit
+    // task-like annotations keep their family); `await` (kernel kind 53) is a blocking
+    // GetAwaiter().GetResult() with ValueTask AsTask() conversion; returns wrap into completed
+    // tasks; the whole body runs in a fault guard whose catch converts the exception to a FAULTED
+    // task (probe-pinned: invoking a throwing async gives a faulted task, never a sync throw);
+    // awaits are legal in NON-async functions too (probe-pinned — no diagnostic exists).
     [Fact]
-    public void ColumnarCodegen_AsyncFunctionsDecline()
+    public void ColumnarCodegen_Parity_Async()
     {
-        Assert.False(RouteColumnarProgram("async func fetch(): string {\n    return \"x\"\n}\n\nfunc f(): int {\n    return 1\n}\n").Ok);
-        Assert.False(RouteColumnarProgram("async func fetch(): int {\n    return 2\n}\n\nasync func f(): int {\n    n := await fetch()\n    return n\n}\n").Ok);
+        var prog =
+            "async func one(): int {\n    return 1\n}\n\n" +
+            "async func fetch(): int {\n    return 40\n}\n\n" +
+            "async func sibling(): int {\n    n := await fetch()\n    return n + 2\n}\n\n" +
+            "async func sequential(): int {\n    a := await one()\n    b := await one()\n    c := await one()\n    return a + b + c\n}\n\n" +
+            "async func awaitInFlow(): int {\n    total := 0\n    if total == 0 {\n        total = total + await fetch()\n    }\n    i := 0\n    while i < 3 {\n        total = total + await one()\n        i = i + 1\n    }\n    return total\n}\n\n" +
+            "async func pads(): int {\n    return 100\n}\n\n" +
+            "async func hoisted(a: int, b: int): int {\n    before := a + b\n    pad := await pads()\n    return before + pad\n}\n\n" +
+            // await in a NON-async function (probe-pinned legal — the identical blocking lowering).
+            "func nonAsyncAwait(): int {\n    return await fetch()\n}\n\n" +
+            // explicit task-like annotations keep their family; unit bodies need no return.
+            "async func explicitTask(): Task<int> {\n    return 11\n}\n\n" +
+            "func noop(v: int) {\n}\n\n" +
+            "async func unitTask(): Task {\n    noop(1)\n}\n\n" +
+            "async func unitBare() {\n    noop(2)\n}\n\n" +
+            "async func viaUnit(): int {\n    await unitTask()\n    await unitBare()\n    return 3\n}\n\n" +
+            // async composing with collections + interpolation.
+            "async func sumUp(): int {\n    l := new List<int>()\n    l.Add(7)\n    l.Add(8)\n    s := 0\n    foreach v in l {\n        s = s + v\n    }\n    return s\n}\n\n" +
+            "async func mixed(): string {\n    n := await sumUp()\n    return $\"sum={n}\"\n}\n\n" +
+            // a NON-async LAMBDA and LOCAL FUNCTION declared inside async bodies — the oracle
+            // leaked the enclosing async return context into nested non-async bodies (they wrapped
+            // their returns and ret a ValueTask<T> struct from a T-signature method; callers read
+            // 0/null — review-probe-found, fixed front-door in LambdaEmitter + LocalFunctions by
+            // CLEARING the _currentAsync* trio for non-async nested bodies). Pinned at the correct
+            // values on BOTH pipelines.
+            "async func lambdaInAsync(): int {\n    zero := () => 99\n    return zero() + await one()\n}\n\n" +
+            "async func localFnInAsync(): int {\n    func g(): int {\n        return 5\n    }\n    return g() + await one()\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("one", System.Array.Empty<object>()),
+            ("sibling", System.Array.Empty<object>()),
+            ("sequential", System.Array.Empty<object>()),
+            ("awaitInFlow", System.Array.Empty<object>()),
+            ("hoisted", new object[] { 10, 5 }),
+            ("nonAsyncAwait", System.Array.Empty<object>()),
+            ("explicitTask", System.Array.Empty<object>()),
+            ("unitTask", System.Array.Empty<object>()),
+            ("unitBare", System.Array.Empty<object>()),
+            ("viaUnit", System.Array.Empty<object>()),
+            ("mixed", System.Array.Empty<object>()),
+            ("lambdaInAsync", System.Array.Empty<object>()),
+            ("localFnInAsync", System.Array.Empty<object>()));
+
+        // `main` gets the ENTRY-POINT wrap (Task<int>, not ValueTask<int>) — pinned by SURFACE
+        // (the parity values resolve identically either way, so assert the CLR return type).
+        {
+            var (ok, asm, typeName, _) = RouteColumnarProgram("async func main(): int {\n    return 7\n}\n");
+            Assert.True(ok, "columnar must emit the async main program");
+            using var scope = CollectibleAssemblyScope.Load(asm!);
+            var mainMethod = scope.Assembly.GetType(typeName!)!.GetMethod("main")!;
+            Assert.Equal(typeof(System.Threading.Tasks.Task<int>), mainMethod.ReturnType);
+            Assert.Equal(7, ResolveTaskLikeResult(mainMethod.Invoke(null, null)));
+        }
+
+        // FAULTED-task parity (the fault guard): a throwing async returns a FAULTED task carrying
+        // the exception — never a synchronous throw (probe-pinned oracle semantics).
+        {
+            var (ok, asm, typeName, _) = RouteColumnarProgram(
+                "async func pads(): int {\n    return 1\n}\n\nasync func boom(): int {\n    x := await pads()\n    throw new InvalidOperationException(\"post-await\")\n}\n");
+            Assert.True(ok, "columnar must emit the faulting async program");
+            using var scope = CollectibleAssemblyScope.Load(asm!);
+            var boom = scope.Assembly.GetType(typeName!)!.GetMethod("boom")!;
+            var faulted = boom.Invoke(null, null)!; // returns normally — the task carries the fault.
+            var ex = Assert.Throws<AggregateException>(() => ResolveTaskLikeResult(faulted));
+            Assert.IsType<InvalidOperationException>(ex.InnerException);
+            Assert.Equal("post-await", ex.InnerException!.Message);
+        }
+
+        // DECLINES (oracle-ACCEPTED — later rungs): try/catch around an await (one protected region
+        // per body this rung), generic async functions, await-foreach, async func* iterators.
+        Assert.False(RouteColumnarProgram("async func one(): int {\n    return 1\n}\n\nasync func f(): int {\n    try {\n        return await one()\n    } catch {\n        return -1\n    }\n}\n").Ok);
+        Assert.False(RouteColumnarProgram("async func id<T>(x: T): T {\n    return x\n}\n\nfunc f(): int {\n    return 1\n}\n").Ok);
+
+        // DECLINES — pipeline-REJECTED shapes (review-found over-accepts, both fixed):
+        // a bare `return` under an EXPLICIT Task/ValueTask annotation is the pipeline's NL305 (the
+        // unit-task always-return exemption covers FALL-THROUGH bodies only — boundary probe-pinned);
+        Assert.False(RouteColumnarProgram("async func f(): Task {\n    return\n}\n").Ok);
+        Assert.False(RouteColumnarProgram("async func f(): ValueTask {\n    return\n}\n").Ok);
+        // a leading UNKNOWN token before `func` is a pipeline NL101 — the kernel scans skip it, so
+        // the adapter now requires each top-level func to be preceded only by modifier tokens
+        // chaining to the file start or a closing brace.
+        Assert.False(RouteColumnarProgram("pub async func f(): int {\n    return 1\n}\n").Ok);
+        Assert.False(RouteColumnarProgram("bogus func f(): int {\n    return 1\n}\n").Ok);
     }
 
     // RECORDS COMPLETION (Phase D) — `with` expressions + the synthesized VALUE members. PASS 0e
@@ -7856,10 +7939,37 @@ class B
         foreach (var (func, args) in calls)
         {
             Assert.Contains(func, methodNames!);
-            var columnar = type.GetMethod(func)!.Invoke(null, args);
-            var oracle = InvokeViaCSharpPath(source, func, args);
+            var columnar = ResolveTaskLikeResult(type.GetMethod(func)!.Invoke(null, args));
+            var oracle = ResolveTaskLikeResult(InvokeViaCSharpPath(source, func, args));
             Assert.Equal(oracle, columnar);
         }
+    }
+
+    // ASYNC parity: a Task/ValueTask result resolves to its VALUE before comparison — two correct
+    // emissions would otherwise compare distinct Task instances (reference inequality). Resolution
+    // happens INSIDE the collectible scope and with a timeout (the sync lowering always returns
+    // completed tasks; the timeout guards a future state-machine world). Unit tasks resolve to a
+    // sentinel so unit-vs-value mismatches still fail.
+    private static object? ResolveTaskLikeResult(object? result)
+    {
+        if (result == null)
+            return null;
+        var resultType = result.GetType();
+        if (result is System.Threading.Tasks.Task task)
+        {
+            Assert.True(task.Wait(TimeSpan.FromSeconds(10)), "async parity task did not complete");
+            var resultProperty = resultType.GetProperty("Result");
+            return resultProperty != null && resultProperty.PropertyType.Name != "VoidTaskResult"
+                ? resultProperty.GetValue(task)
+                : "<unit-task>";
+        }
+        if (resultType == typeof(System.Threading.Tasks.ValueTask)
+            || (resultType.IsGenericType && resultType.GetGenericTypeDefinition() == typeof(System.Threading.Tasks.ValueTask<>)))
+        {
+            var asTask = resultType.GetMethod("AsTask", Type.EmptyTypes)!;
+            return ResolveTaskLikeResult(asTask.Invoke(result, null));
+        }
+        return result;
     }
 
     private static (bool Ok, byte[]? Assembly, string? TypeName, string[]? MethodNames) RouteColumnarProgram(string source)

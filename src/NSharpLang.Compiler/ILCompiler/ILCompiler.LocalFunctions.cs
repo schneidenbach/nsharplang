@@ -873,6 +873,12 @@ public partial class ILCompiler
             _currentGenericParameters = combinedGenericParameters;
 
             var returnType = GetLocalFunctionReturnType(localFunction.Function);
+            // A nested NON-async body must not inherit the enclosing method's async return context
+            // (the LambdaEmitter clear's twin — a plain local function inside an async method would
+            // wrap its return and `ret` a ValueTask<T> struct from a T-signature method).
+            _currentAsyncReturnType = null;
+            _currentAsyncResultType = null;
+            _currentAsyncReturnsValueTask = false;
             var bodyReturnType = returnType;
             if (localFunction.Function.Modifiers.HasFlag(Modifiers.Async)
                 && TryUnwrapAsyncReturnType(returnType, out var asyncResultType, out var returnsValueTask))
