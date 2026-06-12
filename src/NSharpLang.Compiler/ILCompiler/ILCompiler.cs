@@ -9532,6 +9532,50 @@ public partial class ILCompiler
                     return;
                 }
                 break;
+            // A MEMBER-ACCESS receiver (`o.i` in `o.i.X = v`): when the member is an instance FIELD,
+            // build a real address CHAIN instead of spilling a copy — a value-typed receiver recurses
+            // for ITS address, a reference-typed receiver loads the object ref (ldflda on an object
+            // ref yields the interior pointer). Pre-fix, every nested receiver fell to the temp-spill
+            // below and the subsequent store wrote into the copy, silently dropping the mutation
+            // (oracle defect #22 — probe-pinned `o.i.X = 5` reading back the OLD value). PROPERTY
+            // receivers keep the spill: they are rvalue copies, and the analyzer now rejects WRITES
+            // through value-typed ones up front (NL322, the CS1612 analog).
+            case MemberAccessExpression chainMember:
+            {
+                var chainReceiverType = GetExpressionType(chainMember.Object);
+                var chainOwnerType = GetByRefElementType(chainReceiverType);
+                var chainField = chainOwnerType is TypeBuilder chainOwnerBuilder
+                    ? FindInstanceFieldOnBaseChain(chainOwnerBuilder, chainMember.MemberName)
+                    : TryGetDeclaredRuntimeField(chainOwnerType, chainMember.MemberName,
+                        BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                if (chainField is { IsStatic: false })
+                {
+                    if ((chainReceiverType.IsByRef || IsValueTypeLike(chainOwnerType)) && !chainOwnerType.IsGenericParameter)
+                    {
+                        EmitAddressableExpression(chainMember.Object, chainReceiverType);
+                    }
+                    else
+                    {
+                        EmitExpression(chainMember.Object);
+                    }
+                    _currentIL.Emit(OpCodes.Ldflda, chainField);
+                    return;
+                }
+                break;
+            }
+            // An ARRAY-ELEMENT receiver (`arr[0].X = v`): an array element is a variable — take its
+            // address with ldelema (pre-fix the element value was copied into the temp and the store
+            // was lost). Non-array indexers (a List<T> get_Item) are rvalue copies: the analyzer
+            // rejects writes through value-typed ones (NL322); reference-typed ones never reach here.
+            case IndexAccessExpression arrayElement
+                when GetExpressionType(arrayElement.Object) is { IsArray: true } chainArrayType
+                     && chainArrayType.GetElementType() is { } chainElementType:
+            {
+                EmitExpression(arrayElement.Object);
+                EmitExpression(arrayElement.Index);
+                _currentIL.Emit(OpCodes.Ldelema, chainElementType);
+                return;
+            }
         }
 
         EmitExpression(expression);

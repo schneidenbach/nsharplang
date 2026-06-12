@@ -11,6 +11,51 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-12 — D-18a ORACLE FIX: defect #22 — member writes through nested receivers were SILENTLY LOST (+ NL322, the CS1612 analog)
+
+The D-18 recon's 24-probe oracle sweep found the pipeline UNSOUND for the exact shapes the slice
+targets: any member write whose receiver chain passes through a value-typed hop that is not a bare
+local/param/`this` compiled clean and **silently dropped the store** — `o.i.X = 5` read back 1
+(struct-in-struct), `c.s.X = 5` → 1 (struct-field-of-class), nested-via-param → 1, 3-deep chains →
+1, compound `o.i.X += 3` → unchanged, `arr[0].X = 5` (struct array) → 1, `lst[0].X = 5`
+(List&lt;struct&gt;) and `makeS().X = 5` accepted-and-lost where C# rejects (CS1612). Mechanism:
+`EmitAddressableExpression` (ILCompiler.cs ~9475) had NO MemberAccess/IndexAccess case — every
+nested receiver fell to the temp-spill fallback and the Stfld wrote into the copy. The oracle could
+not arbitrate D-18 until fixed (fix-oracle-first, the generic-user-types-arc pattern).
+
+**Emitter fix:** `EmitAddressableExpression` gained the two missing cases. A MemberAccess receiver
+whose member is an instance FIELD builds a real address chain — value-typed receivers recurse for
+THEIR address (`ldflda` chains rooted at `ldloca`/`ldarga`/`ldarg.0`), reference-typed receivers
+load the object ref (`ldflda` on a ref yields the interior pointer); resolution uses
+`FindInstanceFieldOnBaseChain` for TypeBuilders and `TryGetDeclaredRuntimeField` (closed-generic
+rebind included) otherwise. An ARRAY-ELEMENT receiver addresses via `ldelema`. Property receivers
+keep the spill — they are rvalues, rejected up front by:
+
+**NL322 `MemberWriteThroughValueCopy` (front-door analyzer rule, all backends):** a member write
+(plain or compound) through a value-typed receiver that is NOT a variable — a List indexer result,
+a call result, a property result — is now a compile error with an Elm-style explanation (the write
+would land in a temporary copy and be thrown away). The classifier reads a reference-keyed
+expression-type cache populated during target analysis (no re-analysis, no duplicate diagnostics)
+and is CONSERVATIVE: unresolvable hops never fire. Legal and pinned: field chains rooted at
+locals/params/`this`, array elements, every reference-typed receiver shape, and N#'s value-copy
+semantics (struct params, foreach loop vars — mutable LOCAL copies, kept by design where C#
+rejects).
+
+Post-fix sweep: all six lost-write shapes store through (=5); W14b/W19b/N9 reject NL322; all 15
+reference/value-semantics shapes unchanged. Pins: `ILCompiler_NestedValueReceiverMemberWrites_StoreThrough`
++ `ILCompiler_ThreeDeepStructTailWrite_StoresThrough` (oracle), 5 NL322 AnalyzerTests
+(3 fire / 2 no-false-positive). Records confirmed NOT init-only in the pipeline (`r.X = 5` → 5 —
+the columnar tier-3 comment overstated; D-18b models it). Full unit suite green. NEXT: D-18b —
+the columnar member-write slice (param receivers via `ldarga`, class/record-local receivers,
+nested field chains mirroring the FIXED oracle), then the queue line below.
+
+> NEXT (retirement-map queue): D-18b columnar member writes → **Arc M interleave (M1 first; pull
+> the queued strings-interpolation rung forward to ride with it)** → async → interfaces →
+> route-all **(gate: Phase P port to columnar)** → emitter port **(gate: SoA table design doc)**.
+> Post-self-host perf queue opens with match→IL-switch.
+
+---
+
 ## 2026-06-12 — COLLECTIONS rung 4: BUILDER-ELEMENT REBIND — List&lt;UserType&gt; + List&lt;T&gt;-in-generic-funcs
 
 The last pinned collection rung flipped: collections closed over types **still under construction**

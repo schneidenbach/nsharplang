@@ -54,6 +54,7 @@ public enum ErrorCode
     ControlTransferOutOfFinally = 319,
     LockRequiresReferenceType = 320,
     InvalidSizedArrayConstructorArguments = 321,
+    MemberWriteThroughValueCopy = 322,
 
     // Function/Method errors (400-499)
     WrongArgumentCount = 401,
@@ -1568,6 +1569,31 @@ public static class ErrorMessageBuilder
             ContextualHint = contextualHint,
             Suggestion = suggestion,
             DocsUrl = "https://docs.n-sharp.dev/errors/NL320"
+        };
+    }
+
+    /// <summary>
+    /// Create an Elm-style error for a member write whose receiver is a temporary VALUE COPY
+    /// (NL322, the CS1612 analog): assigning through a value-typed expression that is not a
+    /// variable — a List indexer result, a call result, a property result — writes into a copy
+    /// that is immediately discarded, so the assignment would be silently lost.
+    /// </summary>
+    public static CompilerError MemberWriteThroughValueCopy(string fileName, int line, int column, string sourceSnippet,
+        int length, string memberName, string receiverTypeName, string receiverDescription)
+    {
+        return new CompilerError(ErrorCode.MemberWriteThroughValueCopy,
+            $"Cannot assign to '{memberName}' because its receiver is a temporary copy of '{receiverTypeName}', not a variable", line, column, ErrorSeverity.Error)
+        {
+            FileName = fileName,
+            SourceSnippet = sourceSnippet,
+            Length = length,
+            ActualType = receiverTypeName,
+            HumanExplanation = $"This assignment writes through {receiverDescription}, but `{receiverTypeName}` is a value type:",
+            ContextualHint = "A value type is copied every time it is returned from a call, an indexer, or a\n" +
+                             "property. This write would land in that temporary copy and be thrown away with it —\n" +
+                             "the original value would never change.",
+            Suggestion = $"Copy the value into a local first, modify the local, then store the whole value back (e.g. `tmp := …` / `tmp.{memberName} = …` / store `tmp`)",
+            DocsUrl = "https://docs.n-sharp.dev/errors/NL322"
         };
     }
 

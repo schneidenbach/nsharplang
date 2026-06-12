@@ -4396,6 +4396,13 @@ public class Analyzer : IDisposable
         _semanticModel.RecordExpressionType(expr.Line, expr.Column, flowType);
         _semanticModel.RecordExpressionNullState(expr.Line, expr.Column, nullState);
 
+        // While an ASSIGNMENT TARGET is being analyzed, record every sub-expression's resolved type
+        // (reference-keyed — the semantic model's line/column keys collide for nested chains sharing
+        // a start position). The NL322 receiver-chain classifier reads these instead of re-analyzing,
+        // which would duplicate every diagnostic the receiver produces.
+        if (_assignmentTargetExpressionTypes != null)
+            _assignmentTargetExpressionTypes[expr] = flowType;
+
         if (!_allowUnboundCallableReference && IsUnboundCallableReference(expr, flowType))
         {
             ReportMethodGroupUsedAsValue(expr, flowType);
@@ -10034,6 +10041,7 @@ public class Analyzer : IDisposable
         var previousSuppressNullabilityFlowType = _suppressNullabilityFlowType;
         var previousSuppressErrorTupleResultUse = _suppressErrorTupleResultUse;
         var previousAllowEventReference = _allowEventReference;
+        Dictionary<Expression, TypeInfo>? targetExpressionTypes = null;
         TypeInfo targetType;
         try
         {
@@ -10042,10 +10050,17 @@ public class Analyzer : IDisposable
             // Resolve the target without the bare-event guard so we can give a tailored
             // "use on/off" message instead of the generic one.
             _allowEventReference = true;
+            if (assignment.Target is MemberAccessExpression)
+            {
+                // Collect the target chain's sub-expression types for the NL322 classifier below.
+                targetExpressionTypes = new Dictionary<Expression, TypeInfo>(ReferenceEqualityComparer.Instance);
+                _assignmentTargetExpressionTypes = targetExpressionTypes;
+            }
             targetType = AnalyzeExpression(assignment.Target);
         }
         finally
         {
+            _assignmentTargetExpressionTypes = null;
             _allowEventReference = previousAllowEventReference;
             _suppressErrorTupleResultUse = previousSuppressErrorTupleResultUse;
             _suppressNullabilityFlowType = previousSuppressNullabilityFlowType;
@@ -10064,6 +10079,16 @@ public class Analyzer : IDisposable
             // doesn't pile on a second diagnostic for the same assignment.
             return BuiltInTypes.Unknown;
         }
+
+        // NL322 (the CS1612 analog), paired with the EmitAddressableExpression chain fix (defect
+        // #22): a member write whose receiver chain passes through a VALUE-typed hop must be rooted
+        // in real storage — a local/param/`this` (or a bare field of one), a FIELD chain over one of
+        // those, or an array element. Every other value-typed receiver (a List indexer result, a
+        // call result, a property result) is a temporary COPY: the store would land in the copy and
+        // be silently discarded. Applies to compound operators too (they read-modify-write through
+        // the same receiver). Reference-typed receivers are storage handles — any shape works.
+        if (assignment.Target is MemberAccessExpression memberWriteTarget && targetExpressionTypes != null)
+            CheckMemberWriteReceiverIsVariable(memberWriteTarget, targetExpressionTypes);
 
         var previousExpectedType = _currentExpectedType;
         _currentExpectedType = targetType;
@@ -10269,6 +10294,125 @@ public class Analyzer : IDisposable
             valueState = GetDefaultNullState(targetType);
 
         SetNullStateInCurrentScope(path, valueState);
+    }
+
+    // Sub-expression types of the assignment TARGET currently being analyzed (reference-keyed;
+    // populated at the AnalyzeExpression tail, consumed by the NL322 receiver-chain classifier).
+    private Dictionary<Expression, TypeInfo>? _assignmentTargetExpressionTypes;
+
+    // NL322: report when a member write's receiver chain bottoms out in a value-typed expression
+    // that is NOT a variable. CONSERVATIVE by design — hops whose types or members cannot be
+    // resolved here never fire (under-enforcement keeps unmodelled shapes compiling as before).
+    private void CheckMemberWriteReceiverIsVariable(MemberAccessExpression target, Dictionary<Expression, TypeInfo> expressionTypes)
+    {
+        var offender = FindValueCopyReceiver(target.Object, expressionTypes);
+        if (offender == null)
+            return;
+        expressionTypes.TryGetValue(offender, out var offenderType);
+        var receiverDescription = offender switch
+        {
+            IndexAccessExpression => "an indexer result (a copy of the element)",
+            CallExpression => "a call result (a copy of the return value)",
+            MemberAccessExpression => "a property result (a copy of the value)",
+            _ => "a temporary value (a copy)",
+        };
+        var typeName = ResolveTypeAlias(offenderType ?? BuiltInTypes.Unknown).ToString() ?? "value";
+        var (line, column, length) = GetExpressionDiagnosticSpan(offender);
+        var sourceSnippet = GetSourceSnippet(line);
+        if (sourceSnippet != null && _currentFilePath != null)
+        {
+            _errors.Add(ErrorMessageBuilder.MemberWriteThroughValueCopy(
+                _currentFilePath, line, column, sourceSnippet, length, target.MemberName, typeName, receiverDescription));
+        }
+        else
+        {
+            Error(
+                ErrorCode.MemberWriteThroughValueCopy,
+                $"Cannot assign to '{target.MemberName}' because its receiver is a temporary copy of '{typeName}', not a variable",
+                line,
+                column,
+                $"Copy the value into a local first, modify the local, then store the whole value back",
+                length);
+        }
+    }
+
+    // Returns the offending non-variable VALUE-typed receiver in the chain, or null when the chain
+    // is rooted in addressable storage (or is reference-typed / unresolvable — conservative).
+    private Expression? FindValueCopyReceiver(Expression receiver, Dictionary<Expression, TypeInfo> expressionTypes)
+    {
+        if (receiver is ParenthesizedExpression paren)
+            return FindValueCopyReceiver(paren.Inner, expressionTypes);
+        if (!expressionTypes.TryGetValue(receiver, out var receiverType)
+            || !IsProvenValueTypeReceiver(ResolveTypeAlias(receiverType)))
+            return null;
+        switch (receiver)
+        {
+            case IdentifierExpression:
+            case ThisExpression:
+            case BaseExpression:
+                return null; // a local / parameter / bare field / `this` — a real variable.
+            case IndexAccessExpression arrayElement
+                when expressionTypes.TryGetValue(arrayElement.Object, out var indexedType)
+                     && ResolveTypeAlias(indexedType) is ArrayTypeInfo:
+                return null; // an ARRAY element is a variable (the emitter addresses it via ldelema).
+            case MemberAccessExpression hop:
+            {
+                var isFieldHop = ClassifyInstanceFieldHop(hop, expressionTypes);
+                if (isFieldHop == null)
+                    return null; // unresolvable owner — stay silent.
+                if (isFieldHop == false)
+                    return receiver; // a property/method result — a temporary copy.
+                return FindValueCopyReceiver(hop.Object, expressionTypes); // FIELD hop — the root decides.
+            }
+            default:
+                return receiver; // a call result / indexer copy / any other rvalue.
+        }
+    }
+
+    // Whether a TypeInfo is PROVABLY a value type (user structs, record structs, external CLR value
+    // types). Anything unresolved or reference-like answers false so the NL322 rule never fires on
+    // shapes it cannot prove.
+    private static bool IsProvenValueTypeReceiver(TypeInfo type) => type switch
+    {
+        StructTypeInfo => true,
+        RecordTypeInfo record => record.Declaration.IsStruct,
+        ReflectionTypeInfo reflected => reflected.Type.IsValueType,
+        _ => false,
+    };
+
+    // Whether `hop.MemberName` names an instance FIELD of `hop.Object`'s type: true/false when the
+    // owner's declaration is resolvable (generic owners resolve by NAME via LookupType), null when
+    // it is not (the classifier stays silent on those).
+    private bool? ClassifyInstanceFieldHop(MemberAccessExpression hop, Dictionary<Expression, TypeInfo> expressionTypes)
+    {
+        if (!expressionTypes.TryGetValue(hop.Object, out var ownerType))
+            return null;
+        var owner = ResolveTypeAlias(ownerType);
+        if (owner is GenericTypeInfo generic)
+            owner = LookupType(generic.Name) ?? owner;
+        List<Declaration>? members = owner switch
+        {
+            StructTypeInfo s => s.Declaration.Members,
+            ClassTypeInfo c => c.Declaration.Members,
+            RecordTypeInfo r => r.Declaration.Members,
+            _ => null,
+        };
+        if (members != null)
+            return members.OfType<FieldDeclaration>().Any(f => f.Name == hop.MemberName);
+        if (owner is ReflectionTypeInfo reflected && reflected.Type is not System.Reflection.Emit.TypeBuilder
+            && !reflected.Type.IsGenericTypeDefinition)
+        {
+            try
+            {
+                return reflected.Type.GetField(hop.MemberName,
+                    System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance) != null;
+            }
+            catch (NotSupportedException)
+            {
+                return null; // an emitted instantiation — unresolvable here.
+            }
+        }
+        return null;
     }
 
     private void CheckReadonlyFieldAssignment(Expression target, int line, int column)

@@ -10188,4 +10188,111 @@ func F() {
     }
 }", ErrorCode.LockRequiresReferenceType);
     }
+
+    // ── NL322: a member write through a temporary VALUE COPY (the CS1612 analog) ────────
+    // Paired with the EmitAddressableExpression chain fix (oracle defect #22): a value-typed
+    // receiver that is not a variable — a List indexer result, a call result, a property result —
+    // is a temporary copy; the store would land in the copy and be silently dropped.
+
+    [Fact]
+    public void MemberWrite_ThroughListIndexerOfStruct_ReportsNL322()
+    {
+        var error = AssertHasErrorCode(@"
+struct S {
+    X: int
+}
+
+func F(): int {
+    lst := new List<S>()
+    lst.Add(new S { X: 1 })
+    lst[0].X = 5
+    return lst[0].X
+}", ErrorCode.MemberWriteThroughValueCopy);
+        Assert.Equal("NL322", error.DiagnosticId);
+    }
+
+    [Fact]
+    public void MemberWrite_ThroughStructCallResult_ReportsNL322()
+    {
+        AssertHasErrorCode(@"
+struct S {
+    X: int
+}
+
+func Make(): S {
+    return new S { X: 1 }
+}
+
+func F() {
+    Make().X = 5
+}", ErrorCode.MemberWriteThroughValueCopy);
+    }
+
+    [Fact]
+    public void CompoundMemberWrite_ThroughListIndexerOfStruct_ReportsNL322()
+    {
+        // Compound operators read-modify-write through the same temporary copy.
+        AssertHasErrorCode(@"
+struct S {
+    X: int
+}
+
+func F() {
+    lst := new List<S>()
+    lst.Add(new S { X: 1 })
+    lst[0].X += 3
+}", ErrorCode.MemberWriteThroughValueCopy);
+    }
+
+    [Fact]
+    public void MemberWrite_ThroughReferenceReceivers_NoFalsePositive()
+    {
+        // Reference-typed receivers are storage handles — every shape is assignable through them.
+        AssertNoErrorCode(@"
+class C {
+    X: int
+    constructor(v: int) {
+        X = v
+    }
+}
+
+func Pick(items: List<C>): C {
+    return items[0]
+}
+
+func F(): int {
+    lst := new List<C>()
+    lst.Add(new C(1))
+    lst[0].X = 5
+    Pick(lst).X = 6
+    return lst[0].X
+}", ErrorCode.MemberWriteThroughValueCopy);
+    }
+
+    [Fact]
+    public void MemberWrite_ThroughAddressableValueChains_NoFalsePositive()
+    {
+        // Field chains rooted at locals/params and ARRAY elements are real variables.
+        AssertNoErrorCode(@"
+struct Inner {
+    X: int
+}
+
+struct Outer {
+    i: Inner
+}
+
+func G(p: Outer): int {
+    p.i.X = 7
+    return p.i.X
+}
+
+func F(): int {
+    o := new Outer { i: new Inner { X: 1 } }
+    o.i.X = 5
+    arr := new int[3]
+    arr[0] = 1
+    return o.i.X + G(o)
+}", ErrorCode.MemberWriteThroughValueCopy);
+    }
 }

@@ -4215,4 +4215,93 @@ func main(): int {
         // last element 9 * 100 + count 5 = 905
         Assert.Equal(905, Assert.IsType<int>(result));
     }
+
+    // Member writes through NESTED receivers silently LOST the store (oracle defect #22):
+    // EmitAddressableExpression had no MemberAccess/array-element case, so any receiver that was
+    // not a bare local/param/`this` spilled to a TEMP COPY and the Stfld wrote into the copy —
+    // `o.i.X = 5` compiled clean and read back the OLD value. The address builder now recurses:
+    // value-typed FIELD hops chain `ldflda` from the rooted local/param/this address, reference
+    // hops load the object ref, and array elements use `ldelema`. Probe-pinned shapes; rvalue
+    // receivers (List indexer / call results) are analyzer-rejected instead (NL322).
+    [Fact]
+    public void ILCompiler_NestedValueReceiverMemberWrites_StoreThrough()
+    {
+        var source = @"
+struct Inner {
+    X: int
+}
+
+struct Outer {
+    i: Inner
+}
+
+class Holder {
+    s: Inner
+    constructor(v: Inner) {
+        s = v
+    }
+}
+
+func paramNested(p: Outer): int {
+    p.i.X = 5
+    return p.i.X
+}
+
+func main(): int {
+    o := new Outer { i: new Inner { X: 1 } }
+    o.i.X = 5
+    a := o.i.X
+
+    h := new Holder(new Inner { X: 1 })
+    h.s.X = 5
+    b := h.s.X
+
+    c := paramNested(new Outer { i: new Inner { X: 1 } })
+
+    o2 := new Outer { i: new Inner { X: 2 } }
+    o2.i.X += 3
+    d := o2.i.X
+
+    arr := new Inner[2]
+    arr[0].X = 5
+    e := arr[0].X
+
+    return a + b * 10 + c * 100 + d * 1000 + e * 10000
+}";
+        var result = CompileAndInvoke(source);
+        Assert.Equal(55555, Assert.IsType<int>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_ThreeDeepStructTailWrite_StoresThrough()
+    {
+        // class -> class -> struct tail: the reference hops load refs, the struct tail takes
+        // ldflda from the last object ref — the deep chain stores through (was silently lost).
+        var source = @"
+struct S {
+    X: int
+}
+
+class B {
+    s: S
+    constructor(v: S) {
+        s = v
+    }
+}
+
+class A {
+    b: B
+    constructor(v: B) {
+        b = v
+    }
+}
+
+func main(): int {
+    a := new A(new B(new S { X: 1 }))
+    a.b.s.X = 5
+    return a.b.s.X
+}";
+        var result = CompileAndInvoke(source);
+        Assert.Equal(5, Assert.IsType<int>(result));
+    }
 }
