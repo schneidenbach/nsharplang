@@ -791,6 +791,26 @@ internal static class NSharpCompilerDogfoodAdapter
                     return false;
             }
 
+            // ASYNC GUARD (async-arc rung 0, probe-found live divergence): an `async func` with no
+            // `await` in its body parses clean through every kernel — the body has no kind-69 token
+            // to refuse — and the func scan picks the bare `func` token, silently DROPPING the
+            // modifier: columnar emitted `String Fetch()` where the oracle emits the async-wrapped
+            // `ValueTask<string> Fetch()`. Until the async lowering is modeled, any async-flagged
+            // declaration declines the whole program. (Modifiers.Async == 1 << 11, the kernel's
+            // ModifierFlagOf mapping for token 68 — mirrored from Ast/Declarations.cs.)
+            {
+                var asyncGuardModKinds = new int[rawCount + 1];
+                var asyncGuardModFlags = new int[rawCount + 1];
+                var asyncGuardModCount = bindings.TopLevelDeclarationModifiers(rawKinds, rawCount, asyncGuardModKinds, asyncGuardModFlags);
+                if (asyncGuardModCount != declCount)
+                    return false;
+                for (var d = 0; d < asyncGuardModCount; d++)
+                {
+                    if ((asyncGuardModFlags[d] & (1 << 11)) != 0)
+                        return false;
+                }
+            }
+
             var ck = new int[rawCount];
             var cs = new int[rawCount];
             var cv = new int[rawCount];

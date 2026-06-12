@@ -11,6 +11,38 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-12 — ASYNC rung 0: the modifier guard — a live method-surface divergence closed
+
+The async-arc recon (3 agents: oracle map / 15-probe sweep / kernel surface) re-shaped the arc and
+found a LIVE soundness hazard. **Headline: the oracle emits NO async state machine** — N# async
+lowers SYNCHRONOUSLY (ILCompiler.Async.cs header, deferred-by-design): `await` is a blocking
+`GetAwaiter().GetResult()` (ValueTask via `AsTask()` first), returns wrap into completed tasks
+(non-entry default **ValueTask&lt;T&gt;**; explicit task-likes honored; entry point = Task), the body
+wraps in a fault guard whose catch converts to `Task.FromException` (probe-pinned faulted-task
+parity), `await foreach` is a blocking enumerator loop, and async iterators eagerly materialize.
+So the columnar arc is a SYNC-LOWERING MIRROR, not a state-machine build — the protected-region
+(E2) and display-class machineries cover the structural needs. More recon pins: NO
+await-outside-async diagnostic exists (probe: await in a plain func compiles and blocks — analyzer
+stub at AnalyzeAwaitExpression); NL004 async-without-await is LINTER-side (runs regardless of
+backend — no columnar mirror needed); the parity harness does NOT unwrap Task/ValueTask returns
+(both invoke paths need an unwrap step before async parity rungs); `asyncDefaultType` is honored
+by the Transpiler but HARDCODED to ValueTask in ILCompiler (oracle-bundle note #25); tokens
+async=68/await=69 exist; node kind 53 still next-free (awaits take it in rung A).
+
+**THE HAZARD (probe-found, fixed here):** an `async func` with NO await parses clean through every
+kernel — the body has no kind-69 token to refuse, and the adapter's func scan picks the bare
+`func` token, silently DROPPING the modifier (TopLevelDeclarationModifiers is scanned by the
+symbol path but the emit path never asked). Columnar emitted `String Fetch()` where the oracle
+emits `ValueTask&lt;string&gt; Fetch()` — a diverging method surface, exposed only behind
+NSHARP_COLUMNAR_BACKEND=1 plus the corpus having zero async. Rung 0 adds the adapter guard: read
+the declaration modifiers, decline any async-flagged function (Modifiers.Async = 1&lt;&lt;11) until the
+lowering is modeled. Pinned both ways (`ColumnarCodegen_AsyncFunctionsDecline`). 317/317; gate
+(see commit). NEXT: async rung A — the sync-lowering mirror (kernel kind-53 await + IsAsync
+threading + wrap/fault-guard emit + harness Task unwrapping), then await-foreach/iterators rungs,
+then interfaces → route-all (gate: Phase P port) → emitter port (gate: SoA design doc).
+
+---
+
 ## 2026-06-12 — Arc M1a: CHECKSUM-CORPUS EXTRACTION — the product dogfood files shed their test scaffolding
 
 The 94 `*Checksum*` functions (3,975 lines — 19% of the 20,912-line corpus) that existed solely as

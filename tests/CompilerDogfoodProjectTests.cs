@@ -4725,6 +4725,19 @@ class B
         Assert.False(RouteColumnarProgram("record Pt {\n    X: int\n}\n\nfunc f(): string {\n    p := new Pt { X: 1 }\n    return $\"{p}\"\n}\n").Ok);
     }
 
+    // ASYNC GUARD (async-arc rung 0): an `async func` WITHOUT an await parses clean through every
+    // kernel and previously ROUTED with the modifier silently dropped — columnar emitted
+    // `String Fetch()` where the oracle's async lowering emits the wrapped `ValueTask<string>
+    // Fetch()` (a live method-surface divergence, recon probe-found). The adapter now reads the
+    // declaration modifiers and declines ANY async-flagged function until the async lowering is
+    // modeled. The with-await form declines at the parse stage (no kind-69 arm) — pinned too.
+    [Fact]
+    public void ColumnarCodegen_AsyncFunctionsDecline()
+    {
+        Assert.False(RouteColumnarProgram("async func fetch(): string {\n    return \"x\"\n}\n\nfunc f(): int {\n    return 1\n}\n").Ok);
+        Assert.False(RouteColumnarProgram("async func fetch(): int {\n    return 2\n}\n\nasync func f(): int {\n    n := await fetch()\n    return n\n}\n").Ok);
+    }
+
     // RECORDS COMPLETION (Phase D) — `with` expressions + the synthesized VALUE members. PASS 0e
     // synthesizes Equals(object)/GetHashCode()/`<Clone>$` on every NON-GENERIC record whose field types
     // are baked runtime types, mirroring the oracle's EmitRecordEquals/EmitRecordGetHashCode/
