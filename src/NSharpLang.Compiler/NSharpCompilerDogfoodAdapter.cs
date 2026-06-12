@@ -701,6 +701,8 @@ internal static class NSharpCompilerDogfoodAdapter
             return false;
         if (!TryGetColumnarUnionInputs(source, out var unions))
             return false;
+        if (!TryGetColumnarInterfaceInputs(source, out var interfaceInputs))
+            return false;
         // The columnar emit is a best-effort, DECLINE-on-failure optimization: it must never throw a hard error the
         // authoritative C# path would not. Any unexpected emit exception (e.g. a Reflection.Emit limitation on a
         // not-yet-fully-modelled type shape) is caught here and declines → C# fallback, matching the try/catch the
@@ -708,7 +710,7 @@ internal static class NSharpCompilerDogfoodAdapter
         // (which assert Ok == true), so this net cannot silently hide a regression from the gate.
         try
         {
-            if (!Columnar.ColumnarIlEmitter.TryEmitColumnarAssembly(assemblyName, typeName, inputs, enums, structs, unions, source, out assembly))
+            if (!Columnar.ColumnarIlEmitter.TryEmitColumnarAssembly(assemblyName, typeName, inputs, enums, structs, unions, interfaceInputs, source, out assembly))
                 return false;
         }
         catch
@@ -787,7 +789,7 @@ internal static class NSharpCompilerDogfoodAdapter
                 // collected separately (TryGetColumnarEnumInputs / TryGetColumnarStructInputs /
                 // TryGetColumnarUnionInputs); the func scan below (TopLevelFuncIndices) only picks `func` tokens, so
                 // type decls are skipped here rather than mis-parsed as functions.
-                if (declKinds[d] != 7 && declKinds[d] != 14 && declKinds[d] != 9 && declKinds[d] != 13 && declKinds[d] != 12 && declKinds[d] != 8)
+                if (declKinds[d] != 7 && declKinds[d] != 14 && declKinds[d] != 9 && declKinds[d] != 13 && declKinds[d] != 12 && declKinds[d] != 8 && declKinds[d] != 10)
                     return false;
             }
 
@@ -1707,6 +1709,133 @@ internal static class NSharpCompilerDogfoodAdapter
         }
 
         return result;
+    }
+
+    private static List<int> TopLevelInterfaceIndices(int[] kinds, int count)
+    {
+        var result = new List<int>();
+        var brace = 0;
+        var bracket = 0;
+        var paren = 0;
+        for (var i = 0; i < count; i++)
+        {
+            switch (kinds[i])
+            {
+                case 129: brace++; break;
+                case 130: if (brace > 0) brace--; break;
+                case 131: bracket++; break;
+                case 132: if (bracket > 0) bracket--; break;
+                case 127: paren++; break;
+                case 128: if (paren > 0) paren--; break;
+                case 10:
+                    if (brace == 0 && bracket == 0 && paren == 0) result.Add(i);
+                    break;
+            }
+        }
+
+        return result;
+    }
+
+    // Collect every top-level `interface` declaration into a ColumnarInterfaceInput (name + abstract
+    // method SIGNATURES — names, return canonicals, param names/canonicals). Tokenizes + compacts
+    // exactly like TryGetColumnarFunctionInputs, finds each interface keyword
+    // (TopLevelInterfaceIndices), parses the member layout via the ParseInterfaceDeclaration kernel
+    // (method signatures ONLY — default bodies, bare members, properties, generics, base lists all
+    // return -1 there), then each member's signature via the shared ParseFunctionSignature kernel.
+    // Returns true (possibly empty) for a program with no interfaces; FALSE declines the program.
+    // IF-1 declines: generic members, where-clauses, tuple element names on member types.
+    private static bool TryGetColumnarInterfaceInputs(string source, out System.Collections.Generic.List<Columnar.ColumnarInterfaceInput> interfaceInputs)
+    {
+        interfaceInputs = new System.Collections.Generic.List<Columnar.ColumnarInterfaceInput>();
+        var bindings = s_bindings.Value;
+        if (bindings == null || string.IsNullOrEmpty(source))
+            return false;
+
+        try
+        {
+            var capacity = 3 * (source.Length + 1) + 8;
+            var rawKinds = new int[capacity];
+            var rawStarts = new int[capacity];
+            var rawValueLengths = new int[capacity];
+            var rawLines = new int[capacity];
+            var rawColumns = new int[capacity];
+            var rawCount = bindings.TokenizeMetadataWithIndentation(
+                source, rawKinds, rawStarts, rawValueLengths, rawLines, rawColumns);
+            if (rawCount < 0 || rawCount > capacity)
+                return false;
+
+            var ck = new int[rawCount];
+            var cs = new int[rawCount];
+            var cv = new int[rawCount];
+            var n = 0;
+            for (var i = 0; i < rawCount; i++)
+            {
+                if (rawKinds[i] == 136)
+                    continue;
+                ck[n] = rawKinds[i];
+                cs[n] = rawStarts[i];
+                cv[n] = rawValueLengths[i];
+                n++;
+            }
+
+            foreach (var interfaceIndex in TopLevelInterfaceIndices(ck, n))
+            {
+                var cap = n + 1;
+                var outMethodFuncIndices = new int[cap];
+                var outResult = new int[8];
+                var methodCount = bindings.ParseInterfaceDeclaration(ck, cs, cv, n, interfaceIndex, outMethodFuncIndices, outResult);
+                if (methodCount < 0)
+                    return false;
+                var interfaceName = source.Substring(outResult[0], outResult[1]);
+                var methodNames = new string[methodCount];
+                var methodReturns = new string[methodCount];
+                var methodParamNames = new string[methodCount][];
+                var methodParamCanonicals = new string[methodCount][];
+                for (var m = 0; m < methodCount; m++)
+                {
+                    var sk = new int[cap]; var sns = new int[cap]; var snl = new int[cap]; var scs = new int[cap];
+                    var scc = new int[cap]; var sci = new int[cap]; var sss = new int[cap]; var ssl = new int[cap];
+                    var pNameStart = new int[cap]; var pNameLen = new int[cap]; var pTypeRoot = new int[cap];
+                    var sres = new int[8];
+                    var sTypeParamStarts = new int[cap];
+                    var sTypeParamLengths = new int[cap];
+                    var sWhereNameStarts = new int[cap];
+                    var sWhereNameLengths = new int[cap];
+                    var sWhereItemCodes = new int[cap];
+                    var paramCount = bindings.ParseFunctionSignature(
+                        ck, cs, cv, n, outMethodFuncIndices[m], sk, sns, snl, scs, scc, sci, sss, ssl,
+                        pNameStart, pNameLen, pTypeRoot, sTypeParamStarts, sTypeParamLengths,
+                        sWhereNameStarts, sWhereNameLengths, sWhereItemCodes, sres);
+                    if (paramCount < 0 || sres[3] < 0)
+                        return false;
+                    if (sres[5] > 0 || sres[7] > 0)
+                        return false; // generic interface members / where-clauses are unmodeled.
+                    methodNames[m] = source.Substring(sres[3], sres[4]);
+                    methodReturns[m] = sres[1] >= 0
+                        ? ColumnarTypeCanon(sk, sns, snl, scs, scc, sci, source, sres[1])
+                        : "void";
+                    if (sres[1] >= 0 && TupleElementNamesOfType(sk, sns, snl, scs, scc, sci, source, sres[1]) != null)
+                        return false; // named-tuple member returns are unmodeled.
+                    methodParamNames[m] = new string[paramCount];
+                    methodParamCanonicals[m] = new string[paramCount];
+                    for (var p = 0; p < paramCount; p++)
+                    {
+                        methodParamNames[m][p] = source.Substring(pNameStart[p], pNameLen[p]);
+                        methodParamCanonicals[m][p] = ColumnarTypeCanon(sk, sns, snl, scs, scc, sci, source, pTypeRoot[p]);
+                        if (TupleElementNamesOfType(sk, sns, snl, scs, scc, sci, source, pTypeRoot[p]) != null)
+                            return false;
+                    }
+                }
+                interfaceInputs.Add(new Columnar.ColumnarInterfaceInput(
+                    interfaceName, methodNames, methodReturns, methodParamNames, methodParamCanonicals));
+            }
+            return true;
+        }
+        catch
+        {
+            interfaceInputs = new System.Collections.Generic.List<Columnar.ColumnarInterfaceInput>();
+            return false;
+        }
     }
 
     // The compacted-token indices of each top-level `enum` keyword (token 14) — at brace/bracket/paren depth 0, so
@@ -2865,6 +2994,9 @@ internal static class NSharpCompilerDogfoodAdapter
                 CreateDelegate<ParseStatementNodesInto>(
                     programType,
                     "ParseStatementNodesInto"),
+                CreateDelegate<ParseInterfaceDeclarationInto>(
+                    programType,
+                    "ParseInterfaceDeclarationInto"),
                 CreateDelegate<ParseEnumDeclarationInto>(
                     programType,
                     "ParseEnumDeclarationInto"),
@@ -3054,6 +3186,9 @@ internal static class NSharpCompilerDogfoodAdapter
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int start,
         int[] outNodeKinds, int[] outValueStarts, int[] outValueLengths, int[] outChildStart, int[] outChildCount,
         int[] outChildIndices, int[] outSpanStarts, int[] outSpanLengths, int[] outResult);
+    private delegate int ParseInterfaceDeclarationInto(
+        int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int interfaceIndex,
+        int[] outMethodFuncIndices, int[] outResult);
     private delegate int ParseEnumDeclarationInto(
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int enumIndex,
         int[] outNameStarts, int[] outNameLengths, int[] outValueStarts, int[] outValueLengths,
@@ -3098,6 +3233,7 @@ internal static class NSharpCompilerDogfoodAdapter
         PackageNameSpanInto PackageNameSpan,
         ParseFunctionSignatureInto ParseFunctionSignature,
         ParseStatementNodesInto ParseStatementNodes,
+        ParseInterfaceDeclarationInto ParseInterfaceDeclaration,
         ParseEnumDeclarationInto ParseEnumDeclaration,
         ParseStructDeclarationInto ParseStructDeclaration,
         ParseUnionDeclarationInto ParseUnionDeclaration,

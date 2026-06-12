@@ -3569,9 +3569,8 @@ class B
 
         // Explicit member values are now supported (see ColumnarCodegen_Parity_EnumIntCastAndExplicitValues).
         Assert.True(RouteColumnarProgram("enum E { A = 5, B }\n\nfunc f(): E { return E.A }\n").Ok);
-        // An INTERFACE declaration is still unsupported -> decline. (struct/record/class/union/enum are all now
-        // supported; an interface — token 10 — is not in the gate's allow-list.)
-        Assert.False(RouteColumnarProgram("interface I {\n    func F(): int\n}\n\nfunc f(): int { return 1 }\n").Ok);
+        // (INTERFACE declarations FLIPPED — the IF-1 slice; parity lives in
+        // ColumnarCodegen_Parity_Interfaces.)
         // An enum element inside a TUPLE is not modelled (ValueTuple over a TypeBuilder cannot reflect its members)
         // -> the whole program declines to C# rather than throwing a hard emit error.
         Assert.False(RouteColumnarProgram("enum Color { Red, Green }\n\nfunc f(): (Color, int) { return (Color.Red, 5) }\n").Ok);
@@ -4723,6 +4722,79 @@ class B
         Assert.False(RouteColumnarProgram("func f(): string {\n    a := 1\n    return $\"{a > 0 ? 1 : 2}\"\n}\n").Ok);
         // a BUILDER-typed hole value (the oracle boxes through AppendFormatted(object, int, string)).
         Assert.False(RouteColumnarProgram("record Pt {\n    X: int\n}\n\nfunc f(): string {\n    p := new Pt { X: 1 }\n    return $\"{p}\"\n}\n").Ok);
+    }
+
+    // INTERFACES slice IF-1 — the FIFTH user-defined type family: `interface I { func M(...): T }`
+    // (abstract method signatures ONLY — the kernel refuses default bodies, bare members, and
+    // properties, which the PIPELINE mishandles: silent member drop / locationless NL103, oracle
+    // defect #27). One implemented interface per type via the colon name (the parser's base slot,
+    // reclassified when it resolves to an interface — mirroring the oracle's DeclareClass);
+    // implementing methods get Virtual|Final|NewSlot + DefineMethodOverride by NAME+SIGNATURE
+    // match; COMPLETENESS is enforced (a missing member declines — the pipeline emits an UNLOADABLE
+    // assembly with ZERO diagnostics, oracle defect #26); dispatch is ldloc+callvirt through the
+    // shared instance-call machinery; STRUCT implementers BOX at the interface boundary
+    // (TryEmitInterfaceUpcast at returns/locals/args/field writes — the EmitValueCoercion mirror).
+    [Fact]
+    public void ColumnarCodegen_Parity_Interfaces()
+    {
+        var prog =
+            "interface IShape {\n    func Area(): int\n}\n\n" +
+            "class Square: IShape {\n    side: int\n    constructor(s: int) {\n        side = s\n    }\n    func Area(): int {\n        return side * side\n    }\n}\n\n" +
+            "class Wide: IShape {\n    w: int\n    constructor(v: int) {\n        w = v\n    }\n    func Area(): int {\n        return w * 2\n    }\n}\n\n" +
+            "struct Tri: IShape {\n    b: int\n    func Area(): int {\n        return b * 3\n    }\n}\n\n" +
+            "class Holder {\n    s: IShape\n    constructor(v: IShape) {\n        s = v\n    }\n}\n\n" +
+            "func direct(): int {\n    c := new Square(5)\n    return c.Area()\n}\n\n" +
+            "func viaLocal(): int {\n    let s: IShape = new Square(6)\n    return s.Area()\n}\n\n" +
+            "func dispatch(s: IShape): int {\n    return s.Area()\n}\n\n" +
+            "func viaParam(): int {\n    return dispatch(new Square(7))\n}\n\n" +
+            "func structImpl(): int {\n    t := new Tri { b: 4 }\n    return dispatch(t)\n}\n\n" +
+            "func twoImpls(): int {\n    return dispatch(new Square(3)) * 100 + dispatch(new Wide(3))\n}\n\n" +
+            "func mk(): IShape {\n    return new Square(2)\n}\n\n" +
+            "func viaReturn(): int {\n    return mk().Area()\n}\n\n" +
+            "func viaField(): int {\n    h := new Holder(new Square(3))\n    return h.s.Area()\n}\n\n" +
+            // is/as over interfaces ROUTE through the existing kind-46/47 isinst lowerings (the
+            // review's stale-decline finding — pinned as PARITY, both polarities).
+            "func isCheck(): int {\n    let s: IShape = new Square(2)\n    if s is Square {\n        return 1\n    }\n    return 0\n}\n\n" +
+            "func asCheck(): int {\n    let s: IShape = new Square(3)\n    sq := s as Square\n    if sq == null {\n        return -1\n    }\n    return sq.Area()\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("direct", System.Array.Empty<object>()),
+            ("viaLocal", System.Array.Empty<object>()),
+            ("viaParam", System.Array.Empty<object>()),
+            ("structImpl", System.Array.Empty<object>()),
+            ("twoImpls", System.Array.Empty<object>()),
+            ("viaReturn", System.Array.Empty<object>()),
+            ("viaField", System.Array.Empty<object>()),
+            ("isCheck", System.Array.Empty<object>()),
+            ("asCheck", System.Array.Empty<object>()));
+
+        // ORACLE DEFECT #28 (review-found, the #26 ordering variant — ROUTE-ONLY, never invoke the
+        // oracle side): an implementer declared BEFORE its interface makes the PIPELINE emit an
+        // UNLOADABLE assembly (its interface wiring is declaration-order-sensitive); columnar's
+        // PASS-0i defines all interfaces first, so it emits CORRECT ilverify-clean IL. Pin the
+        // columnar value; the oracle side would throw ReflectionTypeLoadException at load.
+        {
+            var (ok, asm, typeName, _) = RouteColumnarProgram(
+                "class Square: IShape {\n    side: int\n    constructor(s: int) {\n        side = s\n    }\n    func Area(): int {\n        return side * side\n    }\n}\n\ninterface IShape {\n    func Area(): int\n}\n\nfunc f(): int {\n    let s: IShape = new Square(5)\n    return s.Area()\n}\n");
+            Assert.True(ok, "columnar must emit implementer-before-interface (order-insensitive)");
+            using var scope = CollectibleAssemblyScope.Load(asm!);
+            Assert.Equal(25, scope.Assembly.GetType(typeName!)!.GetMethod("f")!.Invoke(null, null));
+        }
+
+        // DECLINES — pipeline-BROKEN shapes (decline inherits neither defect):
+        // a MISSING interface member compiles with ZERO diagnostics and the assembly throws
+        // TypeLoadException at LOAD (oracle defect #26);
+        Assert.False(RouteColumnarProgram("interface IShape {\n    func Area(): int\n}\n\nclass Broken: IShape {\n    x: int\n    constructor(v: int) {\n        x = v\n    }\n}\n\nfunc f(): int {\n    b := new Broken(1)\n    return 1\n}\n").Ok);
+        // bare members / properties inside interfaces (silent drop / locationless NL103 — #27).
+        Assert.False(RouteColumnarProgram("interface IHasName {\n    Name: string\n}\n\nfunc f(): int {\n    return 1\n}\n").Ok);
+        // a cross-registry NAME COLLISION (interface vs enum) — the pipeline's NL306; the columnar
+        // registries now enforce uniqueness ACROSS kinds (review-found over-accept, pre-existing
+        // for enum/struct/union pairs and widened by each new type family);
+        Assert.False(RouteColumnarProgram("enum Color {\n    Red,\n    Green\n}\n\ninterface Color {\n    func C(): int\n}\n\nfunc f(): int {\n    return 1\n}\n").Ok);
+        // DECLINES — oracle-ACCEPTED (later rungs): default interface methods, interface
+        // inheritance, multi-interface implementation lists, List<IShape>.
+        Assert.False(RouteColumnarProgram("interface IGreet {\n    func Hi(): string {\n        return \"hi\"\n    }\n}\n\nfunc f(): int {\n    return 1\n}\n").Ok);
+        Assert.False(RouteColumnarProgram("interface IA {\n    func A(): int\n}\n\ninterface IB: IA {\n    func B(): int\n}\n\nfunc f(): int {\n    return 1\n}\n").Ok);
+        Assert.False(RouteColumnarProgram("interface IA {\n    func A(): int\n}\n\ninterface IW {\n    func W(): int\n}\n\nclass Multi: IA, IW {\n    func A(): int {\n        return 1\n    }\n    func W(): int {\n        return 2\n    }\n}\n\nfunc f(): int {\n    return 1\n}\n").Ok);
     }
 
     // ASYNC rung A — the SYNC-LOWERING mirror (neither pipeline emits a state machine; the oracle's

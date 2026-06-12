@@ -11,6 +11,62 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-12 — INTERFACES slice IF-1: the FIFTH user-defined type family
+
+Recon first (3 agents): all probed shapes oracle-PASS (direct/dispatched calls, struct-implementer
+boxing, heterogeneous dispatch, returns/fields, inheritance, DIMs); the columnar route started
+from ZERO (decl-kind 10 outside the adapter gate). Oracle facts that shaped the slice: members are
+METHOD signatures + C#-8 default methods ONLY (`DeclareInterfaceMembers` silently DROPS bare
+members — defect #27); implementation binding is NAME+SIGNATURE matching → `DefineMethodOverride`
+(implementing methods FORCED `Public|Virtual|Final|NewSlot`); the class colon-list's first name
+lands in the parser's BASE slot even for interfaces (reclassified downstream); struct implementers
+BOX at interface boundaries; **a class MISSING an interface member compiles with ZERO diagnostics
+and the assembly throws TypeLoadException at LOAD (defect #26)**.
+
+**The slice:** kernel `ParseInterfaceDeclarationInto` (interface name + method-signature member
+delimitation — default bodies/bare members/properties/generics/base lists all `-1`); adapter
+decl-gate +10, `TopLevelInterfaceIndices`, `TryGetColumnarInterfaceInputs` (signatures via the
+shared `ParseFunctionSignature` kernel); emitter PASS-0i defines `Public|Interface|Abstract` types
+with abstract members **registered in the STRUCT registry (`IsInterface=true`)** so
+interface-typed locals/params/returns/fields resolve and `iface.Method(args)` dispatches
+(ldloc+callvirt) through the EXISTING machinery — object-init declines via the null DefaultCtor
+and PASS 0d/0e skip interfaces for free. PASS-0a' reclassifies the colon name when it resolves to
+an interface (`ImplementedInterface` + `AddInterfaceImplementation` — classes, structs, AND
+records implement). PASS-0b matches implementers by name+signature (`Virtual|Final|NewSlot` +
+`DefineMethodOverride`) and enforces **COMPLETENESS — a missing member declines** (never emit the
+pipeline's unloadable assembly). `TryEmitInterfaceUpcast` (the `EmitValueCoercion` interface-arm
+mirror: value implementers BOX, references pass) wired at returns / typed-locals / reassignments /
+sibling args / member writes / positional-ctor args. Interfaces `CreateType` before implementers.
+
+**2-lens adversarial review (~50 probes + ilverify): zero columnar wrong-IL.** Dispatch/aliasing
+identity, struct-box snapshot semantics at every wired upcast site, direct calls on
+now-Virtual|Final implementer methods (`call` on virtual-FINAL is verifiable — ECMA III.3.19,
+ilverify-confirmed), matching edges, value-flow reassignments, and null-field NRE parity all
+REFUTED. Found+fixed in-slice: **cross-registry NAME collisions routed** (interface-vs-enum emitted
+a loadable assembly with two same-named types where the pipeline rejects NL306 — a PRE-EXISTING
+hole across enum/struct/union pairs, widened by each type family; the registries now enforce
+uniqueness across kinds). Found+pinned: **ORACLE DEFECT #28** (the #26 ordering variant) — an
+implementer declared BEFORE its interface makes the PIPELINE emit an UNLOADABLE assembly (its
+interface wiring is declaration-order-sensitive); columnar's PASS-0i is order-insensitive and
+emits CORRECT ilverify-clean IL — pinned ROUTE-ONLY at the working value (never degrade correct
+columnar to mirror a pipeline bug). STALE DECLINE flipped to parity: `is`/`as` on interfaces
+already route through the kind-46/47 isinst lowerings — both polarities now parity-pinned.
+Recorded (pre-existing, NOT IF-1): lowercase non-implementing class methods emit Public columnar
+vs Assembly oracle (metadata-surface divergence value-parity hides — bundle note). INFO coverage
+targets for IF-2: the interface upcast at instance-method args + object-init member inits (clean
+declines today).
+
+Parity: `ColumnarCodegen_Parity_Interfaces` — 9 value functions (direct call, interface-typed
+`let` local, param dispatch, STRUCT implementer boxed through a param, two implementers through
+one param 906, interface return, interface-typed FIELD through a ctor, `is`/`as` both polarities)
++ the #28 route-only pin + decline pins (missing-member #26, bare-member #27, cross-registry
+NL306, DIMs, interface inheritance, multi-interface lists). One old pin flipped (the "interface
+unsupported" gate pin). 319/319 dogfood; 4167/4167 full suite. NEXT: IF-2 residuals (List<IShape>,
+inheritance, multi-interface, DIMs, the upcast coverage targets) as route-all demands — then
+route-all (gate: Phase P port) → emitter port (gate: SoA design doc).
+
+---
+
 ## 2026-06-12 — ASYNC rung A: the SYNC-LOWERING MIRROR — async funcs + await emit columnar
 
 The arc's main rung, riding the recon's headline (neither pipeline emits a state machine — the

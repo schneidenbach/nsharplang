@@ -362,6 +362,55 @@ func TopLevelDeclarationKindsInto(tokenKinds: int[], count: int, outKinds: int[]
 // required between members (a trailing comma before `}` is allowed). Returns the member count, or -1 on any
 // unexpected token (a non-int member value, a `:` underlying-type annotation, attributes, a missing name/brace) so
 // the host declines the whole program to the C# path. Mirrors Parser.cs ParseEnumDeclaration for the int-enum subset.
+// Parse ONE top-level `interface` declaration (at compacted token index `interfaceIndex`):
+// `interface Name { <method signatures> }`. Members are METHOD SIGNATURES ONLY -- `func name(params)
+// [: ret]` with NO body (a `{` before the next member boundary is a C#-8 DEFAULT method, unmodeled
+// -> -1); any non-`func` member (bare fields, properties) is -1 (the production pipeline silently
+// DROPS bare members and NL103s property bodies at emit -- declining inherits neither). Each
+// member's `func` token index goes to outMethodFuncIndices (the host parses signatures via the
+// shared ParseFunctionSignature kernel); outResult[0]/[1] = the interface NAME span; returns the
+// method count, -1 on any parse failure. Generic interfaces (`<` after the name) and
+// base-interface lists (`:` after the name) are unmodeled -> -1.
+func ParseInterfaceDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, interfaceIndex: int, outMethodFuncIndices: int[], outResult: int[]): int {
+    pos := interfaceIndex
+    if pos >= count || tokenKinds[pos] != 10 {
+        return -1
+    }
+    pos = pos + 1
+
+    if pos >= count || tokenKinds[pos] != 0 {
+        return -1
+    }
+    outResult[0] = tokenStarts[pos]
+    outResult[1] = tokenValueLengths[pos]
+    pos = pos + 1
+
+    if pos >= count || tokenKinds[pos] != 129 {
+        return -1
+    }
+    pos = pos + 1
+
+    methodCount := 0
+    while pos < count && tokenKinds[pos] != 130 {
+        if tokenKinds[pos] != 7 {
+            return -1
+        }
+        outMethodFuncIndices[methodCount] = pos
+        pos = pos + 1
+        while pos < count && tokenKinds[pos] != 7 && tokenKinds[pos] != 130 {
+            if tokenKinds[pos] == 129 {
+                return -1
+            }
+            pos = pos + 1
+        }
+        methodCount = methodCount + 1
+    }
+    if pos >= count {
+        return -1
+    }
+    return methodCount
+}
+
 func ParseEnumDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, enumIndex: int, outNameStarts: int[], outNameLengths: int[], outValueStarts: int[], outValueLengths: int[], outHasValue: int[], outResult: int[]): int {
     pos := enumIndex
     if pos >= count || tokenKinds[pos] != 14 {

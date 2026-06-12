@@ -7,6 +7,31 @@ using System.Reflection.Emit;
 namespace NSharpLang.Compiler.Columnar;
 
 /// <summary>
+/// One top-level `interface` declaration: the name plus its abstract METHOD SIGNATURES (names,
+/// return canonicals, parameter names/canonicals — no bodies). Members beyond plain method
+/// signatures (default bodies, bare fields, properties, generics, where-clauses) decline at the
+/// kernel/adapter, matching IF-1's modeled surface.
+/// </summary>
+public sealed class ColumnarInterfaceInput
+{
+    public ColumnarInterfaceInput(string name, string[] methodNames, string[] methodReturnCanonicals,
+        string[][] methodParamNames, string[][] methodParamCanonicals)
+    {
+        Name = name;
+        MethodNames = methodNames;
+        MethodReturnCanonicals = methodReturnCanonicals;
+        MethodParamNames = methodParamNames;
+        MethodParamCanonicals = methodParamCanonicals;
+    }
+
+    public string Name { get; }
+    public string[] MethodNames { get; }
+    public string[] MethodReturnCanonicals { get; }
+    public string[][] MethodParamNames { get; }
+    public string[][] MethodParamCanonicals { get; }
+}
+
+/// <summary>
 /// One top-level function's parsed signature plus its columnar body node tables, as consumed by
 /// <see cref="ColumnarIlEmitter.TryEmitColumnarAssembly"/>. The body table arrays are produced per-function by
 /// the parser kernel <c>ParseStatementNodes</c>; <see cref="BodyRoot"/> is that body's root statement index.
@@ -310,6 +335,18 @@ internal sealed class ColumnarStructDef
     // True for a RECORD specifically — records can never be BASE types (the oracle emits them sealed) and record
     // inheritance is unmodelled; PASS 0a' declines both shapes.
     public bool IsRecord { get; }
+    // True for an INTERFACE (defined Public|Interface|Abstract; Methods hold its ABSTRACT member
+    // declarations; no fields/ctors). Living in the struct registry makes interface-typed
+    // locals/params/returns resolve and `iface.Method(args)` dispatch (ldloc+callvirt) through the
+    // EXISTING machinery; object-init declines via the null DefaultCtor, PASS 0d/0e skip it.
+    public bool IsInterface { get; init; }
+    // The single interface this type IMPLEMENTS (`class C: IShape` — the colon name reclassified in
+    // PASS 0a' when it resolves to an interface def), or null. IF-1 models ONE interface; lists
+    // decline. Every interface member must be matched by name+signature (completeness checked in
+    // PASS 0b — the pipeline emits an UNLOADABLE assembly for missing members, oracle defect #26,
+    // so columnar declines instead) and the matching methods get Virtual|Final|NewSlot +
+    // DefineMethodOverride, mirroring the oracle's DeclareMethod.
+    public ColumnarStructDef? ImplementedInterface { get; set; }
     // The synthesized public parameterless constructor (the object-init `newobj` target) for a reference type with
     // NO user constructors — chains to object (no base) or to the base's parameterless ctor. Set in PASS 0d (after
     // user ctors are declared, so a derived default ctor can chain to a base USER 0-param ctor); null for a value
@@ -2676,7 +2713,7 @@ public sealed class ColumnarIlEmitter
         var input = new ColumnarFunctionInput(
             funcName, returnCanonical, paramNames, paramCanonicals,
             kinds, valueStarts, valueLengths, childStart, childCount, childIndices, bodyRoot);
-        return TryEmitColumnarAssembly("ColumnarSpike", "ColumnarSpike", new[] { input }, Array.Empty<ColumnarEnumInput>(), Array.Empty<ColumnarStructInput>(), Array.Empty<ColumnarUnionInput>(), source, out assembly);
+        return TryEmitColumnarAssembly("ColumnarSpike", "ColumnarSpike", new[] { input }, Array.Empty<ColumnarEnumInput>(), Array.Empty<ColumnarStructInput>(), Array.Empty<ColumnarUnionInput>(), Array.Empty<ColumnarInterfaceInput>(), source, out assembly);
     }
 
     /// <summary>
@@ -2692,7 +2729,8 @@ public sealed class ColumnarIlEmitter
     public static bool TryEmitColumnarAssembly(
         string assemblyName, string typeName, IReadOnlyList<ColumnarFunctionInput> funcs,
         IReadOnlyList<ColumnarEnumInput> enums, IReadOnlyList<ColumnarStructInput> structs,
-        IReadOnlyList<ColumnarUnionInput> unions, string source, out byte[] assembly)
+        IReadOnlyList<ColumnarUnionInput> unions, IReadOnlyList<ColumnarInterfaceInput> interfaces,
+        string source, out byte[] assembly)
     {
         assembly = Array.Empty<byte>();
         if (funcs.Count == 0)
@@ -2739,6 +2777,49 @@ public sealed class ColumnarIlEmitter
         // Field types resolve via TryResolveType (single builtins in this slice). Defined after enums so a struct may
         // have an enum-typed field; a struct-typed field resolves only if that struct was declared earlier.
         var structRegistry = new Dictionary<string, ColumnarStructDef>(StringComparer.Ordinal);
+
+        // PASS 0i (interfaces — IF-1): define every user interface (Public|Abstract|Interface) and
+        // its ABSTRACT method members, registered in the STRUCT registry with IsInterface=true so
+        // interface-typed locals/params/returns/fields resolve and `iface.Method(args)` dispatches
+        // (ldloc + callvirt) through the EXISTING machinery (object-init declines via the null
+        // DefaultCtor; PASS 0d/0e skip interfaces). Member signatures resolve against enums + the
+        // interfaces defined SO FAR — members referencing structs/records decline this rung
+        // (declaration-order limitation; scalars/strings dominate the probed surface).
+        var interfaceBuilders = new List<TypeBuilder>(interfaces.Count);
+        foreach (var iface in interfaces)
+        {
+            var interfaceTb = module.DefineType(iface.Name, TypeAttributes.Public | TypeAttributes.Interface | TypeAttributes.Abstract);
+            var interfaceDef = new ColumnarStructDef(interfaceTb, Array.Empty<string>(),
+                new Dictionary<string, FieldBuilder>(StringComparer.Ordinal), isReference: true)
+            { IsInterface = true };
+            if (!structRegistry.TryAdd(iface.Name, interfaceDef) || enumRegistry.ContainsKey(iface.Name))
+                return false; // duplicate type name (incl. cross-registry — the pipeline's NL306).
+            for (var m = 0; m < iface.MethodNames.Length; m++)
+            {
+                Type memberReturn;
+                if (iface.MethodReturnCanonicals[m] == "void")
+                    memberReturn = typeof(void);
+                else if (!TryResolveType(iface.MethodReturnCanonicals[m], enumRegistry, structRegistry, null, out memberReturn)
+                    || !IsSupportedType(memberReturn))
+                    return false;
+                var memberParams = new Type[iface.MethodParamCanonicals[m].Length];
+                for (var p = 0; p < memberParams.Length; p++)
+                {
+                    if (!TryResolveType(iface.MethodParamCanonicals[m][p], enumRegistry, structRegistry, null, out memberParams[p])
+                        || !IsSupportedType(memberParams[p]))
+                        return false;
+                }
+                var abstractMethod = interfaceTb.DefineMethod(
+                    iface.MethodNames[m],
+                    MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.HideBySig
+                        | MethodAttributes.NewSlot | MethodAttributes.Abstract,
+                    memberReturn, memberParams);
+                if (!interfaceDef.Methods.TryAdd(iface.MethodNames[m], (abstractMethod, memberParams, memberReturn)))
+                    return false; // duplicate interface member.
+            }
+            interfaceBuilders.Add(interfaceTb);
+        }
+
         var structBuilders = new TypeBuilder[structs.Count];
         for (var s = 0; s < structs.Count; s++)
         {
@@ -2826,8 +2907,8 @@ public sealed class ColumnarIlEmitter
             };
             foreach (var (sfName, sfBuilder) in staticFieldDefs)
                 newDef.StaticFields[sfName] = sfBuilder;
-            if (!structRegistry.TryAdd(st.Name, newDef))
-                return false; // a duplicate struct name is an ambiguous type.
+            if (!structRegistry.TryAdd(st.Name, newDef) || enumRegistry.ContainsKey(st.Name))
+                return false; // duplicate type name (incl. cross-registry — the pipeline's NL306).
         }
 
         // PASS 0a' (base classes): resolve each `class D: Base` base name and re-parent the TypeBuilder. Only a
@@ -2842,6 +2923,19 @@ public sealed class ColumnarIlEmitter
             if (baseName == null)
                 continue;
             var def = structRegistry[structs[s].Name];
+            // `class C: IShape` / `struct S: IShape` / `record R: IShape` — the colon name
+            // IMPLEMENTS when it resolves to an interface (the parser's base-slot reclassification,
+            // mirroring the oracle's DeclareClass: each colon-list candidate that IsInterface goes
+            // to TrackInterfaceImplementation). The implementing methods bind in PASS 0b; every
+            // interface member must be implemented or the program declines (the pipeline emits an
+            // UNLOADABLE assembly for missing members — oracle defect #26 — declining inherits
+            // neither the silence nor the load crash).
+            if (structRegistry.TryGetValue(baseName, out var implementedInterface) && implementedInterface.IsInterface)
+            {
+                def.ImplementedInterface = implementedInterface;
+                def.Builder.AddInterfaceImplementation(implementedInterface.Builder);
+                continue;
+            }
             if (!def.IsReference)
                 return false; // a value-type struct cannot inherit.
             if (def.IsRecord)
@@ -2961,10 +3055,43 @@ public sealed class ColumnarIlEmitter
                     mOrdinals[m.ParamNames[i]] = i + 1;
                     mParamTypeMap[m.ParamNames[i]] = pt;
                 }
-                var mb = def.Builder.DefineMethod(m.Name, MethodAttributes.Public | MethodAttributes.HideBySig, mReturn, mParamTypes);
+                // An IMPLEMENTING method (name + exact signature matches a member of the type's
+                // implemented interface) gets Virtual|Final|NewSlot + DefineMethodOverride —
+                // the oracle's DeclareMethod rule (implementing methods are FORCED virtual-final).
+                var methodAttributes = MethodAttributes.Public | MethodAttributes.HideBySig;
+                MethodBuilder? overriddenInterfaceMethod = null;
+                if (def.ImplementedInterface != null
+                    && def.ImplementedInterface.Methods.TryGetValue(m.Name, out var interfaceMember)
+                    && interfaceMember.ReturnType == mReturn
+                    && ParamTypesMatch(interfaceMember.ParamTypes, mParamTypes))
+                {
+                    methodAttributes |= MethodAttributes.Virtual | MethodAttributes.Final | MethodAttributes.NewSlot;
+                    overriddenInterfaceMethod = interfaceMember.Builder;
+                }
+                var mb = def.Builder.DefineMethod(m.Name, methodAttributes, mReturn, mParamTypes);
+                if (overriddenInterfaceMethod != null)
+                    def.Builder.DefineMethodOverride(mb, overriddenInterfaceMethod);
                 if (!def.Methods.TryAdd(m.Name, (mb, mParamTypes, mReturn)))
                     return false; // a duplicate method name on one struct is an overload set the slice does not model.
                 structMethodJobs.Add((def, m, mb, mReturn, mOrdinals, mParamTypeMap, false));
+            }
+        }
+
+        // COMPLETENESS: every member of every implemented interface must be matched by an
+        // implementing method — the pipeline compiles missing members with ZERO diagnostics and the
+        // assembly throws TypeLoadException at LOAD (oracle defect #26); columnar declines instead
+        // (never emit an unloadable assembly).
+        for (var s = 0; s < structs.Count; s++)
+        {
+            var def = structRegistry[structs[s].Name];
+            if (def.ImplementedInterface == null)
+                continue;
+            foreach (var (memberName, member) in def.ImplementedInterface.Methods)
+            {
+                if (!def.Methods.TryGetValue(memberName, out var impl)
+                    || impl.ReturnType != member.ReturnType
+                    || !ParamTypesMatch(member.ParamTypes, impl.ParamTypes))
+                    return false;
             }
         }
 
@@ -3248,6 +3375,13 @@ public sealed class ColumnarIlEmitter
             unionBaseBuilders.Add(baseTb);
             if (!unionRegistry.TryAdd(un.Name, unionDef))
                 return false; // a duplicate union name is an ambiguous type.
+            // CROSS-REGISTRY name uniqueness: the pipeline rejects any two same-named TYPES with
+            // NL306 regardless of kind (enum vs class, interface vs union, ...), but each registry's
+            // own TryAdd only catches collisions WITHIN it — a review-probe routed an
+            // interface-vs-enum collision into a loadable assembly with two same-named types
+            // (pre-existing hole across enum/struct/union; widened by every new type family).
+            if (enumRegistry.ContainsKey(un.Name) || structRegistry.ContainsKey(un.Name))
+                return false;
 
             for (var c = 0; c < un.CaseNames.Length; c++)
             {
@@ -3691,6 +3825,10 @@ public sealed class ColumnarIlEmitter
         // reference the un-finalized builders resolve to the finalized types at Save.
         foreach (var eb in enumBuilders)
             eb.CreateType();
+        // Interfaces bake BEFORE their implementers (CreateType on an implementing type requires
+        // its interfaces created — the enums-before-Program precedent).
+        foreach (var interfaceBuilder in interfaceBuilders)
+            interfaceBuilder.CreateType();
         // Struct/class types bake BASE-BEFORE-DERIVED (depth ascending): CreateType on a derived TypeBuilder
         // requires its parent to be created first. Depth 0 (no base) covers every value-type struct and standalone
         // class, so the no-inheritance ordering is unchanged.
@@ -4178,7 +4316,7 @@ public sealed class ColumnarIlEmitter
                 {
                     return false;
                 }
-                if (!TypesEquivalent(retType, _returnType) && !TryEmitImplicitWidening(retType, _returnType))
+                if (!TypesEquivalent(retType, _returnType) && !TryEmitImplicitWidening(retType, _returnType) && !TryEmitInterfaceUpcast(retType, _returnType))
                     return false; // exact or implicitly-widenable (`return n` on a long function) only.
                 if (_inProtectedRegion)
                 {
@@ -4299,7 +4437,7 @@ public sealed class ColumnarIlEmitter
                 {
                     if (!EmitExpression(declaredInit, out var declaredInitType))
                         return false;
-                    if (!TypesEquivalent(declaredInitType, declaredType) && !TryEmitImplicitWidening(declaredInitType, declaredType))
+                    if (!TypesEquivalent(declaredInitType, declaredType) && !TryEmitImplicitWidening(declaredInitType, declaredType) && !TryEmitInterfaceUpcast(declaredInitType, declaredType))
                         return false; // exact or implicitly-widenable (`w: long = n`) only.
                 }
                 // L3b: a lifted candidate declares as a shared StrongBox<T> (the L3b lift; lambda-typed
@@ -4714,7 +4852,7 @@ public sealed class ColumnarIlEmitter
                                 return false;
                             }
                             if (!TypesEquivalent(writeValueType, writeField.FieldType)
-                                && !TryEmitImplicitWidening(writeValueType, writeField.FieldType))
+                                && !TryEmitImplicitWidening(writeValueType, writeField.FieldType) && !TryEmitInterfaceUpcast(writeValueType, writeField.FieldType))
                                 return false;
                             _il.Emit(OpCodes.Stfld, writeField);
                             return true;
@@ -4786,7 +4924,7 @@ public sealed class ColumnarIlEmitter
                     {
                         return false;
                     }
-                    if (!TypesEquivalent(valueType, assignTarget.LocalType) && !TryEmitImplicitWidening(valueType, assignTarget.LocalType))
+                    if (!TypesEquivalent(valueType, assignTarget.LocalType) && !TryEmitImplicitWidening(valueType, assignTarget.LocalType) && !TryEmitInterfaceUpcast(valueType, assignTarget.LocalType))
                         return false;
                     _il.Emit(OpCodes.Stloc, assignTarget);
                     return true;
@@ -4820,7 +4958,7 @@ public sealed class ColumnarIlEmitter
                     {
                         return false;
                     }
-                    if (!TypesEquivalent(paramValueType, _paramTypes[targetName]) && !TryEmitImplicitWidening(paramValueType, _paramTypes[targetName]))
+                    if (!TypesEquivalent(paramValueType, _paramTypes[targetName]) && !TryEmitImplicitWidening(paramValueType, _paramTypes[targetName]) && !TryEmitInterfaceUpcast(paramValueType, _paramTypes[targetName]))
                         return false;
                     EmitStoreArgument(paramOrdinal);
                     return true;
@@ -6062,7 +6200,7 @@ public sealed class ColumnarIlEmitter
                             }
                             if (!EmitExpression(argNode, out argType))
                                 return false;
-                            if (!TypesEquivalent(argType, target.ParamTypes[a - 1]) && !TryEmitImplicitWidening(argType, target.ParamTypes[a - 1]))
+                            if (!TypesEquivalent(argType, target.ParamTypes[a - 1]) && !TryEmitImplicitWidening(argType, target.ParamTypes[a - 1]) && !TryEmitInterfaceUpcast(argType, target.ParamTypes[a - 1]))
                                 return false;
                         }
                         _il.Emit(OpCodes.Call, target.Method);
@@ -6471,7 +6609,12 @@ public sealed class ColumnarIlEmitter
                             return false; // no ctor of that arity, or ambiguous-by-count overloads -> decline.
                         for (var a = 0; a < ctorArgCount; a++)
                         {
-                            if (!EmitExpression(Child(idx, 1 + a), out var ctorArgType) || ctorArgType != chosenParamTypes![a])
+                            if (!EmitExpression(Child(idx, 1 + a), out var ctorArgType))
+                                return false;
+                            // exact match, or the INTERFACE upcast (an implementer into an
+                            // interface-typed ctor param — boxes value implementers, IF-1).
+                            if (ctorArgType != chosenParamTypes![a]
+                                && !TryEmitInterfaceUpcast(ctorArgType, chosenParamTypes[a]))
                                 return false;
                         }
                         _il.Emit(OpCodes.Newobj, chosenCtor);
@@ -8707,6 +8850,38 @@ public sealed class ColumnarIlEmitter
     // by CLR value-typeness (IsValueType is TBI-safe — spike-pinned).
     private bool IsReferenceWriteLink(Type t)
         => t is TypeBuilder tb && FindDefByBuilder(tb) is { } def ? def.IsReference : !t.IsValueType;
+
+    private static bool ParamTypesMatch(Type[] a, Type[] b)
+    {
+        if (a.Length != b.Length)
+            return false;
+        for (var i = 0; i < a.Length; i++)
+        {
+            if (a[i] != b[i])
+                return false;
+        }
+        return true;
+    }
+
+    // INTERFACE upcast at value-flow boundaries (the oracle's EmitValueCoercion interface arm,
+    // Operators.cs ~694): a value whose def IMPLEMENTS the target interface converts — VALUE-type
+    // implementers BOX, reference implementers pass as-is (the object ref IS the interface value).
+    // Wired beside TryEmitImplicitWidening at returns/typed-locals/reassignments/sibling args/
+    // member writes; the value is already on the stack.
+    private bool TryEmitInterfaceUpcast(Type valueType, Type targetType)
+    {
+        if (targetType is not TypeBuilder targetBuilder
+            || FindDefByBuilder(targetBuilder) is not { IsInterface: true })
+            return false;
+        if (valueType is not TypeBuilder valueBuilder
+            || FindDefByBuilder(valueBuilder) is not { } valueDef
+            || valueDef.ImplementedInterface == null
+            || !ReferenceEquals(valueDef.ImplementedInterface.Builder, targetBuilder))
+            return false;
+        if (!valueDef.IsReference)
+            _il.Emit(OpCodes.Box, valueBuilder);
+        return true;
+    }
 
     // INTERPOLATED STRINGS (`$"a{n}b"` — strings slice 4): the kind-3 token carries the whole
     // literal (`$` + holes inside the span). Split via the shared ColumnarInterpolationSplitter
