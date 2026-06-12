@@ -4113,7 +4113,7 @@ public class Analyzer : IDisposable
 
                                 if (caseProperty != null)
                                 {
-                                    var propType = ResolveUnionCasePropertyType(caseProperty.Type, unionSubstitution);
+                                    var propType = ResolveTypeWithSubstitution(caseProperty.Type, unionSubstitution);
 
                                     // If there's a nested pattern, analyze it recursively
                                     if (propPattern.Pattern != null)
@@ -10634,6 +10634,10 @@ public class Analyzer : IDisposable
     {
         TypeInfo type;
 
+        // Set when this is a union case construction (new Result.Success<int> { ... }) —
+        // initializer members then live on the case, not the union type itself.
+        string? unionCaseConstructionName = null;
+
         // Target-typed new (C# 9): new() or new { ... }
         if (newExpr.Type == null)
         {
@@ -10687,6 +10691,7 @@ public class Analyzer : IDisposable
                 {
                     // This is a union case instantiation - the variable should have the union type
                     type = ResolveUnionCaseConstructionType(newExpr, unionBaseType, parts[0], qualifiedCaseName, unionCaseTypeArguments);
+                    unionCaseConstructionName = qualifiedCaseName;
                 }
             }
         }
@@ -10731,12 +10736,224 @@ public class Analyzer : IDisposable
                     AnalyzeExpression(prop.IndexExpression);
                 }
 
-                // Analyze the value
-                AnalyzeExpression(prop.Value);
+                AnalyzeObjectInitializerPropertyValue(type, unionCaseConstructionName, prop);
             }
         }
 
         return type;
+    }
+
+    /// <summary>
+    /// Analyzes one object-initializer entry's value, type-checking a named member
+    /// assignment (new T { Member: value }) against the member's declared type. This is
+    /// the assignment-compatibility gate for initializer writes — without it a mismatched
+    /// closed-generic value (Items: List&lt;Rs&gt; into a List&lt;Pt&gt; field) passes
+    /// analysis and the IL backend stores it unchecked, producing type-confused reads at
+    /// runtime. Member types that cannot be resolved reliably skip the check rather than
+    /// risk a false diagnostic; indexer entries and collection-initializer elements keep
+    /// plain expression analysis (they bind to set_Item/Add, not to a declared member).
+    /// </summary>
+    private void AnalyzeObjectInitializerPropertyValue(
+        TypeInfo constructedType,
+        string? unionCaseName,
+        PropertyInitializer prop)
+    {
+        if (prop.Name == null
+            || prop.IndexExpression != null
+            || !TryResolveObjectInitializerMemberType(constructedType, unionCaseName, prop.Name, out var memberType))
+        {
+            AnalyzeExpression(prop.Value);
+            return;
+        }
+
+        // The member's declared type is the expected type for the value (target-typed
+        // new, integer literal sizing, lambda inference, generic union case inference).
+        var previousExpectedType = _currentExpectedType;
+        _currentExpectedType = memberType;
+        var valueType = AnalyzeExpression(prop.Value);
+        _currentExpectedType = previousExpectedType;
+
+        if (IsAssignable(memberType, valueType))
+        {
+            return;
+        }
+
+        var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetExpressionDiagnosticSpan(prop.Value);
+        var sourceSnippet = _sourceLines != null && diagnosticLine > 0 && diagnosticLine <= _sourceLines.Length
+            ? _sourceLines[diagnosticLine - 1]
+            : null;
+
+        if (sourceSnippet != null && _currentFilePath != null)
+        {
+            _errors.Add(ErrorMessageBuilder.TypeMismatch(
+                _currentFilePath,
+                diagnosticLine,
+                diagnosticColumn,
+                sourceSnippet,
+                diagnosticLength,
+                valueType.ToString(),
+                memberType.ToString()));
+            return;
+        }
+
+        Error(
+            ErrorCode.TypeMismatch,
+            $"'{prop.Name}' is typed as '{memberType}', but the value is '{valueType}'",
+            diagnosticLine,
+            diagnosticColumn,
+            length: diagnosticLength);
+    }
+
+    /// <summary>
+    /// Resolves the declared type of a named member assigned in an object initializer.
+    /// Returns false when the member's type cannot be determined reliably — unknown or
+    /// non-member-bearing receivers, members inherited past an open generic declaration,
+    /// method groups — so the caller skips the assignability check instead of guessing.
+    /// </summary>
+    private bool TryResolveObjectInitializerMemberType(
+        TypeInfo constructedType,
+        string? unionCaseName,
+        string memberName,
+        out TypeInfo memberType)
+    {
+        memberType = BuiltInTypes.Unknown;
+
+        // Union case construction (new Result.Success<int> { Value: ... }): members live
+        // on the case, typed under the closed instantiation's substitution (Value: T on
+        // Result<int> expects int). Checked before the generic branch — a generic union
+        // construction is a GenericTypeInfo over the union's name.
+        if (unionCaseName != null)
+        {
+            if (!TryResolveDeclaredUnionType(constructedType, out var unionType, out var unionSubstitution)
+                || !TryGetUnionCaseForPattern(unionType, unionCaseName, out var unionCase))
+            {
+                return false;
+            }
+
+            var caseProperty = unionCase.Properties?.FirstOrDefault(property => property.Name == memberName);
+            if (caseProperty == null)
+            {
+                return false;
+            }
+
+            memberType = ResolveTypeWithSubstitution(caseProperty.Type, unionSubstitution);
+            return !BuiltInTypes.IsUnknown(memberType);
+        }
+
+        // Closed generic instantiation of a declared type (new Box<Pt> { Item: ... }):
+        // resolve the member's declared type reference under the type-argument
+        // substitution (Item: T on Box<Pt> expects Pt).
+        if (constructedType is GenericTypeInfo generic)
+        {
+            if (LookupType(generic.Name) is not { } openType
+                || !TryGetDeclaredTypeShape(openType, out var typeParameters, out var members, out var primaryParameters))
+            {
+                return false;
+            }
+
+            Dictionary<string, TypeInfo>? substitution = null;
+            if (typeParameters is { Count: > 0 })
+            {
+                if (typeParameters.Count != generic.TypeArguments.Count)
+                {
+                    return false;
+                }
+
+                substitution = new Dictionary<string, TypeInfo>(StringComparer.Ordinal);
+                for (var i = 0; i < typeParameters.Count; i++)
+                {
+                    substitution[typeParameters[i].Name] = generic.TypeArguments[i];
+                }
+            }
+
+            var memberTypeReference = FindDeclaredMemberTypeReference(members, primaryParameters, memberName);
+            if (memberTypeReference == null)
+            {
+                return false;
+            }
+
+            memberType = ResolveTypeWithSubstitution(memberTypeReference, substitution);
+            return !BuiltInTypes.IsUnknown(memberType);
+        }
+
+        // Other receiver kinds (enums, tuples, newtypes, ...) have no assignable members;
+        // ResolveMember's fallbacks for them don't model member-assignment semantics.
+        if (constructedType is not (ClassTypeInfo or StructTypeInfo or RecordTypeInfo or ReflectionTypeInfo))
+        {
+            return false;
+        }
+
+        var resolved = ResolveMember(constructedType, memberName, includeStaticMembers: false);
+        if (BuiltInTypes.IsUnknown(resolved)
+            || resolved is NSharpMethodGroupInfo or ReflectionMethodGroupInfo or ReflectionMethodInfo or ReflectionEventInfo
+            || resolved is FunctionTypeInfo { Declaration: not null })
+        {
+            return false;
+        }
+
+        memberType = resolved;
+        return true;
+    }
+
+    /// <summary>
+    /// Extracts the declaration shape (type parameters, members, primary constructor
+    /// parameters) from a declared class/struct/record type info.
+    /// </summary>
+    private static bool TryGetDeclaredTypeShape(
+        TypeInfo type,
+        out List<TypeParameter>? typeParameters,
+        out List<Declaration> members,
+        out List<Parameter>? primaryConstructorParameters)
+    {
+        switch (type)
+        {
+            case ClassTypeInfo classInfo:
+                typeParameters = classInfo.Declaration.TypeParameters;
+                members = classInfo.Declaration.Members;
+                primaryConstructorParameters = classInfo.Declaration.PrimaryConstructorParameters;
+                return true;
+            case StructTypeInfo structInfo:
+                typeParameters = structInfo.Declaration.TypeParameters;
+                members = structInfo.Declaration.Members;
+                primaryConstructorParameters = structInfo.Declaration.PrimaryConstructorParameters;
+                return true;
+            case RecordTypeInfo recordInfo:
+                typeParameters = recordInfo.Declaration.TypeParameters;
+                members = recordInfo.Declaration.Members;
+                primaryConstructorParameters = recordInfo.Declaration.PrimaryConstructorParameters;
+                return true;
+            default:
+                typeParameters = null;
+                members = null!;
+                primaryConstructorParameters = null;
+                return false;
+        }
+    }
+
+    /// <summary>
+    /// Finds the declared type reference of a field, property, or primary-constructor
+    /// parameter by name on a type declaration's own members (no base walk — base
+    /// members of a generic declaration would need their own substitution chain).
+    /// </summary>
+    private static TypeReference? FindDeclaredMemberTypeReference(
+        List<Declaration> members,
+        List<Parameter>? primaryConstructorParameters,
+        string memberName)
+    {
+        foreach (var member in members)
+        {
+            if (member is FieldDeclaration field && field.Name == memberName)
+            {
+                return field.Type;
+            }
+
+            if (member is PropertyDeclaration property && property.Name == memberName)
+            {
+                return property.Type;
+            }
+        }
+
+        return primaryConstructorParameters?.FirstOrDefault(parameter => parameter.Name == memberName)?.Type;
     }
 
     /// <summary>
@@ -10899,10 +11116,12 @@ public class Analyzer : IDisposable
     }
 
     /// <summary>
-    /// Resolves a union case property type at a use site (pattern binding), applying
-    /// the scrutinee's generic substitution (value: T on Result&lt;int&gt; binds as int).
+    /// Resolves a declared member type at a use site under a generic substitution map
+    /// (value: T on Result&lt;int&gt; or Item: T on Box&lt;Pt&gt; resolve to the closed
+    /// argument). Used for union case property bindings and object-initializer member
+    /// type checks on closed generic instantiations.
     /// </summary>
-    private TypeInfo ResolveUnionCasePropertyType(TypeReference type, Dictionary<string, TypeInfo>? substitution)
+    private TypeInfo ResolveTypeWithSubstitution(TypeReference type, Dictionary<string, TypeInfo>? substitution)
     {
         if (substitution == null)
         {
@@ -10914,9 +11133,9 @@ public class Analyzer : IDisposable
             SimpleTypeReference simple when substitution.TryGetValue(simple.Name, out var bound) => bound,
             GenericTypeReference generic => new GenericTypeInfo(
                 generic.Name,
-                generic.TypeArguments.Select(argument => ResolveUnionCasePropertyType(argument, substitution)).ToList()),
-            ArrayTypeReference array => new ArrayTypeInfo(ResolveUnionCasePropertyType(array.ElementType, substitution)),
-            NullableTypeReference nullable => new NullableTypeInfo(ResolveUnionCasePropertyType(nullable.InnerType, substitution)),
+                generic.TypeArguments.Select(argument => ResolveTypeWithSubstitution(argument, substitution)).ToList()),
+            ArrayTypeReference array => new ArrayTypeInfo(ResolveTypeWithSubstitution(array.ElementType, substitution)),
+            NullableTypeReference nullable => new NullableTypeInfo(ResolveTypeWithSubstitution(nullable.InnerType, substitution)),
             _ => ResolveType(type)
         };
     }
@@ -11453,7 +11672,7 @@ public class Analyzer : IDisposable
 
             // Apply the scrutinee's generic substitution so a `value: T` property on a
             // Result<Option<int>> scrutinee resolves to the nested union for coverage.
-            var propertyType = ResolveUnionCasePropertyType(caseProperty.Type, substitution);
+            var propertyType = ResolveTypeWithSubstitution(caseProperty.Type, substitution);
             if (!TryResolveDeclaredUnionType(propertyType, out var nestedUnionType, out _))
                 continue;
 

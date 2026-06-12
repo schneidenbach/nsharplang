@@ -10295,4 +10295,248 @@ func F(): int {
     return o.i.X + G(o)
 }", ErrorCode.MemberWriteThroughValueCopy);
     }
+
+    // ===== Object-initializer member type checking (defect: unsound List<Rs> -> List<Pt>) =====
+    //
+    // The C# pipeline used to accept ANY value type in `new T { Member: value }` — the
+    // analyzer never compared the value against the declared member type, and the IL
+    // backend's coercion silently no-ops for closed generics built over emitted user
+    // types. A List<Rs> stored into a List<Pt> field produced type-confused garbage
+    // reads at runtime (no InvalidCastException). These tests pin the NL202 gate.
+
+    [Fact]
+    public void ObjectInitializer_GenericCollectionElementMismatch_Error()
+    {
+        // The original unsound repro: compiled and returned garbage at runtime.
+        var error = AssertHasErrorCode(@"
+record Pt {
+    X: int
+}
+
+record Rs {
+    S: string
+}
+
+record H {
+    Items: List<Pt>
+}
+
+func f(): int {
+    l := new List<Rs>()
+    l.Add(new Rs { S: ""abc"" })
+    h := new H { Items: l }
+    return h.Items[0].X
+}", ErrorCode.TypeMismatch);
+        // Bare-analyzer harness has no source file, so the plain-message path reports
+        // (the Elm-style path with ExpectedType/ActualType is pinned by the
+        // MultiFileCompiler regression test in CompilationBackendTests).
+        Assert.Contains("'Items' is typed as 'List<Pt>', but the value is 'List<Rs>'", error.Message);
+    }
+
+    [Fact]
+    public void ObjectInitializer_SameShapedElementTypeMismatch_Error()
+    {
+        // Layout-identical element types must still be rejected — this variant
+        // 'worked' at runtime by field-offset luck, which is exactly the trap.
+        var error = AssertHasErrorCode(@"
+record Pt {
+    X: int
+}
+
+record Qt {
+    X: int
+}
+
+record H {
+    Items: List<Pt>
+}
+
+func f(): int {
+    l := new List<Qt>()
+    h := new H { Items: l }
+    return h.Items[0].X
+}", ErrorCode.TypeMismatch);
+        Assert.Contains("'Items' is typed as 'List<Pt>', but the value is 'List<Qt>'", error.Message);
+    }
+
+    [Fact]
+    public void ObjectInitializer_DictionaryValueTypeMismatch_Error()
+    {
+        var error = AssertHasErrorCode(@"
+record Pt {
+    X: int
+}
+
+record Rs {
+    S: string
+}
+
+record H {
+    Map: Dictionary<string, Pt>
+}
+
+func f(): int {
+    d := new Dictionary<string, Rs>()
+    h := new H { Map: d }
+    return h.Map[""k""].X
+}", ErrorCode.TypeMismatch);
+        Assert.Contains("'Map' is typed as 'Dictionary<string, Pt>', but the value is 'Dictionary<string, Rs>'", error.Message);
+    }
+
+    [Fact]
+    public void ObjectInitializer_SimpleFieldTypeMismatch_Error()
+    {
+        // Used to compile and only fail at RUNTIME with InvalidCastException.
+        AssertHasErrorCode(@"
+record Pt {
+    X: int
+}
+
+func f(): int {
+    p := new Pt { X: ""abc"" }
+    return p.X
+}", ErrorCode.TypeMismatch);
+    }
+
+    [Fact]
+    public void ObjectInitializer_GenericUserTypeArgumentMismatch_Error()
+    {
+        AssertHasErrorCode(@"
+record Pt {
+    X: int
+}
+
+record Rs {
+    S: string
+}
+
+record Box<T> {
+    Item: T
+}
+
+record H {
+    B: Box<Pt>
+}
+
+func f(h: H, b: Box<Rs>): H {
+    return new H { B: b }
+}", ErrorCode.TypeMismatch);
+    }
+
+    [Fact]
+    public void ObjectInitializer_ClosedGenericMemberSubstitution_Error()
+    {
+        // Item: T on Box<Pt> expects Pt — the member type must be resolved under the
+        // instantiation's substitution, not skipped as an open type parameter.
+        AssertHasErrorCode(@"
+record Pt {
+    X: int
+}
+
+record Rs {
+    S: string
+}
+
+record Box<T> {
+    Item: T
+}
+
+func f(): Box<Pt> {
+    return new Box<Pt> { Item: new Rs { S: ""abc"" } }
+}", ErrorCode.TypeMismatch);
+    }
+
+    [Fact]
+    public void ObjectInitializer_ArrayElementTypeMismatch_Error()
+    {
+        // Unrelated element types are never array-assignable (used to die at emit
+        // with an internal NL103 instead of a real diagnostic).
+        AssertHasErrorCode(@"
+record Pt {
+    X: int
+}
+
+record Rs {
+    S: string
+}
+
+record H {
+    Items: Pt[]
+}
+
+func f(arr: Rs[]): H {
+    return new H { Items: arr }
+}", ErrorCode.TypeMismatch);
+    }
+
+    [Fact]
+    public void ObjectInitializer_UnionCasePropertyMismatch_Error()
+    {
+        // Union case construction members are typed under the closed instantiation's
+        // substitution: value: T on Result<int> expects int.
+        AssertHasErrorCode(@"
+union Result<T> {
+    Success { value: T }
+    Failure { error: string }
+}
+
+func f(): Result<int> {
+    return new Result.Success<int> { value: ""abc"" }
+}", ErrorCode.TypeMismatch);
+    }
+
+    [Fact]
+    public void ObjectInitializer_MatchingGenericTypes_NoError()
+    {
+        AssertNoErrorCode(@"
+record Pt {
+    X: int
+}
+
+record Box<T> {
+    Item: T
+}
+
+record H {
+    Items: List<Pt>
+    Map: Dictionary<string, Pt>
+    B: Box<int>
+}
+
+func f(): int {
+    l := new List<Pt>()
+    l.Add(new Pt { X: 7 })
+    d := new Dictionary<string, Pt>()
+    h := new H { Items: l, Map: d, B: new Box<int> { Item: 5 } }
+    return h.Items[0].X
+}", ErrorCode.TypeMismatch);
+    }
+
+    [Fact]
+    public void ObjectInitializer_WideningAndNullAndSubtype_NoError()
+    {
+        // Implicit numeric widening, null into a nullable member, a derived instance
+        // into a base-typed member, and a target-typed new() must all stay accepted.
+        AssertNoErrorCode(@"
+class Animal {
+}
+
+class Dog : Animal {
+}
+
+record Pt {
+    X: int
+}
+
+record H {
+    V: double
+    Items: List<Pt>?
+    Pet: Animal
+    Tags: List<string>
+}
+
+func f(): H {
+    return new H { V: 3, Items: null, Pet: new Dog(), Tags: new() }
+}", ErrorCode.TypeMismatch);
+    }
 }

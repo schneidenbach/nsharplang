@@ -388,6 +388,64 @@ func main() {
     }
 
     [Fact]
+    public void MultiFileCompiler_RejectsGenericCollectionFieldInitializerMismatch()
+    {
+        // Defect regression: this program used to COMPILE through the production C#
+        // pipeline — the object-initializer value was never type-checked against the
+        // declared field type, and the IL coercion silently no-ops for closed generics
+        // over emitted user types — so f() read a type-confused garbage int at runtime.
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: InitializerMismatch
+backend: il
+outputType: library
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+record Pt {
+    X: int
+}
+
+record Rs {
+    S: string
+}
+
+record H {
+    Items: List<Pt>
+}
+
+func f(): int {
+    l := new List<Rs>()
+    l.Add(new Rs { S: "abc" })
+    h := new H { Items: l }
+    return h.Items[0].X
+}
+""");
+
+            var config = ProjectFileParser.Parse(Path.Combine(tempDir, "project.yml"));
+            var outputDir = Path.Combine(tempDir, "artifacts");
+            Directory.CreateDirectory(outputDir);
+
+            var compiler = new MultiFileCompiler(tempDir, config);
+            var outputPath = Path.Combine(outputDir, "InitializerMismatch.dll");
+            var result = compiler.CompileToIlAssembly("InitializerMismatch", outputPath);
+
+            Assert.False(result.Success);
+            Assert.Contains(result.Errors, error =>
+                error.Code == ErrorCode.TypeMismatch
+                && error.ExpectedType == "List<Pt>"
+                && error.ActualType == "List<Rs>");
+            Assert.DoesNotContain(result.Errors, error => error.Message.Contains("Failed to emit IL assembly"));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void MultiFileCompiler_CanRunAsyncExecutableProjectEntryPoint()
     {
         var tempDir = CreateTempDir();
