@@ -11,6 +11,68 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-12 — D-18b: COLUMNAR MEMBER WRITES — param receivers, class/record locals, nested field chains, compound members
+
+The columnar twin of D-18a, mirroring the FIXED oracle. The kind-8 assignment arm's two old tiers
+(reference property setters on bare receivers; struct field writes on `:=` locals only) are
+replaced by a unified CHAIN model: `TryResolveMemberWriteChain` resolves the receiver
+**emission-free** (the emit-ownership rule) — the root must be a bare LOCAL or PARAM (lifted/boxed
+roots decline: the capture-mutation family stays conservative; indexer/call-result roots decline:
+those writes are pipeline-REJECTED NL322, parity by rejection via the fallback), hops must be
+instance FIELDS on registered defs — then `EmitMemberWriteLocator` emits the owner value uniformly:
+value-typed links by ADDRESS (`ldloca`/`ldarga`/`ldflda`), reference links by OBJECT REF
+(`ldloc`/`ldarg`/`ldfld`); `stfld`/`ldflda` accept either owner form so the chain composes. New
+arms: FIELD writes (int-literal/null adoption + TypesEquivalent/implicit widening on the value),
+PROPERTY setters through chains ending in a REFERENCE receiver, and COMPOUND member writes
+(`s.X += 1`, `o.i.X += 3` — locator; dup; ldfld; value; op; stfld, the dup'd-locator
+read-modify-write on the same storage; scalar/string ops, decimal declines). `EmitLoadArgumentAddress`
+(ldarga) uses the PRE-SHIFTED `_paramOrdinals` — instance methods already store i+1. Record fields
+write like class fields (NOT init-only — probe-pinned). The capture-lifting write scans already
+walk kind-8 chains to the root name, so member-written roots lift/classify correctly (verified).
+
+TWO old decline pins FLIPPED (param-receiver struct mutation; record field mutation — its
+"records may be init-only" rationale was probe-refuted in D-18a). TWO pre-existing DECL-level
+gaps probe-bisected and pinned as declines (NOT this arm): structs with CLASS-typed fields
+(oracle-accepted W11), and get/SET properties (the adapter parses both accessors, the emitter
+models get-only — the nested-setter write flips when set-accessors emit).
+
+**2-lens adversarial review (~70 value-compared probes): ZERO D-18b findings — every attack
+refuted** (captures/lifts: member-written roots lift or decline exactly as designed, order-
+independent; ldarga ordinals correct in static funcs, instance methods on classes AND structs,
+ctors, local functions, closures; mixed-chain aliasing — reference links share storage, value links
+copy — all match; compound opcode sweep incl. Div_Un/Concat/negative literals; widening
+sign-extends; idempotent re-routing; a mixed collections+member-writes+generics program matches).
+The review DID bisect one of this slice's decline pins to its true cause: the nested-receiver
+SETTER write `h.p.Value = 5` IS modeled and value-correct — the pinned decline was the decl
+kernel's member-ORDERING limit (the field/property loop stops at the first `id (` member, so a
+property declared AFTER a ctor never parses). Re-pinned: property-first ordering is now a PARITY
+case; the ordering limit is its own decline pin.
+
+**Pipeline-side defects found by the review (columnar declines them ALL — recorded for the oracle
+bundle):** (#23) string `-=`/`*=` is analyzer-ACCEPTED (no CS0019 analog) and
+EmitCompoundAssignmentOperation (ILCompiler.cs ~15904) falls through to raw `sub`/`mul` on object
+refs → AccessViolationException; the same fallthrough emits raw `add` on decimal members → SIGSEGV
+(the member-target variant of known defect #15 — same site; a fix chip was filed). (#24)
+enum-member writes (`Color.Red = Color.Green`) are accepted and emit unloadable field refs →
+MissingFieldException. NL322 RESIDUAL: BCL PROPERTY hops (`kvp.Value.X = 5` in a dict foreach)
+still accept-and-lose pipeline-side — the conservative classifier cannot resolve
+GenericTypeInfo-typed owners (KeyValuePair) so it stays silent by design; columnar declines the
+shape. Postfix `s.X++` on member targets: pipeline accepts (columnar declines — a small later
+rung).
+
+Parity: `ColumnarCodegen_Parity_MemberWrites` — 16 value functions (struct param local-vis +
+caller-copy, class/record locals + params, nested struct-in-struct, struct-of-class, 3-deep
+class→class→struct tail, nested-via-param, whole-struct field stores, compound struct/class/nested,
+foreach-var copy semantics 51, nested property setter) + NL322 both-side pins (List<S> indexer +
+call-result receivers: pipeline rejects AND columnar declines) + declines (closed-generic
+receivers — field-handle rebind rung; class-typed struct fields; the member-ordering limit).
+314/314 dogfood; focused suite green; gate (see commit). NEXT (retirement-map queue): **Arc M
+interleave (M1 checksum extraction FIRST; pull the queued strings-interpolation rung forward to
+ride with it)** → async → interfaces → route-all **(gate: Phase P port to columnar)** → emitter
+port **(gate: SoA table design doc)**. Post-self-host perf queue opens with match→IL-switch.
+
+---
+
 ## 2026-06-12 — D-18a ORACLE FIX: defect #22 — member writes through nested receivers were SILENTLY LOST (+ NL322, the CS1612 analog)
 
 The D-18 recon's 24-probe oracle sweep found the pipeline UNSOUND for the exact shapes the slice

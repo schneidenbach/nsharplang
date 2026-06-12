@@ -3746,8 +3746,8 @@ class B
         AssertColumnarProgramMatchesCSharp(nested,
             ("combine", new object[] { 10, 3 }), ("combine", new object[] { -5, 5 }));
 
-        // A PARAM-receiver field mutation declines this slice (only `:=` local receivers are modelled) -> C# fallback.
-        Assert.False(RouteColumnarProgram("struct P {\n    X: int\n}\n\nfunc f(p: P): int {\n    p.X = 9\n    return p.X\n}\n").Ok);
+        // (PARAM-receiver field mutation FLIPPED — D-18b models it via ldarga; parity lives in
+        // ColumnarCodegen_Parity_MemberWrites: structParam/structParamCopy/paramNested.)
     }
 
     // STRUCT slice 3 — INSTANCE METHODS. A struct method (parameterless, scalar-returning) reads its own fields by
@@ -3834,10 +3834,10 @@ class B
         var fields = pointType.GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
         Assert.Equal(new[] { "X", "Y" }, fields.Select(f => f.Name).ToArray());
 
-        // DECLINES (slice scope): a record field MUTATION (records may be init-only; case-23 field write is for a
-        // `:=` local value-struct only). (Record METHODS are now SUPPORTED — see ColumnarCodegen_Parity_ClassObjectInitAndMethods,
-        // which constructs `Pt` with a `Manhattan()` method; classes too.)
-        Assert.False(RouteColumnarProgram("record R {\n    X: int\n}\n\nfunc f(a: int): int {\n    p := new R { X: a }\n    p.X = 9\n    return p.X\n}\n").Ok);
+        // (Record field MUTATION FLIPPED — records are NOT init-only in the pipeline (probe-pinned
+        // `r.X = 5` -> 5) and D-18b models reference-receiver field writes; parity lives in
+        // ColumnarCodegen_Parity_MemberWrites: recordLocal. Record METHODS are likewise supported —
+        // see ColumnarCodegen_Parity_ClassObjectInitAndMethods.)
     }
 
     // UNION — the FOURTH user-defined type: a discriminated union, emitted as an ABSTRACT base reference class with a
@@ -4583,6 +4583,98 @@ class B
         Assert.False(RouteColumnarProgram("record List {\n    X: int\n}\n\nfunc f(): int {\n    l := new List<int>()\n    l.Add(3)\n    return l[0]\n}\n").Ok);
         Assert.False(RouteColumnarProgram("record List<T> {\n    v: T\n}\n\nfunc f(): int {\n    l := new List<int> { v: 5 }\n    return l.v\n}\n").Ok);
         Assert.False(RouteColumnarProgram("record Dictionary {\n    X: int\n}\n\nfunc f(): int {\n    d := new Dictionary<string, int>()\n    d[\"k\"] = 2\n    return d[\"k\"]\n}\n").Ok);
+    }
+
+    // D-18b: MEMBER WRITES through resolved receiver chains — struct PARAM receivers (ldarga),
+    // class/record LOCAL and PARAM receivers (reference stfld — record fields are NOT init-only in
+    // the pipeline, probe-pinned), NESTED field chains (ldflda through value links, ldfld through
+    // reference links, mirroring the post-#22 oracle's EmitAddressableExpression), property setters
+    // through nested reference receivers, and compound member writes (the dup'd-locator read-
+    // modify-write). Every expected value is pinned by the D-18 recon's post-fix oracle sweep.
+    [Fact]
+    public void ColumnarCodegen_Parity_MemberWrites()
+    {
+        var prog =
+            "struct S {\n    X: int\n}\n\n" +
+            "struct Inner {\n    X: int\n}\n\n" +
+            "struct Outer {\n    i: Inner\n}\n\n" +
+            "record R {\n    X: int\n}\n\n" +
+            "class C {\n    X: int\n    constructor(v: int) {\n        X = v\n    }\n}\n\n" +
+            "class Holder {\n    s: S\n    constructor(v: S) {\n        s = v\n    }\n}\n\n" +
+            "class B2 {\n    s: S\n    constructor(v: S) {\n        s = v\n    }\n}\n\n" +
+            "class A2 {\n    b: B2\n    constructor(v: B2) {\n        b = v\n    }\n}\n\n" +
+            // struct PARAM write: visible locally (ldarga slot write), invisible to the caller (copy).
+            "func setX(p: S): int {\n    p.X = 5\n    return p.X\n}\n\n" +
+            "func structParam(): int {\n    s := new S { X: 1 }\n    return setX(s)\n}\n\n" +
+            "func mutate(p: S): int {\n    p.X = 5\n    return 0\n}\n\n" +
+            "func structParamCopy(): int {\n    s := new S { X: 1 }\n    t := mutate(s)\n    return s.X + t\n}\n\n" +
+            // class/record LOCAL and PARAM field writes (reference semantics — caller-visible).
+            "func classLocal(): int {\n    c := new C(1)\n    c.X = 5\n    return c.X\n}\n\n" +
+            "func recordLocal(): int {\n    r := new R { X: 1 }\n    r.X = 5\n    return r.X\n}\n\n" +
+            "func setC(c: C): int {\n    c.X = 5\n    return 0\n}\n\n" +
+            "func classParam(): int {\n    c := new C(1)\n    t := setC(c)\n    return c.X + t\n}\n\n" +
+            // NESTED chains: struct-in-struct, struct-of-class, 3-deep with a struct tail,
+            // class-in-struct, and a nested write through a struct PARAM.
+            "func nestedStruct(): int {\n    o := new Outer { i: new Inner { X: 1 } }\n    o.i.X = 5\n    return o.i.X\n}\n\n" +
+            "func structOfClass(): int {\n    h := new Holder(new S { X: 1 })\n    h.s.X = 5\n    return h.s.X\n}\n\n" +
+            "func threeDeepStructTail(): int {\n    a := new A2(new B2(new S { X: 1 }))\n    a.b.s.X = 5\n    return a.b.s.X\n}\n\n" +
+            "func setNested(p: Outer): int {\n    p.i.X = 5\n    return p.i.X\n}\n\n" +
+            "func paramNested(): int {\n    return setNested(new Outer { i: new Inner { X: 1 } })\n}\n\n" +
+            // whole-struct field stores through reference and value receivers (pre-existing oracle
+            // behavior, now emitted columnar-side through the same chain arm).
+            "func wholeField(): int {\n    h := new Holder(new S { X: 1 })\n    h.s = new S { X: 5 }\n    o := new Outer { i: new Inner { X: 1 } }\n    o.i = new Inner { X: 6 }\n    return h.s.X + o.i.X * 10\n}\n\n" +
+            // COMPOUND member writes: struct local, class local, nested (the dup'd-locator shape).
+            "func compoundStruct(): int {\n    s := new S { X: 4 }\n    s.X += 1\n    return s.X\n}\n\n" +
+            "func compoundClass(): int {\n    c := new C(4)\n    c.X += 1\n    return c.X\n}\n\n" +
+            "func compoundNested(): int {\n    o := new Outer { i: new Inner { X: 2 } }\n    o.i.X += 3\n    return o.i.X\n}\n\n" +
+            // foreach loop var member write — N#'s value-copy semantics (the loop var is a mutable
+            // LOCAL copy; the list element is untouched), kept by design where C# rejects.
+            "func foreachVar(): int {\n    lst := new List<S>()\n    lst.Add(new S { X: 1 })\n    total := 0\n    foreach s in lst {\n        s.X = 5\n        total = total + s.X\n    }\n    return total * 10 + lst[0].X\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("structParam", System.Array.Empty<object>()),
+            ("structParamCopy", System.Array.Empty<object>()),
+            ("classLocal", System.Array.Empty<object>()),
+            ("recordLocal", System.Array.Empty<object>()),
+            ("classParam", System.Array.Empty<object>()),
+            ("nestedStruct", System.Array.Empty<object>()),
+            ("structOfClass", System.Array.Empty<object>()),
+            ("threeDeepStructTail", System.Array.Empty<object>()),
+            ("paramNested", System.Array.Empty<object>()),
+            ("wholeField", System.Array.Empty<object>()),
+            ("compoundStruct", System.Array.Empty<object>()),
+            ("compoundClass", System.Array.Empty<object>()),
+            ("compoundNested", System.Array.Empty<object>()),
+            ("foreachVar", System.Array.Empty<object>()));
+
+        // PROPERTY setter through a NESTED reference receiver — get/set properties ARE modeled
+        // (ColumnarCodegen_Parity_ClassGetSetProperty); the property must be declared BEFORE the
+        // constructor (the decl kernel's member-ordering limit, pinned below).
+        AssertColumnarProgramMatchesCSharp(
+            "class P {\n    backing: int\n    Value: int {\n        get {\n            return backing\n        }\n        set {\n            backing = value\n        }\n    }\n    constructor(v: int) {\n        backing = v\n    }\n}\n\n" +
+            "class H {\n    p: P\n    constructor(v: P) {\n        p = v\n    }\n}\n\n" +
+            "func propNested(): int {\n    h := new H(new P(1))\n    h.p.Value = 5\n    return h.p.Value\n}\n",
+            ("propNested", System.Array.Empty<object>()));
+
+        // DECLINES — pipeline-ACCEPTED shapes whose DECLARATIONS decline today (pre-existing
+        // modeling gaps, probe-bisected to the decl: NOT this slice's arm):
+        // a STRUCT with a CLASS-typed field (the oracle's W11 shape, value 5) — flips when
+        // reference-typed struct fields land;
+        Assert.False(RouteColumnarProgram("class C {\n    X: int\n    constructor(v: int) {\n        X = v\n    }\n}\n\nstruct Wrap {\n    c: C\n}\n\nfunc f(): int {\n    w := new Wrap { c: new C(1) }\n    w.c.X = 5\n    return w.c.X\n}\n").Ok);
+        // a PROPERTY declared AFTER a constructor — the decl kernel's field/property loop stops at
+        // the first `id (` member, so later accessors never parse (a member-ORDERING limit; the
+        // identical program with the property first ROUTES — review-bisected). Flips with kernel
+        // member-order generality.
+        Assert.False(RouteColumnarProgram("class P {\n    backing: int\n    constructor(v: int) {\n        backing = v\n    }\n    Value: int {\n        get {\n            return backing\n        }\n        set {\n            backing = value\n        }\n    }\n}\n\nclass H {\n    p: P\n    constructor(v: P) {\n        p = v\n    }\n}\n\nfunc f(): int {\n    h := new H(new P(1))\n    h.p.Value = 5\n    return h.p.Value\n}\n").Ok);
+
+        // DECLINES — pipeline-REJECTED receivers (NL322, the CS1612 analog): columnar must NEVER
+        // route them (parity by rejection via the fallback). Pin both sides.
+        AssertPipelineRejects("struct S {\n    X: int\n}\n\nfunc f(): int {\n    lst := new List<S>()\n    lst.Add(new S { X: 1 })\n    lst[0].X = 5\n    return lst[0].X\n}\n", "NL322");
+        Assert.False(RouteColumnarProgram("struct S {\n    X: int\n}\n\nfunc f(): int {\n    lst := new List<S>()\n    lst.Add(new S { X: 1 })\n    lst[0].X = 5\n    return lst[0].X\n}\n").Ok);
+        AssertPipelineRejects("struct S {\n    X: int\n}\n\nfunc mk(): S {\n    return new S { X: 1 }\n}\n\nfunc f(): int {\n    mk().X = 5\n    return 1\n}\n", "NL322");
+        Assert.False(RouteColumnarProgram("struct S {\n    X: int\n}\n\nfunc mk(): S {\n    return new S { X: 1 }\n}\n\nfunc f(): int {\n    mk().X = 5\n    return 1\n}\n").Ok);
+        // DECLINES — pipeline-ACCEPTED (safe under-accept, flips with the field-handle rebind rung):
+        // closed-generic receivers.
+        Assert.False(RouteColumnarProgram("record Box<T> {\n    v: T\n}\n\nfunc f(): int {\n    b := new Box<int> { v: 1 }\n    b.v = 5\n    return b.v\n}\n").Ok);
     }
 
     // RECORDS COMPLETION (Phase D) — `with` expressions + the synthesized VALUE members. PASS 0e

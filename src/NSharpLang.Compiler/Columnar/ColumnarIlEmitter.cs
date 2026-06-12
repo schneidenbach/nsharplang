@@ -4206,6 +4206,47 @@ public sealed class ColumnarIlEmitter
                         _il.Emit(OpCodes.Callvirt, idxRecvType.GetMethod("set_Item", new[] { idxKeyType, idxElemType })!);
                         return true;
                     }
+                    // A MEMBER compound target (`s.X += 1`, `c.X += 1`, `o.i.X += 3` — the post-#22
+                    // oracle shape): locator; dup; ldfld; value; op; stfld — the dup'd locator (an
+                    // address for value links, an object ref for reference links) makes the
+                    // read-modify-write hit the SAME storage. The scalar/string op set matches the
+                    // bare-local arm; decimal member compounds decline (unprobed — fallback).
+                    if (_kinds[compoundTarget] == 8)
+                    {
+                        if (!TryResolveMemberWriteChain(Child(compoundTarget, 0), out var compoundChain)
+                            || compoundChain.ReceiverType is not TypeBuilder compoundOwnerTb
+                            || FindDefByBuilder(compoundOwnerTb) is not { } compoundOwnerDef
+                            || !TryFindFieldOnChain(compoundOwnerDef, Text(compoundTarget), out var compoundMemberField))
+                            return false;
+                        var compoundMemberType = compoundMemberField.FieldType;
+                        if (compoundMemberType != typeof(string) && compoundMemberType != typeof(int)
+                            && compoundMemberType != typeof(long) && compoundMemberType != typeof(ulong)
+                            && compoundMemberType != typeof(double) && compoundMemberType != typeof(float))
+                            return false;
+                        EmitMemberWriteLocator(compoundChain);
+                        _il.Emit(OpCodes.Dup);
+                        _il.Emit(OpCodes.Ldfld, compoundMemberField);
+                        if (!TryEmitIntLiteralAsType(Child(expr, 1), compoundMemberType, out var compoundMemberValueType)
+                            && (!EmitExpression(Child(expr, 1), out compoundMemberValueType)
+                                || !TypesEquivalent(compoundMemberValueType, compoundMemberType)))
+                            return false;
+                        if (compoundMemberType == typeof(string))
+                        {
+                            if (assignOp != "+=")
+                                return false;
+                            _il.Emit(OpCodes.Call, typeof(string).GetMethod(nameof(string.Concat), new[] { typeof(string), typeof(string) })!);
+                        }
+                        else
+                        {
+                            _il.Emit(
+                                assignOp == "+=" ? OpCodes.Add :
+                                assignOp == "-=" ? OpCodes.Sub :
+                                assignOp == "*=" ? OpCodes.Mul :
+                                compoundMemberType == typeof(ulong) ? OpCodes.Div_Un : OpCodes.Div);
+                        }
+                        _il.Emit(OpCodes.Stfld, compoundMemberField);
+                        return true;
+                    }
                     if (_kinds[compoundTarget] != 6)
                         return false;
                     var compoundName = Text(compoundTarget);
@@ -4348,53 +4389,58 @@ public sealed class ColumnarIlEmitter
                             return false;
                         }
                     }
-                    // PROPERTY setter write `receiver.Name = value` on a reference type: emit the receiver ref, the
-                    // value (type-checked against the property type), then `callvirt set_Name`. The receiver must be a
-                    // bare local/param (the modelled receiver forms) of a registered reference type with a settable
-                    // property `Name`. A get-only property (no setter) falls through and declines.
-                    if (_kinds[fieldReceiver] == 6)
+                    // MEMBER WRITES through a resolved receiver CHAIN (D-18b, mirroring the post-#22
+                    // oracle): roots are bare LOCALS and PARAMS; hops are instance FIELDS (`p.X = v`
+                    // on struct params, `c.X = v` on class/record locals and params, `o.i.X = v`,
+                    // `h.s.X = v`, `a.b.s.X = v`). The chain resolves BEFORE any emission (the
+                    // emit-ownership rule). A FIELD write emits locator; value; stfld — stfld accepts
+                    // an object ref OR a managed pointer, so value links use ldloca/ldarga/ldflda and
+                    // reference links ldloc/ldarg/ldfld and the chain composes uniformly. A PROPERTY
+                    // write needs a REFERENCE final receiver (value-type properties stay declined):
+                    // locator; value; callvirt setter. Record fields are NOT init-only in the pipeline
+                    // (probe-pinned `r.X = 5` -> 5) — they write exactly like class fields. DECLINES:
+                    // indexer/call-result receivers (pipeline-REJECTED, NL322 — parity by rejection
+                    // via the fallback), lifted/captured roots (the capture-mutation family stays
+                    // conservative), and closed-generic receivers (`Box<int>` — a later rebind rung).
+                    if (TryResolveMemberWriteChain(fieldReceiver, out var writeChain)
+                        && writeChain.ReceiverType is TypeBuilder writeOwnerTb
+                        && FindDefByBuilder(writeOwnerTb) is { } writeOwnerDef)
                     {
-                        var recvName = Text(fieldReceiver);
-                        Type? recvStaticType = null;
-                        if (_locals.TryGetValue(recvName, out var recvLocalForProp))
-                            recvStaticType = recvLocalForProp.LocalType;
-                        else if (_paramTypes.TryGetValue(recvName, out var recvParamType))
-                            recvStaticType = recvParamType;
-                        if (recvStaticType is TypeBuilder)
+                        if (TryFindFieldOnChain(writeOwnerDef, memberName, out var writeField))
                         {
-                            foreach (var d in _structRegistry.Values)
+                            EmitMemberWriteLocator(writeChain);
+                            Type writeValueType;
+                            if (TryEmitIntLiteralAsType(Child(expr, 1), writeField.FieldType, out writeValueType))
                             {
-                                if (d.Builder == recvStaticType && d.IsReference
-                                    && TryFindPropertyOnChain(d, memberName, out var propWrite) && propWrite.Setter != null)
-                                {
-                                    if (!EmitExpression(fieldReceiver, out _))
-                                        return false;
-                                    if (!EmitExpression(Child(expr, 1), out var setValueType) || setValueType != propWrite.PropertyType)
-                                        return false;
-                                    _il.Emit(OpCodes.Callvirt, propWrite.Setter);
-                                    return true;
-                                }
+                                // constant adoption (`s.B = 5` on a small-int field).
                             }
+                            else if (TryEmitNullLiteralAsType(Child(expr, 1), writeField.FieldType, out writeValueType))
+                            {
+                                // `c.name = null` on a reference-typed field.
+                            }
+                            else if (!EmitExpression(Child(expr, 1), out writeValueType))
+                            {
+                                return false;
+                            }
+                            if (!TypesEquivalent(writeValueType, writeField.FieldType)
+                                && !TryEmitImplicitWidening(writeValueType, writeField.FieldType))
+                                return false;
+                            _il.Emit(OpCodes.Stfld, writeField);
+                            return true;
+                        }
+                        if (writeOwnerDef.IsReference
+                            && TryFindPropertyOnChain(writeOwnerDef, memberName, out var writeProp)
+                            && writeProp.Setter != null)
+                        {
+                            EmitMemberWriteLocator(writeChain);
+                            if (!EmitExpression(Child(expr, 1), out var writePropValueType)
+                                || !TypesEquivalent(writePropValueType, writeProp.PropertyType))
+                                return false;
+                            _il.Emit(OpCodes.Callvirt, writeProp.Setter);
+                            return true;
                         }
                     }
-                    // VALUE-TYPE struct field write: the receiver is a `:=` LOCAL of a registered struct type; the
-                    // field is mutated IN PLACE via the local's ADDRESS (ldloca; <value>; stfld). A param receiver, a
-                    // nested receiver (`p.q.X`), or a non-struct/non-field target declines (no modelled addressable
-                    // storage; a RECORD field may be init-only) → C# fallback.
-                    if (_kinds[fieldReceiver] != 6 || !_locals.TryGetValue(Text(fieldReceiver), out var recLocal))
-                        return false;
-                    ColumnarStructDef? targetStruct = null;
-                    foreach (var d in _structRegistry.Values)
-                    {
-                        if (d.Builder == recLocal.LocalType) { targetStruct = d; break; }
-                    }
-                    if (targetStruct == null || targetStruct.IsReference || !targetStruct.Fields.TryGetValue(memberName, out var targetField))
-                        return false;
-                    _il.Emit(OpCodes.Ldloca, recLocal);
-                    if (!EmitExpression(Child(expr, 1), out var fieldValueType) || fieldValueType != targetField.FieldType)
-                        return false;
-                    _il.Emit(OpCodes.Stfld, targetField);
-                    return true;
+                    return false;
                 }
 
                 if (_kinds[target] != 6)
@@ -8259,6 +8305,108 @@ public sealed class ColumnarIlEmitter
         else
             _il.Emit(OpCodes.Starg, index);
     }
+
+    private void EmitLoadArgumentAddress(int index)
+    {
+        // _paramOrdinals already carry the instance-method `this` shift — never re-shift here.
+        if (index <= 255)
+            _il.Emit(OpCodes.Ldarga_S, (byte)index);
+        else
+            _il.Emit(OpCodes.Ldarga, index);
+    }
+
+    // The resolved WRITE-RECEIVER chain of a member assignment: a root local/param plus zero or more
+    // instance-FIELD hops (the `p.q` of `p.q.X = v`). Resolution is EMISSION-FREE so a failed chain
+    // declines cleanly (the emit-ownership rule); EmitMemberWriteLocator then emits the owner value
+    // an stfld/ldfld/ldflda/callvirt-setter consumes — an ADDRESS for value-typed links
+    // (ldloca/ldarga/ldflda), an OBJECT REF for reference-typed links (ldloc/ldarg/ldfld). stfld and
+    // ldflda accept either owner form, so the chain composes uniformly — mirroring the oracle's
+    // fixed EmitAddressableExpression (defect #22).
+    private readonly struct ColumnarMemberWriteChain
+    {
+        public ColumnarMemberWriteChain(LocalBuilder? rootLocal, int rootParamOrdinal, Type rootType, List<FieldBuilder> hops, Type receiverType)
+        {
+            RootLocal = rootLocal;
+            RootParamOrdinal = rootParamOrdinal;
+            RootType = rootType;
+            Hops = hops;
+            ReceiverType = receiverType;
+        }
+
+        public LocalBuilder? RootLocal { get; }
+        public int RootParamOrdinal { get; }
+        public Type RootType { get; }
+        public List<FieldBuilder> Hops { get; }
+        public Type ReceiverType { get; }
+    }
+
+    private bool TryResolveMemberWriteChain(int node, out ColumnarMemberWriteChain chain)
+    {
+        chain = default;
+        // Collect kind-8 hops outermost-first down to the root, which must be a BARE name: indexer
+        // and call-result receivers are pipeline-REJECTED writes (NL322 — parity by rejection via
+        // the fallback) and never emit here.
+        var hopNodes = new List<int>();
+        var cursor = node;
+        while (_kinds[cursor] == 8)
+        {
+            hopNodes.Add(cursor);
+            cursor = Child(cursor, 0);
+        }
+        if (_kinds[cursor] != 6)
+            return false;
+        var rootName = Text(cursor);
+        if (_liftedLocals.ContainsKey(rootName) || (_boxedCaptures != null && _boxedCaptures.ContainsKey(rootName)))
+            return false; // lifted/captured roots stay declined — the capture-mutation family is conservative.
+        LocalBuilder? rootLocal = null;
+        var rootParamOrdinal = -1;
+        Type rootType;
+        if (_locals.TryGetValue(rootName, out var local))
+        {
+            rootLocal = local;
+            rootType = local.LocalType;
+        }
+        else if (_paramOrdinals.TryGetValue(rootName, out var ordinal))
+        {
+            rootParamOrdinal = ordinal;
+            rootType = _paramTypes[rootName];
+        }
+        else
+        {
+            return false; // a sibling/type/unknown name is not a variable root.
+        }
+        var hops = new List<FieldBuilder>(hopNodes.Count);
+        var current = rootType;
+        for (var h = hopNodes.Count - 1; h >= 0; h--) // innermost hop (adjacent to the root) first.
+        {
+            if (current is not TypeBuilder hopOwner
+                || FindDefByBuilder(hopOwner) is not { } hopDef
+                || !TryFindFieldOnChain(hopDef, Text(hopNodes[h]), out var hopField))
+                return false; // non-registered owners (closed generics, BCL) and non-field hops decline.
+            hops.Add(hopField);
+            current = hopField.FieldType;
+        }
+        chain = new ColumnarMemberWriteChain(rootLocal, rootParamOrdinal, rootType, hops, current);
+        return true;
+    }
+
+    private void EmitMemberWriteLocator(in ColumnarMemberWriteChain chain)
+    {
+        if (chain.RootLocal != null)
+            _il.Emit(IsReferenceWriteLink(chain.RootType) ? OpCodes.Ldloc : OpCodes.Ldloca, chain.RootLocal);
+        else if (IsReferenceWriteLink(chain.RootType))
+            EmitLoadArgument(chain.RootParamOrdinal);
+        else
+            EmitLoadArgumentAddress(chain.RootParamOrdinal);
+        foreach (var hop in chain.Hops)
+            _il.Emit(IsReferenceWriteLink(hop.FieldType) ? OpCodes.Ldfld : OpCodes.Ldflda, hop);
+    }
+
+    // Whether a chain link is traversed as an object REFERENCE (ldloc/ldarg/ldfld) or by ADDRESS
+    // (ldloca/ldarga/ldflda): registered user types answer by their IsReference flag; anything else
+    // by CLR value-typeness (IsValueType is TBI-safe — spike-pinned).
+    private bool IsReferenceWriteLink(Type t)
+        => t is TypeBuilder tb && FindDefByBuilder(tb) is { } def ? def.IsReference : !t.IsValueType;
 
     private int Child(int idx, int n) => _childIndices[_childStart[idx] + n];
 
