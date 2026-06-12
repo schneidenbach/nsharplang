@@ -921,6 +921,21 @@ internal static class NSharpCompilerDogfoodAdapter
     // (TopLevelStructIndices), and parses its body via the ParseStructDeclaration kernel. Returns true (possibly an
     // empty list) for a program with no structs. Returns FALSE — declining the whole program to C# — on any parse
     // failure (a primary-ctor struct, a method, a field initializer, a composed field type, an empty struct).
+    // Strip ALL whitespace from a multi-token type SOURCE SPAN so it lands on the canonical grammar
+    // (canonicals never contain spaces). Single-token spans pass through unchanged.
+    private static string StripTypeSpanWhitespace(string span)
+    {
+        if (span.IndexOf('<') < 0)
+            return span;
+        var sb = new System.Text.StringBuilder(span.Length);
+        foreach (var c in span)
+        {
+            if (!char.IsWhiteSpace(c))
+                sb.Append(c);
+        }
+        return sb.ToString();
+    }
+
     private static bool TryGetColumnarStructInputs(string source, out System.Collections.Generic.List<Columnar.ColumnarStructInput> structs)
     {
         structs = new System.Collections.Generic.List<Columnar.ColumnarStructInput>();
@@ -1023,7 +1038,10 @@ internal static class NSharpCompilerDogfoodAdapter
                 for (var f = 0; f < fieldCount; f++)
                 {
                     fieldNames[f] = source.Substring(outFieldNameStarts[f], outFieldNameLengths[f]);
-                    fieldTypes[f] = source.Substring(outFieldTypeStarts[f], outFieldTypeLengths[f]);
+                    // A composed generic field type (`Items: List<int>`) is a multi-token SOURCE SPAN —
+                    // whitespace-strip it onto the canonical grammar (`Dictionary<string, Pt>` ->
+                    // `Dictionary<string,Pt>`), exactly like the kind-40 typed-local spans.
+                    fieldTypes[f] = StripTypeSpanWhitespace(source.Substring(outFieldTypeStarts[f], outFieldTypeLengths[f]));
                     fieldStatics[f] = outFieldStaticFlags[f] == 1;
                     fieldInitKinds[f] = outFieldInitKinds[f];
                     fieldInitTexts[f] = outFieldInitKinds[f] >= 0

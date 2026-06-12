@@ -682,15 +682,18 @@ public sealed class ColumnarIlEmitter
         || IsSupportedDelegateType(t)             // a closed System.Func/Action over baked runtime types (L1a)
         || IsSupportedCollectionType(t);          // a closed List<T>/Dictionary<K,V> over baked runtime types
 
-    // A closed KeyValuePair<K,V> over baked runtime args — the Dictionary foreach loop variable's type
-    // (only that path produces it; .Key/.Value resolve via the case-8 KVP arms).
+    // A closed KeyValuePair<K,V> — the Dictionary foreach loop variable's type (only that path produces
+    // it; .Key/.Value resolve via the case-8 KVP arms). Builder-bound instantiations (KeyValuePair over a
+    // TypeBuilder value) qualify: GetGenericTypeDefinition works on a TypeBuilderInstantiation (spike-proven)
+    // and the getters rebind.
     private static bool IsSupportedKeyValuePairType(Type t)
         => t.IsGenericType && !t.IsGenericTypeDefinition && t is not TypeBuilder
            && t.GetGenericTypeDefinition() == typeof(KeyValuePair<,>);
 
-    // A closed BCL List<T>/Dictionary<K,V> over BAKED runtime type arguments (TryResolveType's collection
-    // branch only produces these — builder-typed arguments decline at resolution, so the closed type's
-    // members reflect normally).
+    // A closed BCL List<T>/Dictionary<K,V>. Type arguments may be baked runtime types OR builder-bound
+    // (a user TypeBuilder element / a generic function's own T) — TryResolveType's collection branches
+    // gate WHICH arguments are admissible; member binding routes through ResolveClosedGenericMethod/Ctor
+    // so builder-bound instantiations rebind from the open definition.
     private static bool IsSupportedCollectionType(Type t)
     {
         if (t is TypeBuilder || t is EnumBuilder || !t.IsGenericType || t.IsGenericTypeDefinition)
@@ -702,9 +705,107 @@ public sealed class ColumnarIlEmitter
         }
         catch (NotSupportedException)
         {
-            return false; // a TypeBuilderInstantiation — user generics route elsewhere.
+            return false;
         }
         return def == typeof(List<>) || def == typeof(Dictionary<,>);
+    }
+
+    // True when a type carries an UN-BAKED builder anywhere in its shape: a TypeBuilder/EnumBuilder/
+    // generic type parameter itself, an array over one, or a generic instantiation any of whose arguments
+    // does (List<Pt>, Dictionary<string,T>, KeyValuePair<string,Pt>, IEnumerable<Pt>, ...). Plain
+    // reflection member lookups (GetMethod/GetProperty/GetConstructor/GetField) throw NotSupportedException
+    // on such closed instantiations — members must REBIND from the open runtime definition. NOTE (spike-
+    // proven): neither `Module is ModuleBuilder` nor `Assembly is AssemblyBuilder` nor
+    // ContainsGenericParameters detects these — a BCL-headed TypeBuilderInstantiation reports the OPEN
+    // definition's CoreLib module/assembly, and ContainsGenericParameters is false even over an open T.
+    private static bool ContainsBuilderBoundType(Type t)
+    {
+        if (t is TypeBuilder || t is EnumBuilder || t.IsGenericParameter)
+            return true;
+        if (t.IsSZArray)
+            return ContainsBuilderBoundType(t.GetElementType()!);
+        if (!t.IsGenericType || t.IsGenericTypeDefinition)
+            return false;
+        Type def;
+        try
+        {
+            def = t.GetGenericTypeDefinition();
+        }
+        catch (NotSupportedException)
+        {
+            return true; // an exotic emitted instantiation — builder-bound by construction.
+        }
+        if (def is TypeBuilder)
+            return true; // a USER-headed closed instantiation (Box<int>): its very DEFINITION is un-baked
+                         // — every handle on it (and TypeHandle itself) is builder-bound even when all
+                         // arguments are baked (adversarial-review finding: the argument-only recursion
+                         // reported Box<int> as baked and routed it into the GetMethodFromHandle branch).
+        foreach (var arg in t.GetGenericArguments())
+        {
+            if (ContainsBuilderBoundType(arg))
+                return true;
+        }
+        return false;
+    }
+
+    // The production pipeline REJECTS closed-generic uses of `List<...>`/`Dictionary<...>` whenever a USER
+    // type with that name is also declared — NL207 for a non-generic user type, and for a user GENERIC
+    // List<T> the analyzer binds the BCL List and rejects its members (NL303, probe-pinned) — so neither
+    // the BCL collection arms nor the user-generic resolution may claim these heads: decline the canonical
+    // entirely (parity by rejection via the C# fallback). Adversarial-review finding, probe-confirmed.
+    private static bool IsCollectionHeadShadowedByUserType(string headName,
+        IReadOnlyDictionary<string, ColumnarEnumDef>? enumRegistry,
+        IReadOnlyDictionary<string, ColumnarStructDef>? structRegistry,
+        IReadOnlyDictionary<string, ColumnarUnionDef>? unionRegistry)
+        => (headName == "List" || headName == "Dictionary")
+           && ((enumRegistry?.ContainsKey(headName) ?? false)
+               || (structRegistry?.ContainsKey(headName) ?? false)
+               || (unionRegistry?.ContainsKey(headName) ?? false));
+
+    // Resolve a member of a CLOSED BCL generic instantiation from its OPEN definition's member handle:
+    // builder-bound instantiations rebind via TypeBuilder.GetMethod/GetConstructor (the only legal member
+    // resolution on a TypeBuilderInstantiation — the oracle's TryGetDeclaredGeneratedRuntimeMethod /
+    // BindRuntimeConstructorCall idiom); fully baked instantiations resolve the closed runtime handle.
+    private static MethodInfo ResolveClosedGenericMethod(Type closedType, MethodInfo openMethod)
+        => ContainsBuilderBoundType(closedType)
+            ? TypeBuilder.GetMethod(closedType, openMethod)
+            : (MethodInfo)MethodBase.GetMethodFromHandle(openMethod.MethodHandle, closedType.TypeHandle)!;
+
+    private static ConstructorInfo ResolveClosedGenericCtor(Type closedType, ConstructorInfo openCtor)
+        => ContainsBuilderBoundType(closedType)
+            ? TypeBuilder.GetConstructor(closedType, openCtor)
+            : (ConstructorInfo)MethodBase.GetMethodFromHandle(openCtor.MethodHandle, closedType.TypeHandle)!;
+
+    // The element/value types a collection may close over (the builder-element rebind rung):
+    // - a user TypeBuilder (record/class/struct under construction) — members rebind, probe-pinned working;
+    // - a nested admissible collection (List<List<Pt>>) — its own resolution already vetted the inner args;
+    // - the BAKED surface (scalars/string/baked closed generics) exactly as before.
+    // PINNED DECLINES (oracle-accepted, flip in later rungs): EnumBuilder elements (an un-baked EnumBuilder
+    // dies at ILGenerator.Emit token resolution — spike-proven; baking-first is a separate rung), user-headed
+    // closed generics (List<Box<int>>), and tuples/delegates over builders.
+    private static bool IsAdmissibleCollectionElement(Type t)
+    {
+        if (t is TypeBuilder)
+            return true;
+        if (t is EnumBuilder)
+            return false;
+        if (t.IsGenericType && !t.IsGenericTypeDefinition)
+        {
+            Type def;
+            try
+            {
+                def = t.GetGenericTypeDefinition();
+            }
+            catch (NotSupportedException)
+            {
+                return false;
+            }
+            if (def == typeof(List<>) || def == typeof(Dictionary<,>))
+                return true;
+            if (ContainsBuilderBoundType(t))
+                return false;
+        }
+        return IsSupportedType(t) && !ContainsBuilderBoundType(t);
     }
 
     // A closed System.Func/Action delegate over BAKED runtime types (the L1a delegate surface), or the bare
@@ -732,7 +833,9 @@ public sealed class ColumnarIlEmitter
             return false;
         foreach (var arg in t.GetGenericArguments())
         {
-            if (arg.Assembly is AssemblyBuilder || !IsSupportedType(arg))
+            // ContainsBuilderBoundType also catches builder-bound COLLECTION args (Func<List<Pt>,int>):
+            // a TBI's Assembly reports the OPEN definition's CoreLib assembly, never the AssemblyBuilder.
+            if (arg.Assembly is AssemblyBuilder || ContainsBuilderBoundType(arg) || !IsSupportedType(arg))
                 return false;
         }
         return true;
@@ -775,8 +878,10 @@ public sealed class ColumnarIlEmitter
             // CLOSED user-generic instantiations (Box<int>, Opt<int> — TypeBuilderInstantiation, not TypeBuilder)
             // have the identical reflection-throw behavior, so they are excluded by the same rule (adversarial-
             // review hardening — an uncaught NotSupportedException is a compiler crash, not a clean decline).
+            // Builder-bound COLLECTION elements ((int, List<Pt>)) are excluded by the same rule: the
+            // ValueTuple closed over them is a TypeBuilderInstantiation whose ctor/ItemN lookups throw.
             if (arg is EnumBuilder || arg is TypeBuilder || IsClosedUserGenericInstantiation(arg)
-                || IsSupportedDelegateType(arg) || !IsSupportedType(arg))
+                || IsSupportedDelegateType(arg) || ContainsBuilderBoundType(arg) || !IsSupportedType(arg))
                 return false;
         }
 
@@ -1257,8 +1362,11 @@ public sealed class ColumnarIlEmitter
 
     // A type a StrongBox<T> can be closed over and resolved by plain reflection: BAKED runtime, no
     // builders, no generic parameters (mirrors the delegate/tuple builder-arg exclusions).
+    // ContainsBuilderBoundType catches builder-bound collections (a captured+reassigned List<Pt> local)
+    // — Assembly/ContainsGenericParameters report baked-looking values on those TBIs (spike-proven).
     private static bool IsLiftableValueType(Type t) =>
-        IsSupportedType(t) && !(t.Assembly is AssemblyBuilder) && !t.IsGenericParameter && !t.ContainsGenericParameters;
+        IsSupportedType(t) && !(t.Assembly is AssemblyBuilder) && !t.IsGenericParameter
+        && !t.ContainsGenericParameters && !ContainsBuilderBoundType(t);
 
     private static FieldInfo StrongBoxValueField(Type valueType) =>
         typeof(System.Runtime.CompilerServices.StrongBox<>).MakeGenericType(valueType).GetField("Value")!;
@@ -1575,6 +1683,13 @@ public sealed class ColumnarIlEmitter
                 if (!gArgType.IsSZArray || !TryUnifyTypeParam(target.TypeParams, binding, declared.GetElementType()!, gArgType.GetElementType()!))
                     return false;
             }
+            else if (declared.IsGenericType && !declared.IsGenericTypeDefinition)
+            {
+                // A generic-CONTAINER parameter (`items: List<T>`, `Dictionary<string, T>`, or a fully
+                // concrete List<Pt>): unify structurally — List<int> against List<T> binds T=int.
+                if (!TryUnifyGenericContainer(target.TypeParams, binding, declared, gArgType))
+                    return false;
+            }
             else if (declared != gArgType)
             {
                 return false;
@@ -1657,8 +1772,10 @@ public sealed class ColumnarIlEmitter
         }
         if (pos < 0)
             return false; // a type parameter from some other scope — not resolvable here.
-        if (actual is TypeBuilder || actual is EnumBuilder)
-            return false; // instantiating over an un-baked user type is a Reflection.Emit hazard — decline.
+        if (!actual.IsGenericParameter && ContainsBuilderBoundType(actual))
+            return false; // T must bind a BAKED type (or the caller's own open param): builder-bound
+                          // bindings (T=Pt, T=List<Pt>) stay declined — constraint enforcement and
+                          // MakeGenericMethod reflect on the binding (GetConstructor throws on a TBI).
         if (!actual.IsGenericParameter && !IsSupportedType(actual))
             return false;
         if (binding[pos] == null)
@@ -1667,6 +1784,52 @@ public sealed class ColumnarIlEmitter
             return true;
         }
         return ReferenceEquals(binding[pos], actual) || binding[pos] == actual;
+    }
+
+    // Structurally unify a declared generic-CONTAINER parameter (List<T>, Dictionary<string,T>, nested
+    // shapes, or a fully concrete List<Pt>) against the argument's actual type: the definitions must
+    // match, then each declared argument either IS one of the callee's type parameters (TryUnifyTypeParam
+    // binds or checks it), recurses as a nested container, or must be structurally the same type.
+    // Mirrors the oracle's TryCollectGenericBindings recursion (ILCompiler.cs ~6754).
+    private static bool TryUnifyGenericContainer(Type[] typeParams, Type?[] binding, Type declared, Type actual)
+    {
+        if (!actual.IsGenericType || actual.IsGenericTypeDefinition)
+            return false;
+        Type declaredDef, actualDef;
+        try
+        {
+            declaredDef = declared.GetGenericTypeDefinition();
+            actualDef = actual.GetGenericTypeDefinition();
+        }
+        catch (NotSupportedException)
+        {
+            return false;
+        }
+        if (!ReferenceEquals(declaredDef, actualDef))
+            return false;
+        var declaredArgs = declared.GetGenericArguments();
+        var actualArgs = actual.GetGenericArguments();
+        if (declaredArgs.Length != actualArgs.Length)
+            return false;
+        for (var i = 0; i < declaredArgs.Length; i++)
+        {
+            var d = declaredArgs[i];
+            if (d.IsGenericParameter)
+            {
+                if (!TryUnifyTypeParam(typeParams, binding, d, actualArgs[i]))
+                    return false;
+            }
+            else if (d.IsGenericType && !d.IsGenericTypeDefinition)
+            {
+                if (!TryUnifyGenericContainer(typeParams, binding, d, actualArgs[i]))
+                    return false;
+            }
+            else if (!TypesEquivalent(d, actualArgs[i]))
+            {
+                return false;
+            }
+        }
+        return true;
     }
 
     // Substitute an inferred binding into a generic sibling's declared RETURN type: T -> binding, T[] ->
@@ -1715,6 +1878,37 @@ public sealed class ColumnarIlEmitter
                     return false;
             }
             substituted = declaredReturn.GetGenericTypeDefinition().MakeGenericType(substitutedArgs);
+            return true;
+        }
+        // A builder-bound BCL-COLLECTION return (`func same<T>(items: List<T>): List<T>`, or List<Pt>):
+        // substitute each argument by the binding and re-close the RUNTIME definition — with baked
+        // bindings this yields a real runtime List<int>, so the caller's downstream member binding
+        // reflects normally. This arm MUST intercept every builder-bound instantiation: the defensive
+        // ContainsGenericParameters tail below reports FALSE on a TypeBuilderInstantiation even over an
+        // open T (spike-proven), so falling through would leak an open MVAR into the caller (the exact
+        // BadImageFormatException class the user-generic arm above guards against). Fully BAKED generic
+        // returns (concrete tuples) keep falling through to the tail unchanged.
+        if (declaredReturn.IsGenericType && !declaredReturn.IsGenericTypeDefinition && ContainsBuilderBoundType(declaredReturn))
+        {
+            Type returnDef;
+            try
+            {
+                returnDef = declaredReturn.GetGenericTypeDefinition();
+            }
+            catch (NotSupportedException)
+            {
+                return false;
+            }
+            if (returnDef != typeof(List<>) && returnDef != typeof(Dictionary<,>))
+                return false; // an unmodelled builder-bound generic return — decline, never leak it open.
+            var collectionArgs = declaredReturn.GetGenericArguments();
+            var substitutedCollectionArgs = new Type[collectionArgs.Length];
+            for (var a = 0; a < collectionArgs.Length; a++)
+            {
+                if (!TrySubstituteReturnType(typeParams, binding, collectionArgs[a], out substitutedCollectionArgs[a]))
+                    return false;
+            }
+            substituted = returnDef.MakeGenericType(substitutedCollectionArgs);
             return true;
         }
         // Defensively refuse any OTHER shape still containing a generic parameter (the fallthrough below
@@ -1843,7 +2037,48 @@ public sealed class ColumnarIlEmitter
         var genericOpen = canonical.IndexOf('<');
         if (genericOpen > 0 && canonical[^1] == '>' && canonical[0] != '(')
         {
-            return TryResolveClosedUserGeneric(canonical, genericOpen, typeParams, enumRegistry, structRegistry, unionRegistry, out type);
+            // The same List/Dictionary head-shadowing decline as TryResolveType's generic block.
+            if (IsCollectionHeadShadowedByUserType(canonical.Substring(0, genericOpen), enumRegistry, structRegistry, unionRegistry))
+            {
+                type = null!;
+                return false;
+            }
+            if (TryResolveClosedUserGeneric(canonical, genericOpen, typeParams, enumRegistry, structRegistry, unionRegistry, out type))
+                return true;
+            // BCL COLLECTIONS over in-scope type parameters (`items: List<T>`, `Dictionary<string, T>`
+            // in a generic function's SIGNATURE): close the runtime definition over the threaded
+            // resolution so the element lands on the GenericTypeParameterBuilder. The same key/element
+            // rules as TryResolveType's collection branches apply — keys must be baked (no T keys).
+            if (genericOpen == 4 && canonical.StartsWith("List<", StringComparison.Ordinal))
+            {
+                var listArgCanons = SplitTopLevelCommas(canonical.Substring(5, canonical.Length - 6));
+                if (listArgCanons.Count == 1
+                    && TryResolveTypeWithTypeParams(listArgCanons[0], typeParams, enumRegistry, structRegistry, unionRegistry, out var listElement)
+                    && (listElement is GenericTypeParameterBuilder || IsAdmissibleCollectionElement(listElement)))
+                {
+                    type = typeof(List<>).MakeGenericType(listElement);
+                    return true;
+                }
+                type = null!;
+                return false;
+            }
+            if (genericOpen == 10 && canonical.StartsWith("Dictionary<", StringComparison.Ordinal))
+            {
+                var dictArgCanons = SplitTopLevelCommas(canonical.Substring(11, canonical.Length - 12));
+                if (dictArgCanons.Count == 2
+                    && TryResolveTypeWithTypeParams(dictArgCanons[0], typeParams, enumRegistry, structRegistry, unionRegistry, out var dictKey)
+                    && TryResolveTypeWithTypeParams(dictArgCanons[1], typeParams, enumRegistry, structRegistry, unionRegistry, out var dictValue)
+                    && !ContainsBuilderBoundType(dictKey)
+                    && (dictValue is GenericTypeParameterBuilder || IsAdmissibleCollectionElement(dictValue)))
+                {
+                    type = typeof(Dictionary<,>).MakeGenericType(dictKey, dictValue);
+                    return true;
+                }
+                type = null!;
+                return false;
+            }
+            type = null!;
+            return false;
         }
         return TryResolveType(canonical, enumRegistry, structRegistry, unionRegistry, out type);
     }
@@ -2067,6 +2302,14 @@ public sealed class ColumnarIlEmitter
         var closedGenericOpen = canonical.IndexOf('<');
         if (closedGenericOpen > 0 && canonical[^1] == '>')
         {
+            // A user type NAMED List/Dictionary shadows the BCL heads → the pipeline rejects every
+            // closed-generic use of that head (and binds inconsistently between analyzer and emitter
+            // for generic ones) — decline before EITHER resolution can claim it.
+            if (IsCollectionHeadShadowedByUserType(canonical.Substring(0, closedGenericOpen), enumRegistry, structRegistry, unionRegistry))
+            {
+                type = null!;
+                return false;
+            }
             if (TryResolveClosedUserGeneric(canonical, closedGenericOpen, null, enumRegistry, structRegistry, unionRegistry, out type))
                 return true;
             if (closedGenericOpen == 6 && canonical.StartsWith("Action<", StringComparison.Ordinal))
@@ -2075,17 +2318,20 @@ public sealed class ColumnarIlEmitter
                     canonical.Substring(7, canonical.Length - 8), hasReturnSlot: false,
                     enumRegistry, structRegistry, unionRegistry, out type);
             }
-            // BCL COLLECTIONS — `List<T>` / `Dictionary<K,V>` close over the runtime generics, resolved
-            // AFTER user generics (a user-declared List<T> wins, the Action precedent). Type arguments
-            // are restricted to BAKED runtime types this rung (scalars/string/nested collections —
-            // builder-typed elements would make every member binding a TypeBuilderInstantiation rebind;
-            // List<UserRecord> declines for now, probe-pinned as a working oracle shape for a later rung).
+            // BCL COLLECTIONS — `List<T>` / `Dictionary<K,V>` close over the runtime generics. A USER type
+            // named List/Dictionary shadows the head entirely (declined above — the pipeline REJECTS such
+            // uses; the Action-style "user wins" ordering does NOT hold for these heads). Elements may be
+            // user TypeBuilders or nested collections (the builder-element rebind rung — member binding
+            // rebinds via ResolveClosedGenericMethod/Ctor); IsAdmissibleCollectionElement pins what stays
+            // out. Dictionary KEYS must stay BAKED: a builder-keyed dictionary's runtime hashing rides the
+            // key type's synthesized Equals/GetHashCode, and the columnar PASS 0e synthesis-skip rules
+            // (builder-typed-field records get none) would diverge from the oracle — pinned decline.
             if (closedGenericOpen == 4 && canonical.StartsWith("List<", StringComparison.Ordinal))
             {
                 var listArgCanons = SplitTopLevelCommas(canonical.Substring(5, canonical.Length - 6));
                 if (listArgCanons.Count == 1
                     && TryResolveType(listArgCanons[0], enumRegistry, structRegistry, unionRegistry, out var listElement)
-                    && listElement.Module is not System.Reflection.Emit.ModuleBuilder)
+                    && IsAdmissibleCollectionElement(listElement))
                 {
                     type = typeof(List<>).MakeGenericType(listElement);
                     return true;
@@ -2099,8 +2345,8 @@ public sealed class ColumnarIlEmitter
                 if (dictArgCanons.Count == 2
                     && TryResolveType(dictArgCanons[0], enumRegistry, structRegistry, unionRegistry, out var dictKey)
                     && TryResolveType(dictArgCanons[1], enumRegistry, structRegistry, unionRegistry, out var dictValue)
-                    && dictKey.Module is not System.Reflection.Emit.ModuleBuilder
-                    && dictValue.Module is not System.Reflection.Emit.ModuleBuilder)
+                    && !ContainsBuilderBoundType(dictKey)
+                    && IsAdmissibleCollectionElement(dictValue))
                 {
                     type = typeof(Dictionary<,>).MakeGenericType(dictKey, dictValue);
                     return true;
@@ -2862,7 +3108,11 @@ public sealed class ColumnarIlEmitter
             var fieldsBaked = true;
             foreach (var fieldName in def.FieldOrder)
             {
-                if (def.Fields[fieldName].FieldType.Module is System.Reflection.Emit.ModuleBuilder)
+                // ContainsBuilderBoundType, not a Module test: a builder-bound COLLECTION field
+                // (xs: List<Pt>) reports the open definition's CoreLib module, but
+                // EqualityComparer<List<Pt>>.Default reflection in the synthesized members would
+                // throw — such records skip synthesis exactly like directly builder-typed fields.
+                if (ContainsBuilderBoundType(def.Fields[fieldName].FieldType))
                 {
                     fieldsBaked = false;
                     break;
@@ -3905,6 +4155,11 @@ public sealed class ColumnarIlEmitter
                         if (!EmitExpression(Child(compoundTarget, 0), out var idxRecvType)
                             || !IsSupportedCollectionType(idxRecvType))
                             return false;
+                        // Builder-bound collections never have the scalar/string elements compound
+                        // assignment requires — decline BEFORE reflecting (plain GetMethod below
+                        // throws NotSupportedException on a TypeBuilderInstantiation).
+                        if (ContainsBuilderBoundType(idxRecvType))
+                            return false;
                         var idxRecvDef = idxRecvType.GetGenericTypeDefinition();
                         var idxKeyType = idxRecvDef == typeof(List<>) ? typeof(int) : idxRecvType.GetGenericArguments()[0];
                         var idxElemType = idxRecvDef == typeof(List<>) ? idxRecvType.GetGenericArguments()[0] : idxRecvType.GetGenericArguments()[1];
@@ -4026,20 +4281,22 @@ public sealed class ColumnarIlEmitter
                     if (!EmitExpression(Child(target, 0), out var arrayType))
                         return false;
                     // A closed List<T>/Dictionary<K,V> indexer WRITE — callvirt set_Item(int|K, T|V)
-                    // (the dominant Dictionary shape `d[k] = v`, probe-pinned incl. overwrite).
+                    // (the dominant Dictionary shape `d[k] = v`, probe-pinned incl. overwrite);
+                    // resolved from the open definition so builder-bound receivers rebind.
                     if (IsSupportedCollectionType(arrayType))
                     {
-                        var setIdxType = arrayType.GetGenericTypeDefinition() == typeof(List<>)
+                        var setDef = arrayType.GetGenericTypeDefinition();
+                        var setIdxType = setDef == typeof(List<>)
                             ? typeof(int)
                             : arrayType.GetGenericArguments()[0];
-                        var setValType = arrayType.GetGenericTypeDefinition() == typeof(List<>)
+                        var setValType = setDef == typeof(List<>)
                             ? arrayType.GetGenericArguments()[0]
                             : arrayType.GetGenericArguments()[1];
                         if (!EmitArg(target, 1, setIdxType))
                             return false;
                         if (!EmitExpression(Child(expr, 1), out var setValueType) || !TypesEquivalent(setValueType, setValType))
                             return false;
-                        _il.Emit(OpCodes.Callvirt, arrayType.GetMethod("set_Item", new[] { setIdxType, setValType })!);
+                        _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(arrayType, setDef.GetMethod("set_Item")!));
                         return true;
                     }
                     if (!arrayType.IsSZArray)
@@ -4403,9 +4660,16 @@ public sealed class ColumnarIlEmitter
                         : typeof(KeyValuePair<,>).MakeGenericType(collectionType.GetGenericArguments());
                     if (!IsSupportedType(listElementType) && !IsSupportedKeyValuePairType(listElementType))
                         return false;
+                    // Builder-bound elements rebind the two generic-interface handles from the open
+                    // definitions (the closed interface is a TypeBuilderInstantiation — spike-proven
+                    // working end-to-end). NOTE: the ORACLE takes the STRUCT List<T>.Enumerator route
+                    // for builder elements (TBI.GetInterfaces() throws so its interface lookup comes
+                    // back empty) — the boxed-interface shape kept here is VALUE-identical: MoveNext
+                    // runs the same version check (mutation-during-iteration IOE parity is pinned in
+                    // the tests) and the List/Dictionary enumerators' Dispose is a no-op either way.
                     var enumerableInterface = typeof(IEnumerable<>).MakeGenericType(listElementType);
                     var enumeratorInterface = typeof(IEnumerator<>).MakeGenericType(listElementType);
-                    _il.Emit(OpCodes.Callvirt, enumerableInterface.GetMethod("GetEnumerator")!);
+                    _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(enumerableInterface, typeof(IEnumerable<>).GetMethod("GetEnumerator")!));
                     var enumeratorLocal = _il.DeclareLocal(enumeratorInterface);
                     _il.Emit(OpCodes.Stloc, enumeratorLocal);
 
@@ -4416,7 +4680,7 @@ public sealed class ColumnarIlEmitter
                     _il.Emit(OpCodes.Callvirt, typeof(System.Collections.IEnumerator).GetMethod(nameof(System.Collections.IEnumerator.MoveNext))!);
                     _il.Emit(OpCodes.Brfalse, disposeLabel);
                     _il.Emit(OpCodes.Ldloc, enumeratorLocal);
-                    _il.Emit(OpCodes.Callvirt, enumeratorInterface.GetProperty("Current")!.GetGetMethod()!);
+                    _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(enumeratorInterface, typeof(IEnumerator<>).GetProperty("Current")!.GetGetMethod()!));
                     var listLoopVar = _il.DeclareLocal(listElementType);
                     _il.Emit(OpCodes.Stloc, listLoopVar);
                     _locals[varName] = listLoopVar;
@@ -5592,23 +5856,28 @@ public sealed class ColumnarIlEmitter
                         type = typeof(string);
                         return true;
                     }
-                    // `.Count` on a closed List<T>/Dictionary<K,V> — callvirt get_Count -> int.
+                    // `.Count` on a closed List<T>/Dictionary<K,V> — callvirt get_Count -> int
+                    // (resolved from the open definition so builder-bound receivers rebind).
                     if (member == "Count" && IsSupportedCollectionType(structReceiverType))
                     {
-                        _il.Emit(OpCodes.Callvirt, structReceiverType.GetProperty("Count")!.GetGetMethod()!);
+                        var openCountGetter = structReceiverType.GetGenericTypeDefinition().GetProperty("Count")!.GetGetMethod()!;
+                        _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(structReceiverType, openCountGetter));
                         type = typeof(int);
                         return true;
                     }
                     // `kvp.Key` / `kvp.Value` on a KeyValuePair<K,V> (the Dictionary foreach loop
                     // variable) — a VALUE-type receiver: spill, ldloca, call the non-virtual getter.
+                    // The result type comes from the CLOSED arguments, never the getter's ReturnType:
+                    // a REBOUND getter reports the OPEN TKey/TValue (spike-proven) — propagating that
+                    // would leak an open generic parameter into downstream typing (wrong-IL hazard).
                     if (member is "Key" or "Value" && IsSupportedKeyValuePairType(structReceiverType))
                     {
                         var kvpTemp = _il.DeclareLocal(structReceiverType);
                         _il.Emit(OpCodes.Stloc, kvpTemp);
                         _il.Emit(OpCodes.Ldloca, kvpTemp);
-                        var kvpGetter = structReceiverType.GetProperty(member)!.GetGetMethod()!;
-                        _il.Emit(OpCodes.Call, kvpGetter);
-                        type = kvpGetter.ReturnType;
+                        var openKvpGetter = typeof(KeyValuePair<,>).GetProperty(member)!.GetGetMethod()!;
+                        _il.Emit(OpCodes.Call, ResolveClosedGenericMethod(structReceiverType, openKvpGetter));
+                        type = structReceiverType.GetGenericArguments()[member == "Key" ? 0 : 1];
                         return true;
                     }
                     ColumnarStructDef? fieldStruct = null;
@@ -5732,17 +6001,21 @@ public sealed class ColumnarIlEmitter
                 }
                 // A closed List<T>/Dictionary<K,V> indexer READ — callvirt get_Item(int|K) -> T|V (the
                 // runtime throws ArgumentOutOfRangeException / KeyNotFoundException exactly as the
-                // pipeline's emit does — probe-pinned exception parity).
+                // pipeline's emit does — probe-pinned exception parity). The result type comes from the
+                // CLOSED arguments: a REBOUND get_Item reports the OPEN T/TValue as ReturnType
+                // (spike-proven) — propagating that would leak an open parameter into downstream typing.
                 if (IsSupportedCollectionType(indexedType))
                 {
-                    var idxParamType = indexedType.GetGenericTypeDefinition() == typeof(List<>)
+                    var indexedDef = indexedType.GetGenericTypeDefinition();
+                    var idxParamType = indexedDef == typeof(List<>)
                         ? typeof(int)
                         : indexedType.GetGenericArguments()[0];
                     if (!EmitArg(idx, 1, idxParamType))
                         return false;
-                    var getItem = indexedType.GetMethod("get_Item", new[] { idxParamType })!;
-                    _il.Emit(OpCodes.Callvirt, getItem);
-                    type = getItem.ReturnType;
+                    _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(indexedType, indexedDef.GetMethod("get_Item")!));
+                    type = indexedDef == typeof(List<>)
+                        ? indexedType.GetGenericArguments()[0]
+                        : indexedType.GetGenericArguments()[1];
                     return true;
                 }
                 if (!indexedType.IsSZArray)
@@ -5872,24 +6145,29 @@ public sealed class ColumnarIlEmitter
                     if (!TryBuildTypeNodeCanonical(typeNode, out var closedCanonical)
                         || !TryResolveType(closedCanonical, _enumRegistry, _structRegistry, _unionRegistry, out var closedType))
                         return false;
-                    // A closed BCL COLLECTION (`new List<int>()` / `new Dictionary<string,int>(10)`): the
-                    // runtime constructed type reflects normally — newobj the parameterless ctor, or the
-                    // int-capacity ctor (both probe-pinned oracle-working). Other overloads decline.
+                    // A closed BCL COLLECTION (`new List<int>()` / `new Dictionary<string,int>(10)` /
+                    // `new List<Pt>()` over a user TypeBuilder): newobj the parameterless ctor, or the
+                    // int-capacity ctor (both probe-pinned oracle-working) — resolved from the OPEN
+                    // definition so builder-bound instantiations rebind. Other overloads decline.
+                    // (`new List<T>()` inside a generic BODY never reaches here: the canonical resolves
+                    // via the typeParams-less TryResolveType, so body-side construction declines — the
+                    // generic surface this rung is params/returns/foreach/indexing, pinned.)
                     if (IsSupportedCollectionType(closedType))
                     {
+                        var collectionOpenDef = closedType.GetGenericTypeDefinition();
                         var collectionCtorArgs = _childCount[idx] - 1;
                         if (collectionCtorArgs == 0)
                         {
-                            _il.Emit(OpCodes.Newobj, closedType.GetConstructor(Type.EmptyTypes)!);
+                            _il.Emit(OpCodes.Newobj, ResolveClosedGenericCtor(closedType, collectionOpenDef.GetConstructor(Type.EmptyTypes)!));
                             type = closedType;
                             return true;
                         }
                         if (collectionCtorArgs == 1 && EmitArg(idx, 1, typeof(int)))
                         {
-                            var capacityCtor = closedType.GetConstructor(new[] { typeof(int) });
-                            if (capacityCtor == null)
+                            var openCapacityCtor = collectionOpenDef.GetConstructor(new[] { typeof(int) });
+                            if (openCapacityCtor == null)
                                 return false;
-                            _il.Emit(OpCodes.Newobj, capacityCtor);
+                            _il.Emit(OpCodes.Newobj, ResolveClosedGenericCtor(closedType, openCapacityCtor));
                             type = closedType;
                             return true;
                         }
@@ -6040,7 +6318,11 @@ public sealed class ColumnarIlEmitter
                     var elementNode = Child(idx, i);
                     if (_kinds[elementNode] == 43)
                         elementNode = Child(elementNode, 0);
-                    if (!EmitExpression(elementNode, out var elemType) || !IsSupportedType(elemType))
+                    // ContainsBuilderBoundType: a builder-bound element (a record, a List<Pt>) would make
+                    // the closed ValueTuple a TypeBuilderInstantiation whose GetConstructor below throws —
+                    // decline cleanly instead (the IsSupportedValueTuple element rule, applied at emission).
+                    if (!EmitExpression(elementNode, out var elemType) || !IsSupportedType(elemType)
+                        || ContainsBuilderBoundType(elemType))
                         return false;
                     elementTypes[i] = elemType;
                 }
@@ -6109,6 +6391,11 @@ public sealed class ColumnarIlEmitter
                 if (_kinds[typeRootNode] == 1 && _structRegistry.TryGetValue(Text(typeRootNode), out var closedInitDef)
                     && closedInitDef.Builder.IsGenericTypeDefinition)
                 {
+                    // A user GENERIC type named List/Dictionary: the pipeline's analyzer binds the BCL
+                    // head for `new List<int> { ... }` and rejects its members (NL303, probe-pinned) —
+                    // the user definition must not claim the construction. Decline (parity by rejection).
+                    if (Text(typeRootNode) is "List" or "Dictionary")
+                        return false;
                     if (!closedInitDef.IsReference || closedInitDef.DefaultCtor == null)
                         return false;
                     var closedArity = closedInitDef.Builder.GetGenericArguments().Length;
@@ -6187,7 +6474,9 @@ public sealed class ColumnarIlEmitter
                         if (!initStructDef.Fields.TryGetValue(fieldName, out var initField) || !assigned.Add(fieldName))
                             return false;
                         _il.Emit(OpCodes.Dup);
-                        if (!EmitExpression(valueNode, out var initValueType) || initValueType != initField.FieldType)
+                        // TypesEquivalent, not !=: a builder-bound collection field's declared type and the
+                        // init value's type come from independent resolutions (referentially distinct TBIs).
+                        if (!EmitExpression(valueNode, out var initValueType) || !TypesEquivalent(initValueType, initField.FieldType))
                             return false;
                         _il.Emit(OpCodes.Stfld, initField);
                     }
@@ -6209,7 +6498,7 @@ public sealed class ColumnarIlEmitter
                     if (!initStructDef.Fields.TryGetValue(fieldName, out var initField) || !assigned.Add(fieldName))
                         return false; // unknown or duplicately-assigned field -> decline.
                     _il.Emit(OpCodes.Ldloca, structValue);
-                    if (!EmitExpression(valueNode, out var initValueType) || initValueType != initField.FieldType)
+                    if (!EmitExpression(valueNode, out var initValueType) || !TypesEquivalent(initValueType, initField.FieldType))
                         return false;
                     _il.Emit(OpCodes.Stfld, initField);
                 }
@@ -7584,9 +7873,24 @@ public sealed class ColumnarIlEmitter
     {
         if (a == b)
             return true;
-        if (!IsClosedUserGenericInstantiation(a) || !IsClosedUserGenericInstantiation(b))
+        // Structural equivalence for closed generic INSTANTIATIONS — user-headed (Box<int>) AND
+        // builder-bound BCL-headed (List<Pt>, Dictionary<string,Pt>): every independent MakeGenericType
+        // over a builder yields a referentially DISTINCT TypeBuilderInstantiation (probe-proven), so
+        // definitions must reference-match and arguments recurse. Fully baked instantiations are cached
+        // by the runtime and already matched by the == above.
+        if (!a.IsGenericType || !b.IsGenericType || a.IsGenericTypeDefinition || b.IsGenericTypeDefinition)
             return false;
-        if (!ReferenceEquals(a.GetGenericTypeDefinition(), b.GetGenericTypeDefinition()))
+        Type aDef, bDef;
+        try
+        {
+            aDef = a.GetGenericTypeDefinition();
+            bDef = b.GetGenericTypeDefinition();
+        }
+        catch (NotSupportedException)
+        {
+            return false;
+        }
+        if (!ReferenceEquals(aDef, bDef))
             return false;
         var aArgs = a.GetGenericArguments();
         var bArgs = b.GetGenericArguments();
@@ -7640,7 +7944,7 @@ public sealed class ColumnarIlEmitter
             {
                 if (!EmitArg(callIdx, 1, collectionArgs[0]))
                     return false;
-                _il.Emit(OpCodes.Callvirt, receiverType.GetMethod("Add", new[] { collectionArgs[0] })!);
+                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(List<>).GetMethod("Add")!));
                 type = typeof(void);
                 return true;
             }
@@ -7648,7 +7952,7 @@ public sealed class ColumnarIlEmitter
             {
                 if (!EmitArg(callIdx, 1, typeof(int)))
                     return false;
-                _il.Emit(OpCodes.Callvirt, receiverType.GetMethod("RemoveAt", new[] { typeof(int) })!);
+                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(List<>).GetMethod("RemoveAt")!));
                 type = typeof(void);
                 return true;
             }
@@ -7656,7 +7960,7 @@ public sealed class ColumnarIlEmitter
             {
                 if (!EmitArg(callIdx, 1, collectionArgs[0]))
                     return false;
-                _il.Emit(OpCodes.Callvirt, receiverType.GetMethod("ContainsKey", new[] { collectionArgs[0] })!);
+                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(Dictionary<,>).GetMethod("ContainsKey")!));
                 type = typeof(bool);
                 return true;
             }
@@ -7923,9 +8227,11 @@ public sealed class ColumnarIlEmitter
         return false;
     }
 
-    // Emit the argument at child position `argPosition` of the call and require its type to equal `expected`.
+    // Emit the argument at child position `argPosition` of the call and require its type to match
+    // `expected` (TypesEquivalent, not ==: builder-bound instantiations from independent resolutions
+    // are referentially distinct — `outer.Add(inner)` on a List<List<Pt>> compares two distinct TBIs).
     private bool EmitArg(int callIdx, int argPosition, Type expected)
-        => EmitExpression(Child(callIdx, argPosition), out var argType) && argType == expected;
+        => EmitExpression(Child(callIdx, argPosition), out var argType) && TypesEquivalent(argType, expected);
 
     private void EmitLoadArgument(int index)
     {

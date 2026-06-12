@@ -4457,14 +4457,132 @@ class B
 
         // DECLINES (every shape oracle-ACCEPTED in the probe sweep — pins flip as later rungs land):
         // (compound indexer assignment FLIPPED — the compoundIdx parity case above covers it.)
-        // a List over a USER type (builder-typed element — the TypeBuilderInstantiation rebind rung).
-        Assert.False(RouteColumnarProgram("record Pt {\n    X: int\n}\n\nfunc f(): int {\n    l := new List<Pt>()\n    l.Add(new Pt { X: 9 })\n    return l[0].X + l.Count\n}\n").Ok);
-        // List<T> inside a GENERIC function (open type param element).
-        Assert.False(RouteColumnarProgram("func first<T>(items: List<T>): T {\n    return items[0]\n}\n\nfunc f(): int {\n    l := new List<int>()\n    l.Add(42)\n    return first(l)\n}\n").Ok);
-        // (dict foreach FLIPPED — the dictForeach parity case above covers it.)
+        // (List-over-USER-type and List<T>-in-generic-funcs FLIPPED — the builder-element rebind rung;
+        // parity lives in ColumnarCodegen_Parity_CollectionsBuilderElements below.)
         // other BCL generics (HashSet) and Dictionary.Add stay out.
         Assert.False(RouteColumnarProgram("func f(): int {\n    h := new HashSet<int>()\n    h.Add(1)\n    return h.Count\n}\n").Ok);
         Assert.False(RouteColumnarProgram("func f(): int {\n    d := new Dictionary<string, int>()\n    d.Add(\"k\", 1)\n    return d.Count\n}\n").Ok);
+    }
+
+    // BUILDER-ELEMENT REBIND (Phase D collections, rung 4) — List<T>/Dictionary<K,V> closed over types
+    // still under construction: user TypeBuilders (record/class/struct elements and dictionary VALUES,
+    // nested collections, collection-typed record fields) and a generic function's own T (params,
+    // returns, foreach, indexing, Count). Every member binding on such a closed type REBINDS from the
+    // open runtime definition via TypeBuilder.GetMethod/GetConstructor (plain reflection throws on a
+    // TypeBuilderInstantiation) — the oracle's TryGetDeclaredGeneratedRuntimeMethod idiom. Each value
+    // function's expected result is pinned by the oracle probe sweep (workflow wf_da8ef18e recon).
+    [Fact]
+    public void ColumnarCodegen_Parity_CollectionsBuilderElements()
+    {
+        var prog =
+            "record Pt {\n    X: int\n}\n\n" +
+            "struct Sv {\n    X: int\n}\n\n" +
+            "record Holder {\n    Items: List<int>\n}\n\n" +
+            "record HolderRec {\n    Items: List<Pt>\n}\n\n" +
+            // construction + Add + index read + member through element + Count (probed: 10).
+            "func lrec(): int {\n    l := new List<Pt>()\n    l.Add(new Pt { X: 9 })\n    return l[0].X + l.Count\n}\n\n" +
+            // foreach over builder elements (probed: 7).
+            "func lfe(): int {\n    l := new List<Pt>()\n    l.Add(new Pt { X: 3 })\n    l.Add(new Pt { X: 4 })\n    sum := 0\n    foreach v in l {\n        sum = sum + v.X\n    }\n    return sum\n}\n\n" +
+            // index WRITE of a builder element (probed: 5) + RemoveAt (probed: 7).
+            "func lset(): int {\n    l := new List<Pt>()\n    l.Add(new Pt { X: 1 })\n    l[0] = new Pt { X: 5 }\n    return l[0].X\n}\n\n" +
+            "func lrem(): int {\n    l := new List<Pt>()\n    l.Add(new Pt { X: 1 })\n    l.Add(new Pt { X: 7 })\n    l.RemoveAt(0)\n    return l[0].X\n}\n\n" +
+            // Dictionary with a builder VALUE: set/ContainsKey/get + member through the value (probed: 4).
+            "func dval(): int {\n    d := new Dictionary<string, Pt>()\n    d[\"a\"] = new Pt { X: 3 }\n    bonus := 0\n    if d.ContainsKey(\"a\") {\n        bonus = 1\n    }\n    return d[\"a\"].X + bonus\n}\n\n" +
+            // Dictionary foreach with a builder VALUE — KVP<string,Pt> getters rebind and the result
+            // type substitutes from the closed args (the open-TValue leak hazard).
+            "func dvfe(): int {\n    d := new Dictionary<string, Pt>()\n    d[\"a\"] = new Pt { X: 1 }\n    d[\"bb\"] = new Pt { X: 2 }\n    s := 0\n    foreach kvp in d {\n        s = s + kvp.Value.X + kvp.Key.Length * 10\n    }\n    return s\n}\n\n" +
+            // value-STRUCT elements (probed: 4).
+            "func lstruct(): int {\n    l := new List<Sv>()\n    l.Add(new Sv { X: 4 })\n    return l[0].X\n}\n\n" +
+            // NESTED List<List<Pt>> — outer.Add(inner) crosses two independent TBI resolutions
+            // (TypesEquivalent, not ==; probed: 7).
+            "func nest(): int {\n    inner := new List<Pt>()\n    inner.Add(new Pt { X: 6 })\n    outer := new List<List<Pt>>()\n    outer.Add(inner)\n    return outer[0][0].X + outer.Count\n}\n\n" +
+            // collection-typed RECORD FIELDS: baked element (probed: 7) and builder element (probed: 9 —
+            // PASS 0e skips value-member synthesis on the latter, construction/access unaffected).
+            "func holdInt(): int {\n    h := new Holder { Items: new List<int>() }\n    h.Items.Add(5)\n    h.Items.Add(6)\n    return h.Items[0] + h.Items.Count\n}\n\n" +
+            "func holdRec(): int {\n    h := new HolderRec { Items: new List<Pt>() }\n    h.Items.Add(new Pt { X: 8 })\n    return h.Items[0].X + h.Items.Count\n}\n\n" +
+            // List<Pt> as a NON-generic sibling's param (probed: 1).
+            "func count(items: List<Pt>): int {\n    return items.Count\n}\n\n" +
+            "func cnt(): int {\n    l := new List<Pt>()\n    l.Add(new Pt { X: 1 })\n    return count(l)\n}\n\n" +
+            // GENERIC functions: List<T> param + index read, inferred T=int (probed: 42) and explicit
+            // type args (probed: 42); foreach over List<T> (probed: 3); Count in a generic body;
+            // List<T> RETURN re-closed to a real List<int> at the call site.
+            "func first<T>(items: List<T>): T {\n    return items[0]\n}\n\n" +
+            "func firstInt(): int {\n    l := new List<int>()\n    l.Add(42)\n    return first(l)\n}\n\n" +
+            "func firstExpl(): int {\n    l := new List<int>()\n    l.Add(42)\n    return first<int>(l)\n}\n\n" +
+            "func total<T>(items: List<T>): int {\n    c := 0\n    foreach v in items {\n        c = c + 1\n    }\n    return c\n}\n\n" +
+            "func genFe(): int {\n    l := new List<int>()\n    l.Add(1)\n    l.Add(2)\n    l.Add(3)\n    return total(l)\n}\n\n" +
+            "func size<T>(items: List<T>): int {\n    return items.Count\n}\n\n" +
+            "func genCount(): int {\n    l := new List<int>()\n    l.Add(4)\n    l.Add(5)\n    return size(l)\n}\n\n" +
+            "func same<T>(items: List<T>): List<T> {\n    return items\n}\n\n" +
+            "func genSame(): int {\n    l := new List<int>()\n    l.Add(42)\n    return same(l)[0]\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("lrec", System.Array.Empty<object>()),
+            ("lfe", System.Array.Empty<object>()),
+            ("lset", System.Array.Empty<object>()),
+            ("lrem", System.Array.Empty<object>()),
+            ("dval", System.Array.Empty<object>()),
+            ("dvfe", System.Array.Empty<object>()),
+            ("lstruct", System.Array.Empty<object>()),
+            ("nest", System.Array.Empty<object>()),
+            ("holdInt", System.Array.Empty<object>()),
+            ("holdRec", System.Array.Empty<object>()),
+            ("cnt", System.Array.Empty<object>()),
+            ("firstInt", System.Array.Empty<object>()),
+            ("firstExpl", System.Array.Empty<object>()),
+            ("genFe", System.Array.Empty<object>()),
+            ("genCount", System.Array.Empty<object>()),
+            ("genSame", System.Array.Empty<object>()));
+
+        // EXCEPTION parity (route-only): mutation during foreach over BUILDER elements must throw
+        // InvalidOperationException exactly like the oracle. The columnar keeps the boxed-interface
+        // enumerator for builder elements (the ORACLE takes the struct List<T>.Enumerator route there —
+        // TBI.GetInterfaces() throws so its interface lookup comes back empty); both run the same
+        // MoveNext version check, so the IOE surfaces identically — this pin is the behavioral proof.
+        {
+            var (ok, asm, typeName, _) = RouteColumnarProgram(
+                "record Pt {\n    X: int\n}\n\nfunc mutRec(): int {\n    l := new List<Pt>()\n    l.Add(new Pt { X: 1 })\n    s := 0\n    foreach v in l {\n        s = s + v.X\n        l.Add(new Pt { X: 99 })\n    }\n    return s\n}\n");
+            Assert.True(ok, "columnar must emit the builder-element mutation program");
+            using var scope = CollectibleAssemblyScope.Load(asm!);
+            var progType = scope.Assembly.GetType(typeName!)!;
+            var mut = Assert.Throws<System.Reflection.TargetInvocationException>(
+                () => progType.GetMethod("mutRec")!.Invoke(null, null));
+            Assert.IsType<InvalidOperationException>(mut.InnerException);
+        }
+
+        // DECLINES (each shape oracle-ACCEPTED in the probe sweep — pinned OUT of this rung, flips later):
+        // EnumBuilder elements — an UN-BAKED EnumBuilder element dies at ILGenerator.Emit token
+        // resolution (spike-proven ArgumentException), so List<Color> declines until an enum-bake rung.
+        Assert.False(RouteColumnarProgram("enum Color {\n    Red,\n    Green\n}\n\nfunc f(): int {\n    l := new List<Color>()\n    l.Add(Color.Green)\n    if l[0] == Color.Green {\n        return 1\n    }\n    return 0\n}\n").Ok);
+        // builder KEYS (Dictionary<Pt,int>) — record-key hashing rides the synthesized Equals/GetHashCode
+        // and the PASS 0e synthesis-skip rules would diverge from the oracle; oracle-probed working
+        // (fresh equal-fielded key HITS — records are value-equal) for the eventual flip.
+        Assert.False(RouteColumnarProgram("record Pt {\n    X: int\n}\n\nfunc f(): int {\n    k := new Pt { X: 1 }\n    d := new Dictionary<Pt, int>()\n    d[k] = 42\n    return d[k]\n}\n").Ok);
+        // user-headed closed-generic elements (List<Box<int>>).
+        Assert.False(RouteColumnarProgram("record Box<T> {\n    v: T\n}\n\nfunc f(): int {\n    l := new List<Box<int>>()\n    l.Add(new Box<int> { v: 5 })\n    return l[0].v + l.Count\n}\n").Ok);
+        // `new List<T>()` inside a generic BODY (construction needs the typeParams map at body-side
+        // type resolution — this rung models the signature surface: params/returns/foreach/indexing).
+        Assert.False(RouteColumnarProgram("func boxed<T>(v: T): int {\n    l := new List<T>()\n    l.Add(v)\n    return l.Count\n}\n\nfunc f(): int {\n    return boxed(7)\n}\n").Ok);
+        // T inferred as a BUILDER type (first(listOfPt) ⇒ T=Pt): MakeGenericMethod/constraint checks
+        // reflect on the binding — builder bindings stay declined (oracle-probed working: 11).
+        Assert.False(RouteColumnarProgram("record Pt {\n    X: int\n}\n\nfunc first<T>(items: List<T>): T {\n    return items[0]\n}\n\nfunc f(): int {\n    l := new List<Pt>()\n    l.Add(new Pt { X: 11 })\n    return first(l).X\n}\n").Ok);
+        // a TUPLE over a builder-bound collection element — the closed ValueTuple is itself a TBI whose
+        // ctor/ItemN lookups throw; the tuple-element gate declines it cleanly.
+        Assert.False(RouteColumnarProgram("record Pt {\n    X: int\n}\n\nfunc f(): int {\n    l := new List<Pt>()\n    t := (1, l)\n    return t.Item1\n}\n").Ok);
+        // `.Equals` on a record with a builder-bound COLLECTION field — PASS 0e skips synthesis on such
+        // records (EqualityComparer<List<Pt>> cannot be reflected at emit time), same as builder-typed
+        // fields; resolution finds no member and declines.
+        Assert.False(RouteColumnarProgram("record Pt {\n    X: int\n}\n\nrecord HolderRec {\n    Items: List<Pt>\n}\n\nfunc f(): bool {\n    a := new HolderRec { Items: new List<Pt>() }\n    b := new HolderRec { Items: new List<Pt>() }\n    return a.Equals(b)\n}\n").Ok);
+
+        // ADVERSARIAL-REVIEW pins (probe-confirmed against the pipeline):
+        // adjacent identifiers inside a composed FIELD type are a production parse ERROR (`List<i nt>` —
+        // NL102) that the adapter's whitespace strip would FUSE into a valid canonical; the kernel
+        // rejects the token run so the program declines.
+        Assert.False(RouteColumnarProgram("record H {\n    Items: List<i nt>\n}\n\nfunc f(): int {\n    h := new H { Items: new List<int>() }\n    h.Items.Add(8)\n    return h.Items[0]\n}\n").Ok);
+        // a USER type named List/Dictionary shadows the BCL head: the pipeline rejects every
+        // closed-generic use (NL207 non-generic / NL303 generic) — columnar declines the head outright.
+        Assert.False(RouteColumnarProgram("record List {\n    X: int\n}\n\nfunc f(): int {\n    l := new List<int>()\n    l.Add(3)\n    return l[0]\n}\n").Ok);
+        Assert.False(RouteColumnarProgram("record List<T> {\n    v: T\n}\n\nfunc f(): int {\n    l := new List<int> { v: 5 }\n    return l.v\n}\n").Ok);
+        Assert.False(RouteColumnarProgram("record Dictionary {\n    X: int\n}\n\nfunc f(): int {\n    d := new Dictionary<string, int>()\n    d[\"k\"] = 2\n    return d[\"k\"]\n}\n").Ok);
     }
 
     // RECORDS COMPLETION (Phase D) — `with` expressions + the synthesized VALUE members. PASS 0e

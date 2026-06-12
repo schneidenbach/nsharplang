@@ -638,13 +638,66 @@ func ParseStructDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValu
             if pos >= count || tokenKinds[pos] != 0 {
                 return -1
             }
-            outFieldTypeStarts[fieldCount] = tokenStarts[pos]
-            outFieldTypeLengths[fieldCount] = tokenValueLengths[pos]
+            fieldTypeStart := tokenStarts[pos]
+            fieldTypeEnd := tokenStarts[pos] + tokenValueLengths[pos]
+            pos = pos + 1
+
+            // Optional balanced generic suffix `<...>` after the type name (`Items: List<int>`,
+            // `Dictionary<string, Pt>`, `List<List<Pt>>`): identifiers (0) and commas (134) only
+            // inside; Less (100) opens, Greater (102) closes one level, and a RightShift (112)
+            // closes TWO (the lexer never splits `>>` here — the span scan credits both). The
+            // recorded span covers the whole composed type; the host whitespace-strips it to the
+            // canonical form. Any other token inside the suffix is unmodelled (-1). TWO ADJACENT
+            // identifiers (`List<i nt>`) are a production parse ERROR that the host's whitespace
+            // strip would FUSE into a valid name (`int`) — reject them here (adversarial-review
+            // finding, probe-confirmed over-acceptance).
+            if pos < count && tokenKinds[pos] == 100 {
+                gdepth := 0
+                gdone := 0
+                gprevIdent := 0
+                while pos < count && gdone == 0 {
+                    gk := tokenKinds[pos]
+                    if gk == 100 {
+                        gdepth = gdepth + 1
+                        gprevIdent = 0
+                    } else if gk == 102 {
+                        gdepth = gdepth - 1
+                        if gdepth == 0 {
+                            gdone = 1
+                        }
+                        gprevIdent = 0
+                    } else if gk == 112 {
+                        gdepth = gdepth - 2
+                        if gdepth == 0 {
+                            gdone = 1
+                        }
+                        gprevIdent = 0
+                    } else if gk == 0 {
+                        if gprevIdent == 1 {
+                            return -1
+                        }
+                        gprevIdent = 1
+                    } else if gk == 134 {
+                        gprevIdent = 0
+                    } else {
+                        return -1
+                    }
+                    if gdepth < 0 {
+                        return -1
+                    }
+                    fieldTypeEnd = tokenStarts[pos] + tokenValueLengths[pos]
+                    pos = pos + 1
+                }
+                if gdone == 0 {
+                    return -1
+                }
+            }
+            outFieldTypeStarts[fieldCount] = fieldTypeStart
+            outFieldTypeLengths[fieldCount] = fieldTypeEnd - fieldTypeStart
             outFieldStaticFlags[fieldCount] = 0
             outFieldInitKinds[fieldCount] = -1
             outFieldInitStarts[fieldCount] = -1
             outFieldInitLengths[fieldCount] = 0
-            pos = pos + 1
 
             fieldCount = fieldCount + 1
         }

@@ -11,6 +11,91 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-12 — COLLECTIONS rung 4: BUILDER-ELEMENT REBIND — List&lt;UserType&gt; + List&lt;T&gt;-in-generic-funcs
+
+The last pinned collection rung flipped: collections closed over types **still under construction**
+— user TypeBuilder elements/values (`List&lt;Pt&gt;`, `Dictionary&lt;string, Pt&gt;`, nested
+`List&lt;List&lt;Pt&gt;&gt;`, collection-typed record FIELDS) and a generic function's own `T` (`List&lt;T&gt;`
+params/returns/foreach/indexing/Count, inferred `first(l)` and explicit `first&lt;int&gt;(l)`). Recon
+workflow first (4 agents: oracle map / columnar site map / Reflection.Emit spike / 24-probe oracle
+sweep — ALL target shapes oracle-ACCEPTED with pinned values).
+
+**Mechanism (the oracle's idiom, spike-proven):** every member binding on a builder-bound closed
+instantiation REBINDS from the open runtime definition — `TypeBuilder.GetMethod/GetConstructor(closed,
+openDefMember)` — because ALL plain reflection throws on a TypeBuilderInstantiation. New helpers:
+`ContainsBuilderBoundType` (detects builders ANYWHERE in a shape — `Module`/`Assembly`/
+`ContainsGenericParameters` all report baked-looking values on BCL-headed TBIs, spike-proven; a
+USER-headed instantiation like `Box&lt;int&gt;` is builder-bound via its DEFINITION) +
+`ResolveClosedGenericMethod/Ctor` (rebind vs `GetMethodFromHandle` by that predicate) +
+`IsAdmissibleCollectionElement` (replaces the `Module is not ModuleBuilder` gate, which was both
+too strict for this rung and silently leaky for tuple-over-builder elements). Nine sites converted:
+ctor (parameterless+capacity), Add/RemoveAt/ContainsKey, Count, kvp Key/Value, get_Item, set_Item,
+foreach GetEnumerator/get_Current (interface instantiations rebind identically). **Two wrong-IL
+hazards pre-empted:** a REBOUND member reports the OPEN T/TValue as its ReturnType (spike-proven) —
+get_Item and the KVP getters now derive result types from the CLOSED GetGenericArguments.
+**Foreach note:** the oracle takes the STRUCT `List&lt;T&gt;.Enumerator` route for builder elements
+(TBI.GetInterfaces() throws, so its interface lookup comes back empty); columnar keeps the
+boxed-interface shape — value-identical (same MoveNext version check; mutation-IOE parity pinned,
+review-probed across break/continue/early-return).
+
+**Generic-function path:** `TryResolveTypeWithTypeParams` gained the collection arm (threads the
+type-param map into element resolution — `List&lt;T&gt;` closes over the GenericTypeParameterBuilder);
+`TryEmitGenericSiblingCall` gained `TryUnifyGenericContainer` (structural recursion: `List&lt;int&gt;`
+vs `List&lt;T&gt;` ⇒ T=int, mirroring the oracle's TryCollectGenericBindings); `TrySubstituteReturnType`
+gained a BCL-collection arm that re-closes the runtime definition (MUST intercept builder-bound
+instantiations — the defensive `ContainsGenericParameters` tail reports FALSE on TBIs, so falling
+through would leak an open MVAR). `TryUnifyTypeParam` now declines ALL builder-bound bindings
+(T=Pt / T=List&lt;Pt&gt; pinned out — MakeGenericMethod/constraint checks reflect on the binding).
+
+**Cross-cutting:** `TypesEquivalent` generalized to every closed instantiation (independent
+`MakeGenericType` calls over builders yield referentially DISTINCT TBIs — probe-proven) and
+`EmitArg` now uses it (`outer.Add(inner)` crosses two resolutions); object-init field-value checks
+likewise. Gate hardenings so new shapes decline CLEANLY instead of throwing into the adapter's
+blanket catch: tuple elements (recognition AND the literal-emission ctor site), delegate args,
+StrongBox lift, and the PASS 0e record-synthesis bakedness test (a `List&lt;Pt&gt;`-field record would
+have whole-program-declined via EqualityComparer reflection; synthesis now SKIPS it like any
+builder-typed field — `.Equals`/`with` on such records decline, pinned).
+
+**Record collection FIELDS needed a kernel extension:** `ParseStructDeclarationInto`'s field type
+was hard-coded to ONE token — instance fields now accept a balanced generic suffix (`Items:
+List&lt;int&gt;`, `Dictionary&lt;string, Pt&gt;`, `List&lt;List&lt;Pt&gt;&gt;`; RightShift 112 credits TWO close
+levels), whitespace-stripped onto the canonical grammar by the adapter. Static/property composed
+types stay single-token (whole-decl decline → fallback).
+
+**3-lens adversarial review (92+60+~40 probes, all value-compared against the oracle):** soundness
+lens — ALL SIX attack surfaces REFUTED (open-type leaks, TypesEquivalent equating distinct types,
+nested/conflicting/explicit unification, foreach divergence, record-field aliasing, kernel `&gt;&gt;`
+scan). Over-accept lens found **one slice-introduced CONFIRMED-BREAK, fixed in-slice:** the
+whitespace strip FUSED adjacent identifiers (`List&lt;i nt&gt;` → `List&lt;int&gt;` routed; pipeline rejects
+NL102) — the kernel scan now rejects identifier-after-identifier; **plus the List/Dictionary
+HEAD-SHADOWING divergence (fixed):** a user type NAMED List/Dictionary makes the pipeline reject
+every closed-generic use (NL207 non-generic, NL303 generic — the "user wins, Action precedent"
+ordering is WRONG for these heads), so columnar now declines shadowed heads outright (the
+pre-existing baked-element variant of this hole closed too). Decline-cleanliness lens: regression
+sweep fully green; `ContainsBuilderBoundType` gained the user-headed-definition check (the
+`List&lt;Box&lt;int&gt;&gt;` pin was declining only via a swallowed NotSupportedException — now a clean
+resolution decline, which also restored the PASS 0e skip for closed-user-generic fields).
+
+**Oracle laxness recorded (defect-bundle candidates, both probe-found by the review):** the
+pipeline ACCEPTS `Items: int&lt;int&gt;` field types (no arity/genericity validation on the head —
+columnar declines, safe), and the object-initializer accepts mismatched generic collection field
+types (pre-existing, slice-independent; columnar declines).
+
+Parity: `ColumnarCodegen_Parity_CollectionsBuilderElements` — 16 value functions + the
+mutation-during-foreach IOE pin + 11 decline pins (enum elements — un-baked EnumBuilder dies at
+ILGenerator.Emit token resolution, bake-first is a later rung; builder dict KEYS — record-key
+hashing rides synthesized equality, PASS 0e skew; `List&lt;Box&lt;int&gt;&gt;`; body-side `new List&lt;T&gt;()`
+— no type-param map at body resolution, signature surface only this rung; T=Pt inference;
+tuple-over-collection; `.Equals` on collection-field records; identifier fusion; head shadowing
+×3). The two old decline pins flipped; HashSet + Dictionary.Add stay out. 311/311 dogfood; full
+unit suite green (`dev.sh --since` escalated to it); gate (see commit). NEXT (retirement-map
+queue): pinned collection rungs DONE → **D-18 member writes (param receivers / nested receivers /
+class-local receivers)** → **Arc M interleave (M1 first; pull the queued strings-interpolation rung
+forward to ride with it)** → async → interfaces → route-all **(gate: Phase P port to columnar)** →
+emitter port **(gate: SoA table design doc)**. Post-self-host perf queue opens with match→IL-switch.
+
+---
+
 ## 2026-06-11 — COLLECTIONS: List&lt;T&gt;/Dictionary&lt;K,V&gt; — construction, members, indexers, foreach
 
 A recon workflow mapped corpus/oracle/columnar in parallel first; the **20-probe oracle sweep came
