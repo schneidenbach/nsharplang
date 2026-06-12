@@ -5363,11 +5363,10 @@ public sealed class ColumnarIlEmitter
                     // GetStringLiteralRuntimeValue applies — both pipelines materialize byte-identically;
                     // the transpile path always decoded via Roslyn, so all three now agree).
                     // An INTERPOLATED literal ($"...{x}...") lexes as the SAME token kind with the `$` in
-                    // the span (production parity) and would otherwise emit the mangled raw text — DECLINE
-                    // it here until the interpolation slice lands (probe-confirmed live wrong-codegen).
+                    // the span (production parity) — it routes to the handler lowering (strings slice 4).
                 var stringText = Text(idx);
                 if (stringText.Length > 0 && stringText[0] == '$')
-                    return false;
+                    return TryEmitInterpolatedString(stringText, out type);
                 _il.Emit(OpCodes.Ldstr, NSharpLang.Compiler.StringLiteralDecoder.Decode(stringText));
                 type = typeof(string);
                 return true;
@@ -8407,6 +8406,163 @@ public sealed class ColumnarIlEmitter
     // by CLR value-typeness (IsValueType is TBI-safe — spike-pinned).
     private bool IsReferenceWriteLink(Type t)
         => t is TypeBuilder tb && FindDefByBuilder(tb) is { } def ? def.IsReference : !t.IsValueType;
+
+    // INTERPOLATED STRINGS (`$"a{n}b"` — strings slice 4): the kind-3 token carries the whole
+    // literal (`$` + holes inside the span). Split via the shared ColumnarInterpolationSplitter
+    // (identifier-chain holes only — anything richer declines to the fallback) and mirror the
+    // oracle's EmitInterpolatedString exactly: empty/NO-hole literals constant-fold to the
+    // concatenated DECODED text (`ldstr`); otherwise the DefaultInterpolatedStringHandler lowering —
+    // ctor(literalLength = sum of DECODED text lengths, formattedCount), AppendLiteral per text
+    // segment, AppendFormatted per hole (string holes use the (string) overload, format clauses the
+    // generic (T, string), the rest the generic (T)), then ToStringAndClear. Hole chains resolve
+    // EMISSION-FREE first (the emit-ownership rule): roots are locals/params (lifted/boxed roots
+    // decline), hops are instance FIELDS on registered defs; builder-typed hole VALUES decline (the
+    // oracle BOXES those through AppendFormatted(object, int, string) — a later rung).
+    private bool TryEmitInterpolatedString(string literal, out Type type)
+    {
+        type = null!;
+        var parts = new List<ColumnarInterpolationSplitter.Part>();
+        if (!ColumnarInterpolationSplitter.TrySplit(literal, parts))
+            return false;
+        var formattedCount = 0;
+        foreach (var part in parts)
+        {
+            if (part.IsHole)
+                formattedCount++;
+        }
+        if (formattedCount == 0)
+        {
+            var folded = new System.Text.StringBuilder();
+            foreach (var part in parts)
+                folded.Append(NSharpLang.Compiler.StringLiteralDecoder.DecodeBody(part.Text));
+            _il.Emit(OpCodes.Ldstr, folded.ToString());
+            type = typeof(string);
+            return true;
+        }
+        // Resolve every hole BEFORE any emission.
+        var holePlans = new List<(LocalBuilder? RootLocal, int RootOrdinal, Type RootType, List<FieldBuilder> Hops, Type ValueType, string? Format)>(formattedCount);
+        var literalLength = 0;
+        foreach (var part in parts)
+        {
+            if (!part.IsHole)
+            {
+                literalLength += NSharpLang.Compiler.StringLiteralDecoder.DecodeBody(part.Text).Length;
+                continue;
+            }
+            if (!TryResolveInterpolationHole(part.Text, out var rootLocal, out var rootOrdinal, out var rootType, out var hops, out var valueType))
+                return false;
+            holePlans.Add((rootLocal, rootOrdinal, rootType, hops, valueType, part.Format));
+        }
+        var handlerType = typeof(System.Runtime.CompilerServices.DefaultInterpolatedStringHandler);
+        var handlerLocal = _il.DeclareLocal(handlerType);
+        _il.Emit(OpCodes.Ldloca, handlerLocal);
+        _il.Emit(OpCodes.Ldc_I4, literalLength);
+        _il.Emit(OpCodes.Ldc_I4, formattedCount);
+        _il.Emit(OpCodes.Call, handlerType.GetConstructor(new[] { typeof(int), typeof(int) })!);
+        var holeIndex = 0;
+        foreach (var part in parts)
+        {
+            _il.Emit(OpCodes.Ldloca, handlerLocal);
+            if (!part.IsHole)
+            {
+                _il.Emit(OpCodes.Ldstr, NSharpLang.Compiler.StringLiteralDecoder.DecodeBody(part.Text));
+                _il.Emit(OpCodes.Call, handlerType.GetMethod("AppendLiteral")!);
+                continue;
+            }
+            var plan = holePlans[holeIndex++];
+            if (plan.RootLocal != null)
+                _il.Emit(OpCodes.Ldloc, plan.RootLocal);
+            else
+                EmitLoadArgument(plan.RootOrdinal);
+            var current = plan.RootType;
+            foreach (var hop in plan.Hops)
+            {
+                if (!IsReferenceWriteLink(current))
+                {
+                    // a VALUE owner on the stack: spill + ldloca so ldfld reads off an address
+                    // (the case-8 member-read discipline).
+                    var spill = _il.DeclareLocal(current);
+                    _il.Emit(OpCodes.Stloc, spill);
+                    _il.Emit(OpCodes.Ldloca, spill);
+                }
+                _il.Emit(OpCodes.Ldfld, hop);
+                current = hop.FieldType;
+            }
+            if (plan.ValueType == typeof(string) && plan.Format == null)
+            {
+                _il.Emit(OpCodes.Call, handlerType.GetMethod("AppendFormatted", new[] { typeof(string) })!);
+            }
+            else if (plan.Format != null)
+            {
+                _il.Emit(OpCodes.Ldstr, plan.Format);
+                _il.Emit(OpCodes.Call, FindAppendFormattedGeneric(handlerType, withFormat: true).MakeGenericMethod(plan.ValueType));
+            }
+            else
+            {
+                _il.Emit(OpCodes.Call, FindAppendFormattedGeneric(handlerType, withFormat: false).MakeGenericMethod(plan.ValueType));
+            }
+        }
+        _il.Emit(OpCodes.Ldloca, handlerLocal);
+        _il.Emit(OpCodes.Call, handlerType.GetMethod("ToStringAndClear")!);
+        type = typeof(string);
+        return true;
+    }
+
+    private bool TryResolveInterpolationHole(string chain, out LocalBuilder? rootLocal, out int rootOrdinal,
+        out Type rootType, out List<FieldBuilder> hops, out Type valueType)
+    {
+        rootLocal = null;
+        rootOrdinal = -1;
+        rootType = null!;
+        hops = new List<FieldBuilder>();
+        valueType = null!;
+        var names = chain.Split('.');
+        var rootName = names[0];
+        if (_liftedLocals.ContainsKey(rootName) || (_boxedCaptures != null && _boxedCaptures.ContainsKey(rootName)))
+            return false; // lifted/boxed roots decline — the capture scans cannot see hole uses.
+        if (_locals.TryGetValue(rootName, out var local))
+        {
+            rootLocal = local;
+            rootType = local.LocalType;
+        }
+        else if (_paramOrdinals.TryGetValue(rootName, out var ordinal))
+        {
+            rootOrdinal = ordinal;
+            rootType = _paramTypes[rootName];
+        }
+        else
+        {
+            return false; // siblings/statics/this-fields in holes — unmodelled, decline.
+        }
+        var current = rootType;
+        for (var n = 1; n < names.Length; n++)
+        {
+            if (current is not TypeBuilder owner || FindDefByBuilder(owner) is not { } def
+                || !TryFindFieldOnChain(def, names[n], out var hopField))
+                return false;
+            hops.Add(hopField);
+            current = hopField.FieldType;
+        }
+        if (ContainsBuilderBoundType(current) || !IsSupportedType(current))
+            return false;
+        valueType = current;
+        return true;
+    }
+
+    private static MethodInfo FindAppendFormattedGeneric(Type handlerType, bool withFormat)
+    {
+        foreach (var m in handlerType.GetMethods())
+        {
+            if (m.Name != "AppendFormatted" || !m.IsGenericMethodDefinition)
+                continue;
+            var ps = m.GetParameters();
+            if (!withFormat && ps.Length == 1)
+                return m;
+            if (withFormat && ps.Length == 2 && ps[1].ParameterType == typeof(string))
+                return m;
+        }
+        throw new InvalidOperationException("DefaultInterpolatedStringHandler.AppendFormatted overload not found");
+    }
 
     private int Child(int idx, int n) => _childIndices[_childStart[idx] + n];
 

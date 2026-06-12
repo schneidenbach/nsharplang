@@ -4677,6 +4677,60 @@ class B
         Assert.False(RouteColumnarProgram("record Box<T> {\n    v: T\n}\n\nfunc f(): int {\n    b := new Box<int> { v: 1 }\n    b.v = 5\n    return b.v\n}\n").Ok);
     }
 
+    // STRING INTERPOLATION (strings slice 4, the Arc-M1 rider): `$"a{n}b"` lexes as ONE kind-3
+    // token (the `$` + holes inside the span — production parity); the columnar emitter splits it
+    // via the shared ColumnarInterpolationSplitter (identifier-chain holes + optional `:format`
+    // only) and mirrors the oracle's EmitInterpolatedString: empty/no-hole constant-fold to a
+    // decoded ldstr, otherwise the DefaultInterpolatedStringHandler lowering (decoded-literal
+    // lengths, AppendLiteral/AppendFormatted overload routing, ToStringAndClear). The diagnostics
+    // pass extracts hole ROOT identifiers as uses with the SAME splitter — a local used only in a
+    // hole is never a false NL001 (the onlyHoleUse function pins it by routing).
+    [Fact]
+    public void ColumnarCodegen_Parity_StringInterpolation()
+    {
+        var prog =
+            "struct Inner {\n    X: int\n}\n\n" +
+            "struct Outer {\n    i: Inner\n}\n\n" +
+            "func basic(): string {\n    n := 42\n    return $\"a{n}b\"\n}\n\n" +
+            "func memberHole(): string {\n    o := new Outer { i: new Inner { X: 7 } }\n    return $\"v={o.i.X}!\"\n}\n\n" +
+            "func formatClause(): string {\n    d := 3.14159\n    return $\"{d:F2}\"\n}\n\n" +
+            "func braces(): string {\n    n := 1\n    return $\"{{x}}{n}\"\n}\n\n" +
+            "func escapes(): string {\n    n := 2\n    return $\"a\\nb{n}\\t.\"\n}\n\n" +
+            "func emptyLit(): string {\n    return $\"\"\n}\n\n" +
+            "func noHole(): string {\n    return $\"plain\\ttext\"\n}\n\n" +
+            "func adjacent(): string {\n    a := 1\n    b := 2\n    return $\"{a}{b}\"\n}\n\n" +
+            "func mixTypes(): string {\n    i := 1\n    s := \"x\"\n    d := 2.5\n    return $\"{i}-{s}-{d}\"\n}\n\n" +
+            "func holeOf(n: int): string {\n    return $\"n={n}\"\n}\n\n" +
+            "func paramHole(): string {\n    return holeOf(9)\n}\n\n" +
+            "func strFormat(): string {\n    s := \"hi\"\n    return $\"{s:X}\"\n}\n\n" +
+            // a local used ONLY inside a hole: routing this function proves the diagnostics walk
+            // sees hole uses (a false NL001 would diverge the columnar diagnostics and decline).
+            "func onlyHoleUse(): int {\n    n := 5\n    msg := $\"{n}\"\n    return msg.Length\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("basic", System.Array.Empty<object>()),
+            ("memberHole", System.Array.Empty<object>()),
+            ("formatClause", System.Array.Empty<object>()),
+            ("braces", System.Array.Empty<object>()),
+            ("escapes", System.Array.Empty<object>()),
+            ("emptyLit", System.Array.Empty<object>()),
+            ("noHole", System.Array.Empty<object>()),
+            ("adjacent", System.Array.Empty<object>()),
+            ("mixTypes", System.Array.Empty<object>()),
+            ("paramHole", System.Array.Empty<object>()),
+            ("strFormat", System.Array.Empty<object>()),
+            ("onlyHoleUse", System.Array.Empty<object>()));
+
+        // DECLINES (oracle-ACCEPTED via the full sub-parse — the modelled hole grammar is
+        // identifier chains only; these flip if a richer hole rung ever lands):
+        // a CALL hole;
+        Assert.False(RouteColumnarProgram("func g(): int {\n    return 1\n}\n\nfunc f(): string {\n    return $\"{g()}\"\n}\n").Ok);
+        // a TERNARY hole (the production format-colon finder has a ternary guard; the columnar
+        // grammar declines before any colon ambiguity can arise);
+        Assert.False(RouteColumnarProgram("func f(): string {\n    a := 1\n    return $\"{a > 0 ? 1 : 2}\"\n}\n").Ok);
+        // a BUILDER-typed hole value (the oracle boxes through AppendFormatted(object, int, string)).
+        Assert.False(RouteColumnarProgram("record Pt {\n    X: int\n}\n\nfunc f(): string {\n    p := new Pt { X: 1 }\n    return $\"{p}\"\n}\n").Ok);
+    }
+
     // RECORDS COMPLETION (Phase D) — `with` expressions + the synthesized VALUE members. PASS 0e
     // synthesizes Equals(object)/GetHashCode()/`<Clone>$` on every NON-GENERIC record whose field types
     // are baked runtime types, mirroring the oracle's EmitRecordEquals/EmitRecordGetHashCode/
@@ -5034,8 +5088,9 @@ class B
     [Fact]
     public void ColumnarCodegen_InterpolationDeclinesAndStaticInitEscapes()
     {
-        // $-strings DECLINE wholesale (expression position and static-field initializer position).
-        Assert.False(RouteColumnarProgram("func f(name: string): string {\n    return $\"hello {name}\"\n}\n").Ok);
+        // ($-strings in EXPRESSION position FLIPPED — the strings-slice-4 handler lowering;
+        // parity lives in ColumnarCodegen_Parity_StringInterpolation.) Static-field INITIALIZER
+        // position still declines: general-expression initializers are unmodelled there.
         Assert.False(RouteColumnarProgram("class C {\n    static tag: string = $\"v{1}\"\n}\n\nfunc f(): int { return 1 }\n").Ok);
 
         // a static-field initializer WITH escapes decodes identically on both pipelines.

@@ -11,6 +11,47 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-12 — STRINGS slice 4: INTERPOLATION — the Arc-M1 rider rung
+
+The queued `$"…"` rung, pulled forward per the M1 plan. Recon re-derived the machinery at HEAD:
+a $-string lexes as **ONE kind-4 token** with the `$` and the holes inside the span (the kernel's
+LexerTokenKindScanner already mirrors the production interpolation state machine and parses the
+literal as a plain kind-3 node — NO kernel change, NO new node kind); the production parser
+re-lexes the span (`ParseInterpolatedString`: `{{}}` collapse, brace-depth hole scan, the
+`FindFormatSpecifierColon` ternary-guarded state machine, escapes VERBATIM in text parts); the
+oracle lowers via **DefaultInterpolatedStringHandler** (`EmitInterpolatedString` ILCompiler.cs
+~14423: empty → `ldstr ""`, no-hole → constant-fold to concatenated DECODED text, else
+ctor(literalLength = decoded text lengths, formattedCount) + AppendLiteral(DecodeBody) +
+AppendFormatted overload routing + ToStringAndClear). Alignment does not exist in N#.
+
+**Columnar:** a new shared `ColumnarInterpolationSplitter` (one file) splits the kind-3 $-span
+under a deliberately narrow hole grammar — **identifier chains only** (`name` / `name.field.field`)
+with an optional `:format` (formats containing braces/quotes/backslashes decline outright: the
+production hole scan is brace-depth aware while the splitter closes at the first `}`, so banning
+those characters makes boundary divergence structurally impossible). The emitter's kind-3 arm
+routes `$`-spans to `TryEmitInterpolatedString`: constant folds mirror the oracle; the handler
+lowering resolves every hole EMISSION-FREE first (roots = locals/params — lifted/boxed roots
+decline, so capture-scan blindness to in-span identifiers can never mis-capture; hops = registry
+instance fields; builder-typed hole values decline — the oracle boxes those, a later rung), then
+emits AppendFormatted by the oracle's routing (string→(string); format→generic (T,string);
+else generic (T)). The diagnostics pass consumes the SAME splitter to mark hole ROOT identifiers
+as uses (no more false NL001; un-splittable literals keep the throw → decline → the production
+linter, exactly matching the emitter's decline of the identical program — uses and IL agree by
+construction). The static-field-initializer `$` guard stays (general-expression inits unmodelled).
+
+Parity: `ColumnarCodegen_Parity_StringInterpolation` — 12 value functions (basic, nested member
+hole, `:F2` format, `{{}}` braces, escapes-in-text, empty, no-hole fold, adjacent holes,
+int+string+double mix, param hole, string-with-format, and `onlyHoleUse` — a local used ONLY in a
+hole routes without a false NL001) + 3 decline pins (call hole, ternary hole, builder-typed hole —
+all oracle-accepted via the full sub-parse). The slice-3 wholesale-decline pin flipped (expression
+position; the static-init decline pin stays). 315/315 dogfood; gate (see commit). NEXT: the M1
+checksum-corpus extraction (plan pinned in the retirement-map memory: ParityCorpus sibling dir,
+6 in-test whole-project compile sites, the benchmark EmbeddedResource/concatenation re-point,
+multi-file zero-declines pin), then async → interfaces → route-all (gate: Phase P port) → emitter
+port (gate: SoA design doc). Post-self-host perf queue opens with match→IL-switch.
+
+---
+
 ## 2026-06-12 — D-18b: COLUMNAR MEMBER WRITES — param receivers, class/record locals, nested field chains, compound members
 
 The columnar twin of D-18a, mirroring the FIXED oracle. The kind-8 assignment arm's two old tiers

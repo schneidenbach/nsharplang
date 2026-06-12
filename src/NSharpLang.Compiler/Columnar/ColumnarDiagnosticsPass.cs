@@ -304,11 +304,20 @@ public sealed class ColumnarDiagnosticsPass
     {
         switch (_kinds[idx])
         {
-            case 3: // StringLiteral — an INTERPOLATED literal ($-prefixed token) holds identifier USES the
-                // kind-6 walk cannot see (probe-confirmed FALSE NL001: a local used only in a hole reported
-                // unused). Throw so the adapter's catch declines the analysis to the production linter.
+            case 3: // StringLiteral — an INTERPOLATED literal ($-prefixed token) holds identifier USES
+                // inside its holes that the kind-6 walk cannot see (a local used only in a hole would be
+                // a FALSE NL001). The shared splitter extracts hole ROOT identifiers under the SAME
+                // grammar the emitter models, so uses and emitted IL agree by construction; a literal
+                // beyond that grammar keeps the throw — the adapter's catch declines the analysis to the
+                // production linter, matching the emitter's decline of the identical program.
                 if (_valueLengths[idx] > 0 && _source[_valueStarts[idx]] == '$')
-                    throw new System.InvalidOperationException("interpolated string — unused-local analysis declines");
+                {
+                    var interpolationParts = new List<ColumnarInterpolationSplitter.Part>();
+                    if (!ColumnarInterpolationSplitter.TrySplit(
+                            _source.Substring(_valueStarts[idx], _valueLengths[idx]), interpolationParts))
+                        throw new System.InvalidOperationException("interpolated string — unused-local analysis declines");
+                    ColumnarInterpolationSplitter.CollectHoleRoots(interpolationParts, usedNames);
+                }
                 return;
 
             case 6: // Identifier expression — a use of its name, recorded in traversal order. A value-less
