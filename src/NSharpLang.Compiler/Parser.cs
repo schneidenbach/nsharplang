@@ -4516,10 +4516,11 @@ public class Parser
                 while (!Check(TokenType.RightBrace) && !IsAtEnd())
                 {
                     var startPosition = _position;
+                    var propNameToken = Current;
                     var propName = ConsumeIdentifier("Expected property name");
                     Consume(TokenType.Colon, "Expected ':'");
                     var propValue = ParseExpression();
-                    props.Add(new PropertyInitializer(propName, null, propValue));
+                    props.Add(new PropertyInitializer(propName, null, propValue, propNameToken.Line, propNameToken.Column));
 
                     if (!Check(TokenType.RightBrace))
                         Match(TokenType.Comma);
@@ -5463,7 +5464,7 @@ public class Parser
                             propNameToken.Column + TokenLengthOrFallback(propNameToken));
                     }
 
-                    props.Add(new PropertyInitializer(propName, null, propValue));
+                    props.Add(new PropertyInitializer(propName, null, propValue, propNameToken.Line, propNameToken.Column));
                 }
 
                 if (!Check(TokenType.RightBrace))

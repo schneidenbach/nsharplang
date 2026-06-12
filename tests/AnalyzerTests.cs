@@ -10539,4 +10539,125 @@ func f(): H {
     return new H { V: 3, Items: null, Pet: new Dog(), Tags: new() }
 }", ErrorCode.TypeMismatch);
     }
+
+    // ===== Object-initializer member NAME validation (used to be an internal NL103 at emit) =====
+
+    [Fact]
+    public void ObjectInitializer_UnknownMemberName_Error()
+    {
+        var error = AssertHasErrorCode(@"
+record H {
+    Items: List<int>
+}
+
+func f(): H {
+    return new H { Itmes: new List<int>() }
+}", ErrorCode.UndefinedMember);
+        Assert.Contains("'Itmes'", error.Message);
+        Assert.Contains("Items", error.Suggestion ?? string.Join(",", error.Suggestions ?? new List<string>()));
+    }
+
+    [Fact]
+    public void ObjectInitializer_UnknownMemberOnClosedGeneric_Error()
+    {
+        var error = AssertHasErrorCode(@"
+record Box<T> {
+    Item: T
+}
+
+func f(): Box<int> {
+    return new Box<int> { Itm: 5 }
+}", ErrorCode.UndefinedMember);
+        Assert.Contains("'Itm'", error.Message);
+    }
+
+    [Fact]
+    public void ObjectInitializer_UnionCasePropertyTypo_Error()
+    {
+        var error = AssertHasErrorCode(@"
+union Result<T> {
+    Success { value: T }
+    Failure { error: string }
+}
+
+func f(): Result<int> {
+    return new Result.Success<int> { valu: 42 }
+}", ErrorCode.UndefinedMember);
+        Assert.Contains("Union case 'Success' doesn't have a property named 'valu'", error.Message);
+        Assert.Contains("value", error.Suggestion ?? string.Empty);
+    }
+
+    [Fact]
+    public void UnionCaseConstruction_UnknownCase_Error()
+    {
+        var error = AssertHasErrorCode(@"
+union Result<T> {
+    Success { value: T }
+    Failure { error: string }
+}
+
+func f(): Result<int> {
+    return new Result.Sucess<int> { value: 42 }
+}", ErrorCode.UndefinedMember);
+        Assert.Contains("'Sucess' is not a case of union 'Result'", error.Message);
+        Assert.Contains("Result.Success", error.Suggestion ?? string.Empty);
+    }
+
+    [Fact]
+    public void ObjectInitializer_InheritedMember_ResolvesAndTypeChecks()
+    {
+        // Members inherited from a base class must resolve (no false NL303)...
+        AssertNoErrorCode(@"
+class Base {
+    X: int
+}
+
+class Derived : Base {
+}
+
+func f(): Derived {
+    return new Derived { X: 5 }
+}", ErrorCode.UndefinedMember);
+
+        // ...and still get the NL202 assignability gate through the base member type.
+        AssertHasErrorCode(@"
+class Base {
+    X: int
+}
+
+class Derived : Base {
+}
+
+func f(): Derived {
+    return new Derived { X: ""abc"" }
+}", ErrorCode.TypeMismatch);
+    }
+
+    [Fact]
+    public void ObjectInitializer_ReflectionMembers_TypeCheckAndNameCheck()
+    {
+        // BCL receivers: matching member types stay accepted...
+        AssertNoErrorCode(@"
+import System.Text
+
+func f(): StringBuilder {
+    return new StringBuilder { Capacity: 10 }
+}", ErrorCode.TypeMismatch);
+
+        // ...a mismatched value reports NL202...
+        AssertHasErrorCode(@"
+import System.Text
+
+func f(): StringBuilder {
+    return new StringBuilder { Capacity: ""abc"" }
+}", ErrorCode.TypeMismatch);
+
+        // ...and a typo'd member reports NL303 (reliable BCL member set).
+        AssertHasErrorCode(@"
+import System.Text
+
+func f(): StringBuilder {
+    return new StringBuilder { Capcity: 10 }
+}", ErrorCode.UndefinedMember);
+    }
 }

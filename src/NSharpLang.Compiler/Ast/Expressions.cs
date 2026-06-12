@@ -195,7 +195,9 @@ public record ObjectInitializerExpression(
 public record PropertyInitializer(
     string? Name,              // Property name (for property initializers)
     Expression? IndexExpression, // Index expression (for indexer initializers like ["key"])
-    Expression Value
+    Expression Value,
+    int NameLine = 0,          // Position of the property name token (0 = unknown; diagnostics fall back to the value's span)
+    int NameColumn = 0
 ) {
     public bool IsIndexerInitializer => IndexExpression != null;
 };

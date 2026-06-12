@@ -5616,8 +5616,11 @@ public class Analyzer : IDisposable
     }
 
     private bool ShouldReportUndefinedMember(TypeInfo receiverType, MemberAccessExpression member, bool includeStaticMembers)
+        => ShouldReportUndefinedMember(receiverType, member.MemberName, includeStaticMembers);
+
+    private bool ShouldReportUndefinedMember(TypeInfo receiverType, string memberName, bool includeStaticMembers)
     {
-        if (string.IsNullOrWhiteSpace(member.MemberName) || member.MemberName == "<error>")
+        if (string.IsNullOrWhiteSpace(memberName) || memberName == "<error>")
             return false;
 
         receiverType = ResolveAliasAndMetadata(receiverType);
@@ -5636,17 +5639,17 @@ public class Analyzer : IDisposable
             SimpleTypeInfo simple when simple == BuiltInTypes.Object => false,
             SimpleTypeInfo simple => TryConvertTypeInfoToClrType(simple) != null
                                      || (IsKnownBuiltInReceiverWithoutReflection(simple)
-                                         && !IsKnownBuiltInMemberWithoutReflection(simple, member.MemberName, includeStaticMembers)),
+                                         && !IsKnownBuiltInMemberWithoutReflection(simple, memberName, includeStaticMembers)),
             ArrayTypeInfo => TryConvertTypeInfoToClrType(receiverType) != null
-                             || !IsKnownBuiltInMemberWithoutReflection(receiverType, member.MemberName, includeStaticMembers),
+                             || !IsKnownBuiltInMemberWithoutReflection(receiverType, memberName, includeStaticMembers),
             GenericTypeInfo => TryConvertTypeInfoToClrType(receiverType) != null,
             ReflectionTypeInfo reflection when IsSystemObjectType(reflection.Type) => false,
             ReflectionTypeInfo reflection => HasReliableReflectionMemberSet(reflection.Type),
             ClassTypeInfo or StructTypeInfo or RecordTypeInfo
                 or InterfaceTypeInfo or EnumTypeInfo or UnionTypeInfo or NewtypeInfo
                 or TupleTypeInfo => true,
-            NullableTypeInfo nullable => ShouldReportUndefinedMember(nullable.InnerType, member, includeStaticMembers),
-            ObliviousTypeInfo oblivious => ShouldReportUndefinedMember(oblivious.InnerType, member, includeStaticMembers),
+            NullableTypeInfo nullable => ShouldReportUndefinedMember(nullable.InnerType, memberName, includeStaticMembers),
+            ObliviousTypeInfo oblivious => ShouldReportUndefinedMember(oblivious.InnerType, memberName, includeStaticMembers),
             _ => false
         };
     }
@@ -5712,21 +5715,29 @@ public class Analyzer : IDisposable
         };
 
     private void ReportUndefinedMember(TypeInfo receiverType, MemberAccessExpression member, bool includeStaticMembers)
-    {
-        var memberColumn = GetMemberNameColumn(member);
-        var length = Math.Max(1, member.MemberName.Length);
-        var typeName = NullabilityMetadata.FormatTypeInfo(receiverType);
-        var similarMembers = FindSimilarMemberNames(receiverType, member.MemberName, includeStaticMembers);
+        => ReportUndefinedMember(receiverType, member.MemberName, member.Line, GetMemberNameColumn(member), includeStaticMembers);
 
-        if (_sourceLines != null && member.Line > 0 && member.Line <= _sourceLines.Length && _currentFilePath != null)
+    private void ReportUndefinedMember(
+        TypeInfo receiverType,
+        string memberName,
+        int line,
+        int column,
+        bool includeStaticMembers,
+        string? typeNameOverride = null)
+    {
+        var length = Math.Max(1, memberName.Length);
+        var typeName = typeNameOverride ?? NullabilityMetadata.FormatTypeInfo(receiverType);
+        var similarMembers = FindSimilarMemberNames(receiverType, memberName, includeStaticMembers);
+
+        if (_sourceLines != null && line > 0 && line <= _sourceLines.Length && _currentFilePath != null)
         {
             _errors.Add(ErrorMessageBuilder.UndefinedMember(
                 _currentFilePath,
-                member.Line,
-                memberColumn,
-                _sourceLines[member.Line - 1],
+                line,
+                column,
+                _sourceLines[line - 1],
                 length,
-                member.MemberName,
+                memberName,
                 typeName,
                 similarMembers));
             return;
@@ -5734,9 +5745,9 @@ public class Analyzer : IDisposable
 
         Error(
             ErrorCode.UndefinedMember,
-            $"Member '{member.MemberName}' not found on type '{typeName}'",
-            member.Line,
-            memberColumn,
+            $"Member '{memberName}' not found on type '{typeName}'",
+            line,
+            column,
             similarMembers.Count > 0 ? $"Did you mean '{similarMembers[0]}'?" : null,
             length);
     }
@@ -10689,9 +10700,30 @@ public class Analyzer : IDisposable
                 if (parts.Length == 2
                     && LookupType(parts[0]) is UnionTypeInfo { IsAnonymous: false } unionBaseType)
                 {
-                    // This is a union case instantiation - the variable should have the union type
-                    type = ResolveUnionCaseConstructionType(newExpr, unionBaseType, parts[0], qualifiedCaseName, unionCaseTypeArguments);
-                    unionCaseConstructionName = qualifiedCaseName;
+                    if (TryGetUnionCaseForPattern(unionBaseType, qualifiedCaseName, out _))
+                    {
+                        // This is a union case instantiation - the variable should have the union type
+                        type = ResolveUnionCaseConstructionType(newExpr, unionBaseType, parts[0], qualifiedCaseName, unionCaseTypeArguments);
+                        unionCaseConstructionName = qualifiedCaseName;
+                    }
+                    else
+                    {
+                        // Constructing a case the union doesn't declare used to surface as
+                        // an internal emit failure; report it like the pattern path does.
+                        var caseNames = unionBaseType.Declaration!.Cases.Select(unionCase => unionCase.Name).ToList();
+                        var similarCases = caseNames.Count > 0
+                            ? new SmartSuggester(caseNames).SuggestSimilarNames(parts[1])
+                            : new List<string>();
+                        var caseSpan = GetTypeReferenceStartSpan(newExpr.Type!);
+                        Error(
+                            ErrorCode.UndefinedMember,
+                            $"'{parts[1]}' is not a case of union '{parts[0]}' — check the union definition for available cases",
+                            caseSpan.StartLine,
+                            caseSpan.StartColumn,
+                            similarCases.Count > 0 ? $"Did you mean '{parts[0]}.{similarCases[0]}'?" : null,
+                            qualifiedCaseName.Length);
+                        type = unionBaseType;
+                    }
                 }
             }
         }
@@ -10758,9 +10790,19 @@ public class Analyzer : IDisposable
         string? unionCaseName,
         PropertyInitializer prop)
     {
-        if (prop.Name == null
-            || prop.IndexExpression != null
-            || !TryResolveObjectInitializerMemberType(constructedType, unionCaseName, prop.Name, out var memberType))
+        if (prop.Name == null || prop.IndexExpression != null)
+        {
+            AnalyzeExpression(prop.Value);
+            return;
+        }
+
+        // Diagnostics point at the member name when the parser recorded it; ASTs built
+        // without positions fall back to the value's span.
+        var (nameLine, nameColumn) = prop.NameLine > 0
+            ? (prop.NameLine, prop.NameColumn)
+            : (prop.Value.Line, prop.Value.Column);
+
+        if (!TryResolveObjectInitializerMemberType(constructedType, unionCaseName, prop.Name, nameLine, nameColumn, out var memberType))
         {
             AnalyzeExpression(prop.Value);
             return;
@@ -10809,11 +10851,15 @@ public class Analyzer : IDisposable
     /// Returns false when the member's type cannot be determined reliably — unknown or
     /// non-member-bearing receivers, members inherited past an open generic declaration,
     /// method groups — so the caller skips the assignability check instead of guessing.
+    /// When the member is conclusively absent from the constructed type (it used to
+    /// surface as an internal emit failure), reports UndefinedMember with suggestions.
     /// </summary>
     private bool TryResolveObjectInitializerMemberType(
         TypeInfo constructedType,
         string? unionCaseName,
         string memberName,
+        int nameLine,
+        int nameColumn,
         out TypeInfo memberType)
     {
         memberType = BuiltInTypes.Unknown;
@@ -10833,6 +10879,18 @@ public class Analyzer : IDisposable
             var caseProperty = unionCase.Properties?.FirstOrDefault(property => property.Name == memberName);
             if (caseProperty == null)
             {
+                var caseDisplayName = GetUnionCaseName(unionCaseName);
+                var casePropertyNames = unionCase.Properties?.Select(property => property.Name).ToList() ?? new List<string>();
+                var similarProperties = casePropertyNames.Count > 0
+                    ? new SmartSuggester(casePropertyNames).SuggestSimilarNames(memberName)
+                    : new List<string>();
+                Error(
+                    ErrorCode.UndefinedMember,
+                    $"Union case '{caseDisplayName}' doesn't have a property named '{memberName}' — check the case definition for available properties",
+                    nameLine,
+                    nameColumn,
+                    similarProperties.Count > 0 ? $"Did you mean '{similarProperties[0]}'?" : null,
+                    Math.Max(1, memberName.Length));
                 return false;
             }
 
@@ -10869,6 +10927,23 @@ public class Analyzer : IDisposable
             var memberTypeReference = FindDeclaredMemberTypeReference(members, primaryParameters, memberName);
             if (memberTypeReference == null)
             {
+                // Same-named functions, generated members, and inherited members resolve
+                // on the open type — only a conclusively absent member reports (a base
+                // class would need its own substitution chain, so it suppresses instead).
+                var hasBaseClass = openType is ClassTypeInfo { Declaration.BaseClass: not null };
+                if (!hasBaseClass
+                    && BuiltInTypes.IsUnknown(ResolveMember(openType, memberName, includeStaticMembers: false))
+                    && ShouldReportUndefinedMember(openType, memberName, includeStaticMembers: false))
+                {
+                    ReportUndefinedMember(
+                        openType,
+                        memberName,
+                        nameLine,
+                        nameColumn,
+                        includeStaticMembers: false,
+                        typeNameOverride: NullabilityMetadata.FormatTypeInfo(generic));
+                }
+
                 return false;
             }
 
@@ -10884,8 +10959,17 @@ public class Analyzer : IDisposable
         }
 
         var resolved = ResolveMember(constructedType, memberName, includeStaticMembers: false);
-        if (BuiltInTypes.IsUnknown(resolved)
-            || resolved is NSharpMethodGroupInfo or ReflectionMethodGroupInfo or ReflectionMethodInfo or ReflectionEventInfo
+        if (BuiltInTypes.IsUnknown(resolved))
+        {
+            if (ShouldReportUndefinedMember(constructedType, memberName, includeStaticMembers: false))
+            {
+                ReportUndefinedMember(constructedType, memberName, nameLine, nameColumn, includeStaticMembers: false);
+            }
+
+            return false;
+        }
+
+        if (resolved is NSharpMethodGroupInfo or ReflectionMethodGroupInfo or ReflectionMethodInfo or ReflectionEventInfo
             || resolved is FunctionTypeInfo { Declaration: not null })
         {
             return false;
