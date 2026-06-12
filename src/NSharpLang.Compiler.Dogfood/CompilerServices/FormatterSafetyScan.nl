@@ -46,19 +46,3 @@ func FormatterSafetyErrorIndicesInto(
 
     return resultCount
 }
-
-func FormatterSafetyErrorIndicesChecksumInto(
-    severities: int[],
-    resultIndices: int[]): int {
-    resultCount := FormatterSafetyErrorIndicesInto(severities, resultIndices)
-
-    checksum := resultCount
-    i := 0
-    while i < resultCount && i < resultIndices.Length {
-        index := resultIndices[i]
-        checksum = checksum + (index + 1) * 31 + (i + 1) * 13
-        i = i + 1
-    }
-
-    return checksum
-}

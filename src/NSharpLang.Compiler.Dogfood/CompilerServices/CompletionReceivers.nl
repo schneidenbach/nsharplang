@@ -1,22 +1,6 @@
 import System
 import System.Text
 
-func CodeIntelligenceCompletionReceiverChecksumInto(
-    prefixes: string[],
-    resultContexts: int[],
-    resultReceivers: string[]): int {
-    count := CodeIntelligenceCompletionReceiversInto(prefixes, resultContexts, resultReceivers)
-    checksum := count
-    i := 0
-
-    while i < count {
-        checksum = checksum + resultContexts[i] * 31 + resultReceivers[i].Length * 17
-        i = i + 1
-    }
-
-    return checksum
-}
-
 func CodeIntelligenceCompletionReceiversInto(
     prefixes: string[],
     resultContexts: int[],

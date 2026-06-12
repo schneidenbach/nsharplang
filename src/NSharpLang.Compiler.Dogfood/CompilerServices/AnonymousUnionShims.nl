@@ -46,19 +46,3 @@ func AnonymousUnionDeclaresPublicShimTrusted(parameterFlags: int[], count: int):
 
     return hasEligibleUnion
 }
-
-func AnonymousUnionDeclaresPublicShimChecksum(parameterFlags: int[], count: int): int {
-    result := AnonymousUnionDeclaresPublicShim(parameterFlags, count)
-    if result < 0 {
-        return result
-    }
-
-    checksum := result * 17 + count
-    i := 0
-    while i < count {
-        checksum = checksum + parameterFlags[i] * 31 + (i + 1) * 7
-        i = i + 1
-    }
-
-    return checksum
-}

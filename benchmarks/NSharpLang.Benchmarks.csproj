@@ -32,6 +32,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Arc M1: the extracted checksum-oracle PARITY CORPUS — DogfoodCompilerSources concatenates
+         each corpus twin back onto its product file so the benchmark [GlobalSetup] name binds keep
+         resolving on the exact pre-extraction compilation units. -->
+    <EmbeddedResource
+      Include="../src/NSharpLang.Compiler.Dogfood.ParityCorpus/*.nl"
+      LogicalName="NSharpLang.Benchmarks.ParityCorpus.%(Filename)%(Extension)" />
     <EmbeddedResource
       Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/LexerTokenKindScanner.nl"
       LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.LexerTokenKindScanner.nl" />

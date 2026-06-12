@@ -11,6 +11,46 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-12 — Arc M1a: CHECKSUM-CORPUS EXTRACTION — the product dogfood files shed their test scaffolding
+
+The 94 `*Checksum*` functions (3,975 lines — 19% of the 20,912-line corpus) that existed solely as
+parity-test oracles moved VERBATIM out of `src/NSharpLang.Compiler.Dogfood/CompilerServices/*.nl`
+into a new **`src/NSharpLang.Compiler.Dogfood.ParityCorpus/`** (27 twin files, same names) — the
+product files shrink 4,093 lines and the SHIPPED dogfood assembly no longer carries test
+scaffolding (the MSBuild targets glob only covers the project root). The destination stays under
+`src/` deliberately: the gate's BENCH step-input set covers `src/`+`benchmarks/`, so a `tests/`
+corpus would have escaped cache invalidation (recon finding; GateStepInputSetGuardTests enforces
+the set lists).
+
+**All three consumer families re-pointed in-slice (the recon's hidden-consumer map):**
+(1) the 9 in-test whole-project compiles now build product+corpus explicitly
+(`CreateDogfoodWithParityCorpusCompiler` — `config.GetSourceFiles` + the corpus glob), keeping the
+~80 `GetMethod("…ChecksumInto")` binds resolving; (2) the 13 real-file columnar parity tests read
+through `ReadDogfoodFileWithParityCorpus` — the product text plus its corpus twin CONCATENATED is
+the exact pre-extraction compilation unit (the wrappers delegate to sibling kernels in the product
+file); (3) the BENCHMARKS — 67 checksum functions bound BY NAME in `[GlobalSetup]` across ~55
+classes — embed the corpus via a glob `EmbeddedResource` (`NSharpLang.Benchmarks.ParityCorpus.*`)
+and `DogfoodCompilerSources.ReadResource` now appends each corpus twin centrally, so every recorded
+evidence suite still binds (probe-verified: 27 resources, merged sources contain the fused twins).
+This consumer would have broken at benchmark RUNTIME only — the commit gate runs just
+`SystemsFastGateBenchmarks` (inline sources), so nothing in the gate would have caught it.
+
+**Zero-new-declines (the M-slice invariant):** new pin
+`ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines` — ALL product files + ALL corpus
+files merged via `RouteColumnarMultiFile` must route AND emit every checksum function by name
+(≥94, name-scanned from the corpus so the pin tracks its evolution). Single-file corpus routing
+would decline by construction (the wrappers' sibling-kernel calls are cross-file), hence the
+multi-file shape. The existing coverage ratchet + 32-file cluster pins keep passing on the slimmed
+product files. 316/316 dogfood. Non-goals kept: the 11 fused class-(b) bodies (incl. the 8-way
+LexerTokenKindScanner twin) moved VERBATIM — no restructuring; the wrapper-dedupe into generic
+helpers is M1b (corpus-internal only, no product impact). Note: non-gated lexer/parser benchmark
+evidence numbers shift on the slimmed files (SourceTextLines −70% … LexerTokenKindScanner −4%) —
+the merged benchmark sources keep the OLD substrate via concatenation, so recorded numbers remain
+reproducible there. NEXT: M1b wrapper dedupe (optional polish) or the queue: async → interfaces →
+route-all (gate: Phase P port) → emitter port (gate: SoA design doc).
+
+---
+
 ## 2026-06-12 — STRINGS slice 4: INTERPOLATION — the Arc-M1 rider rung
 
 The queued `$"…"` rung, pulled forward per the M1 plan. Recon re-derived the machinery at HEAD:

@@ -48,37 +48,6 @@ func TextEditOrderIndicesInto(
     return count
 }
 
-func TextEditOrderChecksumInto(
-    startPositionRanks: int[],
-    endPositionRanks: int[],
-    startPositionRankCount: int,
-    endPositionRankCount: int,
-    bucketCounts: int[],
-    bucketOffsets: int[],
-    tempIndices: int[],
-    resultIndices: int[]): int {
-    count := TextEditOrderIndicesInto(
-        startPositionRanks,
-        endPositionRanks,
-        startPositionRankCount,
-        endPositionRankCount,
-        bucketCounts,
-        bucketOffsets,
-        tempIndices,
-        resultIndices)
-
-    checksum := count
-    i := 0
-    while i < count {
-        index := resultIndices[i]
-        checksum = checksum + (i + 1) * 97 + (index + 1) * 31
-        checksum = checksum + startPositionRanks[index] * 17 + endPositionRanks[index] * 13
-        i = i + 1
-    }
-
-    return checksum
-}
-
 func TextEditOrderCountingPass(
     sourceIndices: int[],
     targetIndices: int[],

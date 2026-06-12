@@ -35,21 +35,6 @@ func CodeIntelligencePathMatchFlagsInto(
     return count
 }
 
-func CodeIntelligencePathMatchChecksumInto(
-    fullPaths: string[],
-    queryPaths: string[],
-    resultFlags: int[]): int {
-    count := CodeIntelligencePathMatchFlagsInto(fullPaths, queryPaths, resultFlags)
-    checksum := count
-    i := 0
-    while i < count {
-        checksum = checksum + resultFlags[i] * (i + 1) * 31
-        i = i + 1
-    }
-
-    return checksum
-}
-
 func CodeIntelligencePathEqualsNormalizedIgnoreCase(fullPath: string, queryPath: string): bool {
     if fullPath.Length != queryPath.Length {
         return false

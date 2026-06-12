@@ -51,7 +51,7 @@ public class CompilerDogfoodProjectTests
 
         try
         {
-            var result = new MultiFileCompiler(projectRoot, config)
+            var result = CreateDogfoodWithParityCorpusCompiler(projectRoot, config)
                 .CompileToIlAssembly("NSharpLang.Compiler.Dogfood", outputPath);
             Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors.Select(e => e.Message)));
 
@@ -399,7 +399,7 @@ class B
 
         try
         {
-            var result = new MultiFileCompiler(projectRoot, config)
+            var result = CreateDogfoodWithParityCorpusCompiler(projectRoot, config)
                 .CompileToIlAssembly("NSharpLang.Compiler.Dogfood", outputPath);
             Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors.Select(e => e.Message)));
 
@@ -643,7 +643,7 @@ class B
 
         try
         {
-            var result = new MultiFileCompiler(projectRoot, config)
+            var result = CreateDogfoodWithParityCorpusCompiler(projectRoot, config)
                 .CompileToIlAssembly("NSharpLang.Compiler.Dogfood", outputPath);
             Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors.Select(e => e.Message)));
 
@@ -950,7 +950,7 @@ class B
 
         try
         {
-            var result = new MultiFileCompiler(projectRoot, config)
+            var result = CreateDogfoodWithParityCorpusCompiler(projectRoot, config)
                 .CompileToIlAssembly("NSharpLang.Compiler.Dogfood", outputPath);
             Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors.Select(e => e.Message)));
 
@@ -1276,7 +1276,7 @@ class B
 
         try
         {
-            var result = new MultiFileCompiler(projectRoot, config)
+            var result = CreateDogfoodWithParityCorpusCompiler(projectRoot, config)
                 .CompileToIlAssembly("NSharpLang.Compiler.Dogfood", outputPath);
             Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors.Select(e => e.Message)));
             using var loadScope = CollectibleAssemblyScope.LoadFromFile(outputPath);
@@ -2752,8 +2752,7 @@ class B
     [Fact]
     public void ColumnarCodegen_CompilesRealDogfoodFile_FormatterSafetyScan()
     {
-        var path = Path.Combine(FindRepoRoot(), "src", "NSharpLang.Compiler.Dogfood", "CompilerServices", "FormatterSafetyScan.nl");
-        var source = File.ReadAllText(path);
+        var source = ReadDogfoodFileWithParityCorpus("FormatterSafetyScan.nl");
 
         var (ok, _, _, methodNames) = RouteColumnarProgram(source);
         Assert.True(ok, "Columnar backend declined the real FormatterSafetyScan.nl (expected full support).");
@@ -2943,8 +2942,7 @@ class B
     [Fact]
     public void ColumnarCodegen_CompilesRealDogfoodFile_CliArguments()
     {
-        var path = Path.Combine(FindRepoRoot(), "src", "NSharpLang.Compiler.Dogfood", "CompilerServices", "CliArguments.nl");
-        var source = File.ReadAllText(path);
+        var source = ReadDogfoodFileWithParityCorpus("CliArguments.nl");
         var (ok, _, _, methodNames) = RouteColumnarProgram(source);
         Assert.True(ok, "Columnar backend declined the real CliArguments.nl (expected full support).");
         Assert.Contains("CliSymbolNameContainsAsciiIgnoreCase", methodNames!); // IndexOf(string, StringComparison)
@@ -2985,8 +2983,7 @@ class B
     [Fact]
     public void ColumnarCodegen_CompilesRealDogfoodFile_CompletionReceivers()
     {
-        var path = Path.Combine(FindRepoRoot(), "src", "NSharpLang.Compiler.Dogfood", "CompilerServices", "CompletionReceivers.nl");
-        var source = File.ReadAllText(path);
+        var source = ReadDogfoodFileWithParityCorpus("CompletionReceivers.nl");
         var (ok, _, _, methodNames) = RouteColumnarProgram(source);
         Assert.True(ok, "Columnar backend declined the real CompletionReceivers.nl (expected full support).");
         Assert.Contains("NormalizeCodeIntelligenceCompletionReceiverCalls", methodNames!); // the StringBuilder user.
@@ -3022,8 +3019,7 @@ class B
     [Fact]
     public void ColumnarCodegen_CompilesRealDogfoodFile_IdentifierSpans()
     {
-        var path = Path.Combine(FindRepoRoot(), "src", "NSharpLang.Compiler.Dogfood", "CompilerServices", "IdentifierSpans.nl");
-        var source = File.ReadAllText(path);
+        var source = ReadDogfoodFileWithParityCorpus("IdentifierSpans.nl");
         var (ok, _, _, methodNames) = RouteColumnarProgram(source);
         Assert.True(ok, "Columnar backend declined the real IdentifierSpans.nl (expected full support).");
         Assert.Contains("IsCodeIntelligenceSnapFriendlyNeighbor", methodNames!); // the fixed scan loop.
@@ -3065,8 +3061,7 @@ class B
     [Fact]
     public void ColumnarCodegen_CompilesRealDogfoodFile_DiagnosticDeduplication()
     {
-        var path = Path.Combine(FindRepoRoot(), "src", "NSharpLang.Compiler.Dogfood", "CompilerServices", "DiagnosticDeduplication.nl");
-        var source = File.ReadAllText(path);
+        var source = ReadDogfoodFileWithParityCorpus("DiagnosticDeduplication.nl");
         var (ok, _, _, methodNames) = RouteColumnarProgram(source);
         Assert.True(ok, "Columnar backend declined the real DiagnosticDeduplication.nl (expected full support).");
         Assert.Contains("SortDiagnosticDeduplicationIndices", methodNames!); // the void heapsort helper.
@@ -3136,8 +3131,7 @@ class B
     [Fact]
     public void ColumnarCodegen_CompilesRealDogfoodFile_DiagnosticClusters()
     {
-        var path = Path.Combine(FindRepoRoot(), "src", "NSharpLang.Compiler.Dogfood", "CompilerServices", "DiagnosticClusters.nl");
-        var source = File.ReadAllText(path);
+        var source = ReadDogfoodFileWithParityCorpus("DiagnosticClusters.nl");
         var (ok, _, _, methodNames) = RouteColumnarProgram(source);
         Assert.True(ok, "Columnar backend declined the real DiagnosticClusters.nl (expected full support).");
         Assert.Contains("FormatDiagnosticClusterId", methodNames!);  // Math.Abs + int.ToString("x") + new string
@@ -7064,8 +7058,7 @@ class B
     [Fact]
     public void ColumnarCodegen_CompilesRealDogfoodFile_SemanticScopes()
     {
-        var path = Path.Combine(FindRepoRoot(), "src", "NSharpLang.Compiler.Dogfood", "CompilerServices", "SemanticScopes.nl");
-        var source = File.ReadAllText(path);
+        var source = ReadDogfoodFileWithParityCorpus("SemanticScopes.nl");
         var (ok, _, _, methodNames) = RouteColumnarProgram(source);
         Assert.True(ok, "Columnar backend declined the real SemanticScopes.nl (expected full support).");
         Assert.Contains("SemanticScopeSortIdsByStart", methodNames!);  // implicit-void quicksort
@@ -7095,8 +7088,7 @@ class B
     [Fact]
     public void ColumnarCodegen_CompilesRealDogfoodFile_LexerTokenKindScanner()
     {
-        var path = Path.Combine(FindRepoRoot(), "src", "NSharpLang.Compiler.Dogfood", "CompilerServices", "LexerTokenKindScanner.nl");
-        var source = File.ReadAllText(path);
+        var source = ReadDogfoodFileWithParityCorpus("LexerTokenKindScanner.nl");
         var (ok, _, _, methodNames) = RouteColumnarProgram(source);
         Assert.True(ok, "Columnar backend declined the real LexerTokenKindScanner.nl (expected full support).");
         Assert.Contains("IsIdentifierStart", methodNames!); // char.IsLetter user.
@@ -7115,8 +7107,7 @@ class B
     [Fact]
     public void ColumnarCodegen_CompilesRealDogfoodFile_CliQueryParsing()
     {
-        var path = Path.Combine(FindRepoRoot(), "src", "NSharpLang.Compiler.Dogfood", "CompilerServices", "CliQueryParsing.nl");
-        var source = File.ReadAllText(path);
+        var source = ReadDogfoodFileWithParityCorpus("CliQueryParsing.nl");
         var (ok, _, _, methodNames) = RouteColumnarProgram(source);
         Assert.True(ok, "Columnar backend declined the real CliQueryParsing.nl (expected full support).");
         Assert.Contains("CliBatchResultPackedSuccessCount", methodNames!); // ulong[] + Shr_Un + PopCount.
@@ -7142,8 +7133,7 @@ class B
     [Fact]
     public void ColumnarCodegen_CompilesRealDogfoodFile_CliDocOrdering()
     {
-        var path = Path.Combine(FindRepoRoot(), "src", "NSharpLang.Compiler.Dogfood", "CompilerServices", "CliDocOrdering.nl");
-        var source = File.ReadAllText(path);
+        var source = ReadDogfoodFileWithParityCorpus("CliDocOrdering.nl");
         var (ok, _, _, methodNames) = RouteColumnarProgram(source);
         Assert.True(ok, "Columnar backend declined the real CliDocOrdering.nl (expected full support).");
         Assert.Contains("CliDocSlugInto", methodNames!); // the new string(char[],int,int) user.
@@ -7185,8 +7175,7 @@ class B
     [Fact]
     public void ColumnarCodegen_CompilesRealDogfoodFile_SourceTextLines()
     {
-        var path = Path.Combine(FindRepoRoot(), "src", "NSharpLang.Compiler.Dogfood", "CompilerServices", "SourceTextLines.nl");
-        var source = File.ReadAllText(path);
+        var source = ReadDogfoodFileWithParityCorpus("SourceTextLines.nl");
 
         var (ok, _, _, methodNames) = RouteColumnarProgram(source);
         Assert.True(ok, "Columnar backend declined the real SourceTextLines.nl (expected full support).");
@@ -7224,8 +7213,7 @@ class B
     [Fact]
     public void ColumnarCodegen_CompilesRealDogfoodFile_PathMatching()
     {
-        var path = Path.Combine(FindRepoRoot(), "src", "NSharpLang.Compiler.Dogfood", "CompilerServices", "PathMatching.nl");
-        var source = File.ReadAllText(path);
+        var source = ReadDogfoodFileWithParityCorpus("PathMatching.nl");
         var (ok, _, _, methodNames) = RouteColumnarProgram(source);
         Assert.True(ok, "Columnar backend declined the real PathMatching.nl (expected full support).");
         Assert.Contains("CodeIntelligencePathCharsEqualIgnoreCase", methodNames!); // the char-subtraction case-fold.
@@ -7255,8 +7243,7 @@ class B
     [Fact]
     public void ColumnarCodegen_CompilesRealDogfoodFile_LinterImports()
     {
-        var path = Path.Combine(FindRepoRoot(), "src", "NSharpLang.Compiler.Dogfood", "CompilerServices", "LinterImports.nl");
-        var source = File.ReadAllText(path);
+        var source = ReadDogfoodFileWithParityCorpus("LinterImports.nl");
         var (ok, _, _, methodNames) = RouteColumnarProgram(source);
         Assert.True(ok, "Columnar backend declined the real LinterImports.nl (expected full support).");
         Assert.Contains("LinterUnusedKnownNamespaceImportIndicesInto", methodNames!); // contains the discarded-result call.
@@ -7369,6 +7356,43 @@ class B
         Assert.Contains("ParseFunctionSignatureInto", methodNames!); // ParserFunctionSignatures -> ParserTypeReferences
         Assert.Contains("ParsePrimaryExpressionNode", methodNames!); // ParserExpressions
         Assert.Contains("ParseStatementNodesInto", methodNames!);    // ParserStatements -> ParserExpressions
+    }
+
+    // Arc M1 ZERO-NEW-DECLINES: the extracted PARITY CORPUS (the 94 checksum oracles moved out of
+    // the product files) must stay 100% columnar-compiled when merged with the product corpus —
+    // the M-slice invariant (a modernized/extracted file that declines would fall back to the C#
+    // path SILENTLY). The corpus functions delegate to sibling kernels in the product files, so
+    // the assertion is the MULTI-FILE merge: every product file + every corpus file, asserting the
+    // merge routes AND every checksum function was emitted by NAME.
+    [Fact]
+    public void ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines()
+    {
+        var repoRoot = FindRepoRoot();
+        var productDir = Path.Combine(repoRoot, "src", "NSharpLang.Compiler.Dogfood", "CompilerServices");
+        var corpusDir = Path.Combine(repoRoot, "src", "NSharpLang.Compiler.Dogfood.ParityCorpus");
+        var corpusFiles = Directory.EnumerateFiles(corpusDir, "*.nl").OrderBy(p => p, StringComparer.Ordinal).ToArray();
+        var sources = Directory.EnumerateFiles(productDir, "*.nl").OrderBy(p => p, StringComparer.Ordinal)
+            .Concat(corpusFiles)
+            .Select(File.ReadAllText)
+            .ToArray();
+        var (ok, assembly, _, methodNames) = RouteColumnarMultiFile(sources);
+        Assert.True(ok, "Columnar backend declined the merged product+parity-corpus cluster (an M-slice zero-new-declines violation).");
+        using var loadScope = CollectibleAssemblyScope.Load(assembly!);
+        Assert.NotNull(loadScope.Assembly);
+        // Every extracted checksum function must have been emitted (94 at extraction time; the
+        // name scan keeps the pin exact as the corpus evolves).
+        var checksumNames = corpusFiles
+            .SelectMany(p => File.ReadLines(p))
+            .Where(l => l.StartsWith("func ", StringComparison.Ordinal))
+            .Select(l => l.Substring(5, l.IndexOf('(') - 5))
+            .Where(n => n.EndsWith("Checksum", StringComparison.Ordinal)
+                || n.EndsWith("ChecksumInto", StringComparison.Ordinal)
+                || n.EndsWith("ChecksumFromLinesInto", StringComparison.Ordinal))
+            .ToArray();
+        Assert.True(checksumNames.Length >= 94, $"expected the full extracted checksum surface, found {checksumNames.Length}");
+        var emitted = new HashSet<string>(methodNames!, StringComparer.Ordinal);
+        var missing = checksumNames.Where(n => !emitted.Contains(n)).ToArray();
+        Assert.True(missing.Length == 0, $"checksum functions missing from the merged emit: {string.Join(", ", missing)}");
     }
 
     // CORPUS COVERAGE (ratcheting): how many REAL dogfood compiler-service files the standalone columnar
@@ -8075,7 +8099,7 @@ class B
 
         try
         {
-            var result = new MultiFileCompiler(projectRoot, config)
+            var result = CreateDogfoodWithParityCorpusCompiler(projectRoot, config)
                 .CompileToIlAssembly("NSharpLang.Compiler.Dogfood", outputPath);
             Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors.Select(e => e.Message)));
             using var loadScope = CollectibleAssemblyScope.LoadFromFile(outputPath);
@@ -8202,7 +8226,7 @@ class B
 
         try
         {
-            var result = new MultiFileCompiler(projectRoot, config)
+            var result = CreateDogfoodWithParityCorpusCompiler(projectRoot, config)
                 .CompileToIlAssembly("NSharpLang.Compiler.Dogfood", outputPath);
             Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors.Select(e => e.Message)));
 
@@ -9821,7 +9845,7 @@ class OtherZetaType {
 
         try
         {
-            var compiler = new MultiFileCompiler(projectRoot, config);
+            var compiler = CreateDogfoodWithParityCorpusCompiler(projectRoot, config);
             var result = compiler.CompileToIlAssembly("NSharpLang.Compiler.Dogfood", outputPath);
 
             Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors.Select(error => error.Message)));
@@ -19156,7 +19180,7 @@ func main() {
 
         try
         {
-            var compiler = new MultiFileCompiler(projectRoot, config);
+            var compiler = CreateDogfoodWithParityCorpusCompiler(projectRoot, config);
             var result = compiler.CompileToIlAssembly("NSharpLang.Compiler.Dogfood", outputPath);
             Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors.Select(error => error.Message)));
 
@@ -19377,6 +19401,29 @@ func main() {
         bool IsGeneric,
         bool UsesParams,
         int DefaultsUsed);
+
+    // Arc M1: the dogfood PRODUCT compile plus the extracted PARITY CORPUS (the checksum oracles
+    // moved to src/NSharpLang.Compiler.Dogfood.ParityCorpus — they compile TOGETHER with the
+    // product files in tests; the SHIPPED dogfood assembly excludes them, which is the point).
+    private static MultiFileCompiler CreateDogfoodWithParityCorpusCompiler(string projectRoot, ProjectConfig config)
+    {
+        var corpusDir = Path.Combine(FindRepoRoot(), "src", "NSharpLang.Compiler.Dogfood.ParityCorpus");
+        var files = config.GetSourceFiles(projectRoot, includeTests: false)
+            .Concat(Directory.EnumerateFiles(corpusDir, "*.nl").OrderBy(p => p, StringComparer.Ordinal))
+            .ToArray();
+        return new MultiFileCompiler(files, projectRoot, config);
+    }
+
+    // Arc M1: a real dogfood file's source with its parity-corpus twin CONCATENATED back — the
+    // corpus checksum functions delegate to sibling kernels in the product file, so the merged
+    // text is one self-contained program exactly like the pre-extraction file.
+    private static string ReadDogfoodFileWithParityCorpus(string fileName)
+    {
+        var repoRoot = FindRepoRoot();
+        var source = File.ReadAllText(Path.Combine(repoRoot, "src", "NSharpLang.Compiler.Dogfood", "CompilerServices", fileName));
+        var corpusPath = Path.Combine(repoRoot, "src", "NSharpLang.Compiler.Dogfood.ParityCorpus", fileName);
+        return File.Exists(corpusPath) ? source + "\n" + File.ReadAllText(corpusPath) : source;
+    }
 
     private static string FindRepoRoot()
     {

@@ -1,24 +1,6 @@
 import System
 import System.Numerics
 
-func CliQueryPositionChecksumInto(
-    positions: string[],
-    resultLines: int[],
-    resultColumns: int[]): int {
-    count := CliQueryMinInt(positions.Length, resultLines.Length)
-    count = CliQueryMinInt(count, resultColumns.Length)
-    checksum := count
-    i := 0
-
-    while i < count {
-        parsed := CliTryParsePositionPartsInto(positions[i], resultLines, i, resultColumns, i)
-        checksum = checksum + parsed * 97 + resultLines[i] * 31 + resultColumns[i] * 17
-        i = i + 1
-    }
-
-    return checksum
-}
-
 func CliQueryPositionsInto(
     positions: string[],
     resultLines: int[],
@@ -78,34 +60,6 @@ func CliBatchDuplicateIdRanksInto(
     return duplicateCount
 }
 
-func CliBatchDuplicateIdRankChecksumInto(
-    idRanks: int[],
-    uniqueIdCount: int,
-    countsByRank: int[],
-    resultRanks: int[],
-    idLengthsByRank: int[]): int {
-    duplicateCount := CliBatchDuplicateIdRanksInto(
-        idRanks,
-        uniqueIdCount,
-        countsByRank,
-        resultRanks)
-
-    checksum := duplicateCount
-    i := 0
-    while i < duplicateCount && i < resultRanks.Length {
-        rank := resultRanks[i]
-        length := 0
-        if rank >= 0 && rank < idLengthsByRank.Length {
-            length = idLengthsByRank[rank]
-        }
-
-        checksum = checksum + rank * 31 + length * 17
-        i = i + 1
-    }
-
-    return checksum
-}
-
 func CliBatchResultPackedSuccessCount(okWords: ulong[], itemCount: int): int {
     if itemCount <= 0 {
         return 0
@@ -131,12 +85,6 @@ func CliBatchResultPackedSuccessCount(okWords: ulong[], itemCount: int): int {
     }
 
     return successCount
-}
-
-func CliBatchResultPackedCountChecksum(okWords: ulong[], itemCount: int): int {
-    successCount := CliBatchResultPackedSuccessCount(okWords, itemCount)
-    failureCount := itemCount - successCount
-    return itemCount * 31 + successCount * 17 + failureCount * 13
 }
 
 func CliBatchResultPopCount64(value: ulong): int {

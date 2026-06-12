@@ -1,35 +1,5 @@
 import System
 
-func CodeIntelligenceIdentifierSpanChecksumInto(
-    source: string,
-    lineStarts: int[],
-    lineLengths: int[],
-    queryLines: int[],
-    queryColumns: int[],
-    resultStarts: int[],
-    resultLengths: int[]): int {
-    CodeIntelligenceIdentifierSpansInto(
-        source,
-        lineStarts,
-        lineLengths,
-        queryLines,
-        queryColumns,
-        resultStarts,
-        resultLengths)
-
-    checksum := 0
-    i := 0
-
-    while i < queryLines.Length {
-        spanStart := resultStarts[i]
-        spanLength := resultLengths[i]
-        checksum = checksum + spanStart * 31 + spanLength * 17
-        i = i + 1
-    }
-
-    return checksum
-}
-
 func CodeIntelligenceIdentifierSpansInto(
     source: string,
     lineStarts: int[],
@@ -116,36 +86,6 @@ func CodeIntelligenceIdentifierSpansFromLinesInto(
     }
 
     return foundCount
-}
-
-func CodeIntelligenceEditorIdentifierSpanChecksumInto(
-    source: string,
-    lineStarts: int[],
-    lineLengths: int[],
-    queryLines: int[],
-    queryColumns: int[],
-    resultStarts: int[],
-    resultLengths: int[]): int {
-    CodeIntelligenceEditorIdentifierSpansInto(
-        source,
-        lineStarts,
-        lineLengths,
-        queryLines,
-        queryColumns,
-        resultStarts,
-        resultLengths)
-
-    checksum := 0
-    i := 0
-
-    while i < queryLines.Length {
-        spanStart := resultStarts[i]
-        spanLength := resultLengths[i]
-        checksum = checksum + spanStart * 31 + spanLength * 17
-        i = i + 1
-    }
-
-    return checksum
 }
 
 func CodeIntelligenceEditorIdentifierSpansInto(
@@ -238,64 +178,6 @@ func CodeIntelligenceEditorIdentifierSpansFromLinesInto(
     return foundCount
 }
 
-func CodeIntelligenceDeclarationNameMatchChecksumInto(
-    source: string,
-    lineStarts: int[],
-    lineLengths: int[],
-    queryLines: int[],
-    declarationColumns: int[],
-    declarationNames: string[],
-    selectedStartColumns: int[],
-    selectedEndColumns: int[],
-    resultMatches: int[]): int {
-    lineCount := BuildCodeIntelligenceLineRangesInto(source, lineStarts, lineLengths)
-    return CodeIntelligenceDeclarationNameMatchChecksumFromLinesInto(
-        source,
-        lineStarts,
-        lineLengths,
-        lineCount,
-        queryLines,
-        declarationColumns,
-        declarationNames,
-        selectedStartColumns,
-        selectedEndColumns,
-        resultMatches)
-}
-
-func CodeIntelligenceDeclarationNameMatchChecksumFromLinesInto(
-    source: string,
-    lineStarts: int[],
-    lineLengths: int[],
-    lineCount: int,
-    queryLines: int[],
-    declarationColumns: int[],
-    declarationNames: string[],
-    selectedStartColumns: int[],
-    selectedEndColumns: int[],
-    resultMatches: int[]): int {
-    CodeIntelligenceDeclarationNameMatchesFromLinesInto(
-        source,
-        lineStarts,
-        lineLengths,
-        lineCount,
-        queryLines,
-        declarationColumns,
-        declarationNames,
-        selectedStartColumns,
-        selectedEndColumns,
-        resultMatches)
-
-    checksum := 0
-    i := 0
-
-    while i < queryLines.Length {
-        checksum = checksum + resultMatches[i] * (i + 1)
-        i = i + 1
-    }
-
-    return checksum
-}
-
 func CodeIntelligenceDeclarationNameMatchesFromLinesInto(
     source: string,
     lineStarts: int[],
@@ -352,56 +234,6 @@ func CodeIntelligenceDeclarationNameMatchesFromLinesInto(
     }
 
     return matchCount
-}
-
-func CodeIntelligenceIdentifierNameColumnChecksumInto(
-    source: string,
-    lineStarts: int[],
-    lineLengths: int[],
-    queryLines: int[],
-    declarationNames: string[],
-    fallbackColumns: int[],
-    resultColumns: int[]): int {
-    lineCount := BuildCodeIntelligenceLineRangesInto(source, lineStarts, lineLengths)
-    return CodeIntelligenceIdentifierNameColumnChecksumFromLinesInto(
-        source,
-        lineStarts,
-        lineLengths,
-        lineCount,
-        queryLines,
-        declarationNames,
-        fallbackColumns,
-        resultColumns)
-}
-
-func CodeIntelligenceIdentifierNameColumnChecksumFromLinesInto(
-    source: string,
-    lineStarts: int[],
-    lineLengths: int[],
-    lineCount: int,
-    queryLines: int[],
-    declarationNames: string[],
-    fallbackColumns: int[],
-    resultColumns: int[]): int {
-    foundCount := CodeIntelligenceIdentifierNameColumnsFromLinesInto(
-        source,
-        lineStarts,
-        lineLengths,
-        lineCount,
-        queryLines,
-        declarationNames,
-        fallbackColumns,
-        resultColumns)
-
-    checksum := foundCount
-    i := 0
-
-    while i < queryLines.Length {
-        checksum = checksum + resultColumns[i] * 31 + fallbackColumns[i] * 17
-        i = i + 1
-    }
-
-    return checksum
 }
 
 func CodeIntelligenceIdentifierNameColumnsInto(
@@ -489,36 +321,6 @@ func CodeIntelligenceIdentifierNameColumnsFromLinesInto(
     }
 
     return foundCount
-}
-
-func CodeIntelligenceMemberReceiverChecksumInto(
-    source: string,
-    lineStarts: int[],
-    lineLengths: int[],
-    queryLines: int[],
-    memberStartColumns: int[],
-    resultStarts: int[],
-    resultLengths: int[]): int {
-    CodeIntelligenceMemberReceiversInto(
-        source,
-        lineStarts,
-        lineLengths,
-        queryLines,
-        memberStartColumns,
-        resultStarts,
-        resultLengths)
-
-    checksum := 0
-    i := 0
-
-    while i < queryLines.Length {
-        receiverStartColumn := resultStarts[i]
-        receiverLength := resultLengths[i]
-        checksum = checksum + receiverStartColumn * 31 + receiverLength * 17
-        i = i + 1
-    }
-
-    return checksum
 }
 
 func CodeIntelligenceMemberReceiversInto(
@@ -646,40 +448,6 @@ func CodeIntelligenceMemberReceiversFromLinesInto(
     return foundCount
 }
 
-func CodeIntelligenceMemberReceiverCachedChecksumInto(
-    source: string,
-    lineStarts: int[],
-    lineLengths: int[],
-    receiverStartsBySeparator: int[],
-    receiverLengthsBySeparator: int[],
-    queryLines: int[],
-    memberStartColumns: int[],
-    resultStarts: int[],
-    resultLengths: int[]): int {
-    CodeIntelligenceMemberReceiversCachedInto(
-        source,
-        lineStarts,
-        lineLengths,
-        receiverStartsBySeparator,
-        receiverLengthsBySeparator,
-        queryLines,
-        memberStartColumns,
-        resultStarts,
-        resultLengths)
-
-    checksum := 0
-    i := 0
-
-    while i < queryLines.Length {
-        receiverStartColumn := resultStarts[i]
-        receiverLength := resultLengths[i]
-        checksum = checksum + receiverStartColumn * 31 + receiverLength * 17
-        i = i + 1
-    }
-
-    return checksum
-}
-
 func CodeIntelligenceMemberReceiversCachedInto(
     source: string,
     lineStarts: int[],
@@ -764,34 +532,6 @@ func CodeIntelligenceMemberReceiversFromCacheInto(
     return foundCount
 }
 
-func CodeIntelligenceSourceContextChecksumInto(
-    source: string,
-    lineStarts: int[],
-    lineLengths: int[],
-    queryLines: int[],
-    resultStarts: int[],
-    resultLengths: int[]): int {
-    CodeIntelligenceSourceContextsInto(
-        source,
-        lineStarts,
-        lineLengths,
-        queryLines,
-        resultStarts,
-        resultLengths)
-
-    checksum := 0
-    i := 0
-
-    while i < queryLines.Length {
-        contextStart := resultStarts[i]
-        contextLength := resultLengths[i]
-        checksum = checksum + contextStart * 31 + contextLength * 17
-        i = i + 1
-    }
-
-    return checksum
-}
-
 func CodeIntelligenceSourceContextsInto(
     source: string,
     lineStarts: int[],
@@ -856,34 +596,6 @@ func CodeIntelligenceSourceContextsFromLinesInto(
     return foundCount
 }
 
-func CodeIntelligenceSourceLineChecksumInto(
-    source: string,
-    lineStarts: int[],
-    lineLengths: int[],
-    queryLines: int[],
-    resultStarts: int[],
-    resultLengths: int[]): int {
-    CodeIntelligenceSourceLinesInto(
-        source,
-        lineStarts,
-        lineLengths,
-        queryLines,
-        resultStarts,
-        resultLengths)
-
-    checksum := 0
-    i := 0
-
-    while i < queryLines.Length {
-        lineStart := resultStarts[i]
-        lineLength := resultLengths[i]
-        checksum = checksum + lineStart * 31 + lineLength * 17
-        i = i + 1
-    }
-
-    return checksum
-}
-
 func CodeIntelligenceSourceLinesInto(
     source: string,
     lineStarts: int[],
@@ -930,36 +642,6 @@ func CodeIntelligenceSourceLinesFromLinesInto(
     }
 
     return foundCount
-}
-
-func CodeIntelligenceCompletionPrefixChecksumInto(
-    source: string,
-    lineStarts: int[],
-    lineLengths: int[],
-    queryLines: int[],
-    queryColumns: int[],
-    resultStarts: int[],
-    resultLengths: int[]): int {
-    CodeIntelligenceCompletionPrefixesInto(
-        source,
-        lineStarts,
-        lineLengths,
-        queryLines,
-        queryColumns,
-        resultStarts,
-        resultLengths)
-
-    checksum := 0
-    i := 0
-
-    while i < queryLines.Length {
-        prefixStart := resultStarts[i]
-        prefixLength := resultLengths[i]
-        checksum = checksum + prefixStart * 31 + prefixLength * 17
-        i = i + 1
-    }
-
-    return checksum
 }
 
 func CodeIntelligenceCompletionPrefixesInto(
@@ -1017,86 +699,6 @@ func CodeIntelligenceCompletionPrefixesFromLinesInto(
     }
 
     return foundCount
-}
-
-func CodeIntelligenceDocCommentChecksumInto(
-    source: string,
-    lineStarts: int[],
-    lineLengths: int[],
-    queryLines: int[],
-    resultLineCounts: int[],
-    resultTextLengths: int[]): int {
-    lineCount := BuildCodeIntelligenceLineRangesInto(source, lineStarts, lineLengths)
-    return CodeIntelligenceDocCommentChecksumFromLinesInto(
-        source,
-        lineStarts,
-        lineLengths,
-        lineCount,
-        queryLines,
-        resultLineCounts,
-        resultTextLengths)
-}
-
-func CodeIntelligenceDocCommentChecksumFromLinesInto(
-    source: string,
-    lineStarts: int[],
-    lineLengths: int[],
-    lineCount: int,
-    queryLines: int[],
-    resultLineCounts: int[],
-    resultTextLengths: int[]): int {
-    checksum := 0
-    i := 0
-    queryCount := queryLines.Length
-
-    while i < queryCount {
-        definitionLine := queryLines[i]
-        startLine := FindCodeIntelligenceDocCommentStartLine(
-            source,
-            lineStarts,
-            lineLengths,
-            lineCount,
-            definitionLine)
-
-        commentLineCount := 0
-        textLength := -1
-
-        if startLine >= 0 {
-            lineIndex := startLine
-            lastLineIndex := definitionLine - 2
-            joinedLength := 0
-
-            while lineIndex <= lastLineIndex {
-                lineStart := lineStarts[lineIndex]
-                lineLength := lineLengths[lineIndex]
-
-                if IsCodeIntelligenceDocCommentLine(source, lineStart, lineLength) {
-                    contentStart := GetCodeIntelligenceDocCommentContentStart(source, lineStart, lineLength)
-                    contentLength := GetCodeIntelligenceDocCommentContentLength(source, lineStart, lineLength, contentStart)
-
-                    if commentLineCount > 0 {
-                        joinedLength = joinedLength + 1
-                    }
-
-                    joinedLength = joinedLength + contentLength
-                    commentLineCount = commentLineCount + 1
-                }
-
-                lineIndex = lineIndex + 1
-            }
-
-            if commentLineCount > 0 {
-                textLength = joinedLength
-            }
-        }
-
-        resultLineCounts[i] = commentLineCount
-        resultTextLengths[i] = textLength
-        checksum = checksum + commentLineCount * 13 + textLength * 7
-        i = i + 1
-    }
-
-    return checksum
 }
 
 func CodeIntelligenceDocCommentLinesInto(
@@ -1158,34 +760,6 @@ func CodeIntelligenceDocCommentLinesFromLinesInto(
     return resultCount
 }
 
-func CodeIntelligenceVariableDeclarationNameChecksumInto(
-    source: string,
-    lineStarts: int[],
-    lineLengths: int[],
-    queryLines: int[],
-    resultStarts: int[],
-    resultLengths: int[]): int {
-    CodeIntelligenceVariableDeclarationNamesInto(
-        source,
-        lineStarts,
-        lineLengths,
-        queryLines,
-        resultStarts,
-        resultLengths)
-
-    checksum := 0
-    i := 0
-
-    while i < queryLines.Length {
-        nameStartColumn := resultStarts[i]
-        nameLength := resultLengths[i]
-        checksum = checksum + nameStartColumn * 31 + nameLength * 17
-        i = i + 1
-    }
-
-    return checksum
-}
-
 func CodeIntelligenceVariableDeclarationNamesInto(
     source: string,
     lineStarts: int[],
@@ -1202,38 +776,6 @@ func CodeIntelligenceVariableDeclarationNamesInto(
         queryLines,
         resultStarts,
         resultLengths)
-}
-
-func CodeIntelligenceVariableDeclarationNameCachedChecksumInto(
-    source: string,
-    lineStarts: int[],
-    lineLengths: int[],
-    nameStartsByLine: int[],
-    nameLengthsByLine: int[],
-    queryLines: int[],
-    resultStarts: int[],
-    resultLengths: int[]): int {
-    CodeIntelligenceVariableDeclarationNamesCachedInto(
-        source,
-        lineStarts,
-        lineLengths,
-        nameStartsByLine,
-        nameLengthsByLine,
-        queryLines,
-        resultStarts,
-        resultLengths)
-
-    checksum := 0
-    i := 0
-
-    while i < queryLines.Length {
-        nameStartColumn := resultStarts[i]
-        nameLength := resultLengths[i]
-        checksum = checksum + nameStartColumn * 31 + nameLength * 17
-        i = i + 1
-    }
-
-    return checksum
 }
 
 func CodeIntelligenceVariableDeclarationNamesCachedInto(

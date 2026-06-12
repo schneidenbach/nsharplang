@@ -953,9 +953,33 @@ internal static class DogfoodCompilerSources
 
     private static string ReadResource(string resourceName)
     {
-        var assembly = typeof(DogfoodCompilerSources).GetTypeInfo().Assembly;
-        using var stream = assembly.GetManifestResourceStream(resourceName)
+        // Arc M1: the checksum oracles the benchmarks bind by NAME were extracted from the product
+        // files into src/NSharpLang.Compiler.Dogfood.ParityCorpus (embedded under the
+        // NSharpLang.Benchmarks.ParityCorpus.* logical names). They delegate to sibling kernels in
+        // the product file, so each file's source is the PRODUCT text plus its corpus twin — the
+        // exact pre-extraction compilation unit the recorded benchmark numbers were taken on.
+        var text = ReadResourceCore(resourceName)
             ?? throw new InvalidOperationException($"Missing embedded N# dogfood source '{resourceName}'.");
+        const string dogfoodPrefix = "NSharpLang.Benchmarks.Dogfood.CompilerServices.";
+        if (resourceName.StartsWith(dogfoodPrefix, StringComparison.Ordinal))
+        {
+            var corpus = ReadResourceCore("NSharpLang.Benchmarks.ParityCorpus." + resourceName.Substring(dogfoodPrefix.Length));
+            if (corpus != null)
+            {
+                return text + Environment.NewLine + corpus;
+            }
+        }
+        return text;
+    }
+
+    private static string? ReadResourceCore(string resourceName)
+    {
+        var assembly = typeof(DogfoodCompilerSources).GetTypeInfo().Assembly;
+        using var stream = assembly.GetManifestResourceStream(resourceName);
+        if (stream == null)
+        {
+            return null;
+        }
         using var reader = new StreamReader(stream);
         return reader.ReadToEnd();
     }

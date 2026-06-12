@@ -85,45 +85,6 @@ func LinterUnusedKnownNamespaceImportIndicesInto(
     return resultCount
 }
 
-func LinterUnusedKnownNamespaceImportChecksumInto(
-    importNamespaceRanks: int[],
-    importCount: int,
-    usedTypeNamespaceRanks: int[],
-    usedTypeRankCount: int,
-    usedMemberNamespaceRanks: int[],
-    usedMemberRankCount: int,
-    knownNamespaceCount: int,
-    usedNamespaceFlags: int[],
-    touchedNamespaceRanks: int[],
-    resultIndices: int[]): int {
-    resultCount := LinterUnusedKnownNamespaceImportIndicesInto(
-        importNamespaceRanks,
-        importCount,
-        usedTypeNamespaceRanks,
-        usedTypeRankCount,
-        usedMemberNamespaceRanks,
-        usedMemberRankCount,
-        knownNamespaceCount,
-        usedNamespaceFlags,
-        touchedNamespaceRanks,
-        resultIndices)
-
-    if resultCount < 0 {
-        return resultCount
-    }
-
-    checksum := resultCount
-    writtenCount := LinterImportsMinInt(resultCount, resultIndices.Length)
-    i := 0
-    while i < writtenCount {
-        index := resultIndices[i]
-        checksum = checksum + (index + 1) * 31
-        i = i + 1
-    }
-
-    return checksum
-}
-
 func LinterImportsClearAllUsedFlags(usedNamespaceFlags: int[], effectiveKnownCount: int): int {
     count := effectiveKnownCount
     if count >= usedNamespaceFlags.Length {

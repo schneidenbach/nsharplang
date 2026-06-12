@@ -193,15 +193,6 @@ func DocQueryBestTypeIndex(scores: int[], namespaceLengths: int[], fullNames: st
     return bestIndex
 }
 
-func DocQueryBestTypeChecksumInto(scores: int[], namespaceLengths: int[], fullNames: string[], count: int): int {
-    bestIndex := DocQueryBestTypeIndex(scores, namespaceLengths, fullNames, count)
-    if bestIndex < 0 {
-        return bestIndex
-    }
-
-    return (bestIndex + 1) * 97 + scores[bestIndex] * 31 + namespaceLengths[bestIndex] * 17
-}
-
 func DocQueryMemberOrderIndicesInto(
     kindRanks: int[],
     nameRanks: int[],
@@ -282,36 +273,6 @@ func DocQueryMemberOrderIndicesInto(
     }
 
     return count
-}
-
-func DocQueryMemberOrderChecksumInto(
-    kindRanks: int[],
-    nameRanks: int[],
-    nameCounts: int[],
-    nameOffsets: int[],
-    kindCounts: int[],
-    kindOffsets: int[],
-    tempIndices: int[],
-    resultIndices: int[]): int {
-    orderedCount := DocQueryMemberOrderIndicesInto(
-        kindRanks,
-        nameRanks,
-        nameCounts,
-        nameOffsets,
-        kindCounts,
-        kindOffsets,
-        tempIndices,
-        resultIndices)
-    checksum := orderedCount
-
-    i := 0
-    while i < orderedCount {
-        index := resultIndices[i]
-        checksum = checksum + (i + 1) * 97 + (index + 1) * 31 + kindRanks[index] * 17 + nameRanks[index] * 13
-        i = i + 1
-    }
-
-    return checksum
 }
 
 func DocQueryCompareOrdinalIgnoreCase(left: string, right: string): int {

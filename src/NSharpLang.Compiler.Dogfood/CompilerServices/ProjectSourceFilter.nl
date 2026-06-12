@@ -48,28 +48,6 @@ func ProjectSourceFilterKeptIndicesInto(
     return resultCount
 }
 
-// Order-stable checksum over the kept indices. Used to assert parity cheaply in benchmark setup
-// without materializing the kept string set on the managed side.
-func ProjectSourceFilterKeptChecksumInto(
-    relativePaths: string[],
-    excludePatterns: string[],
-    includeTests: int,
-    resultIndices: int[]): int {
-    count := ProjectSourceFilterKeptIndicesInto(
-        relativePaths,
-        excludePatterns,
-        includeTests,
-        resultIndices)
-    checksum := count
-    i := 0
-    while i < count {
-        checksum = checksum + (resultIndices[i] + 1) * (i + 1) * 31
-        i = i + 1
-    }
-
-    return checksum
-}
-
 // Matches the C# `f.EndsWith(".tests.nl", StringComparison.OrdinalIgnoreCase)` guard.
 func ProjectSourceFilterIsTestFile(path: string): bool {
     suffixLength := 9

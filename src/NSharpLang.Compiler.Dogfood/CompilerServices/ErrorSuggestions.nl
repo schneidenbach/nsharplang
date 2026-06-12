@@ -128,50 +128,6 @@ func TypoSuggestionIndicesInto(
     return writeIndex
 }
 
-func TypoSuggestionChecksumInto(
-    typos: string[],
-    candidates: string[],
-    maxSuggestions: int,
-    previousDistances: int[],
-    currentDistances: int[],
-    resultStarts: int[],
-    resultCounts: int[],
-    resultIndices: int[]): int {
-    queryCount := TypoSuggestionMinInt(typos.Length, resultStarts.Length)
-    queryCount = TypoSuggestionMinInt(queryCount, resultCounts.Length)
-    total := TypoSuggestionIndicesInto(
-        typos,
-        candidates,
-        maxSuggestions,
-        previousDistances,
-        currentDistances,
-        resultStarts,
-        resultCounts,
-        resultIndices)
-
-    checksum := total
-    i := 0
-    while i < queryCount {
-        start := resultStarts[i]
-        count := resultCounts[i]
-        checksum = checksum + start * 7 + count * 97
-
-        j := 0
-        while j < count {
-            index := start + j
-            if index >= 0 && index < resultIndices.Length {
-                checksum = checksum + resultIndices[index] * 31 + (j + 1) * 17
-            }
-
-            j = j + 1
-        }
-
-        i = i + 1
-    }
-
-    return checksum
-}
-
 func TypoSuggestionLevenshteinDistance(
     left: string,
     right: string,

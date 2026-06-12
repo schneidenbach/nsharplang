@@ -99,38 +99,6 @@ func CliTreeDependencyDeduplicateIndicesInto(
     return uniqueCount
 }
 
-func CliTreeDependencyDeduplicateChecksumInto(
-    kindRanks: int[],
-    nameRanks: int[],
-    nameCounts: int[],
-    nameOffsets: int[],
-    kindCounts: int[],
-    kindOffsets: int[],
-    tempIndices: int[],
-    sortedIndices: int[],
-    resultIndices: int[]): int {
-    uniqueCount := CliTreeDependencyDeduplicateIndicesInto(
-        kindRanks,
-        nameRanks,
-        nameCounts,
-        nameOffsets,
-        kindCounts,
-        kindOffsets,
-        tempIndices,
-        sortedIndices,
-        resultIndices)
-
-    checksum := uniqueCount
-    i := 0
-    while i < uniqueCount {
-        index := resultIndices[i]
-        checksum = checksum + (i + 1) * 97 + (index + 1) * 31 + kindRanks[index] * 17 + nameRanks[index] * 13
-        i = i + 1
-    }
-
-    return checksum
-}
-
 func CliTreeMinInt(left: int, right: int): int {
     if left < right {
         return left
