@@ -226,7 +226,8 @@ ownership lands.
    tables for semantic binding lookup. `OverloadCandidates.nl` now wraps the production compact
    overload score, parameter-range, argument, call-slice, and result tables, `IdentifierSpans.nl`
    wraps code-intelligence line ranges, queries, results, and caches, and `AnalyzerExhaustiveness.nl`
-   wraps analyzer coverage, missing-case result, and overload-signature rank tables without using the
+   wraps analyzer coverage, missing-case result, and overload-signature rank tables. `SourceTextLines.nl`
+   now wraps logical line ranges, line-start indexes, and dense offset-line maps without using the
    experimental `soa record` surface. These slices preserve the flattened dogfood adapter ABI.
 7. Only after those gates pass, start replacing C# emitter/analyzer internals that still require untyped
    parallel-array plumbing.

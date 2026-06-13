@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — Source text line tables wrapped
+
+`SourceTextLines.nl` now groups logical line start/length ranges, line-start-only indexes, and dense
+offset-to-line maps behind named normal structs. The exported dogfood parity functions still expose
+the flattened arrays used by the adapter and tests, while range building, line-start building,
+offset-to-line lookup, column lookup, line/column-to-offset lookup, and dense offset-map construction
+route through wrapper-aware cores.
+
+This finishes the shared source-text line utility table migration used by compiler-service and
+code-intelligence slices.
+
 ## 2026-06-13 — Analyzer coverage and signature tables wrapped
 
 `AnalyzerExhaustiveness.nl` now groups member coverage flags, union coverage/partial flags,

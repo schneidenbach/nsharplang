@@ -1,5 +1,20 @@
 import System
 
+struct SourceLogicalLineRangeTable {
+    Starts: int[]
+    Lengths: int[]
+    Count: int
+}
+
+struct SourceLogicalLineStartTable {
+    Starts: int[]
+    Count: int
+}
+
+struct SourceOffsetLineIndexTable {
+    Indices: int[]
+}
+
 func SplitLogicalLines(source: string): string[] {
     lineCount := CountLogicalLines(source)
     lines := new string[](lineCount)
@@ -66,6 +81,11 @@ func CountLogicalLines(source: string): int {
 }
 
 func SplitLogicalLineRangesInto(source: string, starts: int[], lengths: int[]): int {
+    ranges := new SourceLogicalLineRangeTable { Starts: starts, Lengths: lengths, Count: 0 }
+    return SplitLogicalLineRangesCore(source, ref ranges)
+}
+
+func SplitLogicalLineRangesCore(source: string, ranges: &SourceLogicalLineRangeTable): int {
     sourceLength := source.Length
     position := 0
     lineStart := 0
@@ -85,8 +105,8 @@ func SplitLogicalLineRangesInto(source: string, starts: int[], lengths: int[]): 
             isCr = true
         }
 
-        starts[count] = lineStart
-        lengths[count] = separator - lineStart
+        ranges.Starts[count] = lineStart
+        ranges.Lengths[count] = separator - lineStart
         count = count + 1
 
         position = separator + 1
@@ -97,17 +117,23 @@ func SplitLogicalLineRangesInto(source: string, starts: int[], lengths: int[]): 
         lineStart = position
     }
 
-    starts[count] = lineStart
-    lengths[count] = sourceLength - lineStart
-    return count + 1
+    ranges.Starts[count] = lineStart
+    ranges.Lengths[count] = sourceLength - lineStart
+    ranges.Count = count + 1
+    return ranges.Count
 }
 
 func BuildLogicalLineStartsInto(source: string, starts: int[]): int {
+    lineStarts := new SourceLogicalLineStartTable { Starts: starts, Count: 0 }
+    return BuildLogicalLineStartsCore(source, ref lineStarts)
+}
+
+func BuildLogicalLineStartsCore(source: string, lineStarts: &SourceLogicalLineStartTable): int {
     sourceLength := source.Length
     position := 0
     count := 0
 
-    starts[count] = 0
+    lineStarts.Starts[count] = 0
     count = count + 1
 
     while position < sourceLength {
@@ -129,15 +155,21 @@ func BuildLogicalLineStartsInto(source: string, starts: int[]): int {
             position = position + 1
         }
 
-        starts[count] = position
+        lineStarts.Starts[count] = position
         count = count + 1
     }
 
-    return count
+    lineStarts.Count = count
+    return lineStarts.Count
 }
 
 func GetLineIndexFromOffset(starts: int[], lineCount: int, sourceLength: int, offset: int): int {
-    if lineCount <= 0 {
+    lineStarts := new SourceLogicalLineStartTable { Starts: starts, Count: lineCount }
+    return GetLineIndexFromOffsetCore(ref lineStarts, sourceLength, offset)
+}
+
+func GetLineIndexFromOffsetCore(lineStarts: &SourceLogicalLineStartTable, sourceLength: int, offset: int): int {
+    if lineStarts.Count <= 0 {
         return 0
     }
 
@@ -150,12 +182,12 @@ func GetLineIndexFromOffset(starts: int[], lineCount: int, sourceLength: int, of
     }
 
     low := 0
-    high := lineCount - 1
+    high := lineStarts.Count - 1
     result := 0
 
     while low <= high {
         mid := (low + high) >> 1
-        if starts[mid] <= offset {
+        if lineStarts.Starts[mid] <= offset {
             result = mid
             low = mid + 1
         } else {
@@ -167,6 +199,11 @@ func GetLineIndexFromOffset(starts: int[], lineCount: int, sourceLength: int, of
 }
 
 func GetColumnFromOffset(starts: int[], lineCount: int, sourceLength: int, offset: int): int {
+    lineStarts := new SourceLogicalLineStartTable { Starts: starts, Count: lineCount }
+    return GetColumnFromOffsetCore(ref lineStarts, sourceLength, offset)
+}
+
+func GetColumnFromOffsetCore(lineStarts: &SourceLogicalLineStartTable, sourceLength: int, offset: int): int {
     if offset < 0 {
         offset = 0
     }
@@ -175,21 +212,30 @@ func GetColumnFromOffset(starts: int[], lineCount: int, sourceLength: int, offse
         offset = sourceLength
     }
 
-    lineIndex := GetLineIndexFromOffset(starts, lineCount, sourceLength, offset)
-    return offset - starts[lineIndex]
+    lineIndex := GetLineIndexFromOffsetCore(ref lineStarts, sourceLength, offset)
+    return offset - lineStarts.Starts[lineIndex]
 }
 
 func GetOffsetFromLineColumn(starts: int[], lengths: int[], lineCount: int, sourceLength: int, line: int, column: int): int {
-    if line < 1 || line > lineCount || column < 0 {
+    ranges := new SourceLogicalLineRangeTable { Starts: starts, Lengths: lengths, Count: lineCount }
+    return GetOffsetFromLineColumnCore(ref ranges, sourceLength, line, column)
+}
+
+func GetOffsetFromLineColumnCore(
+    ranges: &SourceLogicalLineRangeTable,
+    sourceLength: int,
+    line: int,
+    column: int): int {
+    if line < 1 || line > ranges.Count || column < 0 {
         return -1
     }
 
     index := line - 1
-    if column > lengths[index] {
+    if column > ranges.Lengths[index] {
         return -1
     }
 
-    offset := starts[index] + column
+    offset := ranges.Starts[index] + column
     if offset > sourceLength {
         return -1
     }
@@ -198,6 +244,15 @@ func GetOffsetFromLineColumn(starts: int[], lengths: int[], lineCount: int, sour
 }
 
 func BuildDenseLineRangesAndOffsetLineIndicesInto(source: string, starts: int[], lengths: int[], offsetLineIndices: int[]): int {
+    ranges := new SourceLogicalLineRangeTable { Starts: starts, Lengths: lengths, Count: 0 }
+    offsetLines := new SourceOffsetLineIndexTable { Indices: offsetLineIndices }
+    return BuildDenseLineRangesAndOffsetLineIndicesCore(source, ref ranges, ref offsetLines)
+}
+
+func BuildDenseLineRangesAndOffsetLineIndicesCore(
+    source: string,
+    ranges: &SourceLogicalLineRangeTable,
+    offsetLines: &SourceOffsetLineIndexTable): int {
     sourceLength := source.Length
     position := 0
     lineStart := 0
@@ -222,20 +277,21 @@ func BuildDenseLineRangesAndOffsetLineIndicesInto(source: string, starts: int[],
             nextLineStart = nextLineStart + 1
         }
 
-        starts[count] = lineStart
-        lengths[count] = separator - lineStart
+        ranges.Starts[count] = lineStart
+        ranges.Lengths[count] = separator - lineStart
 
-        Array.Fill(offsetLineIndices, count, lineStart, nextLineStart - lineStart)
+        Array.Fill(offsetLines.Indices, count, lineStart, nextLineStart - lineStart)
 
         count = count + 1
         position = nextLineStart
         lineStart = position
     }
 
-    starts[count] = lineStart
-    lengths[count] = sourceLength - lineStart
+    ranges.Starts[count] = lineStart
+    ranges.Lengths[count] = sourceLength - lineStart
 
-    Array.Fill(offsetLineIndices, count, lineStart, sourceLength - lineStart + 1)
+    Array.Fill(offsetLines.Indices, count, lineStart, sourceLength - lineStart + 1)
 
-    return count + 1
+    ranges.Count = count + 1
+    return ranges.Count
 }
