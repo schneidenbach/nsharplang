@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — CLI fix safety and grouping tables wrapped
+
+`CliArguments.nl` now wraps the `nlc fix` safety-rank, edit-count, edit-flattening, file-rank,
+rank-bucket, and applied-file grouping columns behind named normal structs. The apply/skip safety
+filters still expose their flattened caller-owned array ABI, but the core loops now route ranks and
+result indexes through wrapper-aware tables.
+
+The edit-flattening pass and applied-file grouping pass likewise keep their public array signatures
+while grouping action/edit results, bucket scratch columns, and grouped file outputs behind table
+wrappers.
+
 ## 2026-06-13 — CLI argument symbol and build tables wrapped
 
 `CliArguments.nl` now also wraps symbol-name filter batches and the build/export operand scratch

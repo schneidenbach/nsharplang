@@ -48,6 +48,36 @@ struct CliBuildArgumentLinkTable {
     NextOptionIndices: int[]
 }
 
+struct CliFixSafetyRankTable {
+    Ranks: int[]
+}
+
+struct CliFixEditCountTable {
+    Counts: int[]
+}
+
+struct CliFixEditFlattenResultTable {
+    ActionIndices: int[]
+    EditIndices: int[]
+}
+
+struct CliFixFileRankTable {
+    Ranks: int[]
+}
+
+struct CliFixRankBucketTable {
+    CountsByRank: int[]
+    OffsetsByRank: int[]
+    WriteOffsetsByRank: int[]
+}
+
+struct CliFixAppliedFileGroupResultTable {
+    Ranks: int[]
+    Starts: int[]
+    Counts: int[]
+    Indices: int[]
+}
+
 func CliPositionalArgIndicesInto(
     args: string[],
     optionsWithValues: string[],
@@ -1535,70 +1565,79 @@ func CliFixSafetyFilterIndicesInto(
     safetyRanks: int[],
     includeReviewNeeded: int,
     resultIndices: int[]): int {
+    ranks := new CliFixSafetyRankTable { Ranks: safetyRanks }
+    results := new CliIndexResultTable { Indices: resultIndices }
+    return CliFixSafetyFilterIndicesCore(ref ranks, includeReviewNeeded, ref results)
+}
+
+func CliFixSafetyFilterIndicesCore(
+    safetyRanks: &CliFixSafetyRankTable,
+    includeReviewNeeded: int,
+    resultIndices: &CliIndexResultTable): int {
     maxAppliedRank := 1
     if includeReviewNeeded != 0 {
         maxAppliedRank = 2
     }
 
     matchCount := 0
-    length := safetyRanks.Length
+    length := safetyRanks.Ranks.Length
     i := 0
 
-    if resultIndices.Length >= length {
+    if resultIndices.Indices.Length >= length {
         unrolledLimit := length - 8
         while i <= unrolledLimit {
-            rank := safetyRanks[i]
+            rank := safetyRanks.Ranks[i]
             if rank > 0 && rank <= maxAppliedRank {
-                resultIndices[matchCount] = i
+                resultIndices.Indices[matchCount] = i
                 matchCount = matchCount + 1
             }
 
             next := i + 1
-            rank = safetyRanks[next]
+            rank = safetyRanks.Ranks[next]
             if rank > 0 && rank <= maxAppliedRank {
-                resultIndices[matchCount] = next
+                resultIndices.Indices[matchCount] = next
                 matchCount = matchCount + 1
             }
 
             next = i + 2
-            rank = safetyRanks[next]
+            rank = safetyRanks.Ranks[next]
             if rank > 0 && rank <= maxAppliedRank {
-                resultIndices[matchCount] = next
+                resultIndices.Indices[matchCount] = next
                 matchCount = matchCount + 1
             }
 
             next = i + 3
-            rank = safetyRanks[next]
+            rank = safetyRanks.Ranks[next]
             if rank > 0 && rank <= maxAppliedRank {
-                resultIndices[matchCount] = next
+                resultIndices.Indices[matchCount] = next
                 matchCount = matchCount + 1
             }
 
             next = i + 4
-            rank = safetyRanks[next]
+            rank = safetyRanks.Ranks[next]
             if rank > 0 && rank <= maxAppliedRank {
-                resultIndices[matchCount] = next
+                resultIndices.Indices[matchCount] = next
                 matchCount = matchCount + 1
             }
 
             next = i + 5
-            rank = safetyRanks[next]
+            rank = safetyRanks.Ranks[next]
             if rank > 0 && rank <= maxAppliedRank {
-                resultIndices[matchCount] = next
+                resultIndices.Indices[matchCount] = next
                 matchCount = matchCount + 1
             }
 
             next = i + 6
-            rank = safetyRanks[next]
+            rank = safetyRanks.Ranks[next]
             if rank > 0 && rank <= maxAppliedRank {
-                resultIndices[matchCount] = next
+                resultIndices.Indices[matchCount] = next
                 matchCount = matchCount + 1
             }
 
             next = i + 7
-            rank = safetyRanks[next]
+            rank = safetyRanks.Ranks[next]
             if rank > 0 && rank <= maxAppliedRank {
-                resultIndices[matchCount] = next
+                resultIndices.Indices[matchCount] = next
                 matchCount = matchCount + 1
             }
 
@@ -1606,9 +1645,9 @@ func CliFixSafetyFilterIndicesInto(
         }
 
         while i < length {
-            rank := safetyRanks[i]
+            rank := safetyRanks.Ranks[i]
             if rank > 0 && rank <= maxAppliedRank {
-                resultIndices[matchCount] = i
+                resultIndices.Indices[matchCount] = i
                 matchCount = matchCount + 1
             }
 
@@ -1620,40 +1659,40 @@ func CliFixSafetyFilterIndicesInto(
 
     unrolledLimit := length - 4
     while i <= unrolledLimit {
-        rank := safetyRanks[i]
+        rank := safetyRanks.Ranks[i]
         if rank > 0 && rank <= maxAppliedRank {
-            if matchCount < resultIndices.Length {
-                resultIndices[matchCount] = i
+            if matchCount < resultIndices.Indices.Length {
+                resultIndices.Indices[matchCount] = i
             }
 
             matchCount = matchCount + 1
         }
 
         next := i + 1
-        rank = safetyRanks[next]
+        rank = safetyRanks.Ranks[next]
         if rank > 0 && rank <= maxAppliedRank {
-            if matchCount < resultIndices.Length {
-                resultIndices[matchCount] = next
+            if matchCount < resultIndices.Indices.Length {
+                resultIndices.Indices[matchCount] = next
             }
 
             matchCount = matchCount + 1
         }
 
         next = i + 2
-        rank = safetyRanks[next]
+        rank = safetyRanks.Ranks[next]
         if rank > 0 && rank <= maxAppliedRank {
-            if matchCount < resultIndices.Length {
-                resultIndices[matchCount] = next
+            if matchCount < resultIndices.Indices.Length {
+                resultIndices.Indices[matchCount] = next
             }
 
             matchCount = matchCount + 1
         }
 
         next = i + 3
-        rank = safetyRanks[next]
+        rank = safetyRanks.Ranks[next]
         if rank > 0 && rank <= maxAppliedRank {
-            if matchCount < resultIndices.Length {
-                resultIndices[matchCount] = next
+            if matchCount < resultIndices.Indices.Length {
+                resultIndices.Indices[matchCount] = next
             }
 
             matchCount = matchCount + 1
@@ -1663,10 +1702,10 @@ func CliFixSafetyFilterIndicesInto(
     }
 
     while i < length {
-        rank := safetyRanks[i]
+        rank := safetyRanks.Ranks[i]
         if rank > 0 && rank <= maxAppliedRank {
-            if matchCount < resultIndices.Length {
-                resultIndices[matchCount] = i
+            if matchCount < resultIndices.Indices.Length {
+                resultIndices.Indices[matchCount] = i
             }
 
             matchCount = matchCount + 1
@@ -1682,6 +1721,20 @@ func CliFixEditFlattenIndicesInto(
     editCounts: int[],
     resultActionIndices: int[],
     resultEditIndices: int[]): int {
+    editCountTable := new CliFixEditCountTable { Counts: editCounts }
+    results := new CliFixEditFlattenResultTable {
+        ActionIndices: resultActionIndices,
+        EditIndices: resultEditIndices
+    }
+    return CliFixEditFlattenIndicesCore(ref editCountTable, ref results)
+}
+
+func CliFixEditFlattenIndicesCore(
+    editCountTable: &CliFixEditCountTable,
+    result: &CliFixEditFlattenResultTable): int {
+    editCounts := editCountTable.Counts
+    resultActionIndices := result.ActionIndices
+    resultEditIndices := result.EditIndices
     resultIndex := 0
     actionIndex := 0
     actionCount := editCounts.Length
@@ -1826,19 +1879,28 @@ func CliFixSkippedIndicesInto(
     safetyRanks: int[],
     includeReviewNeeded: int,
     resultIndices: int[]): int {
+    ranks := new CliFixSafetyRankTable { Ranks: safetyRanks }
+    results := new CliIndexResultTable { Indices: resultIndices }
+    return CliFixSkippedIndicesCore(ref ranks, includeReviewNeeded, ref results)
+}
+
+func CliFixSkippedIndicesCore(
+    safetyRanks: &CliFixSafetyRankTable,
+    includeReviewNeeded: int,
+    resultIndices: &CliIndexResultTable): int {
     maxAppliedRank := 1
     if includeReviewNeeded != 0 {
         maxAppliedRank = 2
     }
 
     skippedCount := 0
-    length := safetyRanks.Length
+    length := safetyRanks.Ranks.Length
     i := 0
     while i < length {
-        rank := safetyRanks[i]
+        rank := safetyRanks.Ranks[i]
         if rank == 0 || rank > maxAppliedRank {
-            if skippedCount < resultIndices.Length {
-                resultIndices[skippedCount] = i
+            if skippedCount < resultIndices.Indices.Length {
+                resultIndices.Indices[skippedCount] = i
             }
 
             skippedCount = skippedCount + 1
@@ -1860,6 +1922,34 @@ func CliFixAppliedFileGroupsInto(
     resultStarts: int[],
     resultCounts: int[],
     resultIndices: int[]): int {
+    fileRankTable := new CliFixFileRankTable { Ranks: fileRanks }
+    buckets := new CliFixRankBucketTable {
+        CountsByRank: countsByRank,
+        OffsetsByRank: offsetsByRank,
+        WriteOffsetsByRank: writeOffsetsByRank
+    }
+    results := new CliFixAppliedFileGroupResultTable {
+        Ranks: resultRanks,
+        Starts: resultStarts,
+        Counts: resultCounts,
+        Indices: resultIndices
+    }
+    return CliFixAppliedFileGroupsCore(ref fileRankTable, uniqueFileRankCount, ref buckets, ref results)
+}
+
+func CliFixAppliedFileGroupsCore(
+    fileRankTable: &CliFixFileRankTable,
+    uniqueFileRankCount: int,
+    buckets: &CliFixRankBucketTable,
+    results: &CliFixAppliedFileGroupResultTable): int {
+    fileRanks := fileRankTable.Ranks
+    countsByRank := buckets.CountsByRank
+    offsetsByRank := buckets.OffsetsByRank
+    writeOffsetsByRank := buckets.WriteOffsetsByRank
+    resultRanks := results.Ranks
+    resultStarts := results.Starts
+    resultCounts := results.Counts
+    resultIndices := results.Indices
     if uniqueFileRankCount < 0 {
         return -1
     }
