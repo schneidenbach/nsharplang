@@ -704,17 +704,11 @@ internal static class NSharpCompilerDogfoodAdapter
         }
     }
 
-    // Multi-function entry — the standalone columnar backend (the chosen Stage 4j routing: a columnar-first
-    // pipeline that owns emission, not a re-parse hook into the C# ILCompiler). Emit EVERY top-level function
-    // into one assembly (type "ColumnarProgram") directly from the columnar tables, with NO C# AST; decline the
-    // whole program if any function is ineligible. Foundation for sibling calls (4i) and whole-program emission.
-    internal static bool TryEmitColumnarProgram(string source, out byte[] assembly, out string typeName, out string[] methodNames)
-        => TryEmitColumnarProgram(source, "ColumnarProgram", "ColumnarProgram", out assembly, out typeName, out methodNames);
-
-    // Production-facing entry (Stage 5 routing): emit into an assembly named `assemblyName` and type
-    // `typeName`. The MultiFileCompiler uses this default-on route to produce a drop-in replacement for the C#
-    // ILCompiler's output — assembly name + type "Program" matching the C# path — for the systems subset it
-    // models, falling back to the C# path on decline.
+    // Production-facing standalone columnar backend (Stage 5 routing): emit EVERY top-level function into an
+    // assembly named `assemblyName` and type `typeName` directly from columnar tables, with NO C# AST. The
+    // MultiFileCompiler uses this default-on route to produce a drop-in replacement for the C# ILCompiler's
+    // output — assembly name + type "Program" matching the C# path — for the systems subset it models, falling
+    // back to the C# path on decline.
     internal static bool TryEmitColumnarProgram(string source, string assemblyName, string typeName, out byte[] assembly, out string emittedTypeName, out string[] methodNames)
     {
         assembly = System.Array.Empty<byte>();

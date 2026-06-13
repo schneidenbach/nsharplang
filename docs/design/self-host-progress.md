@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — Columnar program emission drops test-only overload
+
+`NSharpCompilerDogfoodAdapter.TryEmitColumnarProgram` now has one entry shape: the production-shaped
+assembly/type-named route used by `MultiFileCompiler`. The old four-argument convenience overload was only
+used by tests after the single-function spike route was retired, so the tests now exercise the same signature
+as production.
+
+This removes another adapter-only convenience surface from the C# transition layer.
+
 ## 2026-06-13 — Columnar implementation members stop advertising public visibility
 
 All source-level `public` declarations under `src/NSharpLang.Compiler/Columnar` are now internal. The

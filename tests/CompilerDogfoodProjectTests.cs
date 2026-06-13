@@ -8527,13 +8527,20 @@ class B
     {
         var adapterType = typeof(Parser).Assembly.GetType("NSharpLang.Compiler.NSharpCompilerDogfoodAdapter")
             ?? throw new InvalidOperationException("Compiler dogfood adapter type was not emitted.");
-        // The 4-arg overload (there is now also a 6-arg production overload, so disambiguate by signature).
         var method = adapterType.GetMethod("TryEmitColumnarProgram", BindingFlags.Static | BindingFlags.NonPublic,
-            new[] { typeof(string), typeof(byte[]).MakeByRefType(), typeof(string).MakeByRefType(), typeof(string[]).MakeByRefType() })
+            new[]
+            {
+                typeof(string),
+                typeof(string),
+                typeof(string),
+                typeof(byte[]).MakeByRefType(),
+                typeof(string).MakeByRefType(),
+                typeof(string[]).MakeByRefType(),
+            })
             ?? throw new InvalidOperationException("Dogfood adapter did not emit TryEmitColumnarProgram.");
-        var args = new object?[] { source, null, null, null };
+        var args = new object?[] { source, "ColumnarProgram", "ColumnarProgram", null, null, null };
         var ok = (bool)(method.Invoke(null, args) ?? false);
-        return (ok, (byte[]?)args[1], (string?)args[2], (string[]?)args[3]);
+        return (ok, (byte[]?)args[3], (string?)args[4], (string[]?)args[5]);
     }
 
     // MULTI-FILE: emit `sources` (separate file contents) as ONE merged columnar program, then for each
