@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — Columnar type inference reuses tokenized source inputs
+
+The Stage 3 top-level function type-inference parity pass now starts from
+`ColumnarTokenizedSource` instead of owning another local tokenize/compact sequence. Its signature
+pass and body pass both consume the shared compact token columns while retaining the same
+function-return map and body inference behavior.
+
+Type-inference parity remains the correctness gate. This continues shrinking the adapter surface
+around one named source-input contract for the columnar stages.
+
 ## 2026-06-13 — Columnar name resolution reuses tokenized source inputs
 
 The Stage 2 top-level function name-resolution parity pass now consumes the shared

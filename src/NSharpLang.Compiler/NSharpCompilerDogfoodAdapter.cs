@@ -413,35 +413,18 @@ internal static class NSharpCompilerDogfoodAdapter
 
         try
         {
-            var capacity = 3 * (source.Length + 1) + 8;
-            var rawKinds = new int[capacity];
-            var rawStarts = new int[capacity];
-            var rawValueLengths = new int[capacity];
-            var rawLines = new int[capacity];
-            var rawColumns = new int[capacity];
-            var rawCount = bindings.TokenizeMetadataWithIndentation(
-                source, rawKinds, rawStarts, rawValueLengths, rawLines, rawColumns);
-            if (rawCount < 0 || rawCount > capacity)
+            if (!TryTokenizeColumnarSource(bindings, source, out var tokens))
                 return false;
 
             if (!TryGetTopLevelFunctionDeclarationIndices(
-                    bindings, source, rawKinds, rawStarts, rawValueLengths, rawCount,
+                    source, tokens,
                     out _, out var functionDeclarationIndices))
                 return false;
 
-            var ck = new int[rawCount];
-            var cs = new int[rawCount];
-            var cv = new int[rawCount];
-            var n = 0;
-            for (var i = 0; i < rawCount; i++)
-            {
-                if (rawKinds[i] == 136)
-                    continue;
-                ck[n] = rawKinds[i];
-                cs[n] = rawStarts[i];
-                cv[n] = rawValueLengths[i];
-                n++;
-            }
+            var ck = tokens.Kinds;
+            var cs = tokens.Starts;
+            var cv = tokens.ValueLengths;
+            var n = tokens.Count;
 
             var funcIndices = TopLevelFuncIndices(ck, n);
             if (funcIndices.Count != functionDeclarationIndices.Count)
