@@ -195,12 +195,20 @@ column field loads and array element loads/stores with no row allocation, boxing
 construction, heap array allocation, or virtual dispatch; `wrap` stores incoming column references
 without allocating arrays or copying elements.
 
+The first migration fixture uses the real overload-candidate compact table shape under the
+experimental flag. It wraps the existing candidate columns as `OverloadCandidateTable`, preserves the
+current ranking tie-break rules against a parallel-column baseline, and asserts the migrated
+row-projection loop stays allocation-free and dispatch-free. The production dogfood project is still
+kept free of SoA declarations until either hot-function flattened ABI lowering or columnar-emitter
+ownership lands.
+
 ## Migration Plan
 
 1. Done: add the parser and analyzer surface for non-generic `soa record` declarations, with no production use.
 2. Done behind `NSHARP_EXPERIMENTAL_SOA=1`: lower `new`, `wrap`, column access, row projection, `length`,
    `capacity`, and the core table operations to wrapper-backed arrays in the direct IL backend.
-3. Port one cold parity-corpus table to prove diagnostics and IL shape.
+3. Done as an experimental fixture: port the overload-candidate compact table shape to prove cold-table parity
+   and row-projection IL shape without production routing.
 4. Port `ParserState` from `st: int[]` to a small normal struct only after member writes and by-ref lowering
    are proven; do not mix that with SoA table columns.
 5. Port parser node tables in `ParserExpressions.nl`, `ParserStatements.nl`, `ParserTypeReferences.nl`, and

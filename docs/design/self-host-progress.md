@@ -11,6 +11,20 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — SoA cold table migration fixture: overload candidates
+
+The first real compiler-table shape has been moved through the experimental SoA wrapper surface
+without routing production code. The overload-candidate compact table now has a parity fixture that
+wraps the existing primitive columns as `OverloadCandidateTable`, ranks candidates through
+`table[i].column` row projections, and compares against the current parallel-column tie-break rules.
+
+IL-shape coverage pins the migrated loop: no `newobj`, `newarr`, `box`, delegate construction,
+`call`, or `callvirt`, with candidate facts loaded through direct column-field loads and array
+element loads. This proves the cold-table migration pattern while the default dogfood project remains
+SoA-free until the columnar backend owns declarations or the hot-function flattened ABI lands.
+
+---
+
 ## 2026-06-13 — SoA row escape diagnostics: assignment paths closed
 
 Row-view escape analysis now covers direct assignment and object-initializer values in addition to
