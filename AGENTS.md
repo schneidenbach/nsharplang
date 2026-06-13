@@ -76,6 +76,12 @@ ALWAYS: The test-all.sh script:
   - Tests dotnet new template creation
   - Builds ALL example projects with `dotnet build`
   - Validates everything works end-to-end
+ALWAYS: Testing strategy is layered, not one-size-fits-all:
+  - Inner-loop while editing: use `./scripts/dev.sh` with a subsystem/test pattern or `--since`. This is for fast feedback only; it deliberately skips benchmark, VS Code, examples, IL verification, and interop gates.
+  - Scope selection: prefer the narrowest semantically relevant `dev.sh` slice first, then broaden when touching shared compiler, SDK/runtime, build config, fixtures, or anything unmapped. `dev.sh --since` is fail-safe and will run the full unit suite for central/unmapped changes.
+  - Backend/compiler/SDK/CLI/runtime/docs final verification: use `VSCODE_TESTS=skip ./scripts/test-all.sh --commit`. This must be fresh; cached whole-gate or per-step results are not commit evidence.
+  - IDE/LSP/VS Code changes: do not skip VS Code tests. Run the VS Code-enabled gate, reload/reinstall the extension, and visually verify the editor behavior with computer-use.
+  - Do not use the full product gate as the daily inner loop. The expensive slices are intentionally reserved for final verification; see `memory/testing.md` for current profiling data and gate-hotspot evidence.
 ALWAYS: CHECK YOUR OWN WORK
 ALWAYS: CHECK YOUR OWN ASSUMPTIONS
 ALWAYS: `git commit` after you've written any code AND verified the correct `./scripts/test-all.sh --commit` gate passes for the change scope!!
