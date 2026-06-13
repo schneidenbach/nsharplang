@@ -7199,6 +7199,68 @@ class B
         Assert.False(RouteColumnarProgram("func tempShadow(a: int[], n: int): int {\n    value := 99\n    count := 0\n    for i := 0; i < n; i++ {\n        value := a[i]\n        if value >= 0 && value <= 10 {\n            count++\n        }\n    }\n    return count\n}\n").Ok);
     }
 
+    // Phase P-3 (columnar): min/max conditional reductions lower to MinInt32/MaxInt32, with the
+    // canonical one-min plus one-max body fused into a single MinMaxInt32 scan.
+    [Fact]
+    public void ColumnarCodegen_Parity_VectorizedMinMaxReductions()
+    {
+        var prog =
+            "func minMaxDelta(a: int[], n: int): int {\n    if n == 0 {\n        return 0\n    }\n    min := a[0]\n    max := a[0]\n    for i := 1; i < n; i++ {\n        value := a[i]\n        if value < min {\n            min = value\n        }\n        if value > max {\n            max = value\n        }\n    }\n    return max - min\n}\n\n" +
+            "func minMaxInline(a: int[]): int {\n    if a.Length == 0 {\n        return 0\n    }\n    min := a[0]\n    max := a[0]\n    for i := 0; i < a.Length; i++ {\n        if a[i] < min {\n            min = a[i]\n        }\n        if a[i] > max {\n            max = a[i]\n        }\n    }\n    return max - min\n}\n\n" +
+            "func minMaxWhile(a: int[], n: int): int {\n    if n == 0 {\n        return 0\n    }\n    min := a[0]\n    max := a[0]\n    i := 1\n    while i < n {\n        value := a[i]\n        if value < min {\n            min = value\n        }\n        if value > max {\n            max = value\n        }\n        i = i + 1\n    }\n    return max - min\n}\n\n" +
+            "func minOnly(a: int[], n: int): int {\n    min := a[0]\n    for i := 1; i < n; i++ {\n        if a[i] < min {\n            min = a[i]\n        }\n    }\n    return min\n}\n\n" +
+            "func reversed(a: int[], n: int): int {\n    min := a[0]\n    max := a[0]\n    for i := 1; i < n; i++ {\n        if min > a[i] {\n            min = a[i]\n        }\n        if max < a[i] {\n            max = a[i]\n        }\n    }\n    return max - min\n}\n\n" +
+            "func terminalMin(a: int[], n: int): int {\n    min := 0\n    i := 0\n    while i < n {\n        if a[i] < min {\n            min = a[i]\n        }\n        i = i + 1\n    }\n    return i\n}\n\n" +
+            "func minMaxLong(a: long[], n: int): long {\n    min := a[0]\n    max := a[0]\n    for i := 1; i < n; i++ {\n        if a[i] < min {\n            min = a[i]\n        }\n        if a[i] > max {\n            max = a[i]\n        }\n    }\n    return max - min\n}\n";
+
+        var signed = new[] { 7, -5, 99, int.MinValue, 42, int.MaxValue, -1234, 888, 0, -1, 17, -99 };
+
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("minMaxDelta", new object[] { signed, 1 }),
+            ("minMaxDelta", new object[] { signed, signed.Length }),
+            ("minMaxInline", new object[] { signed }),
+            ("minMaxWhile", new object[] { signed, signed.Length }),
+            ("minOnly", new object[] { signed, signed.Length }),
+            ("reversed", new object[] { signed, signed.Length }),
+            ("terminalMin", new object[] { Array.Empty<int>(), -5 }),
+            ("terminalMin", new object[] { signed, 6 }),
+            ("minMaxLong", new object[] { signed.Select(i => (long)i).ToArray(), signed.Length }));
+
+        var (ok, assembly, typeName, _) = RouteColumnarProgram(prog);
+        Assert.True(ok);
+        using var loadScope = CollectibleAssemblyScope.Load(assembly!);
+        var type = loadScope.Assembly.GetType(typeName!)!;
+
+        var minMaxDelta = type.GetMethod("minMaxDelta")!;
+        Assert.Equal(1, ILShapeInspector.CountOpcode(minMaxDelta, OpCodes.Call));
+        Assert.True(ILShapeInspector.CountOpcode(minMaxDelta, OpCodes.Ldelem_I4) <= 2);
+
+        var minMaxInline = type.GetMethod("minMaxInline")!;
+        Assert.Equal(1, ILShapeInspector.CountOpcode(minMaxInline, OpCodes.Call));
+        Assert.True(ILShapeInspector.CountOpcode(minMaxInline, OpCodes.Ldelem_I4) <= 2);
+
+        var minMaxWhile = type.GetMethod("minMaxWhile")!;
+        Assert.Equal(1, ILShapeInspector.CountOpcode(minMaxWhile, OpCodes.Call));
+        Assert.True(ILShapeInspector.CountOpcode(minMaxWhile, OpCodes.Ldelem_I4) <= 2);
+
+        var minOnly = type.GetMethod("minOnly")!;
+        Assert.Equal(1, ILShapeInspector.CountOpcode(minOnly, OpCodes.Call));
+        Assert.True(ILShapeInspector.CountOpcode(minOnly, OpCodes.Ldelem_I4) <= 1);
+
+        var reversed = type.GetMethod("reversed")!;
+        Assert.Equal(1, ILShapeInspector.CountOpcode(reversed, OpCodes.Call));
+        Assert.True(ILShapeInspector.CountOpcode(reversed, OpCodes.Ldelem_I4) <= 2);
+
+        var terminalMin = type.GetMethod("terminalMin")!;
+        Assert.Equal(1, ILShapeInspector.CountOpcode(terminalMin, OpCodes.Call));
+        Assert.Equal(0, ILShapeInspector.CountOpcode(terminalMin, OpCodes.Ldelem_I4));
+
+        var minMaxLong = type.GetMethod("minMaxLong")!;
+        Assert.True(ILShapeInspector.CountOpcode(minMaxLong, OpCodes.Ldelem_I8) >= 1);
+
+        Assert.False(RouteColumnarProgram("func tempShadow(a: int[], n: int): int {\n    value := 99\n    min := 0\n    for i := 0; i < n; i++ {\n        value := a[i]\n        if value < min {\n            min = value\n        }\n    }\n    return min\n}\n").Ok);
+    }
+
     // DOUBLE scalar (r8): float literals (ldc.r8), arithmetic (FP add/sub/mul/div/rem — x/0.0 -> Inf, 0.0/0.0 ->
     // NaN, no throw), unary negate, NaN-CORRECT comparisons (a <= NaN is false via the unordered complement),
     // casts (int/long <-> double), and double[] (new/read/write). Value-matched vs the C# ILCompiler over normal,

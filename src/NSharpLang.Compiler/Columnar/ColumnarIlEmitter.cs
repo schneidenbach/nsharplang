@@ -552,6 +552,18 @@ public sealed class ColumnarIlEmitter
         ResolveSimdReductionHelper(nameof(NSharpLang.Runtime.SimdReductions.SumUInt64));
     private static readonly MethodInfo s_countInRangeInt32 =
         ResolveSimdReductionHelper(nameof(NSharpLang.Runtime.SimdReductions.CountInRangeInt32));
+    private static readonly MethodInfo s_minInt32Reduction =
+        ResolveSimdReductionHelper(nameof(NSharpLang.Runtime.SimdReductions.MinInt32));
+    private static readonly MethodInfo s_maxInt32Reduction =
+        ResolveSimdReductionHelper(nameof(NSharpLang.Runtime.SimdReductions.MaxInt32));
+    private static readonly MethodInfo s_minMaxInt32Reduction =
+        ResolveSimdReductionHelper(nameof(NSharpLang.Runtime.SimdReductions.MinMaxInt32));
+    private static readonly FieldInfo s_valueTupleItem1 =
+        typeof(ValueTuple<int, int>).GetField("Item1")
+        ?? throw new InvalidOperationException("ValueTuple<int,int>.Item1 not found.");
+    private static readonly FieldInfo s_valueTupleItem2 =
+        typeof(ValueTuple<int, int>).GetField("Item2")
+        ?? throw new InvalidOperationException("ValueTuple<int,int>.Item2 not found.");
 
     // True when this emitter is producing a CONSTRUCTOR body. In a VALUE-TYPE ctor, `this` (arg 0)
     // is the managed pointer to the caller's storage (newobj passes the new value's address), so
@@ -5016,6 +5028,8 @@ public sealed class ColumnarIlEmitter
                     return true;
                 if (TryEmitVectorizedRangeCountWhile(idx))
                     return true;
+                if (TryEmitVectorizedMinMaxWhile(idx))
+                    return true;
                 var body = Child(idx, 1);
                 var checkLabel = _il.DefineLabel();
                 var endLabel = _il.DefineLabel();
@@ -5096,6 +5110,21 @@ public sealed class ColumnarIlEmitter
                 }
 
                 if (TryEmitVectorizedRangeCountFor(cond, incr, body))
+                {
+                    foreach (var name in new List<string>(_locals.Keys))
+                    {
+                        if (!outerLocals.Contains(name))
+                            _locals.Remove(name);
+                    }
+                    foreach (var name in new List<string>(_liftedLocals.Keys))
+                    {
+                        if (!outerLifted.Contains(name))
+                            _liftedLocals.Remove(name);
+                    }
+                    return true;
+                }
+
+                if (TryEmitVectorizedMinMaxFor(cond, incr, body))
                 {
                     foreach (var name in new List<string>(_locals.Keys))
                     {
@@ -5419,6 +5448,40 @@ public sealed class ColumnarIlEmitter
         public string Index { get; }
     }
 
+    private sealed class ColumnarMinMaxReduction
+    {
+        public ColumnarMinMaxReduction(int accumulatorNode, string accumulator, bool isMin)
+        {
+            AccumulatorNode = accumulatorNode;
+            Accumulator = accumulator;
+            IsMin = isMin;
+        }
+
+        public int AccumulatorNode { get; }
+        public string Accumulator { get; }
+        public bool IsMin { get; }
+    }
+
+    private sealed class ColumnarMinMaxShape
+    {
+        public ColumnarMinMaxShape(
+            int arrayNode, int indexNode, int boundNode, string index,
+            IReadOnlyList<ColumnarMinMaxReduction> reductions)
+        {
+            ArrayNode = arrayNode;
+            IndexNode = indexNode;
+            BoundNode = boundNode;
+            Index = index;
+            Reductions = reductions;
+        }
+
+        public int ArrayNode { get; }
+        public int IndexNode { get; }
+        public int BoundNode { get; }
+        public string Index { get; }
+        public IReadOnlyList<ColumnarMinMaxReduction> Reductions { get; }
+    }
+
     // Phase P-1 (columnar): mirror the ILCompiler's canonical counted integer reduction lowering for
     // the columnar node tables, without materializing the C# AST. The matched loop is:
     //   while i < bound { acc = acc + a[i]; i = i + 1 }
@@ -5702,12 +5765,12 @@ public sealed class ColumnarIlEmitter
             || (tempName != null && BoundReadsIdentifier(boundNode, tempName)))
             return false;
 
-        return TryBuildRangeCountShape(counterNode, arrayNode, indexNode, boundNode, loNode, hiNode, counterName, arrayName, indexName, out shape);
+        return TryBuildRangeCountShape(counterNode, arrayNode, indexNode, boundNode, loNode, hiNode, counterName, indexName, out shape);
     }
 
     private bool TryBuildRangeCountShape(
         int counterNode, int arrayNode, int indexNode, int boundNode, int loNode, int hiNode,
-        string counterName, string arrayName, string indexName,
+        string counterName, string indexName,
         out ColumnarRangeCountShape shape)
     {
         shape = null!;
@@ -5769,6 +5832,292 @@ public sealed class ColumnarIlEmitter
         if (!StoreReductionIdentifier(shape.Index))
             return false;
         _il.MarkLabel(keepIndexLabel);
+        return true;
+    }
+
+    // Phase P-3 (columnar): mirror the ILCompiler's lane-wise min/max reduction lowering, including the fused
+    // single-pass MinMaxInt32 helper for exactly one min and one max reduction over the same int[] scan.
+    private bool TryEmitVectorizedMinMaxWhile(int whileNode)
+    {
+        if (!TryMatchWhileMinMax(whileNode, out var shape))
+            return false;
+        return EmitVectorizedMinMax(shape);
+    }
+
+    private bool TryEmitVectorizedMinMaxFor(int conditionNode, int iteratorStatementNode, int bodyNode)
+    {
+        if (!TryMatchForMinMax(conditionNode, iteratorStatementNode, bodyNode, out var shape))
+            return false;
+        return EmitVectorizedMinMax(shape);
+    }
+
+    private bool TryMatchWhileMinMax(int whileNode, out ColumnarMinMaxShape shape)
+    {
+        shape = null!;
+        if (_childCount[whileNode] != 2)
+            return false;
+        if (!TryMatchReductionCondition(Child(whileNode, 0), out var indexNode, out var indexName, out var boundNode))
+            return false;
+
+        var body = Child(whileNode, 1);
+        if (_kinds[body] != 25 || _childCount[body] < 2)
+            return false;
+        var incrementStatement = Child(body, _childCount[body] - 1);
+        if (!TryGetExpressionStatementExpression(incrementStatement, out var increment)
+            || !TryMatchUnitIndexIncrement(increment, indexName, allowPostfix: true))
+            return false;
+
+        var statements = new int[_childCount[body] - 1];
+        for (var i = 0; i < statements.Length; i++)
+            statements[i] = Child(body, i);
+        return TryMatchMinMaxBody(statements, indexNode, indexName, boundNode, out shape);
+    }
+
+    private bool TryMatchForMinMax(int conditionNode, int iteratorStatementNode, int bodyNode, out ColumnarMinMaxShape shape)
+    {
+        shape = null!;
+        if (!TryMatchReductionCondition(conditionNode, out var indexNode, out var indexName, out var boundNode))
+            return false;
+        if (!TryGetExpressionStatementExpression(iteratorStatementNode, out var iterator)
+            || !TryMatchUnitIndexIncrement(iterator, indexName, allowPostfix: true))
+            return false;
+
+        int[] statements;
+        if (_kinds[bodyNode] == 27)
+        {
+            statements = new[] { bodyNode };
+        }
+        else if (_kinds[bodyNode] == 25)
+        {
+            statements = new int[_childCount[bodyNode]];
+            for (var i = 0; i < statements.Length; i++)
+                statements[i] = Child(bodyNode, i);
+        }
+        else
+        {
+            return false;
+        }
+
+        return TryMatchMinMaxBody(statements, indexNode, indexName, boundNode, out shape);
+    }
+
+    private bool TryMatchMinMaxBody(
+        IReadOnlyList<int> statementNodes, int indexNode, string indexName, int boundNode,
+        out ColumnarMinMaxShape shape)
+    {
+        shape = null!;
+        if (statementNodes.Count < 1 || statementNodes.Count > 3)
+            return false;
+
+        var ifStart = 0;
+        string? tempName = null;
+        var arrayNode = -1;
+        var arrayName = string.Empty;
+        if (_kinds[statementNodes[0]] == 24)
+        {
+            var tempStatement = statementNodes[0];
+            if (_childCount[tempStatement] != 1)
+                return false;
+            tempName = Text(tempStatement);
+            if (IsVisibleBindingName(tempName))
+                return false;
+            if (!TryMatchArrayIndexByIdentifier(Child(tempStatement, 0), indexName, out arrayNode, out arrayName))
+                return false;
+            ifStart = 1;
+        }
+
+        var ifCount = statementNodes.Count - ifStart;
+        if (ifCount < 1 || ifCount > 2)
+            return false;
+
+        var reductions = new List<ColumnarMinMaxReduction>(ifCount);
+        var seenAccumulators = new HashSet<string>(StringComparer.Ordinal);
+        for (var i = ifStart; i < statementNodes.Count; i++)
+        {
+            if (!TryMatchMinMaxIf(statementNodes[i], indexName, tempName, ref arrayNode, ref arrayName, out var reduction))
+                return false;
+            if (!seenAccumulators.Add(reduction.Accumulator))
+                return false;
+            reductions.Add(reduction);
+        }
+
+        if (arrayNode < 0 || arrayName == indexName)
+            return false;
+        if (tempName != null && (tempName == arrayName || tempName == indexName))
+            return false;
+        foreach (var reduction in reductions)
+        {
+            if (reduction.Accumulator == arrayName || reduction.Accumulator == indexName || reduction.Accumulator == tempName)
+                return false;
+            if (BoundReadsIdentifier(boundNode, reduction.Accumulator))
+                return false;
+        }
+        if (tempName != null && BoundReadsIdentifier(boundNode, tempName))
+            return false;
+
+        return TryBuildMinMaxShape(arrayNode, indexNode, boundNode, indexName, reductions, out shape);
+    }
+
+    private bool TryMatchMinMaxIf(
+        int ifStatementNode, string indexName, string? tempName, ref int arrayNode, ref string arrayName,
+        out ColumnarMinMaxReduction reduction)
+    {
+        reduction = null!;
+        if (_kinds[ifStatementNode] != 27 || _childCount[ifStatementNode] != 2)
+            return false;
+        if (!TryGetSingleReductionBodyStatement(Child(ifStatementNode, 1), out var thenStatement)
+            || !TryGetExpressionStatementExpression(thenStatement, out var assignment)
+            || _kinds[assignment] != 14
+            || _childCount[assignment] != 2
+            || Text(assignment) != "=")
+            return false;
+        var accumulatorNode = Child(assignment, 0);
+        if (!TryGetIdentifierName(accumulatorNode, out var accumulatorName))
+            return false;
+        if (!TryMatchMinMaxSubject(Child(assignment, 1), indexName, tempName, ref arrayNode, ref arrayName))
+            return false;
+
+        var condition = Child(ifStatementNode, 0);
+        if (_kinds[condition] != 12 || _childCount[condition] != 2 || Text(condition) is not ("<" or ">"))
+            return false;
+        var left = Child(condition, 0);
+        var right = Child(condition, 1);
+        var leftIsAccumulator = TryGetIdentifierName(left, out var leftName) && leftName == accumulatorName;
+        var rightIsAccumulator = TryGetIdentifierName(right, out var rightName) && rightName == accumulatorName;
+        var leftIsSubject = IsMinMaxSubject(left, indexName, tempName, arrayName);
+        var rightIsSubject = IsMinMaxSubject(right, indexName, tempName, arrayName);
+
+        bool isMin;
+        if (leftIsSubject && rightIsAccumulator)
+            isMin = Text(condition) == "<";
+        else if (leftIsAccumulator && rightIsSubject)
+            isMin = Text(condition) == ">";
+        else
+            return false;
+
+        reduction = new ColumnarMinMaxReduction(accumulatorNode, accumulatorName, isMin);
+        return true;
+    }
+
+    private bool TryMatchMinMaxSubject(int node, string indexName, string? tempName, ref int arrayNode, ref string arrayName)
+    {
+        if (tempName != null)
+            return TryGetIdentifierName(node, out var name) && name == tempName;
+        if (!TryMatchArrayIndexByIdentifier(node, indexName, out var candidateArrayNode, out var candidateArrayName))
+            return false;
+        if (arrayNode < 0)
+        {
+            arrayNode = candidateArrayNode;
+            arrayName = candidateArrayName;
+            return true;
+        }
+
+        return candidateArrayName == arrayName;
+    }
+
+    private bool IsMinMaxSubject(int node, string indexName, string? tempName, string arrayName)
+    {
+        if (tempName != null)
+            return TryGetIdentifierName(node, out var name) && name == tempName;
+        return TryMatchArrayIndexByIdentifier(node, indexName, out _, out var candidateArrayName)
+               && candidateArrayName == arrayName;
+    }
+
+    private bool TryBuildMinMaxShape(
+        int arrayNode, int indexNode, int boundNode, string indexName,
+        IReadOnlyList<ColumnarMinMaxReduction> reductions,
+        out ColumnarMinMaxShape shape)
+    {
+        shape = null!;
+        if (!TryGetPureLocalOrParameterType(arrayNode, out _, out var arrayType)
+            || !TryGetPureLocalOrParameterType(indexNode, out _, out var indexType))
+            return false;
+        if (arrayType != typeof(int[]) || indexType != typeof(int))
+            return false;
+        if (!IsSideEffectFreeInt32Bound(boundNode, indexName))
+            return false;
+        foreach (var reduction in reductions)
+        {
+            if (!TryGetPureLocalOrParameterType(reduction.AccumulatorNode, out _, out var accumulatorType)
+                || accumulatorType != typeof(int))
+                return false;
+        }
+
+        shape = new ColumnarMinMaxShape(arrayNode, indexNode, boundNode, indexName, reductions);
+        return true;
+    }
+
+    private bool EmitVectorizedMinMax(ColumnarMinMaxShape shape)
+    {
+        var boundLocal = _il.DeclareLocal(typeof(int));
+        if (!EmitExpression(shape.BoundNode, out var boundType) || boundType != typeof(int))
+            return false;
+        _il.Emit(OpCodes.Stloc, boundLocal);
+
+        if (TryGetMinMaxPair(shape.Reductions, out var minReduction, out var maxReduction))
+        {
+            var tupleLocal = _il.DeclareLocal(typeof(ValueTuple<int, int>));
+            if (!EmitExpression(shape.ArrayNode, out var arrayType) || arrayType != typeof(int[]))
+                return false;
+            if (!EmitExpression(shape.IndexNode, out var indexType) || indexType != typeof(int))
+                return false;
+            _il.Emit(OpCodes.Ldloc, boundLocal);
+            if (!EmitExpression(minReduction.AccumulatorNode, out var minType) || minType != typeof(int))
+                return false;
+            if (!EmitExpression(maxReduction.AccumulatorNode, out var maxType) || maxType != typeof(int))
+                return false;
+            _il.Emit(OpCodes.Call, s_minMaxInt32Reduction);
+            _il.Emit(OpCodes.Stloc, tupleLocal);
+
+            _il.Emit(OpCodes.Ldloca, tupleLocal);
+            _il.Emit(OpCodes.Ldfld, s_valueTupleItem1);
+            if (!StoreReductionIdentifier(minReduction.Accumulator))
+                return false;
+            _il.Emit(OpCodes.Ldloca, tupleLocal);
+            _il.Emit(OpCodes.Ldfld, s_valueTupleItem2);
+            if (!StoreReductionIdentifier(maxReduction.Accumulator))
+                return false;
+        }
+        else
+        {
+            foreach (var reduction in shape.Reductions)
+            {
+                if (!EmitExpression(shape.ArrayNode, out var arrayType) || arrayType != typeof(int[]))
+                    return false;
+                if (!EmitExpression(shape.IndexNode, out var indexType) || indexType != typeof(int))
+                    return false;
+                _il.Emit(OpCodes.Ldloc, boundLocal);
+                if (!EmitExpression(reduction.AccumulatorNode, out var accumulatorType) || accumulatorType != typeof(int))
+                    return false;
+                _il.Emit(OpCodes.Call, reduction.IsMin ? s_minInt32Reduction : s_maxInt32Reduction);
+                if (!StoreReductionIdentifier(reduction.Accumulator))
+                    return false;
+            }
+        }
+
+        if (!EmitExpression(shape.IndexNode, out var terminalIndexType) || terminalIndexType != typeof(int))
+            return false;
+        _il.Emit(OpCodes.Ldloc, boundLocal);
+        var keepIndexLabel = _il.DefineLabel();
+        _il.Emit(OpCodes.Bge, keepIndexLabel);
+        _il.Emit(OpCodes.Ldloc, boundLocal);
+        if (!StoreReductionIdentifier(shape.Index))
+            return false;
+        _il.MarkLabel(keepIndexLabel);
+        return true;
+    }
+
+    private static bool TryGetMinMaxPair(
+        IReadOnlyList<ColumnarMinMaxReduction> reductions,
+        out ColumnarMinMaxReduction min,
+        out ColumnarMinMaxReduction max)
+    {
+        min = null!;
+        max = null!;
+        if (reductions.Count != 2 || reductions[0].IsMin == reductions[1].IsMin)
+            return false;
+        min = reductions[0].IsMin ? reductions[0] : reductions[1];
+        max = reductions[0].IsMin ? reductions[1] : reductions[0];
         return true;
     }
 

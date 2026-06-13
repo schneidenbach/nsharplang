@@ -11,6 +11,33 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — Phase P-3 columnar port: min/max reductions emit SIMD helpers
+
+The third Phase P rung ports the min/max reduction family into columnar. The route now recognizes
+canonical `if subject < min { min = subject }` and `if subject > max { max = subject }` loops over
+`int[]`, with temp or inlined subjects, `for` or `while` unit-stride loops, min-only/max-only bodies,
+reversed comparison operand order (`min > a[i]`, `max < a[i]`), and the canonical one-min plus
+one-max body. A single min or max emits `MinInt32` / `MaxInt32`; exactly one min plus one max emits
+the fused `MinMaxInt32` helper so the scan reads each element once. Terminal index semantics remain
+the scalar `index = max(index, bound)` value.
+
+The false-positive boundary is the same as the ILCompiler shape, plus the columnar temp-shadow guard:
+`int[]` array, int index, int accumulators, side-effect-free int bound, strict `<`/`>` comparisons,
+no `else`, a single assignment body, distinct accumulator/array/index/temp names, distinct
+accumulators, and no bound reads of loop-written names. Non-`int[]` arrays stay scalar.
+
+Coverage: `ColumnarCodegen_Parity_VectorizedMinMaxReductions` value-compares fused min+max,
+min-only, temp/inlined subjects, reversed comparisons, while/for forms, empty/negative terminal
+index behavior, and `long[]` fallback. IL-shape assertions prove matched shapes emit exactly one
+helper call and keep only the seed `ldelem.i4` loads, while the `long[]` fallback still has scalar
+`ldelem.i8`. A temp-shadow decline pin covers the columnar-only guard.
+
+NEXT: finish Phase P count-transitions, then `uint[]` once columnar array support admits it, then
+IF-2 residuals as route-all demands, then route-all, then the emitter port gated by the SoA design
+doc.
+
+---
+
 ## 2026-06-13 — Phase P-2 columnar port: range-predicate counts emit CountInRangeInt32
 
 The second Phase P rung ports the ILCompiler's masked-SIMD count-ascii shape into columnar. The
