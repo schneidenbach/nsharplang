@@ -468,12 +468,7 @@ internal sealed class ColumnarUnionCaseDef
 /// </summary>
 public sealed class ColumnarIlEmitter
 {
-    private readonly int[] _kinds;
-    private readonly int[] _valueStarts;
-    private readonly int[] _valueLengths;
-    private readonly int[] _childStart;
-    private readonly int[] _childCount;
-    private readonly int[] _childIndices;
+    private readonly ColumnarNodeTable _nodes;
     private readonly string _source;
     private readonly Dictionary<string, int> _paramOrdinals;
     private readonly IReadOnlyDictionary<string, Type> _paramTypes;
@@ -610,6 +605,38 @@ public sealed class ColumnarIlEmitter
         HashSet<string>? enclosingBindingNames = null,
         Type? asyncReturnType = null,
         bool asyncBareReturnDeclines = false)
+        : this(new ColumnarNodeTable(kinds, valueStarts, valueLengths, childStart, childCount, childIndices),
+            source, paramOrdinals, paramTypes, returnType, il, siblings, enumRegistry, structRegistry, unionRegistry,
+            unionCaseRegistry, currentStruct, enclosingType, isConstructorBody, programType, lambdaCounter, displayClasses,
+            boxedCaptures, localFuncs, declaredLocalFuncNodes, visibleLocalFuncs, siblingReturnTupleNames, paramTupleNames,
+            enclosingBindingNames, asyncReturnType, asyncBareReturnDeclines)
+    {
+    }
+
+    private ColumnarIlEmitter(
+        ColumnarNodeTable nodes, string source,
+        Dictionary<string, int> paramOrdinals, IReadOnlyDictionary<string, Type> paramTypes, Type returnType,
+        ILGenerator il,
+        IReadOnlyDictionary<string, (MethodInfo Method, Type[] ParamTypes, Type ReturnType, Type[] TypeParams, int[] SpecialConstraints, Type?[] BaseConstraints)> siblings,
+        IReadOnlyDictionary<string, ColumnarEnumDef> enumRegistry,
+        IReadOnlyDictionary<string, ColumnarStructDef> structRegistry,
+        IReadOnlyDictionary<string, ColumnarUnionDef> unionRegistry,
+        IReadOnlyDictionary<string, ColumnarUnionCaseDef> unionCaseRegistry,
+        ColumnarStructDef? currentStruct,
+        ColumnarStructDef? enclosingType = null,
+        bool isConstructorBody = false,
+        TypeBuilder? programType = null,
+        int[]? lambdaCounter = null,
+        List<TypeBuilder>? displayClasses = null,
+        Dictionary<string, (FieldBuilder BoxField, Type ValueType)>? boxedCaptures = null,
+        Dictionary<string, (MethodBuilder Method, Type[] ParamTypes, Type ReturnType)>? localFuncs = null,
+        Dictionary<int, string>? declaredLocalFuncNodes = null,
+        IEnumerable<string>? visibleLocalFuncs = null,
+        IReadOnlyDictionary<string, string?[]>? siblingReturnTupleNames = null,
+        IReadOnlyDictionary<string, string?[]>? paramTupleNames = null,
+        HashSet<string>? enclosingBindingNames = null,
+        Type? asyncReturnType = null,
+        bool asyncBareReturnDeclines = false)
     {
         _isConstructorBody = isConstructorBody;
         _asyncReturnType = asyncReturnType;
@@ -622,12 +649,7 @@ public sealed class ColumnarIlEmitter
                     && asyncReturnType.GetGenericTypeDefinition() == typeof(System.Threading.Tasks.ValueTask<>));
         }
         _enclosingBindingNames = enclosingBindingNames ?? s_noEnclosingBindings;
-        _kinds = kinds;
-        _valueStarts = valueStarts;
-        _valueLengths = valueLengths;
-        _childStart = childStart;
-        _childCount = childCount;
-        _childIndices = childIndices;
+        _nodes = nodes;
         _source = source;
         _paramOrdinals = paramOrdinals;
         _paramTypes = paramTypes;
@@ -1251,7 +1273,7 @@ public sealed class ColumnarIlEmitter
         if (invoke == null)
             return false;
         var invokeParams = invoke.GetParameters();
-        var paramCount = _childCount[lambdaIdx] - 1;
+        var paramCount = _nodes.ChildCount(lambdaIdx) - 1;
         if (paramCount != invokeParams.Length)
             return false;
         var ordinals = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -1260,7 +1282,7 @@ public sealed class ColumnarIlEmitter
         for (var p = 0; p < paramCount; p++)
         {
             var paramNode = Child(lambdaIdx, p);
-            if (_kinds[paramNode] != 6)
+            if (_nodes.Kind(paramNode) != 6)
                 return false;
             var paramName = Text(paramNode);
             if (!ordinals.TryAdd(paramName, p))
@@ -1302,8 +1324,7 @@ public sealed class ColumnarIlEmitter
                 foreach (var pair in ordinals)
                     instanceOrdinals[pair.Key] = pair.Value + 1;
                 var instanceEmitter = new ColumnarIlEmitter(
-                    _kinds, _valueStarts, _valueLengths, _childStart, _childCount, _childIndices,
-                    _source, instanceOrdinals, paramTypeMap, invoke.ReturnType, instanceIl, _siblings,
+                    _nodes, _source, instanceOrdinals, paramTypeMap, invoke.ReturnType, instanceIl, _siblings,
                     _enumRegistry, _structRegistry, _unionRegistry, _unionCaseRegistry, currentStruct: _currentStruct,
                     programType: _programType, lambdaCounter: _lambdaCounter, displayClasses: _displayClasses,
                     enclosingBindingNames: VisibleBindingNamesSnapshot());
@@ -1319,8 +1340,7 @@ public sealed class ColumnarIlEmitter
                 MethodAttributes.Private | MethodAttributes.Static, invoke.ReturnType, signatureTypes);
             var lambdaIl = lambdaMethod.GetILGenerator();
             var subEmitter = new ColumnarIlEmitter(
-                _kinds, _valueStarts, _valueLengths, _childStart, _childCount, _childIndices,
-                _source, ordinals, paramTypeMap, invoke.ReturnType, lambdaIl, _siblings,
+                _nodes, _source, ordinals, paramTypeMap, invoke.ReturnType, lambdaIl, _siblings,
                 _enumRegistry, _structRegistry, _unionRegistry, _unionCaseRegistry, currentStruct: null,
                 programType: _programType, lambdaCounter: _lambdaCounter, displayClasses: _displayClasses,
                 enclosingBindingNames: VisibleBindingNamesSnapshot());
@@ -1401,8 +1421,7 @@ public sealed class ColumnarIlEmitter
             "<Lambda>", MethodAttributes.Public | MethodAttributes.HideBySig, invoke.ReturnType, signatureTypes);
         var closureIl = closureMethod.GetILGenerator();
         var closureEmitter = new ColumnarIlEmitter(
-            _kinds, _valueStarts, _valueLengths, _childStart, _childCount, _childIndices,
-            _source, shiftedOrdinals, paramTypeMap, invoke.ReturnType, closureIl, _siblings,
+            _nodes, _source, shiftedOrdinals, paramTypeMap, invoke.ReturnType, closureIl, _siblings,
             _enumRegistry, _structRegistry, _unionRegistry, _unionCaseRegistry, currentStruct: displayDef,
             programType: _programType, lambdaCounter: _lambdaCounter, displayClasses: _displayClasses,
             boxedCaptures: boxedCaptureMap.Count > 0 ? boxedCaptureMap : null,
@@ -1439,7 +1458,7 @@ public sealed class ColumnarIlEmitter
     // return, and appends the `ret`.
     private static bool EmitLambdaBody(ColumnarIlEmitter subEmitter, ILGenerator lambdaIl, int bodyNode, Type returnType)
     {
-        if (subEmitter._kinds[bodyNode] == 25)
+        if (subEmitter._nodes.Kind(bodyNode) == 25)
             return subEmitter.EmitBody(bodyNode, returnType == typeof(void));
         if (!subEmitter.EmitExpression(bodyNode, out var bodyType) || bodyType != returnType)
             return false;
@@ -1456,16 +1475,16 @@ public sealed class ColumnarIlEmitter
     // remaining capture-opaque kinds are NOT excluded here — the capturing branch declines those bodies.
     private void CollectLambdaCaptures(int node, HashSet<string> bound, SortedSet<string> captures)
     {
-        var kind = _kinds[node];
+        var kind = _nodes.Kind(node);
         if (kind == 38 || kind == 42)
             return; // children are TYPE subtrees only (38: callee name lives in the value span; 42: bare-new).
         if (kind == 39)
         {
             var nestedBound = new HashSet<string>(bound, StringComparer.Ordinal);
-            var nestedParams = _childCount[node] - 1;
+            var nestedParams = _nodes.ChildCount(node) - 1;
             for (var p = 0; p < nestedParams; p++)
             {
-                if (_kinds[Child(node, p)] == 6)
+                if (_nodes.Kind(Child(node, p)) == 6)
                     nestedBound.Add(Text(Child(node, p)));
             }
             CollectLambdaCaptures(Child(node, nestedParams), nestedBound, captures);
@@ -1473,7 +1492,7 @@ public sealed class ColumnarIlEmitter
         }
         if (kind == 6)
         {
-            if (_valueStarts[node] < 0)
+            if (_nodes.ValueStart(node) < 0)
                 return; // a value-less masquerading TYPE node — never a name read.
             var name = Text(node);
             if (!bound.Contains(name)
@@ -1486,7 +1505,7 @@ public sealed class ColumnarIlEmitter
             return;
         }
         var first = (kind == 15 || kind == 16) ? 1 : 0; // child[0] of new/cast is the TYPE subtree.
-        for (var c = first; c < _childCount[node]; c++)
+        for (var c = first; c < _nodes.ChildCount(node); c++)
             CollectLambdaCaptures(Child(node, c), bound, captures);
     }
 
@@ -1496,16 +1515,16 @@ public sealed class ColumnarIlEmitter
     // current `this` and the lambda lives as an instance method on the enclosing type.
     private bool BodyReferencesEnclosingChain(int node, HashSet<string> bound)
     {
-        var kind = _kinds[node];
+        var kind = _nodes.Kind(node);
         if (kind == 38 || kind == 42)
             return false;
         if (kind == 39)
         {
             var nestedBound = new HashSet<string>(bound, StringComparer.Ordinal);
             nestedBound.UnionWith(BoundParamsOf(node));
-            return BodyReferencesEnclosingChain(Child(node, _childCount[node] - 1), nestedBound);
+            return BodyReferencesEnclosingChain(Child(node, _nodes.ChildCount(node) - 1), nestedBound);
         }
-        if (kind == 6 && _valueStarts[node] >= 0 && _currentStruct != null)
+        if (kind == 6 && _nodes.ValueStart(node) >= 0 && _currentStruct != null)
         {
             var name = Text(node);
             if (!bound.Contains(name) && !_locals.ContainsKey(name) && !_liftedLocals.ContainsKey(name)
@@ -1519,7 +1538,7 @@ public sealed class ColumnarIlEmitter
         if (kind == 46 || kind == 47) // is/as: walk the VALUE child only (child 1 is a TYPE subtree).
             return BodyReferencesEnclosingChain(Child(node, 0), bound);
         var first = (kind == 15 || kind == 16) ? 1 : 0;
-        for (var c = first; c < _childCount[node]; c++)
+        for (var c = first; c < _nodes.ChildCount(node); c++)
         {
             if (BodyReferencesEnclosingChain(Child(node, c), bound))
                 return true;
@@ -1562,27 +1581,27 @@ public sealed class ColumnarIlEmitter
     // NO in-scope check (this runs at EmitBody entry, before any local exists).
     private void CollectNamesInsideLambdas(int node, SortedSet<string> names)
     {
-        var kind = _kinds[node];
+        var kind = _nodes.Kind(node);
         if (kind == 38 || kind == 42)
             return;
         if (kind == 39)
         {
-            CollectUnboundNames(Child(node, _childCount[node] - 1), BoundParamsOf(node), names);
+            CollectUnboundNames(Child(node, _nodes.ChildCount(node) - 1), BoundParamsOf(node), names);
             return;
         }
         if (kind == 46 || kind == 47) // is/as: walk the VALUE child only (child 1 is a TYPE subtree).
             { CollectNamesInsideLambdas(Child(node, 0), names); return; }
         var first = (kind == 15 || kind == 16) ? 1 : 0;
-        for (var c = first; c < _childCount[node]; c++)
+        for (var c = first; c < _nodes.ChildCount(node); c++)
             CollectNamesInsideLambdas(Child(node, c), names);
     }
 
     private HashSet<string> BoundParamsOf(int lambdaNode)
     {
         var bound = new HashSet<string>(StringComparer.Ordinal);
-        for (var p = 0; p < _childCount[lambdaNode] - 1; p++)
+        for (var p = 0; p < _nodes.ChildCount(lambdaNode) - 1; p++)
         {
-            if (_kinds[Child(lambdaNode, p)] == 6)
+            if (_nodes.Kind(Child(lambdaNode, p)) == 6)
                 bound.Add(Text(Child(lambdaNode, p)));
         }
         return bound;
@@ -1590,17 +1609,17 @@ public sealed class ColumnarIlEmitter
 
     private void CollectUnboundNames(int node, HashSet<string> bound, SortedSet<string> names)
     {
-        var kind = _kinds[node];
+        var kind = _nodes.Kind(node);
         if (kind == 38 || kind == 42)
             return;
         if (kind == 39)
         {
             var nestedBound = new HashSet<string>(bound, StringComparer.Ordinal);
             nestedBound.UnionWith(BoundParamsOf(node));
-            CollectUnboundNames(Child(node, _childCount[node] - 1), nestedBound, names);
+            CollectUnboundNames(Child(node, _nodes.ChildCount(node) - 1), nestedBound, names);
             return;
         }
-        if (kind == 6 && _valueStarts[node] >= 0)
+        if (kind == 6 && _nodes.ValueStart(node) >= 0)
         {
             var name = Text(node);
             if (!bound.Contains(name))
@@ -1609,7 +1628,7 @@ public sealed class ColumnarIlEmitter
         if (kind == 46 || kind == 47) // is/as: walk the VALUE child only (child 1 is a TYPE subtree).
             { CollectUnboundNames(Child(node, 0), bound, names); return; }
         var first = (kind == 15 || kind == 16) ? 1 : 0;
-        for (var c = first; c < _childCount[node]; c++)
+        for (var c = first; c < _nodes.ChildCount(node); c++)
             CollectUnboundNames(Child(node, c), bound, names);
     }
 
@@ -1618,20 +1637,20 @@ public sealed class ColumnarIlEmitter
     // semantically benign — an unwritten box equals a snapshot — but shifts names out of the other gates).
     private bool IsNameBareAssigned(int node, SortedSet<string> names)
     {
-        if (_kinds[node] == 39)
+        if (_nodes.Kind(node) == 39)
         {
             var bound = BoundParamsOf(node);
             var remaining = new SortedSet<string>(names, StringComparer.Ordinal);
             remaining.ExceptWith(bound);
-            return remaining.Count > 0 && IsNameBareAssigned(Child(node, _childCount[node] - 1), remaining);
+            return remaining.Count > 0 && IsNameBareAssigned(Child(node, _nodes.ChildCount(node) - 1), remaining);
         }
-        if (_kinds[node] == 14 || _kinds[node] == 44) // assignment OR postfix `++`/`--` — both write the target.
+        if (_nodes.Kind(node) == 14 || _nodes.Kind(node) == 44) // assignment OR postfix `++`/`--` — both write the target.
         {
             var target = Child(node, 0);
-            if (_kinds[target] == 6 && _valueStarts[target] >= 0 && names.Contains(Text(target)))
+            if (_nodes.Kind(target) == 6 && _nodes.ValueStart(target) >= 0 && names.Contains(Text(target)))
                 return true;
         }
-        for (var c = 0; c < _childCount[node]; c++)
+        for (var c = 0; c < _nodes.ChildCount(node); c++)
         {
             if (IsNameBareAssigned(Child(node, c), names))
                 return true;
@@ -1644,16 +1663,16 @@ public sealed class ColumnarIlEmitter
     // box's Value ADDRESS — a later rung).
     private bool IsNameStructurallyWritten(int node, SortedSet<string> names)
     {
-        switch (_kinds[node])
+        switch (_nodes.Kind(node))
         {
             case 14:
             case 44: // postfix `++`/`--` writes its target exactly like an assignment.
                 var structuralTarget = Child(node, 0);
-                if (_kinds[structuralTarget] == 8 || _kinds[structuralTarget] == 10)
+                if (_nodes.Kind(structuralTarget) == 8 || _nodes.Kind(structuralTarget) == 10)
                 {
-                    while ((_kinds[structuralTarget] == 8 || _kinds[structuralTarget] == 10) && _childCount[structuralTarget] > 0)
+                    while ((_nodes.Kind(structuralTarget) == 8 || _nodes.Kind(structuralTarget) == 10) && _nodes.ChildCount(structuralTarget) > 0)
                         structuralTarget = Child(structuralTarget, 0);
-                    if (_kinds[structuralTarget] == 6 && _valueStarts[structuralTarget] >= 0 && names.Contains(Text(structuralTarget)))
+                    if (_nodes.Kind(structuralTarget) == 6 && _nodes.ValueStart(structuralTarget) >= 0 && names.Contains(Text(structuralTarget)))
                         return true;
                 }
                 break;
@@ -1662,14 +1681,14 @@ public sealed class ColumnarIlEmitter
                     return true;
                 break;
             case 30:
-                for (var n = 0; n < _childCount[node] - 1; n++)
+                for (var n = 0; n < _nodes.ChildCount(node) - 1; n++)
                 {
-                    if (_kinds[Child(node, n)] == 6 && names.Contains(Text(Child(node, n))))
+                    if (_nodes.Kind(Child(node, n)) == 6 && names.Contains(Text(Child(node, n))))
                         return true;
                 }
                 break;
         }
-        for (var c = 0; c < _childCount[node]; c++)
+        for (var c = 0; c < _nodes.ChildCount(node); c++)
         {
             if (IsNameStructurallyWritten(Child(node, c), names))
                 return true;
@@ -1682,13 +1701,13 @@ public sealed class ColumnarIlEmitter
     // declines (under-accept); casts/new/generic-callees are handled precisely by the capture walk above.
     private bool ContainsCaptureOpaqueKind(int node)
     {
-        var k = _kinds[node];
+        var k = _nodes.Kind(node);
         // 18/19 match arms, 32-37 patterns/object-init, 52 with-expressions: their kind-6 children are
         // FIELD names / pattern bindings, not value reads — the positional capture scan would mis-read
         // them as identifier uses.
         if (k == 18 || k == 19 || (k >= 32 && k <= 37) || k == 52)
             return true;
-        for (var c = 0; c < _childCount[node]; c++)
+        for (var c = 0; c < _nodes.ChildCount(node); c++)
         {
             if (ContainsCaptureOpaqueKind(Child(node, c)))
                 return true;
@@ -1706,14 +1725,14 @@ public sealed class ColumnarIlEmitter
     // cannot RE-declare an existing name (declined at declaration), so they are not writes.
     private bool IsAnyNameWritten(int node, SortedSet<string> names)
     {
-        switch (_kinds[node])
+        switch (_nodes.Kind(node))
         {
             case 14:
             case 44: // postfix `++`/`--` writes its target exactly like an assignment.
                 var target = Child(node, 0);
-                while ((_kinds[target] == 8 || _kinds[target] == 10) && _childCount[target] > 0)
+                while ((_nodes.Kind(target) == 8 || _nodes.Kind(target) == 10) && _nodes.ChildCount(target) > 0)
                     target = Child(target, 0); // walk member/index paths to the root receiver.
-                if (_kinds[target] == 6 && _valueStarts[target] >= 0 && names.Contains(Text(target)))
+                if (_nodes.Kind(target) == 6 && _nodes.ValueStart(target) >= 0 && names.Contains(Text(target)))
                     return true;
                 break;
             case 29:
@@ -1721,14 +1740,14 @@ public sealed class ColumnarIlEmitter
                     return true;
                 break;
             case 30:
-                for (var n = 0; n < _childCount[node] - 1; n++)
+                for (var n = 0; n < _nodes.ChildCount(node) - 1; n++)
                 {
-                    if (_kinds[Child(node, n)] == 6 && names.Contains(Text(Child(node, n))))
+                    if (_nodes.Kind(Child(node, n)) == 6 && names.Contains(Text(Child(node, n))))
                         return true;
                 }
                 break;
         }
-        for (var c = 0; c < _childCount[node]; c++)
+        for (var c = 0; c < _nodes.ChildCount(node); c++)
         {
             if (IsAnyNameWritten(Child(node, c), names))
                 return true;
@@ -1746,14 +1765,13 @@ public sealed class ColumnarIlEmitter
     private bool TryEmitInferredZeroParamLambda(int lambdaIdx, out Type delegateType)
     {
         delegateType = null!;
-        if (_programType == null || _lambdaCounter == null || _childCount[lambdaIdx] != 1)
+        if (_programType == null || _lambdaCounter == null || _nodes.ChildCount(lambdaIdx) != 1)
             return false;
         var lambdaMethod = _programType.DefineMethod(
             "<Lambda>_" + _lambdaCounter[0]++, MethodAttributes.Private | MethodAttributes.Static);
         var lambdaIl = lambdaMethod.GetILGenerator();
         var subEmitter = new ColumnarIlEmitter(
-            _kinds, _valueStarts, _valueLengths, _childStart, _childCount, _childIndices,
-            _source, new Dictionary<string, int>(StringComparer.Ordinal),
+            _nodes, _source, new Dictionary<string, int>(StringComparer.Ordinal),
             new Dictionary<string, Type>(StringComparer.Ordinal), typeof(void), lambdaIl, _siblings,
             _enumRegistry, _structRegistry, _unionRegistry, _unionCaseRegistry, currentStruct: null,
             programType: _programType, lambdaCounter: _lambdaCounter, displayClasses: _displayClasses,
@@ -1828,7 +1846,7 @@ public sealed class ColumnarIlEmitter
         if (invoke == null)
             return false;
         var invokeParams = invoke.GetParameters();
-        var argCount = _childCount[callIdx] - 1;
+        var argCount = _nodes.ChildCount(callIdx) - 1;
         if (argCount != invokeParams.Length)
             return false;
         for (var a = 1; a <= argCount; a++)
@@ -1851,7 +1869,7 @@ public sealed class ColumnarIlEmitter
     private bool TryEmitGenericSiblingCall(int callIdx, (MethodInfo Method, Type[] ParamTypes, Type ReturnType, Type[] TypeParams, int[] SpecialConstraints, Type?[] BaseConstraints) target, Type?[] binding, out Type type)
     {
         type = null!;
-        var argCount = _childCount[callIdx] - 1;
+        var argCount = _nodes.ChildCount(callIdx) - 1;
         if (argCount != target.ParamTypes.Length)
             return false;
         for (var a = 1; a <= argCount; a++)
@@ -2121,7 +2139,7 @@ public sealed class ColumnarIlEmitter
     private bool EmitImplicitThisCall(int callIdx, (MethodBuilder Builder, Type[] ParamTypes, Type ReturnType) method, out Type type)
     {
         type = null!;
-        var argCount = _childCount[callIdx] - 1;
+        var argCount = _nodes.ChildCount(callIdx) - 1;
         if (argCount != method.ParamTypes.Length)
             return false;
         _il.Emit(OpCodes.Ldarg_0);
@@ -4250,7 +4268,7 @@ public sealed class ColumnarIlEmitter
 
     private bool EmitStatement(int idx)
     {
-        switch (_kinds[idx])
+        switch (_nodes.Kind(idx))
         {
             case 25: // Block — emit each statement in order.
             {
@@ -4259,7 +4277,7 @@ public sealed class ColumnarIlEmitter
                 // and declines, rather than reading a method-level slot that may be unassigned (invalid IL).
                 var outerLocals = new HashSet<string>(_locals.Keys, StringComparer.Ordinal);
                 var outerLifted = new HashSet<string>(_liftedLocals.Keys, StringComparer.Ordinal);
-                for (var n = 0; n < _childCount[idx]; n++)
+                for (var n = 0; n < _nodes.ChildCount(idx); n++)
                 {
                     var child = Child(idx, n);
                     if (!EmitStatement(child))
@@ -4269,8 +4287,8 @@ public sealed class ColumnarIlEmitter
                     // NL312 diagnostic). Decline rather than emit code after the transfer `ret`/`br`, keeping the
                     // C# analyzer/codegen authoritative. (A break/continue nested inside an `if` is conditional,
                     // so only a DIRECT break/continue child counts here.)
-                    var transfers = AlwaysReturns(child) || _kinds[child] == 21 || _kinds[child] == 22;
-                    if (transfers && n != _childCount[idx] - 1)
+                    var transfers = AlwaysReturns(child) || _nodes.Kind(child) == 21 || _nodes.Kind(child) == 22;
+                    if (transfers && n != _nodes.ChildCount(idx) - 1)
                         return false;
                 }
 
@@ -4307,7 +4325,7 @@ public sealed class ColumnarIlEmitter
                      // kind-25 child is the FINALLY block (E4); break/continue inside the regions emit
                      // `leave` when they cross the boundary (the case 21/22 rules), so try-inside-loop
                      // emits. NESTED try declines (one level this rung).
-                if (_childCount[idx] < 2 || _inProtectedRegion)
+                if (_nodes.ChildCount(idx) < 2 || _inProtectedRegion)
                     return false;
                 if (_protectedResult == null && _returnType != typeof(void))
                     _protectedResult = _il.DeclareLocal(_returnType);
@@ -4320,14 +4338,14 @@ public sealed class ColumnarIlEmitter
                 _il.BeginExceptionBlock();
                 if (!EmitStatement(Child(idx, 0)))
                     return false;
-                for (var c = 1; c < _childCount[idx]; c++)
+                for (var c = 1; c < _nodes.ChildCount(idx); c++)
                 {
                     var clause = Child(idx, c);
-                    if (_kinds[clause] == 25)
+                    if (_nodes.Kind(clause) == 25)
                     {
                         // The FINALLY block (E4) — always the LAST child. BeginFinallyBlock implicitly
                         // ends the prior region; EndExceptionBlock implicitly ends the handler.
-                        if (c != _childCount[idx] - 1)
+                        if (c != _nodes.ChildCount(idx) - 1)
                             return false;
                         _il.BeginFinallyBlock();
                         _inFinallyRegion = true;
@@ -4337,10 +4355,10 @@ public sealed class ColumnarIlEmitter
                             return false;
                         break;
                     }
-                    if (_kinds[clause] != 50)
+                    if (_nodes.Kind(clause) != 50)
                         return false;
                     Type catchType;
-                    if (_valueStarts[clause] >= 0)
+                    if (_nodes.ValueStart(clause) >= 0)
                     {
                         if (!TryResolveBclExceptionType(Text(clause), out catchType))
                             return false;
@@ -4350,7 +4368,7 @@ public sealed class ColumnarIlEmitter
                         catchType = typeof(Exception); // bare catch — the pipeline's exact default.
                     }
                     _il.BeginCatchBlock(catchType);
-                    var hasBinding = _childCount[clause] == 2;
+                    var hasBinding = _nodes.ChildCount(clause) == 2;
                     string? catchVarName = null;
                     if (hasBinding)
                     {
@@ -4368,7 +4386,7 @@ public sealed class ColumnarIlEmitter
                     {
                         _il.Emit(OpCodes.Pop); // unbound catch discards the exception object.
                     }
-                    if (!EmitStatement(Child(clause, _childCount[clause] - 1)))
+                    if (!EmitStatement(Child(clause, _nodes.ChildCount(clause) - 1)))
                         return false;
                     if (catchVarName != null)
                         _locals.Remove(catchVarName); // the binding is scoped to its own clause.
@@ -4384,7 +4402,7 @@ public sealed class ColumnarIlEmitter
                      // defect #21 fixed front-door; the CS0185 analog), so none can reach emit on the
                      // production path — the decline below stays as this emitter's contract guard.
                      // One protected region per body (nested forms decline), exactly as for try.
-                if (_childCount[idx] != 2 || _inProtectedRegion)
+                if (_nodes.ChildCount(idx) != 2 || _inProtectedRegion)
                     return false;
                 if (!EmitExpression(Child(idx, 0), out var lockeeType))
                     return false;
@@ -4419,7 +4437,7 @@ public sealed class ColumnarIlEmitter
             {        // expression must produce a System.Exception-derived reference (the whitelisted BCL
                      // exception constructions; anything else declines — the analyzer's type rule stays
                      // with the C# path).
-                if (_childCount[idx] != 1 || !EmitExpression(Child(idx, 0), out var thrownType))
+                if (_nodes.ChildCount(idx) != 1 || !EmitExpression(Child(idx, 0), out var thrownType))
                     return false;
                 if (!typeof(Exception).IsAssignableFrom(thrownType))
                     return false;
@@ -4439,7 +4457,7 @@ public sealed class ColumnarIlEmitter
                                   // rejected with NL319 (defect #20 fixed); decline as a guard.
                 if (_returnType == typeof(void))
                 {
-                    if (_childCount[idx] != 0)
+                    if (_nodes.ChildCount(idx) != 0)
                         return false;
                     if (_inProtectedRegion)
                     {
@@ -4461,7 +4479,7 @@ public sealed class ColumnarIlEmitter
                     _il.Emit(OpCodes.Ret);
                     return true;
                 }
-                if (_childCount[idx] == 0)
+                if (_nodes.ChildCount(idx) == 0)
                     return false;
                 var retNode = Child(idx, 0);
                 Type retType;
@@ -4515,13 +4533,13 @@ public sealed class ColumnarIlEmitter
                 // model — declining keeps the C# analyzer authoritative rather than silently compiling it.
                 if (IsVisibleBindingName(name))
                     return false;
-                if (_childCount[idx] == 0)
+                if (_nodes.ChildCount(idx) == 0)
                     return false;
                 // A ZERO-PARAM lambda initializer (`zero := () => 99` — L1c): the only `:=` lambda shape with
                 // no inference gap (param-ful `:=` lambdas are pipeline-rejected with NL203). The return type
                 // is INFERRED from the body, so the synthesized method's signature is set AFTER the body emits
                 // (spike-proven order); the local's type is Func<bodyType> (or Action for a void body).
-                if (_kinds[Child(idx, 0)] == 39)
+                if (_nodes.Kind(Child(idx, 0)) == 39)
                 {
                     if (!TryEmitInferredZeroParamLambda(Child(idx, 0), out var lambdaType))
                         return false;
@@ -4565,7 +4583,7 @@ public sealed class ColumnarIlEmitter
                      // unlocks `let f: Func<int, int> = x => x + 1`); any other initializer must emit exactly
                      // the declared type (a mismatch is pipeline-rejected NL202 — decline). `let` locals are
                      // MUTABLE in N# (probe-pinned: `let n: int = 5  n = 6` runs), so a plain local suffices.
-                if (_childCount[idx] != 2 || _kinds[Child(idx, 0)] != 6)
+                if (_nodes.ChildCount(idx) != 2 || _nodes.Kind(Child(idx, 0)) != 6)
                     return false;
                 var declaredName = Text(Child(idx, 0));
                 if (IsVisibleBindingName(declaredName))
@@ -4579,7 +4597,7 @@ public sealed class ColumnarIlEmitter
                     || !IsSupportedType(declaredType))
                     return false;
                 var declaredInit = Child(idx, 1);
-                if (_kinds[declaredInit] == 39)
+                if (_nodes.Kind(declaredInit) == 39)
                 {
                     if (!TryEmitLambdaLiteral(declaredInit, declaredType))
                         return false;
@@ -4615,7 +4633,7 @@ public sealed class ColumnarIlEmitter
                 }
                 // L3b: a lifted candidate declares as a shared StrongBox<T> (the L3b lift; lambda-typed
                 // initializers stay unlifted — a reassigned-and-captured delegate local declines later).
-                if (_kinds[declaredInit] != 39 && _liftedCandidates != null && _liftedCandidates.Contains(declaredName)
+                if (_nodes.Kind(declaredInit) != 39 && _liftedCandidates != null && _liftedCandidates.Contains(declaredName)
                     && IsLiftableValueType(declaredType))
                 {
                     var typedBoxType = typeof(System.Runtime.CompilerServices.StrongBox<>).MakeGenericType(declaredType);
@@ -4630,7 +4648,7 @@ public sealed class ColumnarIlEmitter
                 _locals[declaredName] = declaredLocal;
                 if (declaredTupleNames != null)
                     _tupleNamesByVariable[declaredName] = declaredTupleNames;
-                else if (_kinds[declaredInit] != 39 && TupleNamesOfExpressionNode(declaredInit) is { } typedInitNames)
+                else if (_nodes.Kind(declaredInit) != 39 && TupleNamesOfExpressionNode(declaredInit) is { } typedInitNames)
                     _tupleNamesByVariable[declaredName] = typedInitNames;
                 return true;
             }
@@ -4646,7 +4664,7 @@ public sealed class ColumnarIlEmitter
 
             case 27: // If [condition, then, else?] — general form covering all four then/else
             {        // fall-through-vs-return combinations, with a fall-through merge label.
-                var childCount = _childCount[idx];
+                var childCount = _nodes.ChildCount(idx);
                 if (childCount != 2 && childCount != 3)
                     return false;
                 if (!EmitCondition(Child(idx, 0)))
@@ -4709,12 +4727,12 @@ public sealed class ColumnarIlEmitter
                      // (`+=` `-=` `*=` `/=` on a bare local/param — lowered to load/op/store below).
                 var expr = Child(idx, 0);
 
-                if (_kinds[expr] == 44) // a bare `n++` / `n--` statement — the stepped value is not kept.
+                if (_nodes.Kind(expr) == 44) // a bare `n++` / `n--` statement — the stepped value is not kept.
                 {
                     return TryEmitPostfixUnary(expr, keepValue: false, out _);
                 }
 
-                if (_kinds[expr] == 9) // a bare call statement.
+                if (_nodes.Kind(expr) == 9) // a bare call statement.
                 {
                     // Emit the call. A void call (e.g. Array.Fill) leaves nothing on the stack; a NON-void call
                     // leaves its result, which is unused in statement position — discard it with `pop` (exactly
@@ -4728,7 +4746,7 @@ public sealed class ColumnarIlEmitter
                     return true;
                 }
 
-                if (_kinds[expr] == 53) // `await expr` as a statement — legal in N# (the await-statement rule).
+                if (_nodes.Kind(expr) == 53) // `await expr` as a statement — legal in N# (the await-statement rule).
                 {
                     // The blocking await of a UNIT task leaves nothing; a value task's awaited result is
                     // discarded with `pop`, exactly like a bare call statement.
@@ -4739,7 +4757,7 @@ public sealed class ColumnarIlEmitter
                     return true;
                 }
 
-                if (_kinds[expr] != 14)
+                if (_nodes.Kind(expr) != 14)
                     return false;
                 var assignOp = Text(expr);
                 // COMPOUND assignment `target op= value` (`+=` `-=` `*=` `/=`) on a bare LOCAL/PARAM target —
@@ -4752,7 +4770,7 @@ public sealed class ColumnarIlEmitter
                     // A COLLECTION indexer compound target (`d[k] += v` / `lst[i] += 1` — probe-pinned
                     // working oracle-side): receiver and index evaluate ONCE into temps (C#'s
                     // single-evaluation semantics), then get_Item, the op, set_Item.
-                    if (_kinds[compoundTarget] == 10)
+                    if (_nodes.Kind(compoundTarget) == 10)
                     {
                         if (!EmitExpression(Child(compoundTarget, 0), out var idxRecvType)
                             || !IsSupportedCollectionType(idxRecvType))
@@ -4813,7 +4831,7 @@ public sealed class ColumnarIlEmitter
                     // address for value links, an object ref for reference links) makes the
                     // read-modify-write hit the SAME storage. The scalar/string op set matches the
                     // bare-local arm; decimal member compounds decline (unprobed — fallback).
-                    if (_kinds[compoundTarget] == 8)
+                    if (_nodes.Kind(compoundTarget) == 8)
                     {
                         if (!TryResolveMemberWriteChain(Child(compoundTarget, 0), out var compoundChain)
                             || compoundChain.ReceiverType is not TypeBuilder compoundOwnerTb
@@ -4849,7 +4867,7 @@ public sealed class ColumnarIlEmitter
                         _il.Emit(OpCodes.Stfld, compoundMemberField);
                         return true;
                     }
-                    if (_kinds[compoundTarget] != 6)
+                    if (_nodes.Kind(compoundTarget) != 6)
                         return false;
                     var compoundName = Text(compoundTarget);
                     if (_liftedLocals.ContainsKey(compoundName)
@@ -4919,7 +4937,7 @@ public sealed class ColumnarIlEmitter
                     return false;
                 var target = Child(expr, 0);
 
-                if (_kinds[target] == 10) // array element write: a[i] = value
+                if (_nodes.Kind(target) == 10) // array element write: a[i] = value
                 {
                     if (!EmitExpression(Child(target, 0), out var arrayType))
                         return false;
@@ -4960,7 +4978,7 @@ public sealed class ColumnarIlEmitter
                     return true;
                 }
 
-                if (_kinds[target] == 8) // a member-access target: a class PROPERTY setter OR a value-type struct field.
+                if (_nodes.Kind(target) == 8) // a member-access target: a class PROPERTY setter OR a value-type struct field.
                 {
                     var fieldReceiver = Child(target, 0);
                     var memberName = Text(target);
@@ -4968,7 +4986,7 @@ public sealed class ColumnarIlEmitter
                     // shadowed by a local/param/sibling) — chain-walk its static FIELDS (`<value>; stsfld`) then
                     // static PROPERTIES (`<value>; call set_Name`; a get-only static property declines). A
                     // type-name receiver whose member is NEITHER declines (a type name is not a value).
-                    if (_kinds[fieldReceiver] == 6)
+                    if (_nodes.Kind(fieldReceiver) == 6)
                     {
                         var staticRecvName = Text(fieldReceiver);
                         if (!_locals.ContainsKey(staticRecvName) && !_liftedLocals.ContainsKey(staticRecvName) && !_paramOrdinals.ContainsKey(staticRecvName) && !_siblings.ContainsKey(staticRecvName)
@@ -5045,7 +5063,7 @@ public sealed class ColumnarIlEmitter
                     return false;
                 }
 
-                if (_kinds[target] != 6)
+                if (_nodes.Kind(target) != 6)
                     return false;
                 var targetName = Text(target);
                 // L3b: writes to a BOXED capture (closure body) or a LIFTED local/param store through the
@@ -5489,7 +5507,7 @@ public sealed class ColumnarIlEmitter
             case 30: // TupleDeconstruction [name0, ..., nameN-1, value] — `n0, n1, ... := <tuple>`. Emit the value
             {        // (a ValueTuple), store to a temp, then for each non-`_` name declare a local of the element
                      // type and store the matching ItemN. Mirrors the C# EmitTupleDeconstruction (plain path).
-                var childCount = _childCount[idx];
+                var childCount = _nodes.ChildCount(idx);
                 if (childCount < 3) // at least 2 names + the value.
                     return false;
                 var nameCount = childCount - 1;
@@ -5699,13 +5717,13 @@ public sealed class ColumnarIlEmitter
     private bool TryMatchWhileReduction(int whileNode, out ColumnarReductionShape shape)
     {
         shape = null!;
-        if (_childCount[whileNode] != 2)
+        if (_nodes.ChildCount(whileNode) != 2)
             return false;
         if (!TryMatchReductionCondition(Child(whileNode, 0), out var indexNode, out var indexName, out var boundNode))
             return false;
 
         var body = Child(whileNode, 1);
-        if (_kinds[body] != 25 || _childCount[body] != 2)
+        if (_nodes.Kind(body) != 25 || _nodes.ChildCount(body) != 2)
             return false;
         if (!TryGetExpressionStatementExpression(Child(body, 0), out var update)
             || !TryGetExpressionStatementExpression(Child(body, 1), out var increment))
@@ -5830,19 +5848,19 @@ public sealed class ColumnarIlEmitter
     private bool TryMatchWhileRangeCount(int whileNode, out ColumnarRangeCountShape shape)
     {
         shape = null!;
-        if (_childCount[whileNode] != 2)
+        if (_nodes.ChildCount(whileNode) != 2)
             return false;
         if (!TryMatchReductionCondition(Child(whileNode, 0), out var indexNode, out var indexName, out var boundNode))
             return false;
 
         var body = Child(whileNode, 1);
-        if (_kinds[body] != 25)
+        if (_nodes.Kind(body) != 25)
             return false;
 
         int tempStatement;
         int ifStatement;
         int incrementStatement;
-        switch (_childCount[body])
+        switch (_nodes.ChildCount(body))
         {
             case 2:
                 tempStatement = -1;
@@ -5875,17 +5893,17 @@ public sealed class ColumnarIlEmitter
 
         int tempStatement;
         int ifStatement;
-        if (_kinds[bodyNode] == 27)
+        if (_nodes.Kind(bodyNode) == 27)
         {
             tempStatement = -1;
             ifStatement = bodyNode;
         }
-        else if (_kinds[bodyNode] == 25 && _childCount[bodyNode] == 1)
+        else if (_nodes.Kind(bodyNode) == 25 && _nodes.ChildCount(bodyNode) == 1)
         {
             tempStatement = -1;
             ifStatement = Child(bodyNode, 0);
         }
-        else if (_kinds[bodyNode] == 25 && _childCount[bodyNode] == 2)
+        else if (_nodes.Kind(bodyNode) == 25 && _nodes.ChildCount(bodyNode) == 2)
         {
             tempStatement = Child(bodyNode, 0);
             ifStatement = Child(bodyNode, 1);
@@ -5903,15 +5921,15 @@ public sealed class ColumnarIlEmitter
         out ColumnarRangeCountShape shape)
     {
         shape = null!;
-        if (_kinds[ifStatementNode] != 27 || _childCount[ifStatementNode] != 2)
+        if (_nodes.Kind(ifStatementNode) != 27 || _nodes.ChildCount(ifStatementNode) != 2)
             return false;
         var predicate = Child(ifStatementNode, 0);
-        if (_kinds[predicate] != 12 || _childCount[predicate] != 2 || Text(predicate) != "&&")
+        if (_nodes.Kind(predicate) != 12 || _nodes.ChildCount(predicate) != 2 || Text(predicate) != "&&")
             return false;
         var ge = Child(predicate, 0);
         var le = Child(predicate, 1);
-        if (_kinds[ge] != 12 || _childCount[ge] != 2 || Text(ge) != ">="
-            || _kinds[le] != 12 || _childCount[le] != 2 || Text(le) != "<=")
+        if (_nodes.Kind(ge) != 12 || _nodes.ChildCount(ge) != 2 || Text(ge) != ">="
+            || _nodes.Kind(le) != 12 || _nodes.ChildCount(le) != 2 || Text(le) != "<=")
             return false;
 
         int arrayNode;
@@ -5919,7 +5937,7 @@ public sealed class ColumnarIlEmitter
         string? tempName = null;
         if (tempStatementNode >= 0)
         {
-            if (_kinds[tempStatementNode] != 24 || _childCount[tempStatementNode] != 1)
+            if (_nodes.Kind(tempStatementNode) != 24 || _nodes.ChildCount(tempStatementNode) != 1)
                 return false;
             tempName = Text(tempStatementNode);
             if (IsVisibleBindingName(tempName))
@@ -6047,20 +6065,20 @@ public sealed class ColumnarIlEmitter
     private bool TryMatchWhileMinMax(int whileNode, out ColumnarMinMaxShape shape)
     {
         shape = null!;
-        if (_childCount[whileNode] != 2)
+        if (_nodes.ChildCount(whileNode) != 2)
             return false;
         if (!TryMatchReductionCondition(Child(whileNode, 0), out var indexNode, out var indexName, out var boundNode))
             return false;
 
         var body = Child(whileNode, 1);
-        if (_kinds[body] != 25 || _childCount[body] < 2)
+        if (_nodes.Kind(body) != 25 || _nodes.ChildCount(body) < 2)
             return false;
-        var incrementStatement = Child(body, _childCount[body] - 1);
+        var incrementStatement = Child(body, _nodes.ChildCount(body) - 1);
         if (!TryGetExpressionStatementExpression(incrementStatement, out var increment)
             || !TryMatchUnitIndexIncrement(increment, indexName, allowPostfix: true))
             return false;
 
-        var statements = new int[_childCount[body] - 1];
+        var statements = new int[_nodes.ChildCount(body) - 1];
         for (var i = 0; i < statements.Length; i++)
             statements[i] = Child(body, i);
         return TryMatchMinMaxBody(statements, indexNode, indexName, boundNode, out shape);
@@ -6076,13 +6094,13 @@ public sealed class ColumnarIlEmitter
             return false;
 
         int[] statements;
-        if (_kinds[bodyNode] == 27)
+        if (_nodes.Kind(bodyNode) == 27)
         {
             statements = new[] { bodyNode };
         }
-        else if (_kinds[bodyNode] == 25)
+        else if (_nodes.Kind(bodyNode) == 25)
         {
-            statements = new int[_childCount[bodyNode]];
+            statements = new int[_nodes.ChildCount(bodyNode)];
             for (var i = 0; i < statements.Length; i++)
                 statements[i] = Child(bodyNode, i);
         }
@@ -6106,10 +6124,10 @@ public sealed class ColumnarIlEmitter
         string? tempName = null;
         var arrayNode = -1;
         var arrayName = string.Empty;
-        if (_kinds[statementNodes[0]] == 24)
+        if (_nodes.Kind(statementNodes[0]) == 24)
         {
             var tempStatement = statementNodes[0];
-            if (_childCount[tempStatement] != 1)
+            if (_nodes.ChildCount(tempStatement) != 1)
                 return false;
             tempName = Text(tempStatement);
             if (IsVisibleBindingName(tempName))
@@ -6156,12 +6174,12 @@ public sealed class ColumnarIlEmitter
         out ColumnarMinMaxReduction reduction)
     {
         reduction = null!;
-        if (_kinds[ifStatementNode] != 27 || _childCount[ifStatementNode] != 2)
+        if (_nodes.Kind(ifStatementNode) != 27 || _nodes.ChildCount(ifStatementNode) != 2)
             return false;
         if (!TryGetSingleReductionBodyStatement(Child(ifStatementNode, 1), out var thenStatement)
             || !TryGetExpressionStatementExpression(thenStatement, out var assignment)
-            || _kinds[assignment] != 14
-            || _childCount[assignment] != 2
+            || _nodes.Kind(assignment) != 14
+            || _nodes.ChildCount(assignment) != 2
             || Text(assignment) != "=")
             return false;
         var accumulatorNode = Child(assignment, 0);
@@ -6171,7 +6189,7 @@ public sealed class ColumnarIlEmitter
             return false;
 
         var condition = Child(ifStatementNode, 0);
-        if (_kinds[condition] != 12 || _childCount[condition] != 2 || Text(condition) is not ("<" or ">"))
+        if (_nodes.Kind(condition) != 12 || _nodes.ChildCount(condition) != 2 || Text(condition) is not ("<" or ">"))
             return false;
         var left = Child(condition, 0);
         var right = Child(condition, 1);
@@ -6337,12 +6355,12 @@ public sealed class ColumnarIlEmitter
     private bool TryMatchWhileCountTransitions(int whileNode, out ColumnarCountTransitionsShape shape)
     {
         shape = null!;
-        if (_childCount[whileNode] != 2)
+        if (_nodes.ChildCount(whileNode) != 2)
             return false;
         if (!TryMatchReductionCondition(Child(whileNode, 0), out var indexNode, out var indexName, out var boundNode))
             return false;
         var body = Child(whileNode, 1);
-        if (_kinds[body] != 25 || _childCount[body] != 4)
+        if (_nodes.Kind(body) != 25 || _nodes.ChildCount(body) != 4)
             return false;
         if (!TryGetExpressionStatementExpression(Child(body, 3), out var increment)
             || !TryMatchUnitIndexIncrement(increment, indexName, allowPostfix: true))
@@ -6358,7 +6376,7 @@ public sealed class ColumnarIlEmitter
         if (!TryGetExpressionStatementExpression(iteratorStatementNode, out var iterator)
             || !TryMatchUnitIndexIncrement(iterator, indexName, allowPostfix: true))
             return false;
-        if (_kinds[bodyNode] != 25 || _childCount[bodyNode] != 3)
+        if (_nodes.Kind(bodyNode) != 25 || _nodes.ChildCount(bodyNode) != 3)
             return false;
         return TryMatchCountTransitionsBody(Child(bodyNode, 0), Child(bodyNode, 1), Child(bodyNode, 2), indexNode, indexName, boundNode, out shape);
     }
@@ -6369,7 +6387,7 @@ public sealed class ColumnarIlEmitter
     {
         shape = null!;
 
-        if (_kinds[tempStatementNode] != 24 || _childCount[tempStatementNode] != 1)
+        if (_nodes.Kind(tempStatementNode) != 24 || _nodes.ChildCount(tempStatementNode) != 1)
             return false;
         var currentName = Text(tempStatementNode);
         if (IsVisibleBindingName(currentName))
@@ -6377,10 +6395,10 @@ public sealed class ColumnarIlEmitter
         if (!TryMatchArrayIndexByIdentifier(Child(tempStatementNode, 0), indexName, out var arrayNode, out var arrayName))
             return false;
 
-        if (_kinds[ifStatementNode] != 27 || _childCount[ifStatementNode] != 2)
+        if (_nodes.Kind(ifStatementNode) != 27 || _nodes.ChildCount(ifStatementNode) != 2)
             return false;
         var condition = Child(ifStatementNode, 0);
-        if (_kinds[condition] != 12 || _childCount[condition] != 2 || Text(condition) != "!=")
+        if (_nodes.Kind(condition) != 12 || _nodes.ChildCount(condition) != 2 || Text(condition) != "!=")
             return false;
         if (!TryResolvePreviousForTransition(condition, currentName, out var previousNode, out var previousName))
             return false;
@@ -6390,8 +6408,8 @@ public sealed class ColumnarIlEmitter
             return false;
 
         if (!TryGetExpressionStatementExpression(carryStatementNode, out var carry)
-            || _kinds[carry] != 14
-            || _childCount[carry] != 2
+            || _nodes.Kind(carry) != 14
+            || _nodes.ChildCount(carry) != 2
             || Text(carry) != "="
             || !TryGetIdentifierName(Child(carry, 0), out var carryTarget)
             || carryTarget != previousName
@@ -6507,7 +6525,7 @@ public sealed class ColumnarIlEmitter
         indexNode = -1;
         indexName = string.Empty;
         boundNode = -1;
-        if (_kinds[conditionNode] != 12 || _childCount[conditionNode] != 2 || Text(conditionNode) != "<")
+        if (_nodes.Kind(conditionNode) != 12 || _nodes.ChildCount(conditionNode) != 2 || Text(conditionNode) != "<")
             return false;
         var left = Child(conditionNode, 0);
         var right = Child(conditionNode, 1);
@@ -6528,7 +6546,7 @@ public sealed class ColumnarIlEmitter
         accumulatorName = string.Empty;
         arrayNode = -1;
         arrayName = string.Empty;
-        if (_kinds[updateNode] != 14 || _childCount[updateNode] != 2)
+        if (_nodes.Kind(updateNode) != 14 || _nodes.ChildCount(updateNode) != 2)
             return false;
         var target = Child(updateNode, 0);
         if (!TryGetIdentifierName(target, out accumulatorName))
@@ -6538,7 +6556,7 @@ public sealed class ColumnarIlEmitter
         if (op == "=")
         {
             var value = Child(updateNode, 1);
-            if (_kinds[value] != 12 || _childCount[value] != 2 || Text(value) != "+")
+            if (_nodes.Kind(value) != 12 || _nodes.ChildCount(value) != 2 || Text(value) != "+")
                 return false;
             var left = Child(value, 0);
             var right = Child(value, 1);
@@ -6565,7 +6583,7 @@ public sealed class ColumnarIlEmitter
     {
         arrayNode = -1;
         arrayName = string.Empty;
-        if (_kinds[node] != 10 || _childCount[node] != 2)
+        if (_nodes.Kind(node) != 10 || _nodes.ChildCount(node) != 2)
             return false;
         var receiver = Child(node, 0);
         var index = Child(node, 1);
@@ -6579,7 +6597,7 @@ public sealed class ColumnarIlEmitter
 
     private bool TryMatchUnitIndexIncrement(int node, string indexName, bool allowPostfix)
     {
-        if (_kinds[node] == 14 && _childCount[node] == 2)
+        if (_nodes.Kind(node) == 14 && _nodes.ChildCount(node) == 2)
         {
             var target = Child(node, 0);
             if (!TryGetIdentifierName(target, out var targetName) || targetName != indexName)
@@ -6590,15 +6608,15 @@ public sealed class ColumnarIlEmitter
             if (op != "=")
                 return false;
             var value = Child(node, 1);
-            return _kinds[value] == 12
-                && _childCount[value] == 2
+            return _nodes.Kind(value) == 12
+                && _nodes.ChildCount(value) == 2
                 && Text(value) == "+"
                 && TryGetIdentifierName(Child(value, 0), out var leftName)
                 && leftName == indexName
                 && IsLiteralOne(Child(value, 1));
         }
 
-        if (allowPostfix && _kinds[node] == 44 && _childCount[node] == 1 && Text(node) == "++")
+        if (allowPostfix && _nodes.Kind(node) == 44 && _nodes.ChildCount(node) == 1 && Text(node) == "++")
             return TryGetIdentifierName(Child(node, 0), out var targetName) && targetName == indexName;
 
         return false;
@@ -6607,7 +6625,7 @@ public sealed class ColumnarIlEmitter
     private bool TryGetExpressionStatementExpression(int statementNode, out int expressionNode)
     {
         expressionNode = -1;
-        if (_kinds[statementNode] != 23 || _childCount[statementNode] != 1)
+        if (_nodes.Kind(statementNode) != 23 || _nodes.ChildCount(statementNode) != 1)
             return false;
         expressionNode = Child(statementNode, 0);
         return true;
@@ -6616,15 +6634,15 @@ public sealed class ColumnarIlEmitter
     private bool TryGetSingleReductionBodyStatement(int bodyNode, out int statementNode)
     {
         statementNode = -1;
-        if (_kinds[bodyNode] == 25)
+        if (_nodes.Kind(bodyNode) == 25)
         {
-            if (_childCount[bodyNode] != 1)
+            if (_nodes.ChildCount(bodyNode) != 1)
                 return false;
             statementNode = Child(bodyNode, 0);
             return true;
         }
 
-        if (_kinds[bodyNode] == 23)
+        if (_nodes.Kind(bodyNode) == 23)
         {
             statementNode = bodyNode;
             return true;
@@ -6637,7 +6655,7 @@ public sealed class ColumnarIlEmitter
     {
         counterNode = -1;
         counterName = string.Empty;
-        if (_kinds[node] == 44 && _childCount[node] == 1 && Text(node) == "++")
+        if (_nodes.Kind(node) == 44 && _nodes.ChildCount(node) == 1 && Text(node) == "++")
         {
             var target = Child(node, 0);
             if (!TryGetIdentifierName(target, out counterName))
@@ -6646,7 +6664,7 @@ public sealed class ColumnarIlEmitter
             return true;
         }
 
-        if (_kinds[node] != 14 || _childCount[node] != 2)
+        if (_nodes.Kind(node) != 14 || _nodes.ChildCount(node) != 2)
             return false;
         var assignmentTarget = Child(node, 0);
         if (!TryGetIdentifierName(assignmentTarget, out counterName))
@@ -6662,8 +6680,8 @@ public sealed class ColumnarIlEmitter
         if (op != "=")
             return false;
         var value = Child(node, 1);
-        if (_kinds[value] != 12
-            || _childCount[value] != 2
+        if (_nodes.Kind(value) != 12
+            || _nodes.ChildCount(value) != 2
             || Text(value) != "+"
             || !TryGetIdentifierName(Child(value, 0), out var leftName)
             || leftName != counterName
@@ -6693,7 +6711,7 @@ public sealed class ColumnarIlEmitter
         }
         if (IsInt32Literal(node))
             return true;
-        if (_kinds[node] == 8 && _childCount[node] == 1 && Text(node) == "Length")
+        if (_nodes.Kind(node) == 8 && _nodes.ChildCount(node) == 1 && Text(node) == "Length")
         {
             var receiver = Child(node, 0);
             return TryGetPureLocalOrParameterType(receiver, out _, out var receiverType) && receiverType.IsSZArray;
@@ -6713,8 +6731,8 @@ public sealed class ColumnarIlEmitter
     {
         if (TryGetIdentifierName(node, out var id))
             return id == name;
-        return _kinds[node] == 8
-            && _childCount[node] == 1
+        return _nodes.Kind(node) == 8
+            && _nodes.ChildCount(node) == 1
             && Text(node) == "Length"
             && TryGetIdentifierName(Child(node, 0), out var receiver)
             && receiver == name;
@@ -6757,21 +6775,21 @@ public sealed class ColumnarIlEmitter
     private bool TryGetIdentifierName(int node, out string name)
     {
         name = string.Empty;
-        if (_kinds[node] != 6 || _valueStarts[node] < 0)
+        if (_nodes.Kind(node) != 6 || _nodes.ValueStart(node) < 0)
             return false;
         name = Text(node);
         return true;
     }
 
     private bool IsInt32Literal(int node)
-        => _kinds[node] == 0
-           && _valueStarts[node] >= 0
+        => _nodes.Kind(node) == 0
+           && _nodes.ValueStart(node) >= 0
            && Text(node).Length > 0
            && Text(node)[^1] is not ('u' or 'U' or 'l' or 'L' or 'm' or 'M')
            && int.TryParse(Text(node), out _);
 
     private bool IsLiteralOne(int node)
-        => _kinds[node] == 0 && _valueStarts[node] >= 0 && Text(node) == "1";
+        => _nodes.Kind(node) == 0 && _nodes.ValueStart(node) >= 0 && Text(node) == "1";
 
     /// <summary>
     /// Emit an `if`/`while` CONDITION as a bool (i4 0/1) on the stack for a following <c>brfalse</c>/<c>brtrue</c>.
@@ -6791,7 +6809,7 @@ public sealed class ColumnarIlEmitter
     /// </summary>
     private bool AlwaysReturns(int idx)
     {
-        switch (_kinds[idx])
+        switch (_nodes.Kind(idx))
         {
             case 20: // Return
             case 48: // Throw — always exits (E1; mirrored in ColumnarDiagnosticsPass).
@@ -6803,20 +6821,20 @@ public sealed class ColumnarIlEmitter
                 if (!AlwaysReturns(Child(idx, 0)))
                     return false;
                 var sawCatch = false;
-                for (var n = 1; n < _childCount[idx]; n++)
+                for (var n = 1; n < _nodes.ChildCount(idx); n++)
                 {
                     var clause = Child(idx, n);
-                    if (_kinds[clause] != 50)
+                    if (_nodes.Kind(clause) != 50)
                         continue; // the finally block — ignored by the analyzer's rule.
                     sawCatch = true;
-                    if (!AlwaysReturns(Child(clause, _childCount[clause] - 1)))
+                    if (!AlwaysReturns(Child(clause, _nodes.ChildCount(clause) - 1)))
                         return false;
                 }
 
                 return sawCatch;
             }
             case 25: // Block
-                for (var n = 0; n < _childCount[idx]; n++)
+                for (var n = 0; n < _nodes.ChildCount(idx); n++)
                 {
                     if (AlwaysReturns(Child(idx, n)))
                         return true;
@@ -6824,7 +6842,7 @@ public sealed class ColumnarIlEmitter
 
                 return false;
             case 27: // If [cond, then, else?]
-                return _childCount[idx] == 3 && AlwaysReturns(Child(idx, 1)) && AlwaysReturns(Child(idx, 2));
+                return _nodes.ChildCount(idx) == 3 && AlwaysReturns(Child(idx, 1)) && AlwaysReturns(Child(idx, 2));
             case 51: // Lock [lockee, body] — exits iff the body exits (probe-pinned: `lock s { return 1 }`
                      // with no trailing return satisfies the analyzer).
                 return AlwaysReturns(Child(idx, 1));
@@ -6970,19 +6988,19 @@ public sealed class ColumnarIlEmitter
     // `if`/loop declines to the C# path (safe under-acceptance) rather than risking a partial-coverage mis-accept.
     private bool IsValidReferenceCtorBody(int bodyRoot)
     {
-        if (_currentStruct == null || _kinds[bodyRoot] != 25 || ContainsReturnStatement(bodyRoot))
+        if (_currentStruct == null || _nodes.Kind(bodyRoot) != 25 || ContainsReturnStatement(bodyRoot))
             return false;
         var assigned = new HashSet<string>(StringComparer.Ordinal);
-        for (var n = 0; n < _childCount[bodyRoot]; n++)
+        for (var n = 0; n < _nodes.ChildCount(bodyRoot); n++)
         {
             var stmt = Child(bodyRoot, n);
-            if (_kinds[stmt] != 23) // an expression statement
+            if (_nodes.Kind(stmt) != 23) // an expression statement
                 continue;
             var e = Child(stmt, 0);
-            if (_kinds[e] != 14 || Text(e) != "=") // a simple `=` assignment
+            if (_nodes.Kind(e) != 14 || Text(e) != "=") // a simple `=` assignment
                 continue;
             var target = Child(e, 0);
-            if (_kinds[target] == 6 && _currentStruct.Fields.ContainsKey(Text(target)))
+            if (_nodes.Kind(target) == 6 && _currentStruct.Fields.ContainsKey(Text(target)))
                 assigned.Add(Text(target));
         }
         return assigned.Count == _currentStruct.Fields.Count;
@@ -7065,9 +7083,9 @@ public sealed class ColumnarIlEmitter
     // so a kind-20 node only ever appears in statement position — walking all children is safe.
     private bool ContainsReturnStatement(int idx)
     {
-        if (_kinds[idx] == 20)
+        if (_nodes.Kind(idx) == 20)
             return true;
-        for (var n = 0; n < _childCount[idx]; n++)
+        for (var n = 0; n < _nodes.ChildCount(idx); n++)
         {
             if (ContainsReturnStatement(Child(idx, n)))
                 return true;
@@ -7082,7 +7100,7 @@ public sealed class ColumnarIlEmitter
     private bool EmitExpression(int idx, out Type type)
     {
         type = null!;
-        switch (_kinds[idx])
+        switch (_nodes.Kind(idx))
         {
             case 6: // Identifier — a `:=` local (ldloc, type = LocalType) or a parameter (ldarg, type from the
                     // signature); the two name sets are disjoint (a local shadowing a param is declined at decl).
@@ -7267,7 +7285,7 @@ public sealed class ColumnarIlEmitter
                      // shapes (ValueTask(/T) converts via AsTask() first). Awaits are legal in
                      // NON-async functions too (probe-pinned: no await-outside-async diagnostic
                      // exists; the lowering is identical). Other awaitables decline.
-                if (_childCount[idx] != 1 || !EmitExpression(Child(idx, 0), out var awaitableType))
+                if (_nodes.ChildCount(idx) != 1 || !EmitExpression(Child(idx, 0), out var awaitableType))
                     return false;
                 return TryEmitBlockingAwait(awaitableType, out type);
             }
@@ -7328,10 +7346,10 @@ public sealed class ColumnarIlEmitter
                 // NULL comparisons (`s == null` / `s != null`) and `??` COALESCING on REFERENCE types:
                 // handled BEFORE the operand pair (a bare null has no self-type to unify). The null
                 // literal as a LEFT operand (`null == s`) also works — both orders emit ldnull + ceq.
-                if ((op == "==" || op == "!=") && (_kinds[Child(idx, 0)] == 5 || _kinds[Child(idx, 1)] == 5))
+                if ((op == "==" || op == "!=") && (_nodes.Kind(Child(idx, 0)) == 5 || _nodes.Kind(Child(idx, 1)) == 5))
                 {
-                    var valueNode = _kinds[Child(idx, 0)] == 5 ? Child(idx, 1) : Child(idx, 0);
-                    if (_kinds[valueNode] == 5)
+                    var valueNode = _nodes.Kind(Child(idx, 0)) == 5 ? Child(idx, 1) : Child(idx, 0);
+                    if (_nodes.Kind(valueNode) == 5)
                     {
                         // null == null is constant true (the pipeline folds the same way at runtime).
                         _il.Emit(OpCodes.Ldc_I4, op == "==" ? 1 : 0);
@@ -7405,7 +7423,7 @@ public sealed class ColumnarIlEmitter
                     _il.Emit(OpCodes.Dup);
                     _il.Emit(OpCodes.Brtrue, coalesceEnd);
                     _il.Emit(OpCodes.Pop);
-                    if (_kinds[Child(idx, 1)] == 5)
+                    if (_nodes.Kind(Child(idx, 1)) == 5)
                         _il.Emit(OpCodes.Ldnull);
                     else if (!EmitExpression(Child(idx, 1), out var coalesceRight) || !TypesEquivalent(coalesceRight, coalesceLeft))
                         return false;
@@ -7563,7 +7581,7 @@ public sealed class ColumnarIlEmitter
             {       // self/recursion), or a BCL method call (instance on a string, or static on a type like Char)
                     // whose callee is a MemberAccess [receiver, method-name].
                 var callee = Child(idx, 0);
-                if (_kinds[callee] == 6) // bare identifier -> resolved in the N# pipeline's EMPIRICALLY PINNED order.
+                if (_nodes.Kind(callee) == 6) // bare identifier -> resolved in the N# pipeline's EMPIRICALLY PINNED order.
                 {
                     var name = Text(callee);
                     // A local/param of the same name: the N# pipeline binds bare calls to the METHOD (locals do
@@ -7575,7 +7593,7 @@ public sealed class ColumnarIlEmitter
                     {
                         if (_siblings.ContainsKey(name)
                             || (_currentStruct != null && TryFindMethodOnChain(_currentStruct, name, out _))
-                            || (_enclosingType != null && TryFindStaticMethodOnChain(_enclosingType, name, _childCount[idx] - 1, out _)))
+                            || (_enclosingType != null && TryFindStaticMethodOnChain(_enclosingType, name, _nodes.ChildCount(idx) - 1, out _)))
                             return false;
                         return TryEmitDelegateInvoke(idx, name, out type);
                     }
@@ -7596,7 +7614,7 @@ public sealed class ColumnarIlEmitter
                     if (_localFuncs != null && _visibleLocalFuncs.Contains(name)
                         && _localFuncs.TryGetValue(name, out var localTarget))
                     {
-                        var localArgCount = _childCount[idx] - 1;
+                        var localArgCount = _nodes.ChildCount(idx) - 1;
                         if (localArgCount != localTarget.ParamTypes.Length)
                             return false;
                         for (var a = 1; a <= localArgCount; a++)
@@ -7607,7 +7625,7 @@ public sealed class ColumnarIlEmitter
                             // lambda-to-SIBLING works). Columnar could emit it, but accepting a program the
                             // pipeline errors on is an acceptance divergence — decline until the oracle's
                             // local-function lambda binding is fixed (recorded for an oracle bundle).
-                            if (_kinds[localArgNode] == 39)
+                            if (_nodes.Kind(localArgNode) == 39)
                                 return false;
                             if (!EmitExpression(localArgNode, out var localArgType) || !TypesEquivalent(localArgType, localTarget.ParamTypes[a - 1]))
                                 return false;
@@ -7618,7 +7636,7 @@ public sealed class ColumnarIlEmitter
                     }
                     if (_siblings.TryGetValue(name, out var target))
                     {
-                        var argCount = _childCount[idx] - 1;
+                        var argCount = _nodes.ChildCount(idx) - 1;
                         if (argCount != target.ParamTypes.Length) // arity must match (no overloads / defaults / params).
                             return false;
                         if (target.TypeParams.Length > 0)
@@ -7644,9 +7662,9 @@ public sealed class ColumnarIlEmitter
                                     return false;
                                 continue;
                             }
-                            if (_kinds[argNode] == 54)
+                            if (_nodes.Kind(argNode) == 54)
                                 return false;
-                            if (_kinds[argNode] == 39)
+                            if (_nodes.Kind(argNode) == 39)
                             {
                                 if (!TryEmitLambdaLiteral(argNode, expectedParamType))
                                     return false;
@@ -7676,10 +7694,10 @@ public sealed class ColumnarIlEmitter
                     }
                     if (_currentStruct != null && TryFindMethodOnChain(_currentStruct, name, out var ownMethod))
                         return EmitImplicitThisCall(idx, ownMethod, out type);
-                    if (_enclosingType != null && TryFindStaticMethodOnChain(_enclosingType, name, _childCount[idx] - 1, out var ownStatic))
+                    if (_enclosingType != null && TryFindStaticMethodOnChain(_enclosingType, name, _nodes.ChildCount(idx) - 1, out var ownStatic))
                     {
                         // No receiver: just the args, then a direct `call` to the declaring type's static.
-                        var staticArgCount = _childCount[idx] - 1;
+                        var staticArgCount = _nodes.ChildCount(idx) - 1;
                         for (var a = 1; a <= staticArgCount; a++)
                         {
                             if (!EmitExpression(Child(idx, a), out var sArgType) || !TypesEquivalent(sArgType, ownStatic.ParamTypes[a - 1]))
@@ -7691,7 +7709,7 @@ public sealed class ColumnarIlEmitter
                     }
                     return false;
                 }
-                if (_kinds[callee] == 38) // GenericCallee — an EXPLICIT generic call `F<T1, T2>(args)`.
+                if (_nodes.Kind(callee) == 38) // GenericCallee — an EXPLICIT generic call `F<T1, T2>(args)`.
                 {
                     var gName = Text(callee);
                     // The callee resolves exactly like a bare identifier: locals/params shadow-decline; only a
@@ -7700,7 +7718,7 @@ public sealed class ColumnarIlEmitter
                         return false;
                     if (!_siblings.TryGetValue(gName, out var gTarget) || gTarget.TypeParams.Length == 0)
                         return false;
-                    if (_childCount[callee] != gTarget.TypeParams.Length)
+                    if (_nodes.ChildCount(callee) != gTarget.TypeParams.Length)
                         return false; // an explicit-argument ARITY mismatch is pipeline-rejected — decline.
                     // Resolve each explicit type argument: SIMPLE (kind 0) type nodes only this slice (the
                     // children of a kind-38 node are TYPE-kernel subtrees by construction). The resolved type
@@ -7711,7 +7729,7 @@ public sealed class ColumnarIlEmitter
                     for (var ta = 0; ta < gTarget.TypeParams.Length; ta++)
                     {
                         var typeArgNode = Child(callee, ta);
-                        if (_kinds[typeArgNode] != 0)
+                        if (_nodes.Kind(typeArgNode) != 0)
                             return false; // composed explicit type args (List<int>, T[]) decline this slice.
                         if (!TryResolveType(Text(typeArgNode), _enumRegistry, _structRegistry, _unionRegistry, out var taType))
                             return false;
@@ -7721,7 +7739,7 @@ public sealed class ColumnarIlEmitter
                     }
                     return TryEmitGenericSiblingCall(idx, gTarget, explicitBinding, out type);
                 }
-                if (_kinds[callee] == 8) // MemberAccess callee -> a BCL instance/static method call.
+                if (_nodes.Kind(callee) == 8) // MemberAccess callee -> a BCL instance/static method call.
                     return TryEmitBclMethodCall(idx, callee, out type);
                 return false;
             }
@@ -7732,7 +7750,7 @@ public sealed class ColumnarIlEmitter
                 // is one of its named constants -> load the constant's underlying int (an enum is its underlying
                 // value on the stack). Only StringComparison is modelled (the corpus' only enum).
                 var memberAccessReceiver = Child(idx, 0);
-                if (_kinds[memberAccessReceiver] == 6)
+                if (_nodes.Kind(memberAccessReceiver) == 6)
                 {
                     var receiverIdent = Text(memberAccessReceiver);
                     if (receiverIdent == "StringComparison"
@@ -8001,14 +8019,14 @@ public sealed class ColumnarIlEmitter
             case 15: // New [type, args...] — `new T[](size)` array allocation, OR `new string(char[], int, int)`
             {        // (the String(char[],int,int) constructor). child[0] is a TYPE subtree (2 = Array, 0 = Simple).
                 var typeNode = Child(idx, 0);
-                if (_kinds[typeNode] == 0) // a Simple type -> a constructor call (string or StringBuilder).
+                if (_nodes.Kind(typeNode) == 0) // a Simple type -> a constructor call (string or StringBuilder).
                 {
                     var newTypeName = Text(typeNode);
                     if (newTypeName == "string")
                     {
                         // `new string(char[] value, int startIndex, int length)` — copy a char[] slice into a
                         // string. Emit the char[] then the two int args, then `newobj` the String ctor.
-                        if (_childCount[idx] != 4)
+                        if (_nodes.ChildCount(idx) != 4)
                             return false;
                         if (!EmitExpression(Child(idx, 1), out var charArrType)
                             || !charArrType.IsSZArray || charArrType.GetElementType() != typeof(char))
@@ -8026,7 +8044,7 @@ public sealed class ColumnarIlEmitter
                     {
                         // `new StringBuilder()` or `new StringBuilder(int capacity)`. (Other ctor overloads
                         // decline.)
-                        var ctorArgCount = _childCount[idx] - 1;
+                        var ctorArgCount = _nodes.ChildCount(idx) - 1;
                         System.Reflection.ConstructorInfo? sbCtor;
                         if (ctorArgCount == 0)
                             sbCtor = typeof(System.Text.StringBuilder).GetConstructor(Type.EmptyTypes);
@@ -8055,7 +8073,7 @@ public sealed class ColumnarIlEmitter
                             "FormatException" => typeof(FormatException),
                             _ => typeof(NotSupportedException),
                         };
-                        if (_childCount[idx] != 2 || !EmitArg(idx, 1, typeof(string)))
+                        if (_nodes.ChildCount(idx) != 2 || !EmitArg(idx, 1, typeof(string)))
                             return false;
                         _il.Emit(OpCodes.Newobj, exceptionType.GetConstructor(new[] { typeof(string) })!);
                         type = exceptionType;
@@ -8070,7 +8088,7 @@ public sealed class ColumnarIlEmitter
                     // fields-only value structs construct via object-init.)
                     if (_structRegistry.TryGetValue(newTypeName, out var ctorDef) && ctorDef.Constructors.Count > 0)
                     {
-                        var ctorArgCount = _childCount[idx] - 1;
+                        var ctorArgCount = _nodes.ChildCount(idx) - 1;
                         ConstructorBuilder? chosenCtor = null;
                         Type[]? chosenParamTypes = null;
                         var ambiguous = false;
@@ -8106,7 +8124,7 @@ public sealed class ColumnarIlEmitter
                 // POSITIONALLY SUBSTITUTED param type (v: T on Box<int> expects int), then `newobj` the
                 // ctor REBOUND onto the closed type (TypeBuilder.GetConstructor — the same machinery the
                 // C# oracle uses; reflection member queries throw on TypeBuilderInstantiation).
-                if (_kinds[typeNode] == 1)
+                if (_nodes.Kind(typeNode) == 1)
                 {
                     if (!TryBuildTypeNodeCanonical(typeNode, out var closedCanonical)
                         || !TryResolveType(closedCanonical, _enumRegistry, _structRegistry, _unionRegistry, out var closedType))
@@ -8121,7 +8139,7 @@ public sealed class ColumnarIlEmitter
                     if (IsSupportedCollectionType(closedType))
                     {
                         var collectionOpenDef = closedType.GetGenericTypeDefinition();
-                        var collectionCtorArgs = _childCount[idx] - 1;
+                        var collectionCtorArgs = _nodes.ChildCount(idx) - 1;
                         if (collectionCtorArgs == 0)
                         {
                             _il.Emit(OpCodes.Newobj, ResolveClosedGenericCtor(closedType, collectionOpenDef.GetConstructor(Type.EmptyTypes)!));
@@ -8145,7 +8163,7 @@ public sealed class ColumnarIlEmitter
                         || openGenericDef.Constructors.Count == 0)
                         return false; // 0-ctor generic types decline (object-init on closed generics is unmodelled).
 
-                    var closedCtorArgCount = _childCount[idx] - 1;
+                    var closedCtorArgCount = _nodes.ChildCount(idx) - 1;
                     ConstructorBuilder? chosenOpenCtor = null;
                     Type[]? chosenOpenParamTypes = null;
                     var closedAmbiguous = false;
@@ -8171,10 +8189,10 @@ public sealed class ColumnarIlEmitter
                     type = closedType;
                     return true;
                 }
-                if (_childCount[idx] != 2 || _kinds[typeNode] != 2) // array alloc: exactly one ctor arg; type must be Array.
+                if (_nodes.ChildCount(idx) != 2 || _nodes.Kind(typeNode) != 2) // array alloc: exactly one ctor arg; type must be Array.
                     return false;
                 var elementNode = Child(typeNode, 0); // the array's element type subtree.
-                if (_kinds[elementNode] != 0) // element must be a Simple builtin (not jagged/generic).
+                if (_nodes.Kind(elementNode) != 0) // element must be a Simple builtin (not jagged/generic).
                     return false;
                 if (!TryResolveBuiltin(Text(elementNode), out var newElementType) || !IsSupportedElementType(newElementType))
                     return false;
@@ -8189,7 +8207,7 @@ public sealed class ColumnarIlEmitter
             {        // TYPE subtree (Simple); child[1] is the operand. Other casts (to/from string, bool, etc.)
                      // decline (the C# path stays authoritative).
                 var castTypeNode = Child(idx, 0);
-                if (_kinds[castTypeNode] != 0 || !TryResolveBuiltin(Text(castTypeNode), out var targetType))
+                if (_nodes.Kind(castTypeNode) != 0 || !TryResolveBuiltin(Text(castTypeNode), out var targetType))
                     return false;
                 if (!IsCastableScalar(targetType))
                     return false;
@@ -8263,7 +8281,7 @@ public sealed class ColumnarIlEmitter
             case 17: // Tuple [e0, e1, ...] — construct a positional System.ValueTuple<...>: emit each element value
             {        // (left-to-right, the ctor's argument order), then `newobj` the matching ValueTuple ctor.
                      // Arity 2-7 (a 1-tuple is not a tuple; >7 needs the nested TRest form — both decline).
-                var arity = _childCount[idx];
+                var arity = _nodes.ChildCount(idx);
                 Type? openTuple = arity switch
                 {
                     2 => typeof(ValueTuple<,>),
@@ -8282,7 +8300,7 @@ public sealed class ColumnarIlEmitter
                     // A NAMED element (kind-43 wrapper, `(x: 1, y: 2)`) emits its VALUE child — names are
                     // compile-time metadata (the `:=` declaration path records them for member access).
                     var elementNode = Child(idx, i);
-                    if (_kinds[elementNode] == 43)
+                    if (_nodes.Kind(elementNode) == 43)
                         elementNode = Child(elementNode, 0);
                     // ContainsBuilderBoundType: a builder-bound element (a record, a List<Pt>) would make
                     // the closed ValueTuple a TypeBuilderInstantiation whose GetConstructor below throws —
@@ -8308,13 +8326,13 @@ public sealed class ColumnarIlEmitter
                      // statement sites; reaching here declines (`:=` is NL207). Every non-union-case type root
                      // (struct/BCL/array) declines — those bare-new forms are not modelled.
                 var bareRoot = Child(idx, 0);
-                if (_kinds[bareRoot] == 0 && _unionCaseRegistry.TryGetValue(Text(bareRoot), out var bareCaseDef))
+                if (_nodes.Kind(bareRoot) == 0 && _unionCaseRegistry.TryGetValue(Text(bareRoot), out var bareCaseDef))
                 {
                     if (bareCaseDef.UnionBase.IsGenericTypeDefinition)
                         return false;
                     return TryEmitUnionCaseConstruction(bareCaseDef, Type.EmptyTypes, idx, 0, out type);
                 }
-                if (_kinds[bareRoot] == 1 && _unionCaseRegistry.TryGetValue(Text(bareRoot), out var bareGenericCaseDef)
+                if (_nodes.Kind(bareRoot) == 1 && _unionCaseRegistry.TryGetValue(Text(bareRoot), out var bareGenericCaseDef)
                     && bareGenericCaseDef.UnionBase.IsGenericTypeDefinition
                     && TryResolveUnionCaseTypeArgs(bareRoot, bareGenericCaseDef, out var bareArgs))
                 {
@@ -8329,7 +8347,7 @@ public sealed class ColumnarIlEmitter
                      // object-initializer (default + per-field assignment). Only a registered struct type is modelled.
                      // A `new Union.Case { f: v }` object-init (a reference type like a record) is handled first.
                 var typeRootNode = Child(idx, 0);
-                var initChildCount = _childCount[idx];
+                var initChildCount = _nodes.ChildCount(idx);
                 if ((initChildCount % 2) != 1) // typeRoot + (name, value) pairs.
                     return false;
                 var pairCount = (initChildCount - 1) / 2;
@@ -8338,7 +8356,7 @@ public sealed class ColumnarIlEmitter
                 // (kind 1) whose dotted head names a registered union case of a GENERIC union. The explicit
                 // arguments (after the CASE name — the pinned N# surface) close the case and the result's static
                 // type is the BASE closed over the same arguments.
-                if (_kinds[typeRootNode] == 1 && _unionCaseRegistry.TryGetValue(Text(typeRootNode), out var genericInitCaseDef))
+                if (_nodes.Kind(typeRootNode) == 1 && _unionCaseRegistry.TryGetValue(Text(typeRootNode), out var genericInitCaseDef))
                 {
                     if (!genericInitCaseDef.UnionBase.IsGenericTypeDefinition
                         || !TryResolveUnionCaseTypeArgs(typeRootNode, genericInitCaseDef, out var explicitArgs))
@@ -8354,7 +8372,7 @@ public sealed class ColumnarIlEmitter
                 // the pipeline itself fails their object-init at emit (NL103 "Specified method is not supported"
                 // — oracle defect bundle item; accepting would diverge). A user-ctor class has no default ctor —
                 // object-init declines exactly like the non-generic rule below.
-                if (_kinds[typeRootNode] == 1 && _structRegistry.TryGetValue(Text(typeRootNode), out var closedInitDef)
+                if (_nodes.Kind(typeRootNode) == 1 && _structRegistry.TryGetValue(Text(typeRootNode), out var closedInitDef)
                     && closedInitDef.Builder.IsGenericTypeDefinition)
                 {
                     // A user GENERIC type named List/Dictionary: the pipeline's analyzer binds the BCL
@@ -8365,7 +8383,7 @@ public sealed class ColumnarIlEmitter
                     if (!closedInitDef.IsReference || closedInitDef.DefaultCtor == null)
                         return false;
                     var closedArity = closedInitDef.Builder.GetGenericArguments().Length;
-                    if (_childCount[typeRootNode] != closedArity)
+                    if (_nodes.ChildCount(typeRootNode) != closedArity)
                         return false;
                     var closedInitArgs = new Type[closedArity];
                     for (var i = 0; i < closedArity; i++)
@@ -8382,7 +8400,7 @@ public sealed class ColumnarIlEmitter
                     {
                         var nameNode = Child(idx, 1 + (2 * p));
                         var valueNode = Child(idx, 2 + (2 * p));
-                        if (_kinds[nameNode] != 6)
+                        if (_nodes.Kind(nameNode) != 6)
                             return false;
                         var fieldName = Text(nameNode);
                         if (!closedInitDef.Fields.TryGetValue(fieldName, out var openInitField) || !closedAssigned.Add(fieldName))
@@ -8398,7 +8416,7 @@ public sealed class ColumnarIlEmitter
                     return true;
                 }
 
-                if (_kinds[typeRootNode] != 0)
+                if (_nodes.Kind(typeRootNode) != 0)
                     return false; // not a Simple type-ref.
                 var assigned = new HashSet<string>(StringComparer.Ordinal);
 
@@ -8435,7 +8453,7 @@ public sealed class ColumnarIlEmitter
                     {
                         var nameNode = Child(idx, 1 + (2 * p));
                         var valueNode = Child(idx, 2 + (2 * p));
-                        if (_kinds[nameNode] != 6)
+                        if (_nodes.Kind(nameNode) != 6)
                             return false;
                         var fieldName = Text(nameNode);
                         if (!initStructDef.Fields.TryGetValue(fieldName, out var initField) || !assigned.Add(fieldName))
@@ -8460,7 +8478,7 @@ public sealed class ColumnarIlEmitter
                 {
                     var nameNode = Child(idx, 1 + (2 * p));
                     var valueNode = Child(idx, 2 + (2 * p));
-                    if (_kinds[nameNode] != 6)
+                    if (_nodes.Kind(nameNode) != 6)
                         return false;
                     var fieldName = Text(nameNode);
                     if (!initStructDef.Fields.TryGetValue(fieldName, out var initField) || !assigned.Add(fieldName))
@@ -8483,7 +8501,7 @@ public sealed class ColumnarIlEmitter
                      // call oracle-side — unverifiable IL), generic records decline (the oracle's
                      // with-on-generic emit is the known-broken B4 residual), builder-typed-field records
                      // decline (no synthesis). Zero pairs = a pure clone.
-                if ((_childCount[idx] & 1) == 0)
+                if ((_nodes.ChildCount(idx) & 1) == 0)
                     return false; // [receiver + name/value pairs] is always odd.
                 if (!EmitExpression(Child(idx, 0), out var withReceiverType))
                     return false;
@@ -8493,10 +8511,10 @@ public sealed class ColumnarIlEmitter
                 _il.Emit(OpCodes.Callvirt, withDef.RecordClone);
                 var cloneLocal = _il.DeclareLocal(withReceiverType);
                 _il.Emit(OpCodes.Stloc, cloneLocal);
-                for (var p = 1; p + 1 < _childCount[idx]; p += 2)
+                for (var p = 1; p + 1 < _nodes.ChildCount(idx); p += 2)
                 {
                     var withNameChild = Child(idx, p);
-                    if (_kinds[withNameChild] != 6 || _valueStarts[withNameChild] < 0)
+                    if (_nodes.Kind(withNameChild) != 6 || _nodes.ValueStart(withNameChild) < 0)
                         return false;
                     if (!withDef.Fields.TryGetValue(Text(withNameChild), out var withField))
                         return false;
@@ -8532,11 +8550,11 @@ public sealed class ColumnarIlEmitter
             {        // target type (null on mismatch). The typeRoot resolves a UNION CASE (closed over a
                      // generic scrutinee via the match machinery) or a registered REFERENCE type; value
                      // types and unresolvable targets decline (`as` with a value type is pipeline-rejected).
-                if (_childCount[idx] != 2 || !EmitExpression(Child(idx, 0), out var testedType))
+                if (_nodes.ChildCount(idx) != 2 || !EmitExpression(Child(idx, 0), out var testedType))
                     return false;
                 var isAsTypeRoot = Child(idx, 1);
                 Type? targetTestType = null;
-                if (_kinds[isAsTypeRoot] == 0)
+                if (_nodes.Kind(isAsTypeRoot) == 0)
                 {
                     var isAsName = Text(isAsTypeRoot);
                     if (_unionCaseRegistry.ContainsKey(isAsName))
@@ -8553,7 +8571,7 @@ public sealed class ColumnarIlEmitter
                 if (targetTestType == null)
                     return false;
                 _il.Emit(OpCodes.Isinst, targetTestType);
-                if (_kinds[idx] == 46)
+                if (_nodes.Kind(idx) == 46)
                 {
                     _il.Emit(OpCodes.Ldnull);
                     _il.Emit(OpCodes.Cgt_Un);
@@ -8571,7 +8589,7 @@ public sealed class ColumnarIlEmitter
                      // InvalidOperationException("must unwrap failed: value was null") when empty — the EXACT
                      // pipeline message); a REFERENCE null-checks dup/brtrue/pop/throw keeping its type; a
                      // plain VALUE type passes through unchanged (the pipeline's no-op).
-                if (_childCount[idx] != 1 || !EmitExpression(Child(idx, 0), out var mustType))
+                if (_nodes.ChildCount(idx) != 1 || !EmitExpression(Child(idx, 0), out var mustType))
                     return false;
                 if (IsSupportedNullable(mustType))
                 {
@@ -8613,7 +8631,7 @@ public sealed class ColumnarIlEmitter
             {        // stack. Both arms must produce the SAME type (TypesEquivalent — the match-arm unification
                      // rule); MIXED-type arms decline to the C# path (its implicit-conversion unification is a
                      // widening-slice concern). The condition emits through the shared bool gate.
-                if (_childCount[idx] != 3)
+                if (_nodes.ChildCount(idx) != 3)
                     return false;
                 if (!EmitCondition(Child(idx, 0)))
                     return false;
@@ -8637,7 +8655,7 @@ public sealed class ColumnarIlEmitter
                      // result on the stack. Patterns: a LITERAL (equality test) or an identifier (`_` discard or a
                      // binding that always matches and binds the matched value); a pattern may carry a `when` guard
                      // (kind 19 [pattern, guard]) tested after the pattern; richer patterns decline.
-                var childCount = _childCount[idx];
+                var childCount = _nodes.ChildCount(idx);
                 if (childCount < 3 || (childCount % 2) == 0) // value + >=1 (pattern, result) pair.
                     return false;
                 var caseCount = (childCount - 1) / 2;
@@ -8668,14 +8686,14 @@ public sealed class ColumnarIlEmitter
                     for (var c = 0; c < caseCount; c++)
                     {
                         var rawP = Child(idx, 1 + (2 * c));
-                        if (_kinds[rawP] == 19) // a `when`-guarded arm does not contribute to coverage.
+                        if (_nodes.Kind(rawP) == 19) // a `when`-guarded arm does not contribute to coverage.
                             continue;
-                        if (_kinds[rawP] == 6) // `_` discard or an unguarded binding -> a catch-all.
+                        if (_nodes.Kind(rawP) == 6) // `_` discard or an unguarded binding -> a catch-all.
                             hasCatchAll = true;
-                        else if (_kinds[rawP] == 8) // `Enum.Member` -> covers that member (if it is THIS enum's).
+                        else if (_nodes.Kind(rawP) == 8) // `Enum.Member` -> covers that member (if it is THIS enum's).
                         {
                             var recv = Child(rawP, 0);
-                            if (_kinds[recv] == 6 && _enumRegistry.TryGetValue(Text(recv), out var rd)
+                            if (_nodes.Kind(recv) == 6 && _enumRegistry.TryGetValue(Text(recv), out var rd)
                                 && rd.Builder == matchValueType && matchEnumDef.Constants.ContainsKey(Text(rawP)))
                                 covered.Add(Text(rawP));
                         }
@@ -8702,17 +8720,17 @@ public sealed class ColumnarIlEmitter
                     for (var c = 0; c < caseCount; c++)
                     {
                         var rawP = Child(idx, 1 + (2 * c));
-                        if (_kinds[rawP] == 19) // a `when`-guarded arm does not contribute to coverage.
+                        if (_nodes.Kind(rawP) == 19) // a `when`-guarded arm does not contribute to coverage.
                             continue;
-                        if (_kinds[rawP] == 6) // `_` discard or an unguarded binding -> a catch-all.
+                        if (_nodes.Kind(rawP) == 6) // `_` discard or an unguarded binding -> a catch-all.
                             hasCatchAll = true;
-                        else if (_kinds[rawP] == 37) // union-case PROPERTY pattern -> covers that case (if THIS union's).
+                        else if (_nodes.Kind(rawP) == 37) // union-case PROPERTY pattern -> covers that case (if THIS union's).
                         {
                             var mem = Child(rawP, 0);
-                            if (_kinds[mem] == 8)
+                            if (_nodes.Kind(mem) == 8)
                             {
                                 var memRecv = Child(mem, 0);
-                                if (_kinds[memRecv] == 6)
+                                if (_nodes.Kind(memRecv) == 6)
                                 {
                                     var qualified = Text(memRecv) + "." + Text(mem);
                                     if (matchUnionDef.Cases.ContainsKey(qualified))
@@ -8720,10 +8738,10 @@ public sealed class ColumnarIlEmitter
                                 }
                             }
                         }
-                        else if (_kinds[rawP] == 8) // bare `Union.Case` TYPE pattern -> covers that case (no binding).
+                        else if (_nodes.Kind(rawP) == 8) // bare `Union.Case` TYPE pattern -> covers that case (no binding).
                         {
                             var bareRecv = Child(rawP, 0);
-                            if (_kinds[bareRecv] == 6)
+                            if (_nodes.Kind(bareRecv) == 6)
                             {
                                 var qualified = Text(bareRecv) + "." + Text(rawP);
                                 if (matchUnionDef.Cases.ContainsKey(qualified))
@@ -8750,9 +8768,9 @@ public sealed class ColumnarIlEmitter
                     // trailing no-match throw remains correct.
                     int patternNode;
                     int guardNode;
-                    if (_kinds[rawPattern] == 19)
+                    if (_nodes.Kind(rawPattern) == 19)
                     {
-                        if (_childCount[rawPattern] != 2)
+                        if (_nodes.ChildCount(rawPattern) != 2)
                             return false;
                         patternNode = Child(rawPattern, 0);
                         guardNode = Child(rawPattern, 1);
@@ -8763,7 +8781,7 @@ public sealed class ColumnarIlEmitter
                         guardNode = -1;
                     }
 
-                    if (_kinds[patternNode] == 6) // top-level identifier: `_` discard or a binding -> always matches.
+                    if (_nodes.Kind(patternNode) == 6) // top-level identifier: `_` discard or a binding -> always matches.
                     {
                         var patName = Text(patternNode);
                         if (patName != "_")
@@ -8777,7 +8795,7 @@ public sealed class ColumnarIlEmitter
                         }
                         // Always matches -> fall through to the guard / result.
                     }
-                    else if (_kinds[patternNode] == 37) // union-case pattern `Union.Case { f }` (top-level only).
+                    else if (_nodes.Kind(patternNode) == 37) // union-case pattern `Union.Case { f }` (top-level only).
                     {
                         // isinst-test the case + bind its named fields; on MATCH fall through to the guard/result
                         // (armBody), on NO-MATCH branch to nextCase. Handled here (not in EmitPatternMatch) because it
@@ -8846,11 +8864,11 @@ public sealed class ColumnarIlEmitter
     // pipeline. A `false` return discards the entire emitted assembly, so a partially-emitted test is harmless.
     private bool EmitPatternMatch(int patternNode, Type matchValueType, LocalBuilder matchLocal, Label successLabel, Label failLabel)
     {
-        switch (_kinds[patternNode])
+        switch (_nodes.Kind(patternNode))
         {
             case 34: // OrPattern [left, right]: left matches -> success; else fall through and try right.
             {
-                if (_childCount[patternNode] != 2)
+                if (_nodes.ChildCount(patternNode) != 2)
                     return false;
                 var orNext = _il.DefineLabel();
                 if (!EmitPatternMatch(Child(patternNode, 0), matchValueType, matchLocal, successLabel, orNext))
@@ -8860,7 +8878,7 @@ public sealed class ColumnarIlEmitter
             }
             case 33: // AndPattern [left, right]: left must match (else fail), then right decides.
             {
-                if (_childCount[patternNode] != 2)
+                if (_nodes.ChildCount(patternNode) != 2)
                     return false;
                 var andNext = _il.DefineLabel();
                 if (!EmitPatternMatch(Child(patternNode, 0), matchValueType, matchLocal, andNext, failLabel))
@@ -8870,16 +8888,16 @@ public sealed class ColumnarIlEmitter
             }
             case 35: // NotPattern [inner]: inner matches -> fail, inner fails -> success (just swap the labels).
             {
-                if (_childCount[patternNode] != 1)
+                if (_nodes.ChildCount(patternNode) != 1)
                     return false;
                 return EmitPatternMatch(Child(patternNode, 0), matchValueType, matchLocal, failLabel, successLabel);
             }
             case 32: // RelationalPattern `<op> <constant>` -> ordered comparison (the C# EmitPatternTest mirror).
             {
-                if (_childCount[patternNode] != 1 || !IsOrderedMatchType(matchValueType))
+                if (_nodes.ChildCount(patternNode) != 1 || !IsOrderedMatchType(matchValueType))
                     return false;
                 var operandNode = Child(patternNode, 0);
-                if (!IsLiteralPatternKind(_kinds[operandNode]))
+                if (!IsLiteralPatternKind(_nodes.Kind(operandNode)))
                     return false;
                 _il.Emit(OpCodes.Ldloc, matchLocal);
                 if (!EmitExpression(operandNode, out var relType) || relType != matchValueType)
@@ -8901,7 +8919,7 @@ public sealed class ColumnarIlEmitter
             case 8: // MemberAccess pattern: `Enum.Member` (enum-constant equality) OR `Union.Case` (a bare union TYPE
             {        // pattern — match the case by type, NO destructuring/binding).
                 var recv = Child(patternNode, 0);
-                if (_kinds[recv] != 6)
+                if (_nodes.Kind(recv) != 6)
                     return false;
                 var recvName = Text(recv);
                 // ENUM constant: the receiver names a REGISTERED enum (not shadowed by a local/param/sibling), the
@@ -8941,7 +8959,7 @@ public sealed class ColumnarIlEmitter
             }
             default: // literal pattern (kinds 0-4) -> equality test; any other primary (null/paren/call/index/…) declines.
             {
-                if (!IsLiteralPatternKind(_kinds[patternNode]))
+                if (!IsLiteralPatternKind(_nodes.Kind(patternNode)))
                     return false;
                 _il.Emit(OpCodes.Ldloc, matchLocal);
                 if (!EmitExpression(patternNode, out var patType) || patType != matchValueType)
@@ -8965,7 +8983,7 @@ public sealed class ColumnarIlEmitter
     {
         args = Type.EmptyTypes;
         var arity = caseDef.UnionBase.GetGenericArguments().Length;
-        if (_childCount[typeRootNode] != arity)
+        if (_nodes.ChildCount(typeRootNode) != arity)
             return false;
         var resolved = new Type[arity];
         for (var i = 0; i < arity; i++)
@@ -9016,7 +9034,7 @@ public sealed class ColumnarIlEmitter
         {
             var nameNode = Child(initIdx, 1 + (2 * p));
             var valueNode = Child(initIdx, 2 + (2 * p));
-            if (_kinds[nameNode] != 6)
+            if (_nodes.Kind(nameNode) != 6)
                 return false;
             var fieldName = Text(nameNode);
             if (!caseDef.Fields.TryGetValue(fieldName, out var openField) || !assignedFields.Add(fieldName))
@@ -9054,12 +9072,12 @@ public sealed class ColumnarIlEmitter
     // kind-36/42 nodes reaching plain EmitExpression with a generic case decline there.
     private bool IsAdoptableUnionConstruction(int exprNode, Type expectedType)
     {
-        if (_kinds[exprNode] != 36 && _kinds[exprNode] != 42)
+        if (_nodes.Kind(exprNode) != 36 && _nodes.Kind(exprNode) != 42)
             return false;
-        if (_kinds[exprNode] == 36 && (_childCount[exprNode] % 2) != 1)
+        if (_nodes.Kind(exprNode) == 36 && (_nodes.ChildCount(exprNode) % 2) != 1)
             return false;
         var root = Child(exprNode, 0);
-        if (_kinds[root] != 0)
+        if (_nodes.Kind(root) != 0)
             return false;
         if (!_unionCaseRegistry.TryGetValue(Text(root), out var caseDef) || !caseDef.UnionBase.IsGenericTypeDefinition)
             return false;
@@ -9073,7 +9091,7 @@ public sealed class ColumnarIlEmitter
     {
         type = null!;
         var caseDef = _unionCaseRegistry[Text(Child(exprNode, 0))];
-        var pairCount = _kinds[exprNode] == 36 ? (_childCount[exprNode] - 1) / 2 : 0;
+        var pairCount = _nodes.Kind(exprNode) == 36 ? (_nodes.ChildCount(exprNode) - 1) / 2 : 0;
         return TryEmitUnionCaseConstruction(caseDef, expectedType.GetGenericArguments(), exprNode, pairCount, out type);
     }
 
@@ -9086,10 +9104,10 @@ public sealed class ColumnarIlEmitter
     private bool EmitUnionCasePattern(int patternNode, Type matchValueType, LocalBuilder matchLocal, Label successLabel, Label failLabel)
     {
         var memberNode = Child(patternNode, 0);
-        if (_kinds[memberNode] != 8)
+        if (_nodes.Kind(memberNode) != 8)
             return false;
         var caseRecv = Child(memberNode, 0);
-        if (_kinds[caseRecv] != 6)
+        if (_nodes.Kind(caseRecv) != 6)
             return false; // the head must be a bare `Union` identifier (a qualified `Union.Case`).
         var qualifiedCase = Text(caseRecv) + "." + Text(memberNode);
         // The scrutinee must be THIS union (the open base, or a CLOSED instantiation of it when generic —
@@ -9120,11 +9138,11 @@ public sealed class ColumnarIlEmitter
         // binding is a discard (skip). A binding must name a case field and must not shadow a local/param.
         // On a CLOSED case the field handle is REBOUND via TypeBuilder.GetField and the binding's local type
         // substitutes the scrutinee's arguments positionally (`value: T` on Opt<int> binds an int local).
-        var bindCount = _childCount[patternNode] - 1;
+        var bindCount = _nodes.ChildCount(patternNode) - 1;
         for (var b = 0; b < bindCount; b++)
         {
             var bindNode = Child(patternNode, 1 + b);
-            if (_kinds[bindNode] != 6)
+            if (_nodes.Kind(bindNode) != 6)
                 return false;
             var bindName = Text(bindNode);
             if (bindName == "_")
@@ -9283,9 +9301,9 @@ public sealed class ColumnarIlEmitter
         type = null!;
         var memberName = Text(callee);
         var receiver = Child(callee, 0);
-        var argCount = _childCount[callIdx] - 1;
+        var argCount = _nodes.ChildCount(callIdx) - 1;
 
-        if (_kinds[receiver] == 6) // a bare identifier receiver that is NOT a value (local/param/sibling) is a type name.
+        if (_nodes.Kind(receiver) == 6) // a bare identifier receiver that is NOT a value (local/param/sibling) is a type name.
         {
             var receiverName = Text(receiver);
             if (!_locals.ContainsKey(receiverName) && !_liftedLocals.ContainsKey(receiverName) && !_paramOrdinals.ContainsKey(receiverName) && !_siblings.ContainsKey(receiverName))
@@ -9447,23 +9465,23 @@ public sealed class ColumnarIlEmitter
     // sibling call whose declared return type carries names. Null = no names (no rewrite happens).
     private string?[]? TupleNamesOfExpressionNode(int node)
     {
-        switch (_kinds[node])
+        switch (_nodes.Kind(node))
         {
             case 6:
-                return _valueStarts[node] >= 0 && _tupleNamesByVariable.TryGetValue(Text(node), out var variableNames)
+                return _nodes.ValueStart(node) >= 0 && _tupleNamesByVariable.TryGetValue(Text(node), out var variableNames)
                     ? variableNames
                     : null;
             case 7:
-                return _childCount[node] == 1 ? TupleNamesOfExpressionNode(Child(node, 0)) : null;
+                return _nodes.ChildCount(node) == 1 ? TupleNamesOfExpressionNode(Child(node, 0)) : null;
             case 17:
             {
-                if (_childCount[node] == 0 || _kinds[Child(node, 0)] != 43)
+                if (_nodes.ChildCount(node) == 0 || _nodes.Kind(Child(node, 0)) != 43)
                     return null;
-                var literalNames = new string?[_childCount[node]];
+                var literalNames = new string?[_nodes.ChildCount(node)];
                 for (var i = 0; i < literalNames.Length; i++)
                 {
                     var elementNode = Child(node, i);
-                    if (_kinds[elementNode] != 43)
+                    if (_nodes.Kind(elementNode) != 43)
                         return null; // all-or-nothing by the kernel; defensive.
                     literalNames[i] = Text(elementNode);
                 }
@@ -9472,7 +9490,7 @@ public sealed class ColumnarIlEmitter
             case 9:
             {
                 var callee = Child(node, 0);
-                if (_kinds[callee] == 6 && _valueStarts[callee] >= 0 && _siblingReturnTupleNames != null
+                if (_nodes.Kind(callee) == 6 && _nodes.ValueStart(callee) >= 0 && _siblingReturnTupleNames != null
                     && !_locals.ContainsKey(Text(callee)) && !_paramOrdinals.ContainsKey(Text(callee))
                     && _siblingReturnTupleNames.TryGetValue(Text(callee), out var returnNames))
                 {
@@ -9556,7 +9574,7 @@ public sealed class ColumnarIlEmitter
     {
         type = null!;
         var element = target.GetGenericArguments()[0];
-        if (_kinds[node] == 5)
+        if (_nodes.Kind(node) == 5)
         {
             var defaultLocal = _il.DeclareLocal(target);
             _il.Emit(OpCodes.Ldloca, defaultLocal);
@@ -9591,7 +9609,7 @@ public sealed class ColumnarIlEmitter
     private bool TryEmitNullLiteralAsType(int node, Type target, out Type type)
     {
         type = null!;
-        if (_kinds[node] != 5 || target.IsValueType)
+        if (_nodes.Kind(node) != 5 || target.IsValueType)
             return false;
         _il.Emit(OpCodes.Ldnull);
         type = target;
@@ -9609,12 +9627,12 @@ public sealed class ColumnarIlEmitter
         // A NEGATIVE literal arrives as unary minus (kind 11, "-") wrapping the bare literal —
         // `s: short = -300`. Signed targets only; the value emits pre-negated (no Neg opcode).
         var negative = false;
-        if (_kinds[node] == 11 && _childCount[node] == 1 && Text(node) == "-")
+        if (_nodes.Kind(node) == 11 && _nodes.ChildCount(node) == 1 && Text(node) == "-")
         {
             negative = true;
             node = Child(node, 0);
         }
-        if (_kinds[node] != 0 || _valueStarts[node] < 0)
+        if (_nodes.Kind(node) != 0 || _nodes.ValueStart(node) < 0)
             return false;
         var text = Text(node);
         if (text.Length == 0 || text[^1] is 'u' or 'U' or 'l' or 'L' or 'm' or 'M')
@@ -9680,10 +9698,10 @@ public sealed class ColumnarIlEmitter
     private bool TryEmitPostfixUnary(int idx, bool keepValue, out Type type)
     {
         type = null!;
-        if (_childCount[idx] != 1)
+        if (_nodes.ChildCount(idx) != 1)
             return false;
         var target = Child(idx, 0);
-        if (_kinds[target] != 6 || _valueStarts[target] < 0)
+        if (_nodes.Kind(target) != 6 || _nodes.ValueStart(target) < 0)
             return false;
         var name = Text(target);
         if (_liftedLocals.ContainsKey(name) || (_boxedCaptures != null && _boxedCaptures.ContainsKey(name)))
@@ -9794,7 +9812,7 @@ public sealed class ColumnarIlEmitter
     // paths that consume this only model these three shapes.
     private bool TryBuildTypeNodeCanonical(int typeNode, out string canonical)
     {
-        switch (_kinds[typeNode])
+        switch (_nodes.Kind(typeNode))
         {
             case 0:
                 canonical = Text(typeNode);
@@ -9803,7 +9821,7 @@ public sealed class ColumnarIlEmitter
             {
                 var builder = new System.Text.StringBuilder(Text(typeNode));
                 builder.Append('<');
-                for (var c = 0; c < _childCount[typeNode]; c++)
+                for (var c = 0; c < _nodes.ChildCount(typeNode); c++)
                 {
                     if (c > 0)
                         builder.Append(',');
@@ -10211,7 +10229,7 @@ public sealed class ColumnarIlEmitter
 
     private bool EmitByRefCallArgument(int argNode, Type expectedByRefType)
     {
-        if (!expectedByRefType.IsByRef || _kinds[argNode] != 54 || _childCount[argNode] != 1)
+        if (!expectedByRefType.IsByRef || _nodes.Kind(argNode) != 54 || _nodes.ChildCount(argNode) != 1)
             return false;
         var modifier = Text(argNode);
         if (modifier != "ref" && modifier != "out")
@@ -10221,7 +10239,7 @@ public sealed class ColumnarIlEmitter
 
     private bool EmitAddressOfByRefTarget(int targetNode, Type expectedElementType)
     {
-        if (_kinds[targetNode] == 6)
+        if (_nodes.Kind(targetNode) == 6)
         {
             var name = Text(targetNode);
             if (_liftedLocals.ContainsKey(name) || (_boxedCaptures != null && _boxedCaptures.ContainsKey(name)))
@@ -10250,7 +10268,7 @@ public sealed class ColumnarIlEmitter
             return false;
         }
 
-        if (_kinds[targetNode] == 8
+        if (_nodes.Kind(targetNode) == 8
             && TryResolveMemberWriteChain(targetNode, out var memberChain)
             && TypesEquivalent(memberChain.ReceiverType, expectedElementType))
         {
@@ -10330,12 +10348,12 @@ public sealed class ColumnarIlEmitter
         // the fallback) and never emit here.
         var hopNodes = new List<int>();
         var cursor = node;
-        while (_kinds[cursor] == 8)
+        while (_nodes.Kind(cursor) == 8)
         {
             hopNodes.Add(cursor);
             cursor = Child(cursor, 0);
         }
-        if (_kinds[cursor] != 6)
+        if (_nodes.Kind(cursor) != 6)
             return false;
         var rootName = Text(cursor);
         if (_liftedLocals.ContainsKey(rootName) || (_boxedCaptures != null && _boxedCaptures.ContainsKey(rootName)))
@@ -10655,7 +10673,7 @@ public sealed class ColumnarIlEmitter
         throw new InvalidOperationException("DefaultInterpolatedStringHandler.AppendFormatted overload not found");
     }
 
-    private int Child(int idx, int n) => _childIndices[_childStart[idx] + n];
+    private int Child(int idx, int n) => _nodes.Child(idx, n);
 
-    private string Text(int idx) => _source.Substring(_valueStarts[idx], _valueLengths[idx]);
+    private string Text(int idx) => _nodes.Text(_source, idx);
 }

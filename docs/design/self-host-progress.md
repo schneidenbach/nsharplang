@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — Columnar IL emitter node table view adopted
+
+`ColumnarIlEmitter` now stores the shared statement/expression forest through `ColumnarNodeTable`,
+matching the smaller columnar name-resolution, type-inference, and diagnostics passes. The flattened
+array-based constructor remains available at the current adapter boundary, but nested emitters reuse
+the named table view and emitter logic no longer owns kind/value/child columns as anonymous
+parallel-array fields.
+
+This is still a representation-cleanup slice, not an emitter routing or benchmark claim. It removes
+the remaining raw columnar node-table fields from the C# columnar frontend/backend transition code;
+future work still needs to move the emitter logic itself out of C#.
+
 ## 2026-06-13 — Columnar name resolver node table view adopted
 
 `ColumnarNameResolver` now consumes the shared `ColumnarNodeTable` view internally, matching the
