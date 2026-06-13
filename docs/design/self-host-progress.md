@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — Columnar program input collection shares token tables
+
+`NSharpCompilerDogfoodAdapter.TryGetColumnarProgramInput` now tokenizes and compacts a source once,
+then shares that token bundle across function, enum, struct/class/record, union, and interface input
+collection. The older private string-shaped collectors remain as compatibility shims that tokenize
+for their own callers, but the default whole-program Stage 5 route no longer repeats the same
+tokenization work for every declaration family.
+
+This is a transition-boundary cleanup, not a new benchmark claim: it keeps the current semantics and
+decline behavior while moving the program collector toward one named columnar source input.
+
 ## 2026-06-13 — Columnar function inputs own body-node views
 
 `ColumnarFunctionInput` now stores its function-body forest as a `ColumnarNodeTable` rather than

@@ -845,15 +845,21 @@ internal static class NSharpCompilerDogfoodAdapter
     private static bool TryGetColumnarProgramInput(string source, out Columnar.ColumnarProgramInput program)
     {
         program = null!;
-        if (!TryGetColumnarFunctionInputs(source, out var inputs) || inputs.Count == 0)
+        var bindings = s_bindings.Value;
+        if (bindings == null || string.IsNullOrEmpty(source))
             return false;
-        if (!TryGetColumnarEnumInputs(source, out var enums))
+        if (!TryTokenizeColumnarSource(bindings, source, out var tokens))
             return false;
-        if (!TryGetColumnarStructInputs(source, out var structs))
+
+        if (!TryGetColumnarFunctionInputs(bindings, source, tokens, out var inputs) || inputs.Count == 0)
             return false;
-        if (!TryGetColumnarUnionInputs(source, out var unions))
+        if (!TryGetColumnarEnumInputs(bindings, source, tokens, out var enums))
             return false;
-        if (!TryGetColumnarInterfaceInputs(source, out var interfaceInputs))
+        if (!TryGetColumnarStructInputs(bindings, source, tokens, out var structs))
+            return false;
+        if (!TryGetColumnarUnionInputs(bindings, source, tokens, out var unions))
+            return false;
+        if (!TryGetColumnarInterfaceInputs(bindings, source, tokens, out var interfaceInputs))
             return false;
 
         program = new Columnar.ColumnarProgramInput(source, inputs, enums, structs, unions, interfaceInputs);
@@ -889,16 +895,40 @@ internal static class NSharpCompilerDogfoodAdapter
         return TryEmitColumnarProgram(combined, assemblyName, typeName, out assembly, out emittedTypeName, out methodNames);
     }
 
-    // Tokenize + compact `source`, require EVERY top-level declaration to be a `func`, and parse each into a
-    // ColumnarFunctionInput (signature + body node tables). Returns false on any tokenize/parse failure or a
-    // non-func top-level declaration, so the standalone backend declines and the C# path stays authoritative.
-    private static bool TryGetColumnarFunctionInputs(string source, out System.Collections.Generic.List<Columnar.ColumnarFunctionInput> inputs)
+    private sealed class ColumnarTokenizedSource
     {
-        inputs = new System.Collections.Generic.List<Columnar.ColumnarFunctionInput>();
-        var bindings = s_bindings.Value;
-        if (bindings == null || string.IsNullOrEmpty(source))
-            return false;
+        public ColumnarTokenizedSource(
+            int[] rawKinds, int[] rawStarts, int[] rawValueLengths, int rawCount,
+            int[] kinds, int[] starts, int[] valueLengths, int count,
+            int[] declarationKinds, int declarationCount)
+        {
+            RawKinds = rawKinds;
+            RawStarts = rawStarts;
+            RawValueLengths = rawValueLengths;
+            RawCount = rawCount;
+            Kinds = kinds;
+            Starts = starts;
+            ValueLengths = valueLengths;
+            Count = count;
+            DeclarationKinds = declarationKinds;
+            DeclarationCount = declarationCount;
+        }
 
+        public int[] RawKinds { get; }
+        public int[] RawStarts { get; }
+        public int[] RawValueLengths { get; }
+        public int RawCount { get; }
+        public int[] Kinds { get; }
+        public int[] Starts { get; }
+        public int[] ValueLengths { get; }
+        public int Count { get; }
+        public int[] DeclarationKinds { get; }
+        public int DeclarationCount { get; }
+    }
+
+    private static bool TryTokenizeColumnarSource(Bindings bindings, string source, out ColumnarTokenizedSource tokens)
+    {
+        tokens = null!;
         try
         {
             var capacity = 3 * (source.Length + 1) + 8;
@@ -912,11 +942,68 @@ internal static class NSharpCompilerDogfoodAdapter
             if (rawCount < 0 || rawCount > capacity)
                 return false;
 
+            var declarationKinds = new int[rawCount + 1];
+            var declarationCount = bindings.TopLevelDeclarationKinds(rawKinds, rawCount, declarationKinds);
+            if (declarationCount < 0)
+                return false;
+
+            var kinds = new int[rawCount];
+            var starts = new int[rawCount];
+            var valueLengths = new int[rawCount];
+            var count = 0;
+            for (var i = 0; i < rawCount; i++)
+            {
+                if (rawKinds[i] == 136)
+                    continue;
+                kinds[count] = rawKinds[i];
+                starts[count] = rawStarts[i];
+                valueLengths[count] = rawValueLengths[i];
+                count++;
+            }
+
+            tokens = new ColumnarTokenizedSource(
+                rawKinds, rawStarts, rawValueLengths, rawCount,
+                kinds, starts, valueLengths, count,
+                declarationKinds, declarationCount);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    // Tokenize + compact `source`, require EVERY top-level declaration to be a `func`, and parse each into a
+    // ColumnarFunctionInput (signature + body node tables). Returns false on any tokenize/parse failure or a
+    // non-func top-level declaration, so the standalone backend declines and the C# path stays authoritative.
+    private static bool TryGetColumnarFunctionInputs(string source, out System.Collections.Generic.List<Columnar.ColumnarFunctionInput> inputs)
+    {
+        inputs = new System.Collections.Generic.List<Columnar.ColumnarFunctionInput>();
+        var bindings = s_bindings.Value;
+        if (bindings == null || string.IsNullOrEmpty(source))
+            return false;
+        if (!TryTokenizeColumnarSource(bindings, source, out var tokens))
+            return false;
+
+        return TryGetColumnarFunctionInputs(bindings, source, tokens, out inputs);
+    }
+
+    private static bool TryGetColumnarFunctionInputs(
+        Bindings bindings, string source, ColumnarTokenizedSource tokens,
+        out System.Collections.Generic.List<Columnar.ColumnarFunctionInput> inputs)
+    {
+        inputs = new System.Collections.Generic.List<Columnar.ColumnarFunctionInput>();
+        try
+        {
+            var rawKinds = tokens.RawKinds;
+            var rawStarts = tokens.RawStarts;
+            var rawValueLengths = tokens.RawValueLengths;
+            var rawCount = tokens.RawCount;
             if (HasTopLevelContextualTestDeclaration(source, rawKinds, rawStarts, rawValueLengths, rawCount))
                 return false;
 
-            var declKinds = new int[rawCount + 1];
-            var declCount = bindings.TopLevelDeclarationKinds(rawKinds, rawCount, declKinds);
+            var declKinds = tokens.DeclarationKinds;
+            var declCount = tokens.DeclarationCount;
             if (declCount <= 0)
                 return false;
             for (var d = 0; d < declCount; d++)
@@ -949,19 +1036,10 @@ internal static class NSharpCompilerDogfoodAdapter
                 }
             }
 
-            var ck = new int[rawCount];
-            var cs = new int[rawCount];
-            var cv = new int[rawCount];
-            var n = 0;
-            for (var i = 0; i < rawCount; i++)
-            {
-                if (rawKinds[i] == 136)
-                    continue;
-                ck[n] = rawKinds[i];
-                cs[n] = rawStarts[i];
-                cv[n] = rawValueLengths[i];
-                n++;
-            }
+            var ck = tokens.Kinds;
+            var cs = tokens.Starts;
+            var cv = tokens.ValueLengths;
+            var n = tokens.Count;
 
             var funcIndices = TopLevelFuncIndices(ck, n);
             if (funcIndices.Count == 0)
@@ -1013,33 +1091,23 @@ internal static class NSharpCompilerDogfoodAdapter
         var bindings = s_bindings.Value;
         if (bindings == null || string.IsNullOrEmpty(source))
             return false;
+        if (!TryTokenizeColumnarSource(bindings, source, out var tokens))
+            return false;
 
+        return TryGetColumnarEnumInputs(bindings, source, tokens, out enums);
+    }
+
+    private static bool TryGetColumnarEnumInputs(
+        Bindings bindings, string source, ColumnarTokenizedSource tokens,
+        out System.Collections.Generic.List<Columnar.ColumnarEnumInput> enums)
+    {
+        enums = new System.Collections.Generic.List<Columnar.ColumnarEnumInput>();
         try
         {
-            var capacity = 3 * (source.Length + 1) + 8;
-            var rawKinds = new int[capacity];
-            var rawStarts = new int[capacity];
-            var rawValueLengths = new int[capacity];
-            var rawLines = new int[capacity];
-            var rawColumns = new int[capacity];
-            var rawCount = bindings.TokenizeMetadataWithIndentation(
-                source, rawKinds, rawStarts, rawValueLengths, rawLines, rawColumns);
-            if (rawCount < 0 || rawCount > capacity)
-                return false;
-
-            var ck = new int[rawCount];
-            var cs = new int[rawCount];
-            var cv = new int[rawCount];
-            var n = 0;
-            for (var i = 0; i < rawCount; i++)
-            {
-                if (rawKinds[i] == 136)
-                    continue;
-                ck[n] = rawKinds[i];
-                cs[n] = rawStarts[i];
-                cv[n] = rawValueLengths[i];
-                n++;
-            }
+            var ck = tokens.Kinds;
+            var cs = tokens.Starts;
+            var cv = tokens.ValueLengths;
+            var n = tokens.Count;
 
             var enumIndices = TopLevelEnumIndices(ck, n);
             foreach (var enumIndex in enumIndices)
@@ -1120,33 +1188,23 @@ internal static class NSharpCompilerDogfoodAdapter
         var bindings = s_bindings.Value;
         if (bindings == null || string.IsNullOrEmpty(source))
             return false;
+        if (!TryTokenizeColumnarSource(bindings, source, out var tokens))
+            return false;
 
+        return TryGetColumnarStructInputs(bindings, source, tokens, out structs);
+    }
+
+    private static bool TryGetColumnarStructInputs(
+        Bindings bindings, string source, ColumnarTokenizedSource tokens,
+        out System.Collections.Generic.List<Columnar.ColumnarStructInput> structs)
+    {
+        structs = new System.Collections.Generic.List<Columnar.ColumnarStructInput>();
         try
         {
-            var capacity = 3 * (source.Length + 1) + 8;
-            var rawKinds = new int[capacity];
-            var rawStarts = new int[capacity];
-            var rawValueLengths = new int[capacity];
-            var rawLines = new int[capacity];
-            var rawColumns = new int[capacity];
-            var rawCount = bindings.TokenizeMetadataWithIndentation(
-                source, rawKinds, rawStarts, rawValueLengths, rawLines, rawColumns);
-            if (rawCount < 0 || rawCount > capacity)
-                return false;
-
-            var ck = new int[rawCount];
-            var cs = new int[rawCount];
-            var cv = new int[rawCount];
-            var n = 0;
-            for (var i = 0; i < rawCount; i++)
-            {
-                if (rawKinds[i] == 136)
-                    continue;
-                ck[n] = rawKinds[i];
-                cs[n] = rawStarts[i];
-                cv[n] = rawValueLengths[i];
-                n++;
-            }
+            var ck = tokens.Kinds;
+            var cs = tokens.Starts;
+            var cv = tokens.ValueLengths;
+            var n = tokens.Count;
 
             // Collect value-type structs (keyword 9, IsReference=false) AND reference-type records (keyword 13) and
             // classes (keyword 8), both IsReference=true — all three share the identical decl kernel + body syntax.
@@ -1330,33 +1388,23 @@ internal static class NSharpCompilerDogfoodAdapter
         var bindings = s_bindings.Value;
         if (bindings == null || string.IsNullOrEmpty(source))
             return false;
+        if (!TryTokenizeColumnarSource(bindings, source, out var tokens))
+            return false;
 
+        return TryGetColumnarUnionInputs(bindings, source, tokens, out unions);
+    }
+
+    private static bool TryGetColumnarUnionInputs(
+        Bindings bindings, string source, ColumnarTokenizedSource tokens,
+        out System.Collections.Generic.List<Columnar.ColumnarUnionInput> unions)
+    {
+        unions = new System.Collections.Generic.List<Columnar.ColumnarUnionInput>();
         try
         {
-            var capacity = 3 * (source.Length + 1) + 8;
-            var rawKinds = new int[capacity];
-            var rawStarts = new int[capacity];
-            var rawValueLengths = new int[capacity];
-            var rawLines = new int[capacity];
-            var rawColumns = new int[capacity];
-            var rawCount = bindings.TokenizeMetadataWithIndentation(
-                source, rawKinds, rawStarts, rawValueLengths, rawLines, rawColumns);
-            if (rawCount < 0 || rawCount > capacity)
-                return false;
-
-            var ck = new int[rawCount];
-            var cs = new int[rawCount];
-            var cv = new int[rawCount];
-            var n = 0;
-            for (var i = 0; i < rawCount; i++)
-            {
-                if (rawKinds[i] == 136)
-                    continue;
-                ck[n] = rawKinds[i];
-                cs[n] = rawStarts[i];
-                cv[n] = rawValueLengths[i];
-                n++;
-            }
+            var ck = tokens.Kinds;
+            var cs = tokens.Starts;
+            var cv = tokens.ValueLengths;
+            var n = tokens.Count;
 
             foreach (var unionIndex in TopLevelUnionIndices(ck, n))
             {
@@ -1896,33 +1944,23 @@ internal static class NSharpCompilerDogfoodAdapter
         var bindings = s_bindings.Value;
         if (bindings == null || string.IsNullOrEmpty(source))
             return false;
+        if (!TryTokenizeColumnarSource(bindings, source, out var tokens))
+            return false;
 
+        return TryGetColumnarInterfaceInputs(bindings, source, tokens, out interfaceInputs);
+    }
+
+    private static bool TryGetColumnarInterfaceInputs(
+        Bindings bindings, string source, ColumnarTokenizedSource tokens,
+        out System.Collections.Generic.List<Columnar.ColumnarInterfaceInput> interfaceInputs)
+    {
+        interfaceInputs = new System.Collections.Generic.List<Columnar.ColumnarInterfaceInput>();
         try
         {
-            var capacity = 3 * (source.Length + 1) + 8;
-            var rawKinds = new int[capacity];
-            var rawStarts = new int[capacity];
-            var rawValueLengths = new int[capacity];
-            var rawLines = new int[capacity];
-            var rawColumns = new int[capacity];
-            var rawCount = bindings.TokenizeMetadataWithIndentation(
-                source, rawKinds, rawStarts, rawValueLengths, rawLines, rawColumns);
-            if (rawCount < 0 || rawCount > capacity)
-                return false;
-
-            var ck = new int[rawCount];
-            var cs = new int[rawCount];
-            var cv = new int[rawCount];
-            var n = 0;
-            for (var i = 0; i < rawCount; i++)
-            {
-                if (rawKinds[i] == 136)
-                    continue;
-                ck[n] = rawKinds[i];
-                cs[n] = rawStarts[i];
-                cv[n] = rawValueLengths[i];
-                n++;
-            }
+            var ck = tokens.Kinds;
+            var cs = tokens.Starts;
+            var cv = tokens.ValueLengths;
+            var n = tokens.Count;
 
             foreach (var interfaceIndex in TopLevelInterfaceIndices(ck, n))
             {
