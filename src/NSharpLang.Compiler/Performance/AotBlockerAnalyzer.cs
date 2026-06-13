@@ -190,6 +190,9 @@ public sealed class AotBlockerAnalyzer
                 WalkMembers(rec.Members, ContextFor(rec.Name, rec.Line, rec.Column, context));
                 break;
 
+            case SoaRecordDeclaration:
+                break;
+
             case InterfaceDeclaration iface:
                 WalkMembers(iface.Members, ContextFor(iface.Name, iface.Line, iface.Column, context));
                 break;

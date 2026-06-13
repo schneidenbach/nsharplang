@@ -4325,6 +4325,45 @@ func Helper(): int {
     }
 
     [Fact]
+    public void SoaRecordDeclaration_ParsesColumns()
+    {
+        var source = @"
+            soa record NodeTable {
+                kind: int
+                valueStart: int,
+                valueLength: int;
+            }
+        ";
+
+        var cu = Parse(source);
+        var soa = Assert.IsType<SoaRecordDeclaration>(Assert.Single(cu.Declarations));
+        Assert.Equal("NodeTable", soa.Name);
+        Assert.Equal(3, soa.Columns.Count);
+        Assert.Equal("kind", soa.Columns[0].Name);
+        Assert.Equal("valueStart", soa.Columns[1].Name);
+        Assert.Equal("valueLength", soa.Columns[2].Name);
+
+        var kindType = Assert.IsType<SimpleTypeReference>(soa.Columns[0].Type);
+        Assert.Equal("int", kindType.Name);
+    }
+
+    [Fact]
+    public void SoaRecordDeclaration_ContextualKeywordStillAllowsSoaIdentifier()
+    {
+        var source = @"
+            func Value(): int {
+                soa := 5
+                return soa
+            }
+        ";
+
+        var cu = Parse(source);
+        var function = Assert.IsType<FunctionDeclaration>(Assert.Single(cu.Declarations));
+        var variable = Assert.IsType<VariableDeclarationStatement>(function.Body!.Statements[0]);
+        Assert.Equal("soa", variable.Name);
+    }
+
+    [Fact]
     public void TestRequiredAndInitProperty()
     {
         var source = @"

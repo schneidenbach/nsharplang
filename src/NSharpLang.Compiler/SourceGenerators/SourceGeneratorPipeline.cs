@@ -786,6 +786,7 @@ public static class SourceGeneratorPipeline
             ClassDeclaration classDeclaration => classDeclaration.Name,
             StructDeclaration structDeclaration => structDeclaration.Name,
             RecordDeclaration recordDeclaration => recordDeclaration.Name,
+            SoaRecordDeclaration soaRecordDeclaration => soaRecordDeclaration.Name,
             InterfaceDeclaration interfaceDeclaration => interfaceDeclaration.Name,
             EnumDeclaration enumDeclaration => enumDeclaration.Name,
             UnionDeclaration unionDeclaration => unionDeclaration.Name,

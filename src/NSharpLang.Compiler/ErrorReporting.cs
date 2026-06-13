@@ -55,6 +55,7 @@ public enum ErrorCode
     LockRequiresReferenceType = 320,
     InvalidSizedArrayConstructorArguments = 321,
     MemberWriteThroughValueCopy = 322,
+    FeatureNotImplemented = 323,
 
     // Function/Method errors (400-499)
     WrongArgumentCount = 401,
@@ -828,6 +829,9 @@ public static class ErrorSuggestions
 
             ErrorCode.MethodGroupUsedAsValue
                 => "Call the method with parentheses, or pass it to a parameter with a delegate type",
+
+            ErrorCode.FeatureNotImplemented
+                => "This language feature is parsed for forward compatibility, but it is not available in production builds yet",
 
             ErrorCode.ReadonlyAssignment
                 => "Readonly fields can only be assigned in constructor",

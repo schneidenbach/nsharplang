@@ -261,6 +261,8 @@ public class Parser
         }
         if (Check(TokenType.Struct))
             return ParseStructDeclaration(attributes, modifiers);
+        if (IsSoaRecordDeclarationStart())
+            return ParseSoaRecordDeclaration(attributes, modifiers);
         if (Check(TokenType.Record))
             return ParseRecordDeclaration(attributes, modifiers);
         if (Check(TokenType.Interface) || (Check(TokenType.Duck) && LookAhead(1).Type == TokenType.Interface))
@@ -278,7 +280,7 @@ public class Parser
             Current.Line,
             Current.Column,
             humanExplanation: $"I was expecting a declaration here (like 'func', 'class', 'enum', etc.), but I found '{Current.Value}' instead.",
-            hint: "Top-level declarations must be functions, classes, structs, enums, interfaces, or type aliases.",
+            hint: "Top-level declarations must be functions, classes, structs, records, soa records, enums, interfaces, unions, or type aliases.",
             length: Current.Value.Length
         );
 
@@ -763,6 +765,12 @@ public class Parser
         return new TeardownDeclaration(body, line, column);
     }
 
+    private bool IsSoaRecordDeclarationStart()
+    {
+        return Current.Type == TokenType.Identifier && Current.Value == "soa"
+            && LookAhead(1).Type == TokenType.Record;
+    }
+
     private List<TypeParameter>? ParseTypeParameters()
     {
         if (!Check(TokenType.Less))
@@ -1096,6 +1104,76 @@ public class Parser
         return new RecordDeclaration(name, typeParams, interfaces, members, primaryCtorParams, isStruct, modifiers, attributes, line, column);
     }
 
+    private SoaRecordDeclaration ParseSoaRecordDeclaration(List<AttributeNode> attributes, Modifiers modifiers)
+    {
+        var line = Current.Line;
+        var column = Current.Column;
+        Advance(); // contextual 'soa'
+        var recordToken = Consume(TokenType.Record, "Expected 'record' after 'soa'");
+
+        var nameLine = Current.Line;
+        var nameColumn = Current.Column;
+        var name = ConsumeIdentifier("Expected soa record name", DiagnosticSpanFromToken(recordToken));
+        var soaDiagnosticSpan = name == "<error>"
+            ? new DiagnosticSpan(line, column, Math.Max(1, "soa".Length))
+            : new DiagnosticSpan(nameLine, nameColumn, Math.Max(1, name.Length));
+
+        if (Check(TokenType.Less))
+        {
+            ReportError(
+                ErrorCode.InvalidSyntax,
+                "soa record type parameters are not supported yet",
+                Current.Line,
+                Current.Column,
+                humanExplanation: "This parser slice only accepts non-generic soa records. Generic soa tables need an explicit ABI design before they can be accepted.",
+                hint: "Remove the type parameter list for now.",
+                length: Math.Max(1, Current.Value.Length));
+            ParseTypeParameters();
+        }
+
+        Consume(TokenType.LeftBrace, "Expected '{'");
+        var columns = new List<SoaColumnDeclaration>();
+
+        while (!Check(TokenType.RightBrace) && !IsAtEnd())
+        {
+            _panicMode = false;
+            var startPosition = _position;
+            var columnLine = Current.Line;
+            var columnColumn = Current.Column;
+            var columnName = ConsumeIdentifier("Expected soa column name");
+            Consume(TokenType.Colon, "Expected ':'");
+            var columnType = ParseTypeReference();
+            columns.Add(new SoaColumnDeclaration(columnName, columnType, columnLine, columnColumn));
+
+            if (Check(TokenType.Comma) || Check(TokenType.Semicolon))
+            {
+                Advance();
+            }
+
+            if (EnsureProgress(startPosition))
+            {
+                continue;
+            }
+        }
+
+        if (Check(TokenType.RightBrace))
+            Advance();
+        else if (IsAtEnd())
+        {
+            ReportError(
+                ErrorCode.MissingClosingBrace,
+                "Missing closing '}'",
+                soaDiagnosticSpan.Line,
+                soaDiagnosticSpan.Column,
+                humanExplanation: $"The soa record body that started on line {line} is missing its closing brace. I reached the end of the file without finding it.",
+                hint: "Add a '}' to close this soa record declaration.",
+                length: soaDiagnosticSpan.Length
+            );
+        }
+
+        return new SoaRecordDeclaration(name, columns, modifiers, attributes, line, column);
+    }
+
     private InterfaceDeclaration ParseInterfaceDeclaration(List<AttributeNode> attributes, Modifiers modifiers)
     {
         var line = Current.Line;
@@ -1408,6 +1486,10 @@ public class Parser
         if (Check(TokenType.Struct))
         {
             return ParseStructDeclaration(attributes, modifiers);
+        }
+        if (IsSoaRecordDeclarationStart())
+        {
+            return ParseSoaRecordDeclaration(attributes, modifiers);
         }
         if (Check(TokenType.Record))
         {
@@ -7190,6 +7272,9 @@ public class Parser
         if (Current.Type == TokenType.Ref && LookAhead(1).Type == TokenType.Struct)
             return true;
 
+        if (IsSoaRecordDeclarationStart())
+            return true;
+
         // 'duck interface' declaration
         if (Current.Type == TokenType.Duck && LookAhead(1).Type == TokenType.Interface)
             return true;
@@ -7210,7 +7295,8 @@ public class Parser
                 ahead++;
             }
             if (_position + ahead < _tokens.Count &&
-                IsTypeDeclarationKeyword(_tokens[_position + ahead].Type))
+                (IsTypeDeclarationKeyword(_tokens[_position + ahead].Type) ||
+                 IsSoaRecordDeclarationStartAtOffset(ahead)))
                 return true;
         }
 
@@ -7233,11 +7319,20 @@ public class Parser
                 ahead++;
             }
             if (_position + ahead < _tokens.Count &&
-                IsTypeDeclarationKeyword(_tokens[_position + ahead].Type))
+                (IsTypeDeclarationKeyword(_tokens[_position + ahead].Type) ||
+                 IsSoaRecordDeclarationStartAtOffset(ahead)))
                 return true;
         }
 
         return false;
+    }
+
+    private bool IsSoaRecordDeclarationStartAtOffset(int offset)
+    {
+        return _position + offset + 1 < _tokens.Count &&
+               _tokens[_position + offset].Type == TokenType.Identifier &&
+               _tokens[_position + offset].Value == "soa" &&
+               _tokens[_position + offset + 1].Type == TokenType.Record;
     }
 
     /// <summary>
@@ -7255,6 +7350,9 @@ public class Parser
             if (IsDeclarationKeyword(Current.Type))
                 return;
 
+            if (IsSoaRecordDeclarationStart())
+                return;
+
             // Modifier keywords that might precede a declaration
             if (IsModifierKeyword(Current.Type))
             {
@@ -7264,7 +7362,8 @@ public class Parser
                        IsModifierKeyword(_tokens[_position + ahead].Type))
                     ahead++;
                 if (_position + ahead < _tokens.Count &&
-                    IsDeclarationKeyword(_tokens[_position + ahead].Type))
+                    (IsDeclarationKeyword(_tokens[_position + ahead].Type) ||
+                     IsSoaRecordDeclarationStartAtOffset(ahead)))
                     return;
             }
 

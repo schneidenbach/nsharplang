@@ -4236,6 +4236,7 @@ internal static class NSharpCompilerDogfoodAdapter
                 ClassDeclaration classDeclaration => classDeclaration.Name,
                 StructDeclaration structDeclaration => structDeclaration.Name,
                 RecordDeclaration recordDeclaration => recordDeclaration.Name,
+                SoaRecordDeclaration soaRecordDeclaration => soaRecordDeclaration.Name,
                 InterfaceDeclaration interfaceDeclaration => interfaceDeclaration.Name,
                 EnumDeclaration enumDeclaration => enumDeclaration.Name,
                 UnionDeclaration unionDeclaration => unionDeclaration.Name,
@@ -4249,6 +4250,7 @@ internal static class NSharpCompilerDogfoodAdapter
             return declaration is ClassDeclaration
                 or StructDeclaration
                 or RecordDeclaration
+                or SoaRecordDeclaration
                 or InterfaceDeclaration
                 or EnumDeclaration
                 or UnionDeclaration

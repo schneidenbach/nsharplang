@@ -64,6 +64,20 @@ return x + y
     }
 
     [Fact]
+    public void Format_SoaRecord()
+    {
+        var input = @"soa record NodeTable { kind: int, valueStart: int valueLength: int }";
+        var expected = @"soa record NodeTable {
+    kind: int
+    valueStart: int
+    valueLength: int
+}";
+
+        var result = Format(input).Trim();
+        Assert.Equal(expected, result);
+    }
+
+    [Fact]
     public void Format_MustExpression()
     {
         var input = "func main(input: int?): int{return must input}";

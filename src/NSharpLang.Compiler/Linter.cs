@@ -555,6 +555,12 @@ internal class LintVisitor
             case RecordDeclaration recordDecl:
                 VisitRecord(recordDecl);
                 break;
+            case SoaRecordDeclaration soaRecordDecl:
+                foreach (var column in soaRecordDecl.Columns)
+                {
+                    TrackTypeReference(column.Type);
+                }
+                break;
             case InterfaceDeclaration interfaceDecl:
                 VisitInterface(interfaceDecl);
                 break;
@@ -1985,6 +1991,7 @@ internal class LintVisitor
                     ClassDeclaration c => c.Name,
                     StructDeclaration s => s.Name,
                     RecordDeclaration r => r.Name,
+                    SoaRecordDeclaration soa => soa.Name,
                     InterfaceDeclaration i => i.Name,
                     EnumDeclaration e => e.Name,
                     UnionDeclaration u => u.Name,

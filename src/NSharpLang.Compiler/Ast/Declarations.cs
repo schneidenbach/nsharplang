@@ -138,6 +138,22 @@ public record RecordDeclaration(
     int Line,
     int Column) : Declaration(Line, Column);
 
+// Struct-of-arrays record declaration. This is the syntax-level carrier for the
+// compiler table model; lowering is gated separately until the ABI is implemented.
+public record SoaRecordDeclaration(
+    string Name,
+    List<SoaColumnDeclaration> Columns,
+    Modifiers Modifiers,
+    List<AttributeNode> Attributes,
+    int Line,
+    int Column) : Declaration(Line, Column);
+
+public record SoaColumnDeclaration(
+    string Name,
+    TypeReference Type,
+    int Line = 0,
+    int Column = 0);
+
 // Interface declaration
 public record InterfaceDeclaration(
     string Name,

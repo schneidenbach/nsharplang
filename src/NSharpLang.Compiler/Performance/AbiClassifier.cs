@@ -122,6 +122,10 @@ public sealed class AbiClassifier
                 ClassifyMembers(rec.Members, recordBoundary);
                 break;
 
+            case SoaRecordDeclaration soa:
+                Record(soa.Name, soa.Modifiers, soa.Line, soa.Column, isTopLevel, containingBoundary);
+                break;
+
             case InterfaceDeclaration iface:
                 var interfaceBoundary = Record(iface.Name, iface.Modifiers, iface.Line, iface.Column, isTopLevel, containingBoundary);
                 ClassifyMembers(iface.Members, interfaceBoundary);

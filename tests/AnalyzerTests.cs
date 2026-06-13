@@ -1548,6 +1548,21 @@ func Main() {
     }
 
     [Fact]
+    public void SoaRecordDeclaration_IsFeatureGated()
+    {
+        var result = Analyze(@"
+            soa record NodeTable {
+                kind: int
+                valueStart: int
+            }
+        ");
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.FeatureNotImplemented);
+        Assert.Contains("soa record 'NodeTable'", error.Message);
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.TypeNotFound);
+    }
+
+    [Fact]
     public void StructDeclaration_Valid()
     {
         AssertNoErrors(@"

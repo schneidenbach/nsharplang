@@ -91,7 +91,7 @@ public class BindingMap
         // internal symbols like "this" that share the same position.
         if (_declarations.TryGetValue(key, out var existing))
         {
-            var existingIsType = existing.Kind is "class" or "struct" or "record" or "interface" or "enum" or "union";
+            var existingIsType = existing.Kind is "class" or "struct" or "record" or "soaRecord" or "interface" or "enum" or "union";
             var newIsInternal = declaration.Name is "this" or "value";
             if (existingIsType && newIsInternal)
             {

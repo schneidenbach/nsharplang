@@ -261,6 +261,12 @@ public sealed class SystemsAnalyzer
                     CheckRefLikeFields(file, rec.Name, isRefStruct: false, rec.Members);
                     RegisterDeclarations(file, rec.Members, rec.Name);
                     break;
+                case SoaRecordDeclaration soa:
+                    foreach (var column in soa.Columns)
+                    {
+                        RegisterMemberType(soa.Name, column.Name, column.Type);
+                    }
+                    break;
                 case InterfaceDeclaration iface:
                     RegisterDeclarations(file, iface.Members, iface.Name);
                     break;

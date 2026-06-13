@@ -845,6 +845,7 @@ public class CodeIntelligenceService
         ClassDeclaration c => c.Name,
         StructDeclaration s => s.Name,
         RecordDeclaration r => r.Name,
+        SoaRecordDeclaration soa => soa.Name,
         InterfaceDeclaration i => i.Name,
         EnumDeclaration e => e.Name,
         UnionDeclaration u => u.Name,
@@ -1654,6 +1655,22 @@ public class CodeIntelligenceService
                 Members: r.Members.Where(IsPublicSurfaceDeclaration).Select(m => DeclarationToSymbol(m, file)).Where(s => s != null).Cast<SymbolResult>().ToArray(),
                 Parameters: null),
 
+            SoaRecordDeclaration soa => new SymbolResult(
+                soa.Name, SymbolKind.Record, file, soa.Line, soa.Column,
+                TypeName: "soa",
+                Modifiers: FormatModifiers(soa.Modifiers),
+                Members: soa.Columns.Select(c => new SymbolResult(
+                    c.Name,
+                    SymbolKind.Field,
+                    file,
+                    c.Line,
+                    c.Column,
+                    FormatTypeReference(c.Type),
+                    null,
+                    null,
+                    null)).ToArray(),
+                Parameters: null),
+
             InterfaceDeclaration i => new SymbolResult(
                 i.Name, SymbolKind.Interface, file, i.Line, i.Column,
                 TypeName: null,
@@ -1753,6 +1770,19 @@ public class CodeIntelligenceService
                 ReturnType: null,
                 TypeName: null,
                 Children: r.Members.Select(m => DeclarationToOutlineEntry(m)).Where(e => e != null).Cast<OutlineEntry>().ToArray()),
+
+            SoaRecordDeclaration soa => new OutlineEntry(
+                soa.Name, SymbolKind.Record, soa.Line, EstimateEndLine(soa),
+                ReturnType: null,
+                TypeName: "soa",
+                Children: soa.Columns.Select(c => new OutlineEntry(
+                    c.Name,
+                    SymbolKind.Field,
+                    c.Line,
+                    c.Line,
+                    ReturnType: null,
+                    TypeName: FormatTypeReference(c.Type),
+                    Children: null)).ToArray()),
 
             InterfaceDeclaration i => new OutlineEntry(
                 i.Name, SymbolKind.Interface, i.Line, EstimateEndLine(i),
@@ -1871,6 +1901,7 @@ public class CodeIntelligenceService
         ClassDeclaration c => c.Name,
         StructDeclaration s => s.Name,
         RecordDeclaration r => r.Name,
+        SoaRecordDeclaration soa => soa.Name,
         InterfaceDeclaration i => i.Name,
         EnumDeclaration e => e.Name,
         UnionDeclaration u => u.Name,
@@ -1889,6 +1920,7 @@ public class CodeIntelligenceService
         ClassDeclaration c => c.Modifiers,
         StructDeclaration s => s.Modifiers,
         RecordDeclaration r => r.Modifiers,
+        SoaRecordDeclaration soa => soa.Modifiers,
         InterfaceDeclaration i => i.Modifiers,
         EnumDeclaration e => e.Modifiers,
         UnionDeclaration u => u.Modifiers,
@@ -1920,6 +1952,7 @@ public class CodeIntelligenceService
         ClassDeclaration => "class",
         StructDeclaration => "struct",
         RecordDeclaration => "record",
+        SoaRecordDeclaration => "soaRecord",
         InterfaceDeclaration => "interface",
         EnumDeclaration => "enum",
         UnionDeclaration => "union",
@@ -1934,7 +1967,7 @@ public class CodeIntelligenceService
     };
 
     private static bool IsTypeDeclarationKind(string kind)
-        => kind is "class" or "struct" or "record" or "interface" or "enum" or "union" or "typeAlias" or "newtype";
+        => kind is "class" or "struct" or "record" or "soaRecord" or "interface" or "enum" or "union" or "typeAlias" or "newtype";
 
     private static List<Declaration>? GetDeclarationMembers(Declaration decl) => decl switch
     {
@@ -1957,6 +1990,11 @@ public class CodeIntelligenceService
         if (decl is FunctionDeclaration f && f.Body?.Statements.Count > 0)
         {
             return f.Body.Statements.Max(s => s.Line) + 1;
+        }
+
+        if (decl is SoaRecordDeclaration soa && soa.Columns.Count > 0)
+        {
+            return soa.Columns.Max(c => c.Line) + 1;
         }
 
         return decl.Line;
@@ -2293,6 +2331,7 @@ public class CodeIntelligenceService
             ClassDeclaration c when c.Name == name => new ClassTypeInfo(c),
             StructDeclaration s when s.Name == name => new StructTypeInfo(s),
             RecordDeclaration r when r.Name == name => new RecordTypeInfo(r),
+            SoaRecordDeclaration soa when soa.Name == name => new SoaRecordTypeInfo(soa),
             InterfaceDeclaration i when i.Name == name => new InterfaceTypeInfo(i),
             EnumDeclaration e when e.Name == name => new EnumTypeInfo(e),
             UnionDeclaration u when u.Name == name => new UnionTypeInfo(u),
@@ -2345,6 +2384,7 @@ public class CodeIntelligenceService
                     ClassDeclaration c when c.Name == name => new ClassTypeInfo(c),
                     StructDeclaration s when s.Name == name => new StructTypeInfo(s),
                     RecordDeclaration r when r.Name == name => new RecordTypeInfo(r),
+                    SoaRecordDeclaration soa when soa.Name == name => new SoaRecordTypeInfo(soa),
                     InterfaceDeclaration i when i.Name == name => new InterfaceTypeInfo(i),
                     EnumDeclaration e when e.Name == name => new EnumTypeInfo(e),
                     UnionDeclaration u when u.Name == name => new UnionTypeInfo(u),
@@ -2397,6 +2437,7 @@ public class CodeIntelligenceService
             ClassTypeInfo c => c.Declaration.Name,
             StructTypeInfo s => s.Declaration.Name,
             RecordTypeInfo r => r.Declaration.Name,
+            SoaRecordTypeInfo soa => soa.Declaration.Name,
             InterfaceTypeInfo i => i.Declaration.Name,
             EnumTypeInfo e => e.Declaration.Name,
             UnionTypeInfo { IsAnonymous: true } u => string.Join(" | ", u.Arms.Select(FormatTypeInfo)),
@@ -2469,6 +2510,7 @@ public class CodeIntelligenceService
         ClassTypeInfo => "class",
         StructTypeInfo => "struct",
         RecordTypeInfo => "record",
+        SoaRecordTypeInfo => "soaRecord",
         InterfaceTypeInfo => "interface",
         EnumTypeInfo => "enum",
         UnionTypeInfo => "union",

@@ -341,6 +341,8 @@ public class Analyzer : IDisposable
                 DeclareType(structDecl.Name, new StructTypeInfo(structDecl), decl.Line, decl.Column);
             else if (decl is RecordDeclaration recordDecl)
                 DeclareType(recordDecl.Name, new RecordTypeInfo(recordDecl), decl.Line, decl.Column);
+            else if (decl is SoaRecordDeclaration soaRecordDecl)
+                DeclareType(soaRecordDecl.Name, new SoaRecordTypeInfo(soaRecordDecl), decl.Line, decl.Column);
             else if (decl is InterfaceDeclaration interfaceDecl)
                 DeclareType(interfaceDecl.Name, new InterfaceTypeInfo(interfaceDecl), decl.Line, decl.Column);
             else if (decl is UnionDeclaration unionDecl)
@@ -487,6 +489,9 @@ public class Analyzer : IDisposable
                 break;
             case RecordDeclaration recordDecl:
                 AnalyzeRecordDeclaration(recordDecl);
+                break;
+            case SoaRecordDeclaration soaRecordDecl:
+                AnalyzeSoaRecordDeclaration(soaRecordDecl);
                 break;
             case InterfaceDeclaration interfaceDecl:
                 AnalyzeInterfaceDeclaration(interfaceDecl);
@@ -1195,6 +1200,22 @@ public class Analyzer : IDisposable
 
         PopScope();
         _currentTypeName = previousTypeName;
+    }
+
+    private void AnalyzeSoaRecordDeclaration(SoaRecordDeclaration soaRecordDecl)
+    {
+        foreach (var column in soaRecordDecl.Columns)
+        {
+            ResolveDeclaredType(column.Type);
+        }
+
+        Error(
+            ErrorCode.FeatureNotImplemented,
+            $"soa record '{soaRecordDecl.Name}' is parsed but not available in production builds yet",
+            soaRecordDecl.Line,
+            soaRecordDecl.Column,
+            suggestion: "Keep using regular records until the struct-of-arrays emitter slice lands",
+            length: "soa".Length);
     }
 
     private void AnalyzeInterfaceDeclaration(InterfaceDeclaration interfaceDecl)
@@ -5970,6 +5991,7 @@ public class Analyzer : IDisposable
         ClassDeclaration classDecl => classDecl.Name,
         StructDeclaration structDecl => structDecl.Name,
         RecordDeclaration recordDecl => recordDecl.Name,
+        SoaRecordDeclaration soaRecordDecl => soaRecordDecl.Name,
         InterfaceDeclaration interfaceDecl => interfaceDecl.Name,
         EnumDeclaration enumDecl => enumDecl.Name,
         UnionDeclaration unionDecl => unionDecl.Name,
@@ -5986,6 +6008,7 @@ public class Analyzer : IDisposable
         ClassDeclaration => "class",
         StructDeclaration => "struct",
         RecordDeclaration => "record",
+        SoaRecordDeclaration => "soaRecord",
         InterfaceDeclaration => "interface",
         EnumDeclaration => "enum",
         UnionDeclaration => "union",
@@ -6534,6 +6557,7 @@ public class Analyzer : IDisposable
         => declaration is ClassDeclaration
             or StructDeclaration
             or RecordDeclaration
+            or SoaRecordDeclaration
             or InterfaceDeclaration
             or EnumDeclaration
             or UnionDeclaration
@@ -6545,6 +6569,7 @@ public class Analyzer : IDisposable
         ClassDeclaration classDecl => new ClassTypeInfo(classDecl),
         StructDeclaration structDecl => new StructTypeInfo(structDecl),
         RecordDeclaration recordDecl => new RecordTypeInfo(recordDecl),
+        SoaRecordDeclaration soaRecordDecl => new SoaRecordTypeInfo(soaRecordDecl),
         InterfaceDeclaration interfaceDecl => new InterfaceTypeInfo(interfaceDecl),
         EnumDeclaration enumDecl => new EnumTypeInfo(enumDecl),
         UnionDeclaration unionDecl => new UnionTypeInfo(unionDecl),
@@ -14487,6 +14512,7 @@ public class Analyzer : IDisposable
         ClassTypeInfo => "class",
         StructTypeInfo => "struct",
         RecordTypeInfo => "record",
+        SoaRecordTypeInfo => "soaRecord",
         InterfaceTypeInfo => "interface",
         EnumTypeInfo => "enum",
         UnionTypeInfo => "union",
@@ -15532,6 +15558,7 @@ public class Analyzer : IDisposable
                 ClassDeclaration c => c.Name,
                 StructDeclaration s => s.Name,
                 RecordDeclaration r => r.Name,
+                SoaRecordDeclaration soa => soa.Name,
                 InterfaceDeclaration i => i.Name,
                 UnionDeclaration u => u.Name,
                 EnumDeclaration e => e.Name,
@@ -15548,6 +15575,7 @@ public class Analyzer : IDisposable
                     ClassDeclaration c => new ClassTypeInfo(c) as TypeInfo,
                     StructDeclaration s => new StructTypeInfo(s),
                     RecordDeclaration r => new RecordTypeInfo(r),
+                    SoaRecordDeclaration soa => new SoaRecordTypeInfo(soa),
                     InterfaceDeclaration i => new InterfaceTypeInfo(i),
                     UnionDeclaration u => new UnionTypeInfo(u),
                     EnumDeclaration e => new EnumTypeInfo(e),
@@ -15576,7 +15604,7 @@ public class Analyzer : IDisposable
     }
 
     private static bool IsTypeDeclarationKind(string kind) =>
-        kind is "class" or "struct" or "record" or "interface" or "enum" or "union" or "typeAlias" or "newtype";
+        kind is "class" or "struct" or "record" or "soaRecord" or "interface" or "enum" or "union" or "typeAlias" or "newtype";
 
     private static bool IsExportedDeclaration(Declaration declaration, string name)
     {
@@ -15590,6 +15618,7 @@ public class Analyzer : IDisposable
             ClassDeclaration c => c.Modifiers,
             StructDeclaration s => s.Modifiers,
             RecordDeclaration r => r.Modifiers,
+            SoaRecordDeclaration soa => soa.Modifiers,
             InterfaceDeclaration i => i.Modifiers,
             UnionDeclaration u => u.Modifiers,
             EnumDeclaration e => e.Modifiers,
@@ -15618,6 +15647,7 @@ public class Analyzer : IDisposable
                 ClassDeclaration c => c.Name,
                 StructDeclaration s => s.Name,
                 RecordDeclaration r => r.Name,
+                SoaRecordDeclaration soa => soa.Name,
                 InterfaceDeclaration i => i.Name,
                 UnionDeclaration u => u.Name,
                 EnumDeclaration e => e.Name,
@@ -15634,6 +15664,7 @@ public class Analyzer : IDisposable
                     ClassDeclaration c => new ClassTypeInfo(c) as TypeInfo,
                     StructDeclaration s => new StructTypeInfo(s),
                     RecordDeclaration r => new RecordTypeInfo(r),
+                    SoaRecordDeclaration soa => new SoaRecordTypeInfo(soa),
                     InterfaceDeclaration i => new InterfaceTypeInfo(i),
                     UnionDeclaration u => new UnionTypeInfo(u),
                     EnumDeclaration e => new EnumTypeInfo(e),
@@ -16728,6 +16759,11 @@ public record StructTypeInfo(StructDeclaration Declaration) : TypeInfo
 }
 
 public record RecordTypeInfo(RecordDeclaration Declaration) : TypeInfo
+{
+    public override string ToString() => Declaration.Name;
+}
+
+public record SoaRecordTypeInfo(SoaRecordDeclaration Declaration) : TypeInfo
 {
     public override string ToString() => Declaration.Name;
 }

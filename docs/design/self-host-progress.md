@@ -11,6 +11,30 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — SoA syntax slice: non-generic declarations parse, query, and gate
+
+The first implementation slice for the emitter-port table model is in place without enabling production
+lowering. `soa record Name { column: Type }` is a contextual top-level or nested declaration form, so `soa`
+remains a normal identifier everywhere except immediately before `record`. The AST now carries
+`SoaRecordDeclaration` plus typed `SoaColumnDeclaration` entries, formatter output round-trips columns, namespace
+qualification preserves column type references, and code-intelligence symbol/outline output exposes columns as
+field-like children under the existing record-shaped schema.
+
+The analyzer deliberately reports build-blocking `NL323 FeatureNotImplemented` for every SoA declaration after
+resolving its column types and registering its type name. That means duplicate-name checks, binding maps, file
+imports, and query calls see a real declaration, but no backend can silently lower it. The IL backend also has a
+recursive defense-in-depth guard that throws a compiler-bug exception if a SoA declaration reaches emission.
+
+Coverage: parser tests pin column parsing and the contextual `soa` identifier behavior; analyzer tests pin the
+NL323 gate without spurious type-not-found diagnostics; formatter tests pin stable round-tripping. Auxiliary
+linter, systems/AOT, source-generator, binding-map, nullability, and dogfood-adapter walkers understand the new
+declaration enough to avoid secondary failures while lowering remains blocked.
+
+NEXT: migrate the first cold compiler table use to the non-generic SoA surface behind the NL323 gate/feature flag,
+then prove the wrapper ABI before touching parser node tables or Stage-6 C# surface deletion.
+
+---
+
 ## 2026-06-13 — SoA table-type design gate: row syntax without row objects
 
 The emitter-port design gate is written in `docs/design/soa-table-types.md`. The contract is a small
@@ -28,7 +52,7 @@ usual isolated non-IDE product gate before each commit.
 Roadmap and memory index links now point to the SoA design as the entry point for emitter-port planning.
 
 NEXT: implement the first non-generic `soa record` slice without production use, then migrate cold table
-uses before parser node tables and Stage-6 C# surface shrink.
+uses before parser node tables and Stage-6 C# surface shrink. Completed by the syntax slice above.
 
 ---
 

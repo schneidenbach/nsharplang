@@ -178,7 +178,7 @@ Benchmark gate:
 
 ## Migration Plan
 
-1. Add the parser and analyzer surface for non-generic `soa record` declarations, with no production use.
+1. Done: add the parser and analyzer surface for non-generic `soa record` declarations, with no production use.
 2. Lower `new`, `wrap`, column access, row projection, `length`, and `capacity` to the existing arrays.
 3. Port one cold parity-corpus table to prove diagnostics and IL shape.
 4. Port `ParserState` from `st: int[]` to a small normal struct only after member writes and by-ref lowering

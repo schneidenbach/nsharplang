@@ -264,6 +264,9 @@ public class Formatter
             case RecordDeclaration rec:
                 FormatRecord(rec, sb);
                 break;
+            case SoaRecordDeclaration soa:
+                FormatSoaRecord(soa, sb);
+                break;
             case InterfaceDeclaration iface:
                 FormatInterface(iface, sb);
                 break;
@@ -570,6 +573,35 @@ public class Formatter
         {
             sb.AppendLine();
         }
+    }
+
+    private void FormatSoaRecord(SoaRecordDeclaration soa, StringBuilder sb)
+    {
+        FormatAttributes(soa.Attributes, sb);
+        Indent(sb);
+
+        var mods = FormatModifiers(soa.Modifiers, soa.Name);
+        if (!string.IsNullOrEmpty(mods))
+        {
+            sb.Append(mods);
+            sb.Append(" ");
+        }
+
+        sb.Append("soa record ");
+        sb.Append(soa.Name);
+        sb.AppendLine(" {");
+        _indent++;
+        foreach (var column in soa.Columns)
+        {
+            Indent(sb);
+            sb.Append(column.Name);
+            sb.Append(": ");
+            sb.Append(FormatTypeReference(column.Type));
+            sb.AppendLine();
+        }
+        _indent--;
+        Indent(sb);
+        sb.AppendLine("}");
     }
 
     private void FormatInterface(InterfaceDeclaration iface, StringBuilder sb)

@@ -66,6 +66,7 @@ internal static class NamespaceQualifiedCompilationMerger
             ClassDeclaration classDeclaration => classDeclaration.Name,
             StructDeclaration structDeclaration => structDeclaration.Name,
             RecordDeclaration recordDeclaration => recordDeclaration.Name,
+            SoaRecordDeclaration soaRecordDeclaration => soaRecordDeclaration.Name,
             InterfaceDeclaration interfaceDeclaration => interfaceDeclaration.Name,
             EnumDeclaration enumDeclaration => enumDeclaration.Name,
             UnionDeclaration unionDeclaration => unionDeclaration.Name,
@@ -136,6 +137,14 @@ internal static class NamespaceQualifiedCompilationMerger
                     Members = recordDeclaration.Members.Select(member => TransformDeclaration(member, isTopLevel: false)).ToList(),
                     PrimaryConstructorParameters = TransformParameters(recordDeclaration.PrimaryConstructorParameters),
                     Attributes = TransformAttributes(recordDeclaration.Attributes)
+                },
+                SoaRecordDeclaration soaRecordDeclaration => soaRecordDeclaration with
+                {
+                    Name = TransformTopLevelTypeName(soaRecordDeclaration.Name, isTopLevel),
+                    Columns = soaRecordDeclaration.Columns
+                        .Select(column => column with { Type = TransformTypeReference(column.Type)! })
+                        .ToList(),
+                    Attributes = TransformAttributes(soaRecordDeclaration.Attributes)
                 },
                 InterfaceDeclaration interfaceDeclaration => interfaceDeclaration with
                 {

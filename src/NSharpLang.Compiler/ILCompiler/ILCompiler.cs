@@ -9820,6 +9820,12 @@ public partial class ILCompiler
     /// </summary>
     public void Compile()
     {
+        if (FindSoaRecordDeclaration(_compilationUnit.Declarations) is { } soaRecord)
+        {
+            throw new InvalidOperationException(
+                $"compiler bug: soa record '{soaRecord.Name}' reached IL emission before the struct-of-arrays emitter is implemented");
+        }
+
         // Create assembly builder using PersistedAssemblyBuilder for .NET 9+
         var assemblyName = new AssemblyName(_assemblyName)
         {
@@ -10017,6 +10023,36 @@ public partial class ILCompiler
 
         SaveAssembly(assemblyBuilder);
 
+    }
+
+    private static SoaRecordDeclaration? FindSoaRecordDeclaration(IEnumerable<Declaration> declarations)
+    {
+        foreach (var declaration in declarations)
+        {
+            switch (declaration)
+            {
+                case SoaRecordDeclaration soaRecord:
+                    return soaRecord;
+                case ClassDeclaration classDeclaration:
+                    if (FindSoaRecordDeclaration(classDeclaration.Members) is { } nestedClassSoa)
+                        return nestedClassSoa;
+                    break;
+                case StructDeclaration structDeclaration:
+                    if (FindSoaRecordDeclaration(structDeclaration.Members) is { } nestedStructSoa)
+                        return nestedStructSoa;
+                    break;
+                case RecordDeclaration recordDeclaration:
+                    if (FindSoaRecordDeclaration(recordDeclaration.Members) is { } nestedRecordSoa)
+                        return nestedRecordSoa;
+                    break;
+                case InterfaceDeclaration interfaceDeclaration:
+                    if (FindSoaRecordDeclaration(interfaceDeclaration.Members) is { } nestedInterfaceSoa)
+                        return nestedInterfaceSoa;
+                    break;
+            }
+        }
+
+        return null;
     }
 
     private void FinalizeTopLevelEnumTypes()

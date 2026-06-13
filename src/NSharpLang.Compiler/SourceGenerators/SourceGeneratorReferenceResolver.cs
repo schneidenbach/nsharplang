@@ -736,6 +736,7 @@ public static class SourceGeneratorReferenceResolver
         ClassDeclaration classDeclaration => classDeclaration.Attributes,
         StructDeclaration structDeclaration => structDeclaration.Attributes,
         RecordDeclaration recordDeclaration => recordDeclaration.Attributes,
+        SoaRecordDeclaration soaRecordDeclaration => soaRecordDeclaration.Attributes,
         InterfaceDeclaration interfaceDeclaration => interfaceDeclaration.Attributes,
         EnumDeclaration enumDeclaration => enumDeclaration.Attributes,
         UnionDeclaration unionDeclaration => unionDeclaration.Attributes,
