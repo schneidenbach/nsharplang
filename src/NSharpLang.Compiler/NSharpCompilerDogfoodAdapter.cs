@@ -43,13 +43,19 @@ internal static class NSharpCompilerDogfoodAdapter
 
     private static bool TryGetTopLevelFunctionDeclarationIndices(
         Bindings bindings,
+        string source,
         int[] rawKinds,
+        int[] rawStarts,
+        int[] rawValueLengths,
         int rawCount,
         out int declarationCount,
         out List<int> functionDeclarationIndices)
     {
         declarationCount = 0;
         functionDeclarationIndices = new List<int>();
+
+        if (HasTopLevelContextualTestDeclaration(source, rawKinds, rawStarts, rawValueLengths, rawCount))
+            return false;
 
         var declKinds = new int[rawCount + 1];
         declarationCount = bindings.TopLevelDeclarationKinds(rawKinds, rawCount, declKinds);
@@ -63,6 +69,108 @@ internal static class NSharpCompilerDogfoodAdapter
         }
 
         return true;
+    }
+
+    private static bool HasTopLevelContextualTestDeclaration(
+        string source,
+        int[] rawKinds,
+        int[] rawStarts,
+        int[] rawValueLengths,
+        int rawCount)
+    {
+        var braceDepth = 0;
+        var bracketDepth = 0;
+        var parenDepth = 0;
+
+        for (var i = 0; i < rawCount; i++)
+        {
+            var kind = rawKinds[i];
+            if (braceDepth == 0 && bracketDepth == 0 && parenDepth == 0)
+            {
+                if (kind == (int)TokenType.Test)
+                    return true;
+
+                if (kind == (int)TokenType.Identifier)
+                {
+                    var nextKind = NextNonNewlineTokenKind(rawKinds, rawCount, i + 1);
+                    var atDeclarationBoundary = IsTopLevelDeclarationBoundaryBefore(rawKinds, i);
+
+                    if (TokenTextEquals(source, rawStarts[i], rawValueLengths[i], "test")
+                        && (nextKind == (int)TokenType.StringLiteral
+                            || nextKind == (int)TokenType.LeftBrace
+                            || atDeclarationBoundary))
+                        return true;
+
+                    if ((TokenTextEquals(source, rawStarts[i], rawValueLengths[i], "setup")
+                            || TokenTextEquals(source, rawStarts[i], rawValueLengths[i], "teardown"))
+                        && (nextKind == (int)TokenType.LeftBrace || atDeclarationBoundary))
+                        return true;
+                }
+            }
+
+            if (kind == (int)TokenType.LeftBrace)
+            {
+                braceDepth++;
+            }
+            else if (kind == (int)TokenType.RightBrace)
+            {
+                braceDepth--;
+                if (braceDepth < 0)
+                    braceDepth = 0;
+            }
+            else if (kind == (int)TokenType.LeftBracket)
+            {
+                bracketDepth++;
+            }
+            else if (kind == (int)TokenType.RightBracket)
+            {
+                bracketDepth--;
+                if (bracketDepth < 0)
+                    bracketDepth = 0;
+            }
+            else if (kind == (int)TokenType.LeftParen)
+            {
+                parenDepth++;
+            }
+            else if (kind == (int)TokenType.RightParen)
+            {
+                parenDepth--;
+                if (parenDepth < 0)
+                    parenDepth = 0;
+            }
+        }
+
+        return false;
+    }
+
+    private static int NextNonNewlineTokenKind(int[] rawKinds, int rawCount, int startIndex)
+    {
+        for (var i = startIndex; i < rawCount; i++)
+        {
+            if (rawKinds[i] != (int)TokenType.Newline)
+                return rawKinds[i];
+        }
+
+        return -1;
+    }
+
+    private static bool IsTopLevelDeclarationBoundaryBefore(int[] rawKinds, int index)
+    {
+        if (index <= 0)
+            return true;
+
+        var previousKind = rawKinds[index - 1];
+        return previousKind == (int)TokenType.Newline
+            || previousKind == (int)TokenType.RightBrace
+            || previousKind == (int)TokenType.Semicolon;
+    }
+
+    private static bool TokenTextEquals(string source, int start, int length, string expected)
+    {
+        return start >= 0
+            && length == expected.Length
+            && start + length <= source.Length
+            && string.CompareOrdinal(source, start, expected, 0, expected.Length) == 0;
     }
 
     /// <summary>
@@ -95,7 +203,8 @@ internal static class NSharpCompilerDogfoodAdapter
                 return false;
 
             if (!TryGetTopLevelFunctionDeclarationIndices(
-                    bindings, rawKinds, rawCount, out var declCount, out var functionDeclarationIndices))
+                    bindings, source, rawKinds, rawStarts, rawValueLengths, rawCount,
+                    out var declCount, out var functionDeclarationIndices))
                 return false;
 
             // Per-declaration modifier flags ((int)Declaration.Modifiers); functionDeclarationIndices maps
@@ -196,7 +305,8 @@ internal static class NSharpCompilerDogfoodAdapter
                 return false;
 
             if (!TryGetTopLevelFunctionDeclarationIndices(
-                    bindings, rawKinds, rawCount, out var declCount, out var functionDeclarationIndices))
+                    bindings, source, rawKinds, rawStarts, rawValueLengths, rawCount,
+                    out var declCount, out var functionDeclarationIndices))
                 return false;
 
             // All top-level function names, pre-declared (forward references resolve).
@@ -317,7 +427,8 @@ internal static class NSharpCompilerDogfoodAdapter
                 return false;
 
             if (!TryGetTopLevelFunctionDeclarationIndices(
-                    bindings, rawKinds, rawCount, out _, out var functionDeclarationIndices))
+                    bindings, source, rawKinds, rawStarts, rawValueLengths, rawCount,
+                    out _, out var functionDeclarationIndices))
                 return false;
 
             var ck = new int[rawCount];
@@ -431,7 +542,8 @@ internal static class NSharpCompilerDogfoodAdapter
                 return false;
 
             if (!TryGetTopLevelFunctionDeclarationIndices(
-                    bindings, rawKinds, rawCount, out var declCount, out var functionDeclarationIndices))
+                    bindings, source, rawKinds, rawStarts, rawValueLengths, rawCount,
+                    out var declCount, out var functionDeclarationIndices))
                 return false;
 
             var ck = new int[rawCount];
@@ -568,7 +680,8 @@ internal static class NSharpCompilerDogfoodAdapter
                 return false;
 
             if (!TryGetTopLevelFunctionDeclarationIndices(
-                    bindings, rawKinds, rawCount, out _, out var functionDeclarationIndices))
+                    bindings, source, rawKinds, rawStarts, rawValueLengths, rawCount,
+                    out _, out var functionDeclarationIndices))
                 return false;
 
             var ck = new int[rawCount];
@@ -776,6 +889,9 @@ internal static class NSharpCompilerDogfoodAdapter
             var rawCount = bindings.TokenizeMetadataWithIndentation(
                 source, rawKinds, rawStarts, rawValueLengths, rawLines, rawColumns);
             if (rawCount < 0 || rawCount > capacity)
+                return false;
+
+            if (HasTopLevelContextualTestDeclaration(source, rawKinds, rawStarts, rawValueLengths, rawCount))
                 return false;
 
             var declKinds = new int[rawCount + 1];

@@ -499,6 +499,26 @@ uses before parser node tables and Stage-6 C# surface shrink. Completed by the s
 
 ---
 
+## 2026-06-13 — Route safety: contextual test declarations decline columnar
+
+The Stage-5 route-all path now has an adapter-level guard for top-level contextual test declarations before it
+trusts the N# `TopLevelDeclarationKindsInto` kernel. The parser kernel recognizes real declaration keyword
+ordinals and intentionally omits contextual `setup`/`teardown`; current lexer output also leaves `test` as an
+identifier. A mixed source with `func helper` plus `test "..."`, `setup { ... }`, or `teardown { ... }` could
+therefore look like a function-only program to the columnar route and silently emit a partial assembly.
+
+`TryGetColumnarFunctionInputs` and the shared top-level-function discovery helper now scan the raw token metadata
+for declaration-shaped top-level `test`/`setup`/`teardown` before the declaration-kind kernel runs. Detection is
+shape-aware so package/import segments or a normal function named `test` still route, while test-lifecycle
+declarations decline to the authoritative C# test emitter.
+
+Coverage: `Stage5_ColumnarBackend_DeclinesContextualTestDeclarations` pins mixed `func` + contextual
+`test`/`setup`/`teardown` decline and the non-regression cases for `package test` plus `func test`.
+
+NEXT: keep test parsing/emission as a real columnar coverage expansion item; route safety is closed.
+
+---
+
 ## 2026-06-13 — Route-all: columnar backend is default-on with C# opt-out
 
 The Stage-5 route-all switch is flipped. `MultiFileCompiler.CompileToIlAssembly` now tries the

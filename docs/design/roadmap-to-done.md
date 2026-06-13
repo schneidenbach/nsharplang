@@ -235,9 +235,9 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       + members; for/foreach/let/match/lambdas/generics/tuples/is-as/range/`new[size]`/`new{init}`. Each is a
       parser-kernel form added + parity-gated, then threaded through stages 1–4.
 - **Deferred parity findings** (carried over from the retired dogfood-parity roadmap; fix as the parser
-  kernel / inferer work lands): **M6** — `test`/`setup`/`teardown` are contextual keywords the lexer emits
-  as identifiers, so a `*.tests.nl` file with no top-level `func` parses as zero declarations (repro:
-  `examples/16-task-cli/Program.tests.nl`); detect-and-fall-back or parse them. **M8** — the columnar
+  kernel / inferer work lands): **M6 routing safety fixed** — top-level contextual `test`/`setup`/`teardown`
+  declarations now make the columnar route decline to the C# test emitter instead of silently ignoring them;
+  parsing/emitting tests in columnar remains future coverage. **M8** — the columnar
   inferer keys function return types by name only, so top-level overloads collide (last wins); key by
   canonical signature (`ColumnarFunctionSymbol.Signature()`).
 

@@ -8027,6 +8027,22 @@ class B
         Assert.Equal(7.0, InvokeFromAssemblyBytes(columnar, "scale", 3.5));
     }
 
+    [Fact]
+    public void Stage5_ColumnarBackend_DeclinesContextualTestDeclarations()
+    {
+        var helper = "func helper(): int {\n    return 1\n}\n";
+
+        Assert.False(RouteColumnarProgram(helper + "\ntest \"helper works\" {\n    assert helper() == 1\n}\n").Ok);
+        Assert.False(RouteColumnarProgram(helper + "\nsetup {\n    value := helper()\n}\n").Ok);
+        Assert.False(RouteColumnarProgram(helper + "\nteardown {\n    helper()\n}\n").Ok);
+
+        // The guard is declaration-shape based: ordinary identifiers named `test` still route.
+        var packageNamedTest = "package test\n\nfunc helper(): int {\n    return 1\n}\n";
+        var functionNamedTest = "func test(): int {\n    return 1\n}\n";
+        Assert.True(RouteColumnarProgram(packageNamedTest).Ok);
+        Assert.True(RouteColumnarProgram(functionNamedTest).Ok);
+    }
+
     // Compile `source` as a single-file library through the production MultiFileCompiler path, optionally with
     // the columnar backend flag set (tightly scoped + restored), and return the emitted assembly bytes.
     private static byte[] CompileViaProduction(string source, bool columnarBackend)
