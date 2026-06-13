@@ -218,7 +218,8 @@ ownership lands.
    import/top-level/member/case output columns behind named table wrappers.
 6. In progress: port symbol/type/diagnostic tables. `SemanticScopes.nl` now wraps source-position,
    parent/symbol-range, sorted-index, symbol-name, depth-output, and name-set scratch columns behind
-   normal table structs, and `TypeLookup.nl` wraps declared-type lookup and type-creation ordering
+   normal table structs; its follow-up pass also wraps visible/lookup query-result columns and
+   sorted-index scratch storage. `TypeLookup.nl` wraps declared-type lookup and type-creation ordering
    tables the same way. `DiagnosticDeduplication.nl` now wraps diagnostic/reference key columns and
    deduplication scratch indexes behind wrapper-aware cores, and `DiagnosticClusters.nl` wraps
    severity/trait/cluster-id/location/group/member tables for diagnostic clustering. `BindingLookup.nl`

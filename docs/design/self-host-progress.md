@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — Semantic scope query and sort scratch tables wrapped
+
+`SemanticScopes.nl` now carries visible-symbol queries/results, lookup queries/results, and
+sorted-index scratch storage through named normal structs in its internal cores. The exported
+dogfood adapter entry points still expose the same flattened arrays, while
+`SemanticScopeVisibleSymbolIndicesCore`, `SemanticScopeLookupSymbolIndicesCore`, and
+`SemanticScopeBuildSortedIndexCore` no longer receive anonymous query/result/scratch columns.
+
+The sorted-index helper path now compares IDs through `SemanticScopeSortSourceTable`, and the depth
+walk helper uses `SemanticScopeDepthTable`, keeping raw array parameters at compatibility boundaries
+only.
+
 ## 2026-06-13 — Parser expression recursion tables wrapped
 
 `ParserExpressions.nl` now routes its pattern, primary, postfix, call-argument, unary, binary,

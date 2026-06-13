@@ -39,6 +39,35 @@ struct SemanticScopeNameSetScratch {
     TouchedSlots: int[]
 }
 
+struct SemanticScopeVisibleQueryTable {
+    Lines: int[]
+    Columns: int[]
+}
+
+struct SemanticScopeVisibleResultTable {
+    ScopeIds: int[]
+    Starts: int[]
+    Counts: int[]
+    SymbolIndices: int[]
+}
+
+struct SemanticScopeLookupQueryTable {
+    NameIds: int[]
+    Lines: int[]
+    Columns: int[]
+}
+
+struct SemanticScopeLookupResultTable {
+    ScopeIds: int[]
+    SymbolIndices: int[]
+}
+
+struct SemanticScopeSortScratchTable {
+    TempScopeIds: int[]
+    StackLefts: int[]
+    StackRights: int[]
+}
+
 func SemanticScopePositionCount(positions: &SemanticScopePositionTable): int {
     count := SemanticScopeMinInt(positions.StartLines.Length, positions.StartColumns.Length)
     count = SemanticScopeMinInt(count, positions.EndLines.Length)
@@ -64,10 +93,10 @@ func SemanticScopeSortedIndexCount(sorted: &SemanticScopeSortedIndexTable): int 
     return count
 }
 
-func SemanticScopeSortSourceOutputCount(source: &SemanticScopeSortSourceTable, tempScopeIds: int[], sorted: &SemanticScopeSortedIndexTable): int {
+func SemanticScopeSortSourceOutputCount(source: &SemanticScopeSortSourceTable, scratch: &SemanticScopeSortScratchTable, sorted: &SemanticScopeSortedIndexTable): int {
     count := SemanticScopeMinInt(source.StartLines.Length, source.StartColumns.Length)
     count = SemanticScopeMinInt(count, source.EndLines.Length)
-    count = SemanticScopeMinInt(count, tempScopeIds.Length)
+    count = SemanticScopeMinInt(count, scratch.TempScopeIds.Length)
     count = SemanticScopeMinInt(count, SemanticScopeSortedIndexCount(ref sorted))
     return count
 }
@@ -98,8 +127,10 @@ func SemanticScopeVisibleSymbolIndicesInto(
     relations := new SemanticScopeRelationTable { ParentIds: scopeParentIds, SymbolStarts: scopeSymbolStarts, SymbolCounts: scopeSymbolCounts }
     symbols := new SemanticSymbolTable { NameIds: symbolNameIds }
     sorted := new SemanticScopeSortedIndexTable { ScopeIds: sortedScopeIds, StartLines: sortedScopeStartLines, StartColumns: sortedScopeStartColumns, MaxEndLines: sortedScopeMaxEndLines }
+    queries := new SemanticScopeVisibleQueryTable { Lines: queryLines, Columns: queryColumns }
+    results := new SemanticScopeVisibleResultTable { ScopeIds: resultScopeIds, Starts: resultStarts, Counts: resultCounts, SymbolIndices: resultSymbolIndices }
     scratch := new SemanticScopeNameSetScratch { SlotNameIds: slotNameIds, TouchedSlots: touchedSlots }
-    return SemanticScopeVisibleSymbolIndicesCore(ref positions, ref relations, ref symbols, ref sorted, queryLines, queryColumns, resultScopeIds, resultStarts, resultCounts, resultSymbolIndices, ref scratch)
+    return SemanticScopeVisibleSymbolIndicesCore(ref positions, ref relations, ref symbols, ref sorted, ref queries, ref results, ref scratch)
 }
 
 func SemanticScopeVisibleSymbolIndicesCore(
@@ -107,19 +138,15 @@ func SemanticScopeVisibleSymbolIndicesCore(
     relations: &SemanticScopeRelationTable,
     symbols: &SemanticSymbolTable,
     sorted: &SemanticScopeSortedIndexTable,
-    queryLines: int[],
-    queryColumns: int[],
-    resultScopeIds: int[],
-    resultStarts: int[],
-    resultCounts: int[],
-    resultSymbolIndices: int[],
+    queries: &SemanticScopeVisibleQueryTable,
+    results: &SemanticScopeVisibleResultTable,
     scratch: &SemanticScopeNameSetScratch): int {
     scopeCount := SemanticScopeMinInt(SemanticScopePositionCount(ref positions), SemanticScopeRelationCount(ref relations))
 
-    queryCount := SemanticScopeMinInt(queryLines.Length, queryColumns.Length)
-    queryCount = SemanticScopeMinInt(queryCount, resultScopeIds.Length)
-    queryCount = SemanticScopeMinInt(queryCount, resultStarts.Length)
-    queryCount = SemanticScopeMinInt(queryCount, resultCounts.Length)
+    queryCount := SemanticScopeMinInt(queries.Lines.Length, queries.Columns.Length)
+    queryCount = SemanticScopeMinInt(queryCount, results.ScopeIds.Length)
+    queryCount = SemanticScopeMinInt(queryCount, results.Starts.Length)
+    queryCount = SemanticScopeMinInt(queryCount, results.Counts.Length)
 
     if scopeCount == 0 || queryCount == 0 {
         return 0
@@ -133,15 +160,15 @@ func SemanticScopeVisibleSymbolIndicesCore(
     total := 0
     queryIndex := 0
     while queryIndex < queryCount {
-        line := queryLines[queryIndex]
-        column := queryColumns[queryIndex]
+        line := queries.Lines[queryIndex]
+        column := queries.Columns[queryIndex]
         bestScope := -1
 
         bestScope = SemanticScopeFindBestContainingScopeCore(ref positions, ref sorted, scopeCount, line, column)
 
-        resultScopeIds[queryIndex] = bestScope
-        resultStarts[queryIndex] = total
-        resultCounts[queryIndex] = 0
+        results.ScopeIds[queryIndex] = bestScope
+        results.Starts[queryIndex] = total
+        results.Counts[queryIndex] = 0
 
         if bestScope >= 0 {
             touchedCount := 0
@@ -162,14 +189,14 @@ func SemanticScopeVisibleSymbolIndicesCore(
                         }
 
                         if nextTouchedCount > touchedCount {
-                            if total >= resultSymbolIndices.Length {
+                            if total >= results.SymbolIndices.Length {
                                 SemanticScopeClearTouchedCore(ref scratch, nextTouchedCount)
                                 return -1
                             }
 
-                            resultSymbolIndices[total] = symbolIndex
+                            results.SymbolIndices[total] = symbolIndex
                             total = total + 1
-                            resultCounts[queryIndex] = resultCounts[queryIndex] + 1
+                            results.Counts[queryIndex] = results.Counts[queryIndex] + 1
                             touchedCount = nextTouchedCount
                         }
                     }
@@ -217,7 +244,9 @@ func SemanticScopeLookupSymbolIndicesInto(
     relations := new SemanticScopeRelationTable { ParentIds: scopeParentIds, SymbolStarts: scopeSymbolStarts, SymbolCounts: scopeSymbolCounts }
     symbols := new SemanticSymbolTable { NameIds: symbolNameIds }
     sorted := new SemanticScopeSortedIndexTable { ScopeIds: sortedScopeIds, StartLines: sortedScopeStartLines, StartColumns: sortedScopeStartColumns, MaxEndLines: sortedScopeMaxEndLines }
-    return SemanticScopeLookupSymbolIndicesCore(ref positions, ref relations, ref symbols, ref sorted, queryNameIds, queryLines, queryColumns, resultScopeIds, resultSymbolIndices)
+    queries := new SemanticScopeLookupQueryTable { NameIds: queryNameIds, Lines: queryLines, Columns: queryColumns }
+    results := new SemanticScopeLookupResultTable { ScopeIds: resultScopeIds, SymbolIndices: resultSymbolIndices }
+    return SemanticScopeLookupSymbolIndicesCore(ref positions, ref relations, ref symbols, ref sorted, ref queries, ref results)
 }
 
 func SemanticScopeLookupSymbolIndicesCore(
@@ -225,17 +254,14 @@ func SemanticScopeLookupSymbolIndicesCore(
     relations: &SemanticScopeRelationTable,
     symbols: &SemanticSymbolTable,
     sorted: &SemanticScopeSortedIndexTable,
-    queryNameIds: int[],
-    queryLines: int[],
-    queryColumns: int[],
-    resultScopeIds: int[],
-    resultSymbolIndices: int[]): int {
+    queries: &SemanticScopeLookupQueryTable,
+    results: &SemanticScopeLookupResultTable): int {
     scopeCount := SemanticScopeMinInt(SemanticScopePositionCount(ref positions), SemanticScopeRelationCount(ref relations))
 
-    queryCount := SemanticScopeMinInt(queryNameIds.Length, queryLines.Length)
-    queryCount = SemanticScopeMinInt(queryCount, queryColumns.Length)
-    queryCount = SemanticScopeMinInt(queryCount, resultScopeIds.Length)
-    queryCount = SemanticScopeMinInt(queryCount, resultSymbolIndices.Length)
+    queryCount := SemanticScopeMinInt(queries.NameIds.Length, queries.Lines.Length)
+    queryCount = SemanticScopeMinInt(queryCount, queries.Columns.Length)
+    queryCount = SemanticScopeMinInt(queryCount, results.ScopeIds.Length)
+    queryCount = SemanticScopeMinInt(queryCount, results.SymbolIndices.Length)
 
     if scopeCount == 0 || queryCount == 0 {
         return 0
@@ -245,9 +271,9 @@ func SemanticScopeLookupSymbolIndicesCore(
     foundCount := 0
     queryIndex := 0
     while queryIndex < queryCount {
-        queryNameId := queryNameIds[queryIndex]
-        line := queryLines[queryIndex]
-        column := queryColumns[queryIndex]
+        queryNameId := queries.NameIds[queryIndex]
+        line := queries.Lines[queryIndex]
+        column := queries.Columns[queryIndex]
         bestScope := -1
         resultSymbol := -1
 
@@ -280,8 +306,8 @@ func SemanticScopeLookupSymbolIndicesCore(
             }
         }
 
-        resultScopeIds[queryIndex] = bestScope
-        resultSymbolIndices[queryIndex] = resultSymbol
+        results.ScopeIds[queryIndex] = bestScope
+        results.SymbolIndices[queryIndex] = resultSymbol
         queryIndex = queryIndex + 1
     }
 
@@ -307,7 +333,7 @@ func SemanticScopeBuildDepthsCore(depths: &SemanticScopeDepthTable): int {
             if parent >= 0 && parent < i {
                 depths.Depths[i] = depths.Depths[parent] + 1
             } else {
-                computedDepth := SemanticScopeComputeDepthByWalk(depths.ParentIds, scopeCount, i)
+                computedDepth := SemanticScopeComputeDepthByWalk(ref depths, scopeCount, i)
                 if computedDepth < 0 {
                     return -1
                 }
@@ -334,23 +360,22 @@ func SemanticScopeBuildSortedIndexInto(
     sortedScopeStartColumns: int[],
     sortedScopeMaxEndLines: int[]): int {
     source := new SemanticScopeSortSourceTable { StartLines: scopeStartLines, StartColumns: scopeStartColumns, EndLines: scopeEndLines }
+    scratch := new SemanticScopeSortScratchTable { TempScopeIds: tempScopeIds, StackLefts: stackLefts, StackRights: stackRights }
     sortedIndex := new SemanticScopeSortedIndexTable { ScopeIds: sortedScopeIds, StartLines: sortedScopeStartLines, StartColumns: sortedScopeStartColumns, MaxEndLines: sortedScopeMaxEndLines }
-    return SemanticScopeBuildSortedIndexCore(ref source, tempScopeIds, stackLefts, stackRights, ref sortedIndex)
+    return SemanticScopeBuildSortedIndexCore(ref source, ref scratch, ref sortedIndex)
 }
 
 func SemanticScopeBuildSortedIndexCore(
     source: &SemanticScopeSortSourceTable,
-    tempScopeIds: int[],
-    stackLefts: int[],
-    stackRights: int[],
+    scratch: &SemanticScopeSortScratchTable,
     sortedIndex: &SemanticScopeSortedIndexTable): int {
-    scopeCount := SemanticScopeSortSourceOutputCount(ref source, tempScopeIds, ref sortedIndex)
+    scopeCount := SemanticScopeSortSourceOutputCount(ref source, ref scratch, ref sortedIndex)
 
     if scopeCount == 0 {
         return 0
     }
 
-    if stackLefts.Length < scopeCount || stackRights.Length < scopeCount {
+    if scratch.StackLefts.Length < scopeCount || scratch.StackRights.Length < scopeCount {
         return -1
     }
 
@@ -386,22 +411,16 @@ func SemanticScopeBuildSortedIndexCore(
 
     i = 0
     while i < scopeCount {
-        tempScopeIds[i] = i
+        scratch.TempScopeIds[i] = i
         i = i + 1
     }
 
-    SemanticScopeSortIdsByStart(
-        tempScopeIds,
-        scopeCount,
-        source.StartLines,
-        source.StartColumns,
-        stackLefts,
-        stackRights)
+    SemanticScopeSortIdsByStart(ref scratch, scopeCount, ref source)
 
     maxEnd := 0
     i = 0
     while i < scopeCount {
-        scopeId := tempScopeIds[i]
+        scopeId := scratch.TempScopeIds[i]
         if scopeId < 0 || scopeId >= scopeCount {
             return -1
         }
@@ -422,12 +441,12 @@ func SemanticScopeBuildSortedIndexCore(
 }
 
 func SemanticScopeSortIdsByStart(
-    ids: int[],
+    scratch: &SemanticScopeSortScratchTable,
     count: int,
-    scopeStartLines: int[],
-    scopeStartColumns: int[],
-    stackLefts: int[],
-    stackRights: int[]) {
+    source: &SemanticScopeSortSourceTable) {
+    ids := scratch.TempScopeIds
+    stackLefts := scratch.StackLefts
+    stackRights := scratch.StackRights
     stackCount := 0
     stackLefts[stackCount] = 0
     stackRights[stackCount] = count - 1
@@ -444,11 +463,11 @@ func SemanticScopeSortIdsByStart(
             pivot := ids[(left + right) >> 1]
 
             while i <= j {
-                while SemanticScopeIdStartsBefore(ids[i], pivot, scopeStartLines, scopeStartColumns) {
+                while SemanticScopeIdStartsBeforeCore(ids[i], pivot, ref source) {
                     i = i + 1
                 }
 
-                while SemanticScopeIdStartsBefore(pivot, ids[j], scopeStartLines, scopeStartColumns) {
+                while SemanticScopeIdStartsBeforeCore(pivot, ids[j], ref source) {
                     j = j - 1
                 }
 
@@ -489,8 +508,16 @@ func SemanticScopeIdStartsBefore(
     right: int,
     scopeStartLines: int[],
     scopeStartColumns: int[]): bool {
-    leftLine := scopeStartLines[left]
-    rightLine := scopeStartLines[right]
+    source := new SemanticScopeSortSourceTable { StartLines: scopeStartLines, StartColumns: scopeStartColumns, EndLines: scopeStartLines }
+    return SemanticScopeIdStartsBeforeCore(left, right, ref source)
+}
+
+func SemanticScopeIdStartsBeforeCore(
+    left: int,
+    right: int,
+    source: &SemanticScopeSortSourceTable): bool {
+    leftLine := source.StartLines[left]
+    rightLine := source.StartLines[right]
     if leftLine < rightLine {
         return true
     }
@@ -499,8 +526,8 @@ func SemanticScopeIdStartsBefore(
         return false
     }
 
-    leftColumn := scopeStartColumns[left]
-    rightColumn := scopeStartColumns[right]
+    leftColumn := source.StartColumns[left]
+    rightColumn := source.StartColumns[right]
     if leftColumn < rightColumn {
         return true
     }
@@ -513,14 +540,14 @@ func SemanticScopeIdStartsBefore(
 }
 
 func SemanticScopeComputeDepthByWalk(
-    scopeParentIds: int[],
+    depths: &SemanticScopeDepthTable,
     scopeCount: int,
     scopeIndex: int): int {
     depth := 0
     current := scopeIndex
     guard := 0
     while current >= 0 && current < scopeCount && guard <= scopeCount {
-        parent := scopeParentIds[current]
+        parent := depths.ParentIds[current]
         if parent < 0 || parent == current {
             break
         }
@@ -567,12 +594,7 @@ func SemanticScopeFindBestContainingScopeCore(
         return SemanticScopeFindBestContainingScopeByScanCore(ref positions, scopeCount, line, column)
     }
 
-    upper := SemanticScopeStartUpperBound(
-        sorted.StartLines,
-        sorted.StartColumns,
-        sortedCount,
-        line,
-        column) - 1
+    upper := SemanticScopeStartUpperBound(ref sorted, sortedCount, line, column) - 1
 
     bestScope := -1
     bestDepth := -1
@@ -647,8 +669,7 @@ func SemanticScopeFindBestContainingScopeByScanCore(
 }
 
 func SemanticScopeStartUpperBound(
-    sortedScopeStartLines: int[],
-    sortedScopeStartColumns: int[],
+    sorted: &SemanticScopeSortedIndexTable,
     sortedCount: int,
     line: int,
     column: int): int {
@@ -657,8 +678,8 @@ func SemanticScopeStartUpperBound(
     while low < high {
         mid := (low + high) >> 1
         if SemanticScopeStartBeforeOrAt(
-            sortedScopeStartLines[mid],
-            sortedScopeStartColumns[mid],
+            sorted.StartLines[mid],
+            sorted.StartColumns[mid],
             line,
             column) {
             low = mid + 1
