@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — Columnar binding-name scan uses node table view
+
+`ColumnarIlEmitter`'s local-function parent-binding pre-scan now walks statement nodes through
+`ColumnarNodeTable` instead of receiving six raw node columns. The public columnar function input
+and flattened adapter contracts remain unchanged, but the recursive binding-name helper no longer
+duplicates kind/value/child indexing logic outside the shared table view.
+
+This keeps the C# transition code aligned with the node-table cleanup: raw node columns now stay at
+ABI boundaries or inside `ColumnarNodeTable`, while emitter-local analysis helpers consume named
+node accessors.
+
 ## 2026-06-13 — Columnar IL emitter node table view adopted
 
 `ColumnarIlEmitter` now stores the shared statement/expression forest through `ColumnarNodeTable`,

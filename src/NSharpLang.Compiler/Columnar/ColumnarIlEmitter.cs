@@ -726,39 +726,37 @@ public sealed class ColumnarIlEmitter
     // deconstruction 30 names, catch-clause 50 vars) — the STRUCTURAL superset used for local-function
     // bodies, which emit after their parent body finished (no live snapshot exists). Type subtrees are safe
     // to recurse: type-kernel kinds are 0-7, disjoint from these binding kinds.
-    private static void CollectBindingNames(
-        int[] kinds, int[] valueStarts, int[] valueLengths, int[] childStart, int[] childCount,
-        int[] childIndices, string source, int node, HashSet<string> names)
+    private static void CollectBindingNames(ColumnarNodeTable nodes, string source, int node, HashSet<string> names)
     {
-        switch (kinds[node])
+        switch (nodes.Kind(node))
         {
             case 24:
             case 29:
-                if (valueStarts[node] >= 0)
-                    names.Add(source.Substring(valueStarts[node], valueLengths[node]));
+                if (nodes.ValueStart(node) >= 0)
+                    names.Add(nodes.Text(source, node));
                 break;
             case 30:
-                for (var n = 0; n < childCount[node] - 1; n++)
+                for (var n = 0; n < nodes.ChildCount(node) - 1; n++)
                 {
-                    var child = childIndices[childStart[node] + n];
-                    if (kinds[child] == 6 && valueStarts[child] >= 0)
-                        names.Add(source.Substring(valueStarts[child], valueLengths[child]));
+                    var child = nodes.Child(node, n);
+                    if (nodes.Kind(child) == 6 && nodes.ValueStart(child) >= 0)
+                        names.Add(nodes.Text(source, child));
                 }
 
                 break;
             case 40:
             case 50:
-                if (childCount[node] == 2)
+                if (nodes.ChildCount(node) == 2)
                 {
-                    var nameChild = childIndices[childStart[node]];
-                    if (kinds[nameChild] == 6 && valueStarts[nameChild] >= 0)
-                        names.Add(source.Substring(valueStarts[nameChild], valueLengths[nameChild]));
+                    var nameChild = nodes.Child(node, 0);
+                    if (nodes.Kind(nameChild) == 6 && nodes.ValueStart(nameChild) >= 0)
+                        names.Add(nodes.Text(source, nameChild));
                 }
 
                 break;
         }
-        for (var c = 0; c < childCount[node]; c++)
-            CollectBindingNames(kinds, valueStarts, valueLengths, childStart, childCount, childIndices, source, childIndices[childStart[node] + c], names);
+        for (var c = 0; c < nodes.ChildCount(node); c++)
+            CollectBindingNames(nodes, source, nodes.Child(node, c), names);
     }
     // MUTATED captures (L3b): names that are captured by some lambda in this body AND mutated via
     // bare-identifier assignment get LIFTED into a shared StrongBox<T> (the oracle's box-lift model) —
@@ -3876,7 +3874,8 @@ public sealed class ColumnarIlEmitter
                 // live snapshot exists — use the parent's STRUCTURAL binding superset (params + every name
                 // any parent statement binds; extra declines are safe under-acceptance).
                 var parentBindings = new HashSet<string>(ordinalsByFunc[f].Keys, StringComparer.Ordinal);
-                CollectBindingNames(fn.Kinds, fn.ValueStarts, fn.ValueLengths, fn.ChildStart, fn.ChildCount, fn.ChildIndices, source, fn.BodyRoot, parentBindings);
+                var parentNodes = new ColumnarNodeTable(fn.Kinds, fn.ValueStarts, fn.ValueLengths, fn.ChildStart, fn.ChildCount, fn.ChildIndices);
+                CollectBindingNames(parentNodes, source, fn.BodyRoot, parentBindings);
                 var visiblePrefix = new List<string>();
                 foreach (var (_, localFn) in fn.LocalFunctions)
                 {
