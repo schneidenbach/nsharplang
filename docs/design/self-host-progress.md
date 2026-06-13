@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — CLI argument kernels drop wrapper-only scalar helpers
+
+`CliArguments.nl` no longer emits single-item raw helper wrappers that had no source, adapter, parity, or
+test callers. Tidy classification/removal, test-filter matching, option-value classification, and build
+remove-option pairing now expose only the stable batch `...Into` entries plus their wrapper-aware core
+helpers.
+
+This keeps the CLI dogfood surface focused on product routes instead of scalar compatibility conveniences.
+
 ## 2026-06-13 — Semantic-scope query internals drop unused raw helper exports
 
 `SemanticScopes.nl` no longer emits raw-array wrappers for internal scope lookup and name-set operations.

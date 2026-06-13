@@ -846,11 +846,6 @@ func CliTidyDependencyStatusRanksCore(
     return packageNames.Names.Length
 }
 
-func CliTidyDependencyStatusRank(packageName: string, importNamespaces: string[]): int {
-    imports := new CliImportNamespaceTable { Namespaces: importNamespaces }
-    return CliTidyDependencyStatusRankCore(packageName, ref imports)
-}
-
 func CliTidyDependencyStatusRankCore(packageName: string, importNamespaces: &CliImportNamespaceTable): int {
     firstDot := packageName.IndexOf('.')
     if firstDot < 0 {
@@ -930,11 +925,6 @@ func CliTidyRemovalLineKeepFlagsCore(
     return lines.Lines.Length
 }
 
-func CliTidyRemovalLineKeepFlag(line: string, packageNames: string[]): int {
-    packages := new CliPackageNameTable { Names: packageNames }
-    return CliTidyRemovalLineKeepFlagCore(line, ref packages)
-}
-
 func CliTidyRemovalLineKeepFlagCore(line: string, packageNames: &CliPackageNameTable): int {
     start := 0
     while start < line.Length && CliTidyIsAsciiWhitespace(line[start]) {
@@ -966,11 +956,6 @@ func CliTidyRemovalLineKeepFlagCore(line: string, packageNames: &CliPackageNameT
 func CliTidyIsAsciiWhitespace(value: char): bool {
     code := (int)value
     return code == 32 || (code >= 9 && code <= 13)
-}
-
-func CliTidyRemovalLineStartsWithAnyPackage(line: string, packageStart: int, packageNames: string[]): bool {
-    packages := new CliPackageNameTable { Names: packageNames }
-    return CliTidyRemovalLineStartsWithAnyPackageCore(line, packageStart, ref packages)
 }
 
 func CliTidyRemovalLineStartsWithAnyPackageCore(
@@ -3142,17 +3127,6 @@ func CliTestFilterMatchIndicesCore(
     return matchedCount
 }
 
-func CliTestFilterMatchesAnyName(
-    filterParts: string[],
-    primaryName: string,
-    secondaryName: string,
-    tertiaryNames: string[],
-    index: int): bool {
-    parts := new CliTestFilterPartTable { Parts: filterParts }
-    tertiaryNameTable := new CliTertiaryNameTable { Names: tertiaryNames }
-    return CliTestFilterMatchesAnyNameCore(ref parts, primaryName, secondaryName, ref tertiaryNameTable, index)
-}
-
 func CliTestFilterMatchesAnyNameCore(
     parts: &CliTestFilterPartTable,
     primaryName: string,
@@ -3311,11 +3285,6 @@ func CliFormatPathCharsEqualAsciiIgnoreCase(left: char, right: char): bool {
     return leftCode == rightCode
 }
 
-func CliArgumentIsOptionWithValue(arg: string, optionsWithValues: string[]): bool {
-    options := new CliOptionValueTable { Options: optionsWithValues }
-    return CliArgumentIsOptionWithValueCore(arg, ref options)
-}
-
 func CliArgumentIsOptionWithValueCore(arg: string, optionsWithValues: &CliOptionValueTable): bool {
     i := 0
     while i < optionsWithValues.Options.Length {
@@ -3327,25 +3296,6 @@ func CliArgumentIsOptionWithValueCore(arg: string, optionsWithValues: &CliOption
     }
 
     return false
-}
-
-func CliBuildRemoveOptionKindPairs(
-    kindIds: int[],
-    nextIndices: int[],
-    previousIndices: int[],
-    nextOptionIndices: int[],
-    optionHead: int,
-    optionKind: int,
-    resultIndices: int[],
-    count: int): int {
-    kinds := new CliBuildArgumentKindTable { Kinds: kindIds }
-    links := new CliBuildArgumentLinkTable {
-        NextIndices: nextIndices,
-        PreviousIndices: previousIndices,
-        NextOptionIndices: nextOptionIndices
-    }
-    results := new CliIndexResultTable { Indices: resultIndices }
-    return CliBuildRemoveOptionKindPairsCore(ref kinds, ref links, optionHead, optionKind, ref results, count)
 }
 
 func CliBuildRemoveOptionKindPairsCore(
