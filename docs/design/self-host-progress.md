@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — Type-reference parser nodes wrapped behind flattened ABI
+
+The parser node-table migration has started with the type-reference kernel. `ParserTypeReferences.nl`
+now has a normal `ParserNodeTable` struct that groups the node kind/value/child/span columns for the
+recursive core, while `ParseTypeReferenceNodesInto` and the cross-file `ParseUnionTypeReferenceNode`
+entry still accept the existing flattened array ABI.
+
+This is intentionally not the experimental `soa record` surface yet. It proves the production
+columnar backend can thread a by-ref table wrapper with array fields through recursive parser code
+without changing host interop, and leaves the expression/statement/declaration node tables as the
+next migration targets.
+
 ## 2026-06-13 — Parser state moved out of magic integer slots
 
 The parser dogfood kernels now thread a named `ParserState` struct by reference instead of a six-slot

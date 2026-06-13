@@ -212,8 +212,9 @@ ownership lands.
    and row-projection IL shape without production routing.
 4. Done: port parser recursion state from `st: int[]` to a small normal `ParserState` struct across the
    type, expression, statement, and function-signature kernels.
-5. Next: port parser node tables in `ParserExpressions.nl`, `ParserStatements.nl`, `ParserTypeReferences.nl`, and
-   `ParserDeclarations.nl`, preserving the flattened ABI at hot call boundaries.
+5. In progress: port parser node tables while preserving the flattened ABI at hot call boundaries. The
+   type-reference recursive core now uses a normal `ParserNodeTable` wrapper over the existing columns;
+   `ParserExpressions.nl`, `ParserStatements.nl`, and `ParserDeclarations.nl` remain on raw parallel arrays.
 6. Port symbol/type/diagnostic tables.
 7. Only after those gates pass, start replacing C# emitter/analyzer internals that still require untyped
    parallel-array plumbing.

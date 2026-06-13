@@ -513,14 +513,14 @@ func ParseEnumDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValueL
 // identifier BASE TYPE / INTERFACE list (`: Base[, IFace...]`) into outBaseNameStarts/Lengths with
 // outResult[8]=baseNameCount (outResult[5]/[6] mirror the first entry for compatibility, 0/0 when absent — the
 // host resolves and validates the names; only classes may model one non-interface base), then `{` (129), then a sequence
-// of FIELDS until `}` (130). Each field is `Identifier : <type-name>` where the type is a SINGLE Identifier token
-// (a builtin like int/double/string, which the lexer tokenizes as an Identifier, kind 0). There is no field
-// separator (newlines are stripped before this runs), so fields are detected by the repeating `name : type`
-// pattern: outFieldNameStarts/Lengths[f] = the field name span, outFieldTypeStarts/Lengths[f] = the field
-// TYPE-name span. Returns the field count (0 is legal for a FIELDLESS type with at least one method/ctor/property),
-// or -1 on any unexpected token — a primary-ctor `(` after the name, a field initializer (`=`), a composed/array/
-// tuple field type (a non-Identifier after `:`), a missing name/colon/brace, or a fully EMPTY body — so the host
-// declines the whole program to the C# path.
+// of FIELDS until `}` (130). Each field is `Identifier : <type>` where the type starts with an Identifier token
+// (a builtin like int/double/string, which the lexer tokenizes as an Identifier, kind 0) and may have a balanced
+// generic suffix plus postfix `[]`, `?`, or `?[]` suffixes. There is no field separator (newlines are stripped
+// before this runs), so fields are detected by the repeating `name : type` pattern: outFieldNameStarts/Lengths[f]
+// = the field name span, outFieldTypeStarts/Lengths[f] = the field TYPE span. Returns the field count (0 is legal
+// for a FIELDLESS type with at least one method/ctor/property), or -1 on any unexpected token — a primary-ctor
+// `(` after the name, a field initializer (`=`), a tuple/function field type, a missing name/colon/brace, or a
+// fully EMPTY body — so the host declines the whole program to the C# path.
 // Also used for RECORD declarations (token 13) and CLASS declarations (token 8): the `record/class Name { fields
 // methods }` body syntax is identical to a struct's, so the same kernel parses all three — the host distinguishes a
 // value-type struct from a reference-type record/class by which keyword index it passed in. Accepts the `struct` (9),
@@ -798,6 +798,25 @@ func ParseStructDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValu
                 }
                 if gdone == 0 {
                     return -1
+                }
+            }
+
+            // Optional postfix type suffixes: `[]`, `?`, and `?[]`. This keeps fields aligned with the
+            // type-reference kernel for the table-wrapper migration while still refusing tuple/function
+            // types and any malformed suffix.
+            suffixDone := 0
+            while suffixDone == 0 && pos < count {
+                if pos + 1 < count && tokenKinds[pos] == 131 && tokenKinds[pos + 1] == 132 {
+                    fieldTypeEnd = tokenStarts[pos + 1] + tokenValueLengths[pos + 1]
+                    pos = pos + 2
+                } else if pos + 1 < count && tokenKinds[pos] == 119 && tokenKinds[pos + 1] == 132 {
+                    fieldTypeEnd = tokenStarts[pos + 1] + tokenValueLengths[pos + 1]
+                    pos = pos + 2
+                } else if tokenKinds[pos] == 115 {
+                    fieldTypeEnd = tokenStarts[pos] + tokenValueLengths[pos]
+                    pos = pos + 1
+                } else {
+                    suffixDone = 1
                 }
             }
             outFieldTypeStarts[fieldCount] = fieldTypeStart

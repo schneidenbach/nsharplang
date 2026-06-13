@@ -3794,6 +3794,25 @@ class B
         // ColumnarCodegen_Parity_MemberWrites: structParam/structParamCopy/paramNested.)
     }
 
+    [Fact]
+    public void ColumnarCodegen_Parity_StructArrayField()
+    {
+        var prog =
+            "struct Table {\n    Values: int[]\n}\n\n" +
+            "func readAt(values: int[], i: int): int {\n    t := new Table { Values: values }\n    return t.Values[i] + t.Values.Length\n}\n\n" +
+            "func writeAt(values: int[], i: int, v: int): int {\n    t := new Table { Values: values }\n    t.Values[i] = v\n    return t.Values[i] + values[i]\n}\n";
+
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("readAt", new object[] { new[] { 4, 7, 9 }, 1 }),
+            ("writeAt", new object[] { new[] { 1, 2, 3 }, 2, 8 }));
+
+        var (ok, asm, _, _) = RouteColumnarProgram(prog);
+        Assert.True(ok);
+        using var loadScope = CollectibleAssemblyScope.Load(asm!);
+        var tableType = loadScope.Assembly.GetType("Table")!;
+        Assert.Equal(typeof(int[]), tableType.GetField("Values")!.FieldType);
+    }
+
     // STRUCT slice 3 — INSTANCE METHODS. A struct method (parameterless, scalar-returning) reads its own fields by
     // BARE name (resolved to `ldarg.0; ldfld` since `this` is arg 0) and is called as `r.area()` (ldloca receiver;
     // call). The struct kernel delimits method spans; the adapter parses each with the SAME func kernels as a
