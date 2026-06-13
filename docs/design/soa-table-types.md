@@ -216,7 +216,9 @@ ownership lands.
    The type-reference recursive core uses a normal `ParserNodeTable` wrapper, the mutually-recursive
    expression/statement cores share `ParserExpressionNodeTable`, and declaration kernels now group their
    import/top-level/member/case output columns behind named table wrappers.
-6. Port symbol/type/diagnostic tables.
+6. In progress: port symbol/type/diagnostic tables. `SemanticScopes.nl` now wraps source-position,
+   parent/symbol-range, sorted-index, symbol-name, depth-output, and name-set scratch columns behind
+   normal table structs while preserving the flattened dogfood adapter ABI.
 7. Only after those gates pass, start replacing C# emitter/analyzer internals that still require untyped
    parallel-array plumbing.
 

@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — Semantic scope symbol tables wrapped
+
+`SemanticScopes.nl` now groups the semantic-scope columns behind named normal structs for source
+positions, parent/symbol ranges, sorted lookup indexes, symbol names, depth output, and name-set
+scratch storage. The C# dogfood adapter still calls the same flattened array entry points, while the
+visible-symbol, lookup, depth, and sorted-index kernels route through wrapper-aware cores.
+
+This starts the post-parser table pass called out in the SoA migration plan. Remaining work in this
+group is the other symbol/type/diagnostic kernels that still pass raw parallel column groups directly
+through their bodies.
+
 ## 2026-06-13 — Declaration parser tables wrapped
 
 `ParserDeclarations.nl` now groups its declaration output columns behind named normal structs at the
