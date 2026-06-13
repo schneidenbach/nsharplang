@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — CLI argument option tables wrapped
+
+`CliArguments.nl` has started its table-wrapper migration. Positional-argument filtering,
+run/watch forwarded arguments, publish option summary parsing, test option summary parsing, lint
+file-argument filtering, and tidy dependency/removal-line classification now route through named
+normal structs for argv inputs, option-value sets, result indexes, project-option value indexes,
+package/import-name batches, status-rank outputs, line batches, and keep-flag outputs.
+
+The public CLI dogfood adapter entry points keep their flattened caller-owned array ABI, while the
+first large CLI argv cluster now uses wrapper-aware core functions internally. Remaining
+`CliArguments.nl` surfaces are still separate slices.
+
 ## 2026-06-13 — Small service tables wrapped
 
 The remaining small compiler-service kernels now use named normal structs for their table-shaped

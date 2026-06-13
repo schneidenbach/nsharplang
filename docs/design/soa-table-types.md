@@ -241,7 +241,11 @@ ownership lands.
    inputs/outputs, indentation stacks, and comment-trivia output tables. The remaining small service
    kernels now wrap formatter safety diagnostics, path matching batches, typo-suggestion scratch and
    result tables, AOT requirement grouping columns, completion receiver/grouping tables, and CLI tree
-   dependency deduplication buffers. These slices preserve the flattened dogfood adapter ABI.
+   dependency deduplication buffers. `CliArguments.nl` has begun its large-file migration by wrapping
+   argv inputs, option-value sets, result indexes, lint project-value indexes, tidy package/import
+   name batches, status-rank outputs, source-line batches, and keep-flag outputs for the positional,
+   run/watch, publish, test, lint, and tidy argument clusters. These slices preserve the flattened
+   dogfood adapter ABI.
 7. Only after those gates pass, start replacing C# emitter/analyzer internals that still require untyped
    parallel-array plumbing.
 

@@ -1,12 +1,58 @@
+struct CliArgumentTable {
+    Args: string[]
+}
+
+struct CliOptionValueTable {
+    Options: string[]
+}
+
+struct CliIndexResultTable {
+    Indices: int[]
+}
+
+struct CliProjectOptionValueIndexTable {
+    Indices: int[]
+}
+
+struct CliPackageNameTable {
+    Names: string[]
+}
+
+struct CliImportNamespaceTable {
+    Namespaces: string[]
+}
+
+struct CliStatusRankResultTable {
+    Ranks: int[]
+}
+
+struct CliLineTable {
+    Lines: string[]
+}
+
+struct CliFlagResultTable {
+    Flags: int[]
+}
+
 func CliPositionalArgIndicesInto(
     args: string[],
     optionsWithValues: string[],
     resultIndices: int[]): int {
+    arguments := new CliArgumentTable { Args: args }
+    options := new CliOptionValueTable { Options: optionsWithValues }
+    results := new CliIndexResultTable { Indices: resultIndices }
+    return CliPositionalArgIndicesCore(ref arguments, ref options, ref results)
+}
+
+func CliPositionalArgIndicesCore(
+    args: &CliArgumentTable,
+    optionsWithValues: &CliOptionValueTable,
+    resultIndices: &CliIndexResultTable): int {
     resultCount := 0
     i := 0
-    while i < args.Length {
-        arg := args[i]
-        if CliArgumentIsOptionWithValue(arg, optionsWithValues) {
+    while i < args.Args.Length {
+        arg := args.Args[i]
+        if CliArgumentIsOptionWithValueCore(arg, ref optionsWithValues) {
             i = i + 2
             continue
         }
@@ -17,8 +63,8 @@ func CliPositionalArgIndicesInto(
         }
 
         if arg.Length == 0 || arg[0] != '-' {
-            if resultCount < resultIndices.Length {
-                resultIndices[resultCount] = i
+            if resultCount < resultIndices.Indices.Length {
+                resultIndices.Indices[resultCount] = i
             }
 
             resultCount = resultCount + 1
@@ -31,10 +77,16 @@ func CliPositionalArgIndicesInto(
 }
 
 func CliFirstPositionalArgIndex(args: string[], optionsWithValues: string[]): int {
+    arguments := new CliArgumentTable { Args: args }
+    options := new CliOptionValueTable { Options: optionsWithValues }
+    return CliFirstPositionalArgIndexCore(ref arguments, ref options)
+}
+
+func CliFirstPositionalArgIndexCore(args: &CliArgumentTable, optionsWithValues: &CliOptionValueTable): int {
     i := 0
-    while i < args.Length {
-        arg := args[i]
-        if CliArgumentIsOptionWithValue(arg, optionsWithValues) {
+    while i < args.Args.Length {
+        arg := args.Args[i]
+        if CliArgumentIsOptionWithValueCore(arg, ref optionsWithValues) {
             i = i + 2
             continue
         }
@@ -55,9 +107,14 @@ func CliFirstPositionalArgIndex(args: string[], optionsWithValues: string[]): in
 }
 
 func CliRunFirstOperandIndex(args: string[]): int {
+    arguments := new CliArgumentTable { Args: args }
+    return CliRunFirstOperandIndexCore(ref arguments)
+}
+
+func CliRunFirstOperandIndexCore(args: &CliArgumentTable): int {
     i := 0
-    while i < args.Length {
-        if args[i] == "--backend" && i + 1 < args.Length {
+    while i < args.Args.Length {
+        if args.Args[i] == "--backend" && i + 1 < args.Args.Length {
             i = i + 2
             continue
         }
@@ -69,11 +126,17 @@ func CliRunFirstOperandIndex(args: string[]): int {
 }
 
 func CliWatchForwardedArgIndicesInto(args: string[], resultIndices: int[]): int {
+    arguments := new CliArgumentTable { Args: args }
+    results := new CliIndexResultTable { Indices: resultIndices }
+    return CliWatchForwardedArgIndicesCore(ref arguments, ref results)
+}
+
+func CliWatchForwardedArgIndicesCore(args: &CliArgumentTable, resultIndices: &CliIndexResultTable): int {
     resultCount := 0
     i := 1
 
-    while i < args.Length {
-        arg := args[i]
+    while i < args.Args.Length {
+        arg := args.Args[i]
         if CliWatchArgumentIsOptionWithValue(arg) {
             i = i + 2
             continue
@@ -84,8 +147,8 @@ func CliWatchForwardedArgIndicesInto(args: string[], resultIndices: int[]): int 
             continue
         }
 
-        if resultCount < resultIndices.Length {
-            resultIndices[resultCount] = i
+        if resultCount < resultIndices.Indices.Length {
+            resultIndices.Indices[resultCount] = i
         }
 
         resultCount = resultCount + 1
@@ -100,18 +163,24 @@ func CliWatchArgumentIsOptionWithValue(arg: string): bool {
 }
 
 func CliPublishOptionsInto(args: string[], resultIndices: int[]): int {
-    if resultIndices.Length < 8 {
+    arguments := new CliArgumentTable { Args: args }
+    results := new CliIndexResultTable { Indices: resultIndices }
+    return CliPublishOptionsCore(ref arguments, ref results)
+}
+
+func CliPublishOptionsCore(args: &CliArgumentTable, resultIndices: &CliIndexResultTable): int {
+    if resultIndices.Indices.Length < 8 {
         return -1
     }
 
-    resultIndices[0] = -1
-    resultIndices[1] = -1
-    resultIndices[2] = -1
-    resultIndices[3] = -1
-    resultIndices[4] = -1
-    resultIndices[5] = 0
-    resultIndices[6] = 0
-    resultIndices[7] = -1
+    resultIndices.Indices[0] = -1
+    resultIndices.Indices[1] = -1
+    resultIndices.Indices[2] = -1
+    resultIndices.Indices[3] = -1
+    resultIndices.Indices[4] = -1
+    resultIndices.Indices[5] = 0
+    resultIndices.Indices[6] = 0
+    resultIndices.Indices[7] = -1
 
     configurationLongIndex := -1
     configurationShortIndex := -1
@@ -121,29 +190,29 @@ func CliPublishOptionsInto(args: string[], resultIndices: int[]): int {
     runtimeShortIndex := -1
 
     i := 0
-    while i < args.Length {
-        arg := args[i]
+    while i < args.Args.Length {
+        arg := args.Args[i]
         kind := CliPublishArgumentKind(arg)
         if kind >= 1 && kind <= 8 {
-            if i + 1 >= args.Length {
-                resultIndices[7] = i
+            if i + 1 >= args.Args.Length {
+                resultIndices.Indices[7] = i
                 return 1
             }
 
-            value := args[i + 1]
+            value := args.Args[i + 1]
             if value.Length > 0 && value[0] == '-' {
-                resultIndices[7] = i
+                resultIndices.Indices[7] = i
                 return 1
             }
 
             valueIndex := i + 1
             if kind == 1 {
-                if resultIndices[0] < 0 {
-                    resultIndices[0] = valueIndex
+                if resultIndices.Indices[0] < 0 {
+                    resultIndices.Indices[0] = valueIndex
                 }
             } else if kind == 2 {
-                if resultIndices[1] < 0 {
-                    resultIndices[1] = valueIndex
+                if resultIndices.Indices[1] < 0 {
+                    resultIndices.Indices[1] = valueIndex
                 }
             } else if kind == 3 {
                 if configurationLongIndex < 0 {
@@ -176,23 +245,23 @@ func CliPublishOptionsInto(args: string[], resultIndices: int[]): int {
         }
 
         if kind == 9 {
-            resultIndices[5] = 1
+            resultIndices.Indices[5] = 1
             i = i + 1
             continue
         }
 
         if kind == 10 {
-            resultIndices[6] = 1
+            resultIndices.Indices[6] = 1
             i = i + 1
             continue
         }
 
         if kind == 11 {
-            resultIndices[7] = i
+            resultIndices.Indices[7] = i
             return 2
         }
 
-        resultIndices[7] = i
+        resultIndices.Indices[7] = i
         if arg.Length > 0 && arg[0] == '-' {
             return 3
         }
@@ -201,21 +270,21 @@ func CliPublishOptionsInto(args: string[], resultIndices: int[]): int {
     }
 
     if configurationLongIndex >= 0 {
-        resultIndices[2] = configurationLongIndex
+        resultIndices.Indices[2] = configurationLongIndex
     } else {
-        resultIndices[2] = configurationShortIndex
+        resultIndices.Indices[2] = configurationShortIndex
     }
 
     if outputLongIndex >= 0 {
-        resultIndices[3] = outputLongIndex
+        resultIndices.Indices[3] = outputLongIndex
     } else {
-        resultIndices[3] = outputShortIndex
+        resultIndices.Indices[3] = outputShortIndex
     }
 
     if runtimeLongIndex >= 0 {
-        resultIndices[4] = runtimeLongIndex
+        resultIndices.Indices[4] = runtimeLongIndex
     } else {
-        resultIndices[4] = runtimeShortIndex
+        resultIndices.Indices[4] = runtimeShortIndex
     }
 
     return 0
@@ -378,24 +447,30 @@ func CliPublishArgumentKind(arg: string): int {
 }
 
 func CliTestOptionSummaryInto(args: string[], resultIndices: int[]): int {
-    if resultIndices.Length < 10 {
+    arguments := new CliArgumentTable { Args: args }
+    results := new CliIndexResultTable { Indices: resultIndices }
+    return CliTestOptionSummaryCore(ref arguments, ref results)
+}
+
+func CliTestOptionSummaryCore(args: &CliArgumentTable, resultIndices: &CliIndexResultTable): int {
+    if resultIndices.Indices.Length < 10 {
         return -1
     }
 
-    resultIndices[0] = -1
-    resultIndices[1] = -1
-    resultIndices[2] = -1
-    resultIndices[3] = -1
-    resultIndices[4] = 0
-    resultIndices[5] = 0
-    resultIndices[6] = 0
-    resultIndices[7] = 0
-    resultIndices[8] = 0
-    resultIndices[9] = 0
+    resultIndices.Indices[0] = -1
+    resultIndices.Indices[1] = -1
+    resultIndices.Indices[2] = -1
+    resultIndices.Indices[3] = -1
+    resultIndices.Indices[4] = 0
+    resultIndices.Indices[5] = 0
+    resultIndices.Indices[6] = 0
+    resultIndices.Indices[7] = 0
+    resultIndices.Indices[8] = 0
+    resultIndices.Indices[9] = 0
 
     i := 0
-    while i < args.Length {
-        arg := args[i]
+    while i < args.Args.Length {
+        arg := args.Args[i]
         length := arg.Length
         kind := 0
         if length == 2 {
@@ -512,33 +587,33 @@ func CliTestOptionSummaryInto(args: string[], resultIndices: int[]): int {
         }
 
         if kind == 1 || (i == 0 && kind == 2) {
-            resultIndices[9] = 1
+            resultIndices.Indices[9] = 1
         } else if kind == 3 {
-            if resultIndices[0] < 0 && i + 1 < args.Length {
-                resultIndices[0] = i + 1
+            if resultIndices.Indices[0] < 0 && i + 1 < args.Args.Length {
+                resultIndices.Indices[0] = i + 1
             }
         } else if kind == 4 {
-            if resultIndices[1] < 0 && i + 1 < args.Length {
-                resultIndices[1] = i + 1
+            if resultIndices.Indices[1] < 0 && i + 1 < args.Args.Length {
+                resultIndices.Indices[1] = i + 1
             }
         } else if kind == 5 {
-            if resultIndices[2] < 0 && i + 1 < args.Length {
-                resultIndices[2] = i + 1
+            if resultIndices.Indices[2] < 0 && i + 1 < args.Args.Length {
+                resultIndices.Indices[2] = i + 1
             }
         } else if kind == 6 {
-            if resultIndices[3] < 0 && i + 1 < args.Length {
-                resultIndices[3] = i + 1
+            if resultIndices.Indices[3] < 0 && i + 1 < args.Args.Length {
+                resultIndices.Indices[3] = i + 1
             }
         } else if kind == 7 {
-            resultIndices[4] = 1
+            resultIndices.Indices[4] = 1
         } else if kind == 8 {
-            resultIndices[5] = 1
+            resultIndices.Indices[5] = 1
         } else if kind == 9 {
-            resultIndices[6] = 1
+            resultIndices.Indices[6] = 1
         } else if kind == 10 {
-            resultIndices[7] = 1
+            resultIndices.Indices[7] = 1
         } else if kind == 11 {
-            resultIndices[8] = 1
+            resultIndices.Indices[8] = 1
         }
 
         i = i + 1
@@ -551,15 +626,25 @@ func CliLintFileArgIndicesInto(
     args: string[],
     projectValueIndices: int[],
     resultIndices: int[]): int {
-    if projectValueIndices.Length < args.Length || resultIndices.Length < args.Length {
+    arguments := new CliArgumentTable { Args: args }
+    projectValues := new CliProjectOptionValueIndexTable { Indices: projectValueIndices }
+    results := new CliIndexResultTable { Indices: resultIndices }
+    return CliLintFileArgIndicesCore(ref arguments, ref projectValues, ref results)
+}
+
+func CliLintFileArgIndicesCore(
+    args: &CliArgumentTable,
+    projectValueIndices: &CliProjectOptionValueIndexTable,
+    resultIndices: &CliIndexResultTable): int {
+    if projectValueIndices.Indices.Length < args.Args.Length || resultIndices.Indices.Length < args.Args.Length {
         return -1
     }
 
     projectValueCount := 0
     i := 0
-    while i < args.Length - 1 {
-        if args[i] == "--project" {
-            projectValueIndices[projectValueCount] = i + 1
+    while i < args.Args.Length - 1 {
+        if args.Args[i] == "--project" {
+            projectValueIndices.Indices[projectValueCount] = i + 1
             projectValueCount = projectValueCount + 1
             i = i + 2
             continue
@@ -570,8 +655,8 @@ func CliLintFileArgIndicesInto(
 
     resultCount := 0
     i = 0
-    while i < args.Length {
-        arg := args[i]
+    while i < args.Args.Length {
+        arg := args.Args[i]
         if arg == "help" {
             i = i + 1
             continue
@@ -582,12 +667,12 @@ func CliLintFileArgIndicesInto(
             continue
         }
 
-        if CliLintIsProjectOptionValue(args, projectValueIndices, projectValueCount, arg) {
+        if CliLintIsProjectOptionValueCore(ref args, ref projectValueIndices, projectValueCount, arg) {
             i = i + 1
             continue
         }
 
-        resultIndices[resultCount] = i
+        resultIndices.Indices[resultCount] = i
         resultCount = resultCount + 1
         i = i + 1
     }
@@ -600,10 +685,20 @@ func CliLintIsProjectOptionValue(
     projectValueIndices: int[],
     projectValueCount: int,
     value: string): bool {
+    arguments := new CliArgumentTable { Args: args }
+    projectValues := new CliProjectOptionValueIndexTable { Indices: projectValueIndices }
+    return CliLintIsProjectOptionValueCore(ref arguments, ref projectValues, projectValueCount, value)
+}
+
+func CliLintIsProjectOptionValueCore(
+    args: &CliArgumentTable,
+    projectValueIndices: &CliProjectOptionValueIndexTable,
+    projectValueCount: int,
+    value: string): bool {
     i := 0
     while i < projectValueCount {
-        valueIndex := projectValueIndices[i]
-        if valueIndex >= 0 && valueIndex < args.Length && args[valueIndex] == value {
+        valueIndex := projectValueIndices.Indices[i]
+        if valueIndex >= 0 && valueIndex < args.Args.Length && args.Args[valueIndex] == value {
             return true
         }
 
@@ -617,28 +712,43 @@ func CliTidyDependencyStatusRanksInto(
     packageNames: string[],
     importNamespaces: string[],
     resultStatusRanks: int[]): int {
-    if resultStatusRanks.Length < packageNames.Length {
+    packages := new CliPackageNameTable { Names: packageNames }
+    imports := new CliImportNamespaceTable { Namespaces: importNamespaces }
+    results := new CliStatusRankResultTable { Ranks: resultStatusRanks }
+    return CliTidyDependencyStatusRanksCore(ref packages, ref imports, ref results)
+}
+
+func CliTidyDependencyStatusRanksCore(
+    packageNames: &CliPackageNameTable,
+    importNamespaces: &CliImportNamespaceTable,
+    resultStatusRanks: &CliStatusRankResultTable): int {
+    if resultStatusRanks.Ranks.Length < packageNames.Names.Length {
         return -1
     }
 
     i := 0
-    while i < packageNames.Length {
-        resultStatusRanks[i] = CliTidyDependencyStatusRank(packageNames[i], importNamespaces)
+    while i < packageNames.Names.Length {
+        resultStatusRanks.Ranks[i] = CliTidyDependencyStatusRankCore(packageNames.Names[i], ref importNamespaces)
         i = i + 1
     }
 
-    return packageNames.Length
+    return packageNames.Names.Length
 }
 
 func CliTidyDependencyStatusRank(packageName: string, importNamespaces: string[]): int {
+    imports := new CliImportNamespaceTable { Namespaces: importNamespaces }
+    return CliTidyDependencyStatusRankCore(packageName, ref imports)
+}
+
+func CliTidyDependencyStatusRankCore(packageName: string, importNamespaces: &CliImportNamespaceTable): int {
     firstDot := packageName.IndexOf('.')
     if firstDot < 0 {
         return 3
     }
 
     i := 0
-    while i < importNamespaces.Length {
-        namespaceName := importNamespaces[i]
+    while i < importNamespaces.Namespaces.Length {
+        namespaceName := importNamespaces.Namespaces[i]
         if CliTidyNamespaceMatchesPrefix(namespaceName, packageName, firstDot) {
             return 2
         }
@@ -686,20 +796,35 @@ func CliTidyCharsEqualAsciiIgnoreCase(left: char, right: char): bool {
 }
 
 func CliTidyRemovalLineKeepFlagsInto(lines: string[], packageNames: string[], resultFlags: int[]): int {
-    if resultFlags.Length < lines.Length {
+    sourceLines := new CliLineTable { Lines: lines }
+    packages := new CliPackageNameTable { Names: packageNames }
+    results := new CliFlagResultTable { Flags: resultFlags }
+    return CliTidyRemovalLineKeepFlagsCore(ref sourceLines, ref packages, ref results)
+}
+
+func CliTidyRemovalLineKeepFlagsCore(
+    lines: &CliLineTable,
+    packageNames: &CliPackageNameTable,
+    resultFlags: &CliFlagResultTable): int {
+    if resultFlags.Flags.Length < lines.Lines.Length {
         return -1
     }
 
     i := 0
-    while i < lines.Length {
-        resultFlags[i] = CliTidyRemovalLineKeepFlag(lines[i], packageNames)
+    while i < lines.Lines.Length {
+        resultFlags.Flags[i] = CliTidyRemovalLineKeepFlagCore(lines.Lines[i], ref packageNames)
         i = i + 1
     }
 
-    return lines.Length
+    return lines.Lines.Length
 }
 
 func CliTidyRemovalLineKeepFlag(line: string, packageNames: string[]): int {
+    packages := new CliPackageNameTable { Names: packageNames }
+    return CliTidyRemovalLineKeepFlagCore(line, ref packages)
+}
+
+func CliTidyRemovalLineKeepFlagCore(line: string, packageNames: &CliPackageNameTable): int {
     start := 0
     while start < line.Length && CliTidyIsAsciiWhitespace(line[start]) {
         start = start + 1
@@ -709,7 +834,7 @@ func CliTidyRemovalLineKeepFlag(line: string, packageNames: string[]): int {
         return 1
     }
 
-    if CliTidyRemovalLineStartsWithAnyPackage(line, start + 2, packageNames) {
+    if CliTidyRemovalLineStartsWithAnyPackageCore(line, start + 2, ref packageNames) {
         return 0
     }
 
@@ -717,7 +842,7 @@ func CliTidyRemovalLineKeepFlag(line: string, packageNames: string[]): int {
     markerStart := start
     while markerStart <= markerLimit {
         if CliTidyRemovalLineHasNugetMarkerAt(line, markerStart)
-            && CliTidyRemovalLineStartsWithAnyPackage(line, markerStart + 7, packageNames) {
+            && CliTidyRemovalLineStartsWithAnyPackageCore(line, markerStart + 7, ref packageNames) {
             return 0
         }
 
@@ -733,9 +858,17 @@ func CliTidyIsAsciiWhitespace(value: char): bool {
 }
 
 func CliTidyRemovalLineStartsWithAnyPackage(line: string, packageStart: int, packageNames: string[]): bool {
+    packages := new CliPackageNameTable { Names: packageNames }
+    return CliTidyRemovalLineStartsWithAnyPackageCore(line, packageStart, ref packages)
+}
+
+func CliTidyRemovalLineStartsWithAnyPackageCore(
+    line: string,
+    packageStart: int,
+    packageNames: &CliPackageNameTable): bool {
     i := 0
-    while i < packageNames.Length {
-        if CliTidyRemovalLineStartsWithPackage(line, packageStart, packageNames[i]) {
+    while i < packageNames.Names.Length {
+        if CliTidyRemovalLineStartsWithPackage(line, packageStart, packageNames.Names[i]) {
             return true
         }
 
@@ -2792,9 +2925,14 @@ func CliFormatPathCharsEqualAsciiIgnoreCase(left: char, right: char): bool {
 }
 
 func CliArgumentIsOptionWithValue(arg: string, optionsWithValues: string[]): bool {
+    options := new CliOptionValueTable { Options: optionsWithValues }
+    return CliArgumentIsOptionWithValueCore(arg, ref options)
+}
+
+func CliArgumentIsOptionWithValueCore(arg: string, optionsWithValues: &CliOptionValueTable): bool {
     i := 0
-    while i < optionsWithValues.Length {
-        if arg == optionsWithValues[i] {
+    while i < optionsWithValues.Options.Length {
+        if arg == optionsWithValues.Options[i] {
             return true
         }
 
