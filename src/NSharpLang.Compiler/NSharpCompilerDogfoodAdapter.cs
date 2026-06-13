@@ -304,23 +304,19 @@ internal static class NSharpCompilerDogfoodAdapter
 
         try
         {
-            var capacity = 3 * (source.Length + 1) + 8;
-            var rawKinds = new int[capacity];
-            var rawStarts = new int[capacity];
-            var rawValueLengths = new int[capacity];
-            var rawLines = new int[capacity];
-            var rawColumns = new int[capacity];
-            var rawCount = bindings.TokenizeMetadataWithIndentation(
-                source, rawKinds, rawStarts, rawValueLengths, rawLines, rawColumns);
-            if (rawCount < 0 || rawCount > capacity)
+            if (!TryTokenizeColumnarSource(bindings, source, out var tokens))
                 return false;
 
             if (!TryGetTopLevelFunctionDeclarationIndices(
-                    bindings, source, rawKinds, rawStarts, rawValueLengths, rawCount,
+                    source, tokens,
                     out var declCount, out var functionDeclarationIndices))
                 return false;
 
             // All top-level function names, pre-declared (forward references resolve).
+            var rawKinds = tokens.RawKinds;
+            var rawStarts = tokens.RawStarts;
+            var rawValueLengths = tokens.RawValueLengths;
+            var rawCount = tokens.RawCount;
             var nameKinds = new int[rawCount + 1];
             var nameStarts = new int[rawCount + 1];
             var nameLengths = new int[rawCount + 1];
@@ -335,19 +331,10 @@ internal static class NSharpCompilerDogfoodAdapter
                     functionNames.Add(source.Substring(nameStarts[i], nameLengths[i]));
             }
 
-            var ck = new int[rawCount];
-            var cs = new int[rawCount];
-            var cv = new int[rawCount];
-            var n = 0;
-            for (var i = 0; i < rawCount; i++)
-            {
-                if (rawKinds[i] == 136)
-                    continue;
-                ck[n] = rawKinds[i];
-                cs[n] = rawStarts[i];
-                cv[n] = rawValueLengths[i];
-                n++;
-            }
+            var ck = tokens.Kinds;
+            var cs = tokens.Starts;
+            var cv = tokens.ValueLengths;
+            var n = tokens.Count;
 
             var funcIndices = TopLevelFuncIndices(ck, n);
             if (funcIndices.Count != functionDeclarationIndices.Count)

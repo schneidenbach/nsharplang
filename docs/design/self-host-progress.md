@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — Columnar name resolution reuses tokenized source inputs
+
+The Stage 2 top-level function name-resolution parity pass now consumes the shared
+`ColumnarTokenizedSource` bundle instead of owning another local tokenize/compact sequence. Raw
+token columns still feed the declaration-name span kernel, while compacted columns feed signature
+and body parsing.
+
+Name-resolution parity remains the correctness gate. This keeps another columnar stage on the same
+source-input contract as program collection and symbol building.
+
 ## 2026-06-13 — Columnar symbol pass reuses tokenized source inputs
 
 The Stage 1 top-level function symbol builder now consumes the same `ColumnarTokenizedSource`
