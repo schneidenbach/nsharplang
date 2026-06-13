@@ -29,12 +29,7 @@ public readonly record struct ColumnarFunctionReturnSignature(
 /// </summary>
 public sealed class ColumnarTypeInferer
 {
-    private readonly int[] _kinds;
-    private readonly int[] _valueStarts;
-    private readonly int[] _valueLengths;
-    private readonly int[] _childStart;
-    private readonly int[] _childCount;
-    private readonly int[] _childIndices;
+    private readonly ColumnarNodeTable _nodes;
     private readonly string _source;
     private readonly Dictionary<string, string> _parameterTypes;
     private readonly Dictionary<string, List<ColumnarFunctionReturnSignature>> _functionReturnTypes;
@@ -48,12 +43,7 @@ public sealed class ColumnarTypeInferer
         Dictionary<string, string> parameterTypes,
         Dictionary<string, List<ColumnarFunctionReturnSignature>> functionReturnTypes)
     {
-        _kinds = kinds;
-        _valueStarts = valueStarts;
-        _valueLengths = valueLengths;
-        _childStart = childStart;
-        _childCount = childCount;
-        _childIndices = childIndices;
+        _nodes = new ColumnarNodeTable(kinds, valueStarts, valueLengths, childStart, childCount, childIndices);
         _source = source;
         _parameterTypes = parameterTypes;
         _functionReturnTypes = functionReturnTypes;
@@ -70,17 +60,17 @@ public sealed class ColumnarTypeInferer
 
     private void InferStatement(int idx)
     {
-        switch (_kinds[idx])
+        switch (_nodes.Kind(idx))
         {
             case 25: // Block
                 _localScopes.Add(new Dictionary<string, string>(System.StringComparer.Ordinal));
-                for (var n = 0; n < _childCount[idx]; n++)
+                for (var n = 0; n < _nodes.ChildCount(idx); n++)
                     InferStatement(Child(idx, n));
                 _localScopes.RemoveAt(_localScopes.Count - 1);
                 break;
             case 24: // VariableDeclaration (:=): the local's type IS its initializer's inferred type.
             {
-                var t = _childCount[idx] > 0 ? InferExpression(Child(idx, 0)) : ColumnarTypeLattice.External;
+                var t = _nodes.ChildCount(idx) > 0 ? InferExpression(Child(idx, 0)) : ColumnarTypeLattice.External;
                 DeclareLocal(Text(idx), t);
                 break;
             }
@@ -91,11 +81,11 @@ public sealed class ColumnarTypeInferer
             case 27: // If [condition, then, else?]
                 InferExpression(Child(idx, 0));
                 InferStatement(Child(idx, 1));
-                if (_childCount[idx] > 2)
+                if (_nodes.ChildCount(idx) > 2)
                     InferStatement(Child(idx, 2));
                 break;
             case 20: // Return [value?]
-                if (_childCount[idx] > 0)
+                if (_nodes.ChildCount(idx) > 0)
                     InferExpression(Child(idx, 0));
                 break;
             case 23: // ExpressionStatement [expr]
@@ -108,11 +98,11 @@ public sealed class ColumnarTypeInferer
     // Returns the inferred type AND appends it to _types after its children (post-order).
     private string InferExpression(int idx)
     {
-        if (_kinds[idx] == 54) // RefOutArgument [value] — no extra AST expression in the C# oracle.
+        if (_nodes.Kind(idx) == 54) // RefOutArgument [value] — no extra AST expression in the C# oracle.
             return InferExpression(Child(idx, 0));
 
         string t;
-        switch (_kinds[idx])
+        switch (_nodes.Kind(idx))
         {
             case 0: t = ColumnarTypeLattice.LiteralIntType(Text(idx)); break;
             case 1: t = ColumnarTypeLattice.LiteralFloatType(Text(idx)); break;
@@ -130,8 +120,8 @@ public sealed class ColumnarTypeInferer
             {
                 var calleeIdx = Child(idx, 0);
                 InferExpression(calleeIdx);
-                var argTypes = new string[_childCount[idx] - 1];
-                for (var n = 1; n < _childCount[idx]; n++)
+                var argTypes = new string[_nodes.ChildCount(idx) - 1];
+                for (var n = 1; n < _nodes.ChildCount(idx); n++)
                     argTypes[n - 1] = InferExpression(Child(idx, n));
                 t = CallReturnType(calleeIdx, argTypes);
                 break;
@@ -172,7 +162,7 @@ public sealed class ColumnarTypeInferer
                 break;
             }
             case 15: // New [type, args...]: result is the constructed type; args are inferred.
-                for (var n = 1; n < _childCount[idx]; n++)
+                for (var n = 1; n < _nodes.ChildCount(idx); n++)
                     InferExpression(Child(idx, n));
                 t = CanonType(Child(idx, 0));
                 break;
@@ -206,7 +196,7 @@ public sealed class ColumnarTypeInferer
 
     private string CallReturnType(int calleeIdx, string[] argTypes)
     {
-        if (_kinds[calleeIdx] != 6 || !_functionReturnTypes.TryGetValue(Text(calleeIdx), out var overloads))
+        if (_nodes.Kind(calleeIdx) != 6 || !_functionReturnTypes.TryGetValue(Text(calleeIdx), out var overloads))
             return ColumnarTypeLattice.External;
 
         if (overloads.Count == 1)
@@ -246,7 +236,7 @@ public sealed class ColumnarTypeInferer
     // 4 Union,5 ByRef) — matches ColumnarFunctionSymbol.CanonicalType exactly.
     private string CanonType(int idx)
     {
-        switch (_kinds[idx])
+        switch (_nodes.Kind(idx))
         {
             case 0:
                 return Text(idx);
@@ -254,7 +244,7 @@ public sealed class ColumnarTypeInferer
             {
                 var sb = new System.Text.StringBuilder();
                 sb.Append(Text(idx)).Append('<');
-                for (var k = 0; k < _childCount[idx]; k++)
+                for (var k = 0; k < _nodes.ChildCount(idx); k++)
                 {
                     if (k > 0) sb.Append(',');
                     sb.Append(CanonType(Child(idx, k)));
@@ -268,7 +258,7 @@ public sealed class ColumnarTypeInferer
             case 4:
             {
                 var sb = new System.Text.StringBuilder();
-                for (var k = 0; k < _childCount[idx]; k++)
+                for (var k = 0; k < _nodes.ChildCount(idx); k++)
                 {
                     if (k > 0) sb.Append('|');
                     sb.Append(CanonType(Child(idx, k)));
@@ -288,7 +278,7 @@ public sealed class ColumnarTypeInferer
         _localScopes[_localScopes.Count - 1][name] = type;
     }
 
-    private int Child(int idx, int n) => _childIndices[_childStart[idx] + n];
+    private int Child(int idx, int n) => _nodes.Child(idx, n);
 
-    private string Text(int idx) => _source.Substring(_valueStarts[idx], _valueLengths[idx]);
+    private string Text(int idx) => _nodes.Text(_source, idx);
 }

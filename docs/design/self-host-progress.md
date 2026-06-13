@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — Columnar analyzer node table view introduced
+
+`ColumnarTypeInferer` and `ColumnarDiagnosticsPass` now share a named `ColumnarNodeTable` view for
+node kind, value-span, child-run, child-index, and diagnostic span columns. Their public constructor
+shape remains unchanged for the current C# transition boundary, but the implementation no longer
+carries the columnar node forest as six or seven anonymous parallel-array fields.
+
+This is a representation-cleanup slice, not a production routing or benchmark claim: no adapter was
+removed and bootstrap coverage is unchanged. It narrows the C# analyzer scaffolding that still
+stands between the N# parser tables and a fully N#-owned analyzer/binder pipeline.
+
 ## 2026-06-13 — Parser declaration result slots wrapped
 
 `ParserDeclarations.nl` now also routes declaration-parser scalar result slots through

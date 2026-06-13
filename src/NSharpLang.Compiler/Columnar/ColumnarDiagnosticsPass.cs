@@ -22,13 +22,7 @@ namespace NSharpLang.Compiler.Columnar;
 /// </summary>
 public sealed class ColumnarDiagnosticsPass
 {
-    private readonly int[] _kinds;
-    private readonly int[] _valueStarts;
-    private readonly int[] _valueLengths;
-    private readonly int[] _childStart;
-    private readonly int[] _childCount;
-    private readonly int[] _childIndices;
-    private readonly int[] _spanStarts;
+    private readonly ColumnarNodeTable _nodes;
     private readonly string _source;
     private readonly System.Func<int, (int Line, int Column)> _positionOf;
 
@@ -37,13 +31,8 @@ public sealed class ColumnarDiagnosticsPass
         int[] childStart, int[] childCount, int[] childIndices, int[] spanStarts, string source,
         System.Func<int, (int Line, int Column)> positionOf)
     {
-        _kinds = kinds;
-        _valueStarts = valueStarts;
-        _valueLengths = valueLengths;
-        _childStart = childStart;
-        _childCount = childCount;
-        _childIndices = childIndices;
-        _spanStarts = spanStarts;
+        _nodes = new ColumnarNodeTable(
+            kinds, valueStarts, valueLengths, childStart, childCount, childIndices, spanStarts);
         _source = source;
         _positionOf = positionOf;
     }
@@ -86,17 +75,17 @@ public sealed class ColumnarDiagnosticsPass
     /// </summary>
     private void CollectUnreachable(int idx, List<string> diagnostics)
     {
-        switch (_kinds[idx])
+        switch (_nodes.Kind(idx))
         {
             case 25: // Block — the statement list where unreachable detection happens.
             {
                 var terminated = false;
-                for (var n = 0; n < _childCount[idx]; n++)
+                for (var n = 0; n < _nodes.ChildCount(idx); n++)
                 {
                     var child = Child(idx, n);
                     if (terminated)
                     {
-                        var (line, column) = _positionOf(_spanStarts[child]);
+                        var (line, column) = _positionOf(_nodes.SpanStart(child));
                         diagnostics.Add("unreachable@" + line + ":" + column);
                         break;
                     }
@@ -116,7 +105,7 @@ public sealed class ColumnarDiagnosticsPass
 
             case 27: // If [condition, then, else?] — recurse into both branches.
                 CollectUnreachable(Child(idx, 1), diagnostics);
-                if (_childCount[idx] > 2)
+                if (_nodes.ChildCount(idx) > 2)
                     CollectUnreachable(Child(idx, 2), diagnostics);
                 break;
 
@@ -124,13 +113,13 @@ public sealed class ColumnarDiagnosticsPass
                 // block (each clause is a kind-50 CatchClause whose block is its LAST child), and the
                 // optional trailing kind-25 finally block.
                 CollectUnreachable(Child(idx, 0), diagnostics);
-                for (var n = 1; n < _childCount[idx]; n++)
+                for (var n = 1; n < _nodes.ChildCount(idx); n++)
                 {
                     var clause = Child(idx, n);
-                    if (_kinds[clause] == 25)
+                    if (_nodes.Kind(clause) == 25)
                         CollectUnreachable(clause, diagnostics);
                     else
-                        CollectUnreachable(Child(clause, _childCount[clause] - 1), diagnostics);
+                        CollectUnreachable(Child(clause, _nodes.ChildCount(clause) - 1), diagnostics);
                 }
 
                 break;
@@ -152,7 +141,7 @@ public sealed class ColumnarDiagnosticsPass
     /// </summary>
     private void CollectFinallyTransfers(int idx, int finallyDepth, int breakTargetDepth, int continueTargetDepth, List<string> diagnostics)
     {
-        switch (_kinds[idx])
+        switch (_nodes.Kind(idx))
         {
             case 20: // Return — illegal anywhere inside a finally (depth, not immediate-parent: a return
                      // inside a try/lock nested in the finally still leaves it).
@@ -171,7 +160,7 @@ public sealed class ColumnarDiagnosticsPass
                 break;
 
             case 25: // Block — recurse the statement list.
-                for (var n = 0; n < _childCount[idx]; n++)
+                for (var n = 0; n < _nodes.ChildCount(idx); n++)
                     CollectFinallyTransfers(Child(idx, n), finallyDepth, breakTargetDepth, continueTargetDepth, diagnostics);
                 break;
 
@@ -186,7 +175,7 @@ public sealed class ColumnarDiagnosticsPass
 
             case 27: // If [condition, then, else?] — recurse both branches.
                 CollectFinallyTransfers(Child(idx, 1), finallyDepth, breakTargetDepth, continueTargetDepth, diagnostics);
-                if (_childCount[idx] > 2)
+                if (_nodes.ChildCount(idx) > 2)
                     CollectFinallyTransfers(Child(idx, 2), finallyDepth, breakTargetDepth, continueTargetDepth, diagnostics);
                 break;
 
@@ -201,13 +190,13 @@ public sealed class ColumnarDiagnosticsPass
             case 49: // Try [tryBlock, catch1..catchN, finally?] — the trailing kind-25 child is the finally:
                 // its statements walk at depth + 1; the try block and catch blocks keep the current depth.
                 CollectFinallyTransfers(Child(idx, 0), finallyDepth, breakTargetDepth, continueTargetDepth, diagnostics);
-                for (var n = 1; n < _childCount[idx]; n++)
+                for (var n = 1; n < _nodes.ChildCount(idx); n++)
                 {
                     var clause = Child(idx, n);
-                    if (_kinds[clause] == 25)
+                    if (_nodes.Kind(clause) == 25)
                         CollectFinallyTransfers(clause, finallyDepth + 1, breakTargetDepth, continueTargetDepth, diagnostics);
                     else
-                        CollectFinallyTransfers(Child(clause, _childCount[clause] - 1), finallyDepth, breakTargetDepth, continueTargetDepth, diagnostics);
+                        CollectFinallyTransfers(Child(clause, _nodes.ChildCount(clause) - 1), finallyDepth, breakTargetDepth, continueTargetDepth, diagnostics);
                 }
 
                 break;
@@ -219,7 +208,7 @@ public sealed class ColumnarDiagnosticsPass
 
     private void AddFinallyTransfer(int idx, List<string> diagnostics)
     {
-        var (line, column) = _positionOf(_spanStarts[idx]);
+        var (line, column) = _positionOf(_nodes.SpanStart(idx));
         diagnostics.Add("finally-transfer@" + line + ":" + column);
     }
 
@@ -232,7 +221,7 @@ public sealed class ColumnarDiagnosticsPass
     /// </summary>
     private bool StatementAlwaysReturns(int idx)
     {
-        switch (_kinds[idx])
+        switch (_nodes.Kind(idx))
         {
             case 20: // Return (with or without a value) — on kernel-accepted input there are no error placeholders.
             case 48: // Throw — always exits, exactly like the analyzer's StatementAlwaysReturns throw arm.
@@ -246,13 +235,13 @@ public sealed class ColumnarDiagnosticsPass
                 if (!StatementAlwaysReturns(Child(idx, 0)))
                     return false;
                 var sawCatch = false;
-                for (var n = 1; n < _childCount[idx]; n++)
+                for (var n = 1; n < _nodes.ChildCount(idx); n++)
                 {
                     var clause = Child(idx, n);
-                    if (_kinds[clause] != 50)
+                    if (_nodes.Kind(clause) != 50)
                         continue; // the finally block — ignored by the analyzer's rule.
                     sawCatch = true;
-                    if (!StatementAlwaysReturns(Child(clause, _childCount[clause] - 1)))
+                    if (!StatementAlwaysReturns(Child(clause, _nodes.ChildCount(clause) - 1)))
                         return false;
                 }
 
@@ -260,7 +249,7 @@ public sealed class ColumnarDiagnosticsPass
             }
 
             case 25: // Block — exits if any statement exits.
-                for (var n = 0; n < _childCount[idx]; n++)
+                for (var n = 0; n < _nodes.ChildCount(idx); n++)
                 {
                     if (StatementAlwaysReturns(Child(idx, n)))
                         return true;
@@ -269,7 +258,7 @@ public sealed class ColumnarDiagnosticsPass
                 return false;
 
             case 27: // If [condition, then, else?] — exits only with an else where both branches exit.
-                return _childCount[idx] > 2
+                return _nodes.ChildCount(idx) > 2
                     && StatementAlwaysReturns(Child(idx, 1))
                     && StatementAlwaysReturns(Child(idx, 2));
 
@@ -302,7 +291,7 @@ public sealed class ColumnarDiagnosticsPass
         int idx, System.Collections.Generic.HashSet<string> usedNames,
         List<List<(string Name, int Line, int Column)>> blockStack, List<string> unused)
     {
-        switch (_kinds[idx])
+        switch (_nodes.Kind(idx))
         {
             case 3: // StringLiteral — an INTERPOLATED literal ($-prefixed token) holds identifier USES
                 // inside its holes that the kind-6 walk cannot see (a local used only in a hole would be
@@ -310,11 +299,11 @@ public sealed class ColumnarDiagnosticsPass
                 // grammar the emitter models, so uses and emitted IL agree by construction; a literal
                 // beyond that grammar keeps the throw — the adapter's catch declines the analysis to the
                 // production linter, matching the emitter's decline of the identical program.
-                if (_valueLengths[idx] > 0 && _source[_valueStarts[idx]] == '$')
+                if (_nodes.ValueLength(idx) > 0 && _source[_nodes.ValueStart(idx)] == '$')
                 {
                     var interpolationParts = new List<ColumnarInterpolationSplitter.Part>();
                     if (!ColumnarInterpolationSplitter.TrySplit(
-                            _source.Substring(_valueStarts[idx], _valueLengths[idx]), interpolationParts))
+                            _source.Substring(_nodes.ValueStart(idx), _nodes.ValueLength(idx)), interpolationParts))
                         throw new System.InvalidOperationException("interpolated string — unused-local analysis declines");
                     ColumnarInterpolationSplitter.CollectHoleRoots(interpolationParts, usedNames);
                 }
@@ -323,7 +312,7 @@ public sealed class ColumnarDiagnosticsPass
             case 6: // Identifier expression — a use of its name, recorded in traversal order. A value-less
                 // node (nameStart -1) is a TYPE-kernel tuple node masquerading as kind 6 — never a name use
                 // (and Text() on it would throw; type subtrees are also skipped wholesale below).
-                if (_valueStarts[idx] >= 0)
+                if (_nodes.ValueStart(idx) >= 0)
                     usedNames.Add(Text(idx));
                 return;
 
@@ -336,7 +325,7 @@ public sealed class ColumnarDiagnosticsPass
             {
                 var scope = new List<(string Name, int Line, int Column)>();
                 blockStack.Add(scope);
-                for (var n = 0; n < _childCount[idx]; n++)
+                for (var n = 0; n < _nodes.ChildCount(idx); n++)
                     WalkUnused(Child(idx, n), usedNames, blockStack, unused);
 
                 foreach (var (name, line, column) in scope)
@@ -357,23 +346,23 @@ public sealed class ColumnarDiagnosticsPass
             {
                 if (blockStack.Count > 0)
                 {
-                    var (line, column) = _positionOf(_spanStarts[idx]);
+                    var (line, column) = _positionOf(_nodes.SpanStart(idx));
                     blockStack[blockStack.Count - 1].Add((Text(idx), line, column));
                 }
 
-                for (var n = 0; n < _childCount[idx]; n++)
+                for (var n = 0; n < _nodes.ChildCount(idx); n++)
                     WalkUnused(Child(idx, n), usedNames, blockStack, unused);
                 return;
             }
 
             default: // every other statement/expression: recurse so nested identifiers, blocks, and decls are seen.
-                for (var n = 0; n < _childCount[idx]; n++)
+                for (var n = 0; n < _nodes.ChildCount(idx); n++)
                     WalkUnused(Child(idx, n), usedNames, blockStack, unused);
                 return;
         }
     }
 
-    private int Child(int idx, int n) => _childIndices[_childStart[idx] + n];
+    private int Child(int idx, int n) => _nodes.Child(idx, n);
 
-    private string Text(int idx) => _source.Substring(_valueStarts[idx], _valueLengths[idx]);
+    private string Text(int idx) => _nodes.Text(_source, idx);
 }
