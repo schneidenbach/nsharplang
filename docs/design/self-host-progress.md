@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — Expression and statement parser nodes wrapped
+
+`ParserExpressions.nl` now owns a normal `ParserExpressionNodeTable` wrapper for the shared
+expression/statement node table, and `ParserStatements.nl` threads that same wrapper through its
+mutually-recursive statement helpers. The public `ParseExpressionNodesInto` and `ParseStatementNodesInto`
+entry points still expose the flattened column ABI, and type-reference subtrees still bridge through
+the existing flattened type-reference entry.
+
+This keeps the host and multi-file dogfood adapter contracts stable while removing another large run
+of raw parallel-array parameters from the recursive parser core. The remaining parser table work is
+the declaration-specific tables.
+
 ## 2026-06-13 — Type-reference parser nodes wrapped behind flattened ABI
 
 The parser node-table migration has started with the type-reference kernel. `ParserTypeReferences.nl`
