@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — SoA row escape diagnostics: assignment paths closed
+
+Row-view escape analysis now covers direct assignment and object-initializer values in addition to
+local declarations, returns, and call arguments. That closes the remaining obvious heap-storage
+paths for the experimental wrapper slice: `holder.Value = nodes[i]` and `new Holder { Value:
+nodes[i] }` now report the SoA-specific diagnostic instead of relying on incidental type mismatch
+or later emission failure.
+
+---
+
 ## 2026-06-13 — SoA IL-shape evidence: row projection stays columnar
 
 The SoA wrapper proof now has IL-shape evidence for the core non-negotiables. Row projection methods

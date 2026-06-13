@@ -10249,6 +10249,10 @@ public class Analyzer : IDisposable
         _currentExpectedType = targetType;
         var valueType = AnalyzeExpression(assignment.Value);
         _currentExpectedType = previousExpectedType;
+        if (valueType is SoaRowTypeInfo)
+        {
+            ReportSoaRowEscape(assignment.Value, "assigned");
+        }
 
         // Check for readonly field assignment outside constructor
         CheckReadonlyFieldAssignment(assignment.Target, assignment.Line, assignment.Column);
@@ -10958,6 +10962,10 @@ public class Analyzer : IDisposable
         _currentExpectedType = memberType;
         var valueType = AnalyzeExpression(prop.Value);
         _currentExpectedType = previousExpectedType;
+        if (valueType is SoaRowTypeInfo)
+        {
+            ReportSoaRowEscape(prop.Value, "stored in an object initializer");
+        }
 
         if (IsAssignable(memberType, valueType))
         {
