@@ -253,7 +253,9 @@ ownership lands.
    summary-counter rank/flag/score columns now also route through named normal structs. The
    remaining `CliArguments.nl` test-filter name batches and format-discovery path/flag batches are
    table-wrapped too, leaving its array-taking functions as flattened adapter shims or scalar helper
-   shims over wrapper-aware cores.
+   shims over wrapper-aware cores. `ParserTypeReferences.nl` has started the parser token-stream
+   cleanup by wrapping token metadata, recursive argument stacks, child-index outputs, and result
+   slots for the type-reference recursive cores.
 7. Only after those gates pass, start replacing C# emitter/analyzer internals that still require untyped
    parallel-array plumbing.
 

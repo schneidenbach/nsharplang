@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — Parser type-reference token tables wrapped
+
+`ParserTypeReferences.nl` now wraps the recursive type-reference parser's token stream, argument
+stack, child-index output, and result slots behind named normal structs. The public flattened entries
+remain available for parser cross-file calls and host adapters, while `ParseBaseTypeReferenceNodeCore`,
+`ParsePostfixTypeReferenceNodeCore`, `ParseUnionTypeReferenceNodeCore`, and
+`ParseTypeReferenceNodesCore` now route through wrapper-aware parser tables.
+
+`ConsumeGreaterForTypeNode` also keeps its flattened compatibility signature for expression-parser
+callers and forwards to a token-table core, so existing parser expression call sites do not need to
+change in the same slice.
+
 ## 2026-06-13 — CLI test filter and format path tables wrapped
 
 `CliArguments.nl` now wraps the remaining test-filter and format-discovery batch columns behind named
