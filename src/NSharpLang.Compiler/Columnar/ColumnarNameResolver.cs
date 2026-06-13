@@ -57,7 +57,7 @@ internal sealed class ColumnarNameResolver
     }
 
     /// <summary>Resolve every bare identifier in the function body (a Block, kind 25), in pre-order.</summary>
-    public List<ColumnarNameRef> Resolve(int bodyBlockIdx)
+    internal List<ColumnarNameRef> Resolve(int bodyBlockIdx)
     {
         _refs = new List<ColumnarNameRef>();
         _localScopes.Clear();

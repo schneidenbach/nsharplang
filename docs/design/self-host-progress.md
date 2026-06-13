@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — Columnar implementation members stop advertising public visibility
+
+All source-level `public` declarations under `src/NSharpLang.Compiler/Columnar` are now internal. The
+columnar backend types were already assembly-internal after the adapter cleanup, so this is a behavior-neutral
+surface tightening: DTO constructors/properties, analysis pass entry points, lattice helpers, and private
+emitter helper shapes no longer look like supported product APIs inside the transitional C# implementation.
+
+This keeps the standalone columnar backend aligned with the Stage 6 rule: the C# code is a temporary
+implementation boundary, not a public service layer.
+
 ## 2026-06-13 — Single-function columnar spike route retired
 
 The old `TryEmitColumnarFunction` / `TryEmitSingleFunctionAssembly` path is gone. The former spike

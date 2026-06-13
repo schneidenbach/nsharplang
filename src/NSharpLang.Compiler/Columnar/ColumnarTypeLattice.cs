@@ -18,30 +18,30 @@ namespace NSharpLang.Compiler.Columnar;
 /// </summary>
 internal static class ColumnarTypeLattice
 {
-    public const string External = "External";
+    internal const string External = "External";
 
-    public static bool IsNumeric(string t) => t switch
+    internal static bool IsNumeric(string t) => t switch
     {
         "int" or "long" or "float" or "double" or "decimal"
             or "byte" or "sbyte" or "short" or "ushort" or "uint" or "ulong" or "char" => true,
         _ => false,
     };
 
-    public static bool IsIntegral(string t) => t switch
+    internal static bool IsIntegral(string t) => t switch
     {
         "int" or "long" or "byte" or "sbyte" or "short" or "ushort" or "uint" or "ulong" or "char" => true,
         _ => false,
     };
 
     // Promotes the small integral types to int (C# unary/binary numeric promotion); non-numerics unchanged.
-    public static string Promote(string t) => t switch
+    internal static string Promote(string t) => t switch
     {
         "char" or "byte" or "sbyte" or "short" or "ushort" => "int",
         _ => t,
     };
 
     /// <summary>Binary numeric promotion result, or External if either operand is non-numeric / an invalid mix.</summary>
-    public static string Wider(string a, string b)
+    internal static string Wider(string a, string b)
     {
         if (!IsNumeric(a) || !IsNumeric(b))
             return External;
@@ -68,7 +68,7 @@ internal static class ColumnarTypeLattice
     }
 
     /// <summary>Type of an integer literal from its verbatim text (suffix-sensitive); default int.</summary>
-    public static string LiteralIntType(string text)
+    internal static string LiteralIntType(string text)
     {
         var hasU = text.IndexOf('u') >= 0 || text.IndexOf('U') >= 0;
         var hasL = text.IndexOf('l') >= 0 || text.IndexOf('L') >= 0;
@@ -79,14 +79,14 @@ internal static class ColumnarTypeLattice
     }
 
     /// <summary>Type of a real literal from its verbatim text; default double, f→float, m→decimal.</summary>
-    public static string LiteralFloatType(string text)
+    internal static string LiteralFloatType(string text)
     {
         if (text.IndexOf('f') >= 0 || text.IndexOf('F') >= 0) return "float";
         if (text.IndexOf('m') >= 0 || text.IndexOf('M') >= 0) return "decimal";
         return "double";
     }
 
-    public static string UnaryNegation(string operandType) => operandType switch
+    internal static string UnaryNegation(string operandType) => operandType switch
     {
         "byte" or "sbyte" or "short" or "ushort" or "char" => "int",
         "uint" => "long",
@@ -94,26 +94,26 @@ internal static class ColumnarTypeLattice
         _ => External,
     };
 
-    public static string UnaryBitwiseNot(string operandType)
+    internal static string UnaryBitwiseNot(string operandType)
     {
         var promoted = Promote(operandType);
         return IsIntegral(promoted) ? promoted : External;
     }
 
-    public static string Bitwise(string left, string right)
+    internal static string Bitwise(string left, string right)
     {
         if (left == "bool" && right == "bool")
             return "bool";
         return IsIntegral(left) && IsIntegral(right) ? Wider(left, right) : External;
     }
 
-    public static string Shift(string left, string right)
+    internal static string Shift(string left, string right)
         => IsIntegral(left) && IsIntegral(right) ? Promote(left) : External;
 
     // Matches the C# binder's unary behavior (Analyzer.cs AnalyzeUnaryExpression): unary - applies unary
     // numeric promotion (small integrals → int, uint → long), logical NOT → bool, pre-inc/dec → operand type,
     // bitwise-NOT (~) applies unary integral promotion, and index-from-end (^) remains a host type.
-    public static string Unary(string op, string operandType) => op switch
+    internal static string Unary(string op, string operandType) => op switch
     {
         "!" => "bool",
         "-" => UnaryNegation(operandType),
@@ -125,7 +125,7 @@ internal static class ColumnarTypeLattice
     // Matches the C# binder's binary behavior. Arithmetic (+,-,*,/,%) applies numeric promotion via
     // AnalyzeArithmeticOp/GetWiderType; comparison/logical → bool; string '+' → string; '??' → the fallback's
     // type; bitwise ops apply bool/integral rules; shifts promote only the left operand.
-    public static string Binary(string op, string left, string right) => op switch
+    internal static string Binary(string op, string left, string right) => op switch
     {
         "==" or "!=" or "<" or ">" or "<=" or ">=" or "&&" or "||" => "bool",
         "+" => left == "string" || right == "string" ? "string" : Wider(left, right),
@@ -137,7 +137,7 @@ internal static class ColumnarTypeLattice
     };
 
     /// <summary>Element type of an indexable: <c>elem[]</c> → elem, string → char, else External.</summary>
-    public static string ElementType(string objectType)
+    internal static string ElementType(string objectType)
     {
         if (objectType.EndsWith("[]", System.StringComparison.Ordinal))
             return objectType.Substring(0, objectType.Length - 2);

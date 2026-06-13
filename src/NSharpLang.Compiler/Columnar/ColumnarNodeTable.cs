@@ -10,7 +10,7 @@ internal readonly struct ColumnarNodeTable
     private readonly int[] _childIndices;
     private readonly int[]? _spanStarts;
 
-    public ColumnarNodeTable(
+    internal ColumnarNodeTable(
         int[] kinds,
         int[] valueStarts,
         int[] valueLengths,
@@ -28,11 +28,11 @@ internal readonly struct ColumnarNodeTable
         _spanStarts = spanStarts;
     }
 
-    public int Kind(int index) => _kinds[index];
+    internal int Kind(int index) => _kinds[index];
 
-    public int ValueStart(int index) => _valueStarts[index];
+    internal int ValueStart(int index) => _valueStarts[index];
 
-    public int ValueLength(int index) => _valueLengths[index];
+    internal int ValueLength(int index) => _valueLengths[index];
 
     internal int[] Kinds => _kinds;
 
@@ -46,14 +46,14 @@ internal readonly struct ColumnarNodeTable
 
     internal int[] ChildIndices => _childIndices;
 
-    public int ChildCount(int index) => _childCounts[index];
+    internal int ChildCount(int index) => _childCounts[index];
 
-    public int Child(int index, int childOrdinal) => _childIndices[_childStarts[index] + childOrdinal];
+    internal int Child(int index, int childOrdinal) => _childIndices[_childStarts[index] + childOrdinal];
 
-    public int SpanStart(int index)
+    internal int SpanStart(int index)
         => _spanStarts is not null
             ? _spanStarts[index]
             : throw new System.InvalidOperationException("Columnar node span starts were not provided.");
 
-    public string Text(string source, int index) => source.Substring(_valueStarts[index], _valueLengths[index]);
+    internal string Text(string source, int index) => source.Substring(_valueStarts[index], _valueLengths[index]);
 }

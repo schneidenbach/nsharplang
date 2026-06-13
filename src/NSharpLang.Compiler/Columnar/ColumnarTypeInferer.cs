@@ -49,7 +49,7 @@ internal sealed class ColumnarTypeInferer
     }
 
     /// <summary>Inferred canonical type of every expression in the body (Block, kind 25), in post-order.</summary>
-    public List<string> Infer(int bodyBlockIdx)
+    internal List<string> Infer(int bodyBlockIdx)
     {
         _types = new List<string>();
         _localScopes.Clear();

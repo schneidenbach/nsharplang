@@ -12,7 +12,7 @@ namespace NSharpLang.Compiler.Columnar;
 /// </summary>
 internal sealed class ColumnarProgramInput
 {
-    public ColumnarProgramInput(
+    internal ColumnarProgramInput(
         string source,
         IReadOnlyList<ColumnarFunctionInput> functions,
         IReadOnlyList<ColumnarEnumInput>? enums = null,
@@ -28,12 +28,12 @@ internal sealed class ColumnarProgramInput
         Interfaces = interfaces ?? Array.Empty<ColumnarInterfaceInput>();
     }
 
-    public string Source { get; }
-    public IReadOnlyList<ColumnarFunctionInput> Functions { get; }
-    public IReadOnlyList<ColumnarEnumInput> Enums { get; }
-    public IReadOnlyList<ColumnarStructInput> Structs { get; }
-    public IReadOnlyList<ColumnarUnionInput> Unions { get; }
-    public IReadOnlyList<ColumnarInterfaceInput> Interfaces { get; }
+    internal string Source { get; }
+    internal IReadOnlyList<ColumnarFunctionInput> Functions { get; }
+    internal IReadOnlyList<ColumnarEnumInput> Enums { get; }
+    internal IReadOnlyList<ColumnarStructInput> Structs { get; }
+    internal IReadOnlyList<ColumnarUnionInput> Unions { get; }
+    internal IReadOnlyList<ColumnarInterfaceInput> Interfaces { get; }
 }
 
 /// <summary>
@@ -44,7 +44,7 @@ internal sealed class ColumnarProgramInput
 /// </summary>
 internal sealed class ColumnarInterfaceInput
 {
-    public ColumnarInterfaceInput(string name, string[] baseInterfaceNames, string[] methodNames, string[] methodReturnCanonicals,
+    internal ColumnarInterfaceInput(string name, string[] baseInterfaceNames, string[] methodNames, string[] methodReturnCanonicals,
         string[][] methodParamNames, string[][] methodParamCanonicals, ColumnarFunctionInput?[]? methodBodies = null)
     {
         Name = name;
@@ -56,13 +56,13 @@ internal sealed class ColumnarInterfaceInput
         MethodBodies = methodBodies ?? new ColumnarFunctionInput?[methodNames.Length];
     }
 
-    public string Name { get; }
-    public string[] BaseInterfaceNames { get; }
-    public string[] MethodNames { get; }
-    public string[] MethodReturnCanonicals { get; }
-    public string[][] MethodParamNames { get; }
-    public string[][] MethodParamCanonicals { get; }
-    public ColumnarFunctionInput?[] MethodBodies { get; }
+    internal string Name { get; }
+    internal string[] BaseInterfaceNames { get; }
+    internal string[] MethodNames { get; }
+    internal string[] MethodReturnCanonicals { get; }
+    internal string[][] MethodParamNames { get; }
+    internal string[][] MethodParamCanonicals { get; }
+    internal ColumnarFunctionInput?[] MethodBodies { get; }
 }
 
 /// <summary>
@@ -100,43 +100,43 @@ internal sealed class ColumnarFunctionInput
         TypeParamTypeConstraints = typeParamTypeConstraints;
     }
 
-    public string Name { get; }
-    public string ReturnCanonical { get; }
-    public string[] ParamNames { get; }
-    public string[] ParamCanonicals { get; }
+    internal string Name { get; }
+    internal string ReturnCanonical { get; }
+    internal string[] ParamNames { get; }
+    internal string[] ParamCanonicals { get; }
     internal ColumnarNodeTable BodyNodes { get; }
-    public int BodyRoot { get; }
+    internal int BodyRoot { get; }
     // True for a `static func` member of a struct/record/class body (no implicit `this`; param ordinals are NOT
     // shifted). Always false for a top-level function (those are CLR-static on the Program type, but their static-
     // ness is structural, not a member modifier). Set by the adapter from the kernel's outMethodStaticFlags.
-    public bool IsStatic { get; }
+    internal bool IsStatic { get; }
     // True for an `async func` (the adapter reads the kernel's per-declaration modifier flags). The
     // emitter mirrors the oracle's SYNCHRONOUS async lowering: the declared return wraps into
     // ValueTask/ValueTask<T> (Task/Task<T> for `main` — the entry-point rule), returns wrap into
     // completed tasks, the body runs inside a fault guard whose catch converts to a faulted task,
     // and `await` is a blocking GetAwaiter().GetResult(). Real state machines are deferred by
     // design in BOTH pipelines (ILCompiler.Async.cs).
-    public bool IsAsync { get; }
+    internal bool IsAsync { get; }
     // Tuple ELEMENT NAMES declared on the RETURN type / each PARAM type (`(x: int, y: int)`), null when
     // unnamed or non-tuple — canonicals ERASE names (tuple identity is positional, .NET semantics), so
     // they travel here for the emitter's name->ItemN member mapping.
-    public string[]? ReturnTupleElementNames { get; }
-    public string[]?[]? ParamTupleElementNames { get; }
+    internal string[]? ReturnTupleElementNames { get; }
+    internal string[]?[]? ParamTupleElementNames { get; }
     // Generic TYPE-PARAMETER names (`func Identity<T>(x: T): T` → ["T"]); empty for a non-generic function. A
     // generic TOP-LEVEL function declares a real CLR generic method (DefineGenericParameters, mirroring the
     // oracle's primary strategy); call sites infer the type arguments from the emitted argument types and bind
     // via MakeGenericMethod. Generic METHODS on user types decline (the oracle itself fails on them — B12).
-    public string[] TypeParamNames { get; }
+    internal string[] TypeParamNames { get; }
     // Generic CONSTRAINTS (`where T: Base, new()` — D-17b), positionally aligned with TypeParamNames. Special
     // flags mirror SpecialConstraintKind (Class=1, Struct=2, New=4); type constraints are canonical type names
     // (a base class, `string`, or another of the function's own type parameters). Both default to "none".
-    public int[] TypeParamSpecialConstraints { get; }
-    public string[][] TypeParamTypeConstraints { get; }
+    internal int[] TypeParamSpecialConstraints { get; }
+    internal string[][] TypeParamTypeConstraints { get; }
     // LOCAL FUNCTIONS declared as DIRECT children of this body's root block (kind-41 statements): the body
     // node index paired with the nested declaration's own parsed input (set by the adapter; null when none).
     // The emitter declares them as `<parent>g__{n}` statics before the body emits; a kind-41 node whose
     // index is NOT in this list (a nested-block declaration) declines.
-    public List<(int NodeIndex, ColumnarFunctionInput Fn)>? LocalFunctions { get; set; }
+    internal List<(int NodeIndex, ColumnarFunctionInput Fn)>? LocalFunctions { get; set; }
 }
 
 /// <summary>
@@ -149,7 +149,7 @@ internal sealed class ColumnarFunctionInput
 /// </summary>
 internal sealed class ColumnarConstructorInput
 {
-    public ColumnarConstructorInput(ColumnarFunctionInput body, int chainInitKind, int[] chainArgKinds, string[] chainArgTexts)
+    internal ColumnarConstructorInput(ColumnarFunctionInput body, int chainInitKind, int[] chainArgKinds, string[] chainArgTexts)
     {
         Body = body;
         ChainInitKind = chainInitKind;
@@ -157,10 +157,10 @@ internal sealed class ColumnarConstructorInput
         ChainArgTexts = chainArgTexts;
     }
 
-    public ColumnarFunctionInput Body { get; }
-    public int ChainInitKind { get; }
-    public int[] ChainArgKinds { get; }
-    public string[] ChainArgTexts { get; }
+    internal ColumnarFunctionInput Body { get; }
+    internal int ChainInitKind { get; }
+    internal int[] ChainArgKinds { get; }
+    internal string[] ChainArgTexts { get; }
 }
 
 /// <summary>
@@ -171,16 +171,16 @@ internal sealed class ColumnarConstructorInput
 /// </summary>
 internal sealed class ColumnarEnumInput
 {
-    public ColumnarEnumInput(string name, string[] memberNames, int[] memberValues)
+    internal ColumnarEnumInput(string name, string[] memberNames, int[] memberValues)
     {
         Name = name;
         MemberNames = memberNames;
         MemberValues = memberValues;
     }
 
-    public string Name { get; }
-    public string[] MemberNames { get; }
-    public int[] MemberValues { get; }
+    internal string Name { get; }
+    internal string[] MemberNames { get; }
+    internal int[] MemberValues { get; }
 }
 
 /// <summary>
@@ -190,14 +190,14 @@ internal sealed class ColumnarEnumInput
 /// </summary>
 internal sealed class ColumnarEnumDef
 {
-    public ColumnarEnumDef(EnumBuilder builder, Dictionary<string, int> constants)
+    internal ColumnarEnumDef(EnumBuilder builder, Dictionary<string, int> constants)
     {
         Builder = builder;
         Constants = constants;
     }
 
-    public EnumBuilder Builder { get; }
-    public Dictionary<string, int> Constants { get; }
+    internal EnumBuilder Builder { get; }
+    internal Dictionary<string, int> Constants { get; }
 }
 
 /// <summary>
@@ -215,7 +215,7 @@ internal sealed class ColumnarEnumDef
 /// </summary>
 internal sealed class ColumnarPropertyInput
 {
-    public ColumnarPropertyInput(string name, string typeCanonical, ColumnarFunctionInput getter, ColumnarFunctionInput? setter, bool isStatic = false)
+    internal ColumnarPropertyInput(string name, string typeCanonical, ColumnarFunctionInput getter, ColumnarFunctionInput? setter, bool isStatic = false)
     {
         Name = name;
         TypeCanonical = typeCanonical;
@@ -227,18 +227,18 @@ internal sealed class ColumnarPropertyInput
     // True for a `static Name: Type { get {...} [set {...}] }` member: the accessors are CLR-static (no implicit
     // `this`; the setter's `value` is arg 0), resolved via `TypeName.Name` (chain-walked) and bare READS inside
     // INSTANCE member bodies (the pipeline's pinned asymmetry — a static body must qualify).
-    public bool IsStatic { get; }
+    internal bool IsStatic { get; }
 
-    public string Name { get; }
-    public string TypeCanonical { get; }
-    public ColumnarFunctionInput Getter { get; }
+    internal string Name { get; }
+    internal string TypeCanonical { get; }
+    internal ColumnarFunctionInput Getter { get; }
     // The setter body ("set_Name", param "value": Type, returns void), or null for a get-only property.
-    public ColumnarFunctionInput? Setter { get; }
+    internal ColumnarFunctionInput? Setter { get; }
 }
 
 internal sealed class ColumnarStructInput
 {
-    public ColumnarStructInput(string name, string[] fieldNames, string[] fieldTypeCanonicals, IReadOnlyList<ColumnarFunctionInput> methods, IReadOnlyList<ColumnarConstructorInput> constructors, IReadOnlyList<ColumnarPropertyInput> properties, bool isReference, string[]? baseNames = null, bool[]? fieldStaticFlags = null, int[]? fieldInitKinds = null, string?[]? fieldInitTexts = null, bool isRecord = false, string[]? typeParamNames = null)
+    internal ColumnarStructInput(string name, string[] fieldNames, string[] fieldTypeCanonicals, IReadOnlyList<ColumnarFunctionInput> methods, IReadOnlyList<ColumnarConstructorInput> constructors, IReadOnlyList<ColumnarPropertyInput> properties, bool isReference, string[]? baseNames = null, bool[]? fieldStaticFlags = null, int[]? fieldInitKinds = null, string?[]? fieldInitTexts = null, bool isRecord = false, string[]? typeParamNames = null)
     {
         Name = name;
         FieldNames = fieldNames;
@@ -255,48 +255,48 @@ internal sealed class ColumnarStructInput
         TypeParamNames = typeParamNames;
     }
 
-    public string Name { get; }
-    public string[] FieldNames { get; }
-    public string[] FieldTypeCanonicals { get; }
+    internal string Name { get; }
+    internal string[] FieldNames { get; }
+    internal string[] FieldTypeCanonicals { get; }
     // Instance methods declared in the struct body (parsed exactly like a top-level function — signature + body
     // node tables). Models scalar/struct-returning methods (with or without parameters) reading fields by bare name.
-    public IReadOnlyList<ColumnarFunctionInput> Methods { get; }
+    internal IReadOnlyList<ColumnarFunctionInput> Methods { get; }
     // User CONSTRUCTORS declared in the body (reference types only this slice). Each is parsed like a function whose
     // name is "constructor" and whose return is void — its params + body node tables drive a DefineConstructor + a
     // ctor body (base call + field assignments). Empty when the type has no user constructor (object-init only).
-    public IReadOnlyList<ColumnarConstructorInput> Constructors { get; }
+    internal IReadOnlyList<ColumnarConstructorInput> Constructors { get; }
     // Get-only computed PROPERTIES declared in the body (reference types this slice). Each drives a get_Name instance
     // method; a `receiver.Name` read resolves to a call of it.
-    public IReadOnlyList<ColumnarPropertyInput> Properties { get; }
+    internal IReadOnlyList<ColumnarPropertyInput> Properties { get; }
     // True for a RECORD or CLASS (a reference type — class base object, constructed via newobj + a default ctor or a
     // user ctor, fields read directly via ldfld on the ref). False for a value-type struct (initobj + ldloca + ldfld).
-    public bool IsReference { get; }
+    internal bool IsReference { get; }
     // The optional colon-list names (`class D: Base, IFace`, `struct S: IFace`). The emitter resolves the names:
     // at most one class base on a class, all interface names become implemented interfaces, and unsupported names
     // decline instead of silently changing type identity.
-    public string[] BaseNames { get; }
+    internal string[] BaseNames { get; }
     // Per-field STATIC flags, positionally aligned with FieldNames (null = all instance, for older callers). A
     // static field is CLR-static on the type (FieldAttributes.Static), excluded from the instance FieldOrder
     // (object-init / positional construction never bind it), and accessed via `TypeName.field` (or bare inside an
     // INSTANCE member body — the N# pipeline's pinned asymmetry: bare static-field access resolves in instance
     // contexts but NOT in static ones).
-    public bool[]? FieldStaticFlags { get; }
+    internal bool[]? FieldStaticFlags { get; }
     // Per-field INITIALIZER literal token kinds (-1 = none): IntLiteral 1 / FloatLiteral 2 / CharLiteral 3 /
     // StringLiteral 4 / true 44 / false 45. Static fields only (the kernel declines instance-field initializers).
-    public int[]? FieldInitKinds { get; }
+    internal int[]? FieldInitKinds { get; }
     // The initializer's literal source text (incl. an optional leading `-` on numerics), aligned with
     // FieldInitKinds; null where no initializer. Emitted into the type's .cctor in declaration order.
-    public string?[]? FieldInitTexts { get; }
+    internal string?[]? FieldInitTexts { get; }
     // True for a RECORD declaration (keyword 13). Records are reference types like classes, but the C# oracle
     // emits them SEALED — a record can never appear as a BASE type, and record inheritance itself is unmodelled;
     // PASS 0a' declines both shapes by this flag.
-    public bool IsRecord { get; }
+    internal bool IsRecord { get; }
     // Generic type parameters declared on the type (`class Box<T>` → ["T"]), or null for a non-generic type.
     // The adapter already declines generic RECORDS (columnar does not yet model the oracle's backing-field
     // lowering for init-only members on closed generics — the .NET 10 PersistedAssemblyBuilder modreq-drop
     // workaround) and generic types WITH a base. PASS 0 declares them
     // via DefineGenericParameters; member signatures resolve these names before any other type lookup.
-    public string[]? TypeParamNames { get; }
+    internal string[]? TypeParamNames { get; }
 }
 
 /// <summary>
@@ -308,7 +308,7 @@ internal sealed class ColumnarStructInput
 /// </summary>
 internal sealed class ColumnarUnionInput
 {
-    public ColumnarUnionInput(string name, string[] caseNames, string[][] caseFieldNames, string[][] caseFieldTypeCanonicals, string[]? typeParamNames = null)
+    internal ColumnarUnionInput(string name, string[] caseNames, string[][] caseFieldNames, string[][] caseFieldTypeCanonicals, string[]? typeParamNames = null)
     {
         Name = name;
         CaseNames = caseNames;
@@ -317,14 +317,14 @@ internal sealed class ColumnarUnionInput
         TypeParamNames = typeParamNames ?? System.Array.Empty<string>();
     }
 
-    public string Name { get; }
-    public string[] CaseNames { get; }
-    public string[][] CaseFieldNames { get; }
-    public string[][] CaseFieldTypeCanonicals { get; }
+    internal string Name { get; }
+    internal string[] CaseNames { get; }
+    internal string[][] CaseFieldNames { get; }
+    internal string[][] CaseFieldTypeCanonicals { get; }
     // Generic type parameters declared on the union (`union Result<T>` → ["T"]); empty for a non-generic
     // union. The base declares them; every nested case REDECLARES them (CLR metadata does not inherit
     // generic parameters into nested types) and derives from the base closed over its own copies.
-    public string[] TypeParamNames { get; }
+    internal string[] TypeParamNames { get; }
 }
 
 /// <summary>
@@ -335,7 +335,7 @@ internal sealed class ColumnarUnionInput
 /// </summary>
 internal sealed class ColumnarStructDef
 {
-    public ColumnarStructDef(TypeBuilder builder, string[] fieldOrder, Dictionary<string, FieldBuilder> fields, bool isReference, bool isRecord = false)
+    internal ColumnarStructDef(TypeBuilder builder, string[] fieldOrder, Dictionary<string, FieldBuilder> fields, bool isReference, bool isRecord = false)
     {
         Builder = builder;
         FieldOrder = fieldOrder;
@@ -344,78 +344,78 @@ internal sealed class ColumnarStructDef
         IsRecord = isRecord;
     }
 
-    public TypeBuilder Builder { get; }
-    public string[] FieldOrder { get; }
-    public Dictionary<string, FieldBuilder> Fields { get; }
+    internal TypeBuilder Builder { get; }
+    internal string[] FieldOrder { get; }
+    internal Dictionary<string, FieldBuilder> Fields { get; }
     // Generic type parameters declared on this type (`class Box<T>` → "T" → its builder), or null for a
     // non-generic type. Member signatures and bodies resolve these names FIRST (before registries/builtins);
     // closed instantiations (`Box<int>`) MakeGenericType the Builder and rebind member tokens via
     // TypeBuilder.GetField/GetConstructor/GetMethod (reflection member queries throw on
     // TypeBuilderInstantiation — the same machinery the C# oracle uses).
-    public Dictionary<string, Type>? GenericParameters { get; set; }
+    internal Dictionary<string, Type>? GenericParameters { get; set; }
     // True for a RECORD or CLASS (a reference type). For a record, DefaultCtor is its parameterless ctor (newobj target).
-    public bool IsReference { get; }
+    internal bool IsReference { get; }
     // True for a RECORD specifically — records can never be BASE types (the oracle emits them sealed) and record
     // inheritance is unmodelled; PASS 0a' declines both shapes.
-    public bool IsRecord { get; }
+    internal bool IsRecord { get; }
     // True for an INTERFACE (defined Public|Interface|Abstract; Methods hold its ABSTRACT member
     // declarations; no fields/ctors). Living in the struct registry makes interface-typed
     // locals/params/returns resolve and `iface.Method(args)` dispatch (ldloc+callvirt) through the
     // EXISTING machinery; object-init declines via the null DefaultCtor, PASS 0d/0e skip it.
-    public bool IsInterface { get; init; }
+    internal bool IsInterface { get; init; }
     // Interfaces this interface EXTENDS. For an implementer, ImplementedInterfaces records the directly named
     // interfaces and this list lets lookup/completeness/upcasts walk inherited interface slots without duplicating
     // those MethodBuilders on the derived interface.
-    public List<ColumnarStructDef> InterfaceBases { get; } = new();
+    internal List<ColumnarStructDef> InterfaceBases { get; } = new();
     // Direct interfaces this type IMPLEMENTS (`class C: IShape, IDisposable` — colon-list names reclassified in
     // PASS 0a' when they resolve to interface defs). Every direct and inherited interface member must be matched
     // by name+signature (completeness checked in PASS 0b — the pipeline emits an UNLOADABLE assembly for missing
     // members, oracle defect #26, so columnar declines instead) and the matching methods get Virtual|Final|NewSlot
     // + DefineMethodOverride, mirroring the oracle's DeclareMethod.
-    public List<ColumnarStructDef> ImplementedInterfaces { get; } = new();
+    internal List<ColumnarStructDef> ImplementedInterfaces { get; } = new();
     // Interface method names declared with a default body. Implementers are not required to override these slots;
     // if they do, override binding still wires the implementing method to the interface method.
-    public HashSet<string> DefaultInterfaceMethodNames { get; } = new(StringComparer.Ordinal);
+    internal HashSet<string> DefaultInterfaceMethodNames { get; } = new(StringComparer.Ordinal);
     // The synthesized public parameterless constructor (the object-init `newobj` target) for a reference type with
     // NO user constructors — chains to object (no base) or to the base's parameterless ctor. Set in PASS 0d (after
     // user ctors are declared, so a derived default ctor can chain to a base USER 0-param ctor); null for a value
     // type or a type with user ctors.
-    public ConstructorBuilder? DefaultCtor { get; set; }
+    internal ConstructorBuilder? DefaultCtor { get; set; }
     // The declared BASE class's def (`class D: Base`), or null. Reference types only; set in PASS 0a'. Member
     // resolution (fields/methods/properties) walks this chain, nearest declaration first (modelling method hiding).
-    public ColumnarStructDef? BaseDef { get; set; }
+    internal ColumnarStructDef? BaseDef { get; set; }
     // Instance methods declared on this struct, by name -> (the declared MethodBuilder, param types, return type).
     // Populated in PASS 0; lets `receiver.Method(args)` resolve the instance call (ldloca receiver; <args>; call).
-    public Dictionary<string, (MethodBuilder Builder, Type[] ParamTypes, Type ReturnType)> Methods { get; } = new(StringComparer.Ordinal);
+    internal Dictionary<string, (MethodBuilder Builder, Type[] ParamTypes, Type ReturnType)> Methods { get; } = new(StringComparer.Ordinal);
     // STATIC methods declared on this type, by name -> the declared overloads (distinct PARAM COUNT only — a
     // same-arity overload set declines in PASS 0b, mirroring the constructor-overload rule). Resolved by
     // `TypeName.Method(args)` (chain-walked, nearest declaration first) and by bare calls inside this type's own
     // member bodies (after locals/params and sibling top-level functions — the empirically pinned N# order).
-    public Dictionary<string, List<(MethodBuilder Builder, Type[] ParamTypes, Type ReturnType)>> StaticMethods { get; } = new(StringComparer.Ordinal);
+    internal Dictionary<string, List<(MethodBuilder Builder, Type[] ParamTypes, Type ReturnType)>> StaticMethods { get; } = new(StringComparer.Ordinal);
     // STATIC fields declared on this type, by name -> the FieldBuilder. CLR-static (ldsfld/stsfld); excluded from
     // FieldOrder/Fields so object-init and positional construction never see them. Resolved by `TypeName.field`
     // (chain-walked) and by bare names inside INSTANCE member bodies only (the pipeline's pinned asymmetry).
-    public Dictionary<string, FieldBuilder> StaticFields { get; } = new(StringComparer.Ordinal);
+    internal Dictionary<string, FieldBuilder> StaticFields { get; } = new(StringComparer.Ordinal);
     // STATIC computed properties, by name -> (static get_Name, static set_Name or null, property type). Resolved
     // by `TypeName.Name` reads (`call get_Name`) / writes (`call set_Name`, chain-walked) and by bare READS inside
     // INSTANCE member bodies (after instance members and static fields).
-    public Dictionary<string, (MethodBuilder Getter, MethodBuilder? Setter, Type PropertyType)> StaticProperties { get; } = new(StringComparer.Ordinal);
+    internal Dictionary<string, (MethodBuilder Getter, MethodBuilder? Setter, Type PropertyType)> StaticProperties { get; } = new(StringComparer.Ordinal);
     // User CONSTRUCTORS (reference types this slice): each declared ConstructorBuilder + its param types. Positional
     // construction `new T(args)` matches a ctor by arg count + arg types. Empty when the type has no user ctor (then
     // DefaultCtor drives object-init). A type with ≥1 user ctor has NO DefaultCtor (object-init on it declines).
-    public List<(ConstructorBuilder Builder, Type[] ParamTypes)> Constructors { get; } = new();
+    internal List<(ConstructorBuilder Builder, Type[] ParamTypes)> Constructors { get; } = new();
     // Computed PROPERTIES, by name -> (the get_Name getter MethodBuilder, the set_Name setter MethodBuilder or null,
     // the property type). A `receiver.Name` read resolves to `callvirt get_Name`; a `receiver.Name = v` write (when a
     // setter exists) to `callvirt set_Name`.
-    public Dictionary<string, (MethodBuilder Getter, MethodBuilder? Setter, Type PropertyType)> Properties { get; } = new(StringComparer.Ordinal);
+    internal Dictionary<string, (MethodBuilder Getter, MethodBuilder? Setter, Type PropertyType)> Properties { get; } = new(StringComparer.Ordinal);
     // The SYNTHESIZED value-semantics members on a RECORD (the oracle generates them only on records — a class
     // `.Equals` is its NL103): Equals(object) (null-check + isinst + per-field EqualityComparer<T>.Default),
     // GetHashCode (the 17/23 accumulator), and the `<Clone>$` MemberwiseClone wrapper `with` lowers through.
     // Null when the record's fields prevent the synthesis (builder-typed/generic field types) or the type is
     // generic — `.Equals`/`.GetHashCode`/`with` then decline.
-    public MethodBuilder? RecordEquals { get; set; }
-    public MethodBuilder? RecordGetHashCode { get; set; }
-    public MethodBuilder? RecordClone { get; set; }
+    internal MethodBuilder? RecordEquals { get; set; }
+    internal MethodBuilder? RecordGetHashCode { get; set; }
+    internal MethodBuilder? RecordClone { get; set; }
 }
 
 /// <summary>
@@ -427,21 +427,21 @@ internal sealed class ColumnarStructDef
 /// </summary>
 internal sealed class ColumnarUnionDef
 {
-    public ColumnarUnionDef(TypeBuilder baseBuilder, int typeParamCount = 0)
+    internal ColumnarUnionDef(TypeBuilder baseBuilder, int typeParamCount = 0)
     {
         Base = baseBuilder;
         TypeParamCount = typeParamCount;
     }
 
-    public TypeBuilder Base { get; }
+    internal TypeBuilder Base { get; }
     // Qualified "Union.Case" -> case. Enumerated for match exhaustiveness; keyed for construction/pattern lookup.
-    public Dictionary<string, ColumnarUnionCaseDef> Cases { get; } = new(StringComparer.Ordinal);
+    internal Dictionary<string, ColumnarUnionCaseDef> Cases { get; } = new(StringComparer.Ordinal);
     // Number of generic type parameters on the union (`union Result<T>` → 1); 0 for a non-generic union.
     // A generic union's static surface is always a CLOSED instantiation (Result<int>) — the open base never
     // types a value; closed work rebinds case members via TypeBuilder.GetConstructor/GetField (the cases
     // REDECLARE the base's parameters positionally, so a closed BASE's arguments apply to its cases 1:1).
-    public int TypeParamCount { get; }
-    public bool IsGeneric => TypeParamCount > 0;
+    internal int TypeParamCount { get; }
+    internal bool IsGeneric => TypeParamCount > 0;
 }
 
 /// <summary>
@@ -452,7 +452,7 @@ internal sealed class ColumnarUnionDef
 /// </summary>
 internal sealed class ColumnarUnionCaseDef
 {
-    public ColumnarUnionCaseDef(TypeBuilder caseType, ConstructorBuilder ctor, string[] fieldOrder, Dictionary<string, FieldBuilder> fields, TypeBuilder unionBase)
+    internal ColumnarUnionCaseDef(TypeBuilder caseType, ConstructorBuilder ctor, string[] fieldOrder, Dictionary<string, FieldBuilder> fields, TypeBuilder unionBase)
     {
         CaseType = caseType;
         Ctor = ctor;
@@ -461,11 +461,11 @@ internal sealed class ColumnarUnionCaseDef
         UnionBase = unionBase;
     }
 
-    public TypeBuilder CaseType { get; }
-    public ConstructorBuilder Ctor { get; }
-    public string[] FieldOrder { get; }
-    public Dictionary<string, FieldBuilder> Fields { get; }
-    public TypeBuilder UnionBase { get; }
+    internal TypeBuilder CaseType { get; }
+    internal ConstructorBuilder Ctor { get; }
+    internal string[] FieldOrder { get; }
+    internal Dictionary<string, FieldBuilder> Fields { get; }
+    internal TypeBuilder UnionBase { get; }
 }
 
 /// <summary>
@@ -2769,7 +2769,7 @@ internal sealed class ColumnarIlEmitter
     }
 
     /// <summary>Canonical N# primitive type name → its CLR <see cref="Type"/>. Non-builtins are unsupported.</summary>
-    public static bool TryResolveBuiltin(string canonical, out Type type)
+    internal static bool TryResolveBuiltin(string canonical, out Type type)
     {
         type = canonical switch
         {
@@ -5543,7 +5543,7 @@ internal sealed class ColumnarIlEmitter
 
     private sealed class ColumnarReductionShape
     {
-        public ColumnarReductionShape(
+        internal ColumnarReductionShape(
             int accumulatorNode, int arrayNode, int indexNode, int boundNode,
             string accumulator, string array, string index,
             Type elementType, MethodInfo helper)
@@ -5559,20 +5559,20 @@ internal sealed class ColumnarIlEmitter
             Helper = helper;
         }
 
-        public int AccumulatorNode { get; }
-        public int ArrayNode { get; }
-        public int IndexNode { get; }
-        public int BoundNode { get; }
-        public string Accumulator { get; }
-        public string Array { get; }
-        public string Index { get; }
-        public Type ElementType { get; }
-        public MethodInfo Helper { get; }
+        internal int AccumulatorNode { get; }
+        internal int ArrayNode { get; }
+        internal int IndexNode { get; }
+        internal int BoundNode { get; }
+        internal string Accumulator { get; }
+        internal string Array { get; }
+        internal string Index { get; }
+        internal Type ElementType { get; }
+        internal MethodInfo Helper { get; }
     }
 
     private sealed class ColumnarRangeCountShape
     {
-        public ColumnarRangeCountShape(
+        internal ColumnarRangeCountShape(
             int counterNode, int arrayNode, int indexNode, int boundNode, int loNode, int hiNode,
             string counter, string index)
         {
@@ -5586,33 +5586,33 @@ internal sealed class ColumnarIlEmitter
             Index = index;
         }
 
-        public int CounterNode { get; }
-        public int ArrayNode { get; }
-        public int IndexNode { get; }
-        public int BoundNode { get; }
-        public int LoNode { get; }
-        public int HiNode { get; }
-        public string Counter { get; }
-        public string Index { get; }
+        internal int CounterNode { get; }
+        internal int ArrayNode { get; }
+        internal int IndexNode { get; }
+        internal int BoundNode { get; }
+        internal int LoNode { get; }
+        internal int HiNode { get; }
+        internal string Counter { get; }
+        internal string Index { get; }
     }
 
     private sealed class ColumnarMinMaxReduction
     {
-        public ColumnarMinMaxReduction(int accumulatorNode, string accumulator, bool isMin)
+        internal ColumnarMinMaxReduction(int accumulatorNode, string accumulator, bool isMin)
         {
             AccumulatorNode = accumulatorNode;
             Accumulator = accumulator;
             IsMin = isMin;
         }
 
-        public int AccumulatorNode { get; }
-        public string Accumulator { get; }
-        public bool IsMin { get; }
+        internal int AccumulatorNode { get; }
+        internal string Accumulator { get; }
+        internal bool IsMin { get; }
     }
 
     private sealed class ColumnarMinMaxShape
     {
-        public ColumnarMinMaxShape(
+        internal ColumnarMinMaxShape(
             int arrayNode, int indexNode, int boundNode, string index,
             IReadOnlyList<ColumnarMinMaxReduction> reductions)
         {
@@ -5623,16 +5623,16 @@ internal sealed class ColumnarIlEmitter
             Reductions = reductions;
         }
 
-        public int ArrayNode { get; }
-        public int IndexNode { get; }
-        public int BoundNode { get; }
-        public string Index { get; }
-        public IReadOnlyList<ColumnarMinMaxReduction> Reductions { get; }
+        internal int ArrayNode { get; }
+        internal int IndexNode { get; }
+        internal int BoundNode { get; }
+        internal string Index { get; }
+        internal IReadOnlyList<ColumnarMinMaxReduction> Reductions { get; }
     }
 
     private sealed class ColumnarCountTransitionsShape
     {
-        public ColumnarCountTransitionsShape(
+        internal ColumnarCountTransitionsShape(
             int counterNode, int arrayNode, int indexNode, int previousNode, int boundNode,
             string counter, string index, string previous)
         {
@@ -5646,14 +5646,14 @@ internal sealed class ColumnarIlEmitter
             Previous = previous;
         }
 
-        public int CounterNode { get; }
-        public int ArrayNode { get; }
-        public int IndexNode { get; }
-        public int PreviousNode { get; }
-        public int BoundNode { get; }
-        public string Counter { get; }
-        public string Index { get; }
-        public string Previous { get; }
+        internal int CounterNode { get; }
+        internal int ArrayNode { get; }
+        internal int IndexNode { get; }
+        internal int PreviousNode { get; }
+        internal int BoundNode { get; }
+        internal string Counter { get; }
+        internal string Index { get; }
+        internal string Previous { get; }
     }
 
     // Phase P-1 (columnar): mirror the ILCompiler's canonical counted integer reduction lowering for
@@ -10288,7 +10288,7 @@ internal sealed class ColumnarIlEmitter
     // fixed EmitAddressableExpression (defect #22).
     private readonly struct ColumnarMemberWriteChain
     {
-        public ColumnarMemberWriteChain(LocalBuilder? rootLocal, int rootParamOrdinal, Type rootType, List<FieldBuilder> hops, Type receiverType)
+        internal ColumnarMemberWriteChain(LocalBuilder? rootLocal, int rootParamOrdinal, Type rootType, List<FieldBuilder> hops, Type receiverType)
         {
             RootLocal = rootLocal;
             RootParamOrdinal = rootParamOrdinal;
@@ -10297,11 +10297,11 @@ internal sealed class ColumnarIlEmitter
             ReceiverType = receiverType;
         }
 
-        public LocalBuilder? RootLocal { get; }
-        public int RootParamOrdinal { get; }
-        public Type RootType { get; }
-        public List<FieldBuilder> Hops { get; }
-        public Type ReceiverType { get; }
+        internal LocalBuilder? RootLocal { get; }
+        internal int RootParamOrdinal { get; }
+        internal Type RootType { get; }
+        internal List<FieldBuilder> Hops { get; }
+        internal Type ReceiverType { get; }
     }
 
     private bool TryResolveMemberWriteChain(int node, out ColumnarMemberWriteChain chain)

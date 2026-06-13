@@ -19,7 +19,7 @@ internal static class ColumnarInterpolationSplitter
 {
     internal readonly struct Part
     {
-        public Part(bool isHole, string text, string? format)
+        internal Part(bool isHole, string text, string? format)
         {
             IsHole = isHole;
             Text = text;
@@ -27,13 +27,13 @@ internal static class ColumnarInterpolationSplitter
         }
 
         /// <summary>False = a TEXT segment (escapes verbatim); true = a hole.</summary>
-        public bool IsHole { get; }
+        internal bool IsHole { get; }
 
         /// <summary>The text segment, or the hole's identifier chain (`a` / `a.b.c`).</summary>
-        public string Text { get; }
+        internal string Text { get; }
 
         /// <summary>The hole's format clause (the text after the first `:`), null when absent.</summary>
-        public string? Format { get; }
+        internal string? Format { get; }
     }
 
     internal static bool TrySplit(string literal, List<Part> parts)

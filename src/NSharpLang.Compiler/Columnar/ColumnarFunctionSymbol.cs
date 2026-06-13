@@ -21,7 +21,7 @@ internal readonly record struct ColumnarFunctionSymbol(
     /// A canonical, position-free signature string used for parity comparison and as a stable symbol key:
     /// <c>{modifiers}|{name}({paramType,...}):{returnType|void}</c>.
     /// </summary>
-    public string Signature()
+    internal string Signature()
     {
         var sb = new StringBuilder();
         sb.Append(Modifiers).Append('|').Append(Name).Append('(');
@@ -41,7 +41,7 @@ internal readonly record struct ColumnarFunctionSymbol(
     /// names verbatim; <c>Name&lt;a,b&gt;</c> generics; <c>elem[]</c> arrays; <c>elem?</c> nullable;
     /// <c>a|b</c> unions; <c>&amp;elem</c> by-ref.
     /// </summary>
-    public static string CanonicalType(TypeReference type)
+    internal static string CanonicalType(TypeReference type)
     {
         switch (type)
         {

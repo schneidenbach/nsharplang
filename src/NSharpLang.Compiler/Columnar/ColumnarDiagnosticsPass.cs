@@ -45,7 +45,7 @@ internal sealed class ColumnarDiagnosticsPass
     /// (isAsyncUnitTask / isIterator) that need BCL task-type knowledge; the adapter declines those sources to
     /// the C# analyzer before this pass runs.
     /// </summary>
-    public List<string> Analyze(int bodyBlockIdx, string returnTypeCanonical)
+    internal List<string> Analyze(int bodyBlockIdx, string returnTypeCanonical)
     {
         var diagnostics = new List<string>();
 
@@ -282,7 +282,7 @@ internal sealed class ColumnarDiagnosticsPass
     /// the declaration's line:col. Interpolated strings can't hide a use: the kernel refuses them, so such
     /// sources decline upstream.
     /// </summary>
-    public void CollectUnusedLocals(int bodyRoot, System.Collections.Generic.HashSet<string> usedNames, List<string> unused)
+    internal void CollectUnusedLocals(int bodyRoot, System.Collections.Generic.HashSet<string> usedNames, List<string> unused)
         => WalkUnused(bodyRoot, usedNames, new List<List<(string Name, int Line, int Column)>>(), unused);
 
     private void WalkUnused(
