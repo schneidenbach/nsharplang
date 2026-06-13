@@ -540,6 +540,17 @@ public sealed class ColumnarIlEmitter
     // a FINALLY is illegal IL entirely — those decline.
     private readonly Stack<(Label Break, Label Continue, bool InProtectedRegion, bool InFinallyRegion)> _loopLabels = new();
 
+    private static MethodInfo ResolveSimdReductionHelper(string name) =>
+        typeof(NSharpLang.Runtime.SimdReductions).GetMethod(name)
+        ?? throw new InvalidOperationException($"NSharpLang.Runtime.SimdReductions.{name} not found.");
+
+    private static readonly MethodInfo s_sumInt32Reduction =
+        ResolveSimdReductionHelper(nameof(NSharpLang.Runtime.SimdReductions.SumInt32));
+    private static readonly MethodInfo s_sumInt64Reduction =
+        ResolveSimdReductionHelper(nameof(NSharpLang.Runtime.SimdReductions.SumInt64));
+    private static readonly MethodInfo s_sumUInt64Reduction =
+        ResolveSimdReductionHelper(nameof(NSharpLang.Runtime.SimdReductions.SumUInt64));
+
     // True when this emitter is producing a CONSTRUCTOR body. In a VALUE-TYPE ctor, `this` (arg 0)
     // is the managed pointer to the caller's storage (newobj passes the new value's address), so
     // bare field WRITES are correct there — unlike struct METHODS, whose receiver is a spilled
@@ -4999,6 +5010,8 @@ public sealed class ColumnarIlEmitter
             case 26: // While [condition, body] — emit `check: cond; brfalse end; body; [br check]; end:`. The
             {        // stack is empty at both merge labels (cond pushes a bool, brfalse pops it; the body is
                      // net-zero), so it is stack-consistent.
+                if (TryEmitVectorizedReductionWhile(idx))
+                    return true;
                 var body = Child(idx, 1);
                 var checkLabel = _il.DefineLabel();
                 var endLabel = _il.DefineLabel();
@@ -5062,6 +5075,21 @@ public sealed class ColumnarIlEmitter
                 var outerLifted = new HashSet<string>(_liftedLocals.Keys, StringComparer.Ordinal);
                 if (!EmitStatement(init)) // runs once before the loop; declares the loop variable.
                     return false;
+
+                if (TryEmitVectorizedReductionFor(cond, incr, body))
+                {
+                    foreach (var name in new List<string>(_locals.Keys))
+                    {
+                        if (!outerLocals.Contains(name))
+                            _locals.Remove(name);
+                    }
+                    foreach (var name in new List<string>(_liftedLocals.Keys))
+                    {
+                        if (!outerLifted.Contains(name))
+                            _liftedLocals.Remove(name);
+                    }
+                    return true;
+                }
 
                 var checkLabel = _il.DefineLabel();
                 var contLabel = _il.DefineLabel();
@@ -5316,6 +5344,381 @@ public sealed class ColumnarIlEmitter
                 return false;
         }
     }
+
+    private sealed class ColumnarReductionShape
+    {
+        public ColumnarReductionShape(
+            int accumulatorNode, int arrayNode, int indexNode, int boundNode,
+            string accumulator, string array, string index,
+            Type elementType, MethodInfo helper)
+        {
+            AccumulatorNode = accumulatorNode;
+            ArrayNode = arrayNode;
+            IndexNode = indexNode;
+            BoundNode = boundNode;
+            Accumulator = accumulator;
+            Array = array;
+            Index = index;
+            ElementType = elementType;
+            Helper = helper;
+        }
+
+        public int AccumulatorNode { get; }
+        public int ArrayNode { get; }
+        public int IndexNode { get; }
+        public int BoundNode { get; }
+        public string Accumulator { get; }
+        public string Array { get; }
+        public string Index { get; }
+        public Type ElementType { get; }
+        public MethodInfo Helper { get; }
+    }
+
+    // Phase P-1 (columnar): mirror the ILCompiler's canonical counted integer reduction lowering for
+    // the columnar node tables, without materializing the C# AST. The matched loop is:
+    //   while i < bound { acc = acc + a[i]; i = i + 1 }
+    // or, after the for initializer has already executed:
+    //   for i := start; i < bound; i++ { acc = acc + a[i] }
+    // and the lowering is:
+    //   acc += SimdReductions.Sum...(a, i, bound); i = max(i, bound)
+    // False positives must be impossible; a non-match simply falls through to the scalar loop.
+    private bool TryEmitVectorizedReductionWhile(int whileNode)
+    {
+        if (!TryMatchWhileReduction(whileNode, out var shape))
+            return false;
+        return EmitVectorizedReduction(shape);
+    }
+
+    private bool TryEmitVectorizedReductionFor(int conditionNode, int iteratorStatementNode, int bodyNode)
+    {
+        if (!TryMatchForReduction(conditionNode, iteratorStatementNode, bodyNode, out var shape))
+            return false;
+        return EmitVectorizedReduction(shape);
+    }
+
+    private bool TryMatchWhileReduction(int whileNode, out ColumnarReductionShape shape)
+    {
+        shape = null!;
+        if (_childCount[whileNode] != 2)
+            return false;
+        if (!TryMatchReductionCondition(Child(whileNode, 0), out var indexNode, out var indexName, out var boundNode))
+            return false;
+
+        var body = Child(whileNode, 1);
+        if (_kinds[body] != 25 || _childCount[body] != 2)
+            return false;
+        if (!TryGetExpressionStatementExpression(Child(body, 0), out var update)
+            || !TryGetExpressionStatementExpression(Child(body, 1), out var increment))
+            return false;
+        if (!TryMatchReductionUpdate(update, indexName, out var accumulatorNode, out var accumulatorName, out var arrayNode, out var arrayName))
+            return false;
+        // The ILCompiler's while-form detector accepts assignment-style increments here; postfix ++ is a
+        // for-iterator surface in the current corpus and is kept out of this mirror.
+        if (!TryMatchUnitIndexIncrement(increment, indexName, allowPostfix: false))
+            return false;
+        return TryBuildReductionShape(accumulatorNode, arrayNode, indexNode, boundNode, accumulatorName, arrayName, indexName, out shape);
+    }
+
+    private bool TryMatchForReduction(int conditionNode, int iteratorStatementNode, int bodyNode, out ColumnarReductionShape shape)
+    {
+        shape = null!;
+        if (!TryMatchReductionCondition(conditionNode, out var indexNode, out var indexName, out var boundNode))
+            return false;
+        if (!TryGetExpressionStatementExpression(iteratorStatementNode, out var iterator)
+            || !TryMatchUnitIndexIncrement(iterator, indexName, allowPostfix: true))
+            return false;
+        if (!TryGetSingleReductionBodyStatement(bodyNode, out var bodyStatement)
+            || !TryGetExpressionStatementExpression(bodyStatement, out var update))
+            return false;
+        if (!TryMatchReductionUpdate(update, indexName, out var accumulatorNode, out var accumulatorName, out var arrayNode, out var arrayName))
+            return false;
+        return TryBuildReductionShape(accumulatorNode, arrayNode, indexNode, boundNode, accumulatorName, arrayName, indexName, out shape);
+    }
+
+    private bool TryBuildReductionShape(
+        int accumulatorNode, int arrayNode, int indexNode, int boundNode,
+        string accumulatorName, string arrayName, string indexName,
+        out ColumnarReductionShape shape)
+    {
+        shape = null!;
+        if (accumulatorName == arrayName || accumulatorName == indexName || arrayName == indexName)
+            return false;
+        if (BoundReadsIdentifier(boundNode, accumulatorName))
+            return false;
+        if (!TryGetPureLocalOrParameterType(accumulatorNode, out _, out var accumulatorType)
+            || !TryGetPureLocalOrParameterType(arrayNode, out _, out var arrayType)
+            || !TryGetPureLocalOrParameterType(indexNode, out _, out var indexType))
+            return false;
+        if (indexType != typeof(int) || !arrayType.IsSZArray)
+            return false;
+        var elementType = arrayType.GetElementType()!;
+        var helper = ReductionHelperForColumnarElementType(elementType);
+        if (helper == null || accumulatorType != elementType)
+            return false;
+        if (!IsSideEffectFreeInt32Bound(boundNode, indexName))
+            return false;
+
+        shape = new ColumnarReductionShape(
+            accumulatorNode, arrayNode, indexNode, boundNode,
+            accumulatorName, arrayName, indexName, elementType, helper);
+        return true;
+    }
+
+    private bool EmitVectorizedReduction(ColumnarReductionShape shape)
+    {
+        var boundLocal = _il.DeclareLocal(typeof(int));
+        if (!EmitExpression(shape.BoundNode, out var boundType) || boundType != typeof(int))
+            return false;
+        _il.Emit(OpCodes.Stloc, boundLocal);
+
+        // acc = acc + Sum...(array, index, bound)
+        if (!EmitExpression(shape.AccumulatorNode, out var accumulatorType) || accumulatorType != shape.ElementType)
+            return false;
+        if (!EmitExpression(shape.ArrayNode, out var arrayType) || !arrayType.IsSZArray || arrayType.GetElementType() != shape.ElementType)
+            return false;
+        if (!EmitExpression(shape.IndexNode, out var indexType) || indexType != typeof(int))
+            return false;
+        _il.Emit(OpCodes.Ldloc, boundLocal);
+        _il.Emit(OpCodes.Call, shape.Helper);
+        _il.Emit(OpCodes.Add);
+        if (!StoreReductionIdentifier(shape.Accumulator))
+            return false;
+
+        // The scalar loop exits with index == max(start, bound), not unconditionally bound (empty /
+        // negative ranges leave the index unchanged). Preserve that observable post-loop value.
+        if (!EmitExpression(shape.IndexNode, out indexType) || indexType != typeof(int))
+            return false;
+        _il.Emit(OpCodes.Ldloc, boundLocal);
+        var keepIndexLabel = _il.DefineLabel();
+        _il.Emit(OpCodes.Bge, keepIndexLabel);
+        _il.Emit(OpCodes.Ldloc, boundLocal);
+        if (!StoreReductionIdentifier(shape.Index))
+            return false;
+        _il.MarkLabel(keepIndexLabel);
+        return true;
+    }
+
+    private static MethodInfo? ReductionHelperForColumnarElementType(Type elementType)
+    {
+        if (elementType == typeof(int)) return s_sumInt32Reduction;
+        if (elementType == typeof(long)) return s_sumInt64Reduction;
+        if (elementType == typeof(ulong)) return s_sumUInt64Reduction;
+        return null;
+    }
+
+    private bool TryMatchReductionCondition(int conditionNode, out int indexNode, out string indexName, out int boundNode)
+    {
+        indexNode = -1;
+        indexName = string.Empty;
+        boundNode = -1;
+        if (_kinds[conditionNode] != 12 || _childCount[conditionNode] != 2 || Text(conditionNode) != "<")
+            return false;
+        var left = Child(conditionNode, 0);
+        var right = Child(conditionNode, 1);
+        if (!TryGetIdentifierName(left, out indexName))
+            return false;
+        if (!IsSideEffectFreeInt32Bound(right, indexName))
+            return false;
+        indexNode = left;
+        boundNode = right;
+        return true;
+    }
+
+    private bool TryMatchReductionUpdate(
+        int updateNode, string indexName,
+        out int accumulatorNode, out string accumulatorName, out int arrayNode, out string arrayName)
+    {
+        accumulatorNode = -1;
+        accumulatorName = string.Empty;
+        arrayNode = -1;
+        arrayName = string.Empty;
+        if (_kinds[updateNode] != 14 || _childCount[updateNode] != 2)
+            return false;
+        var target = Child(updateNode, 0);
+        if (!TryGetIdentifierName(target, out accumulatorName))
+            return false;
+
+        var op = Text(updateNode);
+        if (op == "=")
+        {
+            var value = Child(updateNode, 1);
+            if (_kinds[value] != 12 || _childCount[value] != 2 || Text(value) != "+")
+                return false;
+            var left = Child(value, 0);
+            var right = Child(value, 1);
+            if (!TryGetIdentifierName(left, out var leftName) || leftName != accumulatorName)
+                return false;
+            if (!TryMatchArrayIndexByIdentifier(right, indexName, out arrayNode, out arrayName))
+                return false;
+        }
+        else if (op == "+=")
+        {
+            if (!TryMatchArrayIndexByIdentifier(Child(updateNode, 1), indexName, out arrayNode, out arrayName))
+                return false;
+        }
+        else
+        {
+            return false;
+        }
+
+        accumulatorNode = target;
+        return true;
+    }
+
+    private bool TryMatchArrayIndexByIdentifier(int node, string indexName, out int arrayNode, out string arrayName)
+    {
+        arrayNode = -1;
+        arrayName = string.Empty;
+        if (_kinds[node] != 10 || _childCount[node] != 2)
+            return false;
+        var receiver = Child(node, 0);
+        var index = Child(node, 1);
+        if (!TryGetIdentifierName(receiver, out arrayName)
+            || !TryGetIdentifierName(index, out var actualIndex)
+            || actualIndex != indexName)
+            return false;
+        arrayNode = receiver;
+        return true;
+    }
+
+    private bool TryMatchUnitIndexIncrement(int node, string indexName, bool allowPostfix)
+    {
+        if (_kinds[node] == 14 && _childCount[node] == 2)
+        {
+            var target = Child(node, 0);
+            if (!TryGetIdentifierName(target, out var targetName) || targetName != indexName)
+                return false;
+            var op = Text(node);
+            if (op == "+=")
+                return IsLiteralOne(Child(node, 1));
+            if (op != "=")
+                return false;
+            var value = Child(node, 1);
+            return _kinds[value] == 12
+                && _childCount[value] == 2
+                && Text(value) == "+"
+                && TryGetIdentifierName(Child(value, 0), out var leftName)
+                && leftName == indexName
+                && IsLiteralOne(Child(value, 1));
+        }
+
+        if (allowPostfix && _kinds[node] == 44 && _childCount[node] == 1 && Text(node) == "++")
+            return TryGetIdentifierName(Child(node, 0), out var targetName) && targetName == indexName;
+
+        return false;
+    }
+
+    private bool TryGetExpressionStatementExpression(int statementNode, out int expressionNode)
+    {
+        expressionNode = -1;
+        if (_kinds[statementNode] != 23 || _childCount[statementNode] != 1)
+            return false;
+        expressionNode = Child(statementNode, 0);
+        return true;
+    }
+
+    private bool TryGetSingleReductionBodyStatement(int bodyNode, out int statementNode)
+    {
+        statementNode = -1;
+        if (_kinds[bodyNode] == 25)
+        {
+            if (_childCount[bodyNode] != 1)
+                return false;
+            statementNode = Child(bodyNode, 0);
+            return true;
+        }
+
+        if (_kinds[bodyNode] == 23)
+        {
+            statementNode = bodyNode;
+            return true;
+        }
+
+        return false;
+    }
+
+    private bool IsSideEffectFreeInt32Bound(int node, string indexName)
+    {
+        if (TryGetIdentifierName(node, out var name))
+        {
+            if (name == indexName)
+                return false;
+            return TryGetPureLocalOrParameterType(node, out _, out var type) && type == typeof(int);
+        }
+        if (IsInt32Literal(node))
+            return true;
+        if (_kinds[node] == 8 && _childCount[node] == 1 && Text(node) == "Length")
+        {
+            var receiver = Child(node, 0);
+            return TryGetPureLocalOrParameterType(receiver, out _, out var receiverType) && receiverType.IsSZArray;
+        }
+
+        return false;
+    }
+
+    private bool BoundReadsIdentifier(int node, string name)
+    {
+        if (TryGetIdentifierName(node, out var id))
+            return id == name;
+        return _kinds[node] == 8
+            && _childCount[node] == 1
+            && Text(node) == "Length"
+            && TryGetIdentifierName(Child(node, 0), out var receiver)
+            && receiver == name;
+    }
+
+    private bool TryGetPureLocalOrParameterType(int node, out string name, out Type type)
+    {
+        type = null!;
+        if (!TryGetIdentifierName(node, out name))
+            return false;
+        if (_liftedLocals.ContainsKey(name) || (_boxedCaptures != null && _boxedCaptures.ContainsKey(name)))
+            return false;
+        if (_locals.TryGetValue(name, out var local))
+        {
+            type = local.LocalType;
+            return true;
+        }
+        if (_paramTypes.TryGetValue(name, out type!))
+            return _paramOrdinals.ContainsKey(name);
+        return false;
+    }
+
+    private bool StoreReductionIdentifier(string name)
+    {
+        if (_liftedLocals.ContainsKey(name) || (_boxedCaptures != null && _boxedCaptures.ContainsKey(name)))
+            return false;
+        if (_locals.TryGetValue(name, out var local))
+        {
+            _il.Emit(OpCodes.Stloc, local);
+            return true;
+        }
+        if (_paramOrdinals.TryGetValue(name, out var ordinal))
+        {
+            EmitStoreArgument(ordinal);
+            return true;
+        }
+        return false;
+    }
+
+    private bool TryGetIdentifierName(int node, out string name)
+    {
+        name = string.Empty;
+        if (_kinds[node] != 6 || _valueStarts[node] < 0)
+            return false;
+        name = Text(node);
+        return true;
+    }
+
+    private bool IsInt32Literal(int node)
+        => _kinds[node] == 0
+           && _valueStarts[node] >= 0
+           && Text(node).Length > 0
+           && Text(node)[^1] is not ('u' or 'U' or 'l' or 'L' or 'm' or 'M')
+           && int.TryParse(Text(node), out _);
+
+    private bool IsLiteralOne(int node)
+        => _kinds[node] == 0 && _valueStarts[node] >= 0 && Text(node) == "1";
 
     /// <summary>
     /// Emit an `if`/`while` CONDITION as a bool (i4 0/1) on the stack for a following <c>brfalse</c>/<c>brtrue</c>.

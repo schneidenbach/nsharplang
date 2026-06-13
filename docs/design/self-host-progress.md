@@ -11,6 +11,31 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — Phase P-1 columnar port: canonical integer reductions emit SIMD helpers
+
+Phase P has started in the columnar route. The first rung ports the ILCompiler's counted integer
+sum reduction lowering without materializing the C# AST: columnar now recognizes canonical
+`while i < bound { acc = acc + a[i]; i = i + 1 }` and `for i := start; i < bound; i++ { acc += a[i] }`
+node-table shapes after the `for` initializer has run, then emits the same helper-call form:
+`acc += SimdReductions.Sum...(array, index, bound); index = max(index, bound)`. The matcher is
+strict by construction: local/parameter accumulator, array, and int index must be three distinct
+names; the bound must be a side-effect-free int identifier, int literal, or array `.Length`; captured
+or lifted locals decline; non-integer arrays decline to the scalar loop.
+
+Coverage pins both lenses: `ColumnarCodegen_Parity_VectorizedIntegerReductions` value-compares
+while/for forms, `+=`, array `.Length` bounds, empty/negative ranges, post-loop index visibility,
+`int[]`, `long[]`, and `ulong[]`; then inspects emitted IL to prove the integer paths call the SIMD
+helpers and no longer contain scalar `ldelem.i4` / `ldelem.i8` loops. `double[]` is pinned as scalar
+fallback because floating-point addition is not associative. `uint[]` stays deferred with an explicit
+reason: the runtime helper exists, but the columnar array element whitelist does not yet support
+`uint`, so widening the vector helper before array parity would be fake progress.
+
+NEXT: finish the remaining Phase P ports (range-predicate count, min/max including fused min+max,
+count-transitions, and `uint[]` once columnar array support admits it), then IF-2 residuals as
+route-all demands, then route-all, then the emitter port gated by the SoA design doc.
+
+---
+
 ## 2026-06-12 — INTERFACES slice IF-1: the FIFTH user-defined type family
 
 Recon first (3 agents): all probed shapes oracle-PASS (direct/dispatched calls, struct-implementer

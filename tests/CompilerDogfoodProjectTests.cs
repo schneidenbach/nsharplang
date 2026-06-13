@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Reflection.Emit;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using NSharpLang.Cli;
@@ -10,6 +11,7 @@ using NSharpLang.Compiler;
 using NSharpLang.Compiler.Ast;
 using NSharpLang.Compiler.CodeIntelligence;
 using NSharpLang.Compiler.Columnar;
+using NSharpLang.Tests.PerfEvidence;
 using Xunit;
 
 namespace NSharpLang.Tests;
@@ -7089,6 +7091,57 @@ class B
 
         // A for-loop whose body ALWAYS returns (never falls through) is degenerate -> declines to the C# path.
         Assert.False(RouteColumnarProgram("func f(n: int): int {\n    for i := 0; i < n; i = i + 1 {\n        return i\n    }\n    return -1\n}\n").Ok);
+    }
+
+    // Phase P-1 (columnar): canonical counted integer reductions lower to the same
+    // SimdReductions helper-call shape as the C# ILCompiler, instead of keeping the scalar ldelem loop.
+    // This is the first route-all performance gate rung: value parity remains absolute, but the IL shape must
+    // prove the columnar path is no longer a 2-6x scalar fallback for this hot loop family.
+    [Fact]
+    public void ColumnarCodegen_Parity_VectorizedIntegerReductions()
+    {
+        var prog =
+            "func sum(a: int[], n: int): int {\n    acc := 0\n    i := 0\n    while i < n {\n        acc = acc + a[i]\n        i = i + 1\n    }\n    return acc\n}\n\n" +
+            "func sumAll(a: int[]): int {\n    acc := 0\n    i := 0\n    while i < a.Length {\n        acc += a[i]\n        i += 1\n    }\n    return acc\n}\n\n" +
+            "func lastIndex(a: int[], n: int): int {\n    acc := 0\n    i := 0\n    while i < n {\n        acc = acc + a[i]\n        i = i + 1\n    }\n    return i\n}\n\n" +
+            "func sumFor(a: int[], start: int, n: int): int {\n    acc := 0\n    for i := start; i < n; i++ {\n        acc += a[i]\n    }\n    return acc\n}\n\n" +
+            "func outerIndex(a: int[], n: int): int {\n    acc := 0\n    i := 0\n    for i = 0; i < n; i++ {\n        acc += a[i]\n    }\n    return i\n}\n\n" +
+            "func sumLong(a: long[], n: int): long {\n    acc: long = (long)0\n    i := 0\n    while i < n {\n        acc = acc + a[i]\n        i = i + 1\n    }\n    return acc\n}\n\n" +
+            "func sumULong(a: ulong[], n: int): ulong {\n    acc: ulong = (ulong)0\n    i := 0\n    while i < n {\n        acc = acc + a[i]\n        i = i + 1\n    }\n    return acc\n}\n\n" +
+            "func sumDouble(a: double[], n: int): double {\n    acc := 0.0\n    i := 0\n    while i < n {\n        acc = acc + a[i]\n        i = i + 1\n    }\n    return acc\n}\n";
+
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("sum", new object[] { new[] { 1, -2, 3, 4, 5 }, 5 }),
+            ("sum", new object[] { new[] { 1, 2, 3 }, 0 }),
+            ("sumAll", new object[] { Enumerable.Range(0, 37).Select(i => i * 7 - 3).ToArray() }),
+            ("lastIndex", new object[] { Array.Empty<int>(), -5 }),
+            ("lastIndex", new object[] { new[] { 1, 2, 3, 4 }, 3 }),
+            ("sumFor", new object[] { new[] { 10, 20, 30, 40, 50 }, 1, 4 }),
+            ("outerIndex", new object[] { new[] { 10, 20, 30 }, -2 }),
+            ("outerIndex", new object[] { new[] { 10, 20, 30 }, 3 }),
+            ("sumLong", new object[] { new[] { 5_000_000_000L, 2L, -3L }, 3 }),
+            ("sumULong", new object[] { new[] { 1UL, 2UL, 3UL, 4UL }, 4 }),
+            ("sumDouble", new object[] { new[] { 1.5, 2.5, 3.0 }, 3 }));
+
+        var (ok, assembly, typeName, _) = RouteColumnarProgram(prog);
+        Assert.True(ok);
+        using var loadScope = CollectibleAssemblyScope.Load(assembly!);
+        var type = loadScope.Assembly.GetType(typeName!)!;
+
+        var sum = type.GetMethod("sum")!;
+        Assert.Equal(0, ILShapeInspector.CountOpcode(sum, OpCodes.Ldelem_I4));
+        Assert.True(ILShapeInspector.CountOpcode(sum, OpCodes.Call) >= 1);
+
+        var sumFor = type.GetMethod("sumFor")!;
+        Assert.Equal(0, ILShapeInspector.CountOpcode(sumFor, OpCodes.Ldelem_I4));
+        Assert.True(ILShapeInspector.CountOpcode(sumFor, OpCodes.Call) >= 1);
+
+        var sumLong = type.GetMethod("sumLong")!;
+        Assert.Equal(0, ILShapeInspector.CountOpcode(sumLong, OpCodes.Ldelem_I8));
+        Assert.True(ILShapeInspector.CountOpcode(sumLong, OpCodes.Call) >= 1);
+
+        var sumDouble = type.GetMethod("sumDouble")!;
+        Assert.True(ILShapeInspector.CountOpcode(sumDouble, OpCodes.Ldelem_R8) >= 1);
     }
 
     // DOUBLE scalar (r8): float literals (ldc.r8), arithmetic (FP add/sub/mul/div/rem — x/0.0 -> Inf, 0.0/0.0 ->
