@@ -1037,12 +1037,14 @@ internal static class NSharpCompilerDogfoodAdapter
                 var outPropStaticFlags = new int[cap];
                 var outTypeParamStarts = new int[cap];
                 var outTypeParamLengths = new int[cap];
-                var outResult = new int[8];
+                var outBaseNameStarts = new int[cap];
+                var outBaseNameLengths = new int[cap];
+                var outResult = new int[12];
                 var fieldCount = bindings.ParseStructDeclaration(
                     ck, cs, cv, n, structIndex, outFieldNameStarts, outFieldNameLengths, outFieldTypeStarts,
                     outFieldTypeLengths, outFieldStaticFlags, outFieldInitKinds, outFieldInitStarts, outFieldInitLengths,
                     outMethodFuncIndices, outMethodStaticFlags, outCtorIndices, outPropIndices, outPropStaticFlags,
-                    outTypeParamStarts, outTypeParamLengths, outResult);
+                    outTypeParamStarts, outTypeParamLengths, outBaseNameStarts, outBaseNameLengths, outResult);
                 // The kernel returns -1 on a parse failure; 0 is a legitimate FIELDLESS type. A zero-field
                 // REFERENCE type (a pure-behavior class — e.g. an inheritance base with only methods) is modelled;
                 // a zero-field VALUE struct keeps declining (a zero-size value type is a CLR layout edge case).
@@ -1050,10 +1052,12 @@ internal static class NSharpCompilerDogfoodAdapter
                     return false;
 
                 var structName = source.Substring(outResult[0], outResult[1]);
-                // The optional `: Base` single-identifier base-type name (outResult[5]/[6]; 0-length = no base).
-                // The emitter resolves it against the declared types and validates (only a reference type may
-                // inherit, only from a registered class — anything else declines there).
-                var baseName = outResult[6] > 0 ? source.Substring(outResult[5], outResult[6]) : null;
+                // The optional `: Base[, IFace...]` list. The emitter resolves it against the declared types and
+                // validates: at most one class base on a class, otherwise interfaces only.
+                var baseNameCount = outResult[8];
+                var baseNames = new string[baseNameCount];
+                for (var b = 0; b < baseNameCount; b++)
+                    baseNames[b] = source.Substring(outBaseNameStarts[b], outBaseNameLengths[b]);
 
                 // Optional generic type parameters `<T, U>` (outResult[7] = count). Generic RECORDS are
                 // modelled (columnar's record fields are plain public fields — the oracle's backing-field
@@ -1064,7 +1068,7 @@ internal static class NSharpCompilerDogfoodAdapter
                 string[]? typeParamNames = null;
                 if (typeParamCount > 0)
                 {
-                    if (baseName != null)
+                    if (baseNames.Length > 0)
                         return false;
 
                     typeParamNames = new string[typeParamCount];
@@ -1164,7 +1168,7 @@ internal static class NSharpCompilerDogfoodAdapter
                     }
                 }
 
-                structs.Add(new Columnar.ColumnarStructInput(structName, fieldNames, fieldTypes, methods, constructors, properties, isReference, baseName, fieldStatics, fieldInitKinds, fieldInitTexts, isRecord, typeParamNames));
+                structs.Add(new Columnar.ColumnarStructInput(structName, fieldNames, fieldTypes, methods, constructors, properties, isReference, baseNames, fieldStatics, fieldInitKinds, fieldInitTexts, isRecord, typeParamNames));
             }
             return true;
         }
@@ -1740,8 +1744,9 @@ internal static class NSharpCompilerDogfoodAdapter
     // method SIGNATURES — names, return canonicals, param names/canonicals). Tokenizes + compacts
     // exactly like TryGetColumnarFunctionInputs, finds each interface keyword
     // (TopLevelInterfaceIndices), parses the member layout via the ParseInterfaceDeclaration kernel
-    // (method signatures ONLY — default bodies, bare members, properties, generics, base lists all
-    // return -1 there), then each member's signature via the shared ParseFunctionSignature kernel.
+    // (method signatures ONLY — default bodies, bare members, properties, and generics return -1
+    // there; base-interface names are carried as spans), then each member's signature via the
+    // shared ParseFunctionSignature kernel.
     // Returns true (possibly empty) for a program with no interfaces; FALSE declines the program.
     // IF-1 declines: generic members, where-clauses, tuple element names on member types.
     private static bool TryGetColumnarInterfaceInputs(string source, out System.Collections.Generic.List<Columnar.ColumnarInterfaceInput> interfaceInputs)
@@ -3205,7 +3210,8 @@ internal static class NSharpCompilerDogfoodAdapter
         int[] outFieldNameStarts, int[] outFieldNameLengths, int[] outFieldTypeStarts, int[] outFieldTypeLengths,
         int[] outFieldStaticFlags, int[] outFieldInitKinds, int[] outFieldInitStarts, int[] outFieldInitLengths,
         int[] outMethodFuncIndices, int[] outMethodStaticFlags, int[] outCtorIndices, int[] outPropIndices, int[] outPropStaticFlags,
-        int[] outTypeParamStarts, int[] outTypeParamLengths, int[] outResult);
+        int[] outTypeParamStarts, int[] outTypeParamLengths,
+        int[] outBaseNameStarts, int[] outBaseNameLengths, int[] outResult);
     private delegate int ParseUnionDeclarationInto(
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int unionIndex,
         int[] outCaseNameStarts, int[] outCaseNameLengths, int[] outCaseFieldCounts,

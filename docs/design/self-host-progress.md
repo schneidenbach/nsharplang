@@ -11,6 +11,31 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — IF-2c multi-interface lists: direct slots plus one class base
+
+The third IF-2 residual slice routes colon-lists on classes, structs, and records through the
+columnar dogfood path. The struct declaration kernel now emits every colon-list name as spans
+instead of a single `BaseName`, the adapter materializes `BaseNames`, and the emitter resolves the
+list semantically: every interface becomes a direct implemented interface, inherited interfaces are
+deduped into metadata, and at most one class can become a class parent for a class. Structs,
+records, duplicate direct interfaces, unknown names, multiple class bases, and record base shapes
+decline instead of changing type identity or producing unloadable IL.
+
+Implementing methods now bind to every matching interface slot, not just the first direct interface.
+Required-member completeness walks all direct and inherited interfaces with deduplication, and
+interface upcasts scan the direct-interface set, so the same class or struct can flow as any of its
+implemented interface views.
+
+Coverage: `ColumnarCodegen_Parity_Interfaces` now value-compares multi-interface class and struct
+implementers, direct argument coercions to two interfaces, and `class Derived: Base, IShape, IWeight`
+with both inherited class method dispatch and interface dispatch. It also pins duplicate direct
+interfaces, multiple class bases, and missing members from any direct interface as declines.
+
+NEXT: finish default interface methods. Then route-all, then the emitter port gated by the SoA
+design doc.
+
+---
+
 ## 2026-06-13 — IF-2b interface inheritance: base metadata and inherited slots
 
 The second IF-2 residual slice routes base-interface hierarchies through the columnar

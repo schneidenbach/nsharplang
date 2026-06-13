@@ -497,8 +497,9 @@ func ParseEnumDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValueL
 // Parser slice (struct bodies): parse ONE fields-only struct declaration's fields into flat parallel arrays.
 // `structIndex` is the compacted token index of the `struct` keyword (token 9). Reads the struct NAME (the
 // Identifier after `struct`) into outResult[0]=nameStart / outResult[1]=nameLength, then an OPTIONAL single-
-// identifier BASE TYPE (`: Base`) into outResult[5]=baseStart / outResult[6]=baseLength (0/0 when absent — the
-// host resolves and validates the base; only classes model one), then `{` (129), then a sequence
+// identifier BASE TYPE / INTERFACE list (`: Base[, IFace...]`) into outBaseNameStarts/Lengths with
+// outResult[8]=baseNameCount (outResult[5]/[6] mirror the first entry for compatibility, 0/0 when absent — the
+// host resolves and validates the names; only classes may model one non-interface base), then `{` (129), then a sequence
 // of FIELDS until `}` (130). Each field is `Identifier : <type-name>` where the type is a SINGLE Identifier token
 // (a builtin like int/double/string, which the lexer tokenizes as an Identifier, kind 0). There is no field
 // separator (newlines are stripped before this runs), so fields are detected by the repeating `name : type`
@@ -525,7 +526,7 @@ func ParseEnumDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValueL
 // instance property gets flag 0. A GENERAL initializer expression (`= new T(...)`, `= a + b`), an initializer on
 // an INSTANCE field, and `static constructor` are not yet modelled and return -1 — the host declines the whole
 // program to the C# path.
-func ParseStructDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, structIndex: int, outFieldNameStarts: int[], outFieldNameLengths: int[], outFieldTypeStarts: int[], outFieldTypeLengths: int[], outFieldStaticFlags: int[], outFieldInitKinds: int[], outFieldInitStarts: int[], outFieldInitLengths: int[], outMethodFuncIndices: int[], outMethodStaticFlags: int[], outCtorIndices: int[], outPropIndices: int[], outPropStaticFlags: int[], outTypeParamStarts: int[], outTypeParamLengths: int[], outResult: int[]): int {
+func ParseStructDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, structIndex: int, outFieldNameStarts: int[], outFieldNameLengths: int[], outFieldTypeStarts: int[], outFieldTypeLengths: int[], outFieldStaticFlags: int[], outFieldInitKinds: int[], outFieldInitStarts: int[], outFieldInitLengths: int[], outMethodFuncIndices: int[], outMethodStaticFlags: int[], outCtorIndices: int[], outPropIndices: int[], outPropStaticFlags: int[], outTypeParamStarts: int[], outTypeParamLengths: int[], outBaseNameStarts: int[], outBaseNameLengths: int[], outResult: int[]): int {
     pos := structIndex
     if pos >= count || (tokenKinds[pos] != 9 && tokenKinds[pos] != 13 && tokenKinds[pos] != 8) {
         return -1
@@ -577,16 +578,36 @@ func ParseStructDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValu
     }
     outResult[7] = typeParamCount
 
-    // Optional BASE TYPE: `class D: Base {` — a `:` (122) after the type name followed by a SINGLE Identifier
-    // (the base type name; a composed/generic base is not modelled and falls to the `{` check below, returning
-    // -1). The base-name span goes to outResult[5]/[6]; with no base both are 0 (a name length is never 0).
+    // Optional BASE / INTERFACE LIST: `class D: Base, IFace {` or `struct S: IFace {` — a `:` (122) after
+    // the type name followed by one or more comma-separated SINGLE Identifiers. Composed/generic bases are
+    // not modelled and return -1. The host resolves names against type registries and decides which one, if
+    // any, is a class base versus implemented interface.
     outResult[5] = 0
     outResult[6] = 0
-    if pos + 1 < count && tokenKinds[pos] == 122 && tokenKinds[pos + 1] == 0 {
-        outResult[5] = tokenStarts[pos + 1]
-        outResult[6] = tokenValueLengths[pos + 1]
-        pos = pos + 2
+    baseNameCount := 0
+    if pos < count && tokenKinds[pos] == 122 {
+        pos = pos + 1
+        while true {
+            if pos >= count || tokenKinds[pos] != 0 {
+                return -1
+            }
+            outBaseNameStarts[baseNameCount] = tokenStarts[pos]
+            outBaseNameLengths[baseNameCount] = tokenValueLengths[pos]
+            if baseNameCount == 0 {
+                outResult[5] = tokenStarts[pos]
+                outResult[6] = tokenValueLengths[pos]
+            }
+            baseNameCount = baseNameCount + 1
+            pos = pos + 1
+
+            if pos < count && tokenKinds[pos] == 134 {
+                pos = pos + 1
+                continue
+            }
+            break
+        }
     }
+    outResult[8] = baseNameCount
 
     if pos >= count || tokenKinds[pos] != 129 {
         return -1

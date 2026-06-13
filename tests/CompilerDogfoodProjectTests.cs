@@ -4732,8 +4732,8 @@ class B
     // INTERFACES slice IF-1 — the FIFTH user-defined type family: `interface I { func M(...): T }`
     // (abstract method signatures ONLY — the kernel refuses default bodies, bare members, and
     // properties, which the PIPELINE mishandles: silent member drop / locationless NL103, oracle
-    // defect #27). One implemented interface per type via the colon name (the parser's base slot,
-    // reclassified when it resolves to an interface — mirroring the oracle's DeclareClass);
+    // defect #27). One or more implemented interfaces per type via the colon list (names
+    // reclassified when they resolve to interfaces — mirroring the oracle's DeclareClass);
     // implementing methods get Virtual|Final|NewSlot + DefineMethodOverride by NAME+SIGNATURE
     // match; COMPLETENESS is enforced (a missing member declines — the pipeline emits an UNLOADABLE
     // assembly with ZERO diagnostics, oracle defect #26); dispatch is ldloc+callvirt through the
@@ -4751,6 +4751,11 @@ class B
             "interface ITagged: IArea {\n    func Tag(): int\n}\n\n" +
             "class TaggedSquare: ITagged {\n    side: int\n    constructor(s: int) {\n        side = s\n    }\n    func Area2(): int {\n        return side * side\n    }\n    func Tag(): int {\n        return side + 100\n    }\n}\n\n" +
             "struct TaggedTri: ITagged {\n    b: int\n    func Area2(): int {\n        return b * 3\n    }\n    func Tag(): int {\n        return b + 200\n    }\n}\n\n" +
+            "interface IWeight {\n    func Weight(): int\n}\n\n" +
+            "class MultiShape: IShape, IWeight {\n    v: int\n    constructor(n: int) {\n        v = n\n    }\n    func Area(): int {\n        return v * 10\n    }\n    func Weight(): int {\n        return v + 50\n    }\n}\n\n" +
+            "struct MultiTri: IShape, IWeight {\n    v: int\n    func Area(): int {\n        return v * 4\n    }\n    func Weight(): int {\n        return v + 70\n    }\n}\n\n" +
+            "class BaseMulti {\n    func Bonus(): int {\n        return 7\n    }\n}\n\n" +
+            "class DerivedMulti: BaseMulti, IShape, IWeight {\n    v: int\n    constructor(n: int) {\n        v = n\n    }\n    func Area(): int {\n        return v * 5\n    }\n    func Weight(): int {\n        return v + 80\n    }\n}\n\n" +
             "class Holder {\n    s: IShape\n    constructor(v: IShape) {\n        s = v\n    }\n}\n\n" +
             "class InitHolder {\n    s: IShape\n}\n\n" +
             "struct Slot {\n    s: IShape\n}\n\n" +
@@ -4773,6 +4778,11 @@ class B
             "func derivedDispatch(t: ITagged): int {\n    return t.Tag()\n}\n\n" +
             "func interfaceInheritance(): int {\n    let a: IArea = new TaggedSquare(4)\n    let t: IArea = new TaggedTri { b: 3 }\n    let tagged: ITagged = new TaggedSquare(3)\n    return a.Area2() + t.Area2() + tagged.Tag()\n}\n\n" +
             "func inheritedUpcast(): int {\n    let baseView: IArea = new TaggedSquare(2)\n    return inheritedDispatch(baseView) + derivedDispatch(new TaggedSquare(3))\n}\n\n" +
+            "func multiDispatch(s: IShape, w: IWeight): int {\n    return s.Area() + w.Weight()\n}\n\n" +
+            "func multiInterfaceClass(): int {\n    let s: IShape = new MultiShape(3)\n    let w: IWeight = new MultiShape(4)\n    return s.Area() + w.Weight()\n}\n\n" +
+            "func multiInterfaceStruct(): int {\n    let s: IShape = new MultiTri { v: 2 }\n    let w: IWeight = new MultiTri { v: 5 }\n    return s.Area() + w.Weight()\n}\n\n" +
+            "func multiInterfaceArgs(): int {\n    return multiDispatch(new MultiShape(2), new MultiShape(3))\n}\n\n" +
+            "func basePlusInterfaces(): int {\n    d := new DerivedMulti(2)\n    let s: IShape = d\n    let w: IWeight = d\n    return d.Bonus() + s.Area() + w.Weight()\n}\n\n" +
             // is/as over interfaces ROUTE through the existing kind-46/47 isinst lowerings (the
             // review's stale-decline finding — pinned as PARITY, both polarities).
             "func isCheck(): int {\n    let s: IShape = new Square(2)\n    if s is Square {\n        return 1\n    }\n    return 0\n}\n\n" +
@@ -4792,6 +4802,10 @@ class B
             ("listInterface", System.Array.Empty<object>()),
             ("interfaceInheritance", System.Array.Empty<object>()),
             ("inheritedUpcast", System.Array.Empty<object>()),
+            ("multiInterfaceClass", System.Array.Empty<object>()),
+            ("multiInterfaceStruct", System.Array.Empty<object>()),
+            ("multiInterfaceArgs", System.Array.Empty<object>()),
+            ("basePlusInterfaces", System.Array.Empty<object>()),
             ("isCheck", System.Array.Empty<object>()),
             ("asCheck", System.Array.Empty<object>()));
 
@@ -4818,10 +4832,13 @@ class B
         // registries now enforce uniqueness ACROSS kinds (review-found over-accept, pre-existing
         // for enum/struct/union pairs and widened by each new type family);
         Assert.False(RouteColumnarProgram("enum Color {\n    Red,\n    Green\n}\n\ninterface Color {\n    func C(): int\n}\n\nfunc f(): int {\n    return 1\n}\n").Ok);
-        // DECLINES — oracle-ACCEPTED (later rungs): default interface methods and
-        // multi-interface implementation lists.
+        // DECLINES — oracle-ACCEPTED (later rungs): default interface methods.
         Assert.False(RouteColumnarProgram("interface IGreet {\n    func Hi(): string {\n        return \"hi\"\n    }\n}\n\nfunc f(): int {\n    return 1\n}\n").Ok);
-        Assert.False(RouteColumnarProgram("interface IA {\n    func A(): int\n}\n\ninterface IW {\n    func W(): int\n}\n\nclass Multi: IA, IW {\n    func A(): int {\n        return 1\n    }\n    func W(): int {\n        return 2\n    }\n}\n\nfunc f(): int {\n    return 1\n}\n").Ok);
+        // Multi-interface implementation refuses duplicate direct interfaces, multiple class bases,
+        // and missing members from any directly named interface.
+        Assert.False(RouteColumnarProgram("interface IA {\n    func A(): int\n}\n\nclass Dup: IA, IA {\n    func A(): int {\n        return 1\n    }\n}\n\nfunc f(): int {\n    return 1\n}\n").Ok);
+        Assert.False(RouteColumnarProgram("class A {\n}\n\nclass B {\n}\n\nclass C: A, B {\n}\n\nfunc f(): int {\n    return 1\n}\n").Ok);
+        Assert.False(RouteColumnarProgram("interface IA {\n    func A(): int\n}\n\ninterface IW {\n    func W(): int\n}\n\nclass Broken: IA, IW {\n    func A(): int {\n        return 1\n    }\n}\n\nfunc f(): int {\n    return 1\n}\n").Ok);
         // Interface inheritance still refuses malformed metadata: cycles and missing inherited
         // members decline instead of producing unloadable assemblies.
         Assert.False(RouteColumnarProgram("interface IA: IB {\n    func A(): int\n}\n\ninterface IB: IA {\n    func B(): int\n}\n\nfunc f(): int {\n    return 1\n}\n").Ok);

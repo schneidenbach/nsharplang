@@ -217,7 +217,7 @@ public sealed class ColumnarPropertyInput
 
 public sealed class ColumnarStructInput
 {
-    public ColumnarStructInput(string name, string[] fieldNames, string[] fieldTypeCanonicals, IReadOnlyList<ColumnarFunctionInput> methods, IReadOnlyList<ColumnarConstructorInput> constructors, IReadOnlyList<ColumnarPropertyInput> properties, bool isReference, string? baseName = null, bool[]? fieldStaticFlags = null, int[]? fieldInitKinds = null, string?[]? fieldInitTexts = null, bool isRecord = false, string[]? typeParamNames = null)
+    public ColumnarStructInput(string name, string[] fieldNames, string[] fieldTypeCanonicals, IReadOnlyList<ColumnarFunctionInput> methods, IReadOnlyList<ColumnarConstructorInput> constructors, IReadOnlyList<ColumnarPropertyInput> properties, bool isReference, string[]? baseNames = null, bool[]? fieldStaticFlags = null, int[]? fieldInitKinds = null, string?[]? fieldInitTexts = null, bool isRecord = false, string[]? typeParamNames = null)
     {
         Name = name;
         FieldNames = fieldNames;
@@ -226,7 +226,7 @@ public sealed class ColumnarStructInput
         Constructors = constructors;
         Properties = properties;
         IsReference = isReference;
-        BaseName = baseName;
+        BaseNames = baseNames ?? Array.Empty<string>();
         FieldStaticFlags = fieldStaticFlags;
         FieldInitKinds = fieldInitKinds;
         FieldInitTexts = fieldInitTexts;
@@ -250,10 +250,10 @@ public sealed class ColumnarStructInput
     // True for a RECORD or CLASS (a reference type — class base object, constructed via newobj + a default ctor or a
     // user ctor, fields read directly via ldfld on the ref). False for a value-type struct (initobj + ldloca + ldfld).
     public bool IsReference { get; }
-    // The optional `: Base` single-identifier base-type name (`class D: Base`), or null. Only a CLASS may inherit,
-    // and only from another declared class — the emitter validates and declines everything else (a struct/record/
-    // enum/union/unknown base, a base on a value type).
-    public string? BaseName { get; }
+    // The optional colon-list names (`class D: Base, IFace`, `struct S: IFace`). The emitter resolves the names:
+    // at most one class base on a class, all interface names become implemented interfaces, and unsupported names
+    // decline instead of silently changing type identity.
+    public string[] BaseNames { get; }
     // Per-field STATIC flags, positionally aligned with FieldNames (null = all instance, for older callers). A
     // static field is CLR-static on the type (FieldAttributes.Static), excluded from the instance FieldOrder
     // (object-init / positional construction never bind it), and accessed via `TypeName.field` (or bare inside an
@@ -342,17 +342,16 @@ internal sealed class ColumnarStructDef
     // locals/params/returns resolve and `iface.Method(args)` dispatch (ldloc+callvirt) through the
     // EXISTING machinery; object-init declines via the null DefaultCtor, PASS 0d/0e skip it.
     public bool IsInterface { get; init; }
-    // Interfaces this interface EXTENDS. For an implementer, ImplementedInterface records the directly named
-    // interface and this list lets lookup/completeness/upcasts walk inherited interface slots without duplicating
+    // Interfaces this interface EXTENDS. For an implementer, ImplementedInterfaces records the directly named
+    // interfaces and this list lets lookup/completeness/upcasts walk inherited interface slots without duplicating
     // those MethodBuilders on the derived interface.
     public List<ColumnarStructDef> InterfaceBases { get; } = new();
-    // The single interface this type IMPLEMENTS (`class C: IShape` — the colon name reclassified in
-    // PASS 0a' when it resolves to an interface def), or null. IF-1 models ONE interface; lists
-    // decline. Every interface member must be matched by name+signature (completeness checked in
-    // PASS 0b — the pipeline emits an UNLOADABLE assembly for missing members, oracle defect #26,
-    // so columnar declines instead) and the matching methods get Virtual|Final|NewSlot +
-    // DefineMethodOverride, mirroring the oracle's DeclareMethod.
-    public ColumnarStructDef? ImplementedInterface { get; set; }
+    // Direct interfaces this type IMPLEMENTS (`class C: IShape, IDisposable` — colon-list names reclassified in
+    // PASS 0a' when they resolve to interface defs). Every direct and inherited interface member must be matched
+    // by name+signature (completeness checked in PASS 0b — the pipeline emits an UNLOADABLE assembly for missing
+    // members, oracle defect #26, so columnar declines instead) and the matching methods get Virtual|Final|NewSlot
+    // + DefineMethodOverride, mirroring the oracle's DeclareMethod.
+    public List<ColumnarStructDef> ImplementedInterfaces { get; } = new();
     // The synthesized public parameterless constructor (the object-init `newobj` target) for a reference type with
     // NO user constructors — chains to object (no base) or to the base's parameterless ctor. Set in PASS 0d (after
     // user ctors are declared, so a derived default ctor can chain to a base USER 0-param ctor); null for a value
@@ -2986,46 +2985,45 @@ public sealed class ColumnarIlEmitter
                 return false; // duplicate type name (incl. cross-registry — the pipeline's NL306).
         }
 
-        // PASS 0a' (base classes): resolve each `class D: Base` base name and re-parent the TypeBuilder. Only a
-        // CLASS (reference type) may inherit, and only from another declared CLASS — a base on a value type, a
-        // value-type/enum/union/unknown base name, and an inheritance CYCLE all decline (the N# pipeline rejects
-        // each: "only classes and interfaces can appear in a base list" / unknown type). The base may be declared
-        // before OR after the derived class in source (forward base references are legal); finalization below
-        // orders CreateType base-before-derived by chain depth.
+        // PASS 0a' (base/interface lists): resolve each colon-list name. Any interface becomes a directly
+        // implemented interface (and contributes its inherited interfaces to metadata); at most one class may
+        // become the parent, and only for a CLASS. A base on a value type, record inheritance, a record
+        // base, an unknown/non-type name, duplicate direct interfaces, multiple class bases, and inheritance
+        // cycles all decline rather than silently changing type identity or emitting unloadable IL.
         for (var s = 0; s < structs.Count; s++)
         {
-            var baseName = structs[s].BaseName;
-            if (baseName == null)
-                continue;
             var def = structRegistry[structs[s].Name];
-            // `class C: IShape` / `struct S: IShape` / `record R: IShape` — the colon name
-            // IMPLEMENTS when it resolves to an interface (the parser's base-slot reclassification,
-            // mirroring the oracle's DeclareClass: each colon-list candidate that IsInterface goes
-            // to TrackInterfaceImplementation). The implementing methods bind in PASS 0b; every
-            // interface member must be implemented or the program declines (the pipeline emits an
-            // UNLOADABLE assembly for missing members — oracle defect #26 — declining inherits
-            // neither the silence nor the load crash).
-            if (structRegistry.TryGetValue(baseName, out var implementedInterface) && implementedInterface.IsInterface)
+            var seenDirectInterfaces = new HashSet<ColumnarStructDef>();
+            var seenImplementedInterfaces = new HashSet<TypeBuilder>();
+            foreach (var baseName in structs[s].BaseNames)
             {
-                def.ImplementedInterface = implementedInterface;
-                var seenImplementedInterfaces = new HashSet<TypeBuilder>();
-                foreach (var implemented in EnumerateInterfaceAndBases(implementedInterface))
+                if (!structRegistry.TryGetValue(baseName, out var baseDef))
+                    return false;
+                if (baseDef.IsInterface)
                 {
-                    if (seenImplementedInterfaces.Add(implemented.Builder))
-                        def.Builder.AddInterfaceImplementation(implemented.Builder);
+                    if (!seenDirectInterfaces.Add(baseDef))
+                        return false;
+                    def.ImplementedInterfaces.Add(baseDef);
+                    foreach (var implemented in EnumerateInterfaceAndBases(baseDef))
+                    {
+                        if (seenImplementedInterfaces.Add(implemented.Builder))
+                            def.Builder.AddInterfaceImplementation(implemented.Builder);
+                    }
+                    continue;
                 }
-                continue;
+                if (!def.IsReference)
+                    return false; // a value-type struct cannot inherit.
+                if (def.IsRecord)
+                    return false; // record inheritance is unmodelled — only a CLASS may inherit.
+                if (!baseDef.IsReference || ReferenceEquals(baseDef, def))
+                    return false; // non-class / self base.
+                if (baseDef.IsRecord)
+                    return false; // a RECORD can never be a base type (the oracle emits records SEALED).
+                if (def.BaseDef != null)
+                    return false; // multiple class bases.
+                def.BaseDef = baseDef;
+                def.Builder.SetParent(baseDef.Builder);
             }
-            if (!def.IsReference)
-                return false; // a value-type struct cannot inherit.
-            if (def.IsRecord)
-                return false; // record inheritance is unmodelled — only a CLASS may inherit.
-            if (!structRegistry.TryGetValue(baseName, out var baseDef) || !baseDef.IsReference || baseDef == def)
-                return false; // unknown / non-class / self base.
-            if (baseDef.IsRecord)
-                return false; // a RECORD can never be a base type (the oracle emits records SEALED).
-            def.BaseDef = baseDef;
-            def.Builder.SetParent(baseDef.Builder);
         }
         // Chain-depth per type: 0 for no base, base's depth + 1 otherwise. A chain longer than the type count is a
         // CYCLE (A: B, B: A) — decline before any IL references the malformed hierarchy.
@@ -3135,20 +3133,29 @@ public sealed class ColumnarIlEmitter
                     mOrdinals[m.ParamNames[i]] = i + 1;
                     mParamTypeMap[m.ParamNames[i]] = pt;
                 }
-                // An IMPLEMENTING method (name + exact signature matches a member of the type's
-                // implemented interface) gets Virtual|Final|NewSlot + DefineMethodOverride —
-                // the oracle's DeclareMethod rule (implementing methods are FORCED virtual-final).
+                // An IMPLEMENTING method (name + exact signature matches a member of any directly implemented
+                // interface, or one of its inherited interfaces) gets Virtual|Final|NewSlot +
+                // DefineMethodOverride for every matching slot — the oracle's DeclareMethod rule
+                // (implementing methods are FORCED virtual-final).
                 var methodAttributes = MethodAttributes.Public | MethodAttributes.HideBySig;
-                MethodBuilder? overriddenInterfaceMethod = null;
-                if (def.ImplementedInterface != null
-                    && TryFindInterfaceMethod(def.ImplementedInterface, m.Name, mReturn, mParamTypes, out var interfaceMember))
+                List<MethodBuilder>? overriddenInterfaceMethods = null;
+                var seenOverriddenInterfaceMethods = new HashSet<MethodBuilder>();
+                foreach (var implementedInterface in def.ImplementedInterfaces)
                 {
-                    methodAttributes |= MethodAttributes.Virtual | MethodAttributes.Final | MethodAttributes.NewSlot;
-                    overriddenInterfaceMethod = interfaceMember;
+                    if (TryFindInterfaceMethod(implementedInterface, m.Name, mReturn, mParamTypes, out var interfaceMember)
+                        && seenOverriddenInterfaceMethods.Add(interfaceMember))
+                    {
+                        methodAttributes |= MethodAttributes.Virtual | MethodAttributes.Final | MethodAttributes.NewSlot;
+                        overriddenInterfaceMethods ??= new List<MethodBuilder>();
+                        overriddenInterfaceMethods.Add(interfaceMember);
+                    }
                 }
                 var mb = def.Builder.DefineMethod(m.Name, methodAttributes, mReturn, mParamTypes);
-                if (overriddenInterfaceMethod != null)
-                    def.Builder.DefineMethodOverride(mb, overriddenInterfaceMethod);
+                if (overriddenInterfaceMethods != null)
+                {
+                    foreach (var overriddenInterfaceMethod in overriddenInterfaceMethods)
+                        def.Builder.DefineMethodOverride(mb, overriddenInterfaceMethod);
+                }
                 if (!def.Methods.TryAdd(m.Name, (mb, mParamTypes, mReturn)))
                     return false; // a duplicate method name on one struct is an overload set the slice does not model.
                 structMethodJobs.Add((def, m, mb, mReturn, mOrdinals, mParamTypeMap, false));
@@ -3162,16 +3169,22 @@ public sealed class ColumnarIlEmitter
         for (var s = 0; s < structs.Count; s++)
         {
             var def = structRegistry[structs[s].Name];
-            if (def.ImplementedInterface == null)
+            if (def.ImplementedInterfaces.Count == 0)
                 continue;
-            foreach (var requiredInterface in EnumerateInterfaceAndBases(def.ImplementedInterface))
+            var seenRequiredInterfaces = new HashSet<ColumnarStructDef>();
+            foreach (var implementedInterface in def.ImplementedInterfaces)
             {
-                foreach (var (memberName, member) in requiredInterface.Methods)
+                foreach (var requiredInterface in EnumerateInterfaceAndBases(implementedInterface))
                 {
-                    if (!def.Methods.TryGetValue(memberName, out var impl)
-                        || impl.ReturnType != member.ReturnType
-                        || !ParamTypesMatch(member.ParamTypes, impl.ParamTypes))
-                        return false;
+                    if (!seenRequiredInterfaces.Add(requiredInterface))
+                        continue;
+                    foreach (var (memberName, member) in requiredInterface.Methods)
+                    {
+                        if (!def.Methods.TryGetValue(memberName, out var impl)
+                            || impl.ReturnType != member.ReturnType
+                            || !ParamTypesMatch(member.ParamTypes, impl.ParamTypes))
+                            return false;
+                    }
                 }
             }
         }
@@ -10281,6 +10294,16 @@ public sealed class ColumnarIlEmitter
         return false;
     }
 
+    private static bool AnyInterfaceEqualsOrExtends(IEnumerable<ColumnarStructDef> interfaceDefs, TypeBuilder targetBuilder)
+    {
+        foreach (var interfaceDef in interfaceDefs)
+        {
+            if (InterfaceEqualsOrExtends(interfaceDef, targetBuilder))
+                return true;
+        }
+        return false;
+    }
+
     private static int InterfaceDepthOrMinusOne(
         ColumnarStructDef interfaceDef,
         Dictionary<ColumnarStructDef, int> memo,
@@ -10318,8 +10341,7 @@ public sealed class ColumnarIlEmitter
             return false;
         if (valueType is not TypeBuilder valueBuilder
             || FindDefByBuilder(valueBuilder) is not { } valueDef
-            || valueDef.ImplementedInterface == null
-            || !InterfaceEqualsOrExtends(valueDef.ImplementedInterface, targetBuilder))
+            || !AnyInterfaceEqualsOrExtends(valueDef.ImplementedInterfaces, targetBuilder))
             return false;
         if (!valueDef.IsReference)
             _il.Emit(OpCodes.Box, valueBuilder);
