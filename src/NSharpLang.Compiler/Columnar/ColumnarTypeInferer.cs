@@ -3,6 +3,14 @@ using System.Collections.Generic;
 namespace NSharpLang.Compiler.Columnar;
 
 /// <summary>
+/// Canonical sibling-function signature row used by the columnar type inferer to resolve bare calls without
+/// collapsing overloads that share a simple name.
+/// </summary>
+public readonly record struct ColumnarFunctionReturnSignature(
+    IReadOnlyList<string> ParameterTypes,
+    string ReturnType);
+
+/// <summary>
 /// COLUMNAR PIPELINE — stage 3 (docs/design/columnar-pipeline.md). Expression type inference performed
 /// DIRECTLY over the columnar statement/expression tables — no C# AST. For one function body it produces, in
 /// post-order (children before parents, the order inference naturally computes), the inferred canonical type
@@ -29,7 +37,7 @@ public sealed class ColumnarTypeInferer
     private readonly int[] _childIndices;
     private readonly string _source;
     private readonly Dictionary<string, string> _parameterTypes;
-    private readonly Dictionary<string, string> _functionReturnTypes;
+    private readonly Dictionary<string, List<ColumnarFunctionReturnSignature>> _functionReturnTypes;
 
     private readonly List<Dictionary<string, string>> _localScopes = new();
     private List<string> _types = new();
@@ -37,7 +45,8 @@ public sealed class ColumnarTypeInferer
     public ColumnarTypeInferer(
         int[] kinds, int[] valueStarts, int[] valueLengths,
         int[] childStart, int[] childCount, int[] childIndices, string source,
-        Dictionary<string, string> parameterTypes, Dictionary<string, string> functionReturnTypes)
+        Dictionary<string, string> parameterTypes,
+        Dictionary<string, List<ColumnarFunctionReturnSignature>> functionReturnTypes)
     {
         _kinds = kinds;
         _valueStarts = valueStarts;
@@ -121,9 +130,10 @@ public sealed class ColumnarTypeInferer
             {
                 var calleeIdx = Child(idx, 0);
                 InferExpression(calleeIdx);
+                var argTypes = new string[_childCount[idx] - 1];
                 for (var n = 1; n < _childCount[idx]; n++)
-                    InferExpression(Child(idx, n));
-                t = CallReturnType(calleeIdx);
+                    argTypes[n - 1] = InferExpression(Child(idx, n));
+                t = CallReturnType(calleeIdx, argTypes);
                 break;
             }
             case 10: // IndexAccess [object, index]
@@ -194,11 +204,42 @@ public sealed class ColumnarTypeInferer
         return _parameterTypes.TryGetValue(name, out var p) ? p : ColumnarTypeLattice.External;
     }
 
-    private string CallReturnType(int calleeIdx)
+    private string CallReturnType(int calleeIdx, string[] argTypes)
     {
-        if (_kinds[calleeIdx] == 6 && _functionReturnTypes.TryGetValue(Text(calleeIdx), out var ret))
-            return ret;
+        if (_kinds[calleeIdx] != 6 || !_functionReturnTypes.TryGetValue(Text(calleeIdx), out var overloads))
+            return ColumnarTypeLattice.External;
+
+        if (overloads.Count == 1)
+            return overloads[0].ReturnType;
+
+        var match = -1;
+        for (var i = 0; i < overloads.Count; i++)
+        {
+            if (!SignatureMatches(overloads[i].ParameterTypes, argTypes))
+                continue;
+            if (match >= 0)
+                return ColumnarTypeLattice.External;
+            match = i;
+        }
+
+        if (match >= 0)
+            return overloads[match].ReturnType;
+
         return ColumnarTypeLattice.External;
+    }
+
+    private static bool SignatureMatches(IReadOnlyList<string> parameterTypes, string[] argTypes)
+    {
+        if (parameterTypes.Count != argTypes.Length)
+            return false;
+
+        for (var i = 0; i < parameterTypes.Count; i++)
+        {
+            if (parameterTypes[i] != argTypes[i])
+                return false;
+        }
+
+        return true;
     }
 
     // Canonical type string from a columnar TYPE subtree (kinds 0 Simple,1 Generic,2 Array,3 Nullable,

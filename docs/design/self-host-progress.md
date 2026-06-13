@@ -499,6 +499,23 @@ uses before parser node tables and Stage-6 C# surface shrink. Completed by the s
 
 ---
 
+## 2026-06-13 — M8: columnar type inference resolves overload returns by signature
+
+The Stage-3 columnar type inferer no longer keys sibling function return types by simple name alone. The adapter
+now records every top-level function's canonical parameter-type vector with its return canonical, and
+`ColumnarTypeInferer` resolves bare sibling calls against that overload list. Single-overload names keep the
+existing behavior; overloaded names require one exact arity/type match, otherwise the call remains `External`
+instead of silently taking the last declaration's return type.
+
+Coverage: `ColumnarTypes_Inference_MatchesAstWalk` now includes `pick(int): int` plus `pick(string): string`
+and asserts `pick(1)` infers `int` even though the string overload appears later. The C# AST oracle uses the
+same canonical-signature selection so future inference drift is still caught by parity.
+
+NEXT: keep richer overload conversion/scoring out of this route until the columnar analyzer owns the same
+semantic candidate ranking as the production analyzer; exact signature matching closes the last-wins hazard.
+
+---
+
 ## 2026-06-13 — Route safety: contextual test declarations decline columnar
 
 The Stage-5 route-all path now has an adapter-level guard for top-level contextual test declarations before it

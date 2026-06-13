@@ -1480,6 +1480,16 @@ class B
             Assert.Equal(CSharpInferFunctionTypes(src, "corpus.nl"), types);
         }
 
+        var overloadSource =
+            "func pick(a: int): int {\n    return a\n}\n\n" +
+            "func pick(a: string): string {\n    return a\n}\n\n" +
+            "func use(): int {\n    x := pick(1)\n    return x\n}\n";
+        var (overloadOk, overloadTypes) = RouteFunctionTypes(overloadSource);
+        Assert.True(overloadOk, "Type inferer declined an overload-signature corpus.");
+        Assert.NotNull(overloadTypes);
+        Assert.Equal(CSharpInferFunctionTypes(overloadSource, "overloads.nl"), overloadTypes);
+        Assert.Equal(new[] { ColumnarTypeLattice.External, "int", "int", "int" }, overloadTypes![2]);
+
         var repoRoot = FindRepoRoot();
         var servicesDir = Path.Combine(repoRoot, "src", "NSharpLang.Compiler.Dogfood", "CompilerServices");
         var files = Directory.EnumerateFiles(servicesDir, "*.nl").OrderBy(p => p, StringComparer.Ordinal).ToList();
@@ -1514,9 +1524,22 @@ class B
     {
         var cu = CSharpCompilationUnit(source, filePath);
         var funcs = cu!.Declarations.OfType<FunctionDeclaration>().ToList();
-        var functionReturnTypes = new Dictionary<string, string>(StringComparer.Ordinal);
+        var functionReturnTypes = new Dictionary<string, List<ColumnarFunctionReturnSignature>>(StringComparer.Ordinal);
         foreach (var f in funcs)
-            functionReturnTypes[f.Name] = f.ReturnType != null ? ColumnarFunctionSymbol.CanonicalType(f.ReturnType) : "void";
+        {
+            if (!functionReturnTypes.TryGetValue(f.Name, out var overloads))
+            {
+                overloads = new List<ColumnarFunctionReturnSignature>();
+                functionReturnTypes[f.Name] = overloads;
+            }
+
+            var parameterTypes = new string[f.Parameters.Count];
+            for (var p = 0; p < f.Parameters.Count; p++)
+                parameterTypes[p] = ColumnarFunctionSymbol.CanonicalType(f.Parameters[p].Type);
+            overloads.Add(new ColumnarFunctionReturnSignature(
+                parameterTypes,
+                f.ReturnType != null ? ColumnarFunctionSymbol.CanonicalType(f.ReturnType) : "void"));
+        }
 
         var result = new List<List<string>>();
         foreach (var fn in funcs)
@@ -1531,6 +1554,41 @@ class B
                 for (var i = localScopes.Count - 1; i >= 0; i--)
                     if (localScopes[i].TryGetValue(name, out var t)) return t;
                 return parameterTypes.TryGetValue(name, out var p) ? p : ColumnarTypeLattice.External;
+            }
+
+            string CallReturnType(string name, string[] argTypes)
+            {
+                if (!functionReturnTypes.TryGetValue(name, out var overloads))
+                    return ColumnarTypeLattice.External;
+
+                if (overloads.Count == 1)
+                    return overloads[0].ReturnType;
+
+                var match = -1;
+                for (var i = 0; i < overloads.Count; i++)
+                {
+                    if (!SignatureMatches(overloads[i].ParameterTypes, argTypes))
+                        continue;
+                    if (match >= 0)
+                        return ColumnarTypeLattice.External;
+                    match = i;
+                }
+
+                return match >= 0 ? overloads[match].ReturnType : ColumnarTypeLattice.External;
+            }
+
+            static bool SignatureMatches(IReadOnlyList<string> signatureParameterTypes, string[] argTypes)
+            {
+                if (signatureParameterTypes.Count != argTypes.Length)
+                    return false;
+
+                for (var i = 0; i < signatureParameterTypes.Count; i++)
+                {
+                    if (signatureParameterTypes[i] != argTypes[i])
+                        return false;
+                }
+
+                return true;
             }
 
             string Expr(Expression e)
@@ -1548,11 +1606,16 @@ class B
                     case ParenthesizedExpression p: t = Expr(p.Inner); break;
                     case MemberAccessExpression m: Expr(m.Object); t = ColumnarTypeLattice.External; break;
                     case CallExpression c:
+                    {
                         Expr(c.Callee);
-                        foreach (var a in c.Arguments) Expr(a.Value);
-                        t = c.Callee is IdentifierExpression cid && functionReturnTypes.TryGetValue(cid.Name, out var r)
-                            ? r : ColumnarTypeLattice.External;
+                        var argTypes = new string[c.Arguments.Count];
+                        for (var i = 0; i < c.Arguments.Count; i++)
+                            argTypes[i] = Expr(c.Arguments[i].Value);
+                        t = c.Callee is IdentifierExpression cid
+                            ? CallReturnType(cid.Name, argTypes)
+                            : ColumnarTypeLattice.External;
                         break;
+                    }
                     case IndexAccessExpression ix:
                     {
                         var o = Expr(ix.Object);

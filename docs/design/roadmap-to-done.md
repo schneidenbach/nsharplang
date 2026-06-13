@@ -237,9 +237,9 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
 - **Deferred parity findings** (carried over from the retired dogfood-parity roadmap; fix as the parser
   kernel / inferer work lands): **M6 routing safety fixed** — top-level contextual `test`/`setup`/`teardown`
   declarations now make the columnar route decline to the C# test emitter instead of silently ignoring them;
-  parsing/emitting tests in columnar remains future coverage. **M8** — the columnar
-  inferer keys function return types by name only, so top-level overloads collide (last wins); key by
-  canonical signature (`ColumnarFunctionSymbol.Signature()`).
+  parsing/emitting tests in columnar remains future coverage. **M8 fixed** — the columnar type inferer records
+  overload return rows by canonical parameter signature and exact-matches calls instead of letting duplicate names
+  overwrite each other.
 
 ## Phase P — Rust-class performance
 

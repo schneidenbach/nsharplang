@@ -453,7 +453,7 @@ internal static class NSharpCompilerDogfoodAdapter
 
             // Pass 1: each function's signature → parameter types + the shared function-return-type map.
             var perFunctionParameterTypes = new List<Dictionary<string, string>>(funcIndices.Count);
-            var functionReturnTypes = new Dictionary<string, string>(StringComparer.Ordinal);
+            var functionReturnTypes = new Dictionary<string, List<Columnar.ColumnarFunctionReturnSignature>>(StringComparer.Ordinal);
             foreach (var funcIndex in funcIndices)
             {
                 var sk = new int[cap]; var sns = new int[cap]; var snl = new int[cap]; var scs = new int[cap];
@@ -473,12 +473,23 @@ internal static class NSharpCompilerDogfoodAdapter
                     return false;
 
                 var paramTypes = new Dictionary<string, string>(StringComparer.Ordinal);
+                var signatureParameterTypes = new string[paramCount];
                 for (var p = 0; p < paramCount; p++)
-                    paramTypes[source.Substring(pNameStart[p], pNameLen[p])] = ColumnarTypeCanon(sk, sns, snl, scs, scc, sci, source, pTypeRoot[p]);
+                {
+                    var parameterType = ColumnarTypeCanon(sk, sns, snl, scs, scc, sci, source, pTypeRoot[p]);
+                    paramTypes[source.Substring(pNameStart[p], pNameLen[p])] = parameterType;
+                    signatureParameterTypes[p] = parameterType;
+                }
                 perFunctionParameterTypes.Add(paramTypes);
 
                 var name = source.Substring(sres[3], sres[4]);
-                functionReturnTypes[name] = sres[1] >= 0 ? ColumnarTypeCanon(sk, sns, snl, scs, scc, sci, source, sres[1]) : "void";
+                var returnType = sres[1] >= 0 ? ColumnarTypeCanon(sk, sns, snl, scs, scc, sci, source, sres[1]) : "void";
+                if (!functionReturnTypes.TryGetValue(name, out var overloads))
+                {
+                    overloads = new List<Columnar.ColumnarFunctionReturnSignature>();
+                    functionReturnTypes[name] = overloads;
+                }
+                overloads.Add(new Columnar.ColumnarFunctionReturnSignature(signatureParameterTypes, returnType));
             }
 
             // Pass 2: infer each body with its parameter types + the function-return-type map.
