@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — Code-intelligence line query tables wrapped
+
+`IdentifierSpans.nl` now groups code-intelligence line ranges, position queries, line-only queries,
+span outputs, declaration-name match inputs, identifier-name column outputs, member receiver caches,
+and variable-name caches behind named normal structs. The existing dogfood adapter delegates still
+consume the flattened `*FromLinesInto` and cache entry points, while the identifier span, editor span,
+declaration match, source context/line, completion prefix, doc comment, member receiver, and variable
+name cores operate on explicit table wrappers.
+
+This extends the post-parser table-wrapper pass into the editor/code-intelligence text kernels used by
+`nlc query` and the production dogfood adapter without changing the host ABI.
+
 ## 2026-06-13 — Production overload candidate tables wrapped
 
 `OverloadCandidates.nl` now groups compact overload score columns, candidate parameter-type ranges,

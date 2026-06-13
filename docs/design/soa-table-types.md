@@ -224,8 +224,9 @@ ownership lands.
    severity/trait/cluster-id/location/group/member tables for diagnostic clustering. `BindingLookup.nl`
    wraps declaration, binding, query, candidate-column, nearest-declaration, result, slot, and scratch
    tables for semantic binding lookup. `OverloadCandidates.nl` now wraps the production compact
-   overload score, parameter-range, argument, call-slice, and result tables without using the
-   experimental `soa record` surface. These slices preserve the flattened dogfood adapter ABI.
+   overload score, parameter-range, argument, call-slice, and result tables, and `IdentifierSpans.nl`
+   wraps code-intelligence line ranges, queries, results, and caches without using the experimental
+   `soa record` surface. These slices preserve the flattened dogfood adapter ABI.
 7. Only after those gates pass, start replacing C# emitter/analyzer internals that still require untyped
    parallel-array plumbing.
 

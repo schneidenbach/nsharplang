@@ -1,5 +1,62 @@
 import System
 
+struct CodeIntelligenceLineRangeTable {
+    Starts: int[]
+    Lengths: int[]
+    Count: int
+}
+
+struct CodeIntelligencePositionQueryTable {
+    Lines: int[]
+    Columns: int[]
+}
+
+struct CodeIntelligenceLineQueryTable {
+    Lines: int[]
+}
+
+struct CodeIntelligenceSpanOutputTable {
+    Starts: int[]
+    Lengths: int[]
+}
+
+struct CodeIntelligenceDeclarationMatchQueryTable {
+    Lines: int[]
+    DeclarationColumns: int[]
+    Names: string[]
+    SelectedStartColumns: int[]
+    SelectedEndColumns: int[]
+}
+
+struct CodeIntelligenceMatchOutputTable {
+    Matches: int[]
+}
+
+struct CodeIntelligenceIdentifierNameQueryTable {
+    Lines: int[]
+    Names: string[]
+    FallbackColumns: int[]
+}
+
+struct CodeIntelligenceColumnOutputTable {
+    Columns: int[]
+}
+
+struct CodeIntelligenceMemberQueryTable {
+    Lines: int[]
+    MemberStartColumns: int[]
+}
+
+struct CodeIntelligenceSeparatorSpanTable {
+    StartsBySeparator: int[]
+    LengthsBySeparator: int[]
+}
+
+struct CodeIntelligenceLineNameTable {
+    StartsByLine: int[]
+    LengthsByLine: int[]
+}
+
 func CodeIntelligenceIdentifierSpansInto(
     source: string,
     lineStarts: int[],
@@ -29,18 +86,29 @@ func CodeIntelligenceIdentifierSpansFromLinesInto(
     queryColumns: int[],
     resultStarts: int[],
     resultLengths: int[]): int {
+    lines := new CodeIntelligenceLineRangeTable { Starts: lineStarts, Lengths: lineLengths, Count: lineCount }
+    queries := new CodeIntelligencePositionQueryTable { Lines: queryLines, Columns: queryColumns }
+    result := new CodeIntelligenceSpanOutputTable { Starts: resultStarts, Lengths: resultLengths }
+    return CodeIntelligenceIdentifierSpansFromLinesCore(source, ref lines, ref queries, ref result)
+}
+
+func CodeIntelligenceIdentifierSpansFromLinesCore(
+    source: string,
+    lines: &CodeIntelligenceLineRangeTable,
+    queries: &CodeIntelligencePositionQueryTable,
+    result: &CodeIntelligenceSpanOutputTable): int {
     foundCount := 0
     i := 0
 
-    while i < queryLines.Length {
+    while i < queries.Lines.Length {
         spanStart := -1
         spanLength := 0
-        line := queryLines[i]
-        column := queryColumns[i]
+        line := queries.Lines[i]
+        column := queries.Columns[i]
 
-        if line > 0 && line <= lineCount {
+        if line > 0 && line <= lines.Count {
             lineIndex := line - 1
-            lineLength := lineLengths[lineIndex]
+            lineLength := lines.Lengths[lineIndex]
 
             if lineLength > 0 {
                 index := column - 1
@@ -54,13 +122,13 @@ func CodeIntelligenceIdentifierSpansFromLinesInto(
 
                 nearest := FindNearestCodeIntelligenceIdentifierIndex(
                     source,
-                    lineStarts[lineIndex],
+                    lines.Starts[lineIndex],
                     lineLength,
                     index)
 
                 if nearest >= 0 {
                     start := nearest
-                    lineStart := lineStarts[lineIndex]
+                    lineStart := lines.Starts[lineIndex]
                     while start > 0 && IsCodeIntelligenceIdentifierChar(source[lineStart + start - 1]) {
                         start = start - 1
                     }
@@ -76,8 +144,8 @@ func CodeIntelligenceIdentifierSpansFromLinesInto(
             }
         }
 
-        resultStarts[i] = spanStart
-        resultLengths[i] = spanLength
+        result.Starts[i] = spanStart
+        result.Lengths[i] = spanLength
         if spanStart >= 0 {
             foundCount = foundCount + 1
         }
@@ -117,35 +185,46 @@ func CodeIntelligenceEditorIdentifierSpansFromLinesInto(
     queryColumns: int[],
     resultStarts: int[],
     resultLengths: int[]): int {
+    lines := new CodeIntelligenceLineRangeTable { Starts: lineStarts, Lengths: lineLengths, Count: lineCount }
+    queries := new CodeIntelligencePositionQueryTable { Lines: queryLines, Columns: queryColumns }
+    result := new CodeIntelligenceSpanOutputTable { Starts: resultStarts, Lengths: resultLengths }
+    return CodeIntelligenceEditorIdentifierSpansFromLinesCore(source, ref lines, ref queries, ref result)
+}
+
+func CodeIntelligenceEditorIdentifierSpansFromLinesCore(
+    source: string,
+    lines: &CodeIntelligenceLineRangeTable,
+    queries: &CodeIntelligencePositionQueryTable,
+    result: &CodeIntelligenceSpanOutputTable): int {
     foundCount := 0
     i := 0
 
-    while i < queryLines.Length {
+    while i < queries.Lines.Length {
         spanStart := -1
         spanLength := 0
-        line := queryLines[i]
-        column := queryColumns[i]
+        line := queries.Lines[i]
+        column := queries.Columns[i]
 
-        if line > 0 && line <= lineCount && column > 0 {
+        if line > 0 && line <= lines.Count && column > 0 {
             lineIndex := line - 1
-            lineLength := lineLengths[lineIndex]
+            lineLength := lines.Lengths[lineIndex]
 
             if lineLength > 0 {
                 character := column - 1
-                lineStart := lineStarts[lineIndex]
+                lineStart := lines.Starts[lineIndex]
 
                 if character >= lineLength {
                     character = lineLength - 1
                     if !IsCodeIntelligenceIdentifierChar(source[lineStart + character]) {
-                        resultStarts[i] = spanStart
-                        resultLengths[i] = spanLength
+                        result.Starts[i] = spanStart
+                        result.Lengths[i] = spanLength
                         i = i + 1
                         continue
                     }
                 } else {
                     if !IsCodeIntelligenceIdentifierChar(source[lineStart + character]) {
-                        resultStarts[i] = spanStart
-                        resultLengths[i] = spanLength
+                        result.Starts[i] = spanStart
+                        result.Lengths[i] = spanLength
                         i = i + 1
                         continue
                     }
@@ -166,8 +245,8 @@ func CodeIntelligenceEditorIdentifierSpansFromLinesInto(
             }
         }
 
-        resultStarts[i] = spanStart
-        resultLengths[i] = spanLength
+        result.Starts[i] = spanStart
+        result.Lengths[i] = spanLength
         if spanStart >= 0 {
             foundCount = foundCount + 1
         }
@@ -189,20 +268,37 @@ func CodeIntelligenceDeclarationNameMatchesFromLinesInto(
     selectedStartColumns: int[],
     selectedEndColumns: int[],
     resultMatches: int[]): int {
+    lines := new CodeIntelligenceLineRangeTable { Starts: lineStarts, Lengths: lineLengths, Count: lineCount }
+    queries := new CodeIntelligenceDeclarationMatchQueryTable {
+        Lines: queryLines,
+        DeclarationColumns: declarationColumns,
+        Names: declarationNames,
+        SelectedStartColumns: selectedStartColumns,
+        SelectedEndColumns: selectedEndColumns
+    }
+    result := new CodeIntelligenceMatchOutputTable { Matches: resultMatches }
+    return CodeIntelligenceDeclarationNameMatchesFromLinesCore(source, ref lines, ref queries, ref result)
+}
+
+func CodeIntelligenceDeclarationNameMatchesFromLinesCore(
+    source: string,
+    lines: &CodeIntelligenceLineRangeTable,
+    queries: &CodeIntelligenceDeclarationMatchQueryTable,
+    result: &CodeIntelligenceMatchOutputTable): int {
     matchCount := 0
     i := 0
-    queryCount := queryLines.Length
+    queryCount := queries.Lines.Length
 
     while i < queryCount {
         matched := 0
-        line := queryLines[i]
+        line := queries.Lines[i]
 
-        if line > 0 && line <= lineCount {
+        if line > 0 && line <= lines.Count {
             lineIndex := line - 1
-            lineStart := lineStarts[lineIndex]
-            lineLength := lineLengths[lineIndex]
-            declarationName := declarationNames[i]
-            searchStart := declarationColumns[i] - 1
+            lineStart := lines.Starts[lineIndex]
+            lineLength := lines.Lengths[lineIndex]
+            declarationName := queries.Names[i]
+            searchStart := queries.DeclarationColumns[i] - 1
 
             if searchStart < 0 {
                 searchStart = 0
@@ -222,14 +318,14 @@ func CodeIntelligenceDeclarationNameMatchesFromLinesInto(
             if nameIndex >= 0 {
                 nameStartColumn := nameIndex + 1
                 nameEndColumn := nameStartColumn + declarationName.Length - 1
-                if selectedStartColumns[i] == nameStartColumn && selectedEndColumns[i] == nameEndColumn {
+                if queries.SelectedStartColumns[i] == nameStartColumn && queries.SelectedEndColumns[i] == nameEndColumn {
                     matched = 1
                     matchCount = matchCount + 1
                 }
             }
         }
 
-        resultMatches[i] = matched
+        result.Matches[i] = matched
         i = i + 1
     }
 
@@ -265,19 +361,30 @@ func CodeIntelligenceIdentifierNameColumnsFromLinesInto(
     declarationNames: string[],
     fallbackColumns: int[],
     resultColumns: int[]): int {
+    lines := new CodeIntelligenceLineRangeTable { Starts: lineStarts, Lengths: lineLengths, Count: lineCount }
+    queries := new CodeIntelligenceIdentifierNameQueryTable { Lines: queryLines, Names: declarationNames, FallbackColumns: fallbackColumns }
+    result := new CodeIntelligenceColumnOutputTable { Columns: resultColumns }
+    return CodeIntelligenceIdentifierNameColumnsFromLinesCore(source, ref lines, ref queries, ref result)
+}
+
+func CodeIntelligenceIdentifierNameColumnsFromLinesCore(
+    source: string,
+    lines: &CodeIntelligenceLineRangeTable,
+    queries: &CodeIntelligenceIdentifierNameQueryTable,
+    result: &CodeIntelligenceColumnOutputTable): int {
     foundCount := 0
     i := 0
-    queryCount := queryLines.Length
+    queryCount := queries.Lines.Length
 
     while i < queryCount {
-        column := fallbackColumns[i]
-        line := queryLines[i]
-        declarationName := declarationNames[i]
+        column := queries.FallbackColumns[i]
+        line := queries.Lines[i]
+        declarationName := queries.Names[i]
 
-        if line > 0 && line <= lineCount && declarationName.Length > 0 {
+        if line > 0 && line <= lines.Count && declarationName.Length > 0 {
             lineIndex := line - 1
-            lineStart := lineStarts[lineIndex]
-            lineLength := lineLengths[lineIndex]
+            lineStart := lines.Starts[lineIndex]
+            lineLength := lines.Lengths[lineIndex]
 
             while lineLength > 0 && source[lineStart + lineLength - 1] == '\r' {
                 lineLength = lineLength - 1
@@ -316,7 +423,7 @@ func CodeIntelligenceIdentifierNameColumnsFromLinesInto(
             }
         }
 
-        resultColumns[i] = column
+        result.Columns[i] = column
         i = i + 1
     }
 
@@ -352,23 +459,34 @@ func CodeIntelligenceMemberReceiversFromLinesInto(
     memberStartColumns: int[],
     resultStarts: int[],
     resultLengths: int[]): int {
+    lines := new CodeIntelligenceLineRangeTable { Starts: lineStarts, Lengths: lineLengths, Count: lineCount }
+    queries := new CodeIntelligenceMemberQueryTable { Lines: queryLines, MemberStartColumns: memberStartColumns }
+    result := new CodeIntelligenceSpanOutputTable { Starts: resultStarts, Lengths: resultLengths }
+    return CodeIntelligenceMemberReceiversFromLinesCore(source, ref lines, ref queries, ref result)
+}
+
+func CodeIntelligenceMemberReceiversFromLinesCore(
+    source: string,
+    lines: &CodeIntelligenceLineRangeTable,
+    queries: &CodeIntelligenceMemberQueryTable,
+    result: &CodeIntelligenceSpanOutputTable): int {
     foundCount := 0
     i := 0
-    queryCount := queryLines.Length
+    queryCount := queries.Lines.Length
 
     while i < queryCount {
         receiverStartColumn := -1
         receiverLength := 0
-        line := queryLines[i]
-        memberStartColumn := memberStartColumns[i]
+        line := queries.Lines[i]
+        memberStartColumn := queries.MemberStartColumns[i]
 
-        if line > 0 && line <= lineCount {
+        if line > 0 && line <= lines.Count {
             lineIndex := line - 1
-            lineLength := lineLengths[lineIndex]
+            lineLength := lines.Lengths[lineIndex]
             memberStartIndex := memberStartColumn - 1
 
             if memberStartIndex > 0 && memberStartIndex <= lineLength {
-                lineStart := lineStarts[lineIndex]
+                lineStart := lines.Starts[lineIndex]
                 separatorIndex := memberStartIndex - 1
                 separatorPosition := lineStart + separatorIndex
 
@@ -436,8 +554,8 @@ func CodeIntelligenceMemberReceiversFromLinesInto(
             }
         }
 
-        resultStarts[i] = receiverStartColumn
-        resultLengths[i] = receiverLength
+        result.Starts[i] = receiverStartColumn
+        result.Lengths[i] = receiverLength
         if receiverStartColumn >= 0 {
             foundCount = foundCount + 1
         }
@@ -491,37 +609,50 @@ func CodeIntelligenceMemberReceiversFromCacheInto(
     memberStartColumns: int[],
     resultStarts: int[],
     resultLengths: int[]): int {
+    lines := new CodeIntelligenceLineRangeTable { Starts: lineStarts, Lengths: lineLengths, Count: lineCount }
+    cache := new CodeIntelligenceSeparatorSpanTable { StartsBySeparator: receiverStartsBySeparator, LengthsBySeparator: receiverLengthsBySeparator }
+    queries := new CodeIntelligenceMemberQueryTable { Lines: queryLines, MemberStartColumns: memberStartColumns }
+    result := new CodeIntelligenceSpanOutputTable { Starts: resultStarts, Lengths: resultLengths }
+    return CodeIntelligenceMemberReceiversFromCacheCore(source, ref lines, ref cache, ref queries, ref result)
+}
+
+func CodeIntelligenceMemberReceiversFromCacheCore(
+    source: string,
+    lines: &CodeIntelligenceLineRangeTable,
+    cache: &CodeIntelligenceSeparatorSpanTable,
+    queries: &CodeIntelligenceMemberQueryTable,
+    result: &CodeIntelligenceSpanOutputTable): int {
     foundCount := 0
     i := 0
-    queryCount := queryLines.Length
+    queryCount := queries.Lines.Length
 
     while i < queryCount {
         receiverStartColumn := -1
         receiverLength := 0
-        line := queryLines[i]
-        memberStartColumn := memberStartColumns[i]
+        line := queries.Lines[i]
+        memberStartColumn := queries.MemberStartColumns[i]
 
-        if line > 0 && line <= lineCount {
+        if line > 0 && line <= lines.Count {
             lineIndex := line - 1
-            lineLength := lineLengths[lineIndex]
+            lineLength := lines.Lengths[lineIndex]
             memberStartIndex := memberStartColumn - 1
 
             if memberStartIndex > 0 && memberStartIndex <= lineLength {
-                lineStart := lineStarts[lineIndex]
+                lineStart := lines.Starts[lineIndex]
                 separatorPosition := lineStart + memberStartIndex - 1
 
                 if source[separatorPosition] == '.' {
-                    cachedStartColumn := receiverStartsBySeparator[separatorPosition]
+                    cachedStartColumn := cache.StartsBySeparator[separatorPosition]
                     if cachedStartColumn != 0 {
                         receiverStartColumn = cachedStartColumn
-                        receiverLength = receiverLengthsBySeparator[separatorPosition]
+                        receiverLength = cache.LengthsBySeparator[separatorPosition]
                     }
                 }
             }
         }
 
-        resultStarts[i] = receiverStartColumn
-        resultLengths[i] = receiverLength
+        result.Starts[i] = receiverStartColumn
+        result.Lengths[i] = receiverLength
         if receiverStartColumn >= 0 {
             foundCount = foundCount + 1
         }
@@ -558,19 +689,30 @@ func CodeIntelligenceSourceContextsFromLinesInto(
     queryLines: int[],
     resultStarts: int[],
     resultLengths: int[]): int {
+    lines := new CodeIntelligenceLineRangeTable { Starts: lineStarts, Lengths: lineLengths, Count: lineCount }
+    queries := new CodeIntelligenceLineQueryTable { Lines: queryLines }
+    result := new CodeIntelligenceSpanOutputTable { Starts: resultStarts, Lengths: resultLengths }
+    return CodeIntelligenceSourceContextsFromLinesCore(source, ref lines, ref queries, ref result)
+}
+
+func CodeIntelligenceSourceContextsFromLinesCore(
+    source: string,
+    lines: &CodeIntelligenceLineRangeTable,
+    queries: &CodeIntelligenceLineQueryTable,
+    result: &CodeIntelligenceSpanOutputTable): int {
     foundCount := 0
     i := 0
-    queryCount := queryLines.Length
+    queryCount := queries.Lines.Length
 
     while i < queryCount {
         contextStart := -1
         contextLength := 0
-        line := queryLines[i]
+        line := queries.Lines[i]
 
-        if line > 0 && line <= lineCount {
+        if line > 0 && line <= lines.Count {
             lineIndex := line - 1
-            trimStart := lineStarts[lineIndex]
-            trimEnd := trimStart + lineLengths[lineIndex] - 1
+            trimStart := lines.Starts[lineIndex]
+            trimEnd := trimStart + lines.Lengths[lineIndex] - 1
 
             while trimStart <= trimEnd && IsCodeIntelligenceWhitespace(source[trimStart]) {
                 trimStart = trimStart + 1
@@ -588,8 +730,8 @@ func CodeIntelligenceSourceContextsFromLinesInto(
             foundCount = foundCount + 1
         }
 
-        resultStarts[i] = contextStart
-        resultLengths[i] = contextLength
+        result.Starts[i] = contextStart
+        result.Lengths[i] = contextLength
         i = i + 1
     }
 
@@ -620,24 +762,34 @@ func CodeIntelligenceSourceLinesFromLinesInto(
     queryLines: int[],
     resultStarts: int[],
     resultLengths: int[]): int {
+    lines := new CodeIntelligenceLineRangeTable { Starts: lineStarts, Lengths: lineLengths, Count: lineCount }
+    queries := new CodeIntelligenceLineQueryTable { Lines: queryLines }
+    result := new CodeIntelligenceSpanOutputTable { Starts: resultStarts, Lengths: resultLengths }
+    return CodeIntelligenceSourceLinesFromLinesCore(ref lines, ref queries, ref result)
+}
+
+func CodeIntelligenceSourceLinesFromLinesCore(
+    lines: &CodeIntelligenceLineRangeTable,
+    queries: &CodeIntelligenceLineQueryTable,
+    result: &CodeIntelligenceSpanOutputTable): int {
     foundCount := 0
     i := 0
-    queryCount := queryLines.Length
+    queryCount := queries.Lines.Length
 
     while i < queryCount {
         lineStart := -1
         lineLength := 0
-        line := queryLines[i]
+        line := queries.Lines[i]
 
-        if line > 0 && line <= lineCount {
+        if line > 0 && line <= lines.Count {
             lineIndex := line - 1
-            lineStart = lineStarts[lineIndex]
-            lineLength = lineLengths[lineIndex]
+            lineStart = lines.Starts[lineIndex]
+            lineLength = lines.Lengths[lineIndex]
             foundCount = foundCount + 1
         }
 
-        resultStarts[i] = lineStart
-        resultLengths[i] = lineLength
+        result.Starts[i] = lineStart
+        result.Lengths[i] = lineLength
         i = i + 1
     }
 
@@ -671,20 +823,30 @@ func CodeIntelligenceCompletionPrefixesFromLinesInto(
     queryColumns: int[],
     resultStarts: int[],
     resultLengths: int[]): int {
+    lines := new CodeIntelligenceLineRangeTable { Starts: lineStarts, Lengths: lineLengths, Count: lineCount }
+    queries := new CodeIntelligencePositionQueryTable { Lines: queryLines, Columns: queryColumns }
+    result := new CodeIntelligenceSpanOutputTable { Starts: resultStarts, Lengths: resultLengths }
+    return CodeIntelligenceCompletionPrefixesFromLinesCore(ref lines, ref queries, ref result)
+}
+
+func CodeIntelligenceCompletionPrefixesFromLinesCore(
+    lines: &CodeIntelligenceLineRangeTable,
+    queries: &CodeIntelligencePositionQueryTable,
+    result: &CodeIntelligenceSpanOutputTable): int {
     foundCount := 0
     i := 0
-    queryCount := queryLines.Length
+    queryCount := queries.Lines.Length
 
     while i < queryCount {
         prefixStart := -1
         prefixLength := 0
-        line := queryLines[i]
-        column := queryColumns[i]
+        line := queries.Lines[i]
+        column := queries.Columns[i]
 
-        if line > 0 && line <= lineCount {
+        if line > 0 && line <= lines.Count {
             lineIndex := line - 1
-            prefixStart = lineStarts[lineIndex]
-            prefixLength = lineLengths[lineIndex]
+            prefixStart = lines.Starts[lineIndex]
+            prefixLength = lines.Lengths[lineIndex]
 
             if column > 0 && column <= prefixLength {
                 prefixLength = column
@@ -693,8 +855,8 @@ func CodeIntelligenceCompletionPrefixesFromLinesInto(
             foundCount = foundCount + 1
         }
 
-        resultStarts[i] = prefixStart
-        resultLengths[i] = prefixLength
+        result.Starts[i] = prefixStart
+        result.Lengths[i] = prefixLength
         i = i + 1
     }
 
@@ -727,12 +889,17 @@ func CodeIntelligenceDocCommentLinesFromLinesInto(
     definitionLine: int,
     resultStarts: int[],
     resultLengths: int[]): int {
-    startLine := FindCodeIntelligenceDocCommentStartLine(
-        source,
-        lineStarts,
-        lineLengths,
-        lineCount,
-        definitionLine)
+    lines := new CodeIntelligenceLineRangeTable { Starts: lineStarts, Lengths: lineLengths, Count: lineCount }
+    result := new CodeIntelligenceSpanOutputTable { Starts: resultStarts, Lengths: resultLengths }
+    return CodeIntelligenceDocCommentLinesFromLinesCore(source, ref lines, definitionLine, ref result)
+}
+
+func CodeIntelligenceDocCommentLinesFromLinesCore(
+    source: string,
+    lines: &CodeIntelligenceLineRangeTable,
+    definitionLine: int,
+    result: &CodeIntelligenceSpanOutputTable): int {
+    startLine := FindCodeIntelligenceDocCommentStartLineCore(source, ref lines, definitionLine)
 
     if startLine < 0 {
         return 0
@@ -743,14 +910,14 @@ func CodeIntelligenceDocCommentLinesFromLinesInto(
     lastLineIndex := definitionLine - 2
 
     while lineIndex <= lastLineIndex {
-        lineStart := lineStarts[lineIndex]
-        lineLength := lineLengths[lineIndex]
+        lineStart := lines.Starts[lineIndex]
+        lineLength := lines.Lengths[lineIndex]
 
         if IsCodeIntelligenceDocCommentLine(source, lineStart, lineLength) {
             contentStart := GetCodeIntelligenceDocCommentContentStart(source, lineStart, lineLength)
             contentLength := GetCodeIntelligenceDocCommentContentLength(source, lineStart, lineLength, contentStart)
-            resultStarts[resultCount] = contentStart
-            resultLengths[resultCount] = contentLength
+            result.Starts[resultCount] = contentStart
+            result.Lengths[resultCount] = contentLength
             resultCount = resultCount + 1
         }
 
@@ -813,19 +980,30 @@ func CodeIntelligenceVariableDeclarationNamesFromLinesInto(
     queryLines: int[],
     resultStarts: int[],
     resultLengths: int[]): int {
+    lines := new CodeIntelligenceLineRangeTable { Starts: lineStarts, Lengths: lineLengths, Count: lineCount }
+    queries := new CodeIntelligenceLineQueryTable { Lines: queryLines }
+    result := new CodeIntelligenceSpanOutputTable { Starts: resultStarts, Lengths: resultLengths }
+    return CodeIntelligenceVariableDeclarationNamesFromLinesCore(source, ref lines, ref queries, ref result)
+}
+
+func CodeIntelligenceVariableDeclarationNamesFromLinesCore(
+    source: string,
+    lines: &CodeIntelligenceLineRangeTable,
+    queries: &CodeIntelligenceLineQueryTable,
+    result: &CodeIntelligenceSpanOutputTable): int {
     foundCount := 0
     i := 0
-    queryCount := queryLines.Length
+    queryCount := queries.Lines.Length
 
     while i < queryCount {
         nameStartColumn := -1
         nameLength := 0
-        line := queryLines[i]
+        line := queries.Lines[i]
 
-        if line > 0 && line <= lineCount {
+        if line > 0 && line <= lines.Count {
             lineIndex := line - 1
-            lineStart := lineStarts[lineIndex]
-            lineLength := lineLengths[lineIndex]
+            lineStart := lines.Starts[lineIndex]
+            lineLength := lines.Lengths[lineIndex]
             assignIndex := FindCodeIntelligenceAssignmentOperator(source, lineStart, lineLength)
 
             if assignIndex > 0 {
@@ -852,8 +1030,8 @@ func CodeIntelligenceVariableDeclarationNamesFromLinesInto(
             }
         }
 
-        resultStarts[i] = nameStartColumn
-        resultLengths[i] = nameLength
+        result.Starts[i] = nameStartColumn
+        result.Lengths[i] = nameLength
         i = i + 1
     }
 
@@ -867,14 +1045,23 @@ func BuildCodeIntelligenceVariableDeclarationNameCacheInto(
     lineCount: int,
     nameStartsByLine: int[],
     nameLengthsByLine: int[]): int {
+    lines := new CodeIntelligenceLineRangeTable { Starts: lineStarts, Lengths: lineLengths, Count: lineCount }
+    cache := new CodeIntelligenceLineNameTable { StartsByLine: nameStartsByLine, LengthsByLine: nameLengthsByLine }
+    return BuildCodeIntelligenceVariableDeclarationNameCacheCore(source, ref lines, ref cache)
+}
+
+func BuildCodeIntelligenceVariableDeclarationNameCacheCore(
+    source: string,
+    lines: &CodeIntelligenceLineRangeTable,
+    cache: &CodeIntelligenceLineNameTable): int {
     foundCount := 0
     lineIndex := 0
 
-    while lineIndex < lineCount {
+    while lineIndex < lines.Count {
         nameStartColumn := 0
         nameLength := 0
-        lineStart := lineStarts[lineIndex]
-        lineLength := lineLengths[lineIndex]
+        lineStart := lines.Starts[lineIndex]
+        lineLength := lines.Lengths[lineIndex]
         assignIndex := FindCodeIntelligenceAssignmentOperator(source, lineStart, lineLength)
 
         if assignIndex > 0 {
@@ -900,8 +1087,8 @@ func BuildCodeIntelligenceVariableDeclarationNameCacheInto(
             }
         }
 
-        nameStartsByLine[lineIndex] = nameStartColumn
-        nameLengthsByLine[lineIndex] = nameLength
+        cache.StartsByLine[lineIndex] = nameStartColumn
+        cache.LengthsByLine[lineIndex] = nameLength
         lineIndex = lineIndex + 1
     }
 
@@ -915,28 +1102,39 @@ func CodeIntelligenceVariableDeclarationNamesFromCacheInto(
     queryLines: int[],
     resultStarts: int[],
     resultLengths: int[]): int {
+    cache := new CodeIntelligenceLineNameTable { StartsByLine: nameStartsByLine, LengthsByLine: nameLengthsByLine }
+    queries := new CodeIntelligenceLineQueryTable { Lines: queryLines }
+    result := new CodeIntelligenceSpanOutputTable { Starts: resultStarts, Lengths: resultLengths }
+    return CodeIntelligenceVariableDeclarationNamesFromCacheCore(lineCount, ref cache, ref queries, ref result)
+}
+
+func CodeIntelligenceVariableDeclarationNamesFromCacheCore(
+    lineCount: int,
+    cache: &CodeIntelligenceLineNameTable,
+    queries: &CodeIntelligenceLineQueryTable,
+    result: &CodeIntelligenceSpanOutputTable): int {
     foundCount := 0
     i := 0
-    queryCount := queryLines.Length
+    queryCount := queries.Lines.Length
 
     while i < queryCount {
         nameStartColumn := -1
         nameLength := 0
-        line := queryLines[i]
+        line := queries.Lines[i]
 
         if line > 0 && line <= lineCount {
             lineIndex := line - 1
-            cachedStartColumn := nameStartsByLine[lineIndex]
+            cachedStartColumn := cache.StartsByLine[lineIndex]
 
             if cachedStartColumn > 0 {
                 nameStartColumn = cachedStartColumn
-                nameLength = nameLengthsByLine[lineIndex]
+                nameLength = cache.LengthsByLine[lineIndex]
                 foundCount = foundCount + 1
             }
         }
 
-        resultStarts[i] = nameStartColumn
-        resultLengths[i] = nameLength
+        result.Starts[i] = nameStartColumn
+        result.Lengths[i] = nameLength
         i = i + 1
     }
 
@@ -950,12 +1148,21 @@ func BuildCodeIntelligenceMemberReceiverCacheInto(
     lineCount: int,
     receiverStartsBySeparator: int[],
     receiverLengthsBySeparator: int[]): int {
+    lines := new CodeIntelligenceLineRangeTable { Starts: lineStarts, Lengths: lineLengths, Count: lineCount }
+    cache := new CodeIntelligenceSeparatorSpanTable { StartsBySeparator: receiverStartsBySeparator, LengthsBySeparator: receiverLengthsBySeparator }
+    return BuildCodeIntelligenceMemberReceiverCacheCore(source, ref lines, ref cache)
+}
+
+func BuildCodeIntelligenceMemberReceiverCacheCore(
+    source: string,
+    lines: &CodeIntelligenceLineRangeTable,
+    cache: &CodeIntelligenceSeparatorSpanTable): int {
     memberAccessCount := 0
     lineIndex := 0
 
-    while lineIndex < lineCount {
-        lineStart := lineStarts[lineIndex]
-        lineEnd := lineStart + lineLengths[lineIndex]
+    while lineIndex < lines.Count {
+        lineStart := lines.Starts[lineIndex]
+        lineEnd := lineStart + lines.Lengths[lineIndex]
         separatorPosition := lineStart
 
         while separatorPosition < lineEnd {
@@ -1023,8 +1230,8 @@ func BuildCodeIntelligenceMemberReceiverCacheInto(
                     }
                 }
 
-                receiverStartsBySeparator[separatorPosition] = receiverStartColumn
-                receiverLengthsBySeparator[separatorPosition] = receiverLength
+                cache.StartsBySeparator[separatorPosition] = receiverStartColumn
+                cache.LengthsBySeparator[separatorPosition] = receiverLength
                 memberAccessCount = memberAccessCount + 1
             }
 
@@ -1038,6 +1245,11 @@ func BuildCodeIntelligenceMemberReceiverCacheInto(
 }
 
 func BuildCodeIntelligenceLineRangesInto(source: string, starts: int[], lengths: int[]): int {
+    lines := new CodeIntelligenceLineRangeTable { Starts: starts, Lengths: lengths, Count: 0 }
+    return BuildCodeIntelligenceLineRangesCore(source, ref lines)
+}
+
+func BuildCodeIntelligenceLineRangesCore(source: string, lines: &CodeIntelligenceLineRangeTable): int {
     sourceLength := source.Length
     position := 0
     lineStart := 0
@@ -1045,8 +1257,8 @@ func BuildCodeIntelligenceLineRangesInto(source: string, starts: int[], lengths:
 
     while position < sourceLength {
         if source[position] == '\n' {
-            starts[count] = lineStart
-            lengths[count] = position - lineStart
+            lines.Starts[count] = lineStart
+            lines.Lengths[count] = position - lineStart
             count = count + 1
             position = position + 1
             lineStart = position
@@ -1056,9 +1268,10 @@ func BuildCodeIntelligenceLineRangesInto(source: string, starts: int[], lengths:
         position = position + 1
     }
 
-    starts[count] = lineStart
-    lengths[count] = sourceLength - lineStart
-    return count + 1
+    lines.Starts[count] = lineStart
+    lines.Lengths[count] = sourceLength - lineStart
+    lines.Count = count + 1
+    return lines.Count
 }
 
 func FindCodeIntelligenceAssignmentOperator(source: string, lineStart: int, lineLength: int): int {
@@ -1168,7 +1381,15 @@ func FindCodeIntelligenceDocCommentStartLine(
     lineLengths: int[],
     lineCount: int,
     definitionLine: int): int {
-    if definitionLine <= 1 || definitionLine > lineCount + 1 {
+    lines := new CodeIntelligenceLineRangeTable { Starts: lineStarts, Lengths: lineLengths, Count: lineCount }
+    return FindCodeIntelligenceDocCommentStartLineCore(source, ref lines, definitionLine)
+}
+
+func FindCodeIntelligenceDocCommentStartLineCore(
+    source: string,
+    lines: &CodeIntelligenceLineRangeTable,
+    definitionLine: int): int {
+    if definitionLine <= 1 || definitionLine > lines.Count + 1 {
         return -1
     }
 
@@ -1177,8 +1398,8 @@ func FindCodeIntelligenceDocCommentStartLine(
     lineIndex := definitionLine - 2
 
     while lineIndex >= 0 {
-        lineStart := lineStarts[lineIndex]
-        lineLength := lineLengths[lineIndex]
+        lineStart := lines.Starts[lineIndex]
+        lineLength := lines.Lengths[lineIndex]
 
         if IsCodeIntelligenceDocCommentLine(source, lineStart, lineLength) {
             startLine = lineIndex
