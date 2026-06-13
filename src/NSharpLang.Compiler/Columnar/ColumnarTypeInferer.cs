@@ -42,8 +42,17 @@ public sealed class ColumnarTypeInferer
         int[] childStart, int[] childCount, int[] childIndices, string source,
         Dictionary<string, string> parameterTypes,
         Dictionary<string, List<ColumnarFunctionReturnSignature>> functionReturnTypes)
+        : this(new ColumnarNodeTable(kinds, valueStarts, valueLengths, childStart, childCount, childIndices),
+            source, parameterTypes, functionReturnTypes)
     {
-        _nodes = new ColumnarNodeTable(kinds, valueStarts, valueLengths, childStart, childCount, childIndices);
+    }
+
+    internal ColumnarTypeInferer(
+        ColumnarNodeTable nodes, string source,
+        Dictionary<string, string> parameterTypes,
+        Dictionary<string, List<ColumnarFunctionReturnSignature>> functionReturnTypes)
+    {
+        _nodes = nodes;
         _source = source;
         _parameterTypes = parameterTypes;
         _functionReturnTypes = functionReturnTypes;

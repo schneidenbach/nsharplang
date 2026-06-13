@@ -50,8 +50,16 @@ public sealed class ColumnarNameResolver
         int[] kinds, int[] valueStarts, int[] valueLengths,
         int[] childStart, int[] childCount, int[] childIndices, string source,
         IEnumerable<string> parameterNames, IEnumerable<string> functionNames)
+        : this(new ColumnarNodeTable(kinds, valueStarts, valueLengths, childStart, childCount, childIndices),
+            source, parameterNames, functionNames)
     {
-        _nodes = new ColumnarNodeTable(kinds, valueStarts, valueLengths, childStart, childCount, childIndices);
+    }
+
+    internal ColumnarNameResolver(
+        ColumnarNodeTable nodes, string source,
+        IEnumerable<string> parameterNames, IEnumerable<string> functionNames)
+    {
+        _nodes = nodes;
         _source = source;
         _parameters = new HashSet<string>(parameterNames, System.StringComparer.Ordinal);
         _functions = new HashSet<string>(functionNames, System.StringComparer.Ordinal);

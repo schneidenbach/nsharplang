@@ -383,8 +383,8 @@ internal static class NSharpCompilerDogfoodAdapter
                 if (bodyNodeCount <= 0)
                     return false;
 
-                var resolver = new Columnar.ColumnarNameResolver(
-                    bk, bvs, bvl, bcs, bcc, bci, source, parameterNames, functionNames);
+                var bodyNodes = new Columnar.ColumnarNodeTable(bk, bvs, bvl, bcs, bcc, bci);
+                var resolver = new Columnar.ColumnarNameResolver(bodyNodes, source, parameterNames, functionNames);
                 perFunctionRefs.Add(resolver.Resolve(bres[0]));
             }
 
@@ -512,8 +512,9 @@ internal static class NSharpCompilerDogfoodAdapter
                 if (bodyNodeCount <= 0)
                     return false;
 
+                var bodyNodes = new Columnar.ColumnarNodeTable(bk, bvs, bvl, bcs, bcc, bci);
                 var inferer = new Columnar.ColumnarTypeInferer(
-                    bk, bvs, bvl, bcs, bcc, bci, source, perFunctionParameterTypes[fi], functionReturnTypes);
+                    bodyNodes, source, perFunctionParameterTypes[fi], functionReturnTypes);
                 perFunctionTypes.Add(inferer.Infer(bres[0]));
             }
 
@@ -646,7 +647,8 @@ internal static class NSharpCompilerDogfoodAdapter
                 if (bodyNodeCount <= 0)
                     return false;
 
-                var pass = new Columnar.ColumnarDiagnosticsPass(bk, bvs, bvl, bcs, bcc, bci, bss, source, PositionOf);
+                var bodyNodes = new Columnar.ColumnarNodeTable(bk, bvs, bvl, bcs, bcc, bci, bss);
+                var pass = new Columnar.ColumnarDiagnosticsPass(bodyNodes, source, PositionOf);
                 perFunctionDiagnostics.Add(pass.Analyze(bres[0], perFunctionReturnType[fi]));
             }
 
@@ -761,7 +763,8 @@ internal static class NSharpCompilerDogfoodAdapter
                     return false;
 
                 var unused = new List<string>();
-                var pass = new Columnar.ColumnarDiagnosticsPass(bk, bvs, bvl, bcs, bcc, bci, bss, source, PositionOf);
+                var bodyNodes = new Columnar.ColumnarNodeTable(bk, bvs, bvl, bcs, bcc, bci, bss);
+                var pass = new Columnar.ColumnarDiagnosticsPass(bodyNodes, source, PositionOf);
                 pass.CollectUnusedLocals(bres[0], usedNames, unused);
                 perFunctionUnusedLocals.Add(unused);
             }

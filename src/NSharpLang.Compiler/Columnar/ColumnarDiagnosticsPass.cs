@@ -30,9 +30,16 @@ public sealed class ColumnarDiagnosticsPass
         int[] kinds, int[] valueStarts, int[] valueLengths,
         int[] childStart, int[] childCount, int[] childIndices, int[] spanStarts, string source,
         System.Func<int, (int Line, int Column)> positionOf)
+        : this(new ColumnarNodeTable(kinds, valueStarts, valueLengths, childStart, childCount, childIndices, spanStarts),
+            source, positionOf)
     {
-        _nodes = new ColumnarNodeTable(
-            kinds, valueStarts, valueLengths, childStart, childCount, childIndices, spanStarts);
+    }
+
+    internal ColumnarDiagnosticsPass(
+        ColumnarNodeTable nodes, string source,
+        System.Func<int, (int Line, int Column)> positionOf)
+    {
+        _nodes = nodes;
         _source = source;
         _positionOf = positionOf;
     }

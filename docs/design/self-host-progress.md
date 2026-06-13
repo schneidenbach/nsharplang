@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — Columnar analysis passes accept node table views
+
+`ColumnarNameResolver`, `ColumnarTypeInferer`, and `ColumnarDiagnosticsPass` now have internal
+constructors that consume `ColumnarNodeTable` directly. Their flattened public constructors remain as
+compatibility shims, but `NSharpCompilerDogfoodAdapter` now wraps parser-produced body columns once
+and passes the shared node-table view into the analysis passes.
+
+This keeps raw statement-node columns at the parser-kernel boundary. Name resolution, type inference,
+definite-return/unreachable/finally-transfer diagnostics, and unused-local analysis now all enter
+through the same named node accessor surface used by the emitter.
+
 ## 2026-06-13 — Columnar function inputs expose body-node views
 
 `ColumnarFunctionInput` now exposes an internal `BodyNodes` view over its flattened body columns, and
