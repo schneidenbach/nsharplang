@@ -46,15 +46,6 @@ public sealed class ColumnarNameResolver
     private readonly List<HashSet<string>> _localScopes = new();
     private List<ColumnarNameRef> _refs = new();
 
-    public ColumnarNameResolver(
-        int[] kinds, int[] valueStarts, int[] valueLengths,
-        int[] childStart, int[] childCount, int[] childIndices, string source,
-        IEnumerable<string> parameterNames, IEnumerable<string> functionNames)
-        : this(new ColumnarNodeTable(kinds, valueStarts, valueLengths, childStart, childCount, childIndices),
-            source, parameterNames, functionNames)
-    {
-    }
-
     internal ColumnarNameResolver(
         ColumnarNodeTable nodes, string source,
         IEnumerable<string> parameterNames, IEnumerable<string> functionNames)

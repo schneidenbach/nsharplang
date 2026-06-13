@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — Columnar transition classes drop flattened compatibility shims
+
+`ColumnarNameResolver`, `ColumnarTypeInferer`, and `ColumnarDiagnosticsPass` now expose only their
+`ColumnarNodeTable` constructors inside the compiler assembly. `ColumnarIlEmitter` likewise dropped
+the old flattened single-function and wide whole-program emission overloads; production now enters
+through `ColumnarFunctionInput` and `ColumnarProgramInput`.
+
+This removes another C# transition-layer surface after the adapter stopped passing anonymous node and
+declaration arrays through those routes.
+
 ## 2026-06-13 — Columnar function collector drops final source-string shim
 
 `TryEmitColumnarFunction` now owns its one-time tokenization and then calls the

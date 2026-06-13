@@ -2813,45 +2813,8 @@ public sealed class ColumnarIlEmitter
         return type != null;
     }
 
-    /// <summary>
-    /// Build a one-method assembly for <paramref name="funcName"/> whose body IL is emitted from the columnar
-    /// tables. Returns false (no assembly) for any unsupported type or body shape. The emitted type is
-    /// <c>ColumnarSpike</c> and the method is static. Thin wrapper over <see cref="TryEmitColumnarAssembly"/>.
-    /// </summary>
-    public static bool TryEmitSingleFunctionAssembly(
-        string funcName, string returnCanonical, string[] paramNames, string[] paramCanonicals,
-        int[] kinds, int[] valueStarts, int[] valueLengths, int[] childStart, int[] childCount, int[] childIndices,
-        string source, int bodyRoot, out byte[] assembly)
-    {
-        var input = new ColumnarFunctionInput(
-            funcName, returnCanonical, paramNames, paramCanonicals,
-            kinds, valueStarts, valueLengths, childStart, childCount, childIndices, bodyRoot);
-        return TryEmitSingleFunctionAssembly(input, source, out assembly);
-    }
-
     internal static bool TryEmitSingleFunctionAssembly(ColumnarFunctionInput input, string source, out byte[] assembly)
         => TryEmitColumnarAssembly("ColumnarSpike", "ColumnarSpike", new ColumnarProgramInput(source, new[] { input }), out assembly);
-
-    /// <summary>
-    /// Build a single assembly containing ALL of <paramref name="funcs"/> as static methods on one type
-    /// (<paramref name="typeName"/>), each body's IL emitted from its columnar tables. This is the standalone
-    /// columnar backend's assembly seam (the chosen Stage 4j routing — a columnar-first pipeline that owns
-    /// emission, not a re-parse hook into the C# ILCompiler). Two-pass: pass 1 resolves types and DECLARES every
-    /// method (so a body can later resolve a call to a sibling method that is declared but not yet emitted —
-    /// the foundation for slice 4i); pass 2 emits each body. Returns false (no assembly) if ANY function is
-    /// ineligible (non-int type or an unsupported body shape) — the whole program declines, keeping the C# path
-    /// authoritative. INT-ONLY for now (untyped <c>add</c>/<c>ldc.i4</c>); later slices add type-aware emission.
-    /// </summary>
-    public static bool TryEmitColumnarAssembly(
-        string assemblyName, string typeName, IReadOnlyList<ColumnarFunctionInput> funcs,
-        IReadOnlyList<ColumnarEnumInput> enums, IReadOnlyList<ColumnarStructInput> structs,
-        IReadOnlyList<ColumnarUnionInput> unions, IReadOnlyList<ColumnarInterfaceInput> interfaces,
-        string source, out byte[] assembly)
-        => TryEmitColumnarAssembly(
-            assemblyName,
-            typeName,
-            new ColumnarProgramInput(source, funcs, enums, structs, unions, interfaces),
-            out assembly);
 
     /// <summary>
     /// Build a single assembly from one parsed columnar program bundle.

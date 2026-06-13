@@ -37,16 +37,6 @@ public sealed class ColumnarTypeInferer
     private readonly List<Dictionary<string, string>> _localScopes = new();
     private List<string> _types = new();
 
-    public ColumnarTypeInferer(
-        int[] kinds, int[] valueStarts, int[] valueLengths,
-        int[] childStart, int[] childCount, int[] childIndices, string source,
-        Dictionary<string, string> parameterTypes,
-        Dictionary<string, List<ColumnarFunctionReturnSignature>> functionReturnTypes)
-        : this(new ColumnarNodeTable(kinds, valueStarts, valueLengths, childStart, childCount, childIndices),
-            source, parameterTypes, functionReturnTypes)
-    {
-    }
-
     internal ColumnarTypeInferer(
         ColumnarNodeTable nodes, string source,
         Dictionary<string, string> parameterTypes,
