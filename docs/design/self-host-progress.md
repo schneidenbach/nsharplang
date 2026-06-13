@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — Compiler dogfood adapter scratch members stop advertising public visibility
+
+`NSharpCompilerDogfoodAdapter` no longer has source-level `public` declarations inside its private
+columnar token bundle, semantic-scope cache, or scratch buffers. Those members are purely transitional
+adapter internals, so they now use internal visibility rather than looking like API-shaped service surface.
+
+This is behavior-neutral cleanup, but it keeps the remaining C# adapter boundary honest while Stage 6
+continues shrinking it.
+
 ## 2026-06-13 — Columnar program emission drops test-only overload
 
 `NSharpCompilerDogfoodAdapter.TryEmitColumnarProgram` now has one entry shape: the production-shaped

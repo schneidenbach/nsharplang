@@ -795,7 +795,7 @@ internal static class NSharpCompilerDogfoodAdapter
 
     private sealed class ColumnarTokenizedSource
     {
-        public ColumnarTokenizedSource(
+        internal ColumnarTokenizedSource(
             int[] rawKinds,
             int[] rawStarts,
             int[] rawValueLengths,
@@ -819,18 +819,18 @@ internal static class NSharpCompilerDogfoodAdapter
             DeclarationCount = declarationCount;
         }
 
-        public int[] RawKinds { get; }
-        public int[] RawStarts { get; }
-        public int[] RawValueLengths { get; }
-        public int[] RawLines { get; }
-        public int[] RawColumns { get; }
-        public int RawCount { get; }
-        public int[] Kinds { get; }
-        public int[] Starts { get; }
-        public int[] ValueLengths { get; }
-        public int Count { get; }
-        public int[] DeclarationKinds { get; }
-        public int DeclarationCount { get; }
+        internal int[] RawKinds { get; }
+        internal int[] RawStarts { get; }
+        internal int[] RawValueLengths { get; }
+        internal int[] RawLines { get; }
+        internal int[] RawColumns { get; }
+        internal int RawCount { get; }
+        internal int[] Kinds { get; }
+        internal int[] Starts { get; }
+        internal int[] ValueLengths { get; }
+        internal int Count { get; }
+        internal int[] DeclarationKinds { get; }
+        internal int DeclarationCount { get; }
     }
 
     private static bool TryTokenizeColumnarSource(Bindings bindings, string source, out ColumnarTokenizedSource tokens)
@@ -3329,12 +3329,12 @@ internal static class NSharpCompilerDogfoodAdapter
         private int[] _touchedSlots = Array.Empty<int>();
         private int _version = -1;
 
-        public SemanticScopeCache(SemanticModel model)
+        internal SemanticScopeCache(SemanticModel model)
         {
             _model = model;
         }
 
-        public bool TryGetVisibleVariablesAtPosition(
+        internal bool TryGetVisibleVariablesAtPosition(
             Bindings bindings,
             int line,
             int column,
@@ -3411,7 +3411,7 @@ internal static class NSharpCompilerDogfoodAdapter
             }
         }
 
-        public bool TryLookupIdentifierAtPosition(
+        internal bool TryLookupIdentifierAtPosition(
             Bindings bindings,
             string name,
             int line,
@@ -3686,10 +3686,10 @@ internal static class NSharpCompilerDogfoodAdapter
 
     private sealed class ParserTokenCompactionScratch
     {
-        public int[] ResultIndices = Array.Empty<int>();
-        public int[] TokenKinds = Array.Empty<int>();
+        internal int[] ResultIndices = Array.Empty<int>();
+        internal int[] TokenKinds = Array.Empty<int>();
 
-        public void EnsureCapacity(int count)
+        internal void EnsureCapacity(int count)
         {
             if (TokenKinds.Length != count)
             {
@@ -3707,16 +3707,16 @@ internal static class NSharpCompilerDogfoodAdapter
         // LINQ ThenBy(i => i.Namespace), whose ties are broken by original input order.
         private readonly Dictionary<string, int> _namespaceRanks = new(StringComparer.Ordinal);
 
-        public int[] BucketCounts = Array.Empty<int>();
-        public int[] BucketOffsets = Array.Empty<int>();
-        public int[] NameRanks = Array.Empty<int>();
-        public int[] ResultIndices = Array.Empty<int>();
-        public int[] SystemFlags = Array.Empty<int>();
-        public int[] TempIndices = Array.Empty<int>();
-        public string[] UniqueNamespaces = Array.Empty<string>();
-        public int UniqueNamespaceCount;
+        internal int[] BucketCounts = Array.Empty<int>();
+        internal int[] BucketOffsets = Array.Empty<int>();
+        internal int[] NameRanks = Array.Empty<int>();
+        internal int[] ResultIndices = Array.Empty<int>();
+        internal int[] SystemFlags = Array.Empty<int>();
+        internal int[] TempIndices = Array.Empty<int>();
+        internal string[] UniqueNamespaces = Array.Empty<string>();
+        internal int UniqueNamespaceCount;
 
-        public void EnsureCapacity(int count)
+        internal void EnsureCapacity(int count)
         {
             // Size the per-item arrays exactly to the logical import count: the kernel
             // derives its working count from systemFlags.Length, so these arrays must not
@@ -3740,7 +3740,7 @@ internal static class NSharpCompilerDogfoodAdapter
             }
         }
 
-        public void AddNamespace(string ns)
+        internal void AddNamespace(string ns)
         {
             if (_namespaceRanks.ContainsKey(ns))
                 return;
@@ -3750,7 +3750,7 @@ internal static class NSharpCompilerDogfoodAdapter
             UniqueNamespaceCount++;
         }
 
-        public void BuildRanks()
+        internal void BuildRanks()
         {
             Array.Sort(UniqueNamespaces, 0, UniqueNamespaceCount, Comparer<string>.Default);
 
@@ -3768,9 +3768,9 @@ internal static class NSharpCompilerDogfoodAdapter
             }
         }
 
-        public int GetRank(string ns) => _namespaceRanks[ns];
+        internal int GetRank(string ns) => _namespaceRanks[ns];
 
-        public void ResetRanks()
+        internal void ResetRanks()
         {
             _namespaceRanks.Clear();
             if (UniqueNamespaceCount > 0)
@@ -3783,10 +3783,10 @@ internal static class NSharpCompilerDogfoodAdapter
 
     private sealed class ProjectSourceFilterScratch
     {
-        public string[] RelativePaths = Array.Empty<string>();
-        public int[] ResultIndices = Array.Empty<int>();
+        internal string[] RelativePaths = Array.Empty<string>();
+        internal int[] ResultIndices = Array.Empty<int>();
 
-        public void EnsureCapacity(int count)
+        internal void EnsureCapacity(int count)
         {
             // The kernel iterates relativePaths.Length, so this buffer must be sized exactly.
             if (RelativePaths.Length != count)
@@ -3796,14 +3796,14 @@ internal static class NSharpCompilerDogfoodAdapter
             }
         }
 
-        public void ClearRelativePaths(int count) => Array.Clear(RelativePaths, 0, count);
+        internal void ClearRelativePaths(int count) => Array.Clear(RelativePaths, 0, count);
     }
 
     private sealed class AnonymousUnionShimScratch
     {
-        public int[] ParameterFlags = Array.Empty<int>();
+        internal int[] ParameterFlags = Array.Empty<int>();
 
-        public void EnsureCapacity(int count)
+        internal void EnsureCapacity(int count)
         {
             if (ParameterFlags.Length < count)
             {
@@ -3814,13 +3814,13 @@ internal static class NSharpCompilerDogfoodAdapter
 
     private sealed class OverloadCandidateScratch
     {
-        public int[] ValidFlags = Array.Empty<int>();
-        public int[] Scores = Array.Empty<int>();
-        public int[] GenericFlags = Array.Empty<int>();
-        public int[] ParamsFlags = Array.Empty<int>();
-        public int[] DefaultsUsed = Array.Empty<int>();
+        internal int[] ValidFlags = Array.Empty<int>();
+        internal int[] Scores = Array.Empty<int>();
+        internal int[] GenericFlags = Array.Empty<int>();
+        internal int[] ParamsFlags = Array.Empty<int>();
+        internal int[] DefaultsUsed = Array.Empty<int>();
 
-        public void EnsureCapacity(int count)
+        internal void EnsureCapacity(int count)
         {
             if (ValidFlags.Length < count)
             {
@@ -3837,12 +3837,12 @@ internal static class NSharpCompilerDogfoodAdapter
     {
         private readonly HashSet<string> _seenNames = new(StringComparer.Ordinal);
 
-        public int[] CoveredFlags = Array.Empty<int>();
-        public int[] ResultIndices = Array.Empty<int>();
+        internal int[] CoveredFlags = Array.Empty<int>();
+        internal int[] ResultIndices = Array.Empty<int>();
 
-        public bool AddName(string name) => _seenNames.Add(name);
+        internal bool AddName(string name) => _seenNames.Add(name);
 
-        public void EnsureCapacity(int count)
+        internal void EnsureCapacity(int count)
         {
             if (CoveredFlags.Length < count)
             {
@@ -3851,7 +3851,7 @@ internal static class NSharpCompilerDogfoodAdapter
             }
         }
 
-        public void ResetNames()
+        internal void ResetNames()
         {
             _seenNames.Clear();
         }
@@ -3859,12 +3859,12 @@ internal static class NSharpCompilerDogfoodAdapter
 
     private sealed class MissingUnionCaseScratch
     {
-        public int[] MissingIndices = Array.Empty<int>();
-        public int[] NeverCoveredIndices = Array.Empty<int>();
-        public int[] PartialMissingIndices = Array.Empty<int>();
-        public int[] ResultCounts = new int[3];
+        internal int[] MissingIndices = Array.Empty<int>();
+        internal int[] NeverCoveredIndices = Array.Empty<int>();
+        internal int[] PartialMissingIndices = Array.Empty<int>();
+        internal int[] ResultCounts = new int[3];
 
-        public void EnsureCapacity(int count)
+        internal void EnsureCapacity(int count)
         {
             if (MissingIndices.Length < count)
             {
@@ -3884,12 +3884,12 @@ internal static class NSharpCompilerDogfoodAdapter
     {
         private readonly Dictionary<string, int> _keyRanks = new(StringComparer.Ordinal);
 
-        public int[] ResultIndices = Array.Empty<int>();
-        public int[] SeenRanks = Array.Empty<int>();
-        public int[] TypeRanks = Array.Empty<int>();
-        public int UniqueKeyCount;
+        internal int[] ResultIndices = Array.Empty<int>();
+        internal int[] SeenRanks = Array.Empty<int>();
+        internal int[] TypeRanks = Array.Empty<int>();
+        internal int UniqueKeyCount;
 
-        public void EnsureCapacity(int count)
+        internal void EnsureCapacity(int count)
         {
             if (TypeRanks.Length != count)
             {
@@ -3904,7 +3904,7 @@ internal static class NSharpCompilerDogfoodAdapter
             }
         }
 
-        public int AddKey(string key)
+        internal int AddKey(string key)
         {
             if (_keyRanks.TryGetValue(key, out var rank))
                 return rank;
@@ -3914,7 +3914,7 @@ internal static class NSharpCompilerDogfoodAdapter
             return rank;
         }
 
-        public void ResetKeys()
+        internal void ResetKeys()
         {
             _keyRanks.Clear();
             UniqueKeyCount = 0;
@@ -3925,12 +3925,12 @@ internal static class NSharpCompilerDogfoodAdapter
     {
         private readonly Dictionary<string, int> _keyRanks = new(comparer);
 
-        public int[] Ranks = Array.Empty<int>();
-        public int[] ResultIndices = Array.Empty<int>();
-        public int[] SeenRanks = Array.Empty<int>();
-        public int UniqueKeyCount;
+        internal int[] Ranks = Array.Empty<int>();
+        internal int[] ResultIndices = Array.Empty<int>();
+        internal int[] SeenRanks = Array.Empty<int>();
+        internal int UniqueKeyCount;
 
-        public void EnsureCapacity(int count)
+        internal void EnsureCapacity(int count)
         {
             if (Ranks.Length != count)
             {
@@ -3945,7 +3945,7 @@ internal static class NSharpCompilerDogfoodAdapter
             }
         }
 
-        public int AddKey(string key)
+        internal int AddKey(string key)
         {
             if (_keyRanks.TryGetValue(key, out var rank))
                 return rank;
@@ -3955,7 +3955,7 @@ internal static class NSharpCompilerDogfoodAdapter
             return rank;
         }
 
-        public void ResetKeys()
+        internal void ResetKeys()
         {
             _keyRanks.Clear();
             UniqueKeyCount = 0;
@@ -3966,14 +3966,14 @@ internal static class NSharpCompilerDogfoodAdapter
     {
         private readonly Dictionary<string, int> _valueRanks = new(StringComparer.Ordinal);
 
-        public int[] CountsByRank = Array.Empty<int>();
-        public int[] ResultRanks = Array.Empty<int>();
-        public string[] UniqueValues = Array.Empty<string>();
-        public int[] ValueRanks = Array.Empty<int>();
-        public string[] Values = Array.Empty<string>();
-        public int UniqueValueCount;
+        internal int[] CountsByRank = Array.Empty<int>();
+        internal int[] ResultRanks = Array.Empty<int>();
+        internal string[] UniqueValues = Array.Empty<string>();
+        internal int[] ValueRanks = Array.Empty<int>();
+        internal string[] Values = Array.Empty<string>();
+        internal int UniqueValueCount;
 
-        public void EnsureCapacity(int count)
+        internal void EnsureCapacity(int count)
         {
             if (ValueRanks.Length != count)
             {
@@ -3990,7 +3990,7 @@ internal static class NSharpCompilerDogfoodAdapter
             }
         }
 
-        public void AddValue(string value)
+        internal void AddValue(string value)
         {
             if (_valueRanks.ContainsKey(value))
                 return;
@@ -4000,7 +4000,7 @@ internal static class NSharpCompilerDogfoodAdapter
             UniqueValueCount++;
         }
 
-        public void BuildRanks()
+        internal void BuildRanks()
         {
             Array.Sort(UniqueValues, 0, UniqueValueCount, StringComparer.Ordinal);
             for (var i = 0; i < UniqueValueCount; i++)
@@ -4009,11 +4009,11 @@ internal static class NSharpCompilerDogfoodAdapter
             }
         }
 
-        public int GetRank(string value) => _valueRanks[value];
+        internal int GetRank(string value) => _valueRanks[value];
 
-        public void ClearValues(int count) => Array.Clear(Values, 0, count);
+        internal void ClearValues(int count) => Array.Clear(Values, 0, count);
 
-        public void ResetValues()
+        internal void ResetValues()
         {
             _valueRanks.Clear();
             if (UniqueValueCount > 0)
@@ -4031,13 +4031,13 @@ internal static class NSharpCompilerDogfoodAdapter
         private int _sourceCount;
         private int _tailHashWidth = -1;
 
-        public int Count;
-        public string[] Keys = Array.Empty<string>();
-        public int[] TailHashes = Array.Empty<int>();
-        public int[] ValueRanks = Array.Empty<int>();
-        public Type[] Values = Array.Empty<Type>();
+        internal int Count;
+        internal string[] Keys = Array.Empty<string>();
+        internal int[] TailHashes = Array.Empty<int>();
+        internal int[] ValueRanks = Array.Empty<int>();
+        internal Type[] Values = Array.Empty<Type>();
 
-        public bool Load<TType>(IReadOnlyDictionary<string, TType> types)
+        internal bool Load<TType>(IReadOnlyDictionary<string, TType> types)
             where TType : Type
         {
             var count = types.Count;
@@ -4092,7 +4092,7 @@ internal static class NSharpCompilerDogfoodAdapter
             return false;
         }
 
-        public void RefreshTailHashes(int width)
+        internal void RefreshTailHashes(int width)
         {
             if (_tailHashWidth == width)
                 return;
@@ -4105,9 +4105,9 @@ internal static class NSharpCompilerDogfoodAdapter
             _tailHashWidth = width;
         }
 
-        public static int GetTailHashWidth(string text) => Math.Min(4, text.Length);
+        internal static int GetTailHashWidth(string text) => Math.Min(4, text.Length);
 
-        public static int GetTailHash(string text, int width)
+        internal static int GetTailHash(string text, int width)
         {
             var hash = 0;
             for (var offset = 0; offset < width && offset < text.Length; offset++)
@@ -4144,12 +4144,12 @@ internal static class NSharpCompilerDogfoodAdapter
         private int _sourceImportCount;
         private int _tailHashWidth = -1;
 
-        public int Count;
-        public int[] ImportedNamespaceFlags = Array.Empty<int>();
-        public string[] Names = Array.Empty<string>();
-        public int[] TailHashes = Array.Empty<int>();
+        internal int Count;
+        internal int[] ImportedNamespaceFlags = Array.Empty<int>();
+        internal string[] Names = Array.Empty<string>();
+        internal int[] TailHashes = Array.Empty<int>();
 
-        public void Load(CompilationUnit compilationUnit)
+        internal void Load(CompilationUnit compilationUnit)
         {
             var declarationCount = compilationUnit.Declarations.Count;
             var importCount = compilationUnit.Imports.Count;
@@ -4192,7 +4192,7 @@ internal static class NSharpCompilerDogfoodAdapter
             _sourceImportCount = importCount;
         }
 
-        public void RefreshTailHashes(int width)
+        internal void RefreshTailHashes(int width)
         {
             if (_tailHashWidth == width)
                 return;
@@ -4307,15 +4307,15 @@ internal static class NSharpCompilerDogfoodAdapter
 
     private sealed class TypeCreationOrderScratch
     {
-        public int Count;
-        public int[] DepthCounts = Array.Empty<int>();
-        public int[] DepthOffsets = Array.Empty<int>();
-        public int[] DotCounts = Array.Empty<int>();
-        public string[] Keys = Array.Empty<string>();
-        public int[] ResultIndices = Array.Empty<int>();
-        public Type[] Values = Array.Empty<Type>();
+        internal int Count;
+        internal int[] DepthCounts = Array.Empty<int>();
+        internal int[] DepthOffsets = Array.Empty<int>();
+        internal int[] DotCounts = Array.Empty<int>();
+        internal string[] Keys = Array.Empty<string>();
+        internal int[] ResultIndices = Array.Empty<int>();
+        internal Type[] Values = Array.Empty<Type>();
 
-        public bool Load<TType>(IEnumerable<TType> types, Func<TType, string> getTypeKey)
+        internal bool Load<TType>(IEnumerable<TType> types, Func<TType, string> getTypeKey)
             where TType : Type
         {
             Count = 0;
@@ -4344,7 +4344,7 @@ internal static class NSharpCompilerDogfoodAdapter
             return true;
         }
 
-        public void ClearValues()
+        internal void ClearValues()
         {
             for (var i = 0; i < Count; i++)
             {
