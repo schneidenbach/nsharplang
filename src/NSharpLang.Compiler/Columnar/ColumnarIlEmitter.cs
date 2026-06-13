@@ -7,6 +7,36 @@ using System.Reflection.Emit;
 namespace NSharpLang.Compiler.Columnar;
 
 /// <summary>
+/// One parsed columnar program as consumed by the standalone columnar emitter. The adapter owns source parsing and
+/// declaration collection; the emitter owns lowering this single typed bundle to an assembly.
+/// </summary>
+public sealed class ColumnarProgramInput
+{
+    public ColumnarProgramInput(
+        string source,
+        IReadOnlyList<ColumnarFunctionInput> functions,
+        IReadOnlyList<ColumnarEnumInput>? enums = null,
+        IReadOnlyList<ColumnarStructInput>? structs = null,
+        IReadOnlyList<ColumnarUnionInput>? unions = null,
+        IReadOnlyList<ColumnarInterfaceInput>? interfaces = null)
+    {
+        Source = source;
+        Functions = functions;
+        Enums = enums ?? Array.Empty<ColumnarEnumInput>();
+        Structs = structs ?? Array.Empty<ColumnarStructInput>();
+        Unions = unions ?? Array.Empty<ColumnarUnionInput>();
+        Interfaces = interfaces ?? Array.Empty<ColumnarInterfaceInput>();
+    }
+
+    public string Source { get; }
+    public IReadOnlyList<ColumnarFunctionInput> Functions { get; }
+    public IReadOnlyList<ColumnarEnumInput> Enums { get; }
+    public IReadOnlyList<ColumnarStructInput> Structs { get; }
+    public IReadOnlyList<ColumnarUnionInput> Unions { get; }
+    public IReadOnlyList<ColumnarInterfaceInput> Interfaces { get; }
+}
+
+/// <summary>
 /// One top-level `interface` declaration: the name plus its abstract METHOD SIGNATURES (names,
 /// return canonicals, parameter names/canonicals — no bodies). Members beyond plain method
 /// signatures (default bodies, bare fields, properties, generics, where-clauses) decline at the
@@ -2791,7 +2821,7 @@ public sealed class ColumnarIlEmitter
     }
 
     internal static bool TryEmitSingleFunctionAssembly(ColumnarFunctionInput input, string source, out byte[] assembly)
-        => TryEmitColumnarAssembly("ColumnarSpike", "ColumnarSpike", new[] { input }, Array.Empty<ColumnarEnumInput>(), Array.Empty<ColumnarStructInput>(), Array.Empty<ColumnarUnionInput>(), Array.Empty<ColumnarInterfaceInput>(), source, out assembly);
+        => TryEmitColumnarAssembly("ColumnarSpike", "ColumnarSpike", new ColumnarProgramInput(source, new[] { input }), out assembly);
 
     /// <summary>
     /// Build a single assembly containing ALL of <paramref name="funcs"/> as static methods on one type
@@ -2808,8 +2838,25 @@ public sealed class ColumnarIlEmitter
         IReadOnlyList<ColumnarEnumInput> enums, IReadOnlyList<ColumnarStructInput> structs,
         IReadOnlyList<ColumnarUnionInput> unions, IReadOnlyList<ColumnarInterfaceInput> interfaces,
         string source, out byte[] assembly)
+        => TryEmitColumnarAssembly(
+            assemblyName,
+            typeName,
+            new ColumnarProgramInput(source, funcs, enums, structs, unions, interfaces),
+            out assembly);
+
+    /// <summary>
+    /// Build a single assembly from one parsed columnar program bundle.
+    /// </summary>
+    public static bool TryEmitColumnarAssembly(
+        string assemblyName, string typeName, ColumnarProgramInput program, out byte[] assembly)
     {
         assembly = Array.Empty<byte>();
+        var source = program.Source;
+        var funcs = program.Functions;
+        var enums = program.Enums;
+        var structs = program.Structs;
+        var unions = program.Unions;
+        var interfaces = program.Interfaces;
         if (funcs.Count == 0)
             return false;
 

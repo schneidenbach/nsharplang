@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — Columnar program emission consumes program inputs
+
+`ColumnarIlEmitter` now accepts a `ColumnarProgramInput` bundle for whole-program emission: source
+text, functions, enums, structs, unions, and interfaces travel as one typed compiler input instead of
+five separate declaration lists plus a source string. The old wide `TryEmitColumnarAssembly`
+signature remains as a compatibility shim and delegates through the program-input overload.
+
+`NSharpCompilerDogfoodAdapter.TryEmitColumnarProgram` now constructs that bundle once before calling
+the emitter. This keeps the C# transition boundary moving from raw argument plumbing toward named
+columnar compiler inputs without changing the default-on Stage 5 routing behavior.
+
 ## 2026-06-13 — Columnar single-function spike consumes function inputs
 
 The original single-function columnar spike path now accepts a `ColumnarFunctionInput` directly.

@@ -817,6 +817,34 @@ internal static class NSharpCompilerDogfoodAdapter
         emittedTypeName = string.Empty;
         methodNames = System.Array.Empty<string>();
 
+        if (!TryGetColumnarProgramInput(source, out var program))
+            return false;
+        // The columnar emit is a best-effort, DECLINE-on-failure optimization: it must never throw a hard error the
+        // authoritative C# path would not. Any unexpected emit exception (e.g. a Reflection.Emit limitation on a
+        // not-yet-fully-modelled type shape) is caught here and declines → C# fallback, matching the try/catch the
+        // collection helpers already use. A supported program that wrongly declines is caught by the parity tests
+        // (which assert Ok == true), so this net cannot silently hide a regression from the gate.
+        try
+        {
+            if (!Columnar.ColumnarIlEmitter.TryEmitColumnarAssembly(assemblyName, typeName, program, out assembly))
+                return false;
+        }
+        catch
+        {
+            assembly = System.Array.Empty<byte>();
+            return false;
+        }
+
+        emittedTypeName = typeName;
+        methodNames = new string[program.Functions.Count];
+        for (var i = 0; i < program.Functions.Count; i++)
+            methodNames[i] = program.Functions[i].Name;
+        return true;
+    }
+
+    private static bool TryGetColumnarProgramInput(string source, out Columnar.ColumnarProgramInput program)
+    {
+        program = null!;
         if (!TryGetColumnarFunctionInputs(source, out var inputs) || inputs.Count == 0)
             return false;
         if (!TryGetColumnarEnumInputs(source, out var enums))
@@ -827,26 +855,8 @@ internal static class NSharpCompilerDogfoodAdapter
             return false;
         if (!TryGetColumnarInterfaceInputs(source, out var interfaceInputs))
             return false;
-        // The columnar emit is a best-effort, DECLINE-on-failure optimization: it must never throw a hard error the
-        // authoritative C# path would not. Any unexpected emit exception (e.g. a Reflection.Emit limitation on a
-        // not-yet-fully-modelled type shape) is caught here and declines → C# fallback, matching the try/catch the
-        // collection helpers already use. A supported program that wrongly declines is caught by the parity tests
-        // (which assert Ok == true), so this net cannot silently hide a regression from the gate.
-        try
-        {
-            if (!Columnar.ColumnarIlEmitter.TryEmitColumnarAssembly(assemblyName, typeName, inputs, enums, structs, unions, interfaceInputs, source, out assembly))
-                return false;
-        }
-        catch
-        {
-            assembly = System.Array.Empty<byte>();
-            return false;
-        }
 
-        emittedTypeName = typeName;
-        methodNames = new string[inputs.Count];
-        for (var i = 0; i < inputs.Count; i++)
-            methodNames[i] = inputs[i].Name;
+        program = new Columnar.ColumnarProgramInput(source, inputs, enums, structs, unions, interfaceInputs);
         return true;
     }
 
