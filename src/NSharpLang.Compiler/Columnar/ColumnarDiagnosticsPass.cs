@@ -20,7 +20,7 @@ namespace NSharpLang.Compiler.Columnar;
 /// rules are mirrored on the C# AST by the parity oracle in the tests, so the columnar diagnostics are
 /// verified identical to walking the object-graph AST; definitive routed parity follows at stages 4–5.
 /// </summary>
-public sealed class ColumnarDiagnosticsPass
+internal sealed class ColumnarDiagnosticsPass
 {
     private readonly ColumnarNodeTable _nodes;
     private readonly string _source;

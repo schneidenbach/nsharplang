@@ -10,7 +10,7 @@ namespace NSharpLang.Compiler.Columnar;
 /// One parsed columnar program as consumed by the standalone columnar emitter. The adapter owns source parsing and
 /// declaration collection; the emitter owns lowering this single typed bundle to an assembly.
 /// </summary>
-public sealed class ColumnarProgramInput
+internal sealed class ColumnarProgramInput
 {
     public ColumnarProgramInput(
         string source,
@@ -42,7 +42,7 @@ public sealed class ColumnarProgramInput
 /// signatures (default bodies, bare fields, properties, generics, where-clauses) decline at the
 /// kernel/adapter, matching IF-1's modeled surface.
 /// </summary>
-public sealed class ColumnarInterfaceInput
+internal sealed class ColumnarInterfaceInput
 {
     public ColumnarInterfaceInput(string name, string[] baseInterfaceNames, string[] methodNames, string[] methodReturnCanonicals,
         string[][] methodParamNames, string[][] methodParamCanonicals, ColumnarFunctionInput?[]? methodBodies = null)
@@ -70,7 +70,7 @@ public sealed class ColumnarInterfaceInput
 /// <see cref="ColumnarIlEmitter.TryEmitColumnarAssembly"/>. The body table arrays are produced per-function by
 /// the parser kernel <c>ParseStatementNodes</c>; <see cref="BodyRoot"/> is that body's root statement index.
 /// </summary>
-public sealed class ColumnarFunctionInput
+internal sealed class ColumnarFunctionInput
 {
     public ColumnarFunctionInput(
         string name, string returnCanonical, string[] paramNames, string[] paramCanonicals,
@@ -168,7 +168,7 @@ public sealed class ColumnarFunctionInput
 /// <c>: this(...)</c> ctor delegates field assignment to the chained ctor; a <c>: base(...)</c> ctor declines at emit
 /// (no modelled base class).
 /// </summary>
-public sealed class ColumnarConstructorInput
+internal sealed class ColumnarConstructorInput
 {
     public ColumnarConstructorInput(ColumnarFunctionInput body, int chainInitKind, int[] chainArgKinds, string[] chainArgTexts)
     {
@@ -190,7 +190,7 @@ public sealed class ColumnarConstructorInput
 /// ints (auto-incremented and/or explicit), positionally aligned with <see cref="MemberNames"/>. The parser kernel
 /// <c>ParseEnumDeclarationInto</c> produces the member spans; the adapter materializes the names and values.
 /// </summary>
-public sealed class ColumnarEnumInput
+internal sealed class ColumnarEnumInput
 {
     public ColumnarEnumInput(string name, string[] memberNames, int[] memberValues)
     {
@@ -234,7 +234,7 @@ internal sealed class ColumnarEnumDef
 /// set_Name when present) instance methods and resolves a `receiver.Name` read to get_Name / a `receiver.Name = v`
 /// write to set_Name.
 /// </summary>
-public sealed class ColumnarPropertyInput
+internal sealed class ColumnarPropertyInput
 {
     public ColumnarPropertyInput(string name, string typeCanonical, ColumnarFunctionInput getter, ColumnarFunctionInput? setter, bool isStatic = false)
     {
@@ -257,7 +257,7 @@ public sealed class ColumnarPropertyInput
     public ColumnarFunctionInput? Setter { get; }
 }
 
-public sealed class ColumnarStructInput
+internal sealed class ColumnarStructInput
 {
     public ColumnarStructInput(string name, string[] fieldNames, string[] fieldTypeCanonicals, IReadOnlyList<ColumnarFunctionInput> methods, IReadOnlyList<ColumnarConstructorInput> constructors, IReadOnlyList<ColumnarPropertyInput> properties, bool isReference, string[]? baseNames = null, bool[]? fieldStaticFlags = null, int[]? fieldInitKinds = null, string?[]? fieldInitTexts = null, bool isRecord = false, string[]? typeParamNames = null)
     {
@@ -327,7 +327,7 @@ public sealed class ColumnarStructInput
 /// for case <c>c</c>. The parser kernel <c>ParseUnionDeclarationInto</c> produces the per-case spans; the adapter
 /// materializes the names and type strings.
 /// </summary>
-public sealed class ColumnarUnionInput
+internal sealed class ColumnarUnionInput
 {
     public ColumnarUnionInput(string name, string[] caseNames, string[][] caseFieldNames, string[][] caseFieldTypeCanonicals, string[]? typeParamNames = null)
     {
@@ -506,7 +506,7 @@ internal sealed class ColumnarUnionCaseDef
 /// int comparison (<c>&lt; &gt; &lt;= &gt;= == !=</c>) only. Anything else returns false (the adapter declines
 /// → the C# path is unaffected).
 /// </summary>
-public sealed class ColumnarIlEmitter
+internal sealed class ColumnarIlEmitter
 {
     private readonly ColumnarNodeTable _nodes;
     private readonly string _source;
@@ -2819,7 +2819,7 @@ public sealed class ColumnarIlEmitter
     /// <summary>
     /// Build a single assembly from one parsed columnar program bundle.
     /// </summary>
-    public static bool TryEmitColumnarAssembly(
+    internal static bool TryEmitColumnarAssembly(
         string assemblyName, string typeName, ColumnarProgramInput program, out byte[] assembly)
     {
         assembly = Array.Empty<byte>();

@@ -16,7 +16,7 @@ namespace NSharpLang.Compiler.Columnar;
 /// binder errors, which the corpus never triggers). Unary and bitwise promotion follows Analyzer.cs as well:
 /// unary - promotes small integrals to int and uint to long; unary ~ and shifts promote the operand side only.
 /// </summary>
-public static class ColumnarTypeLattice
+internal static class ColumnarTypeLattice
 {
     public const string External = "External";
 

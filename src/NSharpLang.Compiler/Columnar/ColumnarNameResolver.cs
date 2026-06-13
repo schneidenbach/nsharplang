@@ -7,7 +7,7 @@ namespace NSharpLang.Compiler.Columnar;
 /// resolution the binder performs within a function; NotInScope is everything else (BCL/external types,
 /// member targets reached through a receiver, etc.) — resolved by a later pipeline stage (type/import table).
 /// </summary>
-public enum ColumnarBindingKind
+internal enum ColumnarBindingKind
 {
     Parameter,
     Local,
@@ -16,7 +16,7 @@ public enum ColumnarBindingKind
 }
 
 /// <summary>One resolved bare-identifier occurrence: the name and what it binds to.</summary>
-public readonly record struct ColumnarNameRef(string Name, ColumnarBindingKind Kind);
+internal readonly record struct ColumnarNameRef(string Name, ColumnarBindingKind Kind);
 
 /// <summary>
 /// COLUMNAR PIPELINE — stage 2 (docs/design/columnar-pipeline.md). Lexical name resolution performed DIRECTLY
@@ -36,7 +36,7 @@ public readonly record struct ColumnarNameRef(string Name, ColumnarBindingKind K
 /// MemberAccess member name lives in the node's value span (not a child, not a lookup) — only the receiver
 /// child[0] is resolved. Ref/out call arguments are transparent wrappers around the argument value.
 /// </summary>
-public sealed class ColumnarNameResolver
+internal sealed class ColumnarNameResolver
 {
     private readonly ColumnarNodeTable _nodes;
     private readonly string _source;

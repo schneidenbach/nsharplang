@@ -6,7 +6,7 @@ namespace NSharpLang.Compiler.Columnar;
 /// Canonical sibling-function signature row used by the columnar type inferer to resolve bare calls without
 /// collapsing overloads that share a simple name.
 /// </summary>
-public readonly record struct ColumnarFunctionReturnSignature(
+internal readonly record struct ColumnarFunctionReturnSignature(
     IReadOnlyList<string> ParameterTypes,
     string ReturnType);
 
@@ -27,7 +27,7 @@ public readonly record struct ColumnarFunctionReturnSignature(
 /// AST by the parity oracle in the tests, so the columnar inference is verified identical to walking the
 /// object-graph AST.
 /// </summary>
-public sealed class ColumnarTypeInferer
+internal sealed class ColumnarTypeInferer
 {
     private readonly ColumnarNodeTable _nodes;
     private readonly string _source;

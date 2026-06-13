@@ -11,7 +11,7 @@ namespace NSharpLang.Compiler.Columnar;
 /// declared-symbol model that name resolution queries. Signatures are canonical strings so the columnar build
 /// can be parity-checked against the C# AST-derived model.
 /// </summary>
-public readonly record struct ColumnarFunctionSymbol(
+internal readonly record struct ColumnarFunctionSymbol(
     string Name,
     int Modifiers,
     IReadOnlyList<string> ParameterTypes,

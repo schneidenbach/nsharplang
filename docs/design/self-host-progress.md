@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — Columnar transition API is compiler-internal
+
+The standalone columnar C# transition model is no longer exposed as public compiler package API.
+`ColumnarProgramInput`, the declaration input DTOs, `ColumnarIlEmitter`, the columnar analysis passes,
+and the shared parity helpers now live behind `internal` compiler boundaries while remaining visible to
+the friend test assembly.
+
+This keeps the temporary C# bridge from hardening into a supported service surface as Stage 6 continues
+to delete adapter/orchestration code around the N#-owned columnar pipeline.
+
 ## 2026-06-13 — Columnar transition classes drop flattened compatibility shims
 
 `ColumnarNameResolver`, `ColumnarTypeInferer`, and `ColumnarDiagnosticsPass` now expose only their
