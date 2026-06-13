@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — Columnar type-family collectors drop source-string shims
+
+The enum, struct/class/record, union, and interface input collectors now expose only the
+`ColumnarTokenizedSource`-shaped entry points used by whole-program collection. Their old private
+source-string overloads were no longer called after program input collection began tokenizing once
+and sharing the bundle across declaration families.
+
+The single-function source-string shim remains intentionally scoped to `TryEmitColumnarFunction`,
+which still owns the standalone function-emission spike behavior.
+
 ## 2026-06-13 — Columnar declaration-index helper uses tokenized source only
 
 The top-level function declaration-index helper now has a single token-bundle-shaped entry point.
