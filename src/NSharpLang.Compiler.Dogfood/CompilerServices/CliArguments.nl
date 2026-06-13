@@ -107,6 +107,26 @@ struct CliCleanArtifactScratchTable {
     TempIndices: int[]
 }
 
+struct CliFlagTable {
+    Flags: int[]
+}
+
+struct CliRankTable {
+    Ranks: int[]
+}
+
+struct CliSeenRankTable {
+    Ranks: int[]
+}
+
+struct CliScoreTable {
+    Scores: int[]
+}
+
+struct CliCountResultTable {
+    Counts: int[]
+}
+
 func CliPositionalArgIndicesInto(
     args: string[],
     optionsWithValues: string[],
@@ -2313,6 +2333,16 @@ func CliCleanArtifactDirectoryIndicesCore(
 func CliUpdateAllNuGetDependencyIndicesInto(
     nugetFlags: int[],
     resultIndices: int[]): int {
+    flags := new CliFlagTable { Flags: nugetFlags }
+    results := new CliIndexResultTable { Indices: resultIndices }
+    return CliUpdateAllNuGetDependencyIndicesCore(ref flags, ref results)
+}
+
+func CliUpdateAllNuGetDependencyIndicesCore(
+    flagTable: &CliFlagTable,
+    results: &CliIndexResultTable): int {
+    nugetFlags := flagTable.Flags
+    resultIndices := results.Indices
     length := nugetFlags.Length
     resultCount := 0
     i := 0
@@ -2448,6 +2478,17 @@ func CliUpdateTargetNuGetDependencyIndicesInto(
     nameRanks: int[],
     targetNameRank: int,
     resultIndices: int[]): int {
+    ranks := new CliRankTable { Ranks: nameRanks }
+    results := new CliIndexResultTable { Indices: resultIndices }
+    return CliUpdateTargetNuGetDependencyIndicesCore(ref ranks, targetNameRank, ref results)
+}
+
+func CliUpdateTargetNuGetDependencyIndicesCore(
+    nameRankTable: &CliRankTable,
+    targetNameRank: int,
+    results: &CliIndexResultTable): int {
+    nameRanks := nameRankTable.Ranks
+    resultIndices := results.Indices
     if targetNameRank <= 0 {
         return 0
     }
@@ -2539,6 +2580,17 @@ func CliReferenceTypeFilterIndicesInto(
     typeRanks: int[],
     targetTypeRank: int,
     resultIndices: int[]): int {
+    ranks := new CliRankTable { Ranks: typeRanks }
+    results := new CliIndexResultTable { Indices: resultIndices }
+    return CliReferenceTypeFilterIndicesCore(ref ranks, targetTypeRank, ref results)
+}
+
+func CliReferenceTypeFilterIndicesCore(
+    typeRankTable: &CliRankTable,
+    targetTypeRank: int,
+    results: &CliIndexResultTable): int {
+    typeRanks := typeRankTable.Ranks
+    resultIndices := results.Indices
     if targetTypeRank <= 0 {
         return 0
     }
@@ -2679,6 +2731,20 @@ func CliStableDistinctRankIndicesInto(
     uniqueRankCount: int,
     seenRanks: int[],
     resultIndices: int[]): int {
+    rankTable := new CliRankTable { Ranks: ranks }
+    seenRankTable := new CliSeenRankTable { Ranks: seenRanks }
+    results := new CliIndexResultTable { Indices: resultIndices }
+    return CliStableDistinctRankIndicesCore(ref rankTable, uniqueRankCount, ref seenRankTable, ref results)
+}
+
+func CliStableDistinctRankIndicesCore(
+    rankTable: &CliRankTable,
+    uniqueRankCount: int,
+    seenRankTable: &CliSeenRankTable,
+    results: &CliIndexResultTable): int {
+    ranks := rankTable.Ranks
+    seenRanks := seenRankTable.Ranks
+    resultIndices := results.Indices
     clearCount := uniqueRankCount + 1
     if clearCount > seenRanks.Length {
         clearCount = seenRanks.Length
@@ -2712,6 +2778,12 @@ func CliStableDistinctRankIndicesInto(
 }
 
 func CliReferenceResolutionBestScoreIndex(scores: int[], count: int): int {
+    scoreTable := new CliScoreTable { Scores: scores }
+    return CliReferenceResolutionBestScoreIndexCore(ref scoreTable, count)
+}
+
+func CliReferenceResolutionBestScoreIndexCore(scoresTable: &CliScoreTable, count: int): int {
+    scores := scoresTable.Scores
     if count <= 0 {
         return -1
     }
@@ -2737,6 +2809,16 @@ func CliReferenceResolutionBestScoreIndex(scores: int[], count: int): int {
 }
 
 func CliTidyDependencyStatusSummaryInto(statusRanks: int[], resultCounts: int[]): int {
+    ranks := new CliRankTable { Ranks: statusRanks }
+    counts := new CliCountResultTable { Counts: resultCounts }
+    return CliTidyDependencyStatusSummaryCore(ref ranks, ref counts)
+}
+
+func CliTidyDependencyStatusSummaryCore(
+    statusRankTable: &CliRankTable,
+    counts: &CliCountResultTable): int {
+    statusRanks := statusRankTable.Ranks
+    resultCounts := counts.Counts
     if resultCounts.Length < 2 {
         return -1
     }
@@ -2830,6 +2912,17 @@ func CliTidyDependencyStatusSummaryInto(statusRanks: int[], resultCounts: int[])
 }
 
 func CliTestOutcomeSummaryInto(outcomeRanks: int[], count: int, resultCounts: int[]): int {
+    ranks := new CliRankTable { Ranks: outcomeRanks }
+    counts := new CliCountResultTable { Counts: resultCounts }
+    return CliTestOutcomeSummaryCore(ref ranks, count, ref counts)
+}
+
+func CliTestOutcomeSummaryCore(
+    outcomeRankTable: &CliRankTable,
+    count: int,
+    counts: &CliCountResultTable): int {
+    outcomeRanks := outcomeRankTable.Ranks
+    resultCounts := counts.Counts
     if resultCounts.Length < 4 {
         return -1
     }

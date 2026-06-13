@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — CLI dependency and reference rank tables wrapped
+
+`CliArguments.nl` now wraps the update-dependency, reference-type, stable-distinct, best-score, and
+summary-counter rank/flag/score columns behind named normal structs. The exported CLI dogfood
+adapter functions keep their flattened caller-owned array signatures, while the internal cores use
+wrapper-aware flag, rank, seen-rank, score, index-result, and count-result tables.
+
+This covers the `nlc update` dependency filters, reference resolution type filtering, stable
+distinct rank selection, reference best-score selection, tidy dependency summaries, and test outcome
+summaries.
+
 ## 2026-06-13 — CLI diff and clean artifact tables wrapped
 
 `CliArguments.nl` now wraps unified-diff hunk range line inputs and hunk output columns behind named

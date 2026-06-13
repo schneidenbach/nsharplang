@@ -249,7 +249,8 @@ ownership lands.
    `nlc fix` safety-rank, edit-count, edit-flattening, file-rank, rank-bucket, and applied-file group
    result columns. Unified-diff hunk range inputs/results and clean-artifact directory ordering
    inputs/scratch/result columns are now table-wrapped as well. These slices preserve the flattened
-   dogfood adapter ABI.
+   dogfood adapter ABI. The update-dependency, reference-type, stable-distinct, best-score, and
+   summary-counter rank/flag/score columns now also route through named normal structs.
 7. Only after those gates pass, start replacing C# emitter/analyzer internals that still require untyped
    parallel-array plumbing.
 
