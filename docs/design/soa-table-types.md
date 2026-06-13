@@ -220,8 +220,9 @@ ownership lands.
    parent/symbol-range, sorted-index, symbol-name, depth-output, and name-set scratch columns behind
    normal table structs, and `TypeLookup.nl` wraps declared-type lookup and type-creation ordering
    tables the same way. `DiagnosticDeduplication.nl` now wraps diagnostic/reference key columns and
-   deduplication scratch indexes behind wrapper-aware cores. These slices preserve the flattened
-   dogfood adapter ABI.
+   deduplication scratch indexes behind wrapper-aware cores, and `DiagnosticClusters.nl` wraps
+   severity/trait/cluster-id/location/group/member tables for diagnostic clustering. These slices
+   preserve the flattened dogfood adapter ABI.
 7. Only after those gates pass, start replacing C# emitter/analyzer internals that still require untyped
    parallel-array plumbing.
 

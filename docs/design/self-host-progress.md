@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — Diagnostic clustering tables wrapped
+
+`DiagnosticClusters.nl` now groups its severity, trait, cluster-id, command-location, grouping-key,
+root/count, member-output, and scratch columns behind named normal structs. The public dogfood adapter
+entry points still expose the same flattened arrays, while the classification, grouping, member
+ordering, root comparison, and sorting cores operate on typed table wrappers.
+
+This completes the diagnostic table pair called out after semantic scopes and declared type lookup:
+deduplication and clustering now both preserve the flattened ABI at the host boundary while removing
+anonymous parallel-array plumbing from their internal loops.
+
 ## 2026-06-13 — Diagnostic deduplication tables wrapped
 
 `DiagnosticDeduplication.nl` now groups diagnostic key columns, reference key columns, and shared

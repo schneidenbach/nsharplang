@@ -1,14 +1,171 @@
 import System
 import System.Text
 
+struct DiagnosticSeverityTable {
+    Severities: string[]
+}
+
+struct DiagnosticSeverityCountTable {
+    Counts: int[]
+}
+
+struct DiagnosticSeverityRankTable {
+    Ranks: int[]
+}
+
+struct DiagnosticIndexOutputTable {
+    Indices: int[]
+}
+
+struct DiagnosticShadowSuppressionTable {
+    CodeIds: int[]
+    FileRanks: int[]
+    ShadowFileFlags: int[]
+}
+
+struct DiagnosticClusterTraitInputTable {
+    Codes: string[]
+    Messages: string[]
+    Snippets: string[]
+}
+
+struct DiagnosticClusterTraitOutputTable {
+    Categories: int[]
+    SourceConstructs: int[]
+}
+
+struct DiagnosticClusterPatternOutputTable {
+    Patterns: string[]
+}
+
+struct DiagnosticClusterIdInputTable {
+    Codes: string[]
+    Severities: string[]
+    Categories: string[]
+    SourceConstructs: string[]
+    Recipes: string[]
+    MessagePatterns: string[]
+}
+
+struct DiagnosticClusterIdOutputTable {
+    Ids: string[]
+}
+
+struct DiagnosticClusterLocationTable {
+    Files: string[]
+    Lines: int[]
+    Columns: int[]
+}
+
+struct DiagnosticClusterCommandOutputTable {
+    Commands: string[]
+}
+
+struct DiagnosticClusterGroupingKeyTable {
+    CodeIds: int[]
+    SeverityIds: int[]
+    CategoryIds: int[]
+    SourceConstructIds: int[]
+    RecipeIds: int[]
+    RiskIds: int[]
+    MessagePatternIds: int[]
+}
+
+struct DiagnosticClusterGroupScratchTable {
+    SlotGroups: int[]
+    GroupKeyIndices: int[]
+}
+
+struct DiagnosticClusterGroupTable {
+    RootIndices: int[]
+    Counts: int[]
+}
+
+struct DiagnosticClusterMemberScratchTable {
+    SlotGroups: int[]
+    FirstMemberIndices: int[]
+    MemberNextIndices: int[]
+}
+
+struct DiagnosticClusterMemberOutputTable {
+    Starts: int[]
+    MemberIndices: int[]
+}
+
+func DiagnosticSeverityCount(table: &DiagnosticSeverityTable, requestedCount: int): int {
+    if requestedCount > table.Severities.Length {
+        return table.Severities.Length
+    }
+
+    return requestedCount
+}
+
+func DiagnosticShadowSuppressionCount(table: &DiagnosticShadowSuppressionTable): int {
+    return MinInt(table.CodeIds.Length, table.FileRanks.Length)
+}
+
+func DiagnosticClusterTraitCount(input: &DiagnosticClusterTraitInputTable, output: &DiagnosticClusterTraitOutputTable): int {
+    count := MinInt(input.Codes.Length, input.Messages.Length)
+    count = MinInt(count, input.Snippets.Length)
+    count = MinInt(count, output.Categories.Length)
+    count = MinInt(count, output.SourceConstructs.Length)
+    return count
+}
+
+func DiagnosticClusterTraitPatternCount(input: &DiagnosticClusterTraitInputTable, output: &DiagnosticClusterTraitOutputTable, patterns: &DiagnosticClusterPatternOutputTable): int {
+    count := DiagnosticClusterTraitCount(ref input, ref output)
+    count = MinInt(count, patterns.Patterns.Length)
+    return count
+}
+
+func DiagnosticClusterIdCount(input: &DiagnosticClusterIdInputTable, output: &DiagnosticClusterIdOutputTable): int {
+    count := MinInt(input.Codes.Length, input.Severities.Length)
+    count = MinInt(count, input.Categories.Length)
+    count = MinInt(count, input.SourceConstructs.Length)
+    count = MinInt(count, input.Recipes.Length)
+    count = MinInt(count, input.MessagePatterns.Length)
+    count = MinInt(count, output.Ids.Length)
+    return count
+}
+
+func DiagnosticClusterLocationCount(locations: &DiagnosticClusterLocationTable): int {
+    count := MinInt(locations.Files.Length, locations.Lines.Length)
+    count = MinInt(count, locations.Columns.Length)
+    return count
+}
+
+func DiagnosticClusterCommandCount(locations: &DiagnosticClusterLocationTable, output: &DiagnosticClusterCommandOutputTable): int {
+    count := DiagnosticClusterLocationCount(ref locations)
+    count = MinInt(count, output.Commands.Length)
+    return count
+}
+
+func DiagnosticClusterGroupingKeyCount(keys: &DiagnosticClusterGroupingKeyTable): int {
+    count := MinInt(keys.CodeIds.Length, keys.SeverityIds.Length)
+    count = MinInt(count, keys.CategoryIds.Length)
+    count = MinInt(count, keys.SourceConstructIds.Length)
+    count = MinInt(count, keys.RecipeIds.Length)
+    count = MinInt(count, keys.RiskIds.Length)
+    count = MinInt(count, keys.MessagePatternIds.Length)
+    return count
+}
+
+func DiagnosticClusterInputCount(keys: &DiagnosticClusterGroupingKeyTable, locations: &DiagnosticClusterLocationTable): int {
+    return MinInt(DiagnosticClusterGroupingKeyCount(ref keys), DiagnosticClusterLocationCount(ref locations))
+}
+
 func DiagnosticSeveritySummaryInto(severities: string[], count: int, resultCounts: int[]): int {
-    if resultCounts.Length < 3 {
+    severityTable := new DiagnosticSeverityTable { Severities: severities }
+    output := new DiagnosticSeverityCountTable { Counts: resultCounts }
+    return DiagnosticSeveritySummaryCore(ref severityTable, count, ref output)
+}
+
+func DiagnosticSeveritySummaryCore(severities: &DiagnosticSeverityTable, requestedCount: int, output: &DiagnosticSeverityCountTable): int {
+    if output.Counts.Length < 3 {
         return 0
     }
 
-    if count > severities.Length {
-        count = severities.Length
-    }
+    count := DiagnosticSeverityCount(ref severities, requestedCount)
 
     errors := 0
     warnings := 0
@@ -16,7 +173,7 @@ func DiagnosticSeveritySummaryInto(severities: string[], count: int, resultCount
     i := 0
 
     while i < count {
-        severity := severities[i]
+        severity := severities.Severities[i]
         if severity == "error" {
             errors = errors + 1
         } else if severity == "warning" {
@@ -28,9 +185,9 @@ func DiagnosticSeveritySummaryInto(severities: string[], count: int, resultCount
         i = i + 1
     }
 
-    resultCounts[0] = errors
-    resultCounts[1] = warnings
-    resultCounts[2] = info
+    output.Counts[0] = errors
+    output.Counts[1] = warnings
+    output.Counts[2] = info
     return count
 }
 
@@ -38,61 +195,70 @@ func DiagnosticSeverityFilterIndicesInto(
     severityRanks: int[],
     targetRank: int,
     resultIndices: int[]): int {
+    severityTable := new DiagnosticSeverityRankTable { Ranks: severityRanks }
+    output := new DiagnosticIndexOutputTable { Indices: resultIndices }
+    return DiagnosticSeverityFilterIndicesCore(ref severityTable, targetRank, ref output)
+}
+
+func DiagnosticSeverityFilterIndicesCore(
+    severityRanks: &DiagnosticSeverityRankTable,
+    targetRank: int,
+    output: &DiagnosticIndexOutputTable): int {
     if targetRank <= 0 {
         return 0
     }
 
     matchCount := 0
-    length := severityRanks.Length
+    length := severityRanks.Ranks.Length
     i := 0
 
-    if resultIndices.Length >= length {
+    if output.Indices.Length >= length {
         unrolledLimit := length - 8
         while i <= unrolledLimit {
-            if severityRanks[i] == targetRank {
-                resultIndices[matchCount] = i
+            if severityRanks.Ranks[i] == targetRank {
+                output.Indices[matchCount] = i
                 matchCount = matchCount + 1
             }
 
             next := i + 1
-            if severityRanks[next] == targetRank {
-                resultIndices[matchCount] = next
+            if severityRanks.Ranks[next] == targetRank {
+                output.Indices[matchCount] = next
                 matchCount = matchCount + 1
             }
 
             next = i + 2
-            if severityRanks[next] == targetRank {
-                resultIndices[matchCount] = next
+            if severityRanks.Ranks[next] == targetRank {
+                output.Indices[matchCount] = next
                 matchCount = matchCount + 1
             }
 
             next = i + 3
-            if severityRanks[next] == targetRank {
-                resultIndices[matchCount] = next
+            if severityRanks.Ranks[next] == targetRank {
+                output.Indices[matchCount] = next
                 matchCount = matchCount + 1
             }
 
             next = i + 4
-            if severityRanks[next] == targetRank {
-                resultIndices[matchCount] = next
+            if severityRanks.Ranks[next] == targetRank {
+                output.Indices[matchCount] = next
                 matchCount = matchCount + 1
             }
 
             next = i + 5
-            if severityRanks[next] == targetRank {
-                resultIndices[matchCount] = next
+            if severityRanks.Ranks[next] == targetRank {
+                output.Indices[matchCount] = next
                 matchCount = matchCount + 1
             }
 
             next = i + 6
-            if severityRanks[next] == targetRank {
-                resultIndices[matchCount] = next
+            if severityRanks.Ranks[next] == targetRank {
+                output.Indices[matchCount] = next
                 matchCount = matchCount + 1
             }
 
             next = i + 7
-            if severityRanks[next] == targetRank {
-                resultIndices[matchCount] = next
+            if severityRanks.Ranks[next] == targetRank {
+                output.Indices[matchCount] = next
                 matchCount = matchCount + 1
             }
 
@@ -100,8 +266,8 @@ func DiagnosticSeverityFilterIndicesInto(
         }
 
         while i < length {
-            if severityRanks[i] == targetRank {
-                resultIndices[matchCount] = i
+            if severityRanks.Ranks[i] == targetRank {
+                output.Indices[matchCount] = i
                 matchCount = matchCount + 1
             }
 
@@ -113,36 +279,36 @@ func DiagnosticSeverityFilterIndicesInto(
 
     unrolledLimit := length - 4
     while i <= unrolledLimit {
-        if severityRanks[i] == targetRank {
-            if matchCount < resultIndices.Length {
-                resultIndices[matchCount] = i
+        if severityRanks.Ranks[i] == targetRank {
+            if matchCount < output.Indices.Length {
+                output.Indices[matchCount] = i
             }
 
             matchCount = matchCount + 1
         }
 
         next := i + 1
-        if severityRanks[next] == targetRank {
-            if matchCount < resultIndices.Length {
-                resultIndices[matchCount] = next
+        if severityRanks.Ranks[next] == targetRank {
+            if matchCount < output.Indices.Length {
+                output.Indices[matchCount] = next
             }
 
             matchCount = matchCount + 1
         }
 
         next = i + 2
-        if severityRanks[next] == targetRank {
-            if matchCount < resultIndices.Length {
-                resultIndices[matchCount] = next
+        if severityRanks.Ranks[next] == targetRank {
+            if matchCount < output.Indices.Length {
+                output.Indices[matchCount] = next
             }
 
             matchCount = matchCount + 1
         }
 
         next = i + 3
-        if severityRanks[next] == targetRank {
-            if matchCount < resultIndices.Length {
-                resultIndices[matchCount] = next
+        if severityRanks.Ranks[next] == targetRank {
+            if matchCount < output.Indices.Length {
+                output.Indices[matchCount] = next
             }
 
             matchCount = matchCount + 1
@@ -152,9 +318,9 @@ func DiagnosticSeverityFilterIndicesInto(
     }
 
     while i < length {
-        if severityRanks[i] == targetRank {
-            if matchCount < resultIndices.Length {
-                resultIndices[matchCount] = i
+        if severityRanks.Ranks[i] == targetRank {
+            if matchCount < output.Indices.Length {
+                output.Indices[matchCount] = i
             }
 
             matchCount = matchCount + 1
@@ -172,7 +338,16 @@ func DiagnosticShadowSuppressionIndicesInto(
     targetCodeId: int,
     shadowFileFlags: int[],
     resultIndices: int[]): int {
-    count := MinInt(codeIds.Length, fileRanks.Length)
+    source := new DiagnosticShadowSuppressionTable { CodeIds: codeIds, FileRanks: fileRanks, ShadowFileFlags: shadowFileFlags }
+    output := new DiagnosticIndexOutputTable { Indices: resultIndices }
+    return DiagnosticShadowSuppressionIndicesCore(ref source, targetCodeId, ref output)
+}
+
+func DiagnosticShadowSuppressionIndicesCore(
+    source: &DiagnosticShadowSuppressionTable,
+    targetCodeId: int,
+    output: &DiagnosticIndexOutputTable): int {
+    count := DiagnosticShadowSuppressionCount(ref source)
     if count == 0 {
         return 0
     }
@@ -180,16 +355,16 @@ func DiagnosticShadowSuppressionIndicesInto(
     keptCount := 0
     i := 0
     while i < count {
-        fileRank := fileRanks[i]
+        fileRank := source.FileRanks[i]
         suppress := targetCodeId > 0 &&
-            codeIds[i] == targetCodeId &&
+            source.CodeIds[i] == targetCodeId &&
             fileRank > 0 &&
-            fileRank < shadowFileFlags.Length &&
-            shadowFileFlags[fileRank] != 0
+            fileRank < source.ShadowFileFlags.Length &&
+            source.ShadowFileFlags[fileRank] != 0
 
         if !suppress {
-            if keptCount < resultIndices.Length {
-                resultIndices[keptCount] = i
+            if keptCount < output.Indices.Length {
+                output.Indices[keptCount] = i
             }
 
             keptCount = keptCount + 1
@@ -207,16 +382,19 @@ func DiagnosticClusterTraitsInto(
     snippets: string[],
     resultCategories: int[],
     resultSourceConstructs: int[]): int {
-    count := MinInt(codes.Length, messages.Length)
-    count = MinInt(count, snippets.Length)
-    count = MinInt(count, resultCategories.Length)
-    count = MinInt(count, resultSourceConstructs.Length)
+    input := new DiagnosticClusterTraitInputTable { Codes: codes, Messages: messages, Snippets: snippets }
+    output := new DiagnosticClusterTraitOutputTable { Categories: resultCategories, SourceConstructs: resultSourceConstructs }
+    return DiagnosticClusterTraitsCore(ref input, ref output)
+}
+
+func DiagnosticClusterTraitsCore(input: &DiagnosticClusterTraitInputTable, output: &DiagnosticClusterTraitOutputTable): int {
+    count := DiagnosticClusterTraitCount(ref input, ref output)
 
     i := 0
     while i < count {
-        code := codes[i]
-        message := messages[i]
-        snippet := snippets[i]
+        code := input.Codes[i]
+        message := input.Messages[i]
+        snippet := input.Snippets[i]
 
         category := ClassifyDiagnosticCategory(code, message)
         sourceConstruct := 8
@@ -227,8 +405,8 @@ func DiagnosticClusterTraitsInto(
             sourceConstruct = InferDiagnosticSourceConstruct(snippet)
         }
 
-        resultCategories[i] = category
-        resultSourceConstructs[i] = sourceConstruct
+        output.Categories[i] = category
+        output.SourceConstructs[i] = sourceConstruct
 
         i = i + 1
     }
@@ -243,17 +421,23 @@ func DiagnosticClusterTraitsAndPatternsInto(
     resultCategories: int[],
     resultSourceConstructs: int[],
     resultPatterns: string[]): int {
-    count := MinInt(codes.Length, messages.Length)
-    count = MinInt(count, snippets.Length)
-    count = MinInt(count, resultCategories.Length)
-    count = MinInt(count, resultSourceConstructs.Length)
-    count = MinInt(count, resultPatterns.Length)
+    input := new DiagnosticClusterTraitInputTable { Codes: codes, Messages: messages, Snippets: snippets }
+    output := new DiagnosticClusterTraitOutputTable { Categories: resultCategories, SourceConstructs: resultSourceConstructs }
+    patterns := new DiagnosticClusterPatternOutputTable { Patterns: resultPatterns }
+    return DiagnosticClusterTraitsAndPatternsCore(ref input, ref output, ref patterns)
+}
+
+func DiagnosticClusterTraitsAndPatternsCore(
+    input: &DiagnosticClusterTraitInputTable,
+    output: &DiagnosticClusterTraitOutputTable,
+    patterns: &DiagnosticClusterPatternOutputTable): int {
+    count := DiagnosticClusterTraitPatternCount(ref input, ref output, ref patterns)
 
     i := 0
     while i < count {
-        code := codes[i]
-        message := messages[i]
-        snippet := snippets[i]
+        code := input.Codes[i]
+        message := input.Messages[i]
+        snippet := input.Snippets[i]
 
         category := ClassifyDiagnosticCategory(code, message)
         sourceConstruct := 8
@@ -264,9 +448,9 @@ func DiagnosticClusterTraitsAndPatternsInto(
             sourceConstruct = InferDiagnosticSourceConstruct(snippet)
         }
 
-        resultCategories[i] = category
-        resultSourceConstructs[i] = sourceConstruct
-        resultPatterns[i] = NormalizeDiagnosticMessagePattern(message)
+        output.Categories[i] = category
+        output.SourceConstructs[i] = sourceConstruct
+        patterns.Patterns[i] = NormalizeDiagnosticMessagePattern(message)
 
         i = i + 1
     }
@@ -282,23 +466,24 @@ func DiagnosticClusterIdsInto(
     recipes: string[],
     messagePatterns: string[],
     resultIds: string[]): int {
-    count := MinInt(codes.Length, severities.Length)
-    count = MinInt(count, categories.Length)
-    count = MinInt(count, sourceConstructs.Length)
-    count = MinInt(count, recipes.Length)
-    count = MinInt(count, messagePatterns.Length)
-    count = MinInt(count, resultIds.Length)
+    input := new DiagnosticClusterIdInputTable { Codes: codes, Severities: severities, Categories: categories, SourceConstructs: sourceConstructs, Recipes: recipes, MessagePatterns: messagePatterns }
+    output := new DiagnosticClusterIdOutputTable { Ids: resultIds }
+    return DiagnosticClusterIdsCore(ref input, ref output)
+}
+
+func DiagnosticClusterIdsCore(input: &DiagnosticClusterIdInputTable, output: &DiagnosticClusterIdOutputTable): int {
+    count := DiagnosticClusterIdCount(ref input, ref output)
 
     hexBuffer := new char[](13)
     i := 0
     while i < count {
-        resultIds[i] = CreateDiagnosticClusterId(
-            codes[i],
-            severities[i],
-            categories[i],
-            sourceConstructs[i],
-            recipes[i],
-            messagePatterns[i],
+        output.Ids[i] = CreateDiagnosticClusterId(
+            input.Codes[i],
+            input.Severities[i],
+            input.Categories[i],
+            input.SourceConstructs[i],
+            input.Recipes[i],
+            input.MessagePatterns[i],
             hexBuffer)
         i = i + 1
     }
@@ -393,16 +578,20 @@ func DiagnosticClusterNextCommandsInto(
     lines: int[],
     columns: int[],
     resultCommands: string[]): int {
-    count := MinInt(files.Length, lines.Length)
-    count = MinInt(count, columns.Length)
-    count = MinInt(count, resultCommands.Length)
+    locations := new DiagnosticClusterLocationTable { Files: files, Lines: lines, Columns: columns }
+    output := new DiagnosticClusterCommandOutputTable { Commands: resultCommands }
+    return DiagnosticClusterNextCommandsCore(ref locations, ref output)
+}
+
+func DiagnosticClusterNextCommandsCore(locations: &DiagnosticClusterLocationTable, output: &DiagnosticClusterCommandOutputTable): int {
+    count := DiagnosticClusterCommandCount(ref locations, ref output)
 
     builder := new StringBuilder(128)
     i := 0
     while i < count {
         builder.Clear()
-        AppendDiagnosticClusterNextCommand(builder, files[i], lines[i], columns[i])
-        resultCommands[i] = builder.ToString()
+        AppendDiagnosticClusterNextCommand(builder, locations.Files[i], locations.Lines[i], locations.Columns[i])
+        output.Commands[i] = builder.ToString()
         i = i + 1
     }
 
@@ -424,61 +613,49 @@ func DiagnosticClusterCompactGroupsInto(
     groupKeyIndices: int[],
     resultRootIndices: int[],
     resultCounts: int[]): int {
-    count := MinInt(codeIds.Length, severityIds.Length)
-    count = MinInt(count, categoryIds.Length)
-    count = MinInt(count, sourceConstructIds.Length)
-    count = MinInt(count, recipeIds.Length)
-    count = MinInt(count, riskIds.Length)
-    count = MinInt(count, messagePatternIds.Length)
-    count = MinInt(count, files.Length)
-    count = MinInt(count, lines.Length)
-    count = MinInt(count, columns.Length)
+    keys := new DiagnosticClusterGroupingKeyTable { CodeIds: codeIds, SeverityIds: severityIds, CategoryIds: categoryIds, SourceConstructIds: sourceConstructIds, RecipeIds: recipeIds, RiskIds: riskIds, MessagePatternIds: messagePatternIds }
+    locations := new DiagnosticClusterLocationTable { Files: files, Lines: lines, Columns: columns }
+    scratch := new DiagnosticClusterGroupScratchTable { SlotGroups: slotGroups, GroupKeyIndices: groupKeyIndices }
+    groups := new DiagnosticClusterGroupTable { RootIndices: resultRootIndices, Counts: resultCounts }
+    return DiagnosticClusterCompactGroupsCore(ref keys, ref locations, ref scratch, ref groups)
+}
 
-    maxGroups := MinInt(resultRootIndices.Length, resultCounts.Length)
-    maxGroups = MinInt(maxGroups, groupKeyIndices.Length)
-    capacity := slotGroups.Length
+func DiagnosticClusterCompactGroupsCore(
+    keys: &DiagnosticClusterGroupingKeyTable,
+    locations: &DiagnosticClusterLocationTable,
+    scratch: &DiagnosticClusterGroupScratchTable,
+    groups: &DiagnosticClusterGroupTable): int {
+    count := DiagnosticClusterInputCount(ref keys, ref locations)
+
+    maxGroups := MinInt(groups.RootIndices.Length, groups.Counts.Length)
+    maxGroups = MinInt(maxGroups, scratch.GroupKeyIndices.Length)
+    capacity := scratch.SlotGroups.Length
     if count == 0 || maxGroups == 0 || capacity == 0 {
         return 0
     }
 
     i := 0
     while i < capacity {
-        slotGroups[i] = -1
+        scratch.SlotGroups[i] = -1
         i = i + 1
     }
 
     groupCount := 0
     index := 0
     while index < count {
-        hash := HashDiagnosticClusterCompactGroupingKey(
-            severityIds[index],
-            codeIds[index],
-            categoryIds[index],
-            sourceConstructIds[index],
-            recipeIds[index],
-            riskIds[index],
-            messagePatternIds[index])
+        hash := HashDiagnosticClusterCompactGroupingKeyAt(index, ref keys)
         slot := PositiveModulo(hash, capacity)
         groupIndex := -1
         probes := 0
 
         while probes < capacity {
-            candidateGroup := slotGroups[slot]
+            candidateGroup := scratch.SlotGroups[slot]
             if candidateGroup < 0 {
                 break
             }
 
-            keyIndex := groupKeyIndices[candidateGroup]
-            if DiagnosticClusterCompactGroupingKeysEqual(
-                index,
-                keyIndex,
-                codeIds,
-                severityIds,
-                categoryIds,
-                sourceConstructIds,
-                recipeIds,
-                riskIds,
-                messagePatternIds) {
+            keyIndex := scratch.GroupKeyIndices[candidateGroup]
+            if DiagnosticClusterCompactGroupingKeysEqualCore(index, keyIndex, ref keys) {
                 groupIndex = candidateGroup
                 break
             }
@@ -492,26 +669,26 @@ func DiagnosticClusterCompactGroupsInto(
 
         if groupIndex < 0 {
             if groupCount >= maxGroups || groupCount >= capacity || probes >= capacity {
-                SortDiagnosticClusterGroups(resultRootIndices, resultCounts, groupCount, files, lines, columns)
+                SortDiagnosticClusterGroupsCore(ref groups, groupCount, ref locations)
                 return groupCount
             }
 
-            groupKeyIndices[groupCount] = index
-            resultRootIndices[groupCount] = index
-            resultCounts[groupCount] = 1
-            slotGroups[slot] = groupCount
+            scratch.GroupKeyIndices[groupCount] = index
+            groups.RootIndices[groupCount] = index
+            groups.Counts[groupCount] = 1
+            scratch.SlotGroups[slot] = groupCount
             groupCount = groupCount + 1
         } else {
-            resultCounts[groupIndex] = resultCounts[groupIndex] + 1
-            if IsDiagnosticClusterRootBefore(index, resultRootIndices[groupIndex], files, lines, columns) {
-                resultRootIndices[groupIndex] = index
+            groups.Counts[groupIndex] = groups.Counts[groupIndex] + 1
+            if IsDiagnosticClusterRootBeforeCore(index, groups.RootIndices[groupIndex], ref locations) {
+                groups.RootIndices[groupIndex] = index
             }
         }
 
         index = index + 1
     }
 
-    SortDiagnosticClusterGroups(resultRootIndices, resultCounts, groupCount, files, lines, columns)
+    SortDiagnosticClusterGroupsCore(ref groups, groupCount, ref locations)
     return groupCount
 }
 
@@ -534,19 +711,26 @@ func DiagnosticClusterCompactGroupMembersInto(
     memberNextIndices: int[],
     resultStarts: int[],
     resultMemberIndices: int[]): int {
-    count := MinInt(codeIds.Length, severityIds.Length)
-    count = MinInt(count, categoryIds.Length)
-    count = MinInt(count, sourceConstructIds.Length)
-    count = MinInt(count, recipeIds.Length)
-    count = MinInt(count, riskIds.Length)
-    count = MinInt(count, messagePatternIds.Length)
-    count = MinInt(count, files.Length)
-    count = MinInt(count, lines.Length)
-    count = MinInt(count, columns.Length)
-    groupLimit := MinInt(groupCount, groupRootIndices.Length)
-    groupLimit = MinInt(groupLimit, groupCounts.Length)
-    groupLimit = MinInt(groupLimit, resultStarts.Length)
-    groupLimit = MinInt(groupLimit, groupFirstMemberIndices.Length)
+    keys := new DiagnosticClusterGroupingKeyTable { CodeIds: codeIds, SeverityIds: severityIds, CategoryIds: categoryIds, SourceConstructIds: sourceConstructIds, RecipeIds: recipeIds, RiskIds: riskIds, MessagePatternIds: messagePatternIds }
+    locations := new DiagnosticClusterLocationTable { Files: files, Lines: lines, Columns: columns }
+    groups := new DiagnosticClusterGroupTable { RootIndices: groupRootIndices, Counts: groupCounts }
+    scratch := new DiagnosticClusterMemberScratchTable { SlotGroups: slotGroups, FirstMemberIndices: groupFirstMemberIndices, MemberNextIndices: memberNextIndices }
+    output := new DiagnosticClusterMemberOutputTable { Starts: resultStarts, MemberIndices: resultMemberIndices }
+    return DiagnosticClusterCompactGroupMembersCore(ref keys, ref locations, ref groups, groupCount, ref scratch, ref output)
+}
+
+func DiagnosticClusterCompactGroupMembersCore(
+    keys: &DiagnosticClusterGroupingKeyTable,
+    locations: &DiagnosticClusterLocationTable,
+    groups: &DiagnosticClusterGroupTable,
+    groupCount: int,
+    scratch: &DiagnosticClusterMemberScratchTable,
+    output: &DiagnosticClusterMemberOutputTable): int {
+    count := DiagnosticClusterInputCount(ref keys, ref locations)
+    groupLimit := MinInt(groupCount, groups.RootIndices.Length)
+    groupLimit = MinInt(groupLimit, groups.Counts.Length)
+    groupLimit = MinInt(groupLimit, output.Starts.Length)
+    groupLimit = MinInt(groupLimit, scratch.FirstMemberIndices.Length)
 
     if groupCount < 0 || groupLimit != groupCount {
         return -1
@@ -556,68 +740,52 @@ func DiagnosticClusterCompactGroupMembersInto(
         return 0
     }
 
-    if slotGroups.Length == 0 || memberNextIndices.Length < count {
+    if scratch.SlotGroups.Length == 0 || scratch.MemberNextIndices.Length < count {
         return -1
     }
 
     i := 0
-    while i < slotGroups.Length {
-        slotGroups[i] = -1
+    while i < scratch.SlotGroups.Length {
+        scratch.SlotGroups[i] = -1
         i = i + 1
     }
 
     groupIndex := 0
     totalExpected := 0
     while groupIndex < groupCount {
-        rootIndex := groupRootIndices[groupIndex]
-        expectedCount := groupCounts[groupIndex]
+        rootIndex := groups.RootIndices[groupIndex]
+        expectedCount := groups.Counts[groupIndex]
         if rootIndex < 0 || rootIndex >= count || expectedCount < 0 {
             return -1
         }
 
         totalExpected = totalExpected + expectedCount
-        if totalExpected > resultMemberIndices.Length {
+        if totalExpected > output.MemberIndices.Length {
             return -1
         }
 
-        groupFirstMemberIndices[groupIndex] = -1
-        resultStarts[groupIndex] = 0
+        scratch.FirstMemberIndices[groupIndex] = -1
+        output.Starts[groupIndex] = 0
 
-        hash := HashDiagnosticClusterCompactGroupingKey(
-            severityIds[rootIndex],
-            codeIds[rootIndex],
-            categoryIds[rootIndex],
-            sourceConstructIds[rootIndex],
-            recipeIds[rootIndex],
-            riskIds[rootIndex],
-            messagePatternIds[rootIndex])
-        slot := PositiveModulo(hash, slotGroups.Length)
+        hash := HashDiagnosticClusterCompactGroupingKeyAt(rootIndex, ref keys)
+        slot := PositiveModulo(hash, scratch.SlotGroups.Length)
         probes := 0
         placed := false
-        while probes < slotGroups.Length {
-            candidateGroup := slotGroups[slot]
+        while probes < scratch.SlotGroups.Length {
+            candidateGroup := scratch.SlotGroups[slot]
             if candidateGroup < 0 {
-                slotGroups[slot] = groupIndex
+                scratch.SlotGroups[slot] = groupIndex
                 placed = true
                 break
             }
 
-            candidateRoot := groupRootIndices[candidateGroup]
-            if DiagnosticClusterCompactGroupingKeysEqual(
-                rootIndex,
-                candidateRoot,
-                codeIds,
-                severityIds,
-                categoryIds,
-                sourceConstructIds,
-                recipeIds,
-                riskIds,
-                messagePatternIds) {
+            candidateRoot := groups.RootIndices[candidateGroup]
+            if DiagnosticClusterCompactGroupingKeysEqualCore(rootIndex, candidateRoot, ref keys) {
                 return -1
             }
 
             slot = slot + 1
-            if slot == slotGroups.Length {
+            if slot == scratch.SlotGroups.Length {
                 slot = 0
             }
 
@@ -633,40 +801,24 @@ func DiagnosticClusterCompactGroupMembersInto(
 
     diagnosticIndex := 0
     while diagnosticIndex < count {
-        hash := HashDiagnosticClusterCompactGroupingKey(
-            severityIds[diagnosticIndex],
-            codeIds[diagnosticIndex],
-            categoryIds[diagnosticIndex],
-            sourceConstructIds[diagnosticIndex],
-            recipeIds[diagnosticIndex],
-            riskIds[diagnosticIndex],
-            messagePatternIds[diagnosticIndex])
-        slot := PositiveModulo(hash, slotGroups.Length)
+        hash := HashDiagnosticClusterCompactGroupingKeyAt(diagnosticIndex, ref keys)
+        slot := PositiveModulo(hash, scratch.SlotGroups.Length)
         probes := 0
         groupIndex = -1
-        while probes < slotGroups.Length {
-            candidateGroup := slotGroups[slot]
+        while probes < scratch.SlotGroups.Length {
+            candidateGroup := scratch.SlotGroups[slot]
             if candidateGroup < 0 {
                 break
             }
 
-            rootIndex := groupRootIndices[candidateGroup]
-            if DiagnosticClusterCompactGroupingKeysEqual(
-                diagnosticIndex,
-                rootIndex,
-                codeIds,
-                severityIds,
-                categoryIds,
-                sourceConstructIds,
-                recipeIds,
-                riskIds,
-                messagePatternIds) {
+            rootIndex := groups.RootIndices[candidateGroup]
+            if DiagnosticClusterCompactGroupingKeysEqualCore(diagnosticIndex, rootIndex, ref keys) {
                 groupIndex = candidateGroup
                 break
             }
 
             slot = slot + 1
-            if slot == slotGroups.Length {
+            if slot == scratch.SlotGroups.Length {
                 slot = 0
             }
 
@@ -677,23 +829,23 @@ func DiagnosticClusterCompactGroupMembersInto(
             return -1
         }
 
-        resultStarts[groupIndex] = resultStarts[groupIndex] + 1
-        memberNextIndices[diagnosticIndex] = -1
-        firstMember := groupFirstMemberIndices[groupIndex]
-        if firstMember < 0 || IsDiagnosticClusterRootBefore(diagnosticIndex, firstMember, files, lines, columns) {
-            memberNextIndices[diagnosticIndex] = firstMember
-            groupFirstMemberIndices[groupIndex] = diagnosticIndex
+        output.Starts[groupIndex] = output.Starts[groupIndex] + 1
+        scratch.MemberNextIndices[diagnosticIndex] = -1
+        firstMember := scratch.FirstMemberIndices[groupIndex]
+        if firstMember < 0 || IsDiagnosticClusterRootBeforeCore(diagnosticIndex, firstMember, ref locations) {
+            scratch.MemberNextIndices[diagnosticIndex] = firstMember
+            scratch.FirstMemberIndices[groupIndex] = diagnosticIndex
         } else {
             previousMember := firstMember
-            currentMember := memberNextIndices[previousMember]
+            currentMember := scratch.MemberNextIndices[previousMember]
             while currentMember >= 0
-                && !IsDiagnosticClusterRootBefore(diagnosticIndex, currentMember, files, lines, columns) {
+                && !IsDiagnosticClusterRootBeforeCore(diagnosticIndex, currentMember, ref locations) {
                 previousMember = currentMember
-                currentMember = memberNextIndices[currentMember]
+                currentMember = scratch.MemberNextIndices[currentMember]
             }
 
-            memberNextIndices[diagnosticIndex] = currentMember
-            memberNextIndices[previousMember] = diagnosticIndex
+            scratch.MemberNextIndices[diagnosticIndex] = currentMember
+            scratch.MemberNextIndices[previousMember] = diagnosticIndex
         }
 
         diagnosticIndex = diagnosticIndex + 1
@@ -702,18 +854,18 @@ func DiagnosticClusterCompactGroupMembersInto(
     offset := 0
     groupIndex = 0
     while groupIndex < groupCount {
-        expectedCount := groupCounts[groupIndex]
-        if resultStarts[groupIndex] != expectedCount {
+        expectedCount := groups.Counts[groupIndex]
+        if output.Starts[groupIndex] != expectedCount {
             return -1
         }
 
-        resultStarts[groupIndex] = offset
+        output.Starts[groupIndex] = offset
         written := 0
-        memberIndex := groupFirstMemberIndices[groupIndex]
+        memberIndex := scratch.FirstMemberIndices[groupIndex]
         while memberIndex >= 0 {
-            resultMemberIndices[offset + written] = memberIndex
+            output.MemberIndices[offset + written] = memberIndex
             written = written + 1
-            memberIndex = memberNextIndices[memberIndex]
+            memberIndex = scratch.MemberNextIndices[memberIndex]
         }
 
         if written != expectedCount {
@@ -734,20 +886,26 @@ func SortDiagnosticClusterGroups(
     files: string[],
     lines: int[],
     columns: int[]): void {
+    groups := new DiagnosticClusterGroupTable { RootIndices: resultRootIndices, Counts: resultCounts }
+    locations := new DiagnosticClusterLocationTable { Files: files, Lines: lines, Columns: columns }
+    SortDiagnosticClusterGroupsCore(ref groups, groupCount, ref locations)
+}
+
+func SortDiagnosticClusterGroupsCore(groups: &DiagnosticClusterGroupTable, groupCount: int, locations: &DiagnosticClusterLocationTable): void {
     i := 1
     while i < groupCount {
-        root := resultRootIndices[i]
-        count := resultCounts[i]
+        root := groups.RootIndices[i]
+        count := groups.Counts[i]
         j := i - 1
 
-        while j >= 0 && IsDiagnosticClusterGroupBefore(root, count, resultRootIndices[j], resultCounts[j], files, lines, columns) {
-            resultRootIndices[j + 1] = resultRootIndices[j]
-            resultCounts[j + 1] = resultCounts[j]
+        while j >= 0 && IsDiagnosticClusterGroupBeforeCore(root, count, groups.RootIndices[j], groups.Counts[j], ref locations) {
+            groups.RootIndices[j + 1] = groups.RootIndices[j]
+            groups.Counts[j + 1] = groups.Counts[j]
             j = j - 1
         }
 
-        resultRootIndices[j + 1] = root
-        resultCounts[j + 1] = count
+        groups.RootIndices[j + 1] = root
+        groups.Counts[j + 1] = count
         i = i + 1
     }
 }
@@ -760,20 +918,30 @@ func IsDiagnosticClusterGroupBefore(
     files: string[],
     lines: int[],
     columns: int[]): bool {
+    locations := new DiagnosticClusterLocationTable { Files: files, Lines: lines, Columns: columns }
+    return IsDiagnosticClusterGroupBeforeCore(leftRoot, leftCount, rightRoot, rightCount, ref locations)
+}
+
+func IsDiagnosticClusterGroupBeforeCore(
+    leftRoot: int,
+    leftCount: int,
+    rightRoot: int,
+    rightCount: int,
+    locations: &DiagnosticClusterLocationTable): bool {
     if leftCount != rightCount {
         return leftCount > rightCount
     }
 
-    fileCompare := String.Compare(files[leftRoot], files[rightRoot], StringComparison.OrdinalIgnoreCase)
+    fileCompare := String.Compare(locations.Files[leftRoot], locations.Files[rightRoot], StringComparison.OrdinalIgnoreCase)
     if fileCompare != 0 {
         return fileCompare < 0
     }
 
-    if lines[leftRoot] != lines[rightRoot] {
-        return lines[leftRoot] < lines[rightRoot]
+    if locations.Lines[leftRoot] != locations.Lines[rightRoot] {
+        return locations.Lines[leftRoot] < locations.Lines[rightRoot]
     }
 
-    return columns[leftRoot] < columns[rightRoot]
+    return locations.Columns[leftRoot] < locations.Columns[rightRoot]
 }
 
 func IsDiagnosticClusterRootBefore(
@@ -782,15 +950,23 @@ func IsDiagnosticClusterRootBefore(
     files: string[],
     lines: int[],
     columns: int[]): bool {
-    if lines[left] != lines[right] {
-        return lines[left] < lines[right]
+    locations := new DiagnosticClusterLocationTable { Files: files, Lines: lines, Columns: columns }
+    return IsDiagnosticClusterRootBeforeCore(left, right, ref locations)
+}
+
+func IsDiagnosticClusterRootBeforeCore(
+    left: int,
+    right: int,
+    locations: &DiagnosticClusterLocationTable): bool {
+    if locations.Lines[left] != locations.Lines[right] {
+        return locations.Lines[left] < locations.Lines[right]
     }
 
-    if columns[left] != columns[right] {
-        return columns[left] < columns[right]
+    if locations.Columns[left] != locations.Columns[right] {
+        return locations.Columns[left] < locations.Columns[right]
     }
 
-    return String.Compare(files[left], files[right], StringComparison.OrdinalIgnoreCase) < 0
+    return String.Compare(locations.Files[left], locations.Files[right], StringComparison.OrdinalIgnoreCase) < 0
 }
 
 func DiagnosticClusterCompactGroupingKeysEqual(
@@ -803,13 +979,32 @@ func DiagnosticClusterCompactGroupingKeysEqual(
     recipeIds: int[],
     riskIds: int[],
     messagePatternIds: int[]): bool {
-    return severityIds[left] == severityIds[right]
-        && codeIds[left] == codeIds[right]
-        && categoryIds[left] == categoryIds[right]
-        && sourceConstructIds[left] == sourceConstructIds[right]
-        && recipeIds[left] == recipeIds[right]
-        && riskIds[left] == riskIds[right]
-        && messagePatternIds[left] == messagePatternIds[right]
+    keys := new DiagnosticClusterGroupingKeyTable { CodeIds: codeIds, SeverityIds: severityIds, CategoryIds: categoryIds, SourceConstructIds: sourceConstructIds, RecipeIds: recipeIds, RiskIds: riskIds, MessagePatternIds: messagePatternIds }
+    return DiagnosticClusterCompactGroupingKeysEqualCore(left, right, ref keys)
+}
+
+func DiagnosticClusterCompactGroupingKeysEqualCore(
+    left: int,
+    right: int,
+    keys: &DiagnosticClusterGroupingKeyTable): bool {
+    return keys.SeverityIds[left] == keys.SeverityIds[right]
+        && keys.CodeIds[left] == keys.CodeIds[right]
+        && keys.CategoryIds[left] == keys.CategoryIds[right]
+        && keys.SourceConstructIds[left] == keys.SourceConstructIds[right]
+        && keys.RecipeIds[left] == keys.RecipeIds[right]
+        && keys.RiskIds[left] == keys.RiskIds[right]
+        && keys.MessagePatternIds[left] == keys.MessagePatternIds[right]
+}
+
+func HashDiagnosticClusterCompactGroupingKeyAt(index: int, keys: &DiagnosticClusterGroupingKeyTable): int {
+    return HashDiagnosticClusterCompactGroupingKey(
+        keys.SeverityIds[index],
+        keys.CodeIds[index],
+        keys.CategoryIds[index],
+        keys.SourceConstructIds[index],
+        keys.RecipeIds[index],
+        keys.RiskIds[index],
+        keys.MessagePatternIds[index])
 }
 
 func HashDiagnosticClusterCompactGroupingKey(
