@@ -238,8 +238,10 @@ ownership lands.
    duplicate-id rank/count/result tables, packed result words, and integer parse result storage
    without using the experimental `soa record` surface. `LexerTokenKindScanner.nl` now wraps
    token-kind buffers, parser-compaction indexes, token metadata streams, indentation post-pass
-   inputs/outputs, indentation stacks, and comment-trivia output tables. These slices preserve the
-   flattened dogfood adapter ABI.
+   inputs/outputs, indentation stacks, and comment-trivia output tables. The remaining small service
+   kernels now wrap formatter safety diagnostics, path matching batches, typo-suggestion scratch and
+   result tables, AOT requirement grouping columns, completion receiver/grouping tables, and CLI tree
+   dependency deduplication buffers. These slices preserve the flattened dogfood adapter ABI.
 7. Only after those gates pass, start replacing C# emitter/analyzer internals that still require untyped
    parallel-array plumbing.
 

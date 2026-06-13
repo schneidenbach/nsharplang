@@ -1,5 +1,25 @@
 import System
 
+struct TypoSuggestionInputTable {
+    Typos: string[]
+    Candidates: string[]
+}
+
+struct TypoSuggestionDistanceTable {
+    Previous: int[]
+    Current: int[]
+}
+
+struct TypoSuggestionDistanceRowTable {
+    Values: int[]
+}
+
+struct TypoSuggestionResultTable {
+    Starts: int[]
+    Counts: int[]
+    Indices: int[]
+}
+
 func TypoSuggestionIndicesInto(
     typos: string[],
     candidates: string[],
@@ -9,8 +29,19 @@ func TypoSuggestionIndicesInto(
     resultStarts: int[],
     resultCounts: int[],
     resultIndices: int[]): int {
-    queryCount := TypoSuggestionMinInt(typos.Length, resultStarts.Length)
-    queryCount = TypoSuggestionMinInt(queryCount, resultCounts.Length)
+    inputs := new TypoSuggestionInputTable { Typos: typos, Candidates: candidates }
+    distances := new TypoSuggestionDistanceTable { Previous: previousDistances, Current: currentDistances }
+    result := new TypoSuggestionResultTable { Starts: resultStarts, Counts: resultCounts, Indices: resultIndices }
+    return TypoSuggestionIndicesCore(ref inputs, maxSuggestions, ref distances, ref result)
+}
+
+func TypoSuggestionIndicesCore(
+    inputs: &TypoSuggestionInputTable,
+    maxSuggestions: int,
+    distances: &TypoSuggestionDistanceTable,
+    result: &TypoSuggestionResultTable): int {
+    queryCount := TypoSuggestionMinInt(inputs.Typos.Length, result.Starts.Length)
+    queryCount = TypoSuggestionMinInt(queryCount, result.Counts.Length)
 
     suggestionLimit := maxSuggestions
     if suggestionLimit > 3 {
@@ -20,15 +51,15 @@ func TypoSuggestionIndicesInto(
     writeIndex := 0
     queryIndex := 0
     while queryIndex < queryCount {
-        resultStarts[queryIndex] = writeIndex
+        result.Starts[queryIndex] = writeIndex
 
         if suggestionLimit <= 0 {
-            resultCounts[queryIndex] = 0
+            result.Counts[queryIndex] = 0
             queryIndex = queryIndex + 1
             continue
         }
 
-        typo := typos[queryIndex]
+        typo := inputs.Typos[queryIndex]
         top0Index := -1
         top1Index := -1
         top2Index := -1
@@ -41,16 +72,12 @@ func TypoSuggestionIndicesInto(
         topCount := 0
 
         candidateIndex := 0
-        while candidateIndex < candidates.Length {
-            candidate := candidates[candidateIndex]
+        while candidateIndex < inputs.Candidates.Length {
+            candidate := inputs.Candidates[candidateIndex]
             maxLength := TypoSuggestionMaxInt(typo.Length, candidate.Length)
             minLength := TypoSuggestionMinInt(typo.Length, candidate.Length)
             if maxLength > 0 && minLength > 0 {
-                distance := TypoSuggestionLevenshteinDistance(
-                    typo,
-                    candidate,
-                    previousDistances,
-                    currentDistances)
+                distance := TypoSuggestionLevenshteinDistanceCore(typo, candidate, ref distances)
                 prefixLength := TypoSuggestionCommonPrefixLength(typo, candidate)
                 numerator := TypoSuggestionScoreNumerator(maxLength, minLength, distance, prefixLength)
                 denominator := 10 * maxLength * minLength
@@ -106,22 +133,22 @@ func TypoSuggestionIndicesInto(
         }
 
         emitCount := TypoSuggestionMinInt(topCount, suggestionLimit)
-        if emitCount > 0 && writeIndex < resultIndices.Length {
-            resultIndices[writeIndex] = top0Index
+        if emitCount > 0 && writeIndex < result.Indices.Length {
+            result.Indices[writeIndex] = top0Index
             writeIndex = writeIndex + 1
         }
 
-        if emitCount > 1 && writeIndex < resultIndices.Length {
-            resultIndices[writeIndex] = top1Index
+        if emitCount > 1 && writeIndex < result.Indices.Length {
+            result.Indices[writeIndex] = top1Index
             writeIndex = writeIndex + 1
         }
 
-        if emitCount > 2 && writeIndex < resultIndices.Length {
-            resultIndices[writeIndex] = top2Index
+        if emitCount > 2 && writeIndex < result.Indices.Length {
+            result.Indices[writeIndex] = top2Index
             writeIndex = writeIndex + 1
         }
 
-        resultCounts[queryIndex] = writeIndex - resultStarts[queryIndex]
+        result.Counts[queryIndex] = writeIndex - result.Starts[queryIndex]
         queryIndex = queryIndex + 1
     }
 
@@ -133,6 +160,14 @@ func TypoSuggestionLevenshteinDistance(
     right: string,
     previousDistances: int[],
     currentDistances: int[]): int {
+    distances := new TypoSuggestionDistanceTable { Previous: previousDistances, Current: currentDistances }
+    return TypoSuggestionLevenshteinDistanceCore(left, right, ref distances)
+}
+
+func TypoSuggestionLevenshteinDistanceCore(
+    left: string,
+    right: string,
+    distances: &TypoSuggestionDistanceTable): int {
     leftLength := left.Length
     rightLength := right.Length
 
@@ -144,22 +179,22 @@ func TypoSuggestionLevenshteinDistance(
         return leftLength
     }
 
-    if previousDistances.Length <= rightLength || currentDistances.Length <= rightLength {
+    if distances.Previous.Length <= rightLength || distances.Current.Length <= rightLength {
         return leftLength + rightLength
     }
 
-    previous := previousDistances
-    current := currentDistances
+    previous := new TypoSuggestionDistanceRowTable { Values: distances.Previous }
+    current := new TypoSuggestionDistanceRowTable { Values: distances.Current }
 
     column := 0
     while column <= rightLength {
-        previous[column] = column
+        previous.Values[column] = column
         column = column + 1
     }
 
     row := 1
     while row <= leftLength {
-        current[0] = row
+        current.Values[0] = row
 
         column = 1
         while column <= rightLength {
@@ -168,10 +203,10 @@ func TypoSuggestionLevenshteinDistance(
                 cost = 0
             }
 
-            deletion := previous[column] + 1
-            insertion := current[column - 1] + 1
-            substitution := previous[column - 1] + cost
-            current[column] = TypoSuggestionMinInt(TypoSuggestionMinInt(deletion, insertion), substitution)
+            deletion := previous.Values[column] + 1
+            insertion := current.Values[column - 1] + 1
+            substitution := previous.Values[column - 1] + cost
+            current.Values[column] = TypoSuggestionMinInt(TypoSuggestionMinInt(deletion, insertion), substitution)
             column = column + 1
         }
 
@@ -181,7 +216,7 @@ func TypoSuggestionLevenshteinDistance(
         row = row + 1
     }
 
-    return previous[rightLength]
+    return previous.Values[rightLength]
 }
 
 func TypoSuggestionCommonPrefixLength(left: string, right: string): int {

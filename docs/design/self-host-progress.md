@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — Small service tables wrapped
+
+The remaining small compiler-service kernels now use named normal structs for their table-shaped
+inputs, scratch storage, and outputs. This covers formatter safety diagnostics, code-intelligence
+path matching, typo-suggestion dynamic-programming rows/results, AOT requirement grouping,
+completion receiver batches, completion grouping buckets/results, and CLI tree dependency
+deduplication ranks/buckets/index buffers.
+
+The public dogfood adapter methods still expose the existing flattened arrays, while the internal
+loops route through wrapper-aware cores and avoid anonymous table plumbing.
+
 ## 2026-06-13 — Lexer metadata and trivia tables wrapped
 
 `LexerTokenKindScanner.nl` now also groups the full token metadata stream, indentation-brace

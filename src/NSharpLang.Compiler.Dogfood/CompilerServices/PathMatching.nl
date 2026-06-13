@@ -1,3 +1,12 @@
+struct CodeIntelligencePathMatchInputTable {
+    FullPaths: string[]
+    QueryPaths: string[]
+}
+
+struct CodeIntelligencePathMatchResultTable {
+    Flags: int[]
+}
+
 func CodeIntelligencePathMatches(fullPath: string, queryPath: string): int {
     if CodeIntelligencePathEqualsNormalizedIgnoreCase(fullPath, queryPath) {
         return 1
@@ -23,12 +32,20 @@ func CodeIntelligencePathMatchFlagsInto(
     fullPaths: string[],
     queryPaths: string[],
     resultFlags: int[]): int {
-    count := CodeIntelligencePathMatchMinInt(fullPaths.Length, queryPaths.Length)
-    count = CodeIntelligencePathMatchMinInt(count, resultFlags.Length)
+    paths := new CodeIntelligencePathMatchInputTable { FullPaths: fullPaths, QueryPaths: queryPaths }
+    result := new CodeIntelligencePathMatchResultTable { Flags: resultFlags }
+    return CodeIntelligencePathMatchFlagsCore(ref paths, ref result)
+}
+
+func CodeIntelligencePathMatchFlagsCore(
+    paths: &CodeIntelligencePathMatchInputTable,
+    result: &CodeIntelligencePathMatchResultTable): int {
+    count := CodeIntelligencePathMatchMinInt(paths.FullPaths.Length, paths.QueryPaths.Length)
+    count = CodeIntelligencePathMatchMinInt(count, result.Flags.Length)
 
     i := 0
     while i < count {
-        resultFlags[i] = CodeIntelligencePathMatches(fullPaths[i], queryPaths[i])
+        result.Flags[i] = CodeIntelligencePathMatches(paths.FullPaths[i], paths.QueryPaths[i])
         i = i + 1
     }
 

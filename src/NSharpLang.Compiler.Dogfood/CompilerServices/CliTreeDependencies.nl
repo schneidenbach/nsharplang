@@ -1,3 +1,17 @@
+struct CliTreeDependencyRankTable {
+    KindRanks: int[]
+    NameRanks: int[]
+}
+
+struct CliTreeDependencyBucketTable {
+    Counts: int[]
+    Offsets: int[]
+}
+
+struct CliTreeDependencyIndexTable {
+    Indices: int[]
+}
+
 func CliTreeDependencyDeduplicateIndicesInto(
     kindRanks: int[],
     nameRanks: int[],
@@ -8,73 +22,89 @@ func CliTreeDependencyDeduplicateIndicesInto(
     tempIndices: int[],
     sortedIndices: int[],
     resultIndices: int[]): int {
-    count := CliTreeMinInt(kindRanks.Length, nameRanks.Length)
-    nameBucketCount := CliTreeMinInt(nameCounts.Length, nameOffsets.Length)
-    kindBucketCount := CliTreeMinInt(kindCounts.Length, kindOffsets.Length)
+    ranks := new CliTreeDependencyRankTable { KindRanks: kindRanks, NameRanks: nameRanks }
+    nameBuckets := new CliTreeDependencyBucketTable { Counts: nameCounts, Offsets: nameOffsets }
+    kindBuckets := new CliTreeDependencyBucketTable { Counts: kindCounts, Offsets: kindOffsets }
+    temp := new CliTreeDependencyIndexTable { Indices: tempIndices }
+    sorted := new CliTreeDependencyIndexTable { Indices: sortedIndices }
+    result := new CliTreeDependencyIndexTable { Indices: resultIndices }
+    return CliTreeDependencyDeduplicateIndicesCore(ref ranks, ref nameBuckets, ref kindBuckets, ref temp, ref sorted, ref result)
+}
 
-    if count > tempIndices.Length || count > sortedIndices.Length || count > resultIndices.Length {
+func CliTreeDependencyDeduplicateIndicesCore(
+    ranks: &CliTreeDependencyRankTable,
+    nameBuckets: &CliTreeDependencyBucketTable,
+    kindBuckets: &CliTreeDependencyBucketTable,
+    temp: &CliTreeDependencyIndexTable,
+    sorted: &CliTreeDependencyIndexTable,
+    result: &CliTreeDependencyIndexTable): int {
+    count := CliTreeMinInt(ranks.KindRanks.Length, ranks.NameRanks.Length)
+    nameBucketCount := CliTreeMinInt(nameBuckets.Counts.Length, nameBuckets.Offsets.Length)
+    kindBucketCount := CliTreeMinInt(kindBuckets.Counts.Length, kindBuckets.Offsets.Length)
+
+    if count > temp.Indices.Length || count > sorted.Indices.Length || count > result.Indices.Length {
         return -1
     }
 
     i := 0
     while i < nameBucketCount {
-        nameCounts[i] = 0
-        nameOffsets[i] = 0
+        nameBuckets.Counts[i] = 0
+        nameBuckets.Offsets[i] = 0
         i = i + 1
     }
 
     i = 0
     while i < kindBucketCount {
-        kindCounts[i] = 0
-        kindOffsets[i] = 0
+        kindBuckets.Counts[i] = 0
+        kindBuckets.Offsets[i] = 0
         i = i + 1
     }
 
     i = 0
     while i < count {
-        nameRank := nameRanks[i]
-        kindRank := kindRanks[i]
+        nameRank := ranks.NameRanks[i]
+        kindRank := ranks.KindRanks[i]
         if nameRank <= 0 || nameRank >= nameBucketCount || kindRank <= 0 || kindRank >= kindBucketCount {
             return -1
         }
 
-        nameCounts[nameRank] = nameCounts[nameRank] + 1
-        kindCounts[kindRank] = kindCounts[kindRank] + 1
+        nameBuckets.Counts[nameRank] = nameBuckets.Counts[nameRank] + 1
+        kindBuckets.Counts[kindRank] = kindBuckets.Counts[kindRank] + 1
         i = i + 1
     }
 
     offset := 0
     rank := 0
     while rank < nameBucketCount {
-        nameOffsets[rank] = offset
-        offset = offset + nameCounts[rank]
+        nameBuckets.Offsets[rank] = offset
+        offset = offset + nameBuckets.Counts[rank]
         rank = rank + 1
     }
 
     i = 0
     while i < count {
-        nameRank := nameRanks[i]
-        writeIndex := nameOffsets[nameRank]
-        tempIndices[writeIndex] = i
-        nameOffsets[nameRank] = writeIndex + 1
+        nameRank := ranks.NameRanks[i]
+        writeIndex := nameBuckets.Offsets[nameRank]
+        temp.Indices[writeIndex] = i
+        nameBuckets.Offsets[nameRank] = writeIndex + 1
         i = i + 1
     }
 
     offset = 0
     rank = 0
     while rank < kindBucketCount {
-        kindOffsets[rank] = offset
-        offset = offset + kindCounts[rank]
+        kindBuckets.Offsets[rank] = offset
+        offset = offset + kindBuckets.Counts[rank]
         rank = rank + 1
     }
 
     i = 0
     while i < count {
-        sourceIndex := tempIndices[i]
-        kindRank := kindRanks[sourceIndex]
-        writeIndex := kindOffsets[kindRank]
-        sortedIndices[writeIndex] = sourceIndex
-        kindOffsets[kindRank] = writeIndex + 1
+        sourceIndex := temp.Indices[i]
+        kindRank := ranks.KindRanks[sourceIndex]
+        writeIndex := kindBuckets.Offsets[kindRank]
+        sorted.Indices[writeIndex] = sourceIndex
+        kindBuckets.Offsets[kindRank] = writeIndex + 1
         i = i + 1
     }
 
@@ -83,11 +113,11 @@ func CliTreeDependencyDeduplicateIndicesInto(
     previousNameRank := -1
     i = 0
     while i < count {
-        sourceIndex := sortedIndices[i]
-        kindRank := kindRanks[sourceIndex]
-        nameRank := nameRanks[sourceIndex]
+        sourceIndex := sorted.Indices[i]
+        kindRank := ranks.KindRanks[sourceIndex]
+        nameRank := ranks.NameRanks[sourceIndex]
         if i == 0 || kindRank != previousKindRank || nameRank != previousNameRank {
-            resultIndices[uniqueCount] = sourceIndex
+            result.Indices[uniqueCount] = sourceIndex
             uniqueCount = uniqueCount + 1
             previousKindRank = kindRank
             previousNameRank = nameRank

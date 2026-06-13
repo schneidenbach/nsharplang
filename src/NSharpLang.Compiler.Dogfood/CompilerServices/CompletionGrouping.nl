@@ -1,3 +1,34 @@
+struct CompletionKindInputTable {
+    KindIds: int[]
+}
+
+struct CompletionGroupingBucketTable {
+    Counts: int[]
+    Offsets: int[]
+}
+
+struct CompletionKindGroupResultTable {
+    KindIds: int[]
+    Starts: int[]
+    Counts: int[]
+    Indices: int[]
+}
+
+struct CompletionMethodInputTable {
+    NameIds: int[]
+    IncludeFlags: int[]
+}
+
+struct CompletionNameCountTable {
+    Counts: int[]
+}
+
+struct CompletionMethodGroupResultTable {
+    NameIds: int[]
+    FirstIndices: int[]
+    Counts: int[]
+}
+
 func CompletionItemKindGroupsInto(
     kindIds: int[],
     kindCounts: int[],
@@ -6,60 +37,70 @@ func CompletionItemKindGroupsInto(
     resultStarts: int[],
     resultCounts: int[],
     resultIndices: int[]): int {
-    count := CompletionGroupingMinInt(kindIds.Length, resultIndices.Length)
-    bucketCount := CompletionGroupingMinInt(kindCounts.Length, kindOffsets.Length)
+    input := new CompletionKindInputTable { KindIds: kindIds }
+    buckets := new CompletionGroupingBucketTable { Counts: kindCounts, Offsets: kindOffsets }
+    result := new CompletionKindGroupResultTable { KindIds: resultKindIds, Starts: resultStarts, Counts: resultCounts, Indices: resultIndices }
+    return CompletionItemKindGroupsCore(ref input, ref buckets, ref result)
+}
+
+func CompletionItemKindGroupsCore(
+    input: &CompletionKindInputTable,
+    buckets: &CompletionGroupingBucketTable,
+    result: &CompletionKindGroupResultTable): int {
+    count := CompletionGroupingMinInt(input.KindIds.Length, result.Indices.Length)
+    bucketCount := CompletionGroupingMinInt(buckets.Counts.Length, buckets.Offsets.Length)
 
     i := 0
     while i < bucketCount {
-        kindCounts[i] = 0
-        kindOffsets[i] = 0
+        buckets.Counts[i] = 0
+        buckets.Offsets[i] = 0
         i = i + 1
     }
 
     groupCount := 0
     i = 0
     while i < count {
-        kindId := kindIds[i]
+        kindId := input.KindIds[i]
         if kindId <= 0 || kindId >= bucketCount {
             return -1
         }
 
-        if kindCounts[kindId] == 0 {
-            if groupCount >= resultKindIds.Length
-                || groupCount >= resultStarts.Length
-                || groupCount >= resultCounts.Length {
+        if buckets.Counts[kindId] == 0 {
+            if groupCount >= result.KindIds.Length
+                || groupCount >= result.Starts.Length
+                || groupCount >= result.Counts.Length {
                 return -1
             }
 
-            resultKindIds[groupCount] = kindId
+            result.KindIds[groupCount] = kindId
             groupCount = groupCount + 1
         }
 
-        kindCounts[kindId] = kindCounts[kindId] + 1
+        buckets.Counts[kindId] = buckets.Counts[kindId] + 1
         i = i + 1
     }
 
     offset := 0
     groupIndex := 0
     while groupIndex < groupCount {
-        kindId := resultKindIds[groupIndex]
-        resultStarts[groupIndex] = offset
-        resultCounts[groupIndex] = kindCounts[kindId]
-        kindOffsets[kindId] = offset
-        offset = offset + kindCounts[kindId]
+        kindId := result.KindIds[groupIndex]
+        result.Starts[groupIndex] = offset
+        result.Counts[groupIndex] = buckets.Counts[kindId]
+        buckets.Offsets[kindId] = offset
+        offset = offset + buckets.Counts[kindId]
         groupIndex = groupIndex + 1
     }
 
     i = 0
     while i < count {
-        kindId := kindIds[i]
-        writeIndex := kindOffsets[kindId]
-        if writeIndex < 0 || writeIndex >= resultIndices.Length {
+        kindId := input.KindIds[i]
+        writeIndex := buckets.Offsets[kindId]
+        if writeIndex < 0 || writeIndex >= result.Indices.Length {
             return -1
         }
 
-        resultIndices[writeIndex] = i
-        kindOffsets[kindId] = writeIndex + 1
+        result.Indices[writeIndex] = i
+        buckets.Offsets[kindId] = writeIndex + 1
         i = i + 1
     }
 
@@ -73,37 +114,47 @@ func CompletionMethodOverloadGroupsInto(
     resultNameIds: int[],
     resultFirstIndices: int[],
     resultCounts: int[]): int {
-    count := CompletionGroupingMinInt(nameIds.Length, includeFlags.Length)
-    bucketCount := nameCounts.Length
+    input := new CompletionMethodInputTable { NameIds: nameIds, IncludeFlags: includeFlags }
+    buckets := new CompletionNameCountTable { Counts: nameCounts }
+    result := new CompletionMethodGroupResultTable { NameIds: resultNameIds, FirstIndices: resultFirstIndices, Counts: resultCounts }
+    return CompletionMethodOverloadGroupsCore(ref input, ref buckets, ref result)
+}
+
+func CompletionMethodOverloadGroupsCore(
+    input: &CompletionMethodInputTable,
+    buckets: &CompletionNameCountTable,
+    result: &CompletionMethodGroupResultTable): int {
+    count := CompletionGroupingMinInt(input.NameIds.Length, input.IncludeFlags.Length)
+    bucketCount := buckets.Counts.Length
 
     i := 0
     while i < bucketCount {
-        nameCounts[i] = 0
+        buckets.Counts[i] = 0
         i = i + 1
     }
 
     groupCount := 0
     i = 0
     while i < count {
-        if includeFlags[i] != 0 {
-            nameId := nameIds[i]
+        if input.IncludeFlags[i] != 0 {
+            nameId := input.NameIds[i]
             if nameId <= 0 || nameId >= bucketCount {
                 return -1
             }
 
-            if nameCounts[nameId] == 0 {
-                if groupCount >= resultNameIds.Length
-                    || groupCount >= resultFirstIndices.Length
-                    || groupCount >= resultCounts.Length {
+            if buckets.Counts[nameId] == 0 {
+                if groupCount >= result.NameIds.Length
+                    || groupCount >= result.FirstIndices.Length
+                    || groupCount >= result.Counts.Length {
                     return -1
                 }
 
-                resultNameIds[groupCount] = nameId
-                resultFirstIndices[groupCount] = i
+                result.NameIds[groupCount] = nameId
+                result.FirstIndices[groupCount] = i
                 groupCount = groupCount + 1
             }
 
-            nameCounts[nameId] = nameCounts[nameId] + 1
+            buckets.Counts[nameId] = buckets.Counts[nameId] + 1
         }
 
         i = i + 1
@@ -111,8 +162,8 @@ func CompletionMethodOverloadGroupsInto(
 
     groupIndex := 0
     while groupIndex < groupCount {
-        nameId := resultNameIds[groupIndex]
-        resultCounts[groupIndex] = nameCounts[nameId]
+        nameId := result.NameIds[groupIndex]
+        result.Counts[groupIndex] = buckets.Counts[nameId]
         groupIndex = groupIndex + 1
     }
 

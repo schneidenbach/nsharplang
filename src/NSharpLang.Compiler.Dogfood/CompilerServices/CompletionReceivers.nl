@@ -1,16 +1,33 @@
 import System
 import System.Text
 
+struct CompletionReceiverPrefixTable {
+    Prefixes: string[]
+}
+
+struct CompletionReceiverResultTable {
+    Contexts: int[]
+    Receivers: string[]
+}
+
 func CodeIntelligenceCompletionReceiversInto(
     prefixes: string[],
     resultContexts: int[],
     resultReceivers: string[]): int {
-    count := CompletionReceiverMinInt(prefixes.Length, resultContexts.Length)
-    count = CompletionReceiverMinInt(count, resultReceivers.Length)
+    inputs := new CompletionReceiverPrefixTable { Prefixes: prefixes }
+    result := new CompletionReceiverResultTable { Contexts: resultContexts, Receivers: resultReceivers }
+    return CodeIntelligenceCompletionReceiversCore(ref inputs, ref result)
+}
+
+func CodeIntelligenceCompletionReceiversCore(
+    inputs: &CompletionReceiverPrefixTable,
+    result: &CompletionReceiverResultTable): int {
+    count := CompletionReceiverMinInt(inputs.Prefixes.Length, result.Contexts.Length)
+    count = CompletionReceiverMinInt(count, result.Receivers.Length)
 
     i := 0
     while i < count {
-        prefix := prefixes[i]
+        prefix := inputs.Prefixes[i]
         context := 0
         receiver := ""
 
@@ -19,8 +36,8 @@ func CodeIntelligenceCompletionReceiversInto(
             receiver = ExtractCodeIntelligenceCompletionReceiver(prefix)
         }
 
-        resultContexts[i] = context
-        resultReceivers[i] = receiver
+        result.Contexts[i] = context
+        result.Receivers[i] = receiver
         i = i + 1
     }
 
