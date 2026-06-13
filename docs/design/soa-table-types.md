@@ -265,7 +265,7 @@ ownership lands.
    expression-entry recursion, and composes type-reference parsing through a wrapper-aware expression
    node/table bridge. `ParserDeclarations.nl` now also routes package/header scans, top-level declaration
    scans, interface/enum/struct/class/record, constructor-chain, and union parser bodies through
-   declaration token-stream wrappers while preserving the flattened adapter ABI.
+   declaration token-stream and result-slot wrappers while preserving the flattened adapter ABI.
 7. Only after those gates pass, start replacing C# emitter/analyzer internals that still require untyped
    parallel-array plumbing.
 

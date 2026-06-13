@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — Parser declaration result slots wrapped
+
+`ParserDeclarations.nl` now also routes declaration-parser scalar result slots through
+`ParserDeclarationResultTable` inside its core functions. The public `outResult: int[]` delegate
+contracts remain unchanged, while package, interface, enum, struct/class/record, constructor-chain,
+and union parser bodies no longer write result slots through anonymous arrays.
+
+This completes the current declaration-parser wrapper cleanup: token streams, output columns, and
+result slots are all named tables past the flattened adapter boundary.
+
 ## 2026-06-13 — Parser declaration token streams wrapped
 
 `ParserDeclarations.nl` now keeps its flattened declaration parser ABI but routes every body through

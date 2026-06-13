@@ -102,12 +102,17 @@ struct ParserDeclarationKindStream {
     Kinds: int[]
 }
 
-func PackageNameSpanInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, outResult: int[]): int {
-    tokens := new ParserDeclarationTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
-    return PackageNameSpanCore(ref tokens, count, outResult)
+struct ParserDeclarationResultTable {
+    Values: int[]
 }
 
-func PackageNameSpanCore(tokens: &ParserDeclarationTokenTable, count: int, outResult: int[]): int {
+func PackageNameSpanInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, outResult: int[]): int {
+    tokens := new ParserDeclarationTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
+    result := new ParserDeclarationResultTable { Values: outResult }
+    return PackageNameSpanCore(ref tokens, count, ref result)
+}
+
+func PackageNameSpanCore(tokens: &ParserDeclarationTokenTable, count: int, result: &ParserDeclarationResultTable): int {
     tokenKinds := tokens.Kinds
     tokenStarts := tokens.Starts
     tokenValueLengths := tokens.ValueLengths
@@ -140,8 +145,8 @@ func PackageNameSpanCore(tokens: &ParserDeclarationTokenTable, count: int, outRe
             }
 
             if nameStart >= 0 {
-                outResult[0] = nameStart
-                outResult[1] = nameEnd - nameStart
+                result.Values[0] = nameStart
+                result.Values[1] = nameEnd - nameStart
                 return 1
             }
 
@@ -498,10 +503,11 @@ func TopLevelDeclarationKindsCore(tokens: &ParserDeclarationKindStream, count: i
 func ParseInterfaceDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, interfaceIndex: int, outMethodFuncIndices: int[], outBaseNameStarts: int[], outBaseNameLengths: int[], outResult: int[]): int {
     tokens := new ParserDeclarationTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
     decl := new InterfaceDeclarationTable { MethodFuncIndices: outMethodFuncIndices, BaseNameStarts: outBaseNameStarts, BaseNameLengths: outBaseNameLengths }
-    return ParseInterfaceDeclarationCore(ref tokens, count, interfaceIndex, ref decl, outResult)
+    result := new ParserDeclarationResultTable { Values: outResult }
+    return ParseInterfaceDeclarationCore(ref tokens, count, interfaceIndex, ref decl, ref result)
 }
 
-func ParseInterfaceDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int, interfaceIndex: int, decl: &InterfaceDeclarationTable, outResult: int[]): int {
+func ParseInterfaceDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int, interfaceIndex: int, decl: &InterfaceDeclarationTable, result: &ParserDeclarationResultTable): int {
     tokenKinds := tokens.Kinds
     tokenStarts := tokens.Starts
     tokenValueLengths := tokens.ValueLengths
@@ -514,8 +520,8 @@ func ParseInterfaceDeclarationCore(tokens: &ParserDeclarationTokenTable, count: 
     if pos >= count || tokenKinds[pos] != 0 {
         return -1
     }
-    outResult[0] = tokenStarts[pos]
-    outResult[1] = tokenValueLengths[pos]
+    result.Values[0] = tokenStarts[pos]
+    result.Values[1] = tokenValueLengths[pos]
     pos = pos + 1
 
     if pos < count && tokenKinds[pos] == 100 {
@@ -541,7 +547,7 @@ func ParseInterfaceDeclarationCore(tokens: &ParserDeclarationTokenTable, count: 
             break
         }
     }
-    outResult[2] = baseCount
+    result.Values[2] = baseCount
 
     if pos >= count || tokenKinds[pos] != 129 {
         return -1
@@ -585,10 +591,11 @@ func ParseInterfaceDeclarationCore(tokens: &ParserDeclarationTokenTable, count: 
 func ParseEnumDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, enumIndex: int, outNameStarts: int[], outNameLengths: int[], outValueStarts: int[], outValueLengths: int[], outHasValue: int[], outResult: int[]): int {
     tokens := new ParserDeclarationTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
     members := new EnumMemberTable { NameStarts: outNameStarts, NameLengths: outNameLengths, ValueStarts: outValueStarts, ValueLengths: outValueLengths, HasValue: outHasValue }
-    return ParseEnumDeclarationCore(ref tokens, count, enumIndex, ref members, outResult)
+    result := new ParserDeclarationResultTable { Values: outResult }
+    return ParseEnumDeclarationCore(ref tokens, count, enumIndex, ref members, ref result)
 }
 
-func ParseEnumDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int, enumIndex: int, members: &EnumMemberTable, outResult: int[]): int {
+func ParseEnumDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int, enumIndex: int, members: &EnumMemberTable, result: &ParserDeclarationResultTable): int {
     tokenKinds := tokens.Kinds
     tokenStarts := tokens.Starts
     tokenValueLengths := tokens.ValueLengths
@@ -601,8 +608,8 @@ func ParseEnumDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int, 
     if pos >= count || tokenKinds[pos] != 0 {
         return -1
     }
-    outResult[0] = tokenStarts[pos]
-    outResult[1] = tokenValueLengths[pos]
+    result.Values[0] = tokenStarts[pos]
+    result.Values[1] = tokenValueLengths[pos]
     pos = pos + 1
 
     if pos >= count || tokenKinds[pos] != 129 {
@@ -684,10 +691,11 @@ func ParseEnumDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int, 
 func ParseStructDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, structIndex: int, outFieldNameStarts: int[], outFieldNameLengths: int[], outFieldTypeStarts: int[], outFieldTypeLengths: int[], outFieldStaticFlags: int[], outFieldInitKinds: int[], outFieldInitStarts: int[], outFieldInitLengths: int[], outMethodFuncIndices: int[], outMethodStaticFlags: int[], outCtorIndices: int[], outPropIndices: int[], outPropStaticFlags: int[], outTypeParamStarts: int[], outTypeParamLengths: int[], outBaseNameStarts: int[], outBaseNameLengths: int[], outResult: int[]): int {
     tokens := new ParserDeclarationTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
     decl := new StructDeclarationTable { FieldNameStarts: outFieldNameStarts, FieldNameLengths: outFieldNameLengths, FieldTypeStarts: outFieldTypeStarts, FieldTypeLengths: outFieldTypeLengths, FieldStaticFlags: outFieldStaticFlags, FieldInitKinds: outFieldInitKinds, FieldInitStarts: outFieldInitStarts, FieldInitLengths: outFieldInitLengths, MethodFuncIndices: outMethodFuncIndices, MethodStaticFlags: outMethodStaticFlags, CtorIndices: outCtorIndices, PropIndices: outPropIndices, PropStaticFlags: outPropStaticFlags, TypeParamStarts: outTypeParamStarts, TypeParamLengths: outTypeParamLengths, BaseNameStarts: outBaseNameStarts, BaseNameLengths: outBaseNameLengths }
-    return ParseStructDeclarationCore(ref tokens, count, structIndex, ref decl, outResult)
+    result := new ParserDeclarationResultTable { Values: outResult }
+    return ParseStructDeclarationCore(ref tokens, count, structIndex, ref decl, ref result)
 }
 
-func ParseStructDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int, structIndex: int, decl: &StructDeclarationTable, outResult: int[]): int {
+func ParseStructDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int, structIndex: int, decl: &StructDeclarationTable, result: &ParserDeclarationResultTable): int {
     tokenKinds := tokens.Kinds
     tokenStarts := tokens.Starts
     tokenValueLengths := tokens.ValueLengths
@@ -700,8 +708,8 @@ func ParseStructDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int
     if pos >= count || tokenKinds[pos] != 0 {
         return -1
     }
-    outResult[0] = tokenStarts[pos]
-    outResult[1] = tokenValueLengths[pos]
+    result.Values[0] = tokenStarts[pos]
+    result.Values[1] = tokenValueLengths[pos]
     pos = pos + 1
 
     // Optional generic TYPE-PARAMETER list `<T, U>` after the type name (Less 100, Identifier 0,
@@ -740,14 +748,14 @@ func ParseStructDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int
         }
         pos = pos + 1
     }
-    outResult[7] = typeParamCount
+    result.Values[7] = typeParamCount
 
     // Optional BASE / INTERFACE LIST: `class D: Base, IFace {` or `struct S: IFace {` — a `:` (122) after
     // the type name followed by one or more comma-separated SINGLE Identifiers. Composed/generic bases are
     // not modelled and return -1. The host resolves names against type registries and decides which one, if
     // any, is a class base versus implemented interface.
-    outResult[5] = 0
-    outResult[6] = 0
+    result.Values[5] = 0
+    result.Values[6] = 0
     baseNameCount := 0
     if pos < count && tokenKinds[pos] == 122 {
         pos = pos + 1
@@ -758,8 +766,8 @@ func ParseStructDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int
             decl.BaseNameStarts[baseNameCount] = tokenStarts[pos]
             decl.BaseNameLengths[baseNameCount] = tokenValueLengths[pos]
             if baseNameCount == 0 {
-                outResult[5] = tokenStarts[pos]
-                outResult[6] = tokenValueLengths[pos]
+                result.Values[5] = tokenStarts[pos]
+                result.Values[6] = tokenValueLengths[pos]
             }
             baseNameCount = baseNameCount + 1
             pos = pos + 1
@@ -771,7 +779,7 @@ func ParseStructDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int
             break
         }
     }
-    outResult[8] = baseNameCount
+    result.Values[8] = baseNameCount
 
     if pos >= count || tokenKinds[pos] != 129 {
         return -1
@@ -1045,9 +1053,9 @@ func ParseStructDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int
     if fieldCount == 0 && methodCount == 0 && ctorCount == 0 && propCount == 0 {
         return -1
     }
-    outResult[2] = methodCount
-    outResult[3] = ctorCount
-    outResult[4] = propCount
+    result.Values[2] = methodCount
+    result.Values[3] = ctorCount
+    result.Values[4] = propCount
     return fieldCount
 }
 
@@ -1062,14 +1070,15 @@ func ParseStructDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int
 func ParseConstructorChainInfoInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, ctorIndex: int, outArgKinds: int[], outArgStarts: int[], outArgLengths: int[], outResult: int[]): int {
     tokens := new ParserDeclarationTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
     args := new ConstructorChainArgTable { Kinds: outArgKinds, Starts: outArgStarts, Lengths: outArgLengths }
-    return ParseConstructorChainInfoCore(ref tokens, count, ctorIndex, ref args, outResult)
+    result := new ParserDeclarationResultTable { Values: outResult }
+    return ParseConstructorChainInfoCore(ref tokens, count, ctorIndex, ref args, ref result)
 }
 
-func ParseConstructorChainInfoCore(tokens: &ParserDeclarationTokenTable, count: int, ctorIndex: int, args: &ConstructorChainArgTable, outResult: int[]): int {
+func ParseConstructorChainInfoCore(tokens: &ParserDeclarationTokenTable, count: int, ctorIndex: int, args: &ConstructorChainArgTable, result: &ParserDeclarationResultTable): int {
     tokenKinds := tokens.Kinds
     tokenStarts := tokens.Starts
     tokenValueLengths := tokens.ValueLengths
-    outResult[0] = 0
+    result.Values[0] = 0
     pos := ctorIndex + 1
     if pos >= count || tokenKinds[pos] != 127 {
         return 0
@@ -1101,9 +1110,9 @@ func ParseConstructorChainInfoCore(tokens: &ParserDeclarationTokenTable, count: 
         return -1
     }
     if tokenKinds[pos] == 42 {
-        outResult[0] = 1
+        result.Values[0] = 1
     } else if tokenKinds[pos] == 43 {
-        outResult[0] = 2
+        result.Values[0] = 2
     } else {
         return -1
     }
@@ -1158,10 +1167,11 @@ func ParseConstructorChainInfoCore(tokens: &ParserDeclarationTokenTable, count: 
 func ParseUnionDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, unionIndex: int, outCaseNameStarts: int[], outCaseNameLengths: int[], outCaseFieldCounts: int[], outFieldNameStarts: int[], outFieldNameLengths: int[], outFieldTypeStarts: int[], outFieldTypeLengths: int[], outTypeParamStarts: int[], outTypeParamLengths: int[], outResult: int[]): int {
     tokens := new ParserDeclarationTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
     decl := new UnionDeclarationTable { CaseNameStarts: outCaseNameStarts, CaseNameLengths: outCaseNameLengths, CaseFieldCounts: outCaseFieldCounts, FieldNameStarts: outFieldNameStarts, FieldNameLengths: outFieldNameLengths, FieldTypeStarts: outFieldTypeStarts, FieldTypeLengths: outFieldTypeLengths, TypeParamStarts: outTypeParamStarts, TypeParamLengths: outTypeParamLengths }
-    return ParseUnionDeclarationCore(ref tokens, count, unionIndex, ref decl, outResult)
+    result := new ParserDeclarationResultTable { Values: outResult }
+    return ParseUnionDeclarationCore(ref tokens, count, unionIndex, ref decl, ref result)
 }
 
-func ParseUnionDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int, unionIndex: int, decl: &UnionDeclarationTable, outResult: int[]): int {
+func ParseUnionDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int, unionIndex: int, decl: &UnionDeclarationTable, result: &ParserDeclarationResultTable): int {
     tokenKinds := tokens.Kinds
     tokenStarts := tokens.Starts
     tokenValueLengths := tokens.ValueLengths
@@ -1174,8 +1184,8 @@ func ParseUnionDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int,
     if pos >= count || tokenKinds[pos] != 0 {
         return -1
     }
-    outResult[0] = tokenStarts[pos]
-    outResult[1] = tokenValueLengths[pos]
+    result.Values[0] = tokenStarts[pos]
+    result.Values[1] = tokenValueLengths[pos]
     pos = pos + 1
 
     // Optional generic TYPE-PARAMETER list `<T, U>` after the union name — bare comma-separated
@@ -1211,7 +1221,7 @@ func ParseUnionDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int,
         }
         pos = pos + 1
     }
-    outResult[2] = typeParamCount
+    result.Values[2] = typeParamCount
 
     if pos >= count || tokenKinds[pos] != 129 {
         return -1
