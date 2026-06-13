@@ -1,16 +1,55 @@
+struct AnalyzerMemberCoverageTable {
+    CoveredFlags: int[]
+}
+
+struct AnalyzerUnionCoverageTable {
+    CoveredFlags: int[]
+    PartialFlags: int[]
+}
+
+struct AnalyzerMissingMemberResultTable {
+    Indices: int[]
+}
+
+struct AnalyzerUnionMissingCaseResultTable {
+    MissingIndices: int[]
+    PartialMissingIndices: int[]
+    NeverCoveredIndices: int[]
+    Counts: int[]
+}
+
+struct AnalyzerSignatureRankBuffer {
+    Ranks: int[]
+}
+
+struct AnalyzerOverloadSignatureTable {
+    Ranks: int[]
+    Offsets: int[]
+    Lengths: int[]
+}
+
 func AnalyzerMissingMemberIndicesInto(
     coveredFlags: int[],
     count: int,
     resultIndices: int[]): int {
-    if count < 0 || count > coveredFlags.Length || count > resultIndices.Length {
+    coverage := new AnalyzerMemberCoverageTable { CoveredFlags: coveredFlags }
+    result := new AnalyzerMissingMemberResultTable { Indices: resultIndices }
+    return AnalyzerMissingMemberIndicesCore(ref coverage, count, ref result)
+}
+
+func AnalyzerMissingMemberIndicesCore(
+    coverage: &AnalyzerMemberCoverageTable,
+    count: int,
+    result: &AnalyzerMissingMemberResultTable): int {
+    if count < 0 || count > coverage.CoveredFlags.Length || count > result.Indices.Length {
         return -1
     }
 
     resultCount := 0
     i := 0
     while i < count {
-        if coveredFlags[i] == 0 {
-            resultIndices[resultCount] = i
+        if coverage.CoveredFlags[i] == 0 {
+            result.Indices[resultCount] = i
             resultCount = resultCount + 1
         }
 
@@ -28,13 +67,27 @@ func AnalyzerUnionMissingCaseIndicesInto(
     partialMissingIndices: int[],
     neverCoveredIndices: int[],
     resultCounts: int[]): int {
+    coverage := new AnalyzerUnionCoverageTable { CoveredFlags: coveredFlags, PartialFlags: partialFlags }
+    result := new AnalyzerUnionMissingCaseResultTable {
+        MissingIndices: missingIndices,
+        PartialMissingIndices: partialMissingIndices,
+        NeverCoveredIndices: neverCoveredIndices,
+        Counts: resultCounts
+    }
+    return AnalyzerUnionMissingCaseIndicesCore(ref coverage, count, ref result)
+}
+
+func AnalyzerUnionMissingCaseIndicesCore(
+    coverage: &AnalyzerUnionCoverageTable,
+    count: int,
+    result: &AnalyzerUnionMissingCaseResultTable): int {
     if count < 0 ||
-        count > coveredFlags.Length ||
-        count > partialFlags.Length ||
-        count > missingIndices.Length ||
-        count > partialMissingIndices.Length ||
-        count > neverCoveredIndices.Length ||
-        resultCounts.Length < 3 {
+        count > coverage.CoveredFlags.Length ||
+        count > coverage.PartialFlags.Length ||
+        count > result.MissingIndices.Length ||
+        count > result.PartialMissingIndices.Length ||
+        count > result.NeverCoveredIndices.Length ||
+        result.Counts.Length < 3 {
         return -1
     }
 
@@ -43,15 +96,15 @@ func AnalyzerUnionMissingCaseIndicesInto(
     neverCoveredCount := 0
     i := 0
     while i < count {
-        if coveredFlags[i] == 0 {
-            missingIndices[missingCount] = i
+        if coverage.CoveredFlags[i] == 0 {
+            result.MissingIndices[missingCount] = i
             missingCount = missingCount + 1
 
-            if partialFlags[i] != 0 {
-                partialMissingIndices[partialMissingCount] = i
+            if coverage.PartialFlags[i] != 0 {
+                result.PartialMissingIndices[partialMissingCount] = i
                 partialMissingCount = partialMissingCount + 1
             } else {
-                neverCoveredIndices[neverCoveredCount] = i
+                result.NeverCoveredIndices[neverCoveredCount] = i
                 neverCoveredCount = neverCoveredCount + 1
             }
         }
@@ -59,9 +112,9 @@ func AnalyzerUnionMissingCaseIndicesInto(
         i = i + 1
     }
 
-    resultCounts[0] = missingCount
-    resultCounts[1] = partialMissingCount
-    resultCounts[2] = neverCoveredCount
+    result.Counts[0] = missingCount
+    result.Counts[1] = partialMissingCount
+    result.Counts[2] = neverCoveredCount
     return missingCount
 }
 
@@ -84,46 +137,9 @@ func AnalyzerOverloadSignatureDistinct(
     existingOffsets: int[],
     existingLengths: int[],
     existingCount: int): int {
-    if candidateLength < 0 ||
-        candidateLength > candidateRanks.Length ||
-        existingCount < 0 ||
-        existingCount > existingOffsets.Length ||
-        existingCount > existingLengths.Length {
-        return -1
-    }
-
-    row := 0
-    while row < existingCount {
-        existingLength := existingLengths[row]
-        if existingLength == candidateLength {
-            offset := existingOffsets[row]
-            // Subtraction-form bounds check avoids int overflow on offset + length for
-            // adversarial descriptors; offset and length are already known non-negative here
-            // (candidateLength >= 0 was validated and existingLength == candidateLength).
-            if offset < 0 || existingLength > existingRanks.Length || offset > existingRanks.Length - existingLength {
-                return -1
-            }
-
-            matches := true
-            i := 0
-            while i < existingLength {
-                if existingRanks[offset + i] != candidateRanks[i] {
-                    matches = false
-                    i = existingLength
-                } else {
-                    i = i + 1
-                }
-            }
-
-            if matches {
-                return 0
-            }
-        }
-
-        row = row + 1
-    }
-
-    return 1
+    candidate := new AnalyzerSignatureRankBuffer { Ranks: candidateRanks }
+    existing := new AnalyzerOverloadSignatureTable { Ranks: existingRanks, Offsets: existingOffsets, Lengths: existingLengths }
+    return AnalyzerOverloadSignatureDistinctCore(ref candidate, 0, candidateLength, ref existing, existingCount)
 }
 
 // Distinctness verdict for a candidate row stored at an arbitrary offset inside candidateRanks. Used
@@ -136,31 +152,42 @@ func AnalyzerOverloadSignatureDistinctSlice(
     existingOffsets: int[],
     existingLengths: int[],
     existingCount: int): int {
+    candidate := new AnalyzerSignatureRankBuffer { Ranks: candidateRanks }
+    existing := new AnalyzerOverloadSignatureTable { Ranks: existingRanks, Offsets: existingOffsets, Lengths: existingLengths }
+    return AnalyzerOverloadSignatureDistinctCore(ref candidate, candidateOffset, candidateLength, ref existing, existingCount)
+}
+
+func AnalyzerOverloadSignatureDistinctCore(
+    candidate: &AnalyzerSignatureRankBuffer,
+    candidateOffset: int,
+    candidateLength: int,
+    existing: &AnalyzerOverloadSignatureTable,
+    existingCount: int): int {
     if candidateOffset < 0 ||
         candidateLength < 0 ||
-        candidateLength > candidateRanks.Length ||
-        candidateOffset > candidateRanks.Length - candidateLength ||
+        candidateLength > candidate.Ranks.Length ||
+        candidateOffset > candidate.Ranks.Length - candidateLength ||
         existingCount < 0 ||
-        existingCount > existingOffsets.Length ||
-        existingCount > existingLengths.Length {
+        existingCount > existing.Offsets.Length ||
+        existingCount > existing.Lengths.Length {
         return -1
     }
 
     row := 0
     while row < existingCount {
-        existingLength := existingLengths[row]
+        existingLength := existing.Lengths[row]
         if existingLength == candidateLength {
-            offset := existingOffsets[row]
+            offset := existing.Offsets[row]
             // Subtraction-form bounds check (offset/length already non-negative) avoids
             // int overflow on offset + length for adversarial existing-row descriptors.
-            if offset < 0 || existingLength > existingRanks.Length || offset > existingRanks.Length - existingLength {
+            if offset < 0 || existingLength > existing.Ranks.Length || offset > existing.Ranks.Length - existingLength {
                 return -1
             }
 
             matches := true
             i := 0
             while i < existingLength {
-                if existingRanks[offset + i] != candidateRanks[candidateOffset + i] {
+                if existing.Ranks[offset + i] != candidate.Ranks[candidateOffset + i] {
                     matches = false
                     i = existingLength
                 } else {

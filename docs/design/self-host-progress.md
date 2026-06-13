@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — Analyzer coverage and signature tables wrapped
+
+`AnalyzerExhaustiveness.nl` now groups member coverage flags, union coverage/partial flags,
+missing-case result columns, and packed overload-signature rank rows behind named normal structs. The
+public analyzer dogfood adapter functions still accept the existing flattened arrays, while the
+missing-member, union-missing-case, and overload-signature distinctness cores operate on explicit
+coverage/result/signature table wrappers.
+
+This moves another semantic analyzer kernel out of anonymous parallel-array plumbing while preserving
+the shipped delegate ABI and parity corpus surfaces.
+
 ## 2026-06-13 — Code-intelligence line query tables wrapped
 
 `IdentifierSpans.nl` now groups code-intelligence line ranges, position queries, line-only queries,
