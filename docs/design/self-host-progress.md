@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — CLI and performance dogfood adapter scratch members stop advertising public visibility
+
+`NSharpCliDogfoodAdapter` and `NSharpPerformanceDogfoodAdapter` no longer have source-level `public`
+members inside their private scratch buffers. Those buffers are implementation details for flattened
+adapter shims around N# kernels, so their arrays, counters, and reset/capacity helpers now use internal
+visibility instead of looking like public object surface.
+
+This is behavior-neutral, but it keeps the remaining CLI/performance C# transition scaffolding aligned
+with the compiler adapter cleanup.
+
 ## 2026-06-13 — Columnar analysis probes stop advertising assembly-internal entry points
 
 The Stage 1-3b columnar parity probes on `NSharpCompilerDogfoodAdapter` are now private helper entries

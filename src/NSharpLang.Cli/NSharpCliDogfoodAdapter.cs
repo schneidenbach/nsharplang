@@ -2067,13 +2067,13 @@ internal static class NSharpCliDogfoodAdapter
 
     private sealed class BuildOperandScratch
     {
-        public int[] KindIds = Array.Empty<int>();
-        public int[] NextIndices = Array.Empty<int>();
-        public int[] NextOptionIndices = Array.Empty<int>();
-        public int[] PreviousIndices = Array.Empty<int>();
-        public int[] ResultIndices = Array.Empty<int>();
+        internal int[] KindIds = Array.Empty<int>();
+        internal int[] NextIndices = Array.Empty<int>();
+        internal int[] NextOptionIndices = Array.Empty<int>();
+        internal int[] PreviousIndices = Array.Empty<int>();
+        internal int[] ResultIndices = Array.Empty<int>();
 
-        public void EnsureCapacity(int count)
+        internal void EnsureCapacity(int count)
         {
             if (KindIds.Length != count)
             {
@@ -2088,10 +2088,10 @@ internal static class NSharpCliDogfoodAdapter
 
     private sealed class LintFileArgScratch
     {
-        public int[] ProjectValueIndices = Array.Empty<int>();
-        public int[] ResultIndices = Array.Empty<int>();
+        internal int[] ProjectValueIndices = Array.Empty<int>();
+        internal int[] ResultIndices = Array.Empty<int>();
 
-        public void EnsureCapacity(int count)
+        internal void EnsureCapacity(int count)
         {
             if (ProjectValueIndices.Length != count || ResultIndices.Length != count)
             {
@@ -2105,13 +2105,13 @@ internal static class NSharpCliDogfoodAdapter
     {
         private readonly Dictionary<string, int> _idRanks = new(StringComparer.Ordinal);
 
-        public int[] CountsByRank = Array.Empty<int>();
-        public int[] IdRanks = Array.Empty<int>();
-        public int[] ResultRanks = Array.Empty<int>();
-        public string[] UniqueIds = Array.Empty<string>();
-        public int UniqueIdCount;
+        internal int[] CountsByRank = Array.Empty<int>();
+        internal int[] IdRanks = Array.Empty<int>();
+        internal int[] ResultRanks = Array.Empty<int>();
+        internal string[] UniqueIds = Array.Empty<string>();
+        internal int UniqueIdCount;
 
-        public void EnsureCapacity(int requestCount)
+        internal void EnsureCapacity(int requestCount)
         {
             if (IdRanks.Length != requestCount)
             {
@@ -2127,7 +2127,7 @@ internal static class NSharpCliDogfoodAdapter
             }
         }
 
-        public void AddId(string id)
+        internal void AddId(string id)
         {
             if (_idRanks.ContainsKey(id))
                 return;
@@ -2137,7 +2137,7 @@ internal static class NSharpCliDogfoodAdapter
             UniqueIdCount++;
         }
 
-        public void BuildSortedRanks()
+        internal void BuildSortedRanks()
         {
             Array.Sort(UniqueIds, 0, UniqueIdCount, StringComparer.Ordinal);
             for (var i = 0; i < UniqueIdCount; i++)
@@ -2146,9 +2146,9 @@ internal static class NSharpCliDogfoodAdapter
             }
         }
 
-        public int GetIdRank(string id) => _idRanks[id];
+        internal int GetIdRank(string id) => _idRanks[id];
 
-        public void ResetIds()
+        internal void ResetIds()
         {
             _idRanks.Clear();
             if (UniqueIdCount > 0)
@@ -2163,19 +2163,19 @@ internal static class NSharpCliDogfoodAdapter
     {
         private readonly Dictionary<string, int> _nameRanks = new(StringComparer.Ordinal);
 
-        public int[] IncludeFlags = Array.Empty<int>();
-        public int[] KindCounts = Array.Empty<int>();
-        public int[] KindOffsets = Array.Empty<int>();
-        public int[] KindRanks = Array.Empty<int>();
-        public int[] NameCounts = Array.Empty<int>();
-        public int[] NameOffsets = Array.Empty<int>();
-        public int[] NameRanks = Array.Empty<int>();
-        public int[] ResultIndices = Array.Empty<int>();
-        public int[] TempIndices = Array.Empty<int>();
-        public string[] UniqueNames = Array.Empty<string>();
-        public int UniqueNameCount;
+        internal int[] IncludeFlags = Array.Empty<int>();
+        internal int[] KindCounts = Array.Empty<int>();
+        internal int[] KindOffsets = Array.Empty<int>();
+        internal int[] KindRanks = Array.Empty<int>();
+        internal int[] NameCounts = Array.Empty<int>();
+        internal int[] NameOffsets = Array.Empty<int>();
+        internal int[] NameRanks = Array.Empty<int>();
+        internal int[] ResultIndices = Array.Empty<int>();
+        internal int[] TempIndices = Array.Empty<int>();
+        internal string[] UniqueNames = Array.Empty<string>();
+        internal int UniqueNameCount;
 
-        public void EnsureCapacity(int symbolCount)
+        internal void EnsureCapacity(int symbolCount)
         {
             if (KindRanks.Length != symbolCount)
             {
@@ -2201,7 +2201,7 @@ internal static class NSharpCliDogfoodAdapter
             }
         }
 
-        public void AddName(string name)
+        internal void AddName(string name)
         {
             if (_nameRanks.ContainsKey(name))
                 return;
@@ -2211,7 +2211,7 @@ internal static class NSharpCliDogfoodAdapter
             UniqueNameCount++;
         }
 
-        public void BuildSortedNameRanks()
+        internal void BuildSortedNameRanks()
         {
             Array.Sort(UniqueNames, 0, UniqueNameCount, StringComparer.Ordinal);
             for (var i = 0; i < UniqueNameCount; i++)
@@ -2220,9 +2220,9 @@ internal static class NSharpCliDogfoodAdapter
             }
         }
 
-        public int GetNameRank(string name) => _nameRanks[name];
+        internal int GetNameRank(string name) => _nameRanks[name];
 
-        public void ResetNames()
+        internal void ResetNames()
         {
             _nameRanks.Clear();
             if (UniqueNameCount > 0)
@@ -2235,10 +2235,10 @@ internal static class NSharpCliDogfoodAdapter
 
     private sealed class SymbolNameFilterScratch
     {
-        public string[] Names = Array.Empty<string>();
-        public int[] ResultIndices = Array.Empty<int>();
+        internal string[] Names = Array.Empty<string>();
+        internal int[] ResultIndices = Array.Empty<int>();
 
-        public void EnsureCapacity(int symbolCount, int resultCapacity)
+        internal void EnsureCapacity(int symbolCount, int resultCapacity)
         {
             if (Names.Length != symbolCount)
                 Names = new string[symbolCount];
@@ -2288,18 +2288,18 @@ internal static class NSharpCliDogfoodAdapter
     {
         private readonly Dictionary<string, int> _fileRanks = new(StringComparer.Ordinal);
 
-        public int[] CountsByRank = Array.Empty<int>();
-        public int[] FileRanks = Array.Empty<int>();
-        public string?[] FilesByRank = Array.Empty<string?>();
-        public int[] OffsetsByRank = Array.Empty<int>();
-        public int[] ResultCounts = Array.Empty<int>();
-        public int[] ResultIndices = Array.Empty<int>();
-        public int[] ResultRanks = Array.Empty<int>();
-        public int[] ResultStarts = Array.Empty<int>();
-        public int UniqueFileRankCount;
-        public int[] WriteOffsetsByRank = Array.Empty<int>();
+        internal int[] CountsByRank = Array.Empty<int>();
+        internal int[] FileRanks = Array.Empty<int>();
+        internal string?[] FilesByRank = Array.Empty<string?>();
+        internal int[] OffsetsByRank = Array.Empty<int>();
+        internal int[] ResultCounts = Array.Empty<int>();
+        internal int[] ResultIndices = Array.Empty<int>();
+        internal int[] ResultRanks = Array.Empty<int>();
+        internal int[] ResultStarts = Array.Empty<int>();
+        internal int UniqueFileRankCount;
+        internal int[] WriteOffsetsByRank = Array.Empty<int>();
 
-        public void EnsureCapacity(int appliedCount)
+        internal void EnsureCapacity(int appliedCount)
         {
             if (FileRanks.Length != appliedCount)
             {
@@ -2320,7 +2320,7 @@ internal static class NSharpCliDogfoodAdapter
             }
         }
 
-        public int GetOrAddFileRank(string file)
+        internal int GetOrAddFileRank(string file)
         {
             if (_fileRanks.TryGetValue(file, out var rank))
                 return rank;
@@ -2332,7 +2332,7 @@ internal static class NSharpCliDogfoodAdapter
             return rank;
         }
 
-        public void Reset()
+        internal void Reset()
         {
             _fileRanks.Clear();
             if (UniqueFileRankCount > 0)
@@ -2345,12 +2345,12 @@ internal static class NSharpCliDogfoodAdapter
 
     private sealed class UnifiedDiffHunkScratch
     {
-        public int[] KindIds = Array.Empty<int>();
-        public int[] NewLines = Array.Empty<int>();
-        public int[] OldLines = Array.Empty<int>();
-        public UnifiedDiffHunkRanges Ranges { get; } = new();
+        internal int[] KindIds = Array.Empty<int>();
+        internal int[] NewLines = Array.Empty<int>();
+        internal int[] OldLines = Array.Empty<int>();
+        internal UnifiedDiffHunkRanges Ranges { get; } = new();
 
-        public void EnsureCapacity(int lineCount)
+        internal void EnsureCapacity(int lineCount)
         {
             if (KindIds.Length == lineCount)
             {
@@ -2373,15 +2373,15 @@ internal static class NSharpCliDogfoodAdapter
 
     private sealed class TreeDependencyDeduplicateScratch
     {
-        public int[] KindCounts = Array.Empty<int>();
-        public int[] KindOffsets = Array.Empty<int>();
-        public int[] NameCounts = Array.Empty<int>();
-        public int[] NameOffsets = Array.Empty<int>();
-        public int[] ResultIndices = Array.Empty<int>();
-        public int[] SortedIndices = Array.Empty<int>();
-        public int[] TempIndices = Array.Empty<int>();
+        internal int[] KindCounts = Array.Empty<int>();
+        internal int[] KindOffsets = Array.Empty<int>();
+        internal int[] NameCounts = Array.Empty<int>();
+        internal int[] NameOffsets = Array.Empty<int>();
+        internal int[] ResultIndices = Array.Empty<int>();
+        internal int[] SortedIndices = Array.Empty<int>();
+        internal int[] TempIndices = Array.Empty<int>();
 
-        public void EnsureCapacity(int dependencyCount, int uniqueKindCount, int uniqueNameCount)
+        internal void EnsureCapacity(int dependencyCount, int uniqueKindCount, int uniqueNameCount)
         {
             if (TempIndices.Length != dependencyCount)
             {
@@ -2408,10 +2408,10 @@ internal static class NSharpCliDogfoodAdapter
 
     private sealed class CompilerErrorSeverityFilterScratch
     {
-        public int[] ResultIndices = Array.Empty<int>();
-        public int[] SeverityRanks = Array.Empty<int>();
+        internal int[] ResultIndices = Array.Empty<int>();
+        internal int[] SeverityRanks = Array.Empty<int>();
 
-        public void EnsureCapacity(int errorCount)
+        internal void EnsureCapacity(int errorCount)
         {
             if (SeverityRanks.Length != errorCount)
             {
@@ -2423,10 +2423,10 @@ internal static class NSharpCliDogfoodAdapter
 
     private sealed class FixSafetyFilterScratch
     {
-        public int[] ResultIndices = Array.Empty<int>();
-        public int[] SafetyRanks = Array.Empty<int>();
+        internal int[] ResultIndices = Array.Empty<int>();
+        internal int[] SafetyRanks = Array.Empty<int>();
 
-        public void EnsureCapacity(int fixCount)
+        internal void EnsureCapacity(int fixCount)
         {
             if (SafetyRanks.Length != fixCount)
             {
@@ -2440,18 +2440,18 @@ internal static class NSharpCliDogfoodAdapter
     {
         private readonly Dictionary<string, int> _pathRanks = new(StringComparer.Ordinal);
 
-        public int[] KindRanks = Array.Empty<int>();
-        public int[] LengthCounts = Array.Empty<int>();
-        public int[] LengthOffsets = Array.Empty<int>();
-        public int[] NodeModuleFlags = Array.Empty<int>();
-        public int[] PathLengths = Array.Empty<int>();
-        public int[] PathRanks = Array.Empty<int>();
-        public int[] ResultIndices = Array.Empty<int>();
-        public int[] SeenPathRanks = Array.Empty<int>();
-        public int[] TempIndices = Array.Empty<int>();
-        public int UniquePathCount;
+        internal int[] KindRanks = Array.Empty<int>();
+        internal int[] LengthCounts = Array.Empty<int>();
+        internal int[] LengthOffsets = Array.Empty<int>();
+        internal int[] NodeModuleFlags = Array.Empty<int>();
+        internal int[] PathLengths = Array.Empty<int>();
+        internal int[] PathRanks = Array.Empty<int>();
+        internal int[] ResultIndices = Array.Empty<int>();
+        internal int[] SeenPathRanks = Array.Empty<int>();
+        internal int[] TempIndices = Array.Empty<int>();
+        internal int UniquePathCount;
 
-        public void EnsureInputCapacity(int directoryCount)
+        internal void EnsureInputCapacity(int directoryCount)
         {
             if (KindRanks.Length != directoryCount)
             {
@@ -2464,7 +2464,7 @@ internal static class NSharpCliDogfoodAdapter
             }
         }
 
-        public void EnsureScratchCapacity(int uniquePathCount, int maxPathLength)
+        internal void EnsureScratchCapacity(int uniquePathCount, int maxPathLength)
         {
             var pathRankCapacity = uniquePathCount + 1;
             if (SeenPathRanks.Length != pathRankCapacity)
@@ -2480,7 +2480,7 @@ internal static class NSharpCliDogfoodAdapter
             }
         }
 
-        public void AddPath(string path)
+        internal void AddPath(string path)
         {
             if (_pathRanks.ContainsKey(path))
                 return;
@@ -2489,9 +2489,9 @@ internal static class NSharpCliDogfoodAdapter
             _pathRanks.Add(path, UniquePathCount);
         }
 
-        public int GetPathRank(string path) => _pathRanks[path];
+        internal int GetPathRank(string path) => _pathRanks[path];
 
-        public void ResetPathRanks()
+        internal void ResetPathRanks()
         {
             _pathRanks.Clear();
             UniquePathCount = 0;
@@ -2502,12 +2502,12 @@ internal static class NSharpCliDogfoodAdapter
     {
         private readonly Dictionary<string, int> _nameRanks = new(StringComparer.OrdinalIgnoreCase);
 
-        public int[] NuGetFlags = Array.Empty<int>();
-        public int[] NameRanks = Array.Empty<int>();
-        public int[] ResultIndices = Array.Empty<int>();
-        public int UniqueNameCount;
+        internal int[] NuGetFlags = Array.Empty<int>();
+        internal int[] NameRanks = Array.Empty<int>();
+        internal int[] ResultIndices = Array.Empty<int>();
+        internal int UniqueNameCount;
 
-        public void EnsureCapacity(int dependencyCount)
+        internal void EnsureCapacity(int dependencyCount)
         {
             if (NuGetFlags.Length != dependencyCount
                 || NameRanks.Length != dependencyCount
@@ -2519,7 +2519,7 @@ internal static class NSharpCliDogfoodAdapter
             }
         }
 
-        public void AddName(string name)
+        internal void AddName(string name)
         {
             if (_nameRanks.ContainsKey(name))
                 return;
@@ -2528,11 +2528,11 @@ internal static class NSharpCliDogfoodAdapter
             _nameRanks.Add(name, UniqueNameCount);
         }
 
-        public int GetNameRank(string name) => _nameRanks[name];
+        internal int GetNameRank(string name) => _nameRanks[name];
 
-        public bool TryGetNameRank(string name, out int rank) => _nameRanks.TryGetValue(name, out rank);
+        internal bool TryGetNameRank(string name, out int rank) => _nameRanks.TryGetValue(name, out rank);
 
-        public void ResetNames()
+        internal void ResetNames()
         {
             _nameRanks.Clear();
             UniqueNameCount = 0;
@@ -2541,10 +2541,10 @@ internal static class NSharpCliDogfoodAdapter
 
     private sealed class ReferenceTypeFilterScratch
     {
-        public int[] TypeRanks = Array.Empty<int>();
-        public int[] ResultIndices = Array.Empty<int>();
+        internal int[] TypeRanks = Array.Empty<int>();
+        internal int[] ResultIndices = Array.Empty<int>();
 
-        public void EnsureCapacity(int dependencyCount)
+        internal void EnsureCapacity(int dependencyCount)
         {
             if (TypeRanks.Length != dependencyCount || ResultIndices.Length != dependencyCount)
             {
@@ -2556,11 +2556,11 @@ internal static class NSharpCliDogfoodAdapter
 
     private sealed class StableDistinctScratch
     {
-        public int[] Ranks = Array.Empty<int>();
-        public int[] ResultIndices = Array.Empty<int>();
-        public int[] SeenRanks = Array.Empty<int>();
+        internal int[] Ranks = Array.Empty<int>();
+        internal int[] ResultIndices = Array.Empty<int>();
+        internal int[] SeenRanks = Array.Empty<int>();
 
-        public void EnsureCapacity(int count)
+        internal void EnsureCapacity(int count)
         {
             if (Ranks.Length != count || ResultIndices.Length != count)
             {
@@ -2569,7 +2569,7 @@ internal static class NSharpCliDogfoodAdapter
             }
         }
 
-        public void EnsureRankCapacity(int uniqueRankCount)
+        internal void EnsureRankCapacity(int uniqueRankCount)
         {
             var rankCapacity = uniqueRankCount + 1;
             if (SeenRanks.Length != rankCapacity)
@@ -2581,13 +2581,13 @@ internal static class NSharpCliDogfoodAdapter
 
     private sealed class TidyDependencyStatusFilterScratch
     {
-        public string[] ImportNamespaces = Array.Empty<string>();
-        public string[] PackageNames = Array.Empty<string>();
-        public int[] ResultIndices = Array.Empty<int>();
-        public int[] StatusRanks = Array.Empty<int>();
-        public int[] SummaryCounts = Array.Empty<int>();
+        internal string[] ImportNamespaces = Array.Empty<string>();
+        internal string[] PackageNames = Array.Empty<string>();
+        internal int[] ResultIndices = Array.Empty<int>();
+        internal int[] StatusRanks = Array.Empty<int>();
+        internal int[] SummaryCounts = Array.Empty<int>();
 
-        public void EnsureCapacity(int count)
+        internal void EnsureCapacity(int count)
         {
             if (StatusRanks.Length != count)
             {
@@ -2601,7 +2601,7 @@ internal static class NSharpCliDogfoodAdapter
             }
         }
 
-        public void EnsureClassificationCapacity(int dependencyCount, int importCount)
+        internal void EnsureClassificationCapacity(int dependencyCount, int importCount)
         {
             if (PackageNames.Length != dependencyCount)
                 PackageNames = new string[dependencyCount];
@@ -2613,7 +2613,7 @@ internal static class NSharpCliDogfoodAdapter
                 ImportNamespaces = new string[importCount];
         }
 
-        public void ClearClassificationInputs(int dependencyCount, int importCount)
+        internal void ClearClassificationInputs(int dependencyCount, int importCount)
         {
             if (dependencyCount > 0 && dependencyCount <= PackageNames.Length)
                 Array.Clear(PackageNames, 0, dependencyCount);
@@ -2625,11 +2625,11 @@ internal static class NSharpCliDogfoodAdapter
 
     private sealed class TidyRemovalLineScratch
     {
-        public int[] KeepFlags = Array.Empty<int>();
-        public string[] Lines = Array.Empty<string>();
-        public string[] PackageNames = Array.Empty<string>();
+        internal int[] KeepFlags = Array.Empty<int>();
+        internal string[] Lines = Array.Empty<string>();
+        internal string[] PackageNames = Array.Empty<string>();
 
-        public void EnsureCapacity(int lineCount, int packageCount)
+        internal void EnsureCapacity(int lineCount, int packageCount)
         {
             if (Lines.Length != lineCount)
             {
@@ -2641,7 +2641,7 @@ internal static class NSharpCliDogfoodAdapter
                 PackageNames = new string[packageCount];
         }
 
-        public void ClearInputs(int lineCount, int packageCount)
+        internal void ClearInputs(int lineCount, int packageCount)
         {
             if (lineCount > 0 && lineCount <= Lines.Length)
                 Array.Clear(Lines, 0, lineCount);
@@ -2653,9 +2653,9 @@ internal static class NSharpCliDogfoodAdapter
 
     private sealed class TestOutcomeSummaryScratch
     {
-        public int[] SummaryCounts = Array.Empty<int>();
+        internal int[] SummaryCounts = Array.Empty<int>();
 
-        public void EnsureCapacity()
+        internal void EnsureCapacity()
         {
             if (SummaryCounts.Length != 4)
             {

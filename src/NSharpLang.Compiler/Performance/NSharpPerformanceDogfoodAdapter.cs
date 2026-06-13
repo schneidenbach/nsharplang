@@ -255,9 +255,9 @@ internal static class NSharpPerformanceDogfoodAdapter
 
     private sealed class StructCopyScratch
     {
-        public int[] FieldReadonlyFlags = Array.Empty<int>();
+        internal int[] FieldReadonlyFlags = Array.Empty<int>();
 
-        public void EnsureFieldCapacity(int fieldCount)
+        internal void EnsureFieldCapacity(int fieldCount)
         {
             if (FieldReadonlyFlags.Length < fieldCount)
             {
@@ -271,25 +271,25 @@ internal static class NSharpPerformanceDogfoodAdapter
         private readonly Dictionary<string, int> _constructRanks = new(StringComparer.Ordinal);
         private readonly Dictionary<string, int> _declarationRanks = new(StringComparer.Ordinal);
 
-        public int[] ConstructRanks = Array.Empty<int>();
-        public int[] ConstructSeenByDeclaration = Array.Empty<int>();
-        public int[] DeclarationCounts = Array.Empty<int>();
-        public int[] DeclarationRanks = Array.Empty<int>();
-        public int[] KindIds = Array.Empty<int>();
-        public int[] RequiresDynamicByRank = Array.Empty<int>();
-        public int[] RequiresUnreferencedByRank = Array.Empty<int>();
-        public int[] ResultConstructCounts = Array.Empty<int>();
-        public int[] ResultConstructRanks = Array.Empty<int>();
-        public int[] ResultConstructStarts = Array.Empty<int>();
-        public int[] ResultDeclarationRanks = Array.Empty<int>();
-        public int[] ResultRequiresDynamic = Array.Empty<int>();
-        public int[] ResultRequiresUnreferenced = Array.Empty<int>();
-        public string[] UniqueConstructs = Array.Empty<string>();
-        public string[] UniqueDeclarations = Array.Empty<string>();
-        public int UniqueConstructCount;
-        public int UniqueDeclarationCount;
+        internal int[] ConstructRanks = Array.Empty<int>();
+        internal int[] ConstructSeenByDeclaration = Array.Empty<int>();
+        internal int[] DeclarationCounts = Array.Empty<int>();
+        internal int[] DeclarationRanks = Array.Empty<int>();
+        internal int[] KindIds = Array.Empty<int>();
+        internal int[] RequiresDynamicByRank = Array.Empty<int>();
+        internal int[] RequiresUnreferencedByRank = Array.Empty<int>();
+        internal int[] ResultConstructCounts = Array.Empty<int>();
+        internal int[] ResultConstructRanks = Array.Empty<int>();
+        internal int[] ResultConstructStarts = Array.Empty<int>();
+        internal int[] ResultDeclarationRanks = Array.Empty<int>();
+        internal int[] ResultRequiresDynamic = Array.Empty<int>();
+        internal int[] ResultRequiresUnreferenced = Array.Empty<int>();
+        internal string[] UniqueConstructs = Array.Empty<string>();
+        internal string[] UniqueDeclarations = Array.Empty<string>();
+        internal int UniqueConstructCount;
+        internal int UniqueDeclarationCount;
 
-        public void EnsureBlockerCapacity(int blockerCount)
+        internal void EnsureBlockerCapacity(int blockerCount)
         {
             if (DeclarationRanks.Length != blockerCount)
             {
@@ -301,7 +301,7 @@ internal static class NSharpPerformanceDogfoodAdapter
             }
         }
 
-        public void EnsureGroupCapacity(int declarationCount, int constructCount)
+        internal void EnsureGroupCapacity(int declarationCount, int constructCount)
         {
             var rankCapacity = declarationCount + 1;
             if (DeclarationCounts.Length != rankCapacity)
@@ -333,7 +333,7 @@ internal static class NSharpPerformanceDogfoodAdapter
             }
         }
 
-        public int AddDeclaration(string declaration)
+        internal int AddDeclaration(string declaration)
         {
             if (_declarationRanks.TryGetValue(declaration, out var rank))
                 return rank;
@@ -345,7 +345,7 @@ internal static class NSharpPerformanceDogfoodAdapter
             return rank;
         }
 
-        public void AddConstruct(string construct)
+        internal void AddConstruct(string construct)
         {
             if (_constructRanks.ContainsKey(construct))
                 return;
@@ -355,7 +355,7 @@ internal static class NSharpPerformanceDogfoodAdapter
             UniqueConstructCount++;
         }
 
-        public void BuildConstructRanks()
+        internal void BuildConstructRanks()
         {
             Array.Sort(UniqueConstructs, 0, UniqueConstructCount, StringComparer.Ordinal);
             for (var i = 0; i < UniqueConstructCount; i++)
@@ -364,9 +364,9 @@ internal static class NSharpPerformanceDogfoodAdapter
             }
         }
 
-        public int GetConstructRank(string construct) => _constructRanks[construct];
+        internal int GetConstructRank(string construct) => _constructRanks[construct];
 
-        public void Reset()
+        internal void Reset()
         {
             Array.Clear(UniqueDeclarations, 0, UniqueDeclarationCount);
             Array.Clear(UniqueConstructs, 0, UniqueConstructCount);
