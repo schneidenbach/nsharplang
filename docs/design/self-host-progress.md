@@ -11,6 +11,20 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — Parser expression recursion tables wrapped
+
+`ParserExpressions.nl` now routes its pattern, primary, postfix, call-argument, unary, binary,
+ternary, assignment, lambda, and expression-entry recursion through shared parser token,
+argument-stack, child-index, expression-node, and result wrappers. The public
+`ParseExpressionNodesInto` ABI remains flattened, while `ParseExpressionNodesCore` carries the
+wrapper-aware implementation.
+
+Expression parsing now composes type-reference parsing through `ParseExpressionTypeReferenceNode`,
+which views the shared expression node columns as a type node table and calls
+`ParseUnionTypeReferenceNodeCore` directly. `ParserStatements.nl` was updated to call the expression
+parser with wrappers from its own statement cores, leaving flattened arrays at host/compatibility
+boundaries only.
+
 ## 2026-06-13 — Parser statement recursion tables wrapped
 
 `ParserStatements.nl` now routes its recursive statement kernels through shared parser token,
