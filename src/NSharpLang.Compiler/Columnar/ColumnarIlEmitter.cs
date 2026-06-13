@@ -86,6 +86,7 @@ public sealed class ColumnarFunctionInput
     public int[] ChildStart { get; }
     public int[] ChildCount { get; }
     public int[] ChildIndices { get; }
+    internal ColumnarNodeTable BodyNodes => new(Kinds, ValueStarts, ValueLengths, ChildStart, ChildCount, ChildIndices);
     public int BodyRoot { get; }
     // True for a `static func` member of a struct/record/class body (no implicit `this`; param ordinals are NOT
     // shifted). Always false for a top-level function (those are CLR-static on the Program type, but their static-
@@ -579,39 +580,6 @@ public sealed class ColumnarIlEmitter
     // bare field WRITES are correct there — unlike struct METHODS, whose receiver is a spilled
     // temp copy (mutation would write the copy; those stay declined).
     private readonly bool _isConstructorBody;
-
-    private ColumnarIlEmitter(
-        int[] kinds, int[] valueStarts, int[] valueLengths,
-        int[] childStart, int[] childCount, int[] childIndices, string source,
-        Dictionary<string, int> paramOrdinals, IReadOnlyDictionary<string, Type> paramTypes, Type returnType,
-        ILGenerator il,
-        IReadOnlyDictionary<string, (MethodInfo Method, Type[] ParamTypes, Type ReturnType, Type[] TypeParams, int[] SpecialConstraints, Type?[] BaseConstraints)> siblings,
-        IReadOnlyDictionary<string, ColumnarEnumDef> enumRegistry,
-        IReadOnlyDictionary<string, ColumnarStructDef> structRegistry,
-        IReadOnlyDictionary<string, ColumnarUnionDef> unionRegistry,
-        IReadOnlyDictionary<string, ColumnarUnionCaseDef> unionCaseRegistry,
-        ColumnarStructDef? currentStruct,
-        ColumnarStructDef? enclosingType = null,
-        bool isConstructorBody = false,
-        TypeBuilder? programType = null,
-        int[]? lambdaCounter = null,
-        List<TypeBuilder>? displayClasses = null,
-        Dictionary<string, (FieldBuilder BoxField, Type ValueType)>? boxedCaptures = null,
-        Dictionary<string, (MethodBuilder Method, Type[] ParamTypes, Type ReturnType)>? localFuncs = null,
-        Dictionary<int, string>? declaredLocalFuncNodes = null,
-        IEnumerable<string>? visibleLocalFuncs = null,
-        IReadOnlyDictionary<string, string?[]>? siblingReturnTupleNames = null,
-        IReadOnlyDictionary<string, string?[]>? paramTupleNames = null,
-        HashSet<string>? enclosingBindingNames = null,
-        Type? asyncReturnType = null,
-        bool asyncBareReturnDeclines = false)
-        : this(new ColumnarNodeTable(kinds, valueStarts, valueLengths, childStart, childCount, childIndices),
-            source, paramOrdinals, paramTypes, returnType, il, siblings, enumRegistry, structRegistry, unionRegistry,
-            unionCaseRegistry, currentStruct, enclosingType, isConstructorBody, programType, lambdaCounter, displayClasses,
-            boxedCaptures, localFuncs, declaredLocalFuncNodes, visibleLocalFuncs, siblingReturnTupleNames, paramTupleNames,
-            enclosingBindingNames, asyncReturnType, asyncBareReturnDeclines)
-    {
-    }
 
     private ColumnarIlEmitter(
         ColumnarNodeTable nodes, string source,
@@ -3858,8 +3826,8 @@ public sealed class ColumnarIlEmitter
             // (and every sibling call site) sees the WRAPPED type.
             var bodyReturnType = asyncWrappedByFunc[f] != null ? asyncInnerByFunc[f] : returnTypeByFunc[f];
             var emitter = new ColumnarIlEmitter(
-                fn.Kinds, fn.ValueStarts, fn.ValueLengths, fn.ChildStart, fn.ChildCount, fn.ChildIndices,
-                source, ordinalsByFunc[f], paramTypesByFunc[f], bodyReturnType, il, siblings, enumRegistry, structRegistry, unionRegistry, unionCaseRegistry, currentStruct: null,
+                fn.BodyNodes, source, ordinalsByFunc[f], paramTypesByFunc[f], bodyReturnType, il, siblings,
+                enumRegistry, structRegistry, unionRegistry, unionCaseRegistry, currentStruct: null,
                 programType: type, lambdaCounter: lambdaCounter, displayClasses: displayClasses,
                 localFuncs: localFuncs, declaredLocalFuncNodes: declaredLocalFuncNodes,
                 siblingReturnTupleNames: siblingReturnTupleNames, paramTupleNames: fnParamTupleNames,
@@ -3874,8 +3842,7 @@ public sealed class ColumnarIlEmitter
                 // live snapshot exists — use the parent's STRUCTURAL binding superset (params + every name
                 // any parent statement binds; extra declines are safe under-acceptance).
                 var parentBindings = new HashSet<string>(ordinalsByFunc[f].Keys, StringComparer.Ordinal);
-                var parentNodes = new ColumnarNodeTable(fn.Kinds, fn.ValueStarts, fn.ValueLengths, fn.ChildStart, fn.ChildCount, fn.ChildIndices);
-                CollectBindingNames(parentNodes, source, fn.BodyRoot, parentBindings);
+                CollectBindingNames(fn.BodyNodes, source, fn.BodyRoot, parentBindings);
                 var visiblePrefix = new List<string>();
                 foreach (var (_, localFn) in fn.LocalFunctions)
                 {
@@ -3895,8 +3862,8 @@ public sealed class ColumnarIlEmitter
                     // The local body shares the SAME localFuncs map (self/mutual recursion + the parent's
                     // other local functions); outer locals/params are NOT in scope — captures decline.
                     var localEmitter = new ColumnarIlEmitter(
-                        localFn.Kinds, localFn.ValueStarts, localFn.ValueLengths, localFn.ChildStart, localFn.ChildCount, localFn.ChildIndices,
-                        source, localOrdinals, localParamTypes, target.ReturnType, localIl, siblings, enumRegistry, structRegistry, unionRegistry, unionCaseRegistry, currentStruct: null,
+                        localFn.BodyNodes, source, localOrdinals, localParamTypes, target.ReturnType, localIl,
+                        siblings, enumRegistry, structRegistry, unionRegistry, unionCaseRegistry, currentStruct: null,
                         programType: type, lambdaCounter: lambdaCounter, displayClasses: displayClasses,
                         localFuncs: localFuncs, visibleLocalFuncs: visiblePrefix,
                         enclosingBindingNames: parentBindings);
@@ -3913,8 +3880,8 @@ public sealed class ColumnarIlEmitter
         {
             var mil = job.Builder.GetILGenerator();
             var emitter = new ColumnarIlEmitter(
-                job.Method.Kinds, job.Method.ValueStarts, job.Method.ValueLengths, job.Method.ChildStart, job.Method.ChildCount, job.Method.ChildIndices,
-                source, job.Ordinals, job.ParamTypes, job.ReturnType, mil, siblings, enumRegistry, structRegistry, unionRegistry, unionCaseRegistry,
+                job.Method.BodyNodes, source, job.Ordinals, job.ParamTypes, job.ReturnType, mil, siblings,
+                enumRegistry, structRegistry, unionRegistry, unionCaseRegistry,
                 currentStruct: job.Interface, enclosingType: job.Interface,
                 programType: type, lambdaCounter: lambdaCounter, displayClasses: displayClasses);
             if (!emitter.EmitBody(job.Method.BodyRoot, job.ReturnType == typeof(void)))
@@ -3933,8 +3900,8 @@ public sealed class ColumnarIlEmitter
                 return false; // local functions in MEMBER bodies — a later rung (L4-i is top-level only).
             var mil = job.Builder.GetILGenerator();
             var emitter = new ColumnarIlEmitter(
-                job.Method.Kinds, job.Method.ValueStarts, job.Method.ValueLengths, job.Method.ChildStart, job.Method.ChildCount, job.Method.ChildIndices,
-                source, job.Ordinals, job.ParamTypes, job.ReturnType, mil, siblings, enumRegistry, structRegistry, unionRegistry, unionCaseRegistry,
+                job.Method.BodyNodes, source, job.Ordinals, job.ParamTypes, job.ReturnType, mil, siblings,
+                enumRegistry, structRegistry, unionRegistry, unionCaseRegistry,
                 currentStruct: job.IsStatic ? null : job.Struct, enclosingType: job.Struct,
                 programType: type, lambdaCounter: lambdaCounter, displayClasses: displayClasses);
             // A property SETTER body is void (it assigns a field and falls through); a method/getter is a value
@@ -3954,8 +3921,8 @@ public sealed class ColumnarIlEmitter
                 return false; // local functions in CONSTRUCTOR bodies — a later rung.
             var cil = job.Builder.GetILGenerator();
             var emitter = new ColumnarIlEmitter(
-                job.Ctor.Body.Kinds, job.Ctor.Body.ValueStarts, job.Ctor.Body.ValueLengths, job.Ctor.Body.ChildStart, job.Ctor.Body.ChildCount, job.Ctor.Body.ChildIndices,
-                source, job.Ordinals, job.ParamTypes, typeof(void), cil, siblings, enumRegistry, structRegistry, unionRegistry, unionCaseRegistry, job.Struct,
+                job.Ctor.Body.BodyNodes, source, job.Ordinals, job.ParamTypes, typeof(void), cil, siblings,
+                enumRegistry, structRegistry, unionRegistry, unionCaseRegistry, job.Struct,
                 isConstructorBody: true, programType: type, lambdaCounter: lambdaCounter, displayClasses: displayClasses);
             if (job.Ctor.ChainInitKind != 0)
             {

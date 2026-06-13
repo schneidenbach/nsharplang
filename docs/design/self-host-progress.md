@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — Columnar function inputs expose body-node views
+
+`ColumnarFunctionInput` now exposes an internal `BodyNodes` view over its flattened body columns, and
+`ColumnarIlEmitter` routes top-level, local-function, interface-method, struct-method, and constructor
+body emission through that view. The public flattened arrays stay in place for adapter and test
+compatibility, but emitter orchestration no longer rebuilds six-column node-table arguments at every
+call site.
+
+With those call sites converted, the private array-based emitter constructor was removed. Emitter
+instances now enter through `ColumnarNodeTable` directly, keeping raw node columns at input boundaries
+instead of transition-layer service paths.
+
 ## 2026-06-13 — Columnar binding-name scan uses node table view
 
 `ColumnarIlEmitter`'s local-function parent-binding pre-scan now walks statement nodes through
