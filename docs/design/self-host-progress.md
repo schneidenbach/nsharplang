@@ -11,6 +11,20 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — SoA IL-shape evidence: row projection stays columnar
+
+The SoA wrapper proof now has IL-shape evidence for the core non-negotiables. Row projection methods
+that receive an existing table are asserted to emit direct column-field loads plus array element
+loads/stores, with no `newobj`, `newarr`, `box`, delegate construction, or virtual dispatch. The
+zero-copy `wrap` method is asserted to store the incoming array references and metadata fields without
+`newarr`, `ldelem*`, or `stelem*` traffic.
+
+This keeps the experimental wrapper slice honest while the production columnar backend still falls
+back for SoA declarations. The next real migration step remains one cold compiler table under the
+experimental flag, with IL-shape and benchmark evidence before parser node tables move.
+
+---
+
 ## 2026-06-13 — SoA wrapper ABI proof: direct IL lowering behind a migration flag
 
 The first SoA lowering slice is implemented behind `NSHARP_EXPERIMENTAL_SOA=1`. Top-level

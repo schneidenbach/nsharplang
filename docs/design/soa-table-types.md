@@ -189,6 +189,11 @@ the columnar backend does not own this surface yet.
 The flag is for compiler table-migration gates only. Production builds without the flag still report
 `NL323 FeatureNotImplemented` for every `soa record`.
 
+IL-shape tests pin the current wrapper proof: row projection over an existing table emits direct
+column field loads and array element loads/stores with no row allocation, boxing, delegate
+construction, heap array allocation, or virtual dispatch; `wrap` stores incoming column references
+without allocating arrays or copying elements.
+
 ## Migration Plan
 
 1. Done: add the parser and analyzer surface for non-generic `soa record` declarations, with no production use.
