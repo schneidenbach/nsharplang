@@ -221,8 +221,9 @@ ownership lands.
    normal table structs, and `TypeLookup.nl` wraps declared-type lookup and type-creation ordering
    tables the same way. `DiagnosticDeduplication.nl` now wraps diagnostic/reference key columns and
    deduplication scratch indexes behind wrapper-aware cores, and `DiagnosticClusters.nl` wraps
-   severity/trait/cluster-id/location/group/member tables for diagnostic clustering. These slices
-   preserve the flattened dogfood adapter ABI.
+   severity/trait/cluster-id/location/group/member tables for diagnostic clustering. `BindingLookup.nl`
+   wraps declaration, binding, query, candidate-column, nearest-declaration, result, slot, and scratch
+   tables for semantic binding lookup. These slices preserve the flattened dogfood adapter ABI.
 7. Only after those gates pass, start replacing C# emitter/analyzer internals that still require untyped
    parallel-array plumbing.
 

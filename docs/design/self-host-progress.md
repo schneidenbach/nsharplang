@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — Binding lookup tables wrapped
+
+`BindingLookup.nl` now groups declaration, binding, query, candidate-column, nearest-declaration,
+result, slot, and scratch columns behind named normal structs. The production code-intelligence
+adapter still calls the same flattened entry points, while the strict lookup, candidate-column, hash
+slot, nearest-index build, nearest-query, and helper loops route through wrapper-aware cores.
+
+This extends the post-parser semantic table pass beyond scopes, declared types, and diagnostics into
+the binding lookup cache path used by `nlc query` and code-intelligence operations.
+
 ## 2026-06-13 — Diagnostic clustering tables wrapped
 
 `DiagnosticClusters.nl` now groups its severity, trait, cluster-id, command-location, grouping-key,

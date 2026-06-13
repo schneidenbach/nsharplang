@@ -1,43 +1,149 @@
+struct BindingLookupLocationTable {
+    FileRanks: int[]
+    LineNumbers: int[]
+    Columns: int[]
+}
+
+struct BindingLookupSlotTable {
+    Indices: int[]
+}
+
+struct BindingLookupDeclarationLinkTable {
+    DeclarationIndices: int[]
+}
+
+struct BindingLookupDeclarationResultTable {
+    DeclarationIndices: int[]
+}
+
+struct BindingLookupCandidateSpanTable {
+    QueryColumns: int[]
+    SpanStartColumns: int[]
+    SpanEndColumns: int[]
+}
+
+struct BindingLookupCandidateColumnOutputTable {
+    Starts: int[]
+    Counts: int[]
+    Columns: int[]
+}
+
+struct BindingLookupCandidateColumnTable {
+    Columns: int[]
+}
+
+struct BindingLookupNearestDeclarationSourceTable {
+    NameIds: int[]
+    FileRanks: int[]
+    LineNumbers: int[]
+    Columns: int[]
+}
+
+struct BindingLookupNearestDeclarationSortedTable {
+    NameIds: int[]
+    FileRanks: int[]
+    LineNumbers: int[]
+    Columns: int[]
+    DeclarationIndices: int[]
+}
+
+struct BindingLookupNearestDeclarationScratchTable {
+    TempDeclarationIndices: int[]
+    StackLefts: int[]
+}
+
+struct BindingLookupNearestQueryTable {
+    NameIds: int[]
+    FileRanks: int[]
+    LineNumbers: int[]
+}
+
+func BindingLookupLocationCount(locations: &BindingLookupLocationTable): int {
+    count := BindingLookupMinInt(locations.FileRanks.Length, locations.LineNumbers.Length)
+    count = BindingLookupMinInt(count, locations.Columns.Length)
+    return count
+}
+
+func BindingLookupCandidateSpanCount(spans: &BindingLookupCandidateSpanTable, output: &BindingLookupCandidateColumnOutputTable): int {
+    count := BindingLookupMinInt(spans.QueryColumns.Length, spans.SpanStartColumns.Length)
+    count = BindingLookupMinInt(count, spans.SpanEndColumns.Length)
+    count = BindingLookupMinInt(count, output.Starts.Length)
+    count = BindingLookupMinInt(count, output.Counts.Length)
+    return count
+}
+
+func BindingLookupNearestDeclarationSourceCount(source: &BindingLookupNearestDeclarationSourceTable): int {
+    count := BindingLookupMinInt(source.NameIds.Length, source.FileRanks.Length)
+    count = BindingLookupMinInt(count, source.LineNumbers.Length)
+    count = BindingLookupMinInt(count, source.Columns.Length)
+    return count
+}
+
+func BindingLookupNearestDeclarationSortedCount(sorted: &BindingLookupNearestDeclarationSortedTable): int {
+    count := BindingLookupMinInt(sorted.NameIds.Length, sorted.FileRanks.Length)
+    count = BindingLookupMinInt(count, sorted.LineNumbers.Length)
+    count = BindingLookupMinInt(count, sorted.Columns.Length)
+    count = BindingLookupMinInt(count, sorted.DeclarationIndices.Length)
+    return count
+}
+
+func BindingLookupNearestDeclarationSourceOutputCount(source: &BindingLookupNearestDeclarationSourceTable, sorted: &BindingLookupNearestDeclarationSortedTable): int {
+    return BindingLookupMinInt(BindingLookupNearestDeclarationSourceCount(ref source), BindingLookupNearestDeclarationSortedCount(ref sorted))
+}
+
+func BindingLookupNearestQueryResultCount(query: &BindingLookupNearestQueryTable, result: &BindingLookupDeclarationResultTable): int {
+    count := BindingLookupMinInt(query.NameIds.Length, query.FileRanks.Length)
+    count = BindingLookupMinInt(count, query.LineNumbers.Length)
+    count = BindingLookupMinInt(count, result.DeclarationIndices.Length)
+    return count
+}
+
+func HashBindingLookupKeyAt(index: int, locations: &BindingLookupLocationTable): int {
+    return HashBindingLookupKey(locations.FileRanks[index], locations.LineNumbers[index], locations.Columns[index])
+}
+
 func BindingLookupBuildSlotsInto(
     fileRanks: int[],
     lineNumbers: int[],
     columns: int[],
     slotIndices: int[]): int {
-    count := BindingLookupMinInt(fileRanks.Length, lineNumbers.Length)
-    count = BindingLookupMinInt(count, columns.Length)
+    locations := new BindingLookupLocationTable { FileRanks: fileRanks, LineNumbers: lineNumbers, Columns: columns }
+    slots := new BindingLookupSlotTable { Indices: slotIndices }
+    return BindingLookupBuildSlotsCore(ref locations, ref slots)
+}
 
-    capacity := slotIndices.Length
+func BindingLookupBuildSlotsCore(
+    locations: &BindingLookupLocationTable,
+    slots: &BindingLookupSlotTable): int {
+    count := BindingLookupLocationCount(ref locations)
+
+    capacity := slots.Indices.Length
     if count == 0 || capacity == 0 {
         return 0
     }
 
     i := 0
     while i < capacity {
-        slotIndices[i] = -1
+        slots.Indices[i] = -1
         i = i + 1
     }
 
     insertedCount := 0
     index := 0
     while index < count {
-        hash := HashBindingLookupKey(fileRanks[index], lineNumbers[index], columns[index])
+        hash := HashBindingLookupKeyAt(index, ref locations)
         slot := BindingLookupPositiveModulo(hash, capacity)
         probes := 0
 
         while probes < capacity {
-            candidateIndex := slotIndices[slot]
+            candidateIndex := slots.Indices[slot]
             if candidateIndex < 0 {
-                slotIndices[slot] = index
+                slots.Indices[slot] = index
                 insertedCount = insertedCount + 1
                 break
             }
 
-            if BindingLookupKeysEqual(
-                index,
-                candidateIndex,
-                fileRanks,
-                lineNumbers,
-                columns) {
+            if BindingLookupKeysEqualCore(index, candidateIndex, ref locations) {
                 break
             }
 
@@ -68,41 +174,43 @@ func BindingLookupQueryDeclarationIndicesInto(
     queryLineNumbers: int[],
     queryColumns: int[],
     resultDeclarationIndices: int[]): int {
-    queryCount := BindingLookupMinInt(queryFileRanks.Length, queryLineNumbers.Length)
-    queryCount = BindingLookupMinInt(queryCount, queryColumns.Length)
-    queryCount = BindingLookupMinInt(queryCount, resultDeclarationIndices.Length)
+    declarations := new BindingLookupLocationTable { FileRanks: declarationFileRanks, LineNumbers: declarationLineNumbers, Columns: declarationColumns }
+    declarationSlots := new BindingLookupSlotTable { Indices: declarationSlotIndices }
+    bindings := new BindingLookupLocationTable { FileRanks: bindingFileRanks, LineNumbers: bindingLineNumbers, Columns: bindingColumns }
+    bindingLinks := new BindingLookupDeclarationLinkTable { DeclarationIndices: bindingDeclarationIndices }
+    bindingSlots := new BindingLookupSlotTable { Indices: bindingSlotIndices }
+    queries := new BindingLookupLocationTable { FileRanks: queryFileRanks, LineNumbers: queryLineNumbers, Columns: queryColumns }
+    result := new BindingLookupDeclarationResultTable { DeclarationIndices: resultDeclarationIndices }
+    return BindingLookupQueryDeclarationIndicesCore(ref declarations, ref declarationSlots, ref bindings, ref bindingLinks, ref bindingSlots, ref queries, ref result)
+}
+
+func BindingLookupQueryDeclarationIndicesCore(
+    declarations: &BindingLookupLocationTable,
+    declarationSlots: &BindingLookupSlotTable,
+    bindings: &BindingLookupLocationTable,
+    bindingLinks: &BindingLookupDeclarationLinkTable,
+    bindingSlots: &BindingLookupSlotTable,
+    queries: &BindingLookupLocationTable,
+    result: &BindingLookupDeclarationResultTable): int {
+    queryCount := BindingLookupMinInt(BindingLookupLocationCount(ref queries), result.DeclarationIndices.Length)
 
     foundCount := 0
     i := 0
     while i < queryCount {
-        declarationIndex := BindingLookupFindIndex(
-            declarationFileRanks,
-            declarationLineNumbers,
-            declarationColumns,
-            declarationSlotIndices,
-            queryFileRanks[i],
-            queryLineNumbers[i],
-            queryColumns[i])
+        declarationIndex := BindingLookupFindIndexCore(ref declarations, ref declarationSlots, queries.FileRanks[i], queries.LineNumbers[i], queries.Columns[i])
 
         if declarationIndex < 0 {
-            bindingIndex := BindingLookupFindIndex(
-                bindingFileRanks,
-                bindingLineNumbers,
-                bindingColumns,
-                bindingSlotIndices,
-                queryFileRanks[i],
-                queryLineNumbers[i],
-                queryColumns[i])
+            bindingIndex := BindingLookupFindIndexCore(ref bindings, ref bindingSlots, queries.FileRanks[i], queries.LineNumbers[i], queries.Columns[i])
 
-            if bindingIndex >= 0 && bindingIndex < bindingDeclarationIndices.Length {
-                declarationIndex = bindingDeclarationIndices[bindingIndex]
-                if declarationIndex < 0 || declarationIndex >= declarationFileRanks.Length {
+            if bindingIndex >= 0 && bindingIndex < bindingLinks.DeclarationIndices.Length {
+                declarationIndex = bindingLinks.DeclarationIndices[bindingIndex]
+                if declarationIndex < 0 || declarationIndex >= declarations.FileRanks.Length {
                     declarationIndex = -1
                 }
             }
         }
 
-        resultDeclarationIndices[i] = declarationIndex
+        result.DeclarationIndices[i] = declarationIndex
         if declarationIndex >= 0 {
             foundCount = foundCount + 1
         }
@@ -120,35 +228,36 @@ func BindingLookupCandidateColumnsInto(
     resultStarts: int[],
     resultCounts: int[],
     resultColumns: int[]): int {
-    queryCount := BindingLookupMinInt(queryColumns.Length, spanStartColumns.Length)
-    queryCount = BindingLookupMinInt(queryCount, spanEndColumns.Length)
-    queryCount = BindingLookupMinInt(queryCount, resultStarts.Length)
-    queryCount = BindingLookupMinInt(queryCount, resultCounts.Length)
+    spans := new BindingLookupCandidateSpanTable { QueryColumns: queryColumns, SpanStartColumns: spanStartColumns, SpanEndColumns: spanEndColumns }
+    output := new BindingLookupCandidateColumnOutputTable { Starts: resultStarts, Counts: resultCounts, Columns: resultColumns }
+    return BindingLookupCandidateColumnsCore(ref spans, ref output)
+}
+
+func BindingLookupCandidateColumnsCore(
+    spans: &BindingLookupCandidateSpanTable,
+    output: &BindingLookupCandidateColumnOutputTable): int {
+    queryCount := BindingLookupCandidateSpanCount(ref spans, ref output)
 
     writeIndex := 0
     i := 0
     while i < queryCount {
-        resultStarts[i] = writeIndex
+        output.Starts[i] = writeIndex
         segmentStart := writeIndex
-        column := queryColumns[i]
-        spanStart := spanStartColumns[i]
-        spanEnd := spanEndColumns[i]
+        column := spans.QueryColumns[i]
+        spanStart := spans.SpanStartColumns[i]
+        spanEnd := spans.SpanEndColumns[i]
 
         maxDistance := BindingLookupCandidateColumnMaxDistance(column, spanStart, spanEnd)
         if maxDistance > 64 {
-            writeIndex = BindingLookupCandidateColumnsByCompactSort(
-                column,
-                spanStart,
-                spanEnd,
-                resultColumns,
-                writeIndex)
+            columns := new BindingLookupCandidateColumnTable { Columns: output.Columns }
+            writeIndex = BindingLookupCandidateColumnsByCompactSortCore(column, spanStart, spanEnd, ref columns, writeIndex)
         } else {
             distance := 0
             while distance <= maxDistance {
                 left := column - distance
                 if BindingLookupCandidateColumnInSet(left, column, spanStart, spanEnd) {
-                    if writeIndex < resultColumns.Length {
-                        resultColumns[writeIndex] = left
+                    if writeIndex < output.Columns.Length {
+                        output.Columns[writeIndex] = left
                         writeIndex = writeIndex + 1
                     }
                 }
@@ -156,8 +265,8 @@ func BindingLookupCandidateColumnsInto(
                 if distance > 0 {
                     right := column + distance
                     if BindingLookupCandidateColumnInSet(right, column, spanStart, spanEnd) {
-                        if writeIndex < resultColumns.Length {
-                            resultColumns[writeIndex] = right
+                        if writeIndex < output.Columns.Length {
+                            output.Columns[writeIndex] = right
                             writeIndex = writeIndex + 1
                         }
                     }
@@ -167,7 +276,7 @@ func BindingLookupCandidateColumnsInto(
             }
         }
 
-        resultCounts[i] = writeIndex - segmentStart
+        output.Counts[i] = writeIndex - segmentStart
         i = i + 1
     }
 
@@ -184,20 +293,25 @@ func BindingLookupFindNearestDeclarationIndicesInto(
     queryFileRanks: int[],
     queryLineNumbers: int[],
     resultDeclarationIndices: int[]): int {
-    queryCount := BindingLookupMinInt(queryNameIds.Length, queryFileRanks.Length)
-    queryCount = BindingLookupMinInt(queryCount, queryLineNumbers.Length)
-    queryCount = BindingLookupMinInt(queryCount, resultDeclarationIndices.Length)
-    declarationCount := BindingLookupMinInt(sortedNameIds.Length, sortedFileRanks.Length)
-    declarationCount = BindingLookupMinInt(declarationCount, sortedLineNumbers.Length)
-    declarationCount = BindingLookupMinInt(declarationCount, sortedColumns.Length)
-    declarationCount = BindingLookupMinInt(declarationCount, sortedDeclarationIndices.Length)
+    sorted := new BindingLookupNearestDeclarationSortedTable { NameIds: sortedNameIds, FileRanks: sortedFileRanks, LineNumbers: sortedLineNumbers, Columns: sortedColumns, DeclarationIndices: sortedDeclarationIndices }
+    queries := new BindingLookupNearestQueryTable { NameIds: queryNameIds, FileRanks: queryFileRanks, LineNumbers: queryLineNumbers }
+    result := new BindingLookupDeclarationResultTable { DeclarationIndices: resultDeclarationIndices }
+    return BindingLookupFindNearestDeclarationIndicesCore(ref sorted, ref queries, ref result)
+}
+
+func BindingLookupFindNearestDeclarationIndicesCore(
+    sorted: &BindingLookupNearestDeclarationSortedTable,
+    queries: &BindingLookupNearestQueryTable,
+    result: &BindingLookupDeclarationResultTable): int {
+    queryCount := BindingLookupNearestQueryResultCount(ref queries, ref result)
+    declarationCount := BindingLookupNearestDeclarationSortedCount(ref sorted)
 
     foundCount := 0
     i := 0
     while i < queryCount {
-        queryNameId := queryNameIds[i]
-        queryFileRank := queryFileRanks[i]
-        queryLine := queryLineNumbers[i]
+        queryNameId := queries.NameIds[i]
+        queryFileRank := queries.FileRanks[i]
+        queryLine := queries.LineNumbers[i]
         declarationIndex := -1
 
         if queryNameId >= 0 && queryFileRank >= 0 && declarationCount > 0 {
@@ -207,9 +321,9 @@ func BindingLookupFindNearestDeclarationIndicesInto(
             while lower < upper {
                 middle := (lower + upper) >> 1
                 if BindingLookupNearestKeyIsBeforeOrAtQuery(
-                    sortedNameIds[middle],
-                    sortedFileRanks[middle],
-                    sortedLineNumbers[middle],
+                    sorted.NameIds[middle],
+                    sorted.FileRanks[middle],
+                    sorted.LineNumbers[middle],
                     queryNameId,
                     queryFileRank,
                     queryLine) {
@@ -221,14 +335,14 @@ func BindingLookupFindNearestDeclarationIndicesInto(
 
             candidate := lower - 1
             if candidate >= 0
-                && sortedNameIds[candidate] == queryNameId
-                && sortedFileRanks[candidate] == queryFileRank
-                && sortedLineNumbers[candidate] <= queryLine {
-                declarationIndex = sortedDeclarationIndices[candidate]
+                && sorted.NameIds[candidate] == queryNameId
+                && sorted.FileRanks[candidate] == queryFileRank
+                && sorted.LineNumbers[candidate] <= queryLine {
+                declarationIndex = sorted.DeclarationIndices[candidate]
             }
         }
 
-        resultDeclarationIndices[i] = declarationIndex
+        result.DeclarationIndices[i] = declarationIndex
         if declarationIndex >= 0 {
             foundCount = foundCount + 1
         }
@@ -251,14 +365,17 @@ func BindingLookupBuildNearestDeclarationIndexInto(
     sortedLineNumbers: int[],
     sortedColumns: int[],
     sortedDeclarationIndices: int[]): int {
-    declarationCount := BindingLookupMinInt(declarationNameIds.Length, declarationFileRanks.Length)
-    declarationCount = BindingLookupMinInt(declarationCount, declarationLineNumbers.Length)
-    declarationCount = BindingLookupMinInt(declarationCount, declarationColumns.Length)
-    declarationCount = BindingLookupMinInt(declarationCount, sortedNameIds.Length)
-    declarationCount = BindingLookupMinInt(declarationCount, sortedFileRanks.Length)
-    declarationCount = BindingLookupMinInt(declarationCount, sortedLineNumbers.Length)
-    declarationCount = BindingLookupMinInt(declarationCount, sortedColumns.Length)
-    declarationCount = BindingLookupMinInt(declarationCount, sortedDeclarationIndices.Length)
+    source := new BindingLookupNearestDeclarationSourceTable { NameIds: declarationNameIds, FileRanks: declarationFileRanks, LineNumbers: declarationLineNumbers, Columns: declarationColumns }
+    scratch := new BindingLookupNearestDeclarationScratchTable { TempDeclarationIndices: tempDeclarationIndices, StackLefts: stackLefts }
+    sorted := new BindingLookupNearestDeclarationSortedTable { NameIds: sortedNameIds, FileRanks: sortedFileRanks, LineNumbers: sortedLineNumbers, Columns: sortedColumns, DeclarationIndices: sortedDeclarationIndices }
+    return BindingLookupBuildNearestDeclarationIndexCore(ref source, ref scratch, ref sorted)
+}
+
+func BindingLookupBuildNearestDeclarationIndexCore(
+    source: &BindingLookupNearestDeclarationSourceTable,
+    scratch: &BindingLookupNearestDeclarationScratchTable,
+    sorted: &BindingLookupNearestDeclarationSortedTable): int {
+    declarationCount := BindingLookupNearestDeclarationSourceOutputCount(ref source, ref sorted)
 
     if declarationCount == 0 {
         return 0
@@ -267,7 +384,7 @@ func BindingLookupBuildNearestDeclarationIndexInto(
     maxNameId := 0
     i := 0
     while i < declarationCount {
-        nameId := declarationNameIds[i]
+        nameId := source.NameIds[i]
         if nameId < 0 {
             return -1
         }
@@ -279,59 +396,59 @@ func BindingLookupBuildNearestDeclarationIndexInto(
         i = i + 1
     }
 
-    if maxNameId >= stackLefts.Length || maxNameId >= tempDeclarationIndices.Length {
+    if maxNameId >= scratch.StackLefts.Length || maxNameId >= scratch.TempDeclarationIndices.Length {
         return -1
     }
 
     i = 0
     while i <= maxNameId {
-        stackLefts[i] = 0
+        scratch.StackLefts[i] = 0
         i = i + 1
     }
 
     i = 0
     while i < declarationCount {
-        nameId := declarationNameIds[i]
-        stackLefts[nameId] = stackLefts[nameId] + 1
+        nameId := source.NameIds[i]
+        scratch.StackLefts[nameId] = scratch.StackLefts[nameId] + 1
         i = i + 1
     }
 
     offset := 0
     i = 0
     while i <= maxNameId {
-        countForName := stackLefts[i]
-        stackLefts[i] = offset
+        countForName := scratch.StackLefts[i]
+        scratch.StackLefts[i] = offset
         offset = offset + countForName
         i = i + 1
     }
 
     i = 0
     while i <= maxNameId {
-        tempDeclarationIndices[i] = -1
+        scratch.TempDeclarationIndices[i] = -1
         i = i + 1
     }
 
     i = 0
     while i < declarationCount {
-        nameId := declarationNameIds[i]
-        previousDeclarationIndex := tempDeclarationIndices[nameId]
+        nameId := source.NameIds[i]
+        previousDeclarationIndex := scratch.TempDeclarationIndices[nameId]
         if previousDeclarationIndex >= 0 {
-            fileRank := declarationFileRanks[i]
-            previousFileRank := declarationFileRanks[previousDeclarationIndex]
+            fileRank := source.FileRanks[i]
+            previousFileRank := source.FileRanks[previousDeclarationIndex]
             if fileRank < previousFileRank {
                 return -1
             }
 
             if fileRank == previousFileRank {
-                lineNumber := declarationLineNumbers[i]
-                previousLineNumber := declarationLineNumbers[previousDeclarationIndex]
+                lineNumber := source.LineNumbers[i]
+                previousLineNumber := source.LineNumbers[previousDeclarationIndex]
                 if lineNumber < previousLineNumber {
                     return -1
                 }
 
                 if lineNumber == previousLineNumber {
-                    column := declarationColumns[i]
-                    previousColumn := declarationColumns[previousDeclarationIndex]
+                    column := source.Columns[i]
+                    previousColumn := source.Columns[previousDeclarationIndex]
                     if column < previousColumn {
                         return -1
                     }
@@ -339,14 +456,14 @@ func BindingLookupBuildNearestDeclarationIndexInto(
             }
         }
 
-        target := stackLefts[nameId]
-        sortedNameIds[target] = nameId
-        sortedFileRanks[target] = declarationFileRanks[i]
-        sortedLineNumbers[target] = declarationLineNumbers[i]
-        sortedColumns[target] = declarationColumns[i]
-        sortedDeclarationIndices[target] = i
-        stackLefts[nameId] = target + 1
-        tempDeclarationIndices[nameId] = i
+        target := scratch.StackLefts[nameId]
+        sorted.NameIds[target] = nameId
+        sorted.FileRanks[target] = source.FileRanks[i]
+        sorted.LineNumbers[target] = source.LineNumbers[i]
+        sorted.Columns[target] = source.Columns[i]
+        sorted.DeclarationIndices[target] = i
+        scratch.StackLefts[nameId] = target + 1
+        scratch.TempDeclarationIndices[nameId] = i
         i = i + 1
     }
 
@@ -361,9 +478,19 @@ func BindingLookupFindIndex(
     fileRank: int,
     line: int,
     column: int): int {
-    count := BindingLookupMinInt(fileRanks.Length, lineNumbers.Length)
-    count = BindingLookupMinInt(count, columns.Length)
-    capacity := slotIndices.Length
+    locations := new BindingLookupLocationTable { FileRanks: fileRanks, LineNumbers: lineNumbers, Columns: columns }
+    slots := new BindingLookupSlotTable { Indices: slotIndices }
+    return BindingLookupFindIndexCore(ref locations, ref slots, fileRank, line, column)
+}
+
+func BindingLookupFindIndexCore(
+    locations: &BindingLookupLocationTable,
+    slots: &BindingLookupSlotTable,
+    fileRank: int,
+    line: int,
+    column: int): int {
+    count := BindingLookupLocationCount(ref locations)
+    capacity := slots.Indices.Length
     if count == 0 || capacity == 0 {
         return -1
     }
@@ -373,15 +500,15 @@ func BindingLookupFindIndex(
     probes := 0
 
     while probes < capacity {
-        index := slotIndices[slot]
+        index := slots.Indices[slot]
         if index < 0 {
             return -1
         }
 
         if index < count
-            && fileRanks[index] == fileRank
-            && lineNumbers[index] == line
-            && columns[index] == column {
+            && locations.FileRanks[index] == fileRank
+            && locations.LineNumbers[index] == line
+            && locations.Columns[index] == column {
             return index
         }
 
@@ -401,9 +528,17 @@ func BindingLookupKeysEqual(
     fileRanks: int[],
     lineNumbers: int[],
     columns: int[]): bool {
-    return fileRanks[left] == fileRanks[right]
-        && lineNumbers[left] == lineNumbers[right]
-        && columns[left] == columns[right]
+    locations := new BindingLookupLocationTable { FileRanks: fileRanks, LineNumbers: lineNumbers, Columns: columns }
+    return BindingLookupKeysEqualCore(left, right, ref locations)
+}
+
+func BindingLookupKeysEqualCore(
+    left: int,
+    right: int,
+    locations: &BindingLookupLocationTable): bool {
+    return locations.FileRanks[left] == locations.FileRanks[right]
+        && locations.LineNumbers[left] == locations.LineNumbers[right]
+        && locations.Columns[left] == locations.Columns[right]
 }
 
 func HashBindingLookupKey(fileRank: int, line: int, column: int): int {
@@ -521,37 +656,47 @@ func BindingLookupCandidateColumnsByCompactSort(
     spanEnd: int,
     resultColumns: int[],
     writeIndex: int): int {
+    columns := new BindingLookupCandidateColumnTable { Columns: resultColumns }
+    return BindingLookupCandidateColumnsByCompactSortCore(column, spanStart, spanEnd, ref columns, writeIndex)
+}
+
+func BindingLookupCandidateColumnsByCompactSortCore(
+    column: int,
+    spanStart: int,
+    spanEnd: int,
+    resultColumns: &BindingLookupCandidateColumnTable,
+    writeIndex: int): int {
     segmentStart := writeIndex
 
     if column > 0 {
-        writeIndex = BindingLookupAppendCandidateColumn(resultColumns, writeIndex, segmentStart, column)
+        writeIndex = BindingLookupAppendCandidateColumnCore(ref resultColumns, writeIndex, segmentStart, column)
     }
 
     if column > 1 {
-        writeIndex = BindingLookupAppendCandidateColumn(resultColumns, writeIndex, segmentStart, column - 1)
+        writeIndex = BindingLookupAppendCandidateColumnCore(ref resultColumns, writeIndex, segmentStart, column - 1)
     }
 
-    writeIndex = BindingLookupAppendCandidateColumn(resultColumns, writeIndex, segmentStart, column + 1)
+    writeIndex = BindingLookupAppendCandidateColumnCore(ref resultColumns, writeIndex, segmentStart, column + 1)
 
     if spanStart > 0 && spanEnd >= spanStart {
         candidate := spanStart
         while candidate <= spanEnd {
-            writeIndex = BindingLookupAppendCandidateColumn(resultColumns, writeIndex, segmentStart, candidate)
+            writeIndex = BindingLookupAppendCandidateColumnCore(ref resultColumns, writeIndex, segmentStart, candidate)
             candidate = candidate + 1
         }
     }
 
     i := segmentStart + 1
     while i < writeIndex {
-        value := resultColumns[i]
+        value := resultColumns.Columns[i]
         distance := BindingLookupCandidateColumnDistance(value, column)
         j := i - 1
-        while j >= segmentStart && BindingLookupCandidateColumnDistance(resultColumns[j], column) > distance {
-            resultColumns[j + 1] = resultColumns[j]
+        while j >= segmentStart && BindingLookupCandidateColumnDistance(resultColumns.Columns[j], column) > distance {
+            resultColumns.Columns[j + 1] = resultColumns.Columns[j]
             j = j - 1
         }
 
-        resultColumns[j + 1] = value
+        resultColumns.Columns[j + 1] = value
         i = i + 1
     }
 
@@ -563,17 +708,26 @@ func BindingLookupAppendCandidateColumn(
     writeIndex: int,
     segmentStart: int,
     candidate: int): int {
+    columns := new BindingLookupCandidateColumnTable { Columns: resultColumns }
+    return BindingLookupAppendCandidateColumnCore(ref columns, writeIndex, segmentStart, candidate)
+}
+
+func BindingLookupAppendCandidateColumnCore(
+    resultColumns: &BindingLookupCandidateColumnTable,
+    writeIndex: int,
+    segmentStart: int,
+    candidate: int): int {
     i := segmentStart
     while i < writeIndex {
-        if resultColumns[i] == candidate {
+        if resultColumns.Columns[i] == candidate {
             return writeIndex
         }
 
         i = i + 1
     }
 
-    if writeIndex < resultColumns.Length {
-        resultColumns[writeIndex] = candidate
+    if writeIndex < resultColumns.Columns.Length {
+        resultColumns.Columns[writeIndex] = candidate
         return writeIndex + 1
     }
 
