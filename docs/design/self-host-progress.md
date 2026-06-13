@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — Diagnostic deduplication tables wrapped
+
+`DiagnosticDeduplication.nl` now groups diagnostic key columns, reference key columns, and shared
+slot/result scratch arrays behind named normal structs. The compact and stable deduplication entry
+points still expose the flattened dogfood adapter ABI, while the hash-table probe loops and sort
+helpers route through wrapper-aware cores.
+
+This continues the post-parser symbol/type/diagnostic table pass after semantic scopes and declared
+type lookup. The remaining work in this group is diagnostic clustering and any other compiler-service
+kernels that still move anonymous parallel arrays through their internal loops.
+
 ## 2026-06-13 — Declared type lookup tables wrapped
 
 `TypeLookup.nl` now groups declared-type lookup columns behind named normal structs for suffix rank

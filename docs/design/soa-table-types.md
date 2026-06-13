@@ -219,7 +219,9 @@ ownership lands.
 6. In progress: port symbol/type/diagnostic tables. `SemanticScopes.nl` now wraps source-position,
    parent/symbol-range, sorted-index, symbol-name, depth-output, and name-set scratch columns behind
    normal table structs, and `TypeLookup.nl` wraps declared-type lookup and type-creation ordering
-   tables the same way. Both slices preserve the flattened dogfood adapter ABI.
+   tables the same way. `DiagnosticDeduplication.nl` now wraps diagnostic/reference key columns and
+   deduplication scratch indexes behind wrapper-aware cores. These slices preserve the flattened
+   dogfood adapter ABI.
 7. Only after those gates pass, start replacing C# emitter/analyzer internals that still require untyped
    parallel-array plumbing.
 

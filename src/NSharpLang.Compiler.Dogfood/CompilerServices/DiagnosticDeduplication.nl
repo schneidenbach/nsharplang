@@ -1,3 +1,36 @@
+struct DiagnosticDeduplicationKeyTable {
+    CodeIds: int[]
+    FileIds: int[]
+    LineNumbers: int[]
+    Columns: int[]
+    MessageIds: int[]
+}
+
+struct ReferenceDeduplicationKeyTable {
+    FileIds: int[]
+    LineNumbers: int[]
+    Columns: int[]
+}
+
+struct DeduplicationIndexScratchTable {
+    SlotIndices: int[]
+    ResultIndices: int[]
+}
+
+func DiagnosticDeduplicationKeyCount(keys: &DiagnosticDeduplicationKeyTable): int {
+    count := DiagnosticDeduplicationMinInt(keys.CodeIds.Length, keys.FileIds.Length)
+    count = DiagnosticDeduplicationMinInt(count, keys.LineNumbers.Length)
+    count = DiagnosticDeduplicationMinInt(count, keys.Columns.Length)
+    count = DiagnosticDeduplicationMinInt(count, keys.MessageIds.Length)
+    return count
+}
+
+func ReferenceDeduplicationKeyCount(keys: &ReferenceDeduplicationKeyTable): int {
+    count := DiagnosticDeduplicationMinInt(keys.FileIds.Length, keys.LineNumbers.Length)
+    count = DiagnosticDeduplicationMinInt(count, keys.Columns.Length)
+    return count
+}
+
 func DiagnosticDeduplicateCompactInto(
     codeIds: int[],
     fileRanks: int[],
@@ -6,20 +39,26 @@ func DiagnosticDeduplicateCompactInto(
     messageIds: int[],
     slotIndices: int[],
     resultIndices: int[]): int {
-    count := DiagnosticDeduplicationMinInt(codeIds.Length, fileRanks.Length)
-    count = DiagnosticDeduplicationMinInt(count, lineNumbers.Length)
-    count = DiagnosticDeduplicationMinInt(count, columns.Length)
-    count = DiagnosticDeduplicationMinInt(count, messageIds.Length)
+    keys := new DiagnosticDeduplicationKeyTable { CodeIds: codeIds, FileIds: fileRanks, LineNumbers: lineNumbers, Columns: columns, MessageIds: messageIds }
+    scratch := new DeduplicationIndexScratchTable { SlotIndices: slotIndices, ResultIndices: resultIndices }
+    return DiagnosticDeduplicateIntoCore(ref keys, ref scratch, true)
+}
 
-    maxResults := resultIndices.Length
-    capacity := slotIndices.Length
+func DiagnosticDeduplicateIntoCore(
+    keys: &DiagnosticDeduplicationKeyTable,
+    scratch: &DeduplicationIndexScratchTable,
+    sortResults: bool): int {
+    count := DiagnosticDeduplicationKeyCount(ref keys)
+
+    maxResults := scratch.ResultIndices.Length
+    capacity := scratch.SlotIndices.Length
     if count == 0 || maxResults == 0 || capacity == 0 {
         return 0
     }
 
     i := 0
     while i < capacity {
-        slotIndices[i] = -1
+        scratch.SlotIndices[i] = -1
         i = i + 1
     }
 
@@ -27,29 +66,22 @@ func DiagnosticDeduplicateCompactInto(
     index := 0
     while index < count {
         hash := HashDiagnosticDeduplicationKey(
-            codeIds[index],
-            fileRanks[index],
-            lineNumbers[index],
-            columns[index],
-            messageIds[index])
+            keys.CodeIds[index],
+            keys.FileIds[index],
+            keys.LineNumbers[index],
+            keys.Columns[index],
+            keys.MessageIds[index])
         slot := DiagnosticDeduplicationPositiveModulo(hash, capacity)
         probes := 0
         duplicate := false
 
         while probes < capacity {
-            candidateIndex := slotIndices[slot]
+            candidateIndex := scratch.SlotIndices[slot]
             if candidateIndex < 0 {
                 break
             }
 
-            if DiagnosticDeduplicationKeysEqual(
-                index,
-                candidateIndex,
-                codeIds,
-                fileRanks,
-                lineNumbers,
-                columns,
-                messageIds) {
+            if DiagnosticDeduplicationKeysEqualCore(index, candidateIndex, ref keys) {
                 duplicate = true
                 break
             }
@@ -63,19 +95,27 @@ func DiagnosticDeduplicateCompactInto(
 
         if !duplicate {
             if uniqueCount >= maxResults || probes >= capacity {
-                SortDiagnosticDeduplicationIndices(resultIndices, uniqueCount, fileRanks, lineNumbers, columns)
+                if sortResults {
+                    earlySortKeys := new ReferenceDeduplicationKeyTable { FileIds: keys.FileIds, LineNumbers: keys.LineNumbers, Columns: keys.Columns }
+                    SortDiagnosticDeduplicationIndicesCore(scratch.ResultIndices, uniqueCount, ref earlySortKeys)
+                }
+
                 return uniqueCount
             }
 
-            slotIndices[slot] = index
-            resultIndices[uniqueCount] = index
+            scratch.SlotIndices[slot] = index
+            scratch.ResultIndices[uniqueCount] = index
             uniqueCount = uniqueCount + 1
         }
 
         index = index + 1
     }
 
-    SortDiagnosticDeduplicationIndices(resultIndices, uniqueCount, fileRanks, lineNumbers, columns)
+    if sortResults {
+        finalSortKeys := new ReferenceDeduplicationKeyTable { FileIds: keys.FileIds, LineNumbers: keys.LineNumbers, Columns: keys.Columns }
+        SortDiagnosticDeduplicationIndicesCore(scratch.ResultIndices, uniqueCount, ref finalSortKeys)
+    }
+
     return uniqueCount
 }
 
@@ -87,75 +127,9 @@ func DiagnosticDeduplicateStableInto(
     messageIds: int[],
     slotIndices: int[],
     resultIndices: int[]): int {
-    count := DiagnosticDeduplicationMinInt(codeIds.Length, fileIds.Length)
-    count = DiagnosticDeduplicationMinInt(count, lineNumbers.Length)
-    count = DiagnosticDeduplicationMinInt(count, columns.Length)
-    count = DiagnosticDeduplicationMinInt(count, messageIds.Length)
-
-    maxResults := resultIndices.Length
-    capacity := slotIndices.Length
-    if count == 0 || maxResults == 0 || capacity == 0 {
-        return 0
-    }
-
-    i := 0
-    while i < capacity {
-        slotIndices[i] = -1
-        i = i + 1
-    }
-
-    uniqueCount := 0
-    index := 0
-    while index < count {
-        hash := HashDiagnosticDeduplicationKey(
-            codeIds[index],
-            fileIds[index],
-            lineNumbers[index],
-            columns[index],
-            messageIds[index])
-        slot := DiagnosticDeduplicationPositiveModulo(hash, capacity)
-        probes := 0
-        duplicate := false
-
-        while probes < capacity {
-            candidateIndex := slotIndices[slot]
-            if candidateIndex < 0 {
-                break
-            }
-
-            if DiagnosticDeduplicationKeysEqual(
-                index,
-                candidateIndex,
-                codeIds,
-                fileIds,
-                lineNumbers,
-                columns,
-                messageIds) {
-                duplicate = true
-                break
-            }
-
-            slot = slot + 1
-            if slot == capacity {
-                slot = 0
-            }
-            probes = probes + 1
-        }
-
-        if !duplicate {
-            if uniqueCount >= maxResults || probes >= capacity {
-                return uniqueCount
-            }
-
-            slotIndices[slot] = index
-            resultIndices[uniqueCount] = index
-            uniqueCount = uniqueCount + 1
-        }
-
-        index = index + 1
-    }
-
-    return uniqueCount
+    keys := new DiagnosticDeduplicationKeyTable { CodeIds: codeIds, FileIds: fileIds, LineNumbers: lineNumbers, Columns: columns, MessageIds: messageIds }
+    scratch := new DeduplicationIndexScratchTable { SlotIndices: slotIndices, ResultIndices: resultIndices }
+    return DiagnosticDeduplicateIntoCore(ref keys, ref scratch, false)
 }
 
 func ReferenceDeduplicateCompactInto(
@@ -164,18 +138,25 @@ func ReferenceDeduplicateCompactInto(
     columns: int[],
     slotIndices: int[],
     resultIndices: int[]): int {
-    count := DiagnosticDeduplicationMinInt(fileRanks.Length, lineNumbers.Length)
-    count = DiagnosticDeduplicationMinInt(count, columns.Length)
+    keys := new ReferenceDeduplicationKeyTable { FileIds: fileRanks, LineNumbers: lineNumbers, Columns: columns }
+    scratch := new DeduplicationIndexScratchTable { SlotIndices: slotIndices, ResultIndices: resultIndices }
+    return ReferenceDeduplicateCompactCore(ref keys, ref scratch)
+}
 
-    maxResults := resultIndices.Length
-    capacity := slotIndices.Length
+func ReferenceDeduplicateCompactCore(
+    keys: &ReferenceDeduplicationKeyTable,
+    scratch: &DeduplicationIndexScratchTable): int {
+    count := ReferenceDeduplicationKeyCount(ref keys)
+
+    maxResults := scratch.ResultIndices.Length
+    capacity := scratch.SlotIndices.Length
     if count == 0 || maxResults == 0 || capacity == 0 {
         return 0
     }
 
     i := 0
     while i < capacity {
-        slotIndices[i] = -1
+        scratch.SlotIndices[i] = -1
         i = i + 1
     }
 
@@ -183,25 +164,20 @@ func ReferenceDeduplicateCompactInto(
     index := 0
     while index < count {
         hash := HashReferenceDeduplicationKey(
-            fileRanks[index],
-            lineNumbers[index],
-            columns[index])
+            keys.FileIds[index],
+            keys.LineNumbers[index],
+            keys.Columns[index])
         slot := DiagnosticDeduplicationPositiveModulo(hash, capacity)
         probes := 0
         duplicate := false
 
         while probes < capacity {
-            candidateIndex := slotIndices[slot]
+            candidateIndex := scratch.SlotIndices[slot]
             if candidateIndex < 0 {
                 break
             }
 
-            if ReferenceDeduplicationKeysEqual(
-                index,
-                candidateIndex,
-                fileRanks,
-                lineNumbers,
-                columns) {
+            if ReferenceDeduplicationKeysEqualCore(index, candidateIndex, ref keys) {
                 duplicate = true
                 break
             }
@@ -215,19 +191,19 @@ func ReferenceDeduplicateCompactInto(
 
         if !duplicate {
             if uniqueCount >= maxResults || probes >= capacity {
-                SortDiagnosticDeduplicationIndices(resultIndices, uniqueCount, fileRanks, lineNumbers, columns)
+                SortDiagnosticDeduplicationIndicesCore(scratch.ResultIndices, uniqueCount, ref keys)
                 return uniqueCount
             }
 
-            slotIndices[slot] = index
-            resultIndices[uniqueCount] = index
+            scratch.SlotIndices[slot] = index
+            scratch.ResultIndices[uniqueCount] = index
             uniqueCount = uniqueCount + 1
         }
 
         index = index + 1
     }
 
-    SortDiagnosticDeduplicationIndices(resultIndices, uniqueCount, fileRanks, lineNumbers, columns)
+    SortDiagnosticDeduplicationIndicesCore(scratch.ResultIndices, uniqueCount, ref keys)
     return uniqueCount
 }
 
@@ -345,11 +321,19 @@ func DiagnosticDeduplicationKeysEqual(
     lineNumbers: int[],
     columns: int[],
     messageIds: int[]): bool {
-    return codeIds[left] == codeIds[right]
-        && fileRanks[left] == fileRanks[right]
-        && lineNumbers[left] == lineNumbers[right]
-        && columns[left] == columns[right]
-        && messageIds[left] == messageIds[right]
+    keys := new DiagnosticDeduplicationKeyTable { CodeIds: codeIds, FileIds: fileRanks, LineNumbers: lineNumbers, Columns: columns, MessageIds: messageIds }
+    return DiagnosticDeduplicationKeysEqualCore(left, right, ref keys)
+}
+
+func DiagnosticDeduplicationKeysEqualCore(
+    left: int,
+    right: int,
+    keys: &DiagnosticDeduplicationKeyTable): bool {
+    return keys.CodeIds[left] == keys.CodeIds[right]
+        && keys.FileIds[left] == keys.FileIds[right]
+        && keys.LineNumbers[left] == keys.LineNumbers[right]
+        && keys.Columns[left] == keys.Columns[right]
+        && keys.MessageIds[left] == keys.MessageIds[right]
 }
 
 func ReferenceDeduplicationKeysEqual(
@@ -358,9 +342,17 @@ func ReferenceDeduplicationKeysEqual(
     fileRanks: int[],
     lineNumbers: int[],
     columns: int[]): bool {
-    return fileRanks[left] == fileRanks[right]
-        && lineNumbers[left] == lineNumbers[right]
-        && columns[left] == columns[right]
+    keys := new ReferenceDeduplicationKeyTable { FileIds: fileRanks, LineNumbers: lineNumbers, Columns: columns }
+    return ReferenceDeduplicationKeysEqualCore(left, right, ref keys)
+}
+
+func ReferenceDeduplicationKeysEqualCore(
+    left: int,
+    right: int,
+    keys: &ReferenceDeduplicationKeyTable): bool {
+    return keys.FileIds[left] == keys.FileIds[right]
+        && keys.LineNumbers[left] == keys.LineNumbers[right]
+        && keys.Columns[left] == keys.Columns[right]
 }
 
 func SortDiagnosticDeduplicationIndices(
@@ -369,13 +361,21 @@ func SortDiagnosticDeduplicationIndices(
     fileRanks: int[],
     lineNumbers: int[],
     columns: int[]): void {
+    keys := new ReferenceDeduplicationKeyTable { FileIds: fileRanks, LineNumbers: lineNumbers, Columns: columns }
+    SortDiagnosticDeduplicationIndicesCore(resultIndices, count, ref keys)
+}
+
+func SortDiagnosticDeduplicationIndicesCore(
+    resultIndices: int[],
+    count: int,
+    keys: &ReferenceDeduplicationKeyTable): void {
     if count < 2 {
         return
     }
 
     start := count / 2 - 1
     while start >= 0 {
-        SiftDownDiagnosticDeduplicationIndices(resultIndices, start, count - 1, fileRanks, lineNumbers, columns)
+        SiftDownDiagnosticDeduplicationIndicesCore(resultIndices, start, count - 1, ref keys)
         start = start - 1
     }
 
@@ -386,7 +386,7 @@ func SortDiagnosticDeduplicationIndices(
         resultIndices[0] = temp
 
         end = end - 1
-        SiftDownDiagnosticDeduplicationIndices(resultIndices, 0, end, fileRanks, lineNumbers, columns)
+        SiftDownDiagnosticDeduplicationIndicesCore(resultIndices, 0, end, ref keys)
     }
 }
 
@@ -397,17 +397,26 @@ func SiftDownDiagnosticDeduplicationIndices(
     fileRanks: int[],
     lineNumbers: int[],
     columns: int[]): void {
+    keys := new ReferenceDeduplicationKeyTable { FileIds: fileRanks, LineNumbers: lineNumbers, Columns: columns }
+    SiftDownDiagnosticDeduplicationIndicesCore(resultIndices, start, end, ref keys)
+}
+
+func SiftDownDiagnosticDeduplicationIndicesCore(
+    resultIndices: int[],
+    start: int,
+    end: int,
+    keys: &ReferenceDeduplicationKeyTable): void {
     root := start
 
     while root * 2 + 1 <= end {
         child := root * 2 + 1
         swapIndex := root
 
-        if IsDiagnosticDeduplicationIndexBefore(resultIndices[swapIndex], resultIndices[child], fileRanks, lineNumbers, columns) {
+        if IsDiagnosticDeduplicationIndexBeforeCore(resultIndices[swapIndex], resultIndices[child], ref keys) {
             swapIndex = child
         }
 
-        if child + 1 <= end && IsDiagnosticDeduplicationIndexBefore(resultIndices[swapIndex], resultIndices[child + 1], fileRanks, lineNumbers, columns) {
+        if child + 1 <= end && IsDiagnosticDeduplicationIndexBeforeCore(resultIndices[swapIndex], resultIndices[child + 1], ref keys) {
             swapIndex = child + 1
         }
 
@@ -428,16 +437,24 @@ func IsDiagnosticDeduplicationIndexBefore(
     fileRanks: int[],
     lineNumbers: int[],
     columns: int[]): bool {
-    if fileRanks[left] != fileRanks[right] {
-        return fileRanks[left] < fileRanks[right]
+    keys := new ReferenceDeduplicationKeyTable { FileIds: fileRanks, LineNumbers: lineNumbers, Columns: columns }
+    return IsDiagnosticDeduplicationIndexBeforeCore(left, right, ref keys)
+}
+
+func IsDiagnosticDeduplicationIndexBeforeCore(
+    left: int,
+    right: int,
+    keys: &ReferenceDeduplicationKeyTable): bool {
+    if keys.FileIds[left] != keys.FileIds[right] {
+        return keys.FileIds[left] < keys.FileIds[right]
     }
 
-    if lineNumbers[left] != lineNumbers[right] {
-        return lineNumbers[left] < lineNumbers[right]
+    if keys.LineNumbers[left] != keys.LineNumbers[right] {
+        return keys.LineNumbers[left] < keys.LineNumbers[right]
     }
 
-    if columns[left] != columns[right] {
-        return columns[left] < columns[right]
+    if keys.Columns[left] != keys.Columns[right] {
+        return keys.Columns[left] < keys.Columns[right]
     }
 
     return left < right
