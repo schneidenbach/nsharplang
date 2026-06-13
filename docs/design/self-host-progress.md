@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — Compiler-service utility tables wrapped
+
+`StructCopyAnalysis.nl`, `AnonymousUnionShims.nl`, and `ProjectSourceFilter.nl` now route their core
+loops through named normal structs for struct-copy field flags, anonymous-union parameter flags,
+project source paths, exclude patterns, and kept-index output. The exported dogfood entry points keep
+their flattened caller-owned array ABI, while the internal loops no longer pass those utility table
+columns anonymously.
+
+This closes another set of small compiler-service kernels in the post-parser table-wrapper pass
+without widening the experimental `soa record` surface.
+
 ## 2026-06-13 — Source text line tables wrapped
 
 `SourceTextLines.nl` now groups logical line start/length ranges, line-start-only indexes, and dense

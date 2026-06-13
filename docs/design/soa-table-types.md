@@ -227,8 +227,10 @@ ownership lands.
    overload score, parameter-range, argument, call-slice, and result tables, `IdentifierSpans.nl`
    wraps code-intelligence line ranges, queries, results, and caches, and `AnalyzerExhaustiveness.nl`
    wraps analyzer coverage, missing-case result, and overload-signature rank tables. `SourceTextLines.nl`
-   now wraps logical line ranges, line-start indexes, and dense offset-line maps without using the
-   experimental `soa record` surface. These slices preserve the flattened dogfood adapter ABI.
+   now wraps logical line ranges, line-start indexes, and dense offset-line maps. The small
+   compiler-service utility pass also wraps struct-copy field flags, anonymous-union parameter flags,
+   and project source filter path/pattern/result tables without using the experimental `soa record`
+   surface. These slices preserve the flattened dogfood adapter ABI.
 7. Only after those gates pass, start replacing C# emitter/analyzer internals that still require untyped
    parallel-array plumbing.
 

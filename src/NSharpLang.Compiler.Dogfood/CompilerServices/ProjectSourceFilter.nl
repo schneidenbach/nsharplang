@@ -15,28 +15,52 @@
 // excludePatterns are the raw exclude globs (project.yml order preserved). includeTests != 0 keeps
 // *.tests.nl files. relativePaths are project-relative paths (already what Path.GetRelativePath
 // yields); they may contain '\' or '/' separators - both are normalized to '/' during matching.
+
+struct ProjectSourcePathTable {
+    RelativePaths: string[]
+}
+
+struct ProjectSourceExcludePatternTable {
+    Patterns: string[]
+}
+
+struct ProjectSourceFilterResultTable {
+    Indices: int[]
+}
+
 func ProjectSourceFilterKeptIndicesInto(
     relativePaths: string[],
     excludePatterns: string[],
     includeTests: int,
     resultIndices: int[]): int {
+    paths := new ProjectSourcePathTable { RelativePaths: relativePaths }
+    patterns := new ProjectSourceExcludePatternTable { Patterns: excludePatterns }
+    result := new ProjectSourceFilterResultTable { Indices: resultIndices }
+    return ProjectSourceFilterKeptIndicesCore(ref paths, ref patterns, includeTests, ref result)
+}
+
+func ProjectSourceFilterKeptIndicesCore(
+    paths: &ProjectSourcePathTable,
+    patterns: &ProjectSourceExcludePatternTable,
+    includeTests: int,
+    result: &ProjectSourceFilterResultTable): int {
     resultCount := 0
     i := 0
-    while i < relativePaths.Length {
-        path := relativePaths[i]
+    while i < paths.RelativePaths.Length {
+        path := paths.RelativePaths[i]
         keep := true
 
         if includeTests == 0 && ProjectSourceFilterIsTestFile(path) {
             keep = false
         }
 
-        if keep && ProjectSourceFilterIsExcluded(path, excludePatterns) {
+        if keep && ProjectSourceFilterIsExcludedCore(path, ref patterns) {
             keep = false
         }
 
         if keep {
-            if resultCount < resultIndices.Length {
-                resultIndices[resultCount] = i
+            if resultCount < result.Indices.Length {
+                result.Indices[resultCount] = i
             }
 
             resultCount = resultCount + 1
@@ -68,9 +92,14 @@ func ProjectSourceFilterIsTestFile(path: string): bool {
 }
 
 func ProjectSourceFilterIsExcluded(path: string, excludePatterns: string[]): bool {
+    patterns := new ProjectSourceExcludePatternTable { Patterns: excludePatterns }
+    return ProjectSourceFilterIsExcludedCore(path, ref patterns)
+}
+
+func ProjectSourceFilterIsExcludedCore(path: string, patterns: &ProjectSourceExcludePatternTable): bool {
     j := 0
-    while j < excludePatterns.Length {
-        if ProjectSourceFilterMatchesPattern(path, excludePatterns[j]) {
+    while j < patterns.Patterns.Length {
+        if ProjectSourceFilterMatchesPattern(path, patterns.Patterns[j]) {
             return true
         }
 

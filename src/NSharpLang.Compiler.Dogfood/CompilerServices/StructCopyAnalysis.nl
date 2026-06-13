@@ -1,15 +1,24 @@
+struct StructCopyFieldTable {
+    ReadonlyFlags: int[]
+}
+
 func StructCopyAllInstanceFieldsInitOnly(fieldReadonlyFlags: int[], count: int): int {
-    if count < 0 || count > fieldReadonlyFlags.Length {
+    fields := new StructCopyFieldTable { ReadonlyFlags: fieldReadonlyFlags }
+    return StructCopyAllInstanceFieldsInitOnlyCore(ref fields, count)
+}
+
+func StructCopyAllInstanceFieldsInitOnlyCore(fields: &StructCopyFieldTable, count: int): int {
+    if count < 0 || count > fields.ReadonlyFlags.Length {
         return -1
     }
 
     i := 0
     limit := count - 3
     while i < limit {
-        if fieldReadonlyFlags[i]
-            + fieldReadonlyFlags[i + 1]
-            + fieldReadonlyFlags[i + 2]
-            + fieldReadonlyFlags[i + 3] != 4 {
+        if fields.ReadonlyFlags[i]
+            + fields.ReadonlyFlags[i + 1]
+            + fields.ReadonlyFlags[i + 2]
+            + fields.ReadonlyFlags[i + 3] != 4 {
             return 0
         }
 
@@ -17,7 +26,7 @@ func StructCopyAllInstanceFieldsInitOnly(fieldReadonlyFlags: int[], count: int):
     }
 
     while i < count {
-        if fieldReadonlyFlags[i] != 1 {
+        if fields.ReadonlyFlags[i] != 1 {
             return 0
         }
 

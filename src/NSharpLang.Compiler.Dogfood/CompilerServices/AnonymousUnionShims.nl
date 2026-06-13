@@ -1,3 +1,7 @@
+struct AnonymousUnionParameterTable {
+    Flags: int[]
+}
+
 func AnonymousUnionDeclaresPublicShim(parameterFlags: int[], count: int): int {
     if count < 0 || count > parameterFlags.Length {
         return -1
@@ -7,18 +11,23 @@ func AnonymousUnionDeclaresPublicShim(parameterFlags: int[], count: int): int {
 }
 
 func AnonymousUnionDeclaresPublicShimTrusted(parameterFlags: int[], count: int): int {
+    parameters := new AnonymousUnionParameterTable { Flags: parameterFlags }
+    return AnonymousUnionDeclaresPublicShimTrustedCore(ref parameters, count)
+}
+
+func AnonymousUnionDeclaresPublicShimTrustedCore(parameters: &AnonymousUnionParameterTable, count: int): int {
     hasEligibleUnion := 0
     i := 0
     limit := count - 7
     while i < limit {
-        a := parameterFlags[i]
-        b := parameterFlags[i + 1]
-        c := parameterFlags[i + 2]
-        d := parameterFlags[i + 3]
-        e := parameterFlags[i + 4]
-        f := parameterFlags[i + 5]
-        g := parameterFlags[i + 6]
-        h := parameterFlags[i + 7]
+        a := parameters.Flags[i]
+        b := parameters.Flags[i + 1]
+        c := parameters.Flags[i + 2]
+        d := parameters.Flags[i + 3]
+        e := parameters.Flags[i + 4]
+        f := parameters.Flags[i + 5]
+        g := parameters.Flags[i + 6]
+        h := parameters.Flags[i + 7]
 
         if a == 2 || b == 2 || c == 2 || d == 2 || e == 2 || f == 2 || g == 2 || h == 2 {
             return 0
@@ -32,7 +41,7 @@ func AnonymousUnionDeclaresPublicShimTrusted(parameterFlags: int[], count: int):
     }
 
     while i < count {
-        flag := parameterFlags[i]
+        flag := parameters.Flags[i]
         if flag == 2 {
             return 0
         }
