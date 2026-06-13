@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — CLI query parsing tables wrapped
+
+`CliQueryParsing.nl` now groups CLI query position inputs, parsed line/column outputs, duplicate
+batch-id rank columns, duplicate-count/result scratch arrays, packed batch-result words, and
+integer parse result storage behind named normal structs. The parser helpers now forward those
+wrappers through the fast positive-position path and the whitespace-tolerant integer segment path.
+
+The exported CLI dogfood adapter functions remain flattened for `nlc query` and batch execution,
+while the internal parsing/counting loops no longer pass anonymous result arrays and scratch buffers
+through their bodies.
+
 ## 2026-06-13 — Doc query tables wrapped
 
 `DocQuery.nl` now groups documentation-query type candidate columns behind a named normal struct for

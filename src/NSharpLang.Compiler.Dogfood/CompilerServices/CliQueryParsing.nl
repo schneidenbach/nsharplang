@@ -1,16 +1,50 @@
 import System
 import System.Numerics
 
+struct CliQueryPositionInputTable {
+    Positions: string[]
+}
+
+struct CliQueryPositionResultTable {
+    Lines: int[]
+    Columns: int[]
+}
+
+struct CliBatchDuplicateIdRankTable {
+    IdRanks: int[]
+    UniqueIdCount: int
+}
+
+struct CliBatchDuplicateScratchTable {
+    CountsByRank: int[]
+    ResultRanks: int[]
+}
+
+struct CliBatchResultWordTable {
+    OkWords: ulong[]
+    ItemCount: int
+}
+
+struct CliQueryIntResultTable {
+    Values: int[]
+}
+
 func CliQueryPositionsInto(
     positions: string[],
     resultLines: int[],
     resultColumns: int[]): int {
-    count := CliQueryMinInt(positions.Length, resultLines.Length)
-    count = CliQueryMinInt(count, resultColumns.Length)
+    input := new CliQueryPositionInputTable { Positions: positions }
+    results := new CliQueryPositionResultTable { Lines: resultLines, Columns: resultColumns }
+    return CliQueryPositionsCore(ref input, ref results)
+}
+
+func CliQueryPositionsCore(input: &CliQueryPositionInputTable, results: &CliQueryPositionResultTable): int {
+    count := CliQueryMinInt(input.Positions.Length, results.Lines.Length)
+    count = CliQueryMinInt(count, results.Columns.Length)
 
     i := 0
     while i < count {
-        CliTryParsePositionPartsInto(positions[i], resultLines, i, resultColumns, i)
+        CliTryParsePositionPartsCore(input.Positions[i], ref results, i, i)
         i = i + 1
     }
 
@@ -22,22 +56,28 @@ func CliBatchDuplicateIdRanksInto(
     uniqueIdCount: int,
     countsByRank: int[],
     resultRanks: int[]): int {
-    clearCount := uniqueIdCount + 1
-    if clearCount > countsByRank.Length {
-        clearCount = countsByRank.Length
+    ranks := new CliBatchDuplicateIdRankTable { IdRanks: idRanks, UniqueIdCount: uniqueIdCount }
+    scratch := new CliBatchDuplicateScratchTable { CountsByRank: countsByRank, ResultRanks: resultRanks }
+    return CliBatchDuplicateIdRanksCore(ref ranks, ref scratch)
+}
+
+func CliBatchDuplicateIdRanksCore(ranks: &CliBatchDuplicateIdRankTable, scratch: &CliBatchDuplicateScratchTable): int {
+    clearCount := ranks.UniqueIdCount + 1
+    if clearCount > scratch.CountsByRank.Length {
+        clearCount = scratch.CountsByRank.Length
     }
 
     i := 0
     while i < clearCount {
-        countsByRank[i] = 0
+        scratch.CountsByRank[i] = 0
         i = i + 1
     }
 
     i = 0
-    while i < idRanks.Length {
-        rank := idRanks[i]
-        if rank > 0 && rank <= uniqueIdCount && rank < countsByRank.Length {
-            countsByRank[rank] = countsByRank[rank] + 1
+    while i < ranks.IdRanks.Length {
+        rank := ranks.IdRanks[i]
+        if rank > 0 && rank <= ranks.UniqueIdCount && rank < scratch.CountsByRank.Length {
+            scratch.CountsByRank[rank] = scratch.CountsByRank[rank] + 1
         }
 
         i = i + 1
@@ -45,10 +85,10 @@ func CliBatchDuplicateIdRanksInto(
 
     duplicateCount := 0
     rank := 1
-    while rank <= uniqueIdCount && rank < countsByRank.Length {
-        if countsByRank[rank] > 1 {
-            if duplicateCount < resultRanks.Length {
-                resultRanks[duplicateCount] = rank
+    while rank <= ranks.UniqueIdCount && rank < scratch.CountsByRank.Length {
+        if scratch.CountsByRank[rank] > 1 {
+            if duplicateCount < scratch.ResultRanks.Length {
+                scratch.ResultRanks[duplicateCount] = rank
             }
 
             duplicateCount = duplicateCount + 1
@@ -61,26 +101,31 @@ func CliBatchDuplicateIdRanksInto(
 }
 
 func CliBatchResultPackedSuccessCount(okWords: ulong[], itemCount: int): int {
-    if itemCount <= 0 {
+    results := new CliBatchResultWordTable { OkWords: okWords, ItemCount: itemCount }
+    return CliBatchResultPackedSuccessCountCore(ref results)
+}
+
+func CliBatchResultPackedSuccessCountCore(results: &CliBatchResultWordTable): int {
+    if results.ItemCount <= 0 {
         return 0
     }
 
-    fullWordCount := itemCount >> 6
-    if fullWordCount > okWords.Length {
-        fullWordCount = okWords.Length
+    fullWordCount := results.ItemCount >> 6
+    if fullWordCount > results.OkWords.Length {
+        fullWordCount = results.OkWords.Length
     }
 
     successCount := 0
     i := 0
     while i < fullWordCount {
-        successCount = successCount + CliBatchResultPopCount64(okWords[i])
+        successCount = successCount + CliBatchResultPopCount64(results.OkWords[i])
         i = i + 1
     }
 
-    lastBits := itemCount & 63
-    if lastBits != 0 && fullWordCount < okWords.Length {
+    lastBits := results.ItemCount & 63
+    if lastBits != 0 && fullWordCount < results.OkWords.Length {
         shift := 64 - lastBits
-        lastWord := (okWords[fullWordCount] << shift) >> shift
+        lastWord := (results.OkWords[fullWordCount] << shift) >> shift
         successCount = successCount + CliBatchResultPopCount64(lastWord)
     }
 
@@ -96,7 +141,8 @@ func CliTryParsePositionInto(position: string, result: int[]): int {
         return 0
     }
 
-    return CliTryParsePositionPartsInto(position, result, 0, result, 1)
+    results := new CliQueryPositionResultTable { Lines: result, Columns: result }
+    return CliTryParsePositionPartsCore(position, ref results, 0, 1)
 }
 
 func CliTryParsePositionPartsInto(
@@ -105,15 +151,19 @@ func CliTryParsePositionPartsInto(
     lineIndex: int,
     resultColumns: int[],
     columnIndex: int): int {
-    resultLines[lineIndex] = 0
-    resultColumns[columnIndex] = 0
+    results := new CliQueryPositionResultTable { Lines: resultLines, Columns: resultColumns }
+    return CliTryParsePositionPartsCore(position, ref results, lineIndex, columnIndex)
+}
 
-    fastParsed := CliTryParseSimplePositivePositionInto(
-        position,
-        resultLines,
-        lineIndex,
-        resultColumns,
-        columnIndex)
+func CliTryParsePositionPartsCore(
+    position: string,
+    results: &CliQueryPositionResultTable,
+    lineIndex: int,
+    columnIndex: int): int {
+    results.Lines[lineIndex] = 0
+    results.Columns[columnIndex] = 0
+
+    fastParsed := CliTryParseSimplePositivePositionCore(position, ref results, lineIndex, columnIndex)
     if fastParsed >= 0 {
         return fastParsed
     }
@@ -136,14 +186,16 @@ func CliTryParsePositionPartsInto(
         return 0
     }
 
-    if !CliTryParseIntSegmentInto(position, 0, colon, resultLines, lineIndex) {
-        resultLines[lineIndex] = 0
-        resultColumns[columnIndex] = 0
+    lineResult := new CliQueryIntResultTable { Values: results.Lines }
+    if !CliTryParseIntSegmentCore(position, 0, colon, ref lineResult, lineIndex) {
+        results.Lines[lineIndex] = 0
+        results.Columns[columnIndex] = 0
         return 0
     }
 
-    if !CliTryParseIntSegmentInto(position, colon + 1, position.Length, resultColumns, columnIndex) {
-        resultColumns[columnIndex] = 0
+    columnResult := new CliQueryIntResultTable { Values: results.Columns }
+    if !CliTryParseIntSegmentCore(position, colon + 1, position.Length, ref columnResult, columnIndex) {
+        results.Columns[columnIndex] = 0
         return 0
     }
 
@@ -155,6 +207,15 @@ func CliTryParseSimplePositivePositionInto(
     resultLines: int[],
     lineIndex: int,
     resultColumns: int[],
+    columnIndex: int): int {
+    results := new CliQueryPositionResultTable { Lines: resultLines, Columns: resultColumns }
+    return CliTryParseSimplePositivePositionCore(position, ref results, lineIndex, columnIndex)
+}
+
+func CliTryParseSimplePositivePositionCore(
+    position: string,
+    results: &CliQueryPositionResultTable,
+    lineIndex: int,
     columnIndex: int): int {
     if position.Length < 3 {
         return -1
@@ -211,12 +272,22 @@ func CliTryParseSimplePositivePositionInto(
         return -1
     }
 
-    resultLines[lineIndex] = line
-    resultColumns[columnIndex] = column
+    results.Lines[lineIndex] = line
+    results.Columns[columnIndex] = column
     return 1
 }
 
 func CliTryParseIntSegmentInto(text: string, start: int, end: int, result: int[], resultIndex: int): bool {
+    intResult := new CliQueryIntResultTable { Values: result }
+    return CliTryParseIntSegmentCore(text, start, end, ref intResult, resultIndex)
+}
+
+func CliTryParseIntSegmentCore(
+    text: string,
+    start: int,
+    end: int,
+    result: &CliQueryIntResultTable,
+    resultIndex: int): bool {
     while start < end && CliQueryIsWhiteSpace(text[start]) {
         start = start + 1
     }
@@ -254,7 +325,7 @@ func CliTryParseIntSegmentInto(text: string, start: int, end: int, result: int[]
         if value == 214748364 {
             if negative {
                 if digit == 8 && index == end - 1 {
-                    result[resultIndex] = 0 - 2147483647 - 1
+                    result.Values[resultIndex] = 0 - 2147483647 - 1
                     return true
                 }
 
@@ -271,9 +342,9 @@ func CliTryParseIntSegmentInto(text: string, start: int, end: int, result: int[]
     }
 
     if negative {
-        result[resultIndex] = 0 - value
+        result.Values[resultIndex] = 0 - value
     } else {
-        result[resultIndex] = value
+        result.Values[resultIndex] = value
     }
 
     return true
