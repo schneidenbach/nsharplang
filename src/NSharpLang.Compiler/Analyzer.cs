@@ -8309,7 +8309,10 @@ public class Analyzer : IDisposable
                 return false;
 
             var elementType = ((ByRefTypeInfo)resolvedParameter).InnerType;
-            return IsAssignable(elementType, resolvedArgument);
+            var argumentElementType = resolvedArgument is ByRefTypeInfo byRefArgument
+                ? byRefArgument.InnerType
+                : resolvedArgument;
+            return IsAssignable(elementType, argumentElementType);
         }
 
         if (expectsByRefModifier)
@@ -8335,7 +8338,13 @@ public class Analyzer : IDisposable
     {
         var resolvedParameter = ResolveTypeAlias(parameterType);
         if (resolvedParameter is ByRefTypeInfo byRef)
-            return GetNSharpMatchScore(byRef.InnerType, argumentType);
+        {
+            var resolvedArgument = ResolveTypeAlias(argumentType);
+            var argumentElementType = resolvedArgument is ByRefTypeInfo byRefArgument
+                ? byRefArgument.InnerType
+                : resolvedArgument;
+            return GetNSharpMatchScore(byRef.InnerType, argumentElementType);
+        }
 
         return GetNSharpMatchScore(parameterType, argumentType);
     }

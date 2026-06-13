@@ -9,8 +9,9 @@ tables pleasant to write without changing their layout.
 The compiler already uses struct-of-arrays tables everywhere: token kinds, node kinds, value spans,
 child runs, source spans, symbol ids, type ids, and diagnostics all live in parallel arrays. That
 layout is the performance win. The problem is ergonomics: hot N# code still carries long parameter
-lists like `outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, ...`, and
-state arrays like `st[0]`, `st[1]`, `st[2]` encode named facts as magic slots.
+lists like `outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, ...`.
+The first scalar-state cleanup is now complete: parser recursion uses a named `ParserState` struct
+instead of encoding cursor facts in magic integer slots.
 
 `soa record` is the language-level name for those tables. It must lower to the same parallel arrays
 the compiler uses today. It is not a row-object abstraction, not a mini ORM, and not permission to
@@ -209,10 +210,9 @@ ownership lands.
    `capacity`, and the core table operations to wrapper-backed arrays in the direct IL backend.
 3. Done as an experimental fixture: port the overload-candidate compact table shape to prove cold-table parity
    and row-projection IL shape without production routing.
-4. Next: port `ParserState` from `st: int[]` to a small normal struct. Member writes and top-level
-   by-ref state parameters are now proven in the columnar backend; keep this as a normal struct
-   migration and do not mix it with SoA table columns.
-5. Port parser node tables in `ParserExpressions.nl`, `ParserStatements.nl`, `ParserTypeReferences.nl`, and
+4. Done: port parser recursion state from `st: int[]` to a small normal `ParserState` struct across the
+   type, expression, statement, and function-signature kernels.
+5. Next: port parser node tables in `ParserExpressions.nl`, `ParserStatements.nl`, `ParserTypeReferences.nl`, and
    `ParserDeclarations.nl`, preserving the flattened ABI at hot call boundaries.
 6. Port symbol/type/diagnostic tables.
 7. Only after those gates pass, start replacing C# emitter/analyzer internals that still require untyped

@@ -11,6 +11,20 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — Parser state moved out of magic integer slots
+
+The parser dogfood kernels now thread a named `ParserState` struct by reference instead of a six-slot
+`int[]`. `Pos`, `NodeCursor`, `ChildCursor`, `ArgStackTop`, `SplitGreaterDepth`, and
+`OwedGreaterByteEnd` are explicit fields shared across the type-reference, expression, statement, and
+function-signature kernels, while the external flattened table ABI remains unchanged.
+
+This also forced the next by-ref correctness case: a function receiving `st: &ParserState` must be able
+to forward `ref st` into another `&ParserState` helper. The analyzer now unwraps by-ref arguments when
+checking `&T` parameters and overload scores, and the columnar by-ref proof covers the forwarding shape
+with IL-shape checks.
+
+---
+
 ## 2026-06-13 — Columnar by-ref state parameters proven
 
 The columnar parser and emitter now cover the by-ref shape needed before replacing magic parser

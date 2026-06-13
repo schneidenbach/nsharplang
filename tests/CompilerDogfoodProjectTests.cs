@@ -2419,7 +2419,8 @@ class B
         var prog =
             "struct ParserState {\n    Pos: int\n    NodeCursor: int\n}\n\n" +
             "func advance(st: &ParserState, delta: int): int {\n    st.Pos = st.Pos + delta\n    st.NodeCursor = st.NodeCursor + 1\n    return st.Pos + st.NodeCursor\n}\n\n" +
-            "func run(seed: int): int {\n    st := new ParserState { Pos: seed, NodeCursor: 10 }\n    first := advance(ref st, 3)\n    second := advance(ref st, 2)\n    return first * 100 + second * 10 + st.Pos + st.NodeCursor\n}\n";
+            "func outer(st: &ParserState, delta: int): int {\n    before := st.Pos\n    value := advance(ref st, delta)\n    return before * 1000 + value * 10 + st.Pos\n}\n\n" +
+            "func run(seed: int): int {\n    st := new ParserState { Pos: seed, NodeCursor: 10 }\n    first := advance(ref st, 3)\n    second := outer(ref st, 2)\n    return first * 100000 + second * 10 + st.Pos + st.NodeCursor\n}\n";
 
         AssertColumnarProgramMatchesCSharp(prog,
             ("run", new object[] { 1 }),
@@ -2438,6 +2439,10 @@ class B
         Assert.True(ILShapeInspector.CountOpcode(advance, OpCodes.Stfld) >= 2);
         Assert.True(ILShapeInspector.CountOpcode(advance, OpCodes.Ldfld) >= 2);
         Assert.Equal(0, ILShapeInspector.CountOpcode(advance, OpCodes.Ldarga) + ILShapeInspector.CountOpcode(advance, OpCodes.Ldarga_S));
+        var outer = programType.GetMethod("outer")!;
+        Assert.True(outer.GetParameters()[0].ParameterType.IsByRef);
+        Assert.True(ILShapeInspector.CountOpcode(outer, OpCodes.Call) >= 1);
+        Assert.Equal(0, ILShapeInspector.CountOpcode(outer, OpCodes.Ldarga) + ILShapeInspector.CountOpcode(outer, OpCodes.Ldarga_S));
         var run = programType.GetMethod("run")!;
         Assert.True(ILShapeInspector.CountOpcode(run, OpCodes.Ldloca) + ILShapeInspector.CountOpcode(run, OpCodes.Ldloca_S) >= 2);
     }
@@ -2699,8 +2704,8 @@ class B
     }
 
     // `new int[](n)` / `new long[](n)` / `new uint[](n)` array ALLOCATION (Newarr). newarr zero-initializes; combined with the
-    // write/read/.Length paths this allocates a temp buffer, fills it, and reads it back — the dogfood pattern
-    // (e.g. ParserStatements `st := new int[](6)`).
+    // write/read/.Length paths this allocates a temp buffer, fills it, and reads it back — still common for
+    // caller-owned scratch buffers in the dogfood kernels.
     [Fact]
     public void ColumnarCodegen_Parity_ArrayAlloc()
     {

@@ -12,10 +12,12 @@ namespace NSharpLang.Compiler.Columnar;
 ///
 /// Covers the pure-N#-inferable surface (~92% of the corpus): literals, arithmetic with C# numeric promotion
 /// (<see cref="ColumnarTypeLattice"/>), comparison/logical → bool, locals/params, N#-function call returns,
-/// index on arrays/strings, cast, new, ternary, assignment, parenthesized. BCL-dependent forms (member access
-/// types, calls whose callee is not an N# function) yield <see cref="ColumnarTypeLattice.External"/> — the
-/// typed host boundary a later stage fills in. The exact rules are mirrored on the C# AST by the parity oracle
-/// in the tests, so the columnar inference is verified identical to walking the object-graph AST.
+/// index on arrays/strings, cast, new/object-initializer, ternary, assignment, parenthesized. BCL-dependent
+/// forms (member access types, calls whose callee is not an N# function) yield <see cref="ColumnarTypeLattice.External"/> — the
+/// typed host boundary a later stage fills in. Ref/out call arguments are transparent wrappers around their
+/// value expression, matching the C# AST mirror's argument traversal. The exact rules are mirrored on the C#
+/// AST by the parity oracle in the tests, so the columnar inference is verified identical to walking the
+/// object-graph AST.
 /// </summary>
 public sealed class ColumnarTypeInferer
 {
@@ -97,6 +99,9 @@ public sealed class ColumnarTypeInferer
     // Returns the inferred type AND appends it to _types after its children (post-order).
     private string InferExpression(int idx)
     {
+        if (_kinds[idx] == 54) // RefOutArgument [value] — no extra AST expression in the C# oracle.
+            return InferExpression(Child(idx, 0));
+
         string t;
         switch (_kinds[idx])
         {
@@ -159,6 +164,12 @@ public sealed class ColumnarTypeInferer
             case 15: // New [type, args...]: result is the constructed type; args are inferred.
                 for (var n = 1; n < _childCount[idx]; n++)
                     InferExpression(Child(idx, n));
+                t = CanonType(Child(idx, 0));
+                break;
+            case 36: // ObjectInitializer [type, name0, value0, ...]: result is the constructed type.
+                t = CanonType(Child(idx, 0));
+                break;
+            case 42: // BareNew [type]: result is the constructed type.
                 t = CanonType(Child(idx, 0));
                 break;
             case 16: // Cast [type, operand]: result is the target type; operand inferred.

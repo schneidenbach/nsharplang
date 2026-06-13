@@ -3,8 +3,8 @@
 // the function's signature -- name, parameter names + parameter type trees, and the return type tree --
 // mirroring the C# parser's ParseFunctionDeclaration / ParseParameterList (Parser.cs:405-535, 770-840).
 // All parameter type trees and the return type tree share ONE columnar node table (the same table the
-// type kernel fills), so each is an independent root within it; the shared parser-state array `st` carries
-// the node/child cursors across the per-type parses while st[0] (pos) is repositioned to each type's start.
+// type kernel fills), so each is an independent root within it; the shared `ParserState` (`st`) carries
+// the node/child cursors across the per-type parses while st.Pos (pos) is repositioned to each type's start.
 //
 // Scope this slice: parameter NAME + parameter TYPE (any form the type kernel supports: Simple / Generic /
 // Array / Nullable / Union / ByRef), the `: ReturnType` return type (or none), an optional generic
@@ -97,13 +97,7 @@ func ParseFunctionSignatureInto(tokenKinds: int[], tokenStarts: int[], tokenValu
     }
     i = i + 1
 
-    st := new int[](6)
-    st[0] = 0
-    st[4] = 0
-    st[1] = 0
-    st[2] = 0
-    st[5] = 0
-    st[3] = 0
+    st := new ParserState { Pos: 0, NodeCursor: 0, ChildCursor: 0, ArgStackTop: 0, SplitGreaterDepth: 0, OwedGreaterByteEnd: 0 }
     argStack := new int[](count + 1)
 
     paramCount := 0
@@ -141,14 +135,14 @@ func ParseFunctionSignatureInto(tokenKinds: int[], tokenStarts: int[], tokenValu
         }
         i = i + 1
 
-        st[0] = i
-        st[4] = 0
-        st[3] = 0
-        typeRoot := ParseUnionTypeReferenceNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outNameStarts, outNameLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, 0)
+        st.Pos = i
+        st.SplitGreaterDepth = 0
+        st.ArgStackTop = 0
+        typeRoot := ParseUnionTypeReferenceNode(tokenKinds, tokenStarts, tokenValueLengths, count, ref st, argStack, outNodeKinds, outNameStarts, outNameLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, 0)
         if typeRoot < 0 {
             return -1
         }
-        i = st[0]
+        i = st.Pos
 
         outParamNameStarts[paramCount] = paramNameStart
         outParamNameLengths[paramCount] = paramNameLength
@@ -205,14 +199,14 @@ func ParseFunctionSignatureInto(tokenKinds: int[], tokenStarts: int[], tokenValu
         // branch is constructor-only and leaves function-signature parsing unchanged.
         if !(i + 1 < count && (tokenKinds[i + 1] == 42 || tokenKinds[i + 1] == 43)) {
             i = i + 1
-            st[0] = i
-            st[4] = 0
-            st[3] = 0
-            returnRoot = ParseUnionTypeReferenceNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outNameStarts, outNameLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, 0)
+            st.Pos = i
+            st.SplitGreaterDepth = 0
+            st.ArgStackTop = 0
+            returnRoot = ParseUnionTypeReferenceNode(tokenKinds, tokenStarts, tokenValueLengths, count, ref st, argStack, outNodeKinds, outNameStarts, outNameLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, 0)
             if returnRoot < 0 {
                 return -1
             }
-            i = st[0]
+            i = st.Pos
         }
     }
 
@@ -252,14 +246,14 @@ func ParseFunctionSignatureInto(tokenKinds: int[], tokenStarts: int[], tokenValu
                 itemCode = -4
                 i = i + 3
             } else {
-                st[0] = i
-                st[4] = 0
-                st[3] = 0
-                itemCode = ParseUnionTypeReferenceNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outNameStarts, outNameLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, 0)
+                st.Pos = i
+                st.SplitGreaterDepth = 0
+                st.ArgStackTop = 0
+                itemCode = ParseUnionTypeReferenceNode(tokenKinds, tokenStarts, tokenValueLengths, count, ref st, argStack, outNodeKinds, outNameStarts, outNameLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, 0)
                 if itemCode < 0 {
                     return -1
                 }
-                i = st[0]
+                i = st.Pos
             }
 
             outWhereNameStarts[whereItemCount] = whereNameStart
@@ -277,7 +271,7 @@ func ParseFunctionSignatureInto(tokenKinds: int[], tokenStarts: int[], tokenValu
 
     outResult[0] = paramCount
     outResult[1] = returnRoot
-    outResult[2] = st[1]
+    outResult[2] = st.NodeCursor
     outResult[3] = funcNameStart
     outResult[4] = funcNameLength
     outResult[5] = typeParamCount

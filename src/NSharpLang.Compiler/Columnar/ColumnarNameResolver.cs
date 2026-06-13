@@ -32,8 +32,9 @@ public readonly record struct ColumnarNameRef(string Name, ColumnarBindingKind K
 /// Node kinds (see ParserStatements.nl / ParserExpressions.nl): STMT 20 Return,21 Break,22 Continue,
 /// 23 ExpressionStatement,24 VariableDeclaration,25 Block,26 While,27 If. EXPR 0-5 literals,6 Identifier,
 /// 7 Parenthesized,8 MemberAccess,9 Call,10 IndexAccess,11 Unary,12 Binary,13 Ternary,14 Assignment,15 New,
-/// 16 Cast. A New/Cast node's child[0] is a TYPE subtree (not a name lookup); a MemberAccess member name lives
-/// in the node's value span (not a child, not a lookup) — only the receiver child[0] is resolved.
+/// 16 Cast,54 RefOutArgument. A New/Cast node's child[0] is a TYPE subtree (not a name lookup); a
+/// MemberAccess member name lives in the node's value span (not a child, not a lookup) — only the receiver
+/// child[0] is resolved. Ref/out call arguments are transparent wrappers around the argument value.
 /// </summary>
 public sealed class ColumnarNameResolver
 {
@@ -154,6 +155,9 @@ public sealed class ColumnarNameResolver
                 break;
             case 16: // Cast [type, operand]; child[0] is a TYPE subtree (skip), child[1] is the operand.
                 ResolveExpression(Child(idx, 1));
+                break;
+            case 54: // RefOutArgument [value] — transparent to lexical resolution.
+                ResolveExpression(Child(idx, 0));
                 break;
             // 0-5 literals: no identifiers.
         }

@@ -41,12 +41,36 @@ internal static class NSharpCompilerDogfoodAdapter
 
     internal static bool IsAvailable => s_bindings.Value != null;
 
+    private static bool TryGetTopLevelFunctionDeclarationIndices(
+        Bindings bindings,
+        int[] rawKinds,
+        int rawCount,
+        out int declarationCount,
+        out List<int> functionDeclarationIndices)
+    {
+        declarationCount = 0;
+        functionDeclarationIndices = new List<int>();
+
+        var declKinds = new int[rawCount + 1];
+        declarationCount = bindings.TopLevelDeclarationKinds(rawKinds, rawCount, declKinds);
+        if (declarationCount < 0)
+            return false;
+
+        for (var i = 0; i < declarationCount; i++)
+        {
+            if (declKinds[i] == 7)
+                functionDeclarationIndices.Add(i);
+        }
+
+        return true;
+    }
+
     /// <summary>
     /// COLUMNAR PIPELINE — stage 1 (docs/design/columnar-pipeline.md). Builds the top-level function
     /// declared-symbol model (name, modifiers, canonical parameter + return type signatures) DIRECTLY from the
     /// columnar declaration + signature tables, WITHOUT materializing the C# AST. This is the declared-symbol
-    /// foundation name resolution queries. Returns false (so callers keep the C# binder) for any non-function
-    /// top-level declaration or kernel refusal. Canonical type strings match
+    /// foundation for name resolution queries. Non-function top-level declarations are ignored because this
+    /// pass only projects functions; kernel refusal still returns false. Canonical type strings match
     /// <see cref="Columnar.ColumnarFunctionSymbol.CanonicalType"/> exactly for parity.
     /// </summary>
     internal static bool TryBuildTopLevelFunctionSymbols(string source, out List<Columnar.ColumnarFunctionSymbol> symbols)
@@ -70,17 +94,12 @@ internal static class NSharpCompilerDogfoodAdapter
             if (rawCount < 0 || rawCount > capacity)
                 return false;
 
-            var declKinds = new int[rawCount + 1];
-            var declCount = bindings.TopLevelDeclarationKinds(rawKinds, rawCount, declKinds);
-            if (declCount < 0)
+            if (!TryGetTopLevelFunctionDeclarationIndices(
+                    bindings, rawKinds, rawCount, out var declCount, out var functionDeclarationIndices))
                 return false;
-            for (var i = 0; i < declCount; i++)
-            {
-                if (declKinds[i] != 7)
-                    return false;
-            }
 
-            // Per-declaration modifier flags ((int)Declaration.Modifiers); all decls are functions here.
+            // Per-declaration modifier flags ((int)Declaration.Modifiers); functionDeclarationIndices maps
+            // each function back to its declaration slot.
             var modKinds = new int[rawCount + 1];
             var modFlags = new int[rawCount + 1];
             var modCount = bindings.TopLevelDeclarationModifiers(rawKinds, rawCount, modKinds, modFlags);
@@ -102,7 +121,7 @@ internal static class NSharpCompilerDogfoodAdapter
             }
 
             var funcIndices = TopLevelFuncIndices(ck, n);
-            if (funcIndices.Count != declCount)
+            if (funcIndices.Count != functionDeclarationIndices.Count)
                 return false;
 
             var cap = n + 1;
@@ -132,7 +151,11 @@ internal static class NSharpCompilerDogfoodAdapter
 
                 var returnType = sres[1] >= 0 ? ColumnarTypeCanon(sk, sns, snl, scs, scc, sci, source, sres[1]) : null;
 
-                symbols.Add(new Columnar.ColumnarFunctionSymbol(name, modFlags[fi], parameterTypes, returnType));
+                symbols.Add(new Columnar.ColumnarFunctionSymbol(
+                    name,
+                    modFlags[functionDeclarationIndices[fi]],
+                    parameterTypes,
+                    returnType));
             }
 
             return true;
@@ -148,8 +171,8 @@ internal static class NSharpCompilerDogfoodAdapter
     /// COLUMNAR PIPELINE — stage 2 (docs/design/columnar-pipeline.md). Lexical name resolution over the
     /// columnar tables (no C# AST): for each top-level function, the binding classification of every bare
     /// identifier in its body (parameter / local / function / not-in-scope), in pre-order. All top-level
-    /// functions are pre-declared so forward references resolve. Returns false (C# fallback) for any
-    /// non-function declaration or kernel refusal.
+    /// functions are pre-declared so forward references resolve. Non-function top-level declarations are
+    /// ignored; unsupported function forms or kernel refusal still return false.
     /// </summary>
     internal static bool TryResolveTopLevelFunctionNames(string source, out List<List<Columnar.ColumnarNameRef>> perFunctionRefs)
     {
@@ -172,15 +195,9 @@ internal static class NSharpCompilerDogfoodAdapter
             if (rawCount < 0 || rawCount > capacity)
                 return false;
 
-            var declKinds = new int[rawCount + 1];
-            var declCount = bindings.TopLevelDeclarationKinds(rawKinds, rawCount, declKinds);
-            if (declCount < 0)
+            if (!TryGetTopLevelFunctionDeclarationIndices(
+                    bindings, rawKinds, rawCount, out var declCount, out var functionDeclarationIndices))
                 return false;
-            for (var i = 0; i < declCount; i++)
-            {
-                if (declKinds[i] != 7)
-                    return false;
-            }
 
             // All top-level function names, pre-declared (forward references resolve).
             var nameKinds = new int[rawCount + 1];
@@ -193,7 +210,7 @@ internal static class NSharpCompilerDogfoodAdapter
             var functionNames = new HashSet<string>(StringComparer.Ordinal);
             for (var i = 0; i < nameCount; i++)
             {
-                if (nameStarts[i] >= 0)
+                if (nameKinds[i] == 7 && nameStarts[i] >= 0)
                     functionNames.Add(source.Substring(nameStarts[i], nameLengths[i]));
             }
 
@@ -212,7 +229,7 @@ internal static class NSharpCompilerDogfoodAdapter
             }
 
             var funcIndices = TopLevelFuncIndices(ck, n);
-            if (funcIndices.Count != declCount)
+            if (funcIndices.Count != functionDeclarationIndices.Count)
                 return false;
 
             var cap = n + 1;
@@ -276,7 +293,7 @@ internal static class NSharpCompilerDogfoodAdapter
     /// expression in its body (post-order). Two passes: (1) every function's signature → the function-return-
     /// type map (so calls infer their return type, incl. forward refs); (2) per function, infer the body with
     /// its parameter types + the shared function map. Pure-N# surface is inferred; BCL forms yield "External".
-    /// Fallback-safe (false for any non-function declaration or kernel refusal).
+    /// Non-function top-level declarations are ignored; unsupported function forms or kernel refusal return false.
     /// </summary>
     internal static bool TryInferTopLevelFunctionTypes(string source, out List<List<string>> perFunctionTypes)
     {
@@ -299,15 +316,9 @@ internal static class NSharpCompilerDogfoodAdapter
             if (rawCount < 0 || rawCount > capacity)
                 return false;
 
-            var declKinds = new int[rawCount + 1];
-            var declCount = bindings.TopLevelDeclarationKinds(rawKinds, rawCount, declKinds);
-            if (declCount < 0)
+            if (!TryGetTopLevelFunctionDeclarationIndices(
+                    bindings, rawKinds, rawCount, out _, out var functionDeclarationIndices))
                 return false;
-            for (var i = 0; i < declCount; i++)
-            {
-                if (declKinds[i] != 7)
-                    return false;
-            }
 
             var ck = new int[rawCount];
             var cs = new int[rawCount];
@@ -324,7 +335,7 @@ internal static class NSharpCompilerDogfoodAdapter
             }
 
             var funcIndices = TopLevelFuncIndices(ck, n);
-            if (funcIndices.Count != declCount)
+            if (funcIndices.Count != functionDeclarationIndices.Count)
                 return false;
 
             var cap = n + 1;
@@ -396,7 +407,7 @@ internal static class NSharpCompilerDogfoodAdapter
     // COLUMNAR PIPELINE stage 3b (docs/design/columnar-pipeline.md): pure-structural diagnostics over the
     // columnar statement tables — no C# AST. This slice emits definite-return (NL305). Per function, the
     // descriptor list is empty or ["missing-return:<canonicalReturnType>"]. Reuses the stage-3 parse scaffold;
-    // declines (false → C# fallback) on any unsupported form, exactly like the stage-3 inferer, and
+    // ignores non-function top-level declarations, declines on any unsupported function form, and
     // additionally on async/generator functions whose NL305 exemptions it cannot model (see below).
     internal static bool TryCollectTopLevelFunctionDiagnostics(string source, out List<List<string>> perFunctionDiagnostics)
     {
@@ -419,15 +430,9 @@ internal static class NSharpCompilerDogfoodAdapter
             if (rawCount < 0 || rawCount > capacity)
                 return false;
 
-            var declKinds = new int[rawCount + 1];
-            var declCount = bindings.TopLevelDeclarationKinds(rawKinds, rawCount, declKinds);
-            if (declCount < 0)
+            if (!TryGetTopLevelFunctionDeclarationIndices(
+                    bindings, rawKinds, rawCount, out var declCount, out var functionDeclarationIndices))
                 return false;
-            for (var i = 0; i < declCount; i++)
-            {
-                if (declKinds[i] != 7)
-                    return false;
-            }
 
             var ck = new int[rawCount];
             var cs = new int[rawCount];
@@ -444,7 +449,7 @@ internal static class NSharpCompilerDogfoodAdapter
             }
 
             var funcIndices = TopLevelFuncIndices(ck, n);
-            if (funcIndices.Count != declCount)
+            if (funcIndices.Count != functionDeclarationIndices.Count)
                 return false;
 
             var cap = n + 1;
@@ -459,9 +464,9 @@ internal static class NSharpCompilerDogfoodAdapter
             if (modCount != declCount)
                 return false;
             const int asyncOrGenerator = (int)(Modifiers.Async | Modifiers.Generator);
-            for (var i = 0; i < declCount; i++)
+            for (var i = 0; i < functionDeclarationIndices.Count; i++)
             {
-                if ((modFlags[i] & asyncOrGenerator) != 0)
+                if ((modFlags[functionDeclarationIndices[i]] & asyncOrGenerator) != 0)
                     return false;
             }
 
@@ -538,8 +543,9 @@ internal static class NSharpCompilerDogfoodAdapter
     // parameter names are added before its body is walked (params are always "used"); and each Block's `:=`
     // locals are checked at the Block's exit against usedNames AS OF THEN (so a use after the block closes — a
     // later sibling block or later function — does not suppress it, while an earlier use does). The walk lives
-    // in ColumnarDiagnosticsPass.CollectUnusedLocals. Interpolated strings ($"...{x}...") cannot hide a use:
-    // the kernel refuses them, so such sources decline here (bodyNodeCount <= 0) to the C# linter.
+    // in ColumnarDiagnosticsPass.CollectUnusedLocals. Non-function top-level declarations are ignored.
+    // Interpolated strings ($"...{x}...") cannot hide a use: the kernel refuses them, so such sources decline
+    // here (bodyNodeCount <= 0) to the C# linter.
     internal static bool TryCollectUnusedLocals(string source, out List<List<string>> perFunctionUnusedLocals)
     {
         perFunctionUnusedLocals = new List<List<string>>();
@@ -561,15 +567,9 @@ internal static class NSharpCompilerDogfoodAdapter
             if (rawCount < 0 || rawCount > capacity)
                 return false;
 
-            var declKinds = new int[rawCount + 1];
-            var declCount = bindings.TopLevelDeclarationKinds(rawKinds, rawCount, declKinds);
-            if (declCount < 0)
+            if (!TryGetTopLevelFunctionDeclarationIndices(
+                    bindings, rawKinds, rawCount, out _, out var functionDeclarationIndices))
                 return false;
-            for (var i = 0; i < declCount; i++)
-            {
-                if (declKinds[i] != 7)
-                    return false;
-            }
 
             var ck = new int[rawCount];
             var cs = new int[rawCount];
@@ -586,7 +586,7 @@ internal static class NSharpCompilerDogfoodAdapter
             }
 
             var funcIndices = TopLevelFuncIndices(ck, n);
-            if (funcIndices.Count != declCount)
+            if (funcIndices.Count != functionDeclarationIndices.Count)
                 return false;
 
             var lineColByOffset = new Dictionary<int, (int Line, int Column)>(rawCount);
