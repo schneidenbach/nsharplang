@@ -55,18 +55,30 @@
 // Parse a `{ ... }` block: a sequence of statements until the matching `}`. BlockStatement (kind 25),
 // children = the contained statement node ids (variable arity -> LIFO arg-stack). st.Pos must be at the `{`.
 func ParseBlockStatementNode(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, st: &ParserState, argStack: int[], nodes: &ParserExpressionNodeTable, outChildIndices: int[], depth: int): int {
+    tokens := new ParserTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
+    stack := new ParserArgumentStack { Values: argStack }
+    children := new ParserChildIndexTable { Indices: outChildIndices }
+    return ParseBlockStatementNodeCore(ref tokens, count, ref st, ref stack, ref nodes, ref children, depth)
+}
+
+func ParseBlockStatementNodeCore(tokens: &ParserTokenTable, count: int, st: &ParserState, argStack: &ParserArgumentStack, nodes: &ParserExpressionNodeTable, children: &ParserChildIndexTable, depth: int): int {
+    tokenKinds := tokens.Kinds
+    tokenStarts := tokens.Starts
+    tokenValueLengths := tokens.ValueLengths
+    argStackValues := argStack.Values
+    childIndices := children.Indices
     blockStart := tokenStarts[st.Pos]
     st.Pos = st.Pos + 1
     argBase := st.ArgStackTop
 
     while st.Pos < count && tokenKinds[st.Pos] != 130 {
-        stmt := ParseStatementCoreNode(tokenKinds, tokenStarts, tokenValueLengths, count, ref st, argStack, ref nodes, outChildIndices, depth + 1)
+        stmt := ParseStatementCoreNode(ref tokens, count, ref st, ref argStack, ref nodes, ref children, depth + 1)
         if stmt < 0 {
             st.ArgStackTop = argBase
             return -1
         }
 
-        argStack[st.ArgStackTop] = stmt
+        argStackValues[st.ArgStackTop] = stmt
         st.ArgStackTop = st.ArgStackTop + 1
     }
 
@@ -81,7 +93,7 @@ func ParseBlockStatementNode(tokenKinds: int[], tokenStarts: int[], tokenValueLe
     childRunStart := st.ChildCursor
     a := argBase
     while a < st.ArgStackTop {
-        AppendExpressionChild(ref st, outChildIndices, argStack[a])
+        AppendExpressionChild(ref st, childIndices, argStackValues[a])
         a = a + 1
     }
     st.ArgStackTop = argBase
@@ -90,7 +102,12 @@ func ParseBlockStatementNode(tokenKinds: int[], tokenStarts: int[], tokenValueLe
 }
 
 // Dispatch + parse a single statement at st.Pos. Returns the emitted statement node id, or -1.
-func ParseStatementCoreNode(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, st: &ParserState, argStack: int[], nodes: &ParserExpressionNodeTable, outChildIndices: int[], depth: int): int {
+func ParseStatementCoreNode(tokens: &ParserTokenTable, count: int, st: &ParserState, argStack: &ParserArgumentStack, nodes: &ParserExpressionNodeTable, children: &ParserChildIndexTable, depth: int): int {
+    tokenKinds := tokens.Kinds
+    tokenStarts := tokens.Starts
+    tokenValueLengths := tokens.ValueLengths
+    argStackValues := argStack.Values
+    childIndices := children.Indices
     if depth > 200 {
         return -1
     }
@@ -103,7 +120,7 @@ func ParseStatementCoreNode(tokenKinds: int[], tokenStarts: int[], tokenValueLen
     kind := tokenKinds[start]
 
     if kind == 129 {
-        return ParseBlockStatementNode(tokenKinds, tokenStarts, tokenValueLengths, count, ref st, argStack, ref nodes, outChildIndices, depth)
+        return ParseBlockStatementNodeCore(ref tokens, count, ref st, ref argStack, ref nodes, ref children, depth)
     }
 
     // `try { } [catch ... { }]* [finally { }]` (Try 38 / Catch 39 / Finally 40) -- TryStatement kind 49,
@@ -122,12 +139,12 @@ func ParseStatementCoreNode(tokenKinds: int[], tokenStarts: int[], tokenValueLen
         if st.Pos >= count || tokenKinds[st.Pos] != 129 {
             return -1
         }
-        tryBlock := ParseBlockStatementNode(tokenKinds, tokenStarts, tokenValueLengths, count, ref st, argStack, ref nodes, outChildIndices, depth + 1)
+        tryBlock := ParseBlockStatementNodeCore(ref tokens, count, ref st, ref argStack, ref nodes, ref children, depth + 1)
         if tryBlock < 0 {
             return -1
         }
         tryArgBase := st.ArgStackTop
-        argStack[st.ArgStackTop] = tryBlock
+        argStackValues[st.ArgStackTop] = tryBlock
         st.ArgStackTop = st.ArgStackTop + 1
         while st.Pos < count && tokenKinds[st.Pos] == 39 {
             catchStart := tokenStarts[st.Pos]
@@ -184,7 +201,7 @@ func ParseStatementCoreNode(tokenKinds: int[], tokenStarts: int[], tokenValueLen
                 st.ArgStackTop = tryArgBase
                 return -1
             }
-            catchBody := ParseBlockStatementNode(tokenKinds, tokenStarts, tokenValueLengths, count, ref st, argStack, ref nodes, outChildIndices, depth + 1)
+            catchBody := ParseBlockStatementNodeCore(ref tokens, count, ref st, ref argStack, ref nodes, ref children, depth + 1)
             if catchBody < 0 {
                 st.ArgStackTop = tryArgBase
                 return -1
@@ -200,11 +217,11 @@ func ParseStatementCoreNode(tokenKinds: int[], tokenStarts: int[], tokenValueLen
             }
             clauseChildRun := st.ChildCursor
             if nameNode >= 0 {
-                AppendExpressionChild(ref st, outChildIndices, nameNode)
+                AppendExpressionChild(ref st, childIndices, nameNode)
             }
-            AppendExpressionChild(ref st, outChildIndices, catchBody)
+            AppendExpressionChild(ref st, childIndices, catchBody)
             clause := EmitExpressionNode(ref st, ref nodes, 50, typeStart, typeLen, clauseChildRun, clauseChildCount, catchStart, catchEnd - catchStart)
-            argStack[st.ArgStackTop] = clause
+            argStackValues[st.ArgStackTop] = clause
             st.ArgStackTop = st.ArgStackTop + 1
         }
         if st.Pos < count && tokenKinds[st.Pos] == 40 {
@@ -213,12 +230,12 @@ func ParseStatementCoreNode(tokenKinds: int[], tokenStarts: int[], tokenValueLen
                 st.ArgStackTop = tryArgBase
                 return -1
             }
-            finallyBlock := ParseBlockStatementNode(tokenKinds, tokenStarts, tokenValueLengths, count, ref st, argStack, ref nodes, outChildIndices, depth + 1)
+            finallyBlock := ParseBlockStatementNodeCore(ref tokens, count, ref st, ref argStack, ref nodes, ref children, depth + 1)
             if finallyBlock < 0 {
                 st.ArgStackTop = tryArgBase
                 return -1
             }
-            argStack[st.ArgStackTop] = finallyBlock
+            argStackValues[st.ArgStackTop] = finallyBlock
             st.ArgStackTop = st.ArgStackTop + 1
         }
         childTotal := st.ArgStackTop - tryArgBase
@@ -226,12 +243,12 @@ func ParseStatementCoreNode(tokenKinds: int[], tokenStarts: int[], tokenValueLen
             st.ArgStackTop = tryArgBase
             return -1
         }
-        lastClause := argStack[st.ArgStackTop - 1]
+        lastClause := argStackValues[st.ArgStackTop - 1]
         tryEnd := nodes.SpanStarts[lastClause] + nodes.SpanLengths[lastClause]
         tryChildRun := st.ChildCursor
         a := tryArgBase
         while a < st.ArgStackTop {
-            AppendExpressionChild(ref st, outChildIndices, argStack[a])
+            AppendExpressionChild(ref st, childIndices, argStackValues[a])
             a = a + 1
         }
         st.ArgStackTop = tryArgBase
@@ -244,41 +261,41 @@ func ParseStatementCoreNode(tokenKinds: int[], tokenStarts: int[], tokenValueLen
     if kind == 80 {
         lockStart := tokenStarts[start]
         st.Pos = start + 1
-        lockee := ParseAssignmentExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, ref st, argStack, ref nodes, outChildIndices, 0)
+        lockee := ParseAssignmentExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, ref st, argStackValues, ref nodes, childIndices, 0)
         if lockee < 0 {
             return -1
         }
         if st.Pos >= count || tokenKinds[st.Pos] != 129 {
             return -1
         }
-        lockBody := ParseBlockStatementNode(tokenKinds, tokenStarts, tokenValueLengths, count, ref st, argStack, ref nodes, outChildIndices, depth + 1)
+        lockBody := ParseBlockStatementNodeCore(ref tokens, count, ref st, ref argStack, ref nodes, ref children, depth + 1)
         if lockBody < 0 {
             return -1
         }
         lockEnd := nodes.SpanStarts[lockBody] + nodes.SpanLengths[lockBody]
         lockChildRun := st.ChildCursor
-        AppendExpressionChild(ref st, outChildIndices, lockee)
-        AppendExpressionChild(ref st, outChildIndices, lockBody)
+        AppendExpressionChild(ref st, childIndices, lockee)
+        AppendExpressionChild(ref st, childIndices, lockBody)
         return EmitExpressionNode(ref st, ref nodes, 51, -1, 0, lockChildRun, 2, lockStart, lockEnd - lockStart)
     }
 
     if kind == 27 {
         whileStart := tokenStarts[start]
         st.Pos = start + 1
-        condition := ParseAssignmentExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, ref st, argStack, ref nodes, outChildIndices, 0)
+        condition := ParseAssignmentExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, ref st, argStackValues, ref nodes, childIndices, 0)
         if condition < 0 {
             return -1
         }
 
-        body := ParseStatementCoreNode(tokenKinds, tokenStarts, tokenValueLengths, count, ref st, argStack, ref nodes, outChildIndices, depth + 1)
+        body := ParseStatementCoreNode(ref tokens, count, ref st, ref argStack, ref nodes, ref children, depth + 1)
         if body < 0 {
             return -1
         }
 
         bodyEnd := nodes.SpanStarts[body] + nodes.SpanLengths[body]
         childRunStart := st.ChildCursor
-        AppendExpressionChild(ref st, outChildIndices, condition)
-        AppendExpressionChild(ref st, outChildIndices, body)
+        AppendExpressionChild(ref st, childIndices, condition)
+        AppendExpressionChild(ref st, childIndices, body)
         return EmitExpressionNode(ref st, ref nodes, 26, -1, 0, childRunStart, 2, whileStart, bodyEnd - whileStart)
     }
 
@@ -290,7 +307,7 @@ func ParseStatementCoreNode(tokenKinds: int[], tokenStarts: int[], tokenValueLen
         // an assignment expression statement); cond is an expression. All three clauses are required (an empty
         // clause makes a sub-parse refuse -> the whole statement declines to the C# parser). Children, in order:
         // [init, cond, incr, body] -> ForStatement kind 28.
-        initNode := ParseSimpleStatementNode(tokenKinds, tokenStarts, tokenValueLengths, count, ref st, argStack, ref nodes, outChildIndices)
+        initNode := ParseSimpleStatementNode(ref tokens, count, ref st, ref argStack, ref nodes, ref children)
         if initNode < 0 {
             return -1
         }
@@ -300,7 +317,7 @@ func ParseStatementCoreNode(tokenKinds: int[], tokenStarts: int[], tokenValueLen
         }
         st.Pos = st.Pos + 1
 
-        forCondition := ParseAssignmentExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, ref st, argStack, ref nodes, outChildIndices, 0)
+        forCondition := ParseAssignmentExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, ref st, argStackValues, ref nodes, childIndices, 0)
         if forCondition < 0 {
             return -1
         }
@@ -310,22 +327,22 @@ func ParseStatementCoreNode(tokenKinds: int[], tokenStarts: int[], tokenValueLen
         }
         st.Pos = st.Pos + 1
 
-        increment := ParseSimpleStatementNode(tokenKinds, tokenStarts, tokenValueLengths, count, ref st, argStack, ref nodes, outChildIndices)
+        increment := ParseSimpleStatementNode(ref tokens, count, ref st, ref argStack, ref nodes, ref children)
         if increment < 0 {
             return -1
         }
 
-        forBody := ParseStatementCoreNode(tokenKinds, tokenStarts, tokenValueLengths, count, ref st, argStack, ref nodes, outChildIndices, depth + 1)
+        forBody := ParseStatementCoreNode(ref tokens, count, ref st, ref argStack, ref nodes, ref children, depth + 1)
         if forBody < 0 {
             return -1
         }
 
         forBodyEnd := nodes.SpanStarts[forBody] + nodes.SpanLengths[forBody]
         forChildRunStart := st.ChildCursor
-        AppendExpressionChild(ref st, outChildIndices, initNode)
-        AppendExpressionChild(ref st, outChildIndices, forCondition)
-        AppendExpressionChild(ref st, outChildIndices, increment)
-        AppendExpressionChild(ref st, outChildIndices, forBody)
+        AppendExpressionChild(ref st, childIndices, initNode)
+        AppendExpressionChild(ref st, childIndices, forCondition)
+        AppendExpressionChild(ref st, childIndices, increment)
+        AppendExpressionChild(ref st, childIndices, forBody)
         return EmitExpressionNode(ref st, ref nodes, 28, -1, 0, forChildRunStart, 4, forStart, forBodyEnd - forStart)
     }
 
@@ -348,32 +365,32 @@ func ParseStatementCoreNode(tokenKinds: int[], tokenStarts: int[], tokenValueLen
         }
         st.Pos = st.Pos + 1
 
-        collection := ParseAssignmentExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, ref st, argStack, ref nodes, outChildIndices, 0)
+        collection := ParseAssignmentExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, ref st, argStackValues, ref nodes, childIndices, 0)
         if collection < 0 {
             return -1
         }
 
-        foreachBody := ParseStatementCoreNode(tokenKinds, tokenStarts, tokenValueLengths, count, ref st, argStack, ref nodes, outChildIndices, depth + 1)
+        foreachBody := ParseStatementCoreNode(ref tokens, count, ref st, ref argStack, ref nodes, ref children, depth + 1)
         if foreachBody < 0 {
             return -1
         }
 
         foreachBodyEnd := nodes.SpanStarts[foreachBody] + nodes.SpanLengths[foreachBody]
         foreachChildRunStart := st.ChildCursor
-        AppendExpressionChild(ref st, outChildIndices, collection)
-        AppendExpressionChild(ref st, outChildIndices, foreachBody)
+        AppendExpressionChild(ref st, childIndices, collection)
+        AppendExpressionChild(ref st, childIndices, foreachBody)
         return EmitExpressionNode(ref st, ref nodes, 29, foreachVarStart, foreachVarLength, foreachChildRunStart, 2, foreachStart, foreachBodyEnd - foreachStart)
     }
 
     if kind == 23 {
         ifStart := tokenStarts[start]
         st.Pos = start + 1
-        condition := ParseAssignmentExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, ref st, argStack, ref nodes, outChildIndices, 0)
+        condition := ParseAssignmentExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, ref st, argStackValues, ref nodes, childIndices, 0)
         if condition < 0 {
             return -1
         }
 
-        thenNode := ParseStatementCoreNode(tokenKinds, tokenStarts, tokenValueLengths, count, ref st, argStack, ref nodes, outChildIndices, depth + 1)
+        thenNode := ParseStatementCoreNode(ref tokens, count, ref st, ref argStack, ref nodes, ref children, depth + 1)
         if thenNode < 0 {
             return -1
         }
@@ -382,7 +399,7 @@ func ParseStatementCoreNode(tokenKinds: int[], tokenStarts: int[], tokenValueLen
         elseNode := -1
         if st.Pos < count && tokenKinds[st.Pos] == 24 {
             st.Pos = st.Pos + 1
-            elseNode = ParseStatementCoreNode(tokenKinds, tokenStarts, tokenValueLengths, count, ref st, argStack, ref nodes, outChildIndices, depth + 1)
+            elseNode = ParseStatementCoreNode(ref tokens, count, ref st, ref argStack, ref nodes, ref children, depth + 1)
             if elseNode < 0 {
                 return -1
             }
@@ -391,22 +408,27 @@ func ParseStatementCoreNode(tokenKinds: int[], tokenStarts: int[], tokenValueLen
         }
 
         childRunStart := st.ChildCursor
-        AppendExpressionChild(ref st, outChildIndices, condition)
-        AppendExpressionChild(ref st, outChildIndices, thenNode)
+        AppendExpressionChild(ref st, childIndices, condition)
+        AppendExpressionChild(ref st, childIndices, thenNode)
         ifChildCount := 2
         if elseNode >= 0 {
-            AppendExpressionChild(ref st, outChildIndices, elseNode)
+            AppendExpressionChild(ref st, childIndices, elseNode)
             ifChildCount = 3
         }
 
         return EmitExpressionNode(ref st, ref nodes, 27, -1, 0, childRunStart, ifChildCount, ifStart, endSpan - ifStart)
     }
 
-    return ParseSimpleStatementNode(tokenKinds, tokenStarts, tokenValueLengths, count, ref st, argStack, ref nodes, outChildIndices)
+    return ParseSimpleStatementNode(ref tokens, count, ref st, ref argStack, ref nodes, ref children)
 }
 
 // The non-control-flow statements: return / break / continue / `:=` declaration / expression statement.
-func ParseSimpleStatementNode(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, st: &ParserState, argStack: int[], nodes: &ParserExpressionNodeTable, outChildIndices: int[]): int {
+func ParseSimpleStatementNode(tokens: &ParserTokenTable, count: int, st: &ParserState, argStack: &ParserArgumentStack, nodes: &ParserExpressionNodeTable, children: &ParserChildIndexTable): int {
+    tokenKinds := tokens.Kinds
+    tokenStarts := tokens.Starts
+    tokenValueLengths := tokens.ValueLengths
+    argStackValues := argStack.Values
+    childIndices := children.Indices
     start := st.Pos
     kind := tokenKinds[start]
 
@@ -416,14 +438,14 @@ func ParseSimpleStatementNode(tokenKinds: int[], tokenStarts: int[], tokenValueL
         st.Pos = start + 1
 
         if st.Pos < count && tokenKinds[st.Pos] != 130 && tokenKinds[st.Pos] != 135 && tokenKinds[st.Pos] != 136 {
-            valueRoot := ParseAssignmentExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, ref st, argStack, ref nodes, outChildIndices, 0)
+            valueRoot := ParseAssignmentExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, ref st, argStackValues, ref nodes, childIndices, 0)
             if valueRoot < 0 {
                 return -1
             }
 
             valueEnd := nodes.SpanStarts[valueRoot] + nodes.SpanLengths[valueRoot]
             childRunStart := st.ChildCursor
-            AppendExpressionChild(ref st, outChildIndices, valueRoot)
+            AppendExpressionChild(ref st, childIndices, valueRoot)
             return EmitExpressionNode(ref st, ref nodes, 20, -1, 0, childRunStart, 1, returnStart, valueEnd - returnStart)
         }
 
@@ -440,13 +462,13 @@ func ParseSimpleStatementNode(tokenKinds: int[], tokenStarts: int[], tokenValueL
         if st.Pos >= count || tokenKinds[st.Pos] == 130 || tokenKinds[st.Pos] == 135 || tokenKinds[st.Pos] == 136 {
             return -1
         }
-        throwValue := ParseAssignmentExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, ref st, argStack, ref nodes, outChildIndices, 0)
+        throwValue := ParseAssignmentExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, ref st, argStackValues, ref nodes, childIndices, 0)
         if throwValue < 0 {
             return -1
         }
         throwEnd := nodes.SpanStarts[throwValue] + nodes.SpanLengths[throwValue]
         throwChildRun := st.ChildCursor
-        AppendExpressionChild(ref st, outChildIndices, throwValue)
+        AppendExpressionChild(ref st, childIndices, throwValue)
         return EmitExpressionNode(ref st, ref nodes, 48, -1, 0, throwChildRun, 1, throwStart, throwEnd - throwStart)
     }
 
@@ -469,7 +491,7 @@ func ParseSimpleStatementNode(tokenKinds: int[], tokenStarts: int[], tokenValueL
         deconArgBase := st.ArgStackTop
 
         firstName := EmitExpressionNode(ref st, ref nodes, 6, tokenStarts[start], tokenValueLengths[start], -1, 0, tokenStarts[start], tokenValueLengths[start])
-        argStack[st.ArgStackTop] = firstName
+        argStackValues[st.ArgStackTop] = firstName
         st.ArgStackTop = st.ArgStackTop + 1
         st.Pos = start + 1
 
@@ -481,7 +503,7 @@ func ParseSimpleStatementNode(tokenKinds: int[], tokenStarts: int[], tokenValueL
             }
 
             nextName := EmitExpressionNode(ref st, ref nodes, 6, tokenStarts[st.Pos], tokenValueLengths[st.Pos], -1, 0, tokenStarts[st.Pos], tokenValueLengths[st.Pos])
-            argStack[st.ArgStackTop] = nextName
+            argStackValues[st.ArgStackTop] = nextName
             st.ArgStackTop = st.ArgStackTop + 1
             st.Pos = st.Pos + 1
         }
@@ -492,20 +514,20 @@ func ParseSimpleStatementNode(tokenKinds: int[], tokenStarts: int[], tokenValueL
         }
         st.Pos = st.Pos + 1
 
-        deconValue := ParseAssignmentExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, ref st, argStack, ref nodes, outChildIndices, 0)
+        deconValue := ParseAssignmentExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, ref st, argStackValues, ref nodes, childIndices, 0)
         if deconValue < 0 {
             st.ArgStackTop = deconArgBase
             return -1
         }
 
-        argStack[st.ArgStackTop] = deconValue
+        argStackValues[st.ArgStackTop] = deconValue
         st.ArgStackTop = st.ArgStackTop + 1
         deconValueEnd := nodes.SpanStarts[deconValue] + nodes.SpanLengths[deconValue]
         deconChildCount := st.ArgStackTop - deconArgBase
         deconChildRunStart := st.ChildCursor
         deconIdx := deconArgBase
         while deconIdx < st.ArgStackTop {
-            AppendExpressionChild(ref st, outChildIndices, argStack[deconIdx])
+            AppendExpressionChild(ref st, childIndices, argStackValues[deconIdx])
             deconIdx = deconIdx + 1
         }
         st.ArgStackTop = deconArgBase
@@ -606,15 +628,15 @@ func ParseSimpleStatementNode(tokenKinds: int[], tokenStarts: int[], tokenValueL
         typeSpanStart := tokenStarts[typeFirst]
         typeSpanEnd := tokenStarts[scanPos - 1] + tokenValueLengths[scanPos - 1]
         st.Pos = scanPos + 1
-        typedInit := ParseLambdaOrAssignmentExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, ref st, argStack, ref nodes, outChildIndices, 0)
+        typedInit := ParseLambdaOrAssignmentExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, ref st, argStackValues, ref nodes, childIndices, 0)
         if typedInit < 0 {
             return -1
         }
         typedNameNode := EmitExpressionNode(ref st, ref nodes, 6, typedNameStart, typedNameLength, -1, 0, typedNameStart, typedNameLength)
         typedInitEnd := nodes.SpanStarts[typedInit] + nodes.SpanLengths[typedInit]
         typedChildRunStart := st.ChildCursor
-        AppendExpressionChild(ref st, outChildIndices, typedNameNode)
-        AppendExpressionChild(ref st, outChildIndices, typedInit)
+        AppendExpressionChild(ref st, childIndices, typedNameNode)
+        AppendExpressionChild(ref st, childIndices, typedInit)
         declStart := tokenStarts[start]
         return EmitExpressionNode(ref st, ref nodes, 40, typeSpanStart, typeSpanEnd - typeSpanStart, typedChildRunStart, 2, declStart, typedInitEnd - declStart)
     }
@@ -625,18 +647,18 @@ func ParseSimpleStatementNode(tokenKinds: int[], tokenStarts: int[], tokenValueL
         st.Pos = start + 2
         // The `:=` initializer parses at the LAMBDA level (the full-expression entry) so `zero := () => 99`
         // yields a Lambda (kind 39) initializer; all non-lambda shapes fall through to assignment unchanged.
-        initRoot := ParseLambdaOrAssignmentExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, ref st, argStack, ref nodes, outChildIndices, 0)
+        initRoot := ParseLambdaOrAssignmentExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, ref st, argStackValues, ref nodes, childIndices, 0)
         if initRoot < 0 {
             return -1
         }
 
         initEnd := nodes.SpanStarts[initRoot] + nodes.SpanLengths[initRoot]
         childRunStart := st.ChildCursor
-        AppendExpressionChild(ref st, outChildIndices, initRoot)
+        AppendExpressionChild(ref st, childIndices, initRoot)
         return EmitExpressionNode(ref st, ref nodes, 24, nameStart, nameLength, childRunStart, 1, nameStart, initEnd - nameStart)
     }
 
-    exprRoot := ParseAssignmentExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, ref st, argStack, ref nodes, outChildIndices, 0)
+    exprRoot := ParseAssignmentExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, ref st, argStackValues, ref nodes, childIndices, 0)
     if exprRoot < 0 {
         return -1
     }
@@ -644,21 +666,28 @@ func ParseSimpleStatementNode(tokenKinds: int[], tokenStarts: int[], tokenValueL
     exprStart := nodes.SpanStarts[exprRoot]
     exprEnd := nodes.SpanStarts[exprRoot] + nodes.SpanLengths[exprRoot]
     childRunStart := st.ChildCursor
-    AppendExpressionChild(ref st, outChildIndices, exprRoot)
+    AppendExpressionChild(ref st, childIndices, exprRoot)
     return EmitExpressionNode(ref st, ref nodes, 23, -1, 0, childRunStart, 1, exprStart, exprEnd - exprStart)
 }
 
 func ParseStatementNodesInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, start: int, outNodeKinds: int[], outValueStarts: int[], outValueLengths: int[], outChildStart: int[], outChildCount: int[], outChildIndices: int[], outSpanStarts: int[], outSpanLengths: int[], outResult: int[]): int {
-    st := new ParserState { Pos: start, NodeCursor: 0, ChildCursor: 0, ArgStackTop: 0, SplitGreaterDepth: 0, OwedGreaterByteEnd: 0 }
-    argStack := new int[](count + 1)
+    tokens := new ParserTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
+    argStack := new ParserArgumentStack { Values: new int[](count + 1) }
     nodes := new ParserExpressionNodeTable { Kinds: outNodeKinds, ValueStarts: outValueStarts, ValueLengths: outValueLengths, ChildStart: outChildStart, ChildCount: outChildCount, SpanStarts: outSpanStarts, SpanLengths: outSpanLengths }
+    children := new ParserChildIndexTable { Indices: outChildIndices }
+    result := new ParserResultTable { Values: outResult }
+    return ParseStatementNodesCore(ref tokens, count, start, ref argStack, ref nodes, ref children, ref result)
+}
 
-    root := ParseStatementCoreNode(tokenKinds, tokenStarts, tokenValueLengths, count, ref st, argStack, ref nodes, outChildIndices, 0)
+func ParseStatementNodesCore(tokens: &ParserTokenTable, count: int, start: int, argStack: &ParserArgumentStack, nodes: &ParserExpressionNodeTable, children: &ParserChildIndexTable, outResult: &ParserResultTable): int {
+    st := new ParserState { Pos: start, NodeCursor: 0, ChildCursor: 0, ArgStackTop: 0, SplitGreaterDepth: 0, OwedGreaterByteEnd: 0 }
+
+    root := ParseStatementCoreNode(ref tokens, count, ref st, ref argStack, ref nodes, ref children, 0)
     if root < 0 {
         return -1
     }
 
-    outResult[0] = root
-    outResult[1] = st.Pos
+    outResult.Values[0] = root
+    outResult.Values[1] = st.Pos
     return st.NodeCursor
 }

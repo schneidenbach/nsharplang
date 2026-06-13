@@ -257,7 +257,9 @@ ownership lands.
    cleanup by wrapping token metadata, recursive argument stacks, child-index outputs, and result
    slots for the type-reference recursive cores. `ParserFunctionSignatures.nl` now composes those
    parser wrappers from a flattened entry shim and groups parameter, type-parameter, `where`
-   constraint, and result columns behind named tables in its internal core.
+   constraint, and result columns behind named tables in its internal core. `ParserStatements.nl`
+   now routes statement recursion through the same token, argument-stack, child-index, expression-node,
+   and result wrappers, with only flattened compatibility shims left at expression/host boundaries.
 7. Only after those gates pass, start replacing C# emitter/analyzer internals that still require untyped
    parallel-array plumbing.
 

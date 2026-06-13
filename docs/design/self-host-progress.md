@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — Parser statement recursion tables wrapped
+
+`ParserStatements.nl` now routes its recursive statement kernels through shared parser token,
+argument-stack, child-index, expression-node, and result table wrappers. The flattened
+`ParseStatementNodesInto` host entry remains stable, and `ParseBlockStatementNode` is retained as a
+flattened compatibility shim for expression-parser block-bodied lambda calls.
+
+The internal `ParseBlockStatementNodeCore`, `ParseStatementCoreNode`, `ParseSimpleStatementNode`, and
+`ParseStatementNodesCore` signatures no longer carry raw parallel arrays, while calls into the still
+flattened expression parser bridge through the wrapper columns.
+
 ## 2026-06-13 — Parser function-signature tables wrapped
 
 `ParserFunctionSignatures.nl` now keeps its flattened `ParseFunctionSignatureInto` ABI as a host
