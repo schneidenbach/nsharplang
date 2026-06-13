@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — CLI argument symbol and build tables wrapped
+
+`CliArguments.nl` now also wraps symbol-name filter batches and the build/export operand scratch
+columns. Glob and substring symbol filters route their name inputs and result indexes through named
+tables, and the build/export operand walkers now group kind ids plus the next/previous/next-option
+linked-list columns behind `CliBuildArgumentKindTable` and `CliBuildArgumentLinkTable`.
+
+`CliBuildFirstOperandIndexInto`, `CliBuildOptionSummaryInto`,
+`CliExportCSharpFirstOperandIndexInto`, `CliBuildOperandSummaryInto`, `CliBuildOperandIndicesInto`,
+and the shared remove-option helper all retain their flattened public signatures while the core
+loops use wrapper-aware tables internally.
+
 ## 2026-06-13 — CLI argument option tables wrapped
 
 `CliArguments.nl` has started its table-wrapper migration. Positional-argument filtering,

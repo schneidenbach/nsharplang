@@ -244,8 +244,9 @@ ownership lands.
    dependency deduplication buffers. `CliArguments.nl` has begun its large-file migration by wrapping
    argv inputs, option-value sets, result indexes, lint project-value indexes, tidy package/import
    name batches, status-rank outputs, source-line batches, and keep-flag outputs for the positional,
-   run/watch, publish, test, lint, and tidy argument clusters. These slices preserve the flattened
-   dogfood adapter ABI.
+   run/watch, publish, test, lint, and tidy argument clusters. It now also wraps symbol-name filter
+   inputs/results plus build/export operand kind columns and linked-list scratch columns. These slices
+   preserve the flattened dogfood adapter ABI.
 7. Only after those gates pass, start replacing C# emitter/analyzer internals that still require untyped
    parallel-array plumbing.
 

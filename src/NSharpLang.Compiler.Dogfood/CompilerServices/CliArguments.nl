@@ -34,6 +34,20 @@ struct CliFlagResultTable {
     Flags: int[]
 }
 
+struct CliSymbolNameTable {
+    Names: string[]
+}
+
+struct CliBuildArgumentKindTable {
+    Kinds: int[]
+}
+
+struct CliBuildArgumentLinkTable {
+    NextIndices: int[]
+    PreviousIndices: int[]
+    NextOptionIndices: int[]
+}
+
 func CliPositionalArgIndicesInto(
     args: string[],
     optionsWithValues: string[],
@@ -914,21 +928,31 @@ func CliSymbolNameGlobFilterIndicesInto(
     pattern: string,
     limit: int,
     resultIndices: int[]): int {
-    if limit <= 0 || resultIndices.Length == 0 {
+    symbolNames := new CliSymbolNameTable { Names: names }
+    results := new CliIndexResultTable { Indices: resultIndices }
+    return CliSymbolNameGlobFilterIndicesCore(ref symbolNames, pattern, limit, ref results)
+}
+
+func CliSymbolNameGlobFilterIndicesCore(
+    names: &CliSymbolNameTable,
+    pattern: string,
+    limit: int,
+    resultIndices: &CliIndexResultTable): int {
+    if limit <= 0 || resultIndices.Indices.Length == 0 {
         return 0
     }
 
     maxCount := limit
-    if maxCount > resultIndices.Length {
-        maxCount = resultIndices.Length
+    if maxCount > resultIndices.Indices.Length {
+        maxCount = resultIndices.Indices.Length
     }
 
     matchCount := 0
     i := 0
-    while i < names.Length && matchCount < maxCount {
-        name := names[i]
+    while i < names.Names.Length && matchCount < maxCount {
+        name := names.Names[i]
         if CliSymbolNameGlobMatchesAsciiIgnoreCase(name, pattern) {
-            resultIndices[matchCount] = i
+            resultIndices.Indices[matchCount] = i
             matchCount = matchCount + 1
         }
 
@@ -943,21 +967,31 @@ func CliSymbolNameSubstringFilterIndicesInto(
     pattern: string,
     limit: int,
     resultIndices: int[]): int {
-    if limit <= 0 || resultIndices.Length == 0 {
+    symbolNames := new CliSymbolNameTable { Names: names }
+    results := new CliIndexResultTable { Indices: resultIndices }
+    return CliSymbolNameSubstringFilterIndicesCore(ref symbolNames, pattern, limit, ref results)
+}
+
+func CliSymbolNameSubstringFilterIndicesCore(
+    names: &CliSymbolNameTable,
+    pattern: string,
+    limit: int,
+    resultIndices: &CliIndexResultTable): int {
+    if limit <= 0 || resultIndices.Indices.Length == 0 {
         return 0
     }
 
     maxCount := limit
-    if maxCount > resultIndices.Length {
-        maxCount = resultIndices.Length
+    if maxCount > resultIndices.Indices.Length {
+        maxCount = resultIndices.Indices.Length
     }
 
     matchCount := 0
     i := 0
-    while i < names.Length && matchCount < maxCount {
-        name := names[i]
+    while i < names.Names.Length && matchCount < maxCount {
+        name := names.Names[i]
         if CliSymbolNameContainsAsciiIgnoreCase(name, pattern) {
-            resultIndices[matchCount] = i
+            resultIndices.Indices[matchCount] = i
             matchCount = matchCount + 1
         }
 
@@ -1118,9 +1152,25 @@ func CliBuildFirstOperandIndexInto(
     previousIndices: int[],
     nextOptionIndices: int[],
     resultIndices: int[]): int {
+    arguments := new CliArgumentTable { Args: args }
+    kinds := new CliBuildArgumentKindTable { Kinds: kindIds }
+    links := new CliBuildArgumentLinkTable {
+        NextIndices: nextIndices,
+        PreviousIndices: previousIndices,
+        NextOptionIndices: nextOptionIndices
+    }
+    results := new CliIndexResultTable { Indices: resultIndices }
+    return CliBuildFirstOperandIndexCore(ref arguments, ref kinds, ref links, ref results)
+}
+
+func CliBuildFirstOperandIndexCore(
+    args: &CliArgumentTable,
+    kindIds: &CliBuildArgumentKindTable,
+    links: &CliBuildArgumentLinkTable,
+    resultIndices: &CliIndexResultTable): int {
     i := 0
-    while i < args.Length {
-        kind := CliBuildArgumentKind(args[i])
+    while i < args.Args.Length {
+        kind := CliBuildArgumentKind(args.Args[i])
         if kind == 5 {
             i = i + 1
             continue
@@ -1133,76 +1183,82 @@ func CliBuildFirstOperandIndexInto(
         break
     }
 
-    count := CliBuildOperandSummaryInto(args, kindIds, nextIndices, previousIndices, nextOptionIndices, resultIndices)
+    count := CliBuildOperandSummaryCore(ref args, ref kindIds, ref links, ref resultIndices)
     if count <= 0 {
         return -1
     }
 
-    return resultIndices[0]
+    return resultIndices.Indices[0]
 }
 
 func CliBuildOptionSummaryInto(args: string[], resultIndices: int[]): int {
-    if resultIndices.Length < 9 {
+    arguments := new CliArgumentTable { Args: args }
+    results := new CliIndexResultTable { Indices: resultIndices }
+    return CliBuildOptionSummaryCore(ref arguments, ref results)
+}
+
+func CliBuildOptionSummaryCore(args: &CliArgumentTable, resultIndices: &CliIndexResultTable): int {
+    if resultIndices.Indices.Length < 9 {
         return -1
     }
 
-    resultIndices[0] = -1
-    resultIndices[1] = -1
-    resultIndices[2] = -1
-    resultIndices[3] = 0
-    resultIndices[4] = 0
-    resultIndices[5] = 0
-    resultIndices[6] = 0
-    resultIndices[7] = 0
-    resultIndices[8] = 0
+    resultIndices.Indices[0] = -1
+    resultIndices.Indices[1] = -1
+    resultIndices.Indices[2] = -1
+    resultIndices.Indices[3] = 0
+    resultIndices.Indices[4] = 0
+    resultIndices.Indices[5] = 0
+    resultIndices.Indices[6] = 0
+    resultIndices.Indices[7] = 0
+    resultIndices.Indices[8] = 0
 
     outputLongIndex := -1
     outputShortIndex := -1
     i := 0
-    while i < args.Length {
-        arg := args[i]
+    while i < args.Args.Length {
+        arg := args.Args[i]
         if i == 0 && arg == "help" {
-            resultIndices[8] = 1
+            resultIndices.Indices[8] = 1
         }
 
         kind := CliBuildOptionSummaryKind(arg)
         if kind == 1 {
-            if outputLongIndex < 0 && i + 1 < args.Length {
+            if outputLongIndex < 0 && i + 1 < args.Args.Length {
                 outputLongIndex = i + 1
             }
         } else if kind == 2 {
-            if outputShortIndex < 0 && i + 1 < args.Length {
+            if outputShortIndex < 0 && i + 1 < args.Args.Length {
                 outputShortIndex = i + 1
             }
         } else if kind == 3 {
-            if resultIndices[1] < 0 && i + 1 < args.Length {
-                resultIndices[1] = i + 1
+            if resultIndices.Indices[1] < 0 && i + 1 < args.Args.Length {
+                resultIndices.Indices[1] = i + 1
             }
         } else if kind == 4 {
-            if resultIndices[2] < 0 && i + 1 < args.Length {
-                resultIndices[2] = i + 1
+            if resultIndices.Indices[2] < 0 && i + 1 < args.Args.Length {
+                resultIndices.Indices[2] = i + 1
             }
         } else if kind == 5 {
-            resultIndices[3] = 1
+            resultIndices.Indices[3] = 1
         } else if kind == 6 {
-            resultIndices[4] = 1
+            resultIndices.Indices[4] = 1
         } else if kind == 7 {
-            resultIndices[5] = 1
+            resultIndices.Indices[5] = 1
         } else if kind == 8 {
-            resultIndices[6] = 1
+            resultIndices.Indices[6] = 1
         } else if kind == 9 {
-            resultIndices[7] = 1
+            resultIndices.Indices[7] = 1
         } else if kind == 10 {
-            resultIndices[8] = 1
+            resultIndices.Indices[8] = 1
         }
 
         i = i + 1
     }
 
     if outputLongIndex >= 0 {
-        resultIndices[0] = outputLongIndex
+        resultIndices.Indices[0] = outputLongIndex
     } else {
-        resultIndices[0] = outputShortIndex
+        resultIndices.Indices[0] = outputShortIndex
     }
 
     return 0
@@ -1215,20 +1271,36 @@ func CliExportCSharpFirstOperandIndexInto(
     previousIndices: int[],
     nextOptionIndices: int[],
     resultIndices: int[]): int {
-    if args.Length == 0 {
+    arguments := new CliArgumentTable { Args: args }
+    kinds := new CliBuildArgumentKindTable { Kinds: kindIds }
+    links := new CliBuildArgumentLinkTable {
+        NextIndices: nextIndices,
+        PreviousIndices: previousIndices,
+        NextOptionIndices: nextOptionIndices
+    }
+    results := new CliIndexResultTable { Indices: resultIndices }
+    return CliExportCSharpFirstOperandIndexCore(ref arguments, ref kinds, ref links, ref results)
+}
+
+func CliExportCSharpFirstOperandIndexCore(
+    args: &CliArgumentTable,
+    kindIds: &CliBuildArgumentKindTable,
+    links: &CliBuildArgumentLinkTable,
+    resultIndices: &CliIndexResultTable): int {
+    if args.Args.Length == 0 {
         return -1
     }
 
-    firstArg := args[0]
+    firstArg := args.Args[0]
     if firstArg.Length == 0 || firstArg[0] != '-' {
         return 0
     }
 
-    if kindIds.Length < args.Length
-        || nextIndices.Length < args.Length
-        || previousIndices.Length < args.Length
-        || nextOptionIndices.Length < args.Length
-        || (args.Length > 0 && resultIndices.Length < 1) {
+    if kindIds.Kinds.Length < args.Args.Length
+        || links.NextIndices.Length < args.Args.Length
+        || links.PreviousIndices.Length < args.Args.Length
+        || links.NextOptionIndices.Length < args.Args.Length
+        || (args.Args.Length > 0 && resultIndices.Indices.Length < 1) {
         return -2
     }
 
@@ -1242,16 +1314,16 @@ func CliExportCSharpFirstOperandIndexInto(
     projectTail := -1
     count := 0
     i := 0
-    while i < args.Length {
-        kind := CliBuildArgumentKind(args[i])
-        kindIds[i] = kind
-        nextIndices[i] = -1
-        previousIndices[i] = -1
-        nextOptionIndices[i] = -1
+    while i < args.Args.Length {
+        kind := CliBuildArgumentKind(args.Args[i])
+        kindIds.Kinds[i] = kind
+        links.NextIndices[i] = -1
+        links.PreviousIndices[i] = -1
+        links.NextOptionIndices[i] = -1
 
         if last >= 0 {
-            nextIndices[last] = i
-            previousIndices[i] = last
+            links.NextIndices[last] = i
+            links.PreviousIndices[i] = last
         } else {
             first = i
         }
@@ -1261,7 +1333,7 @@ func CliExportCSharpFirstOperandIndexInto(
 
         if kind == 1 {
             if outputTail >= 0 {
-                nextOptionIndices[outputTail] = i
+                links.NextOptionIndices[outputTail] = i
             } else {
                 outputHead = i
             }
@@ -1269,7 +1341,7 @@ func CliExportCSharpFirstOperandIndexInto(
             outputTail = i
         } else if kind == 2 {
             if shortOutputTail >= 0 {
-                nextOptionIndices[shortOutputTail] = i
+                links.NextOptionIndices[shortOutputTail] = i
             } else {
                 shortOutputHead = i
             }
@@ -1277,7 +1349,7 @@ func CliExportCSharpFirstOperandIndexInto(
             shortOutputTail = i
         } else if kind == 4 {
             if projectTail >= 0 {
-                nextOptionIndices[projectTail] = i
+                links.NextOptionIndices[projectTail] = i
             } else {
                 projectHead = i
             }
@@ -1288,19 +1360,19 @@ func CliExportCSharpFirstOperandIndexInto(
         i = i + 1
     }
 
-    resultIndices[0] = first
-    count = CliBuildRemoveOptionKindPairs(kindIds, nextIndices, previousIndices, nextOptionIndices, outputHead, 1, resultIndices, count)
-    count = CliBuildRemoveOptionKindPairs(kindIds, nextIndices, previousIndices, nextOptionIndices, shortOutputHead, 2, resultIndices, count)
-    count = CliBuildRemoveOptionKindPairs(kindIds, nextIndices, previousIndices, nextOptionIndices, projectHead, 4, resultIndices, count)
+    resultIndices.Indices[0] = first
+    count = CliBuildRemoveOptionKindPairsCore(ref kindIds, ref links, outputHead, 1, ref resultIndices, count)
+    count = CliBuildRemoveOptionKindPairsCore(ref kindIds, ref links, shortOutputHead, 2, ref resultIndices, count)
+    count = CliBuildRemoveOptionKindPairsCore(ref kindIds, ref links, projectHead, 4, ref resultIndices, count)
 
-    sourceIndex := resultIndices[0]
+    sourceIndex := resultIndices.Indices[0]
     while sourceIndex >= 0 {
-        arg := args[sourceIndex]
+        arg := args.Args[sourceIndex]
         if arg.Length == 0 || arg[0] != '-' {
             return sourceIndex
         }
 
-        sourceIndex = nextIndices[sourceIndex]
+        sourceIndex = links.NextIndices[sourceIndex]
     }
 
     return -1
@@ -1313,11 +1385,27 @@ func CliBuildOperandSummaryInto(
     previousIndices: int[],
     nextOptionIndices: int[],
     resultIndices: int[]): int {
-    if kindIds.Length < args.Length
-        || nextIndices.Length < args.Length
-        || previousIndices.Length < args.Length
-        || nextOptionIndices.Length < args.Length
-        || (args.Length > 0 && resultIndices.Length < 1) {
+    arguments := new CliArgumentTable { Args: args }
+    kinds := new CliBuildArgumentKindTable { Kinds: kindIds }
+    links := new CliBuildArgumentLinkTable {
+        NextIndices: nextIndices,
+        PreviousIndices: previousIndices,
+        NextOptionIndices: nextOptionIndices
+    }
+    results := new CliIndexResultTable { Indices: resultIndices }
+    return CliBuildOperandSummaryCore(ref arguments, ref kinds, ref links, ref results)
+}
+
+func CliBuildOperandSummaryCore(
+    args: &CliArgumentTable,
+    kindIds: &CliBuildArgumentKindTable,
+    links: &CliBuildArgumentLinkTable,
+    resultIndices: &CliIndexResultTable): int {
+    if kindIds.Kinds.Length < args.Args.Length
+        || links.NextIndices.Length < args.Args.Length
+        || links.PreviousIndices.Length < args.Args.Length
+        || links.NextOptionIndices.Length < args.Args.Length
+        || (args.Args.Length > 0 && resultIndices.Indices.Length < 1) {
         return -1
     }
 
@@ -1333,22 +1421,22 @@ func CliBuildOperandSummaryInto(
     projectHead := -1
     projectTail := -1
     i := 0
-    while i < args.Length {
-        kind := CliBuildArgumentKind(args[i])
-        kindIds[i] = kind
-        nextIndices[i] = -1
-        previousIndices[i] = -1
-        nextOptionIndices[i] = -1
+    while i < args.Args.Length {
+        kind := CliBuildArgumentKind(args.Args[i])
+        kindIds.Kinds[i] = kind
+        links.NextIndices[i] = -1
+        links.PreviousIndices[i] = -1
+        links.NextOptionIndices[i] = -1
 
         if kind == 5 {
-            kindIds[i] = -1
+            kindIds.Kinds[i] = -1
             i = i + 1
             continue
         }
 
         if last >= 0 {
-            nextIndices[last] = i
-            previousIndices[i] = last
+            links.NextIndices[last] = i
+            links.PreviousIndices[i] = last
         } else {
             first = i
         }
@@ -1358,7 +1446,7 @@ func CliBuildOperandSummaryInto(
 
         if kind == 1 {
             if outputTail >= 0 {
-                nextOptionIndices[outputTail] = i
+                links.NextOptionIndices[outputTail] = i
             } else {
                 outputHead = i
             }
@@ -1366,7 +1454,7 @@ func CliBuildOperandSummaryInto(
             outputTail = i
         } else if kind == 2 {
             if shortOutputTail >= 0 {
-                nextOptionIndices[shortOutputTail] = i
+                links.NextOptionIndices[shortOutputTail] = i
             } else {
                 shortOutputHead = i
             }
@@ -1374,7 +1462,7 @@ func CliBuildOperandSummaryInto(
             shortOutputTail = i
         } else if kind == 3 {
             if backendTail >= 0 {
-                nextOptionIndices[backendTail] = i
+                links.NextOptionIndices[backendTail] = i
             } else {
                 backendHead = i
             }
@@ -1382,7 +1470,7 @@ func CliBuildOperandSummaryInto(
             backendTail = i
         } else if kind == 4 {
             if projectTail >= 0 {
-                nextOptionIndices[projectTail] = i
+                links.NextOptionIndices[projectTail] = i
             } else {
                 projectHead = i
             }
@@ -1393,14 +1481,14 @@ func CliBuildOperandSummaryInto(
         i = i + 1
     }
 
-    if resultIndices.Length > 0 {
-        resultIndices[0] = first
+    if resultIndices.Indices.Length > 0 {
+        resultIndices.Indices[0] = first
     }
 
-    count = CliBuildRemoveOptionKindPairs(kindIds, nextIndices, previousIndices, nextOptionIndices, outputHead, 1, resultIndices, count)
-    count = CliBuildRemoveOptionKindPairs(kindIds, nextIndices, previousIndices, nextOptionIndices, shortOutputHead, 2, resultIndices, count)
-    count = CliBuildRemoveOptionKindPairs(kindIds, nextIndices, previousIndices, nextOptionIndices, backendHead, 3, resultIndices, count)
-    count = CliBuildRemoveOptionKindPairs(kindIds, nextIndices, previousIndices, nextOptionIndices, projectHead, 4, resultIndices, count)
+    count = CliBuildRemoveOptionKindPairsCore(ref kindIds, ref links, outputHead, 1, ref resultIndices, count)
+    count = CliBuildRemoveOptionKindPairsCore(ref kindIds, ref links, shortOutputHead, 2, ref resultIndices, count)
+    count = CliBuildRemoveOptionKindPairsCore(ref kindIds, ref links, backendHead, 3, ref resultIndices, count)
+    count = CliBuildRemoveOptionKindPairsCore(ref kindIds, ref links, projectHead, 4, ref resultIndices, count)
     return count
 }
 
@@ -1411,17 +1499,33 @@ func CliBuildOperandIndicesInto(
     previousIndices: int[],
     nextOptionIndices: int[],
     resultIndices: int[]): int {
-    count := CliBuildOperandSummaryInto(args, kindIds, nextIndices, previousIndices, nextOptionIndices, resultIndices)
+    arguments := new CliArgumentTable { Args: args }
+    kinds := new CliBuildArgumentKindTable { Kinds: kindIds }
+    links := new CliBuildArgumentLinkTable {
+        NextIndices: nextIndices,
+        PreviousIndices: previousIndices,
+        NextOptionIndices: nextOptionIndices
+    }
+    results := new CliIndexResultTable { Indices: resultIndices }
+    return CliBuildOperandIndicesCore(ref arguments, ref kinds, ref links, ref results)
+}
+
+func CliBuildOperandIndicesCore(
+    args: &CliArgumentTable,
+    kindIds: &CliBuildArgumentKindTable,
+    links: &CliBuildArgumentLinkTable,
+    resultIndices: &CliIndexResultTable): int {
+    count := CliBuildOperandSummaryCore(ref args, ref kindIds, ref links, ref resultIndices)
     if count <= 0 {
         return count
     }
 
-    sourceIndex := resultIndices[0]
+    sourceIndex := resultIndices.Indices[0]
     resultCount := 0
     while sourceIndex >= 0 {
-        resultIndices[resultCount] = sourceIndex
+        resultIndices.Indices[resultCount] = sourceIndex
         resultCount = resultCount + 1
-        sourceIndex = nextIndices[sourceIndex]
+        sourceIndex = links.NextIndices[sourceIndex]
     }
 
     return resultCount
@@ -2951,26 +3055,43 @@ func CliBuildRemoveOptionKindPairs(
     optionKind: int,
     resultIndices: int[],
     count: int): int {
+    kinds := new CliBuildArgumentKindTable { Kinds: kindIds }
+    links := new CliBuildArgumentLinkTable {
+        NextIndices: nextIndices,
+        PreviousIndices: previousIndices,
+        NextOptionIndices: nextOptionIndices
+    }
+    results := new CliIndexResultTable { Indices: resultIndices }
+    return CliBuildRemoveOptionKindPairsCore(ref kinds, ref links, optionHead, optionKind, ref results, count)
+}
+
+func CliBuildRemoveOptionKindPairsCore(
+    kindIds: &CliBuildArgumentKindTable,
+    links: &CliBuildArgumentLinkTable,
+    optionHead: int,
+    optionKind: int,
+    resultIndices: &CliIndexResultTable,
+    count: int): int {
     sourceIndex := optionHead
     while sourceIndex >= 0 {
-        nextOptionIndex := nextOptionIndices[sourceIndex]
-        if kindIds[sourceIndex] == optionKind {
-            valueIndex := nextIndices[sourceIndex]
+        nextOptionIndex := links.NextOptionIndices[sourceIndex]
+        if kindIds.Kinds[sourceIndex] == optionKind {
+            valueIndex := links.NextIndices[sourceIndex]
             if valueIndex >= 0 {
-                previousIndex := previousIndices[sourceIndex]
-                afterIndex := nextIndices[valueIndex]
+                previousIndex := links.PreviousIndices[sourceIndex]
+                afterIndex := links.NextIndices[valueIndex]
                 if previousIndex >= 0 {
-                    nextIndices[previousIndex] = afterIndex
+                    links.NextIndices[previousIndex] = afterIndex
                 } else {
-                    resultIndices[0] = afterIndex
+                    resultIndices.Indices[0] = afterIndex
                 }
 
                 if afterIndex >= 0 {
-                    previousIndices[afterIndex] = previousIndex
+                    links.PreviousIndices[afterIndex] = previousIndex
                 }
 
-                kindIds[sourceIndex] = -1
-                kindIds[valueIndex] = -1
+                kindIds.Kinds[sourceIndex] = -1
+                kindIds.Kinds[valueIndex] = -1
                 count = count - 2
             }
         }
