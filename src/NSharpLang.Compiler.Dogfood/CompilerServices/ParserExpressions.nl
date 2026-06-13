@@ -858,7 +858,7 @@ func ParsePostfixExpressionNode(tokens: &ParserTokenTable, count: int, st: &Pars
             // value span = the callee identifier's name, children = the type-arg roots). The `(` branch of
             // this loop then parses the CALL with the kind-38 node as its callee, so a generic call is
             // [genericCallee, arg0, ...] exactly like a plain call. The `>>` split for a nested generic close
-            // is honored via the shared st.SplitGreaterDepth owed-greater state (ConsumeGreaterForTypeNode).
+            // is honored via the shared st.SplitGreaterDepth owed-greater state (ConsumeGreaterForTypeNodeCore).
             calleeNameStart := nodes.ValueStarts[expr]
             calleeNameLength := nodes.ValueLengths[expr]
             objSpanStart := nodes.SpanStarts[expr]

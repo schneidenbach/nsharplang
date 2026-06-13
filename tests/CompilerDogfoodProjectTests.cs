@@ -7875,10 +7875,10 @@ class B
     }
 
     // MULTI-FILE on REAL corpus: ParserFunctionSignatures.ParseFunctionSignatureInto calls
-    // ParserTypeReferences.ParseUnionTypeReferenceNode — an actual cross-file dependency. The signatures file
+    // ParserTypeReferences.ParseUnionTypeReferenceNodeCore — an actual cross-file dependency. The signatures file
     // ALONE declines (the call is unresolved); merged with the types file, the columnar backend compiles both
     // with NO C# AST. Value-parity is checked by invoking ParseFunctionSignatureInto on hand-built token
-    // streams for `func f(x: int)` and `func g(): int` — exercising the real cross-file ParseUnionTypeReferenceNode
+    // streams for `func f(x: int)` and `func g(): int` — exercising the real cross-file ParseUnionTypeReferenceNodeCore
     // call — and asserting the result equals the multi-file C# build (both paths process the same tokens
     // deterministically, so identity holds regardless of whether the tokens are "realistic").
     [Fact]
@@ -7892,9 +7892,9 @@ class B
         var (ok, _, _, methodNames) = RouteColumnarMultiFile(new[] { types, sigs });
         Assert.True(ok, "Columnar backend declined the merged ParserTypeReferences + ParserFunctionSignatures.");
         Assert.Contains("ParseFunctionSignatureInto", methodNames!);
-        Assert.Contains("ParseUnionTypeReferenceNode", methodNames!); // the cross-file callee, from the other file.
+        Assert.Contains("ParseUnionTypeReferenceNodeCore", methodNames!); // the cross-file callee, from the other file.
 
-        // `func f(x: int)`: Func Id ( Id : Id ) -> exercises ParseUnionTypeReferenceNode on the param type "int".
+        // `func f(x: int)`: Func Id ( Id : Id ) -> exercises ParseUnionTypeReferenceNodeCore on the param type "int".
         object[] FuncF() => new object[]
         {
             new[] { 7, 0, 127, 0, 122, 0, 128 }, new[] { 0, 5, 6, 7, 8, 9, 12 }, new[] { 4, 1, 1, 1, 1, 3, 1 }, 7, 0,
@@ -7902,7 +7902,7 @@ class B
             new int[15], new int[15], new int[15], new int[15], new int[15],
             new int[15], new int[15], new int[15], new int[8],
         };
-        // `func g(): int`: Func Id ( ) : Id -> exercises ParseUnionTypeReferenceNode on the RETURN type "int".
+        // `func g(): int`: Func Id ( ) : Id -> exercises ParseUnionTypeReferenceNodeCore on the RETURN type "int".
         object[] FuncG() => new object[]
         {
             new[] { 7, 0, 127, 128, 122, 0 }, new[] { 0, 5, 6, 7, 8, 9 }, new[] { 4, 1, 1, 1, 1, 3 }, 6, 0,

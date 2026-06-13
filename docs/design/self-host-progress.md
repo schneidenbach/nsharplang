@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — Parser kernels drop unused flattened compatibility wrappers
+
+The type-reference and statement parser kernels no longer emit raw-array compatibility helpers for internal
+recursive-descent steps. `ConsumeGreaterForTypeNode`, `ParseUnionTypeReferenceNode`, and
+`ParseBlockStatementNode` were unused flattened wrappers around table-based cores; the stable host entries
+remain `ParseTypeReferenceNodesInto` and `ParseStatementNodesInto`.
+
+The real cross-file parser dependency now stays on `ParseUnionTypeReferenceNodeCore`, which carries named
+token, node, argument-stack, and child-index tables instead of rebuilding those views from raw columns.
+
 ## 2026-06-13 — CLI and performance dogfood adapter scratch members stop advertising public visibility
 
 `NSharpCliDogfoodAdapter` and `NSharpPerformanceDogfoodAdapter` no longer have source-level `public`

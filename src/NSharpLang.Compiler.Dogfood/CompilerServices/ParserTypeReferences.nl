@@ -125,11 +125,6 @@ func AppendTypeReferenceChild(st: &ParserState, outChildIndices: &ParserChildInd
 // a `>>` (RightShift 112) is consumed once but credits ONE owed `>` so the enclosing generic close uses the
 // second half without advancing past a real token. Returns the byte end of the consumed `>`, or -1 on a
 // missing close.
-func ConsumeGreaterForTypeNode(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, st: &ParserState): int {
-    tokens := new ParserTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
-    return ConsumeGreaterForTypeNodeCore(ref tokens, count, ref st)
-}
-
 func ConsumeGreaterForTypeNodeCore(tokens: &ParserTokenTable, count: int, st: &ParserState): int {
     tokenKinds := tokens.Kinds
     tokenStarts := tokens.Starts
@@ -440,14 +435,6 @@ func ParseUnionTypeReferenceNodeCore(tokens: &ParserTokenTable, count: int, st: 
     spanStart := nodes.SpanStarts[firstArm]
     spanEnd := nodes.SpanStarts[lastArm] + nodes.SpanLengths[lastArm]
     return EmitTypeReferenceNode(ref st, ref nodes, 4, -1, 0, childRunStart, childCount, spanStart, spanEnd - spanStart)
-}
-
-func ParseUnionTypeReferenceNode(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, st: &ParserState, argStack: int[], outNodeKinds: int[], outNameStarts: int[], outNameLengths: int[], outChildStart: int[], outChildCount: int[], outChildIndices: int[], outSpanStarts: int[], outSpanLengths: int[], depth: int): int {
-    tokens := new ParserTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
-    stack := new ParserArgumentStack { Values: argStack }
-    nodes := new ParserNodeTable { Kinds: outNodeKinds, ValueStarts: outNameStarts, ValueLengths: outNameLengths, ChildStart: outChildStart, ChildCount: outChildCount, SpanStarts: outSpanStarts, SpanLengths: outSpanLengths }
-    children := new ParserChildIndexTable { Indices: outChildIndices }
-    return ParseUnionTypeReferenceNodeCore(ref tokens, count, ref st, ref stack, ref nodes, ref children, depth)
 }
 
 func ParseTypeReferenceNodesInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, start: int, outNodeKinds: int[], outNameStarts: int[], outNameLengths: int[], outChildStart: int[], outChildCount: int[], outChildIndices: int[], outSpanStarts: int[], outSpanLengths: int[], outResult: int[]): int {

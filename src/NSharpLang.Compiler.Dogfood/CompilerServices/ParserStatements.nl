@@ -52,15 +52,6 @@
 // TokenType ordinals (Token.cs): Identifier 0, If 23, Else 24, For 25, Foreach 26, While 27, In 28, Return 29,
 // Break 35, Continue 36, Assign 93, ColonAssign 121, LeftBrace 129, RightBrace 130, Semicolon 133, Eof 135, Newline 136.
 
-// Parse a `{ ... }` block: a sequence of statements until the matching `}`. BlockStatement (kind 25),
-// children = the contained statement node ids (variable arity -> LIFO arg-stack). st.Pos must be at the `{`.
-func ParseBlockStatementNode(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, st: &ParserState, argStack: int[], nodes: &ParserExpressionNodeTable, outChildIndices: int[], depth: int): int {
-    tokens := new ParserTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
-    stack := new ParserArgumentStack { Values: argStack }
-    children := new ParserChildIndexTable { Indices: outChildIndices }
-    return ParseBlockStatementNodeCore(ref tokens, count, ref st, ref stack, ref nodes, ref children, depth)
-}
-
 func ParseBlockStatementNodeCore(tokens: &ParserTokenTable, count: int, st: &ParserState, argStack: &ParserArgumentStack, nodes: &ParserExpressionNodeTable, children: &ParserChildIndexTable, depth: int): int {
     tokenKinds := tokens.Kinds
     tokenStarts := tokens.Starts
