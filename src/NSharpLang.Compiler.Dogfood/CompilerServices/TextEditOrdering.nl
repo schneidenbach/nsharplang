@@ -60,22 +60,6 @@ func TextEditOrderIndicesCore(
     return count
 }
 
-func TextEditOrderCountingPass(
-    sourceIndices: int[],
-    targetIndices: int[],
-    count: int,
-    ranks: int[],
-    rankCount: int,
-    bucketCounts: int[],
-    bucketOffsets: int[],
-    descending: int): int {
-    source := new TextEditOrderIndexTable { Indices: sourceIndices }
-    target := new TextEditOrderIndexTable { Indices: targetIndices }
-    rankTable := new TextEditOrderRankTable { Ranks: ranks, RankCount: rankCount }
-    buckets := new TextEditOrderBucketTable { Counts: bucketCounts, Offsets: bucketOffsets }
-    return TextEditOrderCountingPassCore(ref source, ref target, count, ref rankTable, ref buckets, descending)
-}
-
 func TextEditOrderCountingPassCore(
     source: &TextEditOrderIndexTable,
     target: &TextEditOrderIndexTable,

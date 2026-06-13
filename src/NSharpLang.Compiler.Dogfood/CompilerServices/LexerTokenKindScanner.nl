@@ -963,11 +963,6 @@ func CommentsCore(source: string, comments: &LexerCommentTable): int {
     return count
 }
 
-func CopyKinds(buffer: int[], count: int): int[] {
-    source := new LexerTokenKindTable { Kinds: buffer }
-    return CopyKindsCore(ref source, count)
-}
-
 func CopyKindsCore(source: &LexerTokenKindTable, count: int): int[] {
     result := new int[](count)
     target := new LexerTokenKindTable { Kinds: result }

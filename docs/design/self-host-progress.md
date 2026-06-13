@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — Lexer and ordering kernels drop declaration-only pass shims
+
+`LexerTokenKindScanner.nl`, `TextEditOrdering.nl`, and `FormatterImportOrdering.nl` no longer emit
+flattened helpers that had no remaining source, adapter, parity, or test callers. `CopyKinds`,
+`TextEditOrderCountingPass`, `FormatterImportOrderNamePass`, and `FormatterImportOrderSystemPass`
+are gone; their adapter-bound entry points already route through the wrapper-aware cores directly.
+
+The stable host ABIs remain unchanged: `TokenizeKinds`, `TokenizeKindsInto`,
+`TextEditOrderIndicesInto`, and `FormatterImportOrderIndicesInto` still own the external boundary.
+
 ## 2026-06-13 — Parser kernels drop unused flattened compatibility wrappers
 
 The type-reference and statement parser kernels no longer emit raw-array compatibility helpers for internal

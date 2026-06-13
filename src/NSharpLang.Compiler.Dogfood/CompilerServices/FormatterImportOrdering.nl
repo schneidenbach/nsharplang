@@ -79,21 +79,6 @@ func FormatterImportOrderIndicesCore(
     return count
 }
 
-func FormatterImportOrderNamePass(
-    sourceIndices: int[],
-    targetIndices: int[],
-    count: int,
-    nameRanks: int[],
-    nameRankCount: int,
-    bucketCounts: int[],
-    bucketOffsets: int[]): int {
-    source := new FormatterImportIndexTable { Indices: sourceIndices }
-    target := new FormatterImportIndexTable { Indices: targetIndices }
-    keys := new FormatterImportSortKeyTable { SystemFlags: nameRanks, NameRanks: nameRanks, NameRankCount: nameRankCount }
-    buckets := new FormatterImportBucketTable { Counts: bucketCounts, Offsets: bucketOffsets }
-    return FormatterImportOrderNamePassCore(ref source, ref target, count, ref keys, ref buckets)
-}
-
 func FormatterImportOrderNamePassCore(
     source: &FormatterImportIndexTable,
     target: &FormatterImportIndexTable,
@@ -147,20 +132,6 @@ func FormatterImportOrderNamePassCore(
     }
 
     return count
-}
-
-func FormatterImportOrderSystemPass(
-    sourceIndices: int[],
-    targetIndices: int[],
-    count: int,
-    systemFlags: int[],
-    bucketCounts: int[],
-    bucketOffsets: int[]): int {
-    source := new FormatterImportIndexTable { Indices: sourceIndices }
-    target := new FormatterImportIndexTable { Indices: targetIndices }
-    keys := new FormatterImportSortKeyTable { SystemFlags: systemFlags, NameRanks: systemFlags, NameRankCount: 0 }
-    buckets := new FormatterImportBucketTable { Counts: bucketCounts, Offsets: bucketOffsets }
-    return FormatterImportOrderSystemPassCore(ref source, ref target, count, ref keys, ref buckets)
 }
 
 func FormatterImportOrderSystemPassCore(
