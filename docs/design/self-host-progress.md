@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — Columnar function inputs drop raw body accessors
+
+`ColumnarFunctionInput` now has a single body-table representation: the internal `ColumnarNodeTable`
+view built at the adapter/parser boundary. Its old raw-array constructor and raw `Kinds`/`ValueStarts`/
+`Child*` compatibility accessors are gone.
+
+This removes the last anonymous function-body table escape hatch from the C# columnar input model; callers
+must carry the named node-table view that the emitter and analysis passes already consume.
+
 ## 2026-06-13 — Columnar transition API is compiler-internal
 
 The standalone columnar C# transition model is no longer exposed as public compiler package API.

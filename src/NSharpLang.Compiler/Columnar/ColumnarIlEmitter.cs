@@ -67,26 +67,11 @@ internal sealed class ColumnarInterfaceInput
 
 /// <summary>
 /// One top-level function's parsed signature plus its columnar body node tables, as consumed by
-/// <see cref="ColumnarIlEmitter.TryEmitColumnarAssembly"/>. The body table arrays are produced per-function by
-/// the parser kernel <c>ParseStatementNodes</c>; <see cref="BodyRoot"/> is that body's root statement index.
+/// <see cref="ColumnarIlEmitter.TryEmitColumnarAssembly"/>. The body table is produced per-function by the parser
+/// kernel <c>ParseStatementNodes</c>; <see cref="BodyRoot"/> is that body's root statement index.
 /// </summary>
 internal sealed class ColumnarFunctionInput
 {
-    public ColumnarFunctionInput(
-        string name, string returnCanonical, string[] paramNames, string[] paramCanonicals,
-        int[] kinds, int[] valueStarts, int[] valueLengths, int[] childStart, int[] childCount, int[] childIndices,
-        int bodyRoot, bool isStatic = false, string[]? typeParamNames = null,
-        int[]? typeParamSpecialConstraints = null, string[][]? typeParamTypeConstraints = null,
-        string[]? returnTupleElementNames = null, string[]?[]? paramTupleElementNames = null,
-        bool isAsync = false)
-        : this(
-            name, returnCanonical, paramNames, paramCanonicals,
-            new ColumnarNodeTable(kinds, valueStarts, valueLengths, childStart, childCount, childIndices),
-            bodyRoot, isStatic, typeParamNames, typeParamSpecialConstraints, typeParamTypeConstraints,
-            returnTupleElementNames, paramTupleElementNames, isAsync)
-    {
-    }
-
     internal ColumnarFunctionInput(
         string name, string returnCanonical, string[] paramNames, string[] paramCanonicals,
         ColumnarNodeTable bodyNodes, int bodyRoot, bool isStatic = false, string[]? typeParamNames = null,
@@ -119,12 +104,6 @@ internal sealed class ColumnarFunctionInput
     public string ReturnCanonical { get; }
     public string[] ParamNames { get; }
     public string[] ParamCanonicals { get; }
-    public int[] Kinds => BodyNodes.Kinds;
-    public int[] ValueStarts => BodyNodes.ValueStarts;
-    public int[] ValueLengths => BodyNodes.ValueLengths;
-    public int[] ChildStart => BodyNodes.ChildStarts;
-    public int[] ChildCount => BodyNodes.ChildCounts;
-    public int[] ChildIndices => BodyNodes.ChildIndices;
     internal ColumnarNodeTable BodyNodes { get; }
     public int BodyRoot { get; }
     // True for a `static func` member of a struct/record/class body (no implicit `this`; param ordinals are NOT
