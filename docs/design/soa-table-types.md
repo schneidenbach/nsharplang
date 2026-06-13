@@ -250,7 +250,10 @@ ownership lands.
    result columns. Unified-diff hunk range inputs/results and clean-artifact directory ordering
    inputs/scratch/result columns are now table-wrapped as well. These slices preserve the flattened
    dogfood adapter ABI. The update-dependency, reference-type, stable-distinct, best-score, and
-   summary-counter rank/flag/score columns now also route through named normal structs.
+   summary-counter rank/flag/score columns now also route through named normal structs. The
+   remaining `CliArguments.nl` test-filter name batches and format-discovery path/flag batches are
+   table-wrapped too, leaving its array-taking functions as flattened adapter shims or scalar helper
+   shims over wrapper-aware cores.
 7. Only after those gates pass, start replacing C# emitter/analyzer internals that still require untyped
    parallel-array plumbing.
 

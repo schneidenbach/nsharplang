@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — CLI test filter and format path tables wrapped
+
+`CliArguments.nl` now wraps the remaining test-filter and format-discovery batch columns behind named
+normal structs. Test filter matching routes filter parts, primary/secondary/tertiary names, and
+result indexes through wrapper-aware cores, while format discovery routes path batches and output
+flags through path/flag tables.
+
+This completes the current `CliArguments.nl` table-wrapper pass: the exported dogfood adapter
+functions still expose the stable flattened array ABI, and the remaining array parameters in the
+file are compatibility shims or scalar helper shims over wrapper-aware cores.
+
 ## 2026-06-13 — CLI dependency and reference rank tables wrapped
 
 `CliArguments.nl` now wraps the update-dependency, reference-type, stable-distinct, best-score, and

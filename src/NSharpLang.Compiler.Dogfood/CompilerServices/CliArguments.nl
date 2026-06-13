@@ -127,6 +127,24 @@ struct CliCountResultTable {
     Counts: int[]
 }
 
+struct CliTestFilterPartTable {
+    Parts: string[]
+}
+
+struct CliTestNameTable {
+    PrimaryNames: string[]
+    SecondaryNames: string[]
+    TertiaryNames: string[]
+}
+
+struct CliTertiaryNameTable {
+    Names: string[]
+}
+
+struct CliPathTable {
+    Paths: string[]
+}
+
 func CliPositionalArgIndicesInto(
     args: string[],
     optionsWithValues: string[],
@@ -3078,6 +3096,27 @@ func CliTestFilterMatchIndicesInto(
     tertiaryNames: string[],
     count: int,
     resultIndices: int[]): int {
+    parts := new CliTestFilterPartTable { Parts: filterParts }
+    names := new CliTestNameTable {
+        PrimaryNames: primaryNames,
+        SecondaryNames: secondaryNames,
+        TertiaryNames: tertiaryNames
+    }
+    results := new CliIndexResultTable { Indices: resultIndices }
+    return CliTestFilterMatchIndicesCore(ref parts, ref names, count, ref results)
+}
+
+func CliTestFilterMatchIndicesCore(
+    parts: &CliTestFilterPartTable,
+    names: &CliTestNameTable,
+    count: int,
+    results: &CliIndexResultTable): int {
+    filterParts := parts.Parts
+    primaryNames := names.PrimaryNames
+    secondaryNames := names.SecondaryNames
+    tertiaryNames := names.TertiaryNames
+    resultIndices := results.Indices
+    tertiaryNameTable := new CliTertiaryNameTable { Names: tertiaryNames }
     if count < 0
         || count > primaryNames.Length
         || count > secondaryNames.Length
@@ -3092,7 +3131,7 @@ func CliTestFilterMatchIndicesInto(
     matchedCount := 0
     i := 0
     while i < count {
-        if CliTestFilterMatchesAnyName(filterParts, primaryNames[i], secondaryNames[i], tertiaryNames, i) {
+        if CliTestFilterMatchesAnyNameCore(ref parts, primaryNames[i], secondaryNames[i], ref tertiaryNameTable, i) {
             resultIndices[matchedCount] = i
             matchedCount = matchedCount + 1
         }
@@ -3109,6 +3148,19 @@ func CliTestFilterMatchesAnyName(
     secondaryName: string,
     tertiaryNames: string[],
     index: int): bool {
+    parts := new CliTestFilterPartTable { Parts: filterParts }
+    tertiaryNameTable := new CliTertiaryNameTable { Names: tertiaryNames }
+    return CliTestFilterMatchesAnyNameCore(ref parts, primaryName, secondaryName, ref tertiaryNameTable, index)
+}
+
+func CliTestFilterMatchesAnyNameCore(
+    parts: &CliTestFilterPartTable,
+    primaryName: string,
+    secondaryName: string,
+    tertiaryNameTable: &CliTertiaryNameTable,
+    index: int): bool {
+    filterParts := parts.Parts
+    tertiaryNames := tertiaryNameTable.Names
     partIndex := 0
     while partIndex < filterParts.Length {
         part := filterParts[partIndex]
@@ -3173,6 +3225,16 @@ func CliShouldFormatDiscoveredPath(relativePath: string): int {
 }
 
 func CliFormatDiscoveredPathFlagsInto(relativePaths: string[], resultFlags: int[]): int {
+    paths := new CliPathTable { Paths: relativePaths }
+    flags := new CliFlagResultTable { Flags: resultFlags }
+    return CliFormatDiscoveredPathFlagsCore(ref paths, ref flags)
+}
+
+func CliFormatDiscoveredPathFlagsCore(
+    paths: &CliPathTable,
+    flags: &CliFlagResultTable): int {
+    relativePaths := paths.Paths
+    resultFlags := flags.Flags
     count := relativePaths.Length
     if count > resultFlags.Length {
         count = resultFlags.Length
