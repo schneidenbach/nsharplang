@@ -236,8 +236,9 @@ ownership lands.
    indexes. `DocQuery.nl` now wraps documentation type-candidate columns plus member-order
    rank/bucket/index tables, and `CliQueryParsing.nl` wraps CLI query position inputs/results,
    duplicate-id rank/count/result tables, packed result words, and integer parse result storage
-   without using the experimental `soa record` surface. These slices preserve the flattened dogfood
-   adapter ABI.
+   without using the experimental `soa record` surface. The first lexer slice wraps
+   `LexerTokenKindScanner.nl` token-kind buffers and parser-compaction indexes while leaving lexer
+   metadata/comment tables for follow-up. These slices preserve the flattened dogfood adapter ABI.
 7. Only after those gates pass, start replacing C# emitter/analyzer internals that still require untyped
    parallel-array plumbing.
 

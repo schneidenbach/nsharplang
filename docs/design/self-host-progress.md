@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — Lexer token-kind tables wrapped
+
+`LexerTokenKindScanner.nl` now groups token-kind buffers and parser-compaction result indexes behind
+named normal structs for the plain token-kind scanner path. `TokenizeKinds`, `TokenizeKindsInto`,
+`ParserTokenCompactionIndicesInto`, and `CopyKinds` keep their flattened public signatures, while
+their internal loops operate on wrapper-aware token-kind and index tables.
+
+This is the first lexer table-wrapper slice. The larger token metadata, indentation post-pass, and
+comment-output tables are still separate lexer surfaces and remain to be wrapped in later slices.
+
 ## 2026-06-13 — CLI query parsing tables wrapped
 
 `CliQueryParsing.nl` now groups CLI query position inputs, parsed line/column outputs, duplicate

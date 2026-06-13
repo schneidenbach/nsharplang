@@ -1,62 +1,75 @@
+struct LexerTokenKindTable {
+    Kinds: int[]
+}
+
+struct LexerTokenIndexTable {
+    Indices: int[]
+}
+
 func TokenizeKinds(source: string): int[] {
-    length := source.Length
-    buffer := new int[](length + 1)
-    count := TokenizeKindsInto(source, buffer)
-    return CopyKinds(buffer, count)
+    tokens := new LexerTokenKindTable { Kinds: new int[](source.Length + 1) }
+    count := TokenizeKindsCore(source, ref tokens)
+    return CopyKindsCore(ref tokens, count)
 }
 
 func ParserTokenCompactionIndicesInto(tokenKinds: int[], resultIndices: int[]): int {
+    tokens := new LexerTokenKindTable { Kinds: tokenKinds }
+    result := new LexerTokenIndexTable { Indices: resultIndices }
+    return ParserTokenCompactionIndicesCore(ref tokens, ref result)
+}
+
+func ParserTokenCompactionIndicesCore(tokens: &LexerTokenKindTable, result: &LexerTokenIndexTable): int {
     count := 0
-    length := tokenKinds.Length
+    length := tokens.Kinds.Length
     i := 0
 
-    if resultIndices.Length >= length {
+    if result.Indices.Length >= length {
         unrolledLimit := length - 8
         while i <= unrolledLimit {
-            if tokenKinds[i] != 136 {
-                resultIndices[count] = i
+            if tokens.Kinds[i] != 136 {
+                result.Indices[count] = i
                 count = count + 1
             }
 
             next := i + 1
-            if tokenKinds[next] != 136 {
-                resultIndices[count] = next
+            if tokens.Kinds[next] != 136 {
+                result.Indices[count] = next
                 count = count + 1
             }
 
             next = i + 2
-            if tokenKinds[next] != 136 {
-                resultIndices[count] = next
+            if tokens.Kinds[next] != 136 {
+                result.Indices[count] = next
                 count = count + 1
             }
 
             next = i + 3
-            if tokenKinds[next] != 136 {
-                resultIndices[count] = next
+            if tokens.Kinds[next] != 136 {
+                result.Indices[count] = next
                 count = count + 1
             }
 
             next = i + 4
-            if tokenKinds[next] != 136 {
-                resultIndices[count] = next
+            if tokens.Kinds[next] != 136 {
+                result.Indices[count] = next
                 count = count + 1
             }
 
             next = i + 5
-            if tokenKinds[next] != 136 {
-                resultIndices[count] = next
+            if tokens.Kinds[next] != 136 {
+                result.Indices[count] = next
                 count = count + 1
             }
 
             next = i + 6
-            if tokenKinds[next] != 136 {
-                resultIndices[count] = next
+            if tokens.Kinds[next] != 136 {
+                result.Indices[count] = next
                 count = count + 1
             }
 
             next = i + 7
-            if tokenKinds[next] != 136 {
-                resultIndices[count] = next
+            if tokens.Kinds[next] != 136 {
+                result.Indices[count] = next
                 count = count + 1
             }
 
@@ -64,8 +77,8 @@ func ParserTokenCompactionIndicesInto(tokenKinds: int[], resultIndices: int[]): 
         }
 
         while i < length {
-            if tokenKinds[i] != 136 {
-                resultIndices[count] = i
+            if tokens.Kinds[i] != 136 {
+                result.Indices[count] = i
                 count = count + 1
             }
 
@@ -76,12 +89,12 @@ func ParserTokenCompactionIndicesInto(tokenKinds: int[], resultIndices: int[]): 
     }
 
     while i < length {
-        if tokenKinds[i] != 136 {
-            if count >= resultIndices.Length {
+        if tokens.Kinds[i] != 136 {
+            if count >= result.Indices.Length {
                 return -1
             }
 
-            resultIndices[count] = i
+            result.Indices[count] = i
             count = count + 1
         }
 
@@ -92,6 +105,11 @@ func ParserTokenCompactionIndicesInto(tokenKinds: int[], resultIndices: int[]): 
 }
 
 func TokenizeKindsInto(source: string, buffer: int[]): int {
+    tokens := new LexerTokenKindTable { Kinds: buffer }
+    return TokenizeKindsCore(source, ref tokens)
+}
+
+func TokenizeKindsCore(source: string, tokens: &LexerTokenKindTable): int {
     position := 0
     length := source.Length
     count := 0
@@ -105,14 +123,14 @@ func TokenizeKindsInto(source: string, buffer: int[]): int {
         }
 
         if ch == '\n' {
-            buffer[count] = 136
+            tokens.Kinds[count] = 136
             count = count + 1
             position = position + 1
             continue
         }
 
         if ch == '\r' {
-            buffer[count] = 136
+            tokens.Kinds[count] = 136
             count = count + 1
             position = position + 1
             if position < length && source[position] == '\n' {
@@ -122,7 +140,7 @@ func TokenizeKindsInto(source: string, buffer: int[]): int {
         }
 
         if ch == '#' {
-            buffer[count] = 138
+            tokens.Kinds[count] = 138
             count = count + 1
             position = position + 1
             while position < length && source[position] != '\n' && source[position] != '\r' {
@@ -157,11 +175,11 @@ func TokenizeKindsInto(source: string, buffer: int[]): int {
 
         if ch == '$' && position + 1 < length && source[position + 1] == '"' {
             if position + 3 < length && source[position + 2] == '"' && source[position + 3] == '"' {
-                buffer[count] = 6
+                tokens.Kinds[count] = 6
                 count = count + 1
                 position = ScanRawString(source, position + 4, length)
             } else {
-                buffer[count] = 4
+                tokens.Kinds[count] = 4
                 count = count + 1
                 position = ScanString(source, position + 1, length, true)
             }
@@ -170,11 +188,11 @@ func TokenizeKindsInto(source: string, buffer: int[]): int {
 
         if ch == '"' {
             if position + 2 < length && source[position + 1] == '"' && source[position + 2] == '"' {
-                buffer[count] = 5
+                tokens.Kinds[count] = 5
                 count = count + 1
                 position = ScanRawString(source, position + 3, length)
             } else {
-                buffer[count] = 4
+                tokens.Kinds[count] = 4
                 count = count + 1
                 position = ScanString(source, position, length, false)
             }
@@ -182,14 +200,14 @@ func TokenizeKindsInto(source: string, buffer: int[]): int {
         }
 
         if ch == '\'' && IsLifetimeStartAt(source, position, length) {
-            buffer[count] = 142
+            tokens.Kinds[count] = 142
             count = count + 1
             position = ScanLifetime(source, position, length)
             continue
         }
 
         if ch == '\'' {
-            buffer[count] = 3
+            tokens.Kinds[count] = 3
             count = count + 1
             position = ScanCharLiteral(source, position, length)
             continue
@@ -202,7 +220,7 @@ func TokenizeKindsInto(source: string, buffer: int[]): int {
                 numberKind = 137
             }
 
-            buffer[count] = numberKind
+            tokens.Kinds[count] = numberKind
             count = count + 1
             position = numberInfo >> 2
             continue
@@ -215,19 +233,19 @@ func TokenizeKindsInto(source: string, buffer: int[]): int {
                 position = position + 1
             }
 
-            buffer[count] = KeywordKind(source, start, position - start)
+            tokens.Kinds[count] = KeywordKind(source, start, position - start)
             count = count + 1
             continue
         }
 
         operatorInfo := OperatorInfo(source, position, length)
         operatorKind := operatorInfo >> 2
-        buffer[count] = operatorKind
+        tokens.Kinds[count] = operatorKind
         count = count + 1
         position = position + (operatorInfo & 3)
     }
 
-    buffer[count] = 135
+    tokens.Kinds[count] = 135
     count = count + 1
     return count
 }
@@ -915,10 +933,16 @@ func CommentsInto(source: string, lines: int[], columns: int[], starts: int[], l
 }
 
 func CopyKinds(buffer: int[], count: int): int[] {
+    source := new LexerTokenKindTable { Kinds: buffer }
+    return CopyKindsCore(ref source, count)
+}
+
+func CopyKindsCore(source: &LexerTokenKindTable, count: int): int[] {
     result := new int[](count)
+    target := new LexerTokenKindTable { Kinds: result }
     i := 0
     while i < count {
-        result[i] = buffer[i]
+        target.Kinds[i] = source.Kinds[i]
         i = i + 1
     }
 
