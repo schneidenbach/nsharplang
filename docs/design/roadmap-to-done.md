@@ -57,12 +57,12 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       member/call types via a typed host boundary (reflection — AGENTS.md-permitted). Parity vs the C# binder's
       inferred types on the corpus.
 - [x] Stage 3 — columnar type checking (expression inference; reviewed against the real binder; binder/output
-      parity deferred to stages 4-5). Surfaced two C# binder ECMA gaps (see reconciliation item below).
-- [ ] **Binder reconciliation** (correctness improvement surfaced by stage-3 adversarial review): the C#
-      binder (Analyzer.cs) does NOT concretely type bitwise binary ops (&,|,^,<<,>> → Unknown) nor apply
-      numeric promotion to unary -/~ (ECMA §12.4 gaps). The columnar inferer currently MATCHES the binder
-      (behavior-preserving). Decide + do: fix the binder to ECMA-correct (then update ColumnarTypeLattice to
-      the promoted types and re-verify), or keep matching. Low-risk localized binder change; gate for regress.
+      parity deferred to stages 4-5). Surfaced two C# binder ECMA gaps (fixed below).
+- [x] **Binder reconciliation** (correctness improvement surfaced by stage-3 adversarial review): the C#
+      binder (Analyzer.cs) now concretely types built-in bitwise binary ops (`& | ^ << >>`) and applies
+      numeric promotion to unary `-`/`~`; `ColumnarTypeLattice` was updated to the same promoted types and
+      re-verified against analyzer semantic-model coverage, declared operator-overload coverage, and the
+      columnar type-inference parity corpus.
 - [x] **Stage 3b — columnar diagnostics** (pure-structural: definite-return, unreachable-after-terminal,
       unused-local). Parity vs the C# analyzer. **COMPLETE** — all three sub-slices below landed, each
       parity-gated vs a C#-AST mirror on hand-built cases + the full 32-file corpus and adversarially verified.

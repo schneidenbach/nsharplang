@@ -990,6 +990,75 @@ func Main() {
     }
 
     [Fact]
+    public void BitwiseAndShift_BuiltInOperands_RecordPromotedTypes()
+    {
+        var result = AnalyzeWithSource(@"
+func getByte(): byte { return 1 as byte }
+func getUInt(): uint { return 1 as uint }
+
+func Main() {
+    intBits := 1 & 2
+    smallBits := getByte() | getByte()
+    mixedUnsigned := getUInt() ^ 1
+    shiftedInt := 1 << 3
+    shiftedSmall := getByte() << 1
+    boolBits := true & false
+}
+");
+
+        Assert.False(result.HasErrors,
+            result.Errors.Count > 0
+                ? $"Expected no errors but got: {string.Join(", ", result.Errors.Select(e => e.Message))}"
+                : "");
+        Assert.Equal("int", result.SemanticModel.LookupIdentifier("intBits")?.ToString());
+        Assert.Equal("int", result.SemanticModel.LookupIdentifier("smallBits")?.ToString());
+        Assert.Equal("long", result.SemanticModel.LookupIdentifier("mixedUnsigned")?.ToString());
+        Assert.Equal("int", result.SemanticModel.LookupIdentifier("shiftedInt")?.ToString());
+        Assert.Equal("int", result.SemanticModel.LookupIdentifier("shiftedSmall")?.ToString());
+        Assert.Equal("bool", result.SemanticModel.LookupIdentifier("boolBits")?.ToString());
+    }
+
+    [Fact]
+    public void UnaryNumericOperators_RecordPromotedTypes()
+    {
+        var result = AnalyzeWithSource(@"
+func getByte(): byte { return 1 as byte }
+func getUInt(): uint { return 1 as uint }
+func getLong(): long { return 1L }
+
+func Main() {
+    negSmall := -getByte()
+    negUInt := -getUInt()
+    invSmall := ~getByte()
+    invUInt := ~getUInt()
+    invLong := ~getLong()
+}
+");
+
+        Assert.False(result.HasErrors,
+            result.Errors.Count > 0
+                ? $"Expected no errors but got: {string.Join(", ", result.Errors.Select(e => e.Message))}"
+                : "");
+        Assert.Equal("int", result.SemanticModel.LookupIdentifier("negSmall")?.ToString());
+        Assert.Equal("long", result.SemanticModel.LookupIdentifier("negUInt")?.ToString());
+        Assert.Equal("int", result.SemanticModel.LookupIdentifier("invSmall")?.ToString());
+        Assert.Equal("uint", result.SemanticModel.LookupIdentifier("invUInt")?.ToString());
+        Assert.Equal("long", result.SemanticModel.LookupIdentifier("invLong")?.ToString());
+    }
+
+    [Fact]
+    public void NegativeIntegerLiteral_TargetTypedSignedNarrowing_IsPreserved()
+    {
+        AssertNoErrors(@"
+func Main() {
+    a: sbyte = -128
+    b: short = -32768
+    c: int = -2147483648
+}
+");
+    }
+
+    [Fact]
     public void DecimalSuffixLiteral_AssignableToDecimal()
     {
         AssertNoErrors(@"
@@ -9472,6 +9541,33 @@ struct Vec2 {
 
 func add(a: Vec2, b: Vec2): Vec2 {
     return a + b
+}", ErrorCode.TypeMismatch);
+    }
+
+    [Fact]
+    public void BitwiseShiftAndUnaryOps_OnUserDeclaredStructOperators_NoTypeMismatch()
+    {
+        AssertNoErrorCode(@"
+struct Flags {
+    Value: int
+
+    static func operator &(a: Flags, b: Flags): Flags {
+        return new Flags { Value: a.Value & b.Value }
+    }
+
+    static func operator <<(a: Flags, amount: int): Flags {
+        return new Flags { Value: a.Value << amount }
+    }
+
+    static func operator ~(value: Flags): Flags {
+        return new Flags { Value: ~value.Value }
+    }
+}
+
+func combine(a: Flags, b: Flags): Flags {
+    masked := a & b
+    shifted := masked << 2
+    return ~shifted
 }", ErrorCode.TypeMismatch);
     }
 

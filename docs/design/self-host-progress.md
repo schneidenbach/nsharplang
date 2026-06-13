@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — Binder reconciliation: unary and bitwise promotion fixed
+
+The production analyzer now concretely types the ECMA numeric surface that stage-3 columnar review
+had flagged as a binder gap: unary `-` promotes small integrals to `int` and `uint` to `long`,
+unary `~` applies integral unary promotion, bitwise `& | ^` type bool/bool as `bool` and integral
+operands as their binary-promoted integral type, and shifts promote the left operand only.
+
+`ColumnarTypeLattice` now matches those analyzer rules instead of preserving the old `Unknown` /
+`External` behavior. Regression coverage pins semantic-model types for built-in analyzer cases,
+declared bitwise/shift/unary operator overloads, target-typed signed negative integer literals,
+and the columnar AST-vs-table type-inference parity corpus.
+
 ## 2026-06-13 — Semantic scope query and sort scratch tables wrapped
 
 `SemanticScopes.nl` now carries visible-symbol queries/results, lookup queries/results, and

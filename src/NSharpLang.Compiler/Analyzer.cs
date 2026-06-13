@@ -4819,6 +4819,10 @@ public class Analyzer : IDisposable
         {
             BinaryOperator.Add or BinaryOperator.Subtract or BinaryOperator.Multiply
                 or BinaryOperator.Divide or BinaryOperator.Modulo => AnalyzeArithmeticOp(leftT, rightT, binary),
+            BinaryOperator.BitwiseAnd or BinaryOperator.BitwiseOr or BinaryOperator.BitwiseXor
+                => AnalyzeBitwiseOp(leftT, rightT, binary),
+            BinaryOperator.LeftShift or BinaryOperator.RightShift
+                => AnalyzeShiftOp(leftT, rightT, binary),
             BinaryOperator.Equal or BinaryOperator.NotEqual or BinaryOperator.Less
                 or BinaryOperator.LessOrEqual or BinaryOperator.Greater or BinaryOperator.GreaterOrEqual => BuiltInTypes.Bool,
             BinaryOperator.NullCoalesce => AnalyzeNullCoalesceOp(leftT, rightT, binary),
@@ -4904,38 +4908,118 @@ public class Analyzer : IDisposable
         return result;
     }
 
+    private TypeInfo AnalyzeBitwiseOp(TypeInfo left, TypeInfo right, BinaryExpression expr)
+    {
+        if (BuiltInTypes.IsUnknown(left) || BuiltInTypes.IsUnknown(right))
+        {
+            return BuiltInTypes.Unknown;
+        }
+
+        if (IsBoolType(left) && IsBoolType(right))
+        {
+            return BuiltInTypes.Bool;
+        }
+
+        if (IsSameBitwiseEnumType(left, right))
+        {
+            return left;
+        }
+
+        if (IsIntegralType(left) && IsIntegralType(right))
+        {
+            var result = GetWiderType(left, right);
+            if (result != null)
+            {
+                return result;
+            }
+
+            ReportBinaryOperatorOperandMismatch(
+                expr,
+                left,
+                right,
+                "both sides need compatible integral values");
+            return BuiltInTypes.Unknown;
+        }
+
+        if (TryResolveBinaryOperatorOverloadResult(expr.Operator, left, right, out var overloadResult))
+        {
+            return overloadResult;
+        }
+
+        ReportBinaryOperatorOperandMismatch(
+            expr,
+            left,
+            right,
+            "both sides need integral values, or both sides need booleans");
+        return BuiltInTypes.Unknown;
+    }
+
+    private TypeInfo AnalyzeShiftOp(TypeInfo left, TypeInfo right, BinaryExpression expr)
+    {
+        if (BuiltInTypes.IsUnknown(left) || BuiltInTypes.IsUnknown(right))
+        {
+            return BuiltInTypes.Unknown;
+        }
+
+        if (IsIntegralType(left) && IsIntegralType(right))
+        {
+            return GetUnaryNumericPromotionType(left) ?? BuiltInTypes.Unknown;
+        }
+
+        if (TryResolveBinaryOperatorOverloadResult(expr.Operator, left, right, out var overloadResult))
+        {
+            return overloadResult;
+        }
+
+        ReportBinaryOperatorOperandMismatch(
+            expr,
+            left,
+            right,
+            "the left side needs an integral value, and the shift count needs an integral value");
+        return BuiltInTypes.Unknown;
+    }
+
     /// <summary>
-    /// Maps an N# binary arithmetic operator to its CLR special-method name (e.g. <c>+</c> →
-    /// <c>op_Addition</c>). Only the operators handled by <see cref="AnalyzeArithmeticOp"/> are
-    /// mapped; everything else returns <c>null</c> so the caller leaves diagnostics unchanged.
+    /// Maps an overloadable N# binary operator to its CLR special-method name (e.g. <c>+</c> →
+    /// <c>op_Addition</c>). Operators that the analyzer does not resolve through this path return
+    /// <c>null</c> so the caller leaves diagnostics unchanged.
     /// </summary>
-    private static string? GetArithmeticOperatorClrName(BinaryOperator op) => op switch
+    private static string? GetBinaryOperatorClrName(BinaryOperator op) => op switch
     {
         BinaryOperator.Add => "op_Addition",
         BinaryOperator.Subtract => "op_Subtraction",
         BinaryOperator.Multiply => "op_Multiply",
         BinaryOperator.Divide => "op_Division",
         BinaryOperator.Modulo => "op_Modulus",
+        BinaryOperator.BitwiseAnd => "op_BitwiseAnd",
+        BinaryOperator.BitwiseOr => "op_BitwiseOr",
+        BinaryOperator.BitwiseXor => "op_ExclusiveOr",
+        BinaryOperator.LeftShift => "op_LeftShift",
+        BinaryOperator.RightShift => "op_RightShift",
         _ => null
     };
 
-    private static string? GetArithmeticOperatorSymbol(BinaryOperator op) => op switch
+    private static string? GetBinaryOperatorSymbol(BinaryOperator op) => op switch
     {
         BinaryOperator.Add => "+",
         BinaryOperator.Subtract => "-",
         BinaryOperator.Multiply => "*",
         BinaryOperator.Divide => "/",
         BinaryOperator.Modulo => "%",
+        BinaryOperator.BitwiseAnd => "&",
+        BinaryOperator.BitwiseOr => "|",
+        BinaryOperator.BitwiseXor => "^",
+        BinaryOperator.LeftShift => "<<",
+        BinaryOperator.RightShift => ">>",
         _ => null
     };
 
     /// <summary>
-    /// Attempts to resolve a binary arithmetic operator to a user-declared or runtime operator
-    /// overload (<c>op_Addition</c> and friends). On success, <paramref name="result"/> is the
-    /// operator's result type. This keeps the analyzer in step with the IL backend, which binds
-    /// these operators directly (e.g. <c>System.Numerics.Vector&lt;T&gt;</c> arithmetic). The check
-    /// is conservative: it requires a binary (two-parameter) operator whose parameters accept the
-    /// operand types, and it never widens the set of operators beyond the arithmetic five.
+    /// Attempts to resolve a binary operator to a user-declared or runtime operator overload
+    /// (<c>op_Addition</c>, <c>op_BitwiseAnd</c>, and friends). On success, <paramref name="result"/>
+    /// is the operator's result type. This keeps the analyzer in step with the IL backend, which binds
+    /// these operators directly. The check is conservative: it requires a binary (two-parameter)
+    /// operator whose parameters accept the operand types.
     /// </summary>
     private bool TryResolveBinaryOperatorOverloadResult(
         BinaryOperator op,
@@ -4945,8 +5029,8 @@ public class Analyzer : IDisposable
     {
         result = BuiltInTypes.Unknown;
 
-        var clrName = GetArithmeticOperatorClrName(op);
-        var symbol = GetArithmeticOperatorSymbol(op);
+        var clrName = GetBinaryOperatorClrName(op);
+        var symbol = GetBinaryOperatorSymbol(op);
         if (clrName == null || symbol == null)
         {
             return false;
@@ -5148,6 +5232,124 @@ public class Analyzer : IDisposable
         }
     }
 
+    private static string? GetUnaryOperatorClrName(UnaryOperator op) => op switch
+    {
+        UnaryOperator.Negate => "op_UnaryNegation",
+        UnaryOperator.Not => "op_LogicalNot",
+        UnaryOperator.BitwiseNot => "op_OnesComplement",
+        UnaryOperator.PreIncrement or UnaryOperator.PostIncrement => "op_Increment",
+        UnaryOperator.PreDecrement or UnaryOperator.PostDecrement => "op_Decrement",
+        _ => null
+    };
+
+    private static string? GetUnaryOperatorSymbol(UnaryOperator op) => op switch
+    {
+        UnaryOperator.Negate => "-",
+        UnaryOperator.Not => "!",
+        UnaryOperator.BitwiseNot => "~",
+        UnaryOperator.PreIncrement or UnaryOperator.PostIncrement => "++",
+        UnaryOperator.PreDecrement or UnaryOperator.PostDecrement => "--",
+        _ => null
+    };
+
+    private bool TryResolveUnaryOperatorOverloadResult(UnaryOperator op, TypeInfo operand, out TypeInfo result)
+    {
+        result = BuiltInTypes.Unknown;
+
+        var clrName = GetUnaryOperatorClrName(op);
+        var symbol = GetUnaryOperatorSymbol(op);
+        if (clrName == null || symbol == null)
+        {
+            return false;
+        }
+
+        return TryResolveDeclaredUnaryOperator(operand, symbol, out result)
+            || TryResolveRuntimeUnaryOperator(operand, clrName, out result);
+    }
+
+    private bool TryResolveDeclaredUnaryOperator(
+        TypeInfo operandType,
+        string symbol,
+        out TypeInfo result)
+    {
+        result = BuiltInTypes.Unknown;
+
+        var members = operandType switch
+        {
+            ClassTypeInfo classType => classType.Declaration.Members,
+            StructTypeInfo structType => structType.Declaration.Members,
+            RecordTypeInfo recordType => recordType.Declaration.Members,
+            _ => null
+        };
+
+        if (members == null)
+        {
+            return false;
+        }
+
+        var match = members
+            .OfType<FunctionDeclaration>()
+            .FirstOrDefault(member =>
+                member.IsOperatorOverload
+                && member.OperatorSymbol == symbol
+                && member.Parameters.Count == 1
+                && member.ReturnType != null
+                && IsAssignable(ResolveType(member.Parameters[0].Type), operandType));
+
+        if (match?.ReturnType == null)
+        {
+            return false;
+        }
+
+        result = ResolveType(match.ReturnType);
+        return true;
+    }
+
+    private bool TryResolveRuntimeUnaryOperator(TypeInfo operandType, string clrName, out TypeInfo result)
+    {
+        result = BuiltInTypes.Unknown;
+
+        var clrType = TryResolveOperandClrType(operandType);
+        if (clrType == null)
+        {
+            return false;
+        }
+
+        MethodInfo[] candidates;
+        try
+        {
+            candidates = clrType.GetMethods(BindingFlags.Public | BindingFlags.Static);
+        }
+        catch (Exception ex) when (ex is NotSupportedException or TypeLoadException or FileNotFoundException)
+        {
+            return false;
+        }
+
+        foreach (var candidate in candidates)
+        {
+            if (candidate.Name != clrName)
+            {
+                continue;
+            }
+
+            var parameters = candidate.GetParameters();
+            if (parameters.Length != 1)
+            {
+                continue;
+            }
+
+            if (!IsRuntimeOperatorParameterCompatible(parameters[0].ParameterType, clrType))
+            {
+                continue;
+            }
+
+            result = ConvertReflectionType(candidate.ReturnType);
+            return true;
+        }
+
+        return false;
+    }
+
     private TypeInfo AnalyzeLogicalOp(TypeInfo left, TypeInfo right, BinaryExpression expr)
     {
         if (!IsBoolType(left) || !IsBoolType(right))
@@ -5179,13 +5381,72 @@ public class Analyzer : IDisposable
 
         return unary.Operator switch
         {
-            UnaryOperator.Negate => operandType,
+            UnaryOperator.Negate => AnalyzeUnaryNegation(operandType, unary),
             UnaryOperator.Not => BuiltInTypes.Bool,
+            UnaryOperator.BitwiseNot => AnalyzeUnaryBitwiseNot(operandType, unary),
             UnaryOperator.PreIncrement or UnaryOperator.PreDecrement
                 or UnaryOperator.PostIncrement or UnaryOperator.PostDecrement => operandType,
             UnaryOperator.IndexFromEnd => LookupType("System.Index") ?? BuiltInTypes.DeferredExternal,
             _ => BuiltInTypes.Unknown
         };
+    }
+
+    private TypeInfo AnalyzeUnaryNegation(TypeInfo operandType, UnaryExpression unary)
+    {
+        if (BuiltInTypes.IsUnknown(operandType))
+        {
+            return BuiltInTypes.Unknown;
+        }
+
+        if (TryResolveUnaryOperatorOverloadResult(unary.Operator, operandType, out var overloadResult))
+        {
+            return overloadResult;
+        }
+
+        if (unary.Operand is IntLiteralExpression intLiteral
+            && TryGetExpectedNegativeIntegerLiteralType(_currentExpectedType, intLiteral.Value, out var targetTypedLiteralType))
+        {
+            return targetTypedLiteralType;
+        }
+
+        var promotedType = GetUnaryNegationType(operandType);
+        if (promotedType != null)
+        {
+            return promotedType;
+        }
+
+        ReportUnaryOperatorOperandMismatch(
+            unary,
+            operandType,
+            "the operand needs a signed numeric value, a floating-point value, decimal, or uint");
+        return BuiltInTypes.Unknown;
+    }
+
+    private TypeInfo AnalyzeUnaryBitwiseNot(TypeInfo operandType, UnaryExpression unary)
+    {
+        if (BuiltInTypes.IsUnknown(operandType))
+        {
+            return BuiltInTypes.Unknown;
+        }
+
+        if (TryResolveUnaryOperatorOverloadResult(unary.Operator, operandType, out var overloadResult))
+        {
+            return overloadResult;
+        }
+
+        if (IsBitwiseEnumType(operandType))
+        {
+            return operandType;
+        }
+
+        var promotedType = GetUnaryNumericPromotionType(operandType);
+        if (promotedType != null && IsIntegralType(promotedType))
+        {
+            return promotedType;
+        }
+
+        ReportUnaryOperatorOperandMismatch(unary, operandType, "the operand needs an integral value");
+        return BuiltInTypes.Unknown;
     }
 
     private TypeInfo AnalyzeMustExpression(MustExpression must)
@@ -13146,6 +13407,54 @@ public class Analyzer : IDisposable
         return false;
     }
 
+    private bool TryGetExpectedNegativeIntegerLiteralType(
+        TypeInfo? expectedType,
+        string literalText,
+        out TypeInfo targetType)
+    {
+        targetType = BuiltInTypes.Int;
+        if (expectedType == null)
+        {
+            return false;
+        }
+
+        var suffix = NumericLiteralFacts.GetIntegerSuffix(literalText);
+        if (suffix.HasUnsigned || suffix.HasLong)
+        {
+            return false;
+        }
+
+        if (!NumericLiteralFacts.TryParseUnsignedIntegerMagnitude(literalText, out var magnitude))
+        {
+            return false;
+        }
+
+        var resolved = ResolveTypeAlias(expectedType);
+        if (resolved is NullableTypeInfo nullable)
+        {
+            resolved = ResolveTypeAlias(nullable.InnerType);
+        }
+
+        if (resolved is SimpleTypeInfo simple
+            && TryGetNegativeIntegerLiteralMaxMagnitude(simple.Name, out var simpleMaxMagnitude)
+            && magnitude <= simpleMaxMagnitude)
+        {
+            targetType = simple;
+            return true;
+        }
+
+        if (resolved is ReflectionTypeInfo reflection
+            && TryGetIntegerLiteralTypeInfo(reflection.Type, out var reflectionType)
+            && TryGetNegativeIntegerLiteralMaxMagnitude(reflectionType.Name, out var reflectionMaxMagnitude)
+            && magnitude <= reflectionMaxMagnitude)
+        {
+            targetType = reflectionType;
+            return true;
+        }
+
+        return false;
+    }
+
     private static bool TryGetIntegerLiteralTypeInfo(Type type, out SimpleTypeInfo typeInfo)
     {
         type = Nullable.GetUnderlyingType(type) ?? type;
@@ -13197,6 +13506,28 @@ public class Analyzer : IDisposable
 
         typeInfo = BuiltInTypes.Int;
         return false;
+    }
+
+    private static bool TryGetNegativeIntegerLiteralMaxMagnitude(string typeName, out ulong maxMagnitude)
+    {
+        switch (typeName)
+        {
+            case "sbyte":
+                maxMagnitude = (ulong)sbyte.MaxValue + 1;
+                return true;
+            case "short":
+                maxMagnitude = (ulong)short.MaxValue + 1;
+                return true;
+            case "int":
+                maxMagnitude = (ulong)int.MaxValue + 1;
+                return true;
+            case "long":
+                maxMagnitude = (ulong)long.MaxValue + 1;
+                return true;
+            default:
+                maxMagnitude = 0;
+                return false;
+        }
     }
 
     private static bool TryGetUnsignedIntegerLiteralMaxValue(string typeName, out ulong maxValue)
@@ -14191,6 +14522,38 @@ public class Analyzer : IDisposable
             || type == BuiltInTypes.ULong || type == BuiltInTypes.Char;
     }
 
+    private bool IsIntegralType(TypeInfo type)
+    {
+        return type == BuiltInTypes.Int || type == BuiltInTypes.Long
+            || type == BuiltInTypes.Byte || type == BuiltInTypes.SByte
+            || type == BuiltInTypes.Short || type == BuiltInTypes.UShort
+            || type == BuiltInTypes.UInt || type == BuiltInTypes.ULong
+            || type == BuiltInTypes.Char;
+    }
+
+    private bool IsBitwiseEnumType(TypeInfo type)
+    {
+        var resolved = ResolveTypeAlias(type);
+        return resolved is EnumTypeInfo { Declaration.Type: EnumType.Int }
+            || resolved is ReflectionTypeInfo { Type.IsEnum: true };
+    }
+
+    private bool IsSameBitwiseEnumType(TypeInfo left, TypeInfo right)
+    {
+        var resolvedLeft = ResolveTypeAlias(left);
+        var resolvedRight = ResolveTypeAlias(right);
+        return (resolvedLeft, resolvedRight) switch
+        {
+            (EnumTypeInfo l, EnumTypeInfo r) => l.Declaration.Type == EnumType.Int
+                && r.Declaration.Type == EnumType.Int
+                && ReferenceEquals(l.Declaration, r.Declaration),
+            (ReflectionTypeInfo l, ReflectionTypeInfo r) => l.Type.IsEnum
+                && r.Type.IsEnum
+                && l.Type == r.Type,
+            _ => false
+        };
+    }
+
     private bool IsBoolType(TypeInfo type)
     {
         return type == BuiltInTypes.Bool;
@@ -14260,11 +14623,96 @@ public class Analyzer : IDisposable
         return BuiltInTypes.Int;
     }
 
+    private TypeInfo? GetUnaryNumericPromotionType(TypeInfo operand)
+    {
+        return GetNumericName(operand) switch
+        {
+            "byte" or "sbyte" or "short" or "ushort" or "char" => BuiltInTypes.Int,
+            "int" => BuiltInTypes.Int,
+            "uint" => BuiltInTypes.UInt,
+            "long" => BuiltInTypes.Long,
+            "ulong" => BuiltInTypes.ULong,
+            "float" => BuiltInTypes.Float,
+            "double" => BuiltInTypes.Double,
+            "decimal" => BuiltInTypes.Decimal,
+            _ => null
+        };
+    }
+
+    private TypeInfo? GetUnaryNegationType(TypeInfo operand)
+    {
+        return GetNumericName(operand) switch
+        {
+            "byte" or "sbyte" or "short" or "ushort" or "char" => BuiltInTypes.Int,
+            "int" => BuiltInTypes.Int,
+            "uint" => BuiltInTypes.Long,
+            "long" => BuiltInTypes.Long,
+            "float" => BuiltInTypes.Float,
+            "double" => BuiltInTypes.Double,
+            "decimal" => BuiltInTypes.Decimal,
+            _ => null
+        };
+    }
+
     private static string? GetNumericName(TypeInfo type)
     {
         if (type is SimpleTypeInfo simple)
             return simple.Name;
         return null;
+    }
+
+    private void ReportBinaryOperatorOperandMismatch(
+        BinaryExpression expr,
+        TypeInfo left,
+        TypeInfo right,
+        string requirement)
+    {
+        var leftIsWrong = !IsIntegralType(left) && !IsBoolType(left);
+        var rightIsWrong = !IsIntegralType(right) && !IsBoolType(right);
+        if (expr.Operator is BinaryOperator.LeftShift or BinaryOperator.RightShift)
+        {
+            leftIsWrong = !IsIntegralType(left);
+            rightIsWrong = !IsIntegralType(right);
+        }
+
+        var (diagnosticLine, diagnosticColumn, diagnosticLength) =
+            GetBinaryOperandDiagnosticSpan(expr, leftIsWrong, rightIsWrong);
+        var opText = GetBinaryOperatorText(expr.Operator);
+        var sideText = leftIsWrong == rightIsWrong
+            ? $"I found '{left}' and '{right}'"
+            : leftIsWrong
+                ? $"the left side is '{left}'"
+                : $"the right side is '{right}'";
+
+        Error(
+            ErrorCode.TypeMismatch,
+            $"The '{opText}' operator doesn't work with '{left}' and '{right}' — {requirement}, but {sideText}",
+            diagnosticLine,
+            diagnosticColumn,
+            "Use compatible operands, convert the non-compatible value, or define an operator overload for this type.",
+            diagnosticLength);
+    }
+
+    private void ReportUnaryOperatorOperandMismatch(UnaryExpression unary, TypeInfo operandType, string requirement)
+    {
+        var opText = unary.Operator switch
+        {
+            UnaryOperator.Negate => "-",
+            UnaryOperator.Not => "!",
+            UnaryOperator.BitwiseNot => "~",
+            UnaryOperator.PreIncrement or UnaryOperator.PostIncrement => "++",
+            UnaryOperator.PreDecrement or UnaryOperator.PostDecrement => "--",
+            UnaryOperator.IndexFromEnd => "^",
+            _ => "operator"
+        };
+
+        Error(
+            ErrorCode.TypeMismatch,
+            $"The '{opText}' operator doesn't work with '{operandType}' — {requirement}",
+            unary.Line,
+            unary.Column,
+            "Use a compatible operand, convert the value, or define an operator overload for this type.",
+            opText.Length);
     }
 
     private TypeInfo GetCommonType(TypeInfo left, TypeInfo right)

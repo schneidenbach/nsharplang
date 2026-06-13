@@ -13,7 +13,8 @@ namespace NSharpLang.Compiler.Columnar;
 /// Numeric promotion follows the C# binder (Analyzer.cs GetWiderType / ECMA-334 §12.4.7) for the surface the
 /// dogfood corpus uses: char/short/byte/sbyte/ushort promote to int; then double &gt; float &gt; ulong/long
 /// &gt; uint &gt; int. decimal-with-float/double and ulong-with-signed are invalid mixes (→ External; the C#
-/// binder errors, which the corpus never triggers).
+/// binder errors, which the corpus never triggers). Unary and bitwise promotion follows Analyzer.cs as well:
+/// unary - promotes small integrals to int and uint to long; unary ~ and shifts promote the operand side only.
 /// </summary>
 public static class ColumnarTypeLattice
 {
@@ -23,6 +24,12 @@ public static class ColumnarTypeLattice
     {
         "int" or "long" or "float" or "double" or "decimal"
             or "byte" or "sbyte" or "short" or "ushort" or "uint" or "ulong" or "char" => true,
+        _ => false,
+    };
+
+    public static bool IsIntegral(string t) => t switch
+    {
+        "int" or "long" or "byte" or "sbyte" or "short" or "ushort" or "uint" or "ulong" or "char" => true,
         _ => false,
     };
 
@@ -79,30 +86,54 @@ public static class ColumnarTypeLattice
         return "double";
     }
 
-    // Matches the C# binder's CURRENT unary behavior (Analyzer.cs AnalyzeUnaryExpression), which is the
-    // self-host parity target: negate returns the operand type unchanged (the binder does NOT apply ECMA
-    // numeric promotion — a known binder gap, flagged in roadmap-to-done.md); logical NOT → bool;
-    // pre-inc/dec → operand type; bitwise-NOT (~) and index-from-end (^) are not concretely typed → External.
+    public static string UnaryNegation(string operandType) => operandType switch
+    {
+        "byte" or "sbyte" or "short" or "ushort" or "char" => "int",
+        "uint" => "long",
+        "int" or "long" or "float" or "double" or "decimal" => operandType,
+        _ => External,
+    };
+
+    public static string UnaryBitwiseNot(string operandType)
+    {
+        var promoted = Promote(operandType);
+        return IsIntegral(promoted) ? promoted : External;
+    }
+
+    public static string Bitwise(string left, string right)
+    {
+        if (left == "bool" && right == "bool")
+            return "bool";
+        return IsIntegral(left) && IsIntegral(right) ? Wider(left, right) : External;
+    }
+
+    public static string Shift(string left, string right)
+        => IsIntegral(left) && IsIntegral(right) ? Promote(left) : External;
+
+    // Matches the C# binder's unary behavior (Analyzer.cs AnalyzeUnaryExpression): unary - applies unary
+    // numeric promotion (small integrals → int, uint → long), logical NOT → bool, pre-inc/dec → operand type,
+    // bitwise-NOT (~) applies unary integral promotion, and index-from-end (^) remains a host type.
     public static string Unary(string op, string operandType) => op switch
     {
         "!" => "bool",
-        "-" => operandType,
+        "-" => UnaryNegation(operandType),
+        "~" => UnaryBitwiseNot(operandType),
         "++" or "--" => operandType,
-        _ => External, // ~ (binder returns Unknown) and ^ (System.Index host type)
+        _ => External, // ^ (System.Index host type)
     };
 
-    // Matches the C# binder's CURRENT binary behavior. Arithmetic (+,-,*,/,%) applies numeric promotion via
+    // Matches the C# binder's binary behavior. Arithmetic (+,-,*,/,%) applies numeric promotion via
     // AnalyzeArithmeticOp/GetWiderType; comparison/logical → bool; string '+' → string; '??' → the fallback's
-    // type. BITWISE ops (&,|,^,<<,>>) are NOT concretely typed by the binder today (it returns Unknown — a
-    // known binder gap, flagged in roadmap-to-done.md) → External, so the columnar inferer is a faithful
-    // (behavior-preserving) replacement rather than silently diverging.
+    // type; bitwise ops apply bool/integral rules; shifts promote only the left operand.
     public static string Binary(string op, string left, string right) => op switch
     {
         "==" or "!=" or "<" or ">" or "<=" or ">=" or "&&" or "||" => "bool",
         "+" => left == "string" || right == "string" ? "string" : Wider(left, right),
         "-" or "*" or "/" or "%" => Wider(left, right),
+        "&" or "|" or "^" => Bitwise(left, right),
+        "<<" or ">>" => Shift(left, right),
         "??" => right,
-        _ => External, // &,|,^,<<,>> : binder returns Unknown (gap) -> deferred
+        _ => External,
     };
 
     /// <summary>Element type of an indexable: <c>elem[]</c> → elem, string → char, else External.</summary>

@@ -1449,13 +1449,12 @@ class B
     // COLUMNAR PIPELINE stage 3 (docs/design/columnar-pipeline.md): expression type inference over the
     // columnar tables (no C# AST) must implement the SAME inference rules walking the C# AST -- every
     // expression's inferred canonical type, in the same post-order -- on the full dogfood corpus plus
-    // hand-built corpora. Pure-N# forms are inferred (literals, numeric promotion, comparison/logical, locals
-    // from initializers, N#-function call returns, index, cast, new, ternary, assignment); BCL forms yield
-    // "External". The shared ColumnarTypeLattice rules were adversarially reviewed against the REAL C# binder
-    // (Analyzer.cs) and aligned to its actual behavior -- including the binder's current ECMA gaps (bitwise
-    // binary and unary ~ are not concretely typed today; flagged in roadmap-to-done.md). This test proves the
-    // columnar inferer implements that reviewed spec; the DEFINITIVE binder/output parity is verified
-    // end-to-end at stages 4-5 (the columnar pipeline emitting IL that runs identically).
+    // hand-built corpora. Pure-N# forms are inferred (literals, numeric promotion, comparison/logical, bitwise,
+    // shifts, locals from initializers, N#-function call returns, index, cast, new, ternary, assignment); BCL
+    // forms yield "External". The shared ColumnarTypeLattice rules were adversarially reviewed against the REAL
+    // C# binder (Analyzer.cs), and this test proves the columnar inferer implements that reviewed spec; the
+    // DEFINITIVE binder/output parity is verified end-to-end at stages 4-5 (the columnar pipeline emitting IL
+    // that runs identically).
     [Fact]
     public void ColumnarTypes_Inference_MatchesAstWalk()
     {
@@ -1468,6 +1467,8 @@ class B
             "func a(): int {\n    return b() + 1\n}\n\nfunc b(): int {\n    return 1\n}\n",
             // cast -> int local; char arithmetic promotes to int
             "func codes(ch: char): int {\n    code := (int)ch\n    next := code + 1\n    return next\n}\n",
+            // bitwise and unary promotion: byte ops -> int, uint unary - -> long, bool & bool -> bool
+            "func ops(a: byte, b: byte, u: uint, flag: bool): long {\n    bits := a & b\n    inv := ~a\n    neg := -u\n    shifted := a << 2\n    ok := flag & true\n    return neg\n}\n",
             // member access -> External; index on array -> element
             "import System\n\nfunc scan(s: string, data: int[], i: int): int {\n    total := data[i]\n    return total\n}\n",
         };
