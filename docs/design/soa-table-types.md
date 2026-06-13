@@ -247,7 +247,9 @@ ownership lands.
    run/watch, publish, test, lint, and tidy argument clusters. It now also wraps symbol-name filter
    inputs/results plus build/export operand kind columns and linked-list scratch columns, and wraps
    `nlc fix` safety-rank, edit-count, edit-flattening, file-rank, rank-bucket, and applied-file group
-   result columns. These slices preserve the flattened dogfood adapter ABI.
+   result columns. Unified-diff hunk range inputs/results and clean-artifact directory ordering
+   inputs/scratch/result columns are now table-wrapped as well. These slices preserve the flattened
+   dogfood adapter ABI.
 7. Only after those gates pass, start replacing C# emitter/analyzer internals that still require untyped
    parallel-array plumbing.
 

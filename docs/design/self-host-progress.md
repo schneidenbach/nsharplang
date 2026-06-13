@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — CLI diff and clean artifact tables wrapped
+
+`CliArguments.nl` now wraps unified-diff hunk range line inputs and hunk output columns behind named
+normal structs. The exported `CliUnifiedDiffHunkRangesInto` ABI stays flattened for the CLI dogfood
+adapter, while the range merge loop and hunk writer use wrapper-aware line/result tables.
+
+The clean-artifact directory ordering pass now also groups kind/module/path inputs and
+seen-path/length-bucket/temp scratch columns behind normal table wrappers, with the caller-owned
+result index output still exposed through the existing flattened entry point.
+
 ## 2026-06-13 — CLI fix safety and grouping tables wrapped
 
 `CliArguments.nl` now wraps the `nlc fix` safety-rank, edit-count, edit-flattening, file-rank,

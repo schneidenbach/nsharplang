@@ -78,6 +78,35 @@ struct CliFixAppliedFileGroupResultTable {
     Indices: int[]
 }
 
+struct CliUnifiedDiffLineTable {
+    Kinds: int[]
+    OldLines: int[]
+    NewLines: int[]
+}
+
+struct CliUnifiedDiffHunkResultTable {
+    Starts: int[]
+    Lengths: int[]
+    OldStarts: int[]
+    OldCounts: int[]
+    NewStarts: int[]
+    NewCounts: int[]
+}
+
+struct CliCleanArtifactInputTable {
+    KindRanks: int[]
+    NodeModuleFlags: int[]
+    PathRanks: int[]
+    PathLengths: int[]
+}
+
+struct CliCleanArtifactScratchTable {
+    SeenPathRanks: int[]
+    LengthCounts: int[]
+    LengthOffsets: int[]
+    TempIndices: int[]
+}
+
 func CliPositionalArgIndicesInto(
     args: string[],
     optionsWithValues: string[],
@@ -2037,19 +2066,39 @@ func CliUnifiedDiffHunkRangesInto(
     resultOldCounts: int[],
     resultNewStarts: int[],
     resultNewCounts: int[]): int {
-    lineCount := kindIds.Length
+    lines := new CliUnifiedDiffLineTable {
+        Kinds: kindIds,
+        OldLines: oldLines,
+        NewLines: newLines
+    }
+    results := new CliUnifiedDiffHunkResultTable {
+        Starts: resultStarts,
+        Lengths: resultLengths,
+        OldStarts: resultOldStarts,
+        OldCounts: resultOldCounts,
+        NewStarts: resultNewStarts,
+        NewCounts: resultNewCounts
+    }
+    return CliUnifiedDiffHunkRangesCore(ref lines, contextLines, ref results)
+}
+
+func CliUnifiedDiffHunkRangesCore(
+    lines: &CliUnifiedDiffLineTable,
+    contextLines: int,
+    results: &CliUnifiedDiffHunkResultTable): int {
+    lineCount := lines.Kinds.Length
     if contextLines < 0 {
         return -1
     }
 
-    if oldLines.Length < lineCount
-        || newLines.Length < lineCount
-        || resultStarts.Length < lineCount
-        || resultLengths.Length < lineCount
-        || resultOldStarts.Length < lineCount
-        || resultOldCounts.Length < lineCount
-        || resultNewStarts.Length < lineCount
-        || resultNewCounts.Length < lineCount {
+    if lines.OldLines.Length < lineCount
+        || lines.NewLines.Length < lineCount
+        || results.Starts.Length < lineCount
+        || results.Lengths.Length < lineCount
+        || results.OldStarts.Length < lineCount
+        || results.OldCounts.Length < lineCount
+        || results.NewStarts.Length < lineCount
+        || results.NewCounts.Length < lineCount {
         return -1
     }
 
@@ -2058,7 +2107,7 @@ func CliUnifiedDiffHunkRangesInto(
     hunkCount := 0
     i := 0
     while i < lineCount {
-        if kindIds[i] != 0 {
+        if lines.Kinds[i] != 0 {
             nextStart := i - contextLines
             if nextStart < 0 {
                 nextStart = 0
@@ -2077,19 +2126,7 @@ func CliUnifiedDiffHunkRangesInto(
                     rangeEnd = nextEnd
                 }
             } else {
-                if !CliUnifiedDiffWriteHunkRange(
-                    kindIds,
-                    oldLines,
-                    newLines,
-                    rangeStart,
-                    rangeEnd,
-                    hunkCount,
-                    resultStarts,
-                    resultLengths,
-                    resultOldStarts,
-                    resultOldCounts,
-                    resultNewStarts,
-                    resultNewCounts) {
+                if !CliUnifiedDiffWriteHunkRangeCore(ref lines, rangeStart, rangeEnd, hunkCount, ref results) {
                     return -1
                 }
 
@@ -2103,19 +2140,7 @@ func CliUnifiedDiffHunkRangesInto(
     }
 
     if rangeStart >= 0 {
-        if !CliUnifiedDiffWriteHunkRange(
-            kindIds,
-            oldLines,
-            newLines,
-            rangeStart,
-            rangeEnd,
-            hunkCount,
-            resultStarts,
-            resultLengths,
-            resultOldStarts,
-            resultOldCounts,
-            resultNewStarts,
-            resultNewCounts) {
+        if !CliUnifiedDiffWriteHunkRangeCore(ref lines, rangeStart, rangeEnd, hunkCount, ref results) {
             return -1
         }
 
@@ -2125,26 +2150,19 @@ func CliUnifiedDiffHunkRangesInto(
     return hunkCount
 }
 
-func CliUnifiedDiffWriteHunkRange(
-    kindIds: int[],
-    oldLines: int[],
-    newLines: int[],
+func CliUnifiedDiffWriteHunkRangeCore(
+    lines: &CliUnifiedDiffLineTable,
     rangeStart: int,
     rangeEnd: int,
     hunkIndex: int,
-    resultStarts: int[],
-    resultLengths: int[],
-    resultOldStarts: int[],
-    resultOldCounts: int[],
-    resultNewStarts: int[],
-    resultNewCounts: int[]): bool {
+    results: &CliUnifiedDiffHunkResultTable): bool {
     if hunkIndex < 0
-        || hunkIndex >= resultStarts.Length
-        || hunkIndex >= resultLengths.Length
-        || hunkIndex >= resultOldStarts.Length
-        || hunkIndex >= resultOldCounts.Length
-        || hunkIndex >= resultNewStarts.Length
-        || hunkIndex >= resultNewCounts.Length {
+        || hunkIndex >= results.Starts.Length
+        || hunkIndex >= results.Lengths.Length
+        || hunkIndex >= results.OldStarts.Length
+        || hunkIndex >= results.OldCounts.Length
+        || hunkIndex >= results.NewStarts.Length
+        || hunkIndex >= results.NewCounts.Length {
         return false
     }
 
@@ -2155,13 +2173,13 @@ func CliUnifiedDiffWriteHunkRange(
 
     i := rangeStart
     while i <= rangeEnd {
-        kind := kindIds[i]
-        if oldStart == 0 && oldLines[i] > 0 {
-            oldStart = oldLines[i]
+        kind := lines.Kinds[i]
+        if oldStart == 0 && lines.OldLines[i] > 0 {
+            oldStart = lines.OldLines[i]
         }
 
-        if newStart == 0 && newLines[i] > 0 {
-            newStart = newLines[i]
+        if newStart == 0 && lines.NewLines[i] > 0 {
+            newStart = lines.NewLines[i]
         }
 
         if kind != 1 {
@@ -2183,12 +2201,12 @@ func CliUnifiedDiffWriteHunkRange(
         newStart = 1
     }
 
-    resultStarts[hunkIndex] = rangeStart
-    resultLengths[hunkIndex] = rangeEnd - rangeStart + 1
-    resultOldStarts[hunkIndex] = oldStart
-    resultOldCounts[hunkIndex] = oldCount
-    resultNewStarts[hunkIndex] = newStart
-    resultNewCounts[hunkIndex] = newCount
+    results.Starts[hunkIndex] = rangeStart
+    results.Lengths[hunkIndex] = rangeEnd - rangeStart + 1
+    results.OldStarts[hunkIndex] = oldStart
+    results.OldCounts[hunkIndex] = oldCount
+    results.NewStarts[hunkIndex] = newStart
+    results.NewCounts[hunkIndex] = newCount
     return true
 }
 
@@ -2202,47 +2220,67 @@ func CliCleanArtifactDirectoryIndicesInto(
     lengthOffsets: int[],
     tempIndices: int[],
     resultIndices: int[]): int {
-    length := kindRanks.Length
-    if nodeModuleFlags.Length < length
-        || pathRanks.Length < length
-        || pathLengths.Length < length
-        || tempIndices.Length < length
-        || resultIndices.Length < length {
+    inputs := new CliCleanArtifactInputTable {
+        KindRanks: kindRanks,
+        NodeModuleFlags: nodeModuleFlags,
+        PathRanks: pathRanks,
+        PathLengths: pathLengths
+    }
+    scratch := new CliCleanArtifactScratchTable {
+        SeenPathRanks: seenPathRanks,
+        LengthCounts: lengthCounts,
+        LengthOffsets: lengthOffsets,
+        TempIndices: tempIndices
+    }
+    results := new CliIndexResultTable { Indices: resultIndices }
+    return CliCleanArtifactDirectoryIndicesCore(ref inputs, ref scratch, ref results)
+}
+
+func CliCleanArtifactDirectoryIndicesCore(
+    inputs: &CliCleanArtifactInputTable,
+    scratch: &CliCleanArtifactScratchTable,
+    results: &CliIndexResultTable): int {
+    length := inputs.KindRanks.Length
+    if inputs.NodeModuleFlags.Length < length
+        || inputs.PathRanks.Length < length
+        || inputs.PathLengths.Length < length
+        || scratch.TempIndices.Length < length
+        || results.Indices.Length < length {
         return -1
     }
 
     i := 0
-    while i < seenPathRanks.Length {
-        seenPathRanks[i] = 0
+    while i < scratch.SeenPathRanks.Length {
+        scratch.SeenPathRanks[i] = 0
         i = i + 1
     }
 
     i = 0
-    while i < lengthCounts.Length {
-        lengthCounts[i] = 0
-        lengthOffsets[i] = 0
+    while i < scratch.LengthCounts.Length {
+        scratch.LengthCounts[i] = 0
+        scratch.LengthOffsets[i] = 0
         i = i + 1
     }
 
     selectedCount := 0
     i = 0
     while i < length {
-        kindRank := kindRanks[i]
-        if kindRank > 0 && nodeModuleFlags[i] == 0 {
-            pathRank := pathRanks[i]
-            if pathRank <= 0 || pathRank >= seenPathRanks.Length {
+        kindRank := inputs.KindRanks[i]
+        if kindRank > 0 && inputs.NodeModuleFlags[i] == 0 {
+            pathRank := inputs.PathRanks[i]
+            if pathRank <= 0 || pathRank >= scratch.SeenPathRanks.Length {
                 return -1
             }
 
-            if seenPathRanks[pathRank] == 0 {
-                pathLength := pathLengths[i]
-                if pathLength < 0 || pathLength >= lengthCounts.Length {
+            if scratch.SeenPathRanks[pathRank] == 0 {
+                pathLength := inputs.PathLengths[i]
+                if pathLength < 0 || pathLength >= scratch.LengthCounts.Length {
                     return -1
                 }
 
-                seenPathRanks[pathRank] = 1
-                tempIndices[selectedCount] = i
-                lengthCounts[pathLength] = lengthCounts[pathLength] + 1
+                scratch.SeenPathRanks[pathRank] = 1
+                scratch.TempIndices[selectedCount] = i
+                scratch.LengthCounts[pathLength] = scratch.LengthCounts[pathLength] + 1
                 selectedCount = selectedCount + 1
             }
         }
@@ -2251,21 +2289,21 @@ func CliCleanArtifactDirectoryIndicesInto(
     }
 
     running := 0
-    lengthRank := lengthCounts.Length - 1
+    lengthRank := scratch.LengthCounts.Length - 1
     while lengthRank >= 0 {
-        count := lengthCounts[lengthRank]
-        lengthOffsets[lengthRank] = running
+        count := scratch.LengthCounts[lengthRank]
+        scratch.LengthOffsets[lengthRank] = running
         running = running + count
         lengthRank = lengthRank - 1
     }
 
     i = 0
     while i < selectedCount {
-        sourceIndex := tempIndices[i]
-        pathLength := pathLengths[sourceIndex]
-        outputIndex := lengthOffsets[pathLength]
-        resultIndices[outputIndex] = sourceIndex
-        lengthOffsets[pathLength] = outputIndex + 1
+        sourceIndex := scratch.TempIndices[i]
+        pathLength := inputs.PathLengths[sourceIndex]
+        outputIndex := scratch.LengthOffsets[pathLength]
+        results.Indices[outputIndex] = sourceIndex
+        scratch.LengthOffsets[pathLength] = outputIndex + 1
         i = i + 1
     }
 
