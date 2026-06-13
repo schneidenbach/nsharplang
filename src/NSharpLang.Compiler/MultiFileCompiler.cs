@@ -961,10 +961,10 @@ public class MultiFileCompiler
                     _allErrors.AddRange(emitResult.Diagnostics);
                 }
             }
-            // STAGE 5 ROUTING: when the columnar backend is enabled (off by default) and it can emit the whole
+            // STAGE 5 ROUTING: when the columnar backend is enabled (default-on) and it can emit the whole
             // program, route emission through it (a standalone columnar pipeline that owns assembly emission with
             // NO C# AST). It declines anything outside the systems subset it models, falling back to the C#
-            // ILCompiler below — so production is unchanged unless the flag is set, and always safe.
+            // ILCompiler below — so unsupported programs stay safe while the modelled route is the default.
             else if (!(ColumnarBackendEnabled && TryEmitWithColumnarBackend(assemblyName, outputPath)))
             {
                 var mergedCompilationUnit = CreateMergedCompilationUnit();
@@ -993,10 +993,18 @@ public class MultiFileCompiler
             success ? outputPath : null);
     }
 
-    // STAGE 5 routing flag: opt in to the standalone columnar backend via env var (off by default, mirroring
-    // the parser front-end / vectorization flags). When unset, emission is unchanged (the C# ILCompiler).
-    private static bool ColumnarBackendEnabled =>
-        Environment.GetEnvironmentVariable("NSHARP_COLUMNAR_BACKEND") == "1";
+    // STAGE 5 routing flag: the standalone columnar backend is default-on now that the full dogfood corpus
+    // routes through the multi-file merge and the Phase-P vectorization gate is ported. Set
+    // NSHARP_COLUMNAR_BACKEND=0/false to force the C# ILCompiler for A/B benchmarks or emergency rollback.
+    private static bool ColumnarBackendEnabled
+    {
+        get
+        {
+            var value = Environment.GetEnvironmentVariable("NSHARP_COLUMNAR_BACKEND");
+            return !string.Equals(value, "0", StringComparison.Ordinal)
+                && !string.Equals(value, "false", StringComparison.OrdinalIgnoreCase);
+        }
+    }
 
     // Try to emit the whole assembly via the standalone columnar backend (no C# AST). The assembly is
     // `assemblyName` and the type is "Program", matching the C# ILCompiler's output so the result is a drop-in

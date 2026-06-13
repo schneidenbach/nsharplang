@@ -11,6 +11,31 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — Route-all: columnar backend is default-on with C# opt-out
+
+The Stage-5 route-all switch is flipped. `MultiFileCompiler.CompileToIlAssembly` now tries the
+standalone columnar backend by default, using the already-routed single-file path or the 32/32
+dogfood-corpus multi-file merge, then falls back to the C# `ILCompiler` if the columnar backend
+declines an unsupported program. `NSHARP_COLUMNAR_BACKEND=0` (or `false`) is the explicit opt-out
+for A/B benchmarking, ILCompiler-forcing tests, and emergency rollback; `NSHARP_COLUMNAR_BACKEND=1`
+continues to force the same enabled behavior.
+
+The flip is gated by the prior route-all evidence now satisfied together: the full compiler-service
+corpus routes through the multi-file columnar merge, the Phase P vectorized loop families have columnar
+parity/IL-shape coverage, and the Stage-5 production-routing tests compare the enabled route against a
+forced-C# baseline. The benchmark harness now forces the C# baseline with `0` so the never-slower A/B
+measurement remains meaningful after the default changes.
+
+Coverage: `Stage5_ColumnarBackend_RoutesEligibleProgramByDefault` proves an unset environment routes an
+eligible program through columnar and still value-matches the forced-C# assembly. Existing Stage-5 tests
+continue to prove explicit enabled single-file and multi-file routing plus C# fallback for unsupported
+programs.
+
+NEXT: write the SoA table-type design doc that gates the emitter-port phase, then start shrinking the
+C# surface where columnar ownership is complete.
+
+---
+
 ## 2026-06-13 — IF-2d default interface methods: concrete slots and body emission
 
 The last planned IF-2 structural residual routes C#-8-style default interface methods through the

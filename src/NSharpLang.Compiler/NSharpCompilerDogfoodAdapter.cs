@@ -684,7 +684,7 @@ internal static class NSharpCompilerDogfoodAdapter
         => TryEmitColumnarProgram(source, "ColumnarProgram", "ColumnarProgram", out assembly, out typeName, out methodNames);
 
     // Production-facing entry (Stage 5 routing): emit into an assembly named `assemblyName` and type
-    // `typeName`. The MultiFileCompiler uses this (behind a flag) to produce a drop-in replacement for the C#
+    // `typeName`. The MultiFileCompiler uses this default-on route to produce a drop-in replacement for the C#
     // ILCompiler's output — assembly name + type "Program" matching the C# path — for the systems subset it
     // models, falling back to the C# path on decline.
     internal static bool TryEmitColumnarProgram(string source, string assemblyName, string typeName, out byte[] assembly, out string emittedTypeName, out string[] methodNames)

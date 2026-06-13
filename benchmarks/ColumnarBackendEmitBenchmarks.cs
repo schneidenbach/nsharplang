@@ -11,7 +11,8 @@ namespace NSharpLang.Benchmarks;
 /// program BOTH ways through the SAME production entry point (<see cref="MultiFileCompiler.CompileToIlAssembly"/>),
 /// toggling only the backend via <c>NSHARP_COLUMNAR_BACKEND</c>. Because the parse + analyze stages are byte-for-byte
 /// identical between the two runs, the measured end-to-end delta IS the backend difference (C# <c>ILCompiler</c>
-/// emit vs the standalone columnar emit). Enabling the flag is "never-slower" iff Columnar=true is ≤ Columnar=false.
+/// emit vs the standalone columnar emit). The backend is default-on; <c>Columnar=false</c> sets
+/// <c>NSHARP_COLUMNAR_BACKEND=0</c> to force the C# baseline.
 ///
 /// The corpora (<see cref="RoutingCorpusSources"/>) are within the systems subset the columnar backend models, so
 /// the flag actually re-routes the backend (verified in Setup: the two backends emit DIFFERENT IL). This is the
@@ -29,7 +30,7 @@ public class ColumnarBackendEmitBenchmarks
     [Params(RoutingCorpus.Representative, RoutingCorpus.LargeGenerated)]
     public RoutingCorpus Corpus { get; set; }
 
-    // false = C# ILCompiler backend; true = standalone columnar backend (with C# fallback on decline).
+    // false = force C# ILCompiler backend; true = standalone columnar backend (with C# fallback on decline).
     [Params(false, true)]
     public bool Columnar { get; set; }
 
@@ -66,7 +67,7 @@ public class ColumnarBackendEmitBenchmarks
 
     [IterationSetup]
     public void IterationSetup()
-        => Environment.SetEnvironmentVariable("NSHARP_COLUMNAR_BACKEND", Columnar ? "1" : null);
+        => Environment.SetEnvironmentVariable("NSHARP_COLUMNAR_BACKEND", Columnar ? "1" : "0");
 
     [Benchmark]
     public void CompileToIlAssembly()
@@ -83,7 +84,7 @@ public class ColumnarBackendEmitBenchmarks
         var previous = Environment.GetEnvironmentVariable("NSHARP_COLUMNAR_BACKEND");
         try
         {
-            Environment.SetEnvironmentVariable("NSHARP_COLUMNAR_BACKEND", columnar ? "1" : null);
+            Environment.SetEnvironmentVariable("NSHARP_COLUMNAR_BACKEND", columnar ? "1" : "0");
             var result = new MultiFileCompiler(new[] { _programPath }, _projectRoot, _config)
                 .CompileToIlAssembly("Bench", _outputPath);
             return result.Success && result.OutputAssemblyPath != null ? File.ReadAllBytes(result.OutputAssemblyPath) : null;

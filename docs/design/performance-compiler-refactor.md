@@ -7,8 +7,9 @@ Updated: 2026-06-10 (substance originally 2026-05-27)
 > routing decision 2026-06-08).** The self-host endgame makes flat **columnar node tables** the single
 > intermediate representation end-to-end (parse→bind→analyze→codegen, no internal C# AST). As of
 > 2026-06-09, Phase S Stages 3b/4/5 are DONE — the standalone columnar pipeline owns parse→emit for the
-> modeled surface (32/32 dogfood corpus), routed behind `NSHARP_COLUMNAR_BACKEND`; live work is the
-> Phase D rich-language emit arc ([`self-host-progress.md`](self-host-progress.md) is the cursor). The
+> modeled surface (32/32 dogfood corpus), routed by default with `NSHARP_COLUMNAR_BACKEND=0` as the
+> explicit C#-backend opt-out; live work is the Phase D rich-language emit arc
+> ([`self-host-progress.md`](self-host-progress.md) is the cursor). The
 > tree-based "Analyzer → Bound IR" pipeline proposed below will NOT be built: the C# `ILCompiler/` and
 > `Analyzer.cs` it would refactor are slated for deletion at Stage 6
 > ([`roadmap-to-done.md`](roadmap-to-done.md)). The optimization *principles* in this doc —

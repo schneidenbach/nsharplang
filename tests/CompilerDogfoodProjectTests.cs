@@ -7897,11 +7897,11 @@ class B
             $"Corpus coverage regressed: {totalCompiling} files compile, expected >= {expectedCompiling.Length}.");
     }
 
-    // STAGE 5 ROUTING: with the NSHARP_COLUMNAR_BACKEND flag set, the PRODUCTION compile path
+    // STAGE 5 ROUTING: by default (or with NSHARP_COLUMNAR_BACKEND=1), the PRODUCTION compile path
     // (MultiFileCompiler.CompileToIlAssembly) emits an eligible program via the standalone columnar backend
     // instead of the C# ILCompiler. Proven by: (1) the emitted IL DIFFERS from the C# path (so the flag really
     // re-routed the backend), and (2) the columnar-emitted assembly runs IDENTICALLY to the C# one (so the
-    // routed output is correct). The flag is off by default, so production is unchanged otherwise.
+    // routed output is correct). Set NSHARP_COLUMNAR_BACKEND=0 to force the C# path for A/B checks.
     [Fact]
     public void Stage5_ColumnarBackend_RoutesEligibleProgramThroughProduction()
     {
@@ -7916,6 +7916,18 @@ class B
         Assert.Equal(InvokeFromAssemblyBytes(csharp, "add", 2, 3), InvokeFromAssemblyBytes(columnar, "add", 2, 3));
         Assert.Equal(InvokeFromAssemblyBytes(csharp, "fib", 10), InvokeFromAssemblyBytes(columnar, "fib", 10));
         Assert.Equal(55, InvokeFromAssemblyBytes(columnar, "fib", 10));
+    }
+
+    [Fact]
+    public void Stage5_ColumnarBackend_RoutesEligibleProgramByDefault()
+    {
+        var source = "func add(a: int, b: int): int {\n    return a + b\n}\n";
+        var csharp = CompileViaProduction(source, columnarBackend: false);
+        var defaultBackend = CompileViaProductionDefault(source);
+
+        Assert.NotEqual(Convert.ToBase64String(csharp), Convert.ToBase64String(defaultBackend));
+        Assert.Equal(InvokeFromAssemblyBytes(csharp, "add", 4, 8), InvokeFromAssemblyBytes(defaultBackend, "add", 4, 8));
+        Assert.Equal(12, InvokeFromAssemblyBytes(defaultBackend, "add", 4, 8));
     }
 
     // STAGE 5 MULTI-FILE ROUTING: a MULTI-FILE program (a public function in one file called from another) routes
@@ -7966,7 +7978,34 @@ class B
             config.OutputType = "library";
             config.TargetFramework = "net10.0";
 
-            Environment.SetEnvironmentVariable("NSHARP_COLUMNAR_BACKEND", columnarBackend ? "1" : null);
+            Environment.SetEnvironmentVariable("NSHARP_COLUMNAR_BACKEND", columnarBackend ? "1" : "0");
+            var compiler = new MultiFileCompiler(new[] { programPath }, projectRoot, config);
+            var result = compiler.CompileToIlAssembly("Stage5", outputPath);
+            Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors.Select(e => $"{e.DiagnosticId}: {e.Message}")));
+            return File.ReadAllBytes(result.OutputAssemblyPath!);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("NSHARP_COLUMNAR_BACKEND", previous);
+            if (Directory.Exists(projectRoot)) Directory.Delete(projectRoot, recursive: true);
+        }
+    }
+
+    private static byte[] CompileViaProductionDefault(string source)
+    {
+        var projectRoot = Path.Combine(Path.GetTempPath(), $"nsharp-stage5-default-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(projectRoot);
+        var programPath = Path.Combine(projectRoot, "Program.nl");
+        var outputPath = Path.Combine(projectRoot, "bin", "Stage5.dll");
+        var previous = Environment.GetEnvironmentVariable("NSHARP_COLUMNAR_BACKEND");
+        try
+        {
+            File.WriteAllText(programPath, source);
+            var config = ProjectFileParser.CreateDefault("Stage5");
+            config.OutputType = "library";
+            config.TargetFramework = "net10.0";
+
+            Environment.SetEnvironmentVariable("NSHARP_COLUMNAR_BACKEND", null);
             var compiler = new MultiFileCompiler(new[] { programPath }, projectRoot, config);
             var result = compiler.CompileToIlAssembly("Stage5", outputPath);
             Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors.Select(e => $"{e.DiagnosticId}: {e.Message}")));
@@ -8001,7 +8040,7 @@ class B
             config.OutputType = "library";
             config.TargetFramework = "net10.0";
 
-            Environment.SetEnvironmentVariable("NSHARP_COLUMNAR_BACKEND", columnarBackend ? "1" : null);
+            Environment.SetEnvironmentVariable("NSHARP_COLUMNAR_BACKEND", columnarBackend ? "1" : "0");
             var compiler = new MultiFileCompiler(paths.ToArray(), projectRoot, config);
             var result = compiler.CompileToIlAssembly("Stage5", outputPath);
             Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors.Select(e => $"{e.DiagnosticId}: {e.Message}")));

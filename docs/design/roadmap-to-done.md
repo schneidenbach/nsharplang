@@ -195,8 +195,9 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       (resolve, `.Length`, `Ldelem`/`Stelem`) + short-circuit `&&`/`||`. Per `project_columnar_gap_analysis` the
       next batch is the ~13 pure-int[] kernels (~40%), then strings (~37%). The corpus has NO structs/generics/
       match (rare-to-absent) and 0% double, so those are OFF the self-host path.
-      **PRODUCTION ROUTING LANDED (2026-06-08):** the columnar backend is wired into `MultiFileCompiler.
-      CompileToIlAssembly` behind `NSHARP_COLUMNAR_BACKEND=1` (off by default) with C# fallback on decline —
+      **PRODUCTION ROUTING LANDED (2026-06-08; default-on 2026-06-13):** the columnar backend is wired into `MultiFileCompiler.
+      CompileToIlAssembly` by default, with `NSHARP_COLUMNAR_BACKEND=0` as the explicit C#-backend opt-out and
+      C# fallback on decline —
       flag-on emits an eligible program via the columnar pipeline (drop-in: assembly name + type `Program`),
       proven to differ from the C# IL yet run identically (`Stage5_ColumnarBackend_*`). Corpus coverage **29/32
       (~91%) SINGLE-FILE, 32/32 (100%) via MULTI-FILE merge — PHASE A SELF-HOST COMPLETE** (2026-06-08:
@@ -220,9 +221,9 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       **NEVER-SLOWER MEASURED 2026-06-08** (`ColumnarBackendEmitBenchmarks`, same production entry, flag toggled):
       columnar emit is end-to-end TIED-to-marginally-faster vs C# `ILCompiler` (Representative 3.947 vs 3.963 ms;
       LargeGenerated 21.193 vs 21.520 ms; identical alloc) — never slower, but only ~0.4–1.5% because the SHARED
-      parse+analyze dominate the total. So the flip is unblocked on perf, but its end-to-end benefit is marginal
-      until the columnar pipeline OWNS parse+analyze (Stage 6). Remaining for default-on: the flip decision
-      (marginal benefit vs decline-safety risk surface — surfaced to the user) + columnar-owned analysis.
+      parse+analyze dominate the total. The default-on flip is now complete with the C# path retained as the
+      `NSHARP_COLUMNAR_BACKEND=0` opt-out; remaining self-host work is columnar-owned analysis and the Stage 6
+      C# surface shrink.
 - [ ] **Stage 6 — delete C#.** Remove the C# binder/analyzer/codegen paths the columnar pipeline replaces;
       shrink/remove the `*DogfoodAdapter` bridges. Track C# LOC deleted. **BLOCKED on coverage:** the columnar
       backend models ~41% of the systems dogfood subset and ~0% of the rich language (classes/generics/match/
@@ -388,8 +389,8 @@ the structural backend's order-of-magnitude prize was captured by Phase P's `Vec
 deferred behind evidence gates G1–G4; NativeAOT image emission is split out as a separate, lower-risk CLI
 startup/size track.
 
-**Status cursor (2026-06-09).** Stages 3b (columnar diagnostics), 4 (columnar codegen spike→backend), and 5
-(production routing behind `NSHARP_COLUMNAR_BACKEND`, off by default) are DONE — the standalone columnar pipeline
+**Status cursor (2026-06-13).** Stages 3b (columnar diagnostics), 4 (columnar codegen spike→backend), and 5
+(production routing default-on with `NSHARP_COLUMNAR_BACKEND=0` as the C# opt-out) are DONE — the standalone columnar pipeline
 owns parse→emit for the modelled surface (32/32 dogfood corpus via multi-file merge) and is parity-gated per
 slice. The live work is **Phase D rich-language columnar emit** (newest-on-top log:
 [`self-host-progress.md`](self-host-progress.md) is the authoritative cursor): D-11d class inheritance landed;
