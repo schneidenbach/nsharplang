@@ -1803,6 +1803,7 @@ internal static class NSharpCompilerDogfoodAdapter
                 var methodReturns = new string[methodCount];
                 var methodParamNames = new string[methodCount][];
                 var methodParamCanonicals = new string[methodCount][];
+                var methodBodies = new Columnar.ColumnarFunctionInput?[methodCount];
                 for (var m = 0; m < methodCount; m++)
                 {
                     var sk = new int[cap]; var sns = new int[cap]; var snl = new int[cap]; var scs = new int[cap];
@@ -1822,6 +1823,9 @@ internal static class NSharpCompilerDogfoodAdapter
                         return false;
                     if (sres[5] > 0 || sres[7] > 0)
                         return false; // generic interface members / where-clauses are unmodeled.
+                    var afterSignature = sres[6];
+                    if (afterSignature >= n)
+                        return false;
                     methodNames[m] = source.Substring(sres[3], sres[4]);
                     methodReturns[m] = sres[1] >= 0
                         ? ColumnarTypeCanon(sk, sns, snl, scs, scc, sci, source, sres[1])
@@ -1837,9 +1841,21 @@ internal static class NSharpCompilerDogfoodAdapter
                         if (TupleElementNamesOfType(sk, sns, snl, scs, scc, sci, source, pTypeRoot[p]) != null)
                             return false;
                     }
+                    if (ck[afterSignature] == 129)
+                    {
+                        if (!TryParseColumnarFunctionAt(bindings, ck, cs, cv, n, outMethodFuncIndices[m], source, out var bodyInput))
+                            return false;
+                        if (bodyInput.LocalFunctions != null)
+                            return false;
+                        methodBodies[m] = bodyInput;
+                    }
+                    else if (ck[afterSignature] != 7 && ck[afterSignature] != 130)
+                    {
+                        return false;
+                    }
                 }
                 interfaceInputs.Add(new Columnar.ColumnarInterfaceInput(
-                    interfaceName, baseInterfaceNames, methodNames, methodReturns, methodParamNames, methodParamCanonicals));
+                    interfaceName, baseInterfaceNames, methodNames, methodReturns, methodParamNames, methodParamCanonicals, methodBodies));
             }
             return true;
         }

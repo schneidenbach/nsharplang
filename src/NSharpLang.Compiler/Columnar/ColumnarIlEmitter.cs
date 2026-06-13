@@ -15,7 +15,7 @@ namespace NSharpLang.Compiler.Columnar;
 public sealed class ColumnarInterfaceInput
 {
     public ColumnarInterfaceInput(string name, string[] baseInterfaceNames, string[] methodNames, string[] methodReturnCanonicals,
-        string[][] methodParamNames, string[][] methodParamCanonicals)
+        string[][] methodParamNames, string[][] methodParamCanonicals, ColumnarFunctionInput?[]? methodBodies = null)
     {
         Name = name;
         BaseInterfaceNames = baseInterfaceNames;
@@ -23,6 +23,7 @@ public sealed class ColumnarInterfaceInput
         MethodReturnCanonicals = methodReturnCanonicals;
         MethodParamNames = methodParamNames;
         MethodParamCanonicals = methodParamCanonicals;
+        MethodBodies = methodBodies ?? new ColumnarFunctionInput?[methodNames.Length];
     }
 
     public string Name { get; }
@@ -31,6 +32,7 @@ public sealed class ColumnarInterfaceInput
     public string[] MethodReturnCanonicals { get; }
     public string[][] MethodParamNames { get; }
     public string[][] MethodParamCanonicals { get; }
+    public ColumnarFunctionInput?[] MethodBodies { get; }
 }
 
 /// <summary>
@@ -352,6 +354,9 @@ internal sealed class ColumnarStructDef
     // members, oracle defect #26, so columnar declines instead) and the matching methods get Virtual|Final|NewSlot
     // + DefineMethodOverride, mirroring the oracle's DeclareMethod.
     public List<ColumnarStructDef> ImplementedInterfaces { get; } = new();
+    // Interface method names declared with a default body. Implementers are not required to override these slots;
+    // if they do, override binding still wires the implementing method to the interface method.
+    public HashSet<string> DefaultInterfaceMethodNames { get; } = new(StringComparer.Ordinal);
     // The synthesized public parameterless constructor (the object-init `newobj` target) for a reference type with
     // NO user constructors — chains to object (no base) or to the base's parameterless ctor. Set in PASS 0d (after
     // user ctors are declared, so a derived default ctor can chain to a base USER 0-param ctor); null for a value
@@ -2835,6 +2840,8 @@ public sealed class ColumnarIlEmitter
         // method members. All interface TypeBuilders are registered before any base list or signature
         // resolves, so interface inheritance is order-insensitive.
         var interfaceDefsInOrder = new List<ColumnarStructDef>(interfaces.Count);
+        var interfaceMethodJobs = new List<(ColumnarStructDef Interface, ColumnarFunctionInput Method, MethodBuilder Builder,
+            Type ReturnType, Dictionary<string, int> Ordinals, Dictionary<string, Type> ParamTypes)>();
         foreach (var iface in interfaces)
         {
             var interfaceTb = module.DefineType(iface.Name, TypeAttributes.Public | TypeAttributes.Interface | TypeAttributes.Abstract);
@@ -2875,13 +2882,30 @@ public sealed class ColumnarIlEmitter
                         || !IsSupportedType(memberParams[p]))
                         return false;
                 }
+                var hasDefaultBody = iface.MethodBodies[m] != null;
+                var methodAttributes = MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.HideBySig
+                    | MethodAttributes.NewSlot;
+                if (!hasDefaultBody)
+                    methodAttributes |= MethodAttributes.Abstract;
                 var abstractMethod = interfaceDef.Builder.DefineMethod(
                     iface.MethodNames[m],
-                    MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.HideBySig
-                        | MethodAttributes.NewSlot | MethodAttributes.Abstract,
+                    methodAttributes,
                     memberReturn, memberParams);
                 if (!interfaceDef.Methods.TryAdd(iface.MethodNames[m], (abstractMethod, memberParams, memberReturn)))
                     return false; // duplicate interface member.
+                if (hasDefaultBody)
+                {
+                    interfaceDef.DefaultInterfaceMethodNames.Add(iface.MethodNames[m]);
+                    var memberOrdinals = new Dictionary<string, int>(StringComparer.Ordinal);
+                    var memberParamTypes = new Dictionary<string, Type>(StringComparer.Ordinal);
+                    for (var p = 0; p < memberParams.Length; p++)
+                    {
+                        if (!memberOrdinals.TryAdd(iface.MethodParamNames[m][p], p + 1))
+                            return false;
+                        memberParamTypes[iface.MethodParamNames[m][p]] = memberParams[p];
+                    }
+                    interfaceMethodJobs.Add((interfaceDef, iface.MethodBodies[m]!, abstractMethod, memberReturn, memberOrdinals, memberParamTypes));
+                }
             }
         }
         var interfaceDepths = new int[interfaceDefsInOrder.Count];
@@ -3180,6 +3204,8 @@ public sealed class ColumnarIlEmitter
                         continue;
                     foreach (var (memberName, member) in requiredInterface.Methods)
                     {
+                        if (requiredInterface.DefaultInterfaceMethodNames.Contains(memberName))
+                            continue;
                         if (!def.Methods.TryGetValue(memberName, out var impl)
                             || impl.ReturnType != member.ReturnType
                             || !ParamTypesMatch(member.ParamTypes, impl.ParamTypes))
@@ -3828,6 +3854,21 @@ public sealed class ColumnarIlEmitter
                         return false;
                 }
             }
+        }
+
+        // Emit default interface method bodies (before finalizing interface types). The body runs with
+        // `_currentStruct` set to the interface def, so bare calls to other interface members lower through the
+        // same implicit-this call path as class/struct instance methods.
+        foreach (var job in interfaceMethodJobs)
+        {
+            var mil = job.Builder.GetILGenerator();
+            var emitter = new ColumnarIlEmitter(
+                job.Method.Kinds, job.Method.ValueStarts, job.Method.ValueLengths, job.Method.ChildStart, job.Method.ChildCount, job.Method.ChildIndices,
+                source, job.Ordinals, job.ParamTypes, job.ReturnType, mil, siblings, enumRegistry, structRegistry, unionRegistry, unionCaseRegistry,
+                currentStruct: job.Interface, enclosingType: job.Interface,
+                programType: type, lambdaCounter: lambdaCounter, displayClasses: displayClasses);
+            if (!emitter.EmitBody(job.Method.BodyRoot, job.ReturnType == typeof(void)))
+                return false;
         }
 
         // Emit struct method bodies (before finalizing the struct types). An INSTANCE body runs with

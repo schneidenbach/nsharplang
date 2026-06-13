@@ -4756,6 +4756,10 @@ class B
             "struct MultiTri: IShape, IWeight {\n    v: int\n    func Area(): int {\n        return v * 4\n    }\n    func Weight(): int {\n        return v + 70\n    }\n}\n\n" +
             "class BaseMulti {\n    func Bonus(): int {\n        return 7\n    }\n}\n\n" +
             "class DerivedMulti: BaseMulti, IShape, IWeight {\n    v: int\n    constructor(n: int) {\n        v = n\n    }\n    func Area(): int {\n        return v * 5\n    }\n    func Weight(): int {\n        return v + 80\n    }\n}\n\n" +
+            "interface IDefaultScore {\n    func Score(): int {\n        return 41\n    }\n    func Twice(): int {\n        return Score() * 2\n    }\n}\n\n" +
+            "class DefaultOnly: IDefaultScore {\n    marker: int\n}\n\n" +
+            "class DefaultOverride: IDefaultScore {\n    marker: int\n    func Score(): int {\n        return 5\n    }\n}\n\n" +
+            "struct DefaultStruct: IDefaultScore {\n    marker: int\n}\n\n" +
             "class Holder {\n    s: IShape\n    constructor(v: IShape) {\n        s = v\n    }\n}\n\n" +
             "class InitHolder {\n    s: IShape\n}\n\n" +
             "struct Slot {\n    s: IShape\n}\n\n" +
@@ -4783,6 +4787,9 @@ class B
             "func multiInterfaceStruct(): int {\n    let s: IShape = new MultiTri { v: 2 }\n    let w: IWeight = new MultiTri { v: 5 }\n    return s.Area() + w.Weight()\n}\n\n" +
             "func multiInterfaceArgs(): int {\n    return multiDispatch(new MultiShape(2), new MultiShape(3))\n}\n\n" +
             "func basePlusInterfaces(): int {\n    d := new DerivedMulti(2)\n    let s: IShape = d\n    let w: IWeight = d\n    return d.Bonus() + s.Area() + w.Weight()\n}\n\n" +
+            "func defaultInterfaceClass(): int {\n    let d: IDefaultScore = new DefaultOnly { marker: 1 }\n    return d.Score() + d.Twice()\n}\n\n" +
+            "func defaultInterfaceOverride(): int {\n    let d: IDefaultScore = new DefaultOverride { marker: 2 }\n    return d.Score() + d.Twice()\n}\n\n" +
+            "func defaultInterfaceStruct(): int {\n    let d: IDefaultScore = new DefaultStruct { marker: 9 }\n    return d.Score() + d.Twice()\n}\n\n" +
             // is/as over interfaces ROUTE through the existing kind-46/47 isinst lowerings (the
             // review's stale-decline finding — pinned as PARITY, both polarities).
             "func isCheck(): int {\n    let s: IShape = new Square(2)\n    if s is Square {\n        return 1\n    }\n    return 0\n}\n\n" +
@@ -4806,6 +4813,9 @@ class B
             ("multiInterfaceStruct", System.Array.Empty<object>()),
             ("multiInterfaceArgs", System.Array.Empty<object>()),
             ("basePlusInterfaces", System.Array.Empty<object>()),
+            ("defaultInterfaceClass", System.Array.Empty<object>()),
+            ("defaultInterfaceOverride", System.Array.Empty<object>()),
+            ("defaultInterfaceStruct", System.Array.Empty<object>()),
             ("isCheck", System.Array.Empty<object>()),
             ("asCheck", System.Array.Empty<object>()));
 
@@ -4832,8 +4842,8 @@ class B
         // registries now enforce uniqueness ACROSS kinds (review-found over-accept, pre-existing
         // for enum/struct/union pairs and widened by each new type family);
         Assert.False(RouteColumnarProgram("enum Color {\n    Red,\n    Green\n}\n\ninterface Color {\n    func C(): int\n}\n\nfunc f(): int {\n    return 1\n}\n").Ok);
-        // DECLINES — oracle-ACCEPTED (later rungs): default interface methods.
-        Assert.False(RouteColumnarProgram("interface IGreet {\n    func Hi(): string {\n        return \"hi\"\n    }\n}\n\nfunc f(): int {\n    return 1\n}\n").Ok);
+        // DECLINES — oracle-ACCEPTED (later rungs): expression-bodied default interface methods.
+        Assert.False(RouteColumnarProgram("interface IExprDefault {\n    func Score(): int => 41\n}\n\nfunc f(): int {\n    return 1\n}\n").Ok);
         // Multi-interface implementation refuses duplicate direct interfaces, multiple class bases,
         // and missing members from any directly named interface.
         Assert.False(RouteColumnarProgram("interface IA {\n    func A(): int\n}\n\nclass Dup: IA, IA {\n    func A(): int {\n        return 1\n    }\n}\n\nfunc f(): int {\n    return 1\n}\n").Ok);

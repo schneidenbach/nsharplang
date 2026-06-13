@@ -363,9 +363,9 @@ func TopLevelDeclarationKindsInto(tokenKinds: int[], count: int, outKinds: int[]
 // unexpected token (a non-int member value, a `:` underlying-type annotation, attributes, a missing name/brace) so
 // the host declines the whole program to the C# path. Mirrors Parser.cs ParseEnumDeclaration for the int-enum subset.
 // Parse ONE top-level `interface` declaration (at compacted token index `interfaceIndex`):
-// `interface Name [: Base[, ...]] { <method signatures> }`. Members are METHOD SIGNATURES ONLY -- `func name(params)
-// [: ret]` with NO body (a `{` before the next member boundary is a C#-8 DEFAULT method, unmodeled
-// -> -1); any non-`func` member (bare fields, properties) is -1 (the production pipeline silently
+// `interface Name [: Base[, ...]] { <method signatures/default methods> }`. Members are `func name(params)
+// [: ret]` signatures, optionally followed by a balanced block body for a C#-8 DEFAULT method; any
+// non-`func` member (bare fields, properties) is -1 (the production pipeline silently
 // DROPS bare members and NL103s property bodies at emit -- declining inherits neither). Each
 // member's `func` token index goes to outMethodFuncIndices (the host parses signatures via the
 // shared ParseFunctionSignature kernel); outResult[0]/[1] = the interface NAME span and outResult[2]
@@ -424,7 +424,20 @@ func ParseInterfaceDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenV
         pos = pos + 1
         while pos < count && tokenKinds[pos] != 7 && tokenKinds[pos] != 130 {
             if tokenKinds[pos] == 129 {
-                return -1
+                depth := 1
+                pos = pos + 1
+                while pos < count && depth > 0 {
+                    if tokenKinds[pos] == 129 {
+                        depth = depth + 1
+                    } else if tokenKinds[pos] == 130 {
+                        depth = depth - 1
+                    }
+                    pos = pos + 1
+                }
+                if depth != 0 {
+                    return -1
+                }
+                break
             }
             pos = pos + 1
         }

@@ -11,6 +11,30 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — IF-2d default interface methods: concrete slots and body emission
+
+The last planned IF-2 structural residual routes C#-8-style default interface methods through the
+columnar dogfood path. The interface declaration kernel now accepts balanced block bodies after
+interface `func` signatures, the adapter carries those bodies alongside method signatures, and the
+emitter declares defaulted interface slots as concrete virtual methods instead of abstract slots.
+
+Default interface bodies emit before interface finalization with the interface itself as the
+implicit receiver context, so a DIM can call another interface member through the same bare
+`this` dispatch path used by class and struct instance methods. Implementer completeness skips
+defaulted slots, while explicit class or struct overrides still bind to the matching interface
+method when present.
+
+Coverage: `ColumnarCodegen_Parity_Interfaces` now value-compares a class that relies entirely on
+defaults, a class that overrides one default while inheriting another, and a struct implementer that
+uses the defaults. The same coverage pins a default method calling another default/interface member
+through implicit `this`. Expression-bodied DIMs, generic interface members, where-clauses, and local
+functions inside DIM bodies still decline to the oracle path.
+
+NEXT: run route-all and close any residual declines it exposes. Then the emitter port remains gated
+by the SoA design doc.
+
+---
+
 ## 2026-06-13 — IF-2c multi-interface lists: direct slots plus one class base
 
 The third IF-2 residual slice routes colon-lists on classes, structs, and records through the
