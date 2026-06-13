@@ -15,6 +15,7 @@ Welcome to the N# compiler documentation. This folder contains technical documen
 |----------|--------|
 | Understand the architecture? | Read [architecture.md](architecture.md) |
 | Plan the self-host / compiler rewrite? | Read [docs/design/roadmap-to-done.md](../docs/design/roadmap-to-done.md) and [docs/design/columnar-pipeline.md](../docs/design/columnar-pipeline.md) |
+| Plan the emitter-port table model? | Read [docs/design/soa-table-types.md](../docs/design/soa-table-types.md) |
 | Plan compiler performance work? | Read [docs/design/performance-compiler-refactor.md](../docs/design/performance-compiler-refactor.md) |
 | Work on Systems N#? | Read [docs/design/systems-nsharp.md](../docs/design/systems-nsharp.md) and [docs/audits/systems-nsharp-implementation-adversarial-review.md](../docs/audits/systems-nsharp-implementation-adversarial-review.md) |
 | Check IL backend parity status? | Read [il-compiler-parity-audit.md](il-compiler-parity-audit.md) |

@@ -228,7 +228,9 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       shrink/remove the `*DogfoodAdapter` bridges. Track C# LOC deleted. **BLOCKED on coverage:** the columnar
       backend models ~41% of the systems dogfood subset and ~0% of the rich language (classes/generics/match/
       async/LINQ — the examples + full suite still need the C# `ILCompiler`). Deleting it now breaks the
-      product; Stage 6 waits until the columnar pipeline covers everything the product compiles.
+      product; Stage 6 waits until the columnar pipeline covers everything the product compiles. The SoA
+      table-type design gate is complete in [`soa-table-types.md`](soa-table-types.md); implementation starts
+      with the non-generic `soa record` surface and keeps the current parallel-array ABI.
 - [ ] **Coverage expansion** (pulled in as stages need them): class/struct/enum/record/interface/union decls
       + members; for/foreach/let/match/lambdas/generics/tuples/is-as/range/`new[size]`/`new{init}`. Each is a
       parser-kernel form added + parity-gated, then threaded through stages 1–4.

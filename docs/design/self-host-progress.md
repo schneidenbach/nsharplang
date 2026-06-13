@@ -11,6 +11,27 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — SoA table-type design gate: row syntax without row objects
+
+The emitter-port design gate is written in `docs/design/soa-table-types.md`. The contract is a small
+`soa record` surface for the compiler's existing struct-of-arrays tables: column fields lower to the
+same CLR arrays used today, row syntax such as `nodes[i].kind` is only a compile-time projection to
+`nodes.kind[i]`, and caller-owned buffers remain first-class through a zero-copy `wrap` form. The doc
+explicitly rejects row-object allocation, array-of-structs lowering, AST materialization, hidden copies,
+and deleting C# fallback merely because the syntax exists.
+
+The design also pins the implementation and verification gates: flattened hot-function ABI, no `newobj`/
+`box`/delegate traffic from row projections, no copies on `wrap`, parser/diagnostic parity on the dogfood
+corpus, zero-new-declines over product+parity corpus, no slower parser/compiler-service benchmarks, and the
+usual isolated non-IDE product gate before each commit.
+
+Roadmap and memory index links now point to the SoA design as the entry point for emitter-port planning.
+
+NEXT: implement the first non-generic `soa record` slice without production use, then migrate cold table
+uses before parser node tables and Stage-6 C# surface shrink.
+
+---
+
 ## 2026-06-13 — Route-all: columnar backend is default-on with C# opt-out
 
 The Stage-5 route-all switch is flipped. `MultiFileCompiler.CompileToIlAssembly` now tries the
