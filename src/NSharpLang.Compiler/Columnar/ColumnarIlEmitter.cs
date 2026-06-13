@@ -546,6 +546,8 @@ public sealed class ColumnarIlEmitter
 
     private static readonly MethodInfo s_sumInt32Reduction =
         ResolveSimdReductionHelper(nameof(NSharpLang.Runtime.SimdReductions.SumInt32));
+    private static readonly MethodInfo s_sumUInt32Reduction =
+        ResolveSimdReductionHelper(nameof(NSharpLang.Runtime.SimdReductions.SumUInt32));
     private static readonly MethodInfo s_sumInt64Reduction =
         ResolveSimdReductionHelper(nameof(NSharpLang.Runtime.SimdReductions.SumInt64));
     private static readonly MethodInfo s_sumUInt64Reduction =
@@ -752,8 +754,8 @@ public sealed class ColumnarIlEmitter
     // checked before every other resolution tier (a boxed name is never also a lambda param or local).
     private readonly Dictionary<string, (FieldBuilder BoxField, Type ValueType)>? _boxedCaptures;
 
-    // The types the type-aware emitter currently handles: int/bool/long/ulong scalars (double is a later
-    // slice), plus a single-dimension ARRAY of a supported element type (e.g. int[], long[], ulong[]). (Mixed
+    // The types the type-aware emitter currently handles: int/bool/long/uint/ulong scalars, plus a
+    // single-dimension ARRAY of a supported element type (e.g. int[], uint[], long[], ulong[]). (Mixed
     // arithmetic — implicit widening — is not modelled; an expression's operands must share one type.) ulong is
     // u8 on the stack like long (i8), but its arithmetic uses the UNSIGNED opcodes (Shr_Un/Div_Un/Rem_Un and
     // unsigned compares) — see the binary/comparison cases.
@@ -2151,13 +2153,13 @@ public sealed class ColumnarIlEmitter
     }
 
 
-    // Element types the array read/write/alloc paths can emit ldelem/stelem/newarr for: int/long/ulong (i4/i8),
-    // char (u2), double (r8) / float (r4), and string (a reference element). bool is excluded until its element
-    // opcodes land. ulong shares long's 8-byte slot (Ldelem_I8/Stelem_I8 move the bit pattern; the unsignedness is
-    // purely in how the VALUE is operated on, not how it is stored/loaded).
+    // Element types the array read/write/alloc paths can emit ldelem/stelem/newarr for: int/uint (i4),
+    // long/ulong (i8), char (u2), double (r8) / float (r4), and string (a reference element). bool is excluded
+    // until its element opcodes land. uint/ulong storage is just the unsigned bit pattern; unsignedness is in how
+    // the VALUE is loaded and operated on.
     private static bool IsSupportedElementType(Type t) =>
-        t == typeof(int) || t == typeof(long) || t == typeof(ulong) || t == typeof(char) || t == typeof(string)
-        || t == typeof(double) || t == typeof(float);
+        t == typeof(int) || t == typeof(uint) || t == typeof(long) || t == typeof(ulong)
+        || t == typeof(char) || t == typeof(string) || t == typeof(double) || t == typeof(float);
 
     /// <summary>
     /// Resolve a canonical type string for a GENERIC function's signature: a bare type-parameter name resolves to
@@ -4804,7 +4806,7 @@ public sealed class ColumnarIlEmitter
                         return false;
                     if (!EmitExpression(Child(expr, 1), out var elementValueType) || elementValueType != elementType)
                         return false;
-                    if (elementType == typeof(int)) _il.Emit(OpCodes.Stelem_I4);
+                    if (elementType == typeof(int) || elementType == typeof(uint)) _il.Emit(OpCodes.Stelem_I4);
                     else if (elementType == typeof(long) || elementType == typeof(ulong)) _il.Emit(OpCodes.Stelem_I8);
                     else if (elementType == typeof(char)) _il.Emit(OpCodes.Stelem_I2);
                     else if (elementType == typeof(double)) _il.Emit(OpCodes.Stelem_R8);
@@ -5302,6 +5304,7 @@ public sealed class ColumnarIlEmitter
                 _il.Emit(OpCodes.Ldloc, arrayLocal);
                 _il.Emit(OpCodes.Ldloc, indexLocal);
                 if (elementType == typeof(int)) _il.Emit(OpCodes.Ldelem_I4);
+                else if (elementType == typeof(uint)) _il.Emit(OpCodes.Ldelem_U4);
                 else if (elementType == typeof(long) || elementType == typeof(ulong)) _il.Emit(OpCodes.Ldelem_I8);
                 else if (elementType == typeof(char)) _il.Emit(OpCodes.Ldelem_U2);
                 else if (elementType == typeof(double)) _il.Emit(OpCodes.Ldelem_R8);
@@ -5654,6 +5657,7 @@ public sealed class ColumnarIlEmitter
     private static MethodInfo? ReductionHelperForColumnarElementType(Type elementType)
     {
         if (elementType == typeof(int)) return s_sumInt32Reduction;
+        if (elementType == typeof(uint)) return s_sumUInt32Reduction;
         if (elementType == typeof(long)) return s_sumInt64Reduction;
         if (elementType == typeof(ulong)) return s_sumUInt64Reduction;
         return null;
@@ -7816,6 +7820,7 @@ public sealed class ColumnarIlEmitter
                 if (!EmitExpression(Child(idx, 1), out var indexType) || indexType != typeof(int))
                     return false;
                 if (elementType == typeof(int)) _il.Emit(OpCodes.Ldelem_I4);
+                else if (elementType == typeof(uint)) _il.Emit(OpCodes.Ldelem_U4);
                 else if (elementType == typeof(long) || elementType == typeof(ulong)) _il.Emit(OpCodes.Ldelem_I8);
                 else if (elementType == typeof(char)) _il.Emit(OpCodes.Ldelem_U2);
                 else if (elementType == typeof(double)) _il.Emit(OpCodes.Ldelem_R8);

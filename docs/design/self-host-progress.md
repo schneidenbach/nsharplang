@@ -11,6 +11,26 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — Phase P-5 columnar port: uint arrays unlock SumUInt32
+
+The deferred `uint[]` Phase P gap is closed. Columnar array support now admits `uint` as the
+unsigned i4 element lane: `new uint[](n)`, indexed reads (`ldelem.u4`), writes (`stelem.i4`),
+foreach array lowering, `Array.Fill<T>`, and the general `T[]` type gate all route through the
+same array machinery as the existing integer element families. This makes the already-shipped
+runtime `SumUInt32(uint[], int, int)` helper reachable from the columnar counted-reduction matcher.
+
+Coverage: `ColumnarCodegen_Parity_ArrayAlloc` now value-compares `new uint[]` plus write/read
+round-trips over high-bit values, `ColumnarCodegen_Parity_ForeachLoop` value-compares `uint[]`
+foreach accumulation, and `ColumnarCodegen_Parity_VectorizedIntegerReductions` value-compares
+while/for `uint[]` reductions while asserting the emitted IL contains no scalar `ldelem.u4` loop
+and does contain the helper call. With this, Phase P's current helper families are ported in the
+columnar route.
+
+NEXT: continue IF-2 residuals as route-all demands, then route-all, then the emitter port gated by
+the SoA design doc.
+
+---
+
 ## 2026-06-13 — Phase P-4 columnar port: count-transitions emits shifted-compare helper
 
 The fourth Phase P rung ports the adjacent-transition count kernel into columnar. The route now

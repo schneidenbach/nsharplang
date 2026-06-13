@@ -2657,7 +2657,7 @@ class B
         Assert.False(RouteColumnarProgram("func u(): char {\n    return '\\u0041'\n}\n").Ok);
     }
 
-    // `new int[](n)` / `new long[](n)` array ALLOCATION (Newarr). newarr zero-initializes; combined with the
+    // `new int[](n)` / `new long[](n)` / `new uint[](n)` array ALLOCATION (Newarr). newarr zero-initializes; combined with the
     // write/read/.Length paths this allocates a temp buffer, fills it, and reads it back — the dogfood pattern
     // (e.g. ParserStatements `st := new int[](6)`).
     [Fact]
@@ -2675,6 +2675,9 @@ class B
 
         var progL = "func makeL(n: int): long {\n    a := new long[](n)\n    a[0] = 5000000000L\n    total := 0L\n    i := 0\n    while i < a.Length {\n        total = total + a[i]\n        i = i + 1\n    }\n    return total\n}\n";
         AssertColumnarProgramMatchesCSharp(progL, ("makeL", new object[] { 3 }));
+
+        var progU = "func makeU(a: uint, b: uint): uint {\n    xs := new uint[](2)\n    xs[0] = a\n    xs[1] = b\n    return xs[0] / (uint)2 + xs[1]\n}\n";
+        AssertColumnarProgramMatchesCSharp(progU, ("makeU", new object[] { 4_000_000_000U, 17U }));
     }
 
     // break / continue in while loops. break exits the innermost loop (-> end label), continue re-tests it
@@ -7033,6 +7036,7 @@ class B
             "func mixF(a: int[], n: int): int {\n    total := 0\n    foreach x in a {\n        for i := 0; i < n; i = i + 1 {\n            total = total + x\n        }\n    }\n    return total\n}\n\n" +
             // long[] and char[] element types (Ldelem_I8 / Ldelem_U2), and foreach-IN-foreach (nested LIFO labels).
             "func sumLongF(a: long[]): long {\n    total := 0L\n    foreach x in a {\n        total = total + x\n    }\n    return total\n}\n\n" +
+            "func sumUIntF(a: uint[]): uint {\n    total: uint = (uint)0\n    foreach x in a {\n        total = total + x\n    }\n    return total\n}\n\n" +
             "func countLettersF(a: char[]): int {\n    c := 0\n    foreach ch in a {\n        if char.IsLetter(ch) {\n            c = c + 1\n        }\n    }\n    return c\n}\n\n" +
             "func nestedF(a: int[], b: int[]): int {\n    total := 0\n    foreach x in a {\n        foreach y in b {\n            total = total + x * y\n        }\n    }\n    return total\n}\n";
         AssertColumnarProgramMatchesCSharp(prog,
@@ -7045,6 +7049,7 @@ class B
             ("sumDF", new object[] { new[] { 1.5, 2.5, 3.0 } }), ("sumDF", new object[] { new double[0] }),
             ("mixF", new object[] { new[] { 2, 3 }, 4 }), ("mixF", new object[] { new int[0], 4 }),
             ("sumLongF", new object[] { new[] { 5000000000L, 2L, 3L } }), ("sumLongF", new object[] { new long[0] }),
+            ("sumUIntF", new object[] { new[] { 4_000_000_000U, 2U, 5U } }), ("sumUIntF", new object[] { new uint[0] }),
             ("countLettersF", new object[] { new[] { 'a', '1', 'B', '-', 'z' } }), ("countLettersF", new object[] { new char[0] }),
             ("nestedF", new object[] { new[] { 2, 3 }, new[] { 10, 20 } }), ("nestedF", new object[] { new[] { 1 }, new int[0] }));
 
@@ -7107,6 +7112,8 @@ class B
             "func sumFor(a: int[], start: int, n: int): int {\n    acc := 0\n    for i := start; i < n; i++ {\n        acc += a[i]\n    }\n    return acc\n}\n\n" +
             "func outerIndex(a: int[], n: int): int {\n    acc := 0\n    i := 0\n    for i = 0; i < n; i++ {\n        acc += a[i]\n    }\n    return i\n}\n\n" +
             "func sumLong(a: long[], n: int): long {\n    acc: long = (long)0\n    i := 0\n    while i < n {\n        acc = acc + a[i]\n        i = i + 1\n    }\n    return acc\n}\n\n" +
+            "func sumUInt(a: uint[], n: int): uint {\n    acc: uint = (uint)0\n    i := 0\n    while i < n {\n        acc = acc + a[i]\n        i = i + 1\n    }\n    return acc\n}\n\n" +
+            "func sumUIntFor(a: uint[], start: int, n: int): uint {\n    acc: uint = (uint)0\n    for i := start; i < n; i++ {\n        acc += a[i]\n    }\n    return acc\n}\n\n" +
             "func sumULong(a: ulong[], n: int): ulong {\n    acc: ulong = (ulong)0\n    i := 0\n    while i < n {\n        acc = acc + a[i]\n        i = i + 1\n    }\n    return acc\n}\n\n" +
             "func sumDouble(a: double[], n: int): double {\n    acc := 0.0\n    i := 0\n    while i < n {\n        acc = acc + a[i]\n        i = i + 1\n    }\n    return acc\n}\n";
 
@@ -7120,6 +7127,8 @@ class B
             ("outerIndex", new object[] { new[] { 10, 20, 30 }, -2 }),
             ("outerIndex", new object[] { new[] { 10, 20, 30 }, 3 }),
             ("sumLong", new object[] { new[] { 5_000_000_000L, 2L, -3L }, 3 }),
+            ("sumUInt", new object[] { new[] { 4_000_000_000U, 2U, 99U, 17U }, 4 }),
+            ("sumUIntFor", new object[] { new[] { 10U, 4_000_000_000U, 25U, 30U }, 1, 3 }),
             ("sumULong", new object[] { new[] { 1UL, 2UL, 3UL, 4UL }, 4 }),
             ("sumDouble", new object[] { new[] { 1.5, 2.5, 3.0 }, 3 }));
 
@@ -7139,6 +7148,14 @@ class B
         var sumLong = type.GetMethod("sumLong")!;
         Assert.Equal(0, ILShapeInspector.CountOpcode(sumLong, OpCodes.Ldelem_I8));
         Assert.True(ILShapeInspector.CountOpcode(sumLong, OpCodes.Call) >= 1);
+
+        var sumUInt = type.GetMethod("sumUInt")!;
+        Assert.Equal(0, ILShapeInspector.CountOpcode(sumUInt, OpCodes.Ldelem_U4));
+        Assert.True(ILShapeInspector.CountOpcode(sumUInt, OpCodes.Call) >= 1);
+
+        var sumUIntFor = type.GetMethod("sumUIntFor")!;
+        Assert.Equal(0, ILShapeInspector.CountOpcode(sumUIntFor, OpCodes.Ldelem_U4));
+        Assert.True(ILShapeInspector.CountOpcode(sumUIntFor, OpCodes.Call) >= 1);
 
         var sumDouble = type.GetMethod("sumDouble")!;
         Assert.True(ILShapeInspector.CountOpcode(sumDouble, OpCodes.Ldelem_R8) >= 1);
