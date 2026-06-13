@@ -88,9 +88,11 @@
 //                                         pairs = a pure clone. Kinds 48-51 are STATEMENT kinds
 //                                         (throw/try/catch/lock). )
 //   AwaitExpression         -> kind 53  ( `await <expr>` (Await 69) -- prefix unary, ONE child
-//                                         [operand]; 54 is the next free kind. )
+//                                         [operand]. )
+//   RefOutArgument          -> kind 54  ( `ref <expr>` / `out <expr>` inside a call argument list; the
+//                                         modifier token lives in the value span, ONE child [target]. )
 // Deferred (refused with -1, or the chain simply STOPS at them): `?.`/`?[` null-conditional access, generic
-//   method calls (callee<T>(...)), named (`name:`) and ref/out call arguments,
+//   method calls (callee<T>(...)), named (`name:`) call arguments,
 //   `is`/`as` type tests, range `..`; every other unlisted primary (this/base/default/alloc/array-literal/
 //   interpolated string/...). (Tuples `(a, b)` AND named tuples `(x: 1, y: 2)` PARSE — kinds 17/43; match,
 //   new-expressions, object initializers, bare-new and block-bodied lambdas have their own kinds above.)
@@ -869,7 +871,8 @@ func ParsePostfixExpressionNode(tokenKinds: int[], tokenStarts: int[], tokenValu
             // Call `callee(args)`: children = [callee, arg0, arg1, ...]. Like generic type arguments, the
             // callee + arg node ids are gathered on the LIFO arg-stack (each arg is a full expression that
             // appends its own descendants) and the contiguous child run is appended only after the closing
-            // `)`. Named (`name:`) and ref/out arguments are deferred -> refuse.
+            // `)`. Named (`name:`) arguments are still deferred and refuse when the argument expression
+            // leaves the colon unconsumed.
             objSpanStart := outSpanStarts[expr]
             st[0] = pos + 1
             argBase := st[3]
@@ -877,12 +880,7 @@ func ParsePostfixExpressionNode(tokenKinds: int[], tokenStarts: int[], tokenValu
             st[3] = st[3] + 1
 
             if st[0] < count && tokenKinds[st[0]] != 128 {
-                if tokenKinds[st[0]] == 78 || tokenKinds[st[0]] == 79 {
-                    st[3] = argBase
-                    return -1
-                }
-
-                firstArg := ParseLambdaOrAssignmentExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
+                firstArg := ParseCallArgumentNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
                 if firstArg < 0 {
                     st[3] = argBase
                     return -1
@@ -893,12 +891,7 @@ func ParsePostfixExpressionNode(tokenKinds: int[], tokenStarts: int[], tokenValu
 
                 while st[0] < count && tokenKinds[st[0]] == 134 {
                     st[0] = st[0] + 1
-                    if st[0] < count && (tokenKinds[st[0]] == 78 || tokenKinds[st[0]] == 79) {
-                        st[3] = argBase
-                        return -1
-                    }
-
-                    nextArg := ParseLambdaOrAssignmentExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
+                    nextArg := ParseCallArgumentNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
                     if nextArg < 0 {
                         st[3] = argBase
                         return -1
@@ -1002,6 +995,29 @@ func ParsePostfixExpressionNode(tokenKinds: int[], tokenStarts: int[], tokenValu
     }
 
     return expr
+}
+
+func ParseCallArgumentNode(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, st: int[], argStack: int[], outNodeKinds: int[], outValueStarts: int[], outValueLengths: int[], outChildStart: int[], outChildCount: int[], outChildIndices: int[], outSpanStarts: int[], outSpanLengths: int[], depth: int): int {
+    if depth > 200 {
+        return -1
+    }
+
+    if st[0] < count && (tokenKinds[st[0]] == 78 || tokenKinds[st[0]] == 79) {
+        modifierStart := tokenStarts[st[0]]
+        modifierLength := tokenValueLengths[st[0]]
+        st[0] = st[0] + 1
+        value := ParseLambdaOrAssignmentExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
+        if value < 0 {
+            return -1
+        }
+
+        valueEnd := outSpanStarts[value] + outSpanLengths[value]
+        childRun := st[2]
+        AppendExpressionChild(st, outChildIndices, value)
+        return EmitExpressionNode(st, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 54, modifierStart, modifierLength, childRun, 1, modifierStart, valueEnd - modifierStart)
+    }
+
+    return ParseLambdaOrAssignmentExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth)
 }
 
 // ParseUnaryExpression (Parser.cs:4223) restricted to the prefix operators: ! (Not 106), - (Negate, Minus

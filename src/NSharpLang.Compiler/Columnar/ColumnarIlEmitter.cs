@@ -789,6 +789,15 @@ public sealed class ColumnarIlEmitter
         || IsSupportedDelegateType(t)             // a closed System.Func/Action over baked runtime types (L1a)
         || IsSupportedCollectionType(t);          // a closed List<T>/Dictionary<K,V> over baked runtime types
 
+    // By-ref types are valid only in PARAMETER slots for this slice. The element must be a supported value type:
+    // refs to reference slots need ldind/ref-owner handling that is outside the ParserState migration proof.
+    private static bool IsSupportedParameterType(Type t) =>
+        IsSupportedType(t)
+        || (t.IsByRef && IsSupportedByRefElementType(t.GetElementType()!));
+
+    private static bool IsSupportedByRefElementType(Type t) =>
+        !t.IsByRef && t.IsValueType && IsSupportedType(t);
+
     // A closed KeyValuePair<K,V> — the Dictionary foreach loop variable's type (only that path produces
     // it; .Key/.Value resolve via the case-8 KVP arms). Builder-bound instantiations (KeyValuePair over a
     // TypeBuilder value) qualify: GetGenericTypeDefinition works on a TypeBuilderInstantiation (spike-proven)
@@ -2202,6 +2211,18 @@ public sealed class ColumnarIlEmitter
         IReadOnlyDictionary<string, ColumnarStructDef>? structRegistry,
         IReadOnlyDictionary<string, ColumnarUnionDef>? unionRegistry, out Type type)
     {
+        if (canonical.StartsWith("&", StringComparison.Ordinal))
+        {
+            if (canonical.Length > 1
+                && TryResolveTypeWithTypeParams(canonical.Substring(1), typeParams, enumRegistry, structRegistry, unionRegistry, out var element)
+                && IsSupportedByRefElementType(element))
+            {
+                type = element.MakeByRefType();
+                return true;
+            }
+            type = null!;
+            return false;
+        }
         if (typeParams.TryGetValue(canonical, out type!))
             return true;
         if (canonical.EndsWith("[]", StringComparison.Ordinal)
@@ -2380,6 +2401,18 @@ public sealed class ColumnarIlEmitter
         IReadOnlyDictionary<string, ColumnarStructDef>? structRegistry,
         IReadOnlyDictionary<string, ColumnarUnionDef>? unionRegistry, out Type type)
     {
+        if (canonical.StartsWith("&", StringComparison.Ordinal))
+        {
+            if (canonical.Length > 1
+                && TryResolveType(canonical.Substring(1), enumRegistry, structRegistry, unionRegistry, out var element)
+                && IsSupportedByRefElementType(element))
+            {
+                type = element.MakeByRefType();
+                return true;
+            }
+            type = null!;
+            return false;
+        }
         if (canonical.EndsWith("[]", StringComparison.Ordinal))
         {
             if (TryResolveBuiltin(canonical.Substring(0, canonical.Length - 2), out var elementType))
@@ -3722,10 +3755,10 @@ public sealed class ColumnarIlEmitter
                 if (typeParamMap != null)
                 {
                     if (!TryResolveTypeWithTypeParams(fn.ParamCanonicals[i], typeParamMap, enumRegistry, structRegistry, unionRegistry, out pt)
-                        || !(pt.IsGenericParameter || (pt.IsSZArray && pt.GetElementType()!.IsGenericParameter) || IsSupportedType(pt)))
+                        || !(pt.IsGenericParameter || (pt.IsSZArray && pt.GetElementType()!.IsGenericParameter) || IsSupportedParameterType(pt)))
                         return false;
                 }
-                else if (!TryResolveType(fn.ParamCanonicals[i], enumRegistry, structRegistry, unionRegistry, out pt) || !IsSupportedType(pt))
+                else if (!TryResolveType(fn.ParamCanonicals[i], enumRegistry, structRegistry, unionRegistry, out pt) || !IsSupportedParameterType(pt))
                     return false;
                 paramTypes[i] = pt;
                 ordinals[fn.ParamNames[i]] = i;
@@ -7081,6 +7114,8 @@ public sealed class ColumnarIlEmitter
 
                 if (_paramOrdinals.TryGetValue(name, out var ordinal))
                 {
+                    if (_paramTypes[name].IsByRef)
+                        return false;
                     EmitLoadArgument(ordinal);
                     type = _paramTypes[name];
                     return true;
@@ -7602,28 +7637,37 @@ public sealed class ColumnarIlEmitter
                         for (var a = 1; a <= argCount; a++)
                         {
                             var argNode = Child(idx, a);
+                            var expectedParamType = target.ParamTypes[a - 1];
+                            if (expectedParamType.IsByRef)
+                            {
+                                if (!EmitByRefCallArgument(argNode, expectedParamType))
+                                    return false;
+                                continue;
+                            }
+                            if (_kinds[argNode] == 54)
+                                return false;
                             if (_kinds[argNode] == 39)
                             {
-                                if (!TryEmitLambdaLiteral(argNode, target.ParamTypes[a - 1]))
+                                if (!TryEmitLambdaLiteral(argNode, expectedParamType))
                                     return false;
                                 continue;
                             }
                             Type argType;
-                            if (TryEmitNullLiteralAsType(argNode, target.ParamTypes[a - 1], out argType))
+                            if (TryEmitNullLiteralAsType(argNode, expectedParamType, out argType))
                             {
                                 continue; // a NULL argument onto a reference-typed param.
                             }
-                            if (IsSupportedNullable(target.ParamTypes[a - 1]))
+                            if (IsSupportedNullable(expectedParamType))
                             {
                                 // a lifted T -> T? argument (incl. bare null and T? pass-through) —
                                 // OWNS the emission; failure declines the whole program.
-                                if (!TryEmitValueAsNullable(argNode, target.ParamTypes[a - 1], out argType))
+                                if (!TryEmitValueAsNullable(argNode, expectedParamType, out argType))
                                     return false;
                                 continue;
                             }
                             if (!EmitExpression(argNode, out argType))
                                 return false;
-                            if (!TypesEquivalent(argType, target.ParamTypes[a - 1]) && !TryEmitImplicitWidening(argType, target.ParamTypes[a - 1]) && !TryEmitInterfaceUpcast(argType, target.ParamTypes[a - 1]))
+                            if (!TypesEquivalent(argType, expectedParamType) && !TryEmitImplicitWidening(argType, expectedParamType) && !TryEmitInterfaceUpcast(argType, expectedParamType))
                                 return false;
                         }
                         _il.Emit(OpCodes.Call, target.Method);
@@ -7748,11 +7792,20 @@ public sealed class ColumnarIlEmitter
                 var isTupleItem = member.Length > 4 && member.StartsWith("Item", StringComparison.Ordinal) && char.IsDigit(member[4]);
                 if (member != "Length" && !isTupleItem)
                 {
-                    // A USER-TYPE FIELD read `p.Field` or get-only PROPERTY read `p.Prop`: emit the receiver, and if it
-                    // is a registered struct/class with a field/property named `member`, read it. A value-type field
-                    // read needs the value's ADDRESS (spill to a temp + ldloca); a reference field reads directly; a
-                    // PROPERTY reads via `callvirt get_Name` on the receiver ref. Otherwise decline (the emitted
-                    // receiver is discarded with the whole assembly on false).
+                    // A USER-TYPE FIELD read `p.Field` or get-only PROPERTY read `p.Prop`: addressable local/param
+                    // chains read fields through the same locator member writes use (including by-ref roots).
+                    // Other supported receivers fall back to the older emitted-receiver path for BCL members,
+                    // closed generics, and reference-type properties.
+                    if (TryResolveMemberWriteChain(Child(idx, 0), out var directReadChain)
+                        && directReadChain.ReceiverType is TypeBuilder directReadOwnerTb
+                        && FindDefByBuilder(directReadOwnerTb) is { } directReadOwnerDef
+                        && TryFindFieldOnChain(directReadOwnerDef, member, out var directReadField))
+                    {
+                        EmitMemberWriteLocator(directReadChain);
+                        _il.Emit(OpCodes.Ldfld, directReadField);
+                        type = directReadField.FieldType;
+                        return true;
+                    }
                     if (!EmitExpression(Child(idx, 0), out var structReceiverType))
                         return false;
                     // `e.Message` on an Exception-derived receiver (the typed-catch bound variable's main
@@ -9789,6 +9842,8 @@ public sealed class ColumnarIlEmitter
     {
         if (a == b)
             return true;
+        if (a.IsByRef || b.IsByRef)
+            return a.IsByRef && b.IsByRef && TypesEquivalent(a.GetElementType()!, b.GetElementType()!);
         // Structural equivalence for closed generic INSTANTIATIONS — user-headed (Box<int>) AND
         // builder-bound BCL-headed (List<Pt>, Dictionary<string,Pt>): every independent MakeGenericType
         // over a builder yields a referentially DISTINCT TypeBuilderInstantiation (probe-proven), so
@@ -10154,6 +10209,58 @@ public sealed class ColumnarIlEmitter
         => EmitExpression(Child(callIdx, argPosition), out var argType)
            && (TypesEquivalent(argType, expected) || TryEmitInterfaceUpcast(argType, expected));
 
+    private bool EmitByRefCallArgument(int argNode, Type expectedByRefType)
+    {
+        if (!expectedByRefType.IsByRef || _kinds[argNode] != 54 || _childCount[argNode] != 1)
+            return false;
+        var modifier = Text(argNode);
+        if (modifier != "ref" && modifier != "out")
+            return false;
+        return EmitAddressOfByRefTarget(Child(argNode, 0), expectedByRefType.GetElementType()!);
+    }
+
+    private bool EmitAddressOfByRefTarget(int targetNode, Type expectedElementType)
+    {
+        if (_kinds[targetNode] == 6)
+        {
+            var name = Text(targetNode);
+            if (_liftedLocals.ContainsKey(name) || (_boxedCaptures != null && _boxedCaptures.ContainsKey(name)))
+                return false;
+            if (_locals.TryGetValue(name, out var local))
+            {
+                if (!TypesEquivalent(local.LocalType, expectedElementType))
+                    return false;
+                _il.Emit(OpCodes.Ldloca, local);
+                return true;
+            }
+            if (_paramOrdinals.TryGetValue(name, out var ordinal) && _paramTypes.TryGetValue(name, out var paramType))
+            {
+                if (paramType.IsByRef)
+                {
+                    if (!TypesEquivalent(paramType.GetElementType()!, expectedElementType))
+                        return false;
+                    EmitLoadArgument(ordinal);
+                    return true;
+                }
+                if (!TypesEquivalent(paramType, expectedElementType))
+                    return false;
+                EmitLoadArgumentAddress(ordinal);
+                return true;
+            }
+            return false;
+        }
+
+        if (_kinds[targetNode] == 8
+            && TryResolveMemberWriteChain(targetNode, out var memberChain)
+            && TypesEquivalent(memberChain.ReceiverType, expectedElementType))
+        {
+            EmitMemberWriteLocator(memberChain);
+            return true;
+        }
+
+        return false;
+    }
+
     private void EmitLoadArgument(int index)
     {
         switch (index)
@@ -10251,7 +10358,7 @@ public sealed class ColumnarIlEmitter
             return false; // a sibling/type/unknown name is not a variable root.
         }
         var hops = new List<FieldBuilder>(hopNodes.Count);
-        var current = rootType;
+        var current = rootType.IsByRef ? rootType.GetElementType()! : rootType;
         for (var h = hopNodes.Count - 1; h >= 0; h--) // innermost hop (adjacent to the root) first.
         {
             if (current is not TypeBuilder hopOwner
@@ -10268,7 +10375,9 @@ public sealed class ColumnarIlEmitter
     private void EmitMemberWriteLocator(in ColumnarMemberWriteChain chain)
     {
         if (chain.RootLocal != null)
-            _il.Emit(IsReferenceWriteLink(chain.RootType) ? OpCodes.Ldloc : OpCodes.Ldloca, chain.RootLocal);
+            _il.Emit(chain.RootType.IsByRef || IsReferenceWriteLink(chain.RootType) ? OpCodes.Ldloc : OpCodes.Ldloca, chain.RootLocal);
+        else if (chain.RootType.IsByRef)
+            EmitLoadArgument(chain.RootParamOrdinal);
         else if (IsReferenceWriteLink(chain.RootType))
             EmitLoadArgument(chain.RootParamOrdinal);
         else

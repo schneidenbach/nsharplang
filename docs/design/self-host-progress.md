@@ -11,6 +11,23 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — Columnar by-ref state parameters proven
+
+The columnar parser and emitter now cover the by-ref shape needed before replacing magic parser
+state arrays with a named state struct. Call arguments can carry `ref`/`out` as a stable expression
+node wrapper, top-level columnar function parameters can resolve `&T` for supported value types, and
+sibling calls emit addressable local/parameter/field-chain arguments only when the callee parameter is
+actually by-ref.
+
+The proof fixture mutates a `ParserState` value through `advance(st: &ParserState)` and calls it with
+`advance(ref st, ...)` from a normal `run` function. IL-shape coverage pins the important lowering:
+the callee parameter is a CLR by-ref parameter, field reads/writes go through `ldfld`/`stfld`, and the
+callee does not take the address of the by-ref parameter slot (`ldarga`). This removes the by-ref
+lowering blocker for the later `st: int[]` to `ParserState` migration; it does not yet change the real
+parser kernels.
+
+---
+
 ## 2026-06-13 — SoA cold table migration fixture: overload candidates
 
 The first real compiler-table shape has been moved through the experimental SoA wrapper surface

@@ -981,6 +981,7 @@ class B
                 // Calls (slice 12): variable-arity arguments via the arg-stack.
                 "f()", "g(x)", "h(a, b)", "obj.method(x)", "a.b.c(1, 2, 3)", "arr[i].foo(y)",
                 "f(g(x))", "f(a)(b)", "f(x)[i]", "compute(a, b, c).result", "outer(inner(z), w)",
+                "g(ref y)", "h(out y)", "bump(ref counter.Value)",
                 // Unary prefix (slice 13): wraps a recursively-parsed operand; composes with postfix.
                 "-x", "!flag", "~bits", "-arr[i]", "!a.b", "-f(x)", "++i", "--count", "!!x", "-(value)",
                 // Binary precedence chain (slice 14): precedence + left-associativity + composition.
@@ -1003,9 +1004,9 @@ class B
             foreach (var e in expressions)
                 AssertPrimaryExpressionLikeProduction(e, tokenize, parseExpr);
 
-            // Refused (-1): deferred primaries / non-primary leads / NAMED tuple elements / ref-out call args.
+            // Refused (-1): deferred primaries / non-primary leads / NAMED tuple elements / named call args.
             // (Positional tuples like `(1, 2)` now parse -- see ColumnarCodegen_Parity_TupleExpression.)
-            foreach (var bad in new[] { "(x: 1)", "+5", ".x", ")", "f(x: 1)", "g(ref y)" })
+            foreach (var bad in new[] { "(x: 1)", "+5", ".x", ")", "f(x: 1)" })
                 AssertExpressionRefused(bad, tokenize, parseExpr);
         }
         finally
@@ -1206,8 +1207,19 @@ class B
                 AssertExprNode(e.Callee, childIndices[childStart[idx]], kinds, valueStarts, valueLengths, childStart, childCount, childIndices, source, label);
                 for (var ai = 0; ai < e.Arguments.Count; ai++)
                 {
-                    Assert.True(e.Arguments[ai].Name == null && e.Arguments[ai].Modifier == ArgumentModifier.None, $"Slice-12 kernel handles positional args only for '{label}'.");
-                    AssertExprNode(e.Arguments[ai].Value, childIndices[childStart[idx] + 1 + ai], kinds, valueStarts, valueLengths, childStart, childCount, childIndices, source, label);
+                    Assert.True(e.Arguments[ai].Name == null, $"Slice-12 kernel handles positional args only for '{label}'.");
+                    var argNode = childIndices[childStart[idx] + 1 + ai];
+                    if (e.Arguments[ai].Modifier == ArgumentModifier.None)
+                    {
+                        AssertExprNode(e.Arguments[ai].Value, argNode, kinds, valueStarts, valueLengths, childStart, childCount, childIndices, source, label);
+                    }
+                    else
+                    {
+                        Assert.True(kinds[argNode] == 54, $"Expected RefOutArgument (54) at node {argNode} for '{label}', got {kinds[argNode]}.");
+                        Assert.Equal(e.Arguments[ai].Modifier == ArgumentModifier.Ref ? "ref" : "out", source.Substring(valueStarts[argNode], valueLengths[argNode]));
+                        Assert.Equal(1, childCount[argNode]);
+                        AssertExprNode(e.Arguments[ai].Value, childIndices[childStart[argNode]], kinds, valueStarts, valueLengths, childStart, childCount, childIndices, source, label);
+                    }
                 }
                 break;
             default:
@@ -2399,6 +2411,35 @@ class B
         AssertColumnarProgramMatchesCSharp(mutual,
             ("isEven", new object[] { 0 }), ("isEven", new object[] { 4 }), ("isEven", new object[] { 7 }),
             ("isOdd", new object[] { 3 }), ("isOdd", new object[] { 8 }));
+    }
+
+    [Fact]
+    public void ColumnarCodegen_Parity_ByRefStateParameter()
+    {
+        var prog =
+            "struct ParserState {\n    Pos: int\n    NodeCursor: int\n}\n\n" +
+            "func advance(st: &ParserState, delta: int): int {\n    st.Pos = st.Pos + delta\n    st.NodeCursor = st.NodeCursor + 1\n    return st.Pos + st.NodeCursor\n}\n\n" +
+            "func run(seed: int): int {\n    st := new ParserState { Pos: seed, NodeCursor: 10 }\n    first := advance(ref st, 3)\n    second := advance(ref st, 2)\n    return first * 100 + second * 10 + st.Pos + st.NodeCursor\n}\n";
+
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("run", new object[] { 1 }),
+            ("run", new object[] { -4 }));
+
+        var (ok, assembly, typeName, methodNames) = RouteColumnarProgram(prog);
+        Assert.True(ok, $"Columnar program codegen declined the by-ref state proof:\n{prog}");
+        Assert.Contains("advance", methodNames!);
+        Assert.Contains("run", methodNames!);
+        using var loadScope = CollectibleAssemblyScope.Load(assembly!);
+        var programType = loadScope.Assembly.GetType(typeName!)!;
+        var advance = programType.GetMethod("advance")!;
+        var stateParam = advance.GetParameters()[0].ParameterType;
+        Assert.True(stateParam.IsByRef);
+        Assert.Equal("ParserState", stateParam.GetElementType()!.Name);
+        Assert.True(ILShapeInspector.CountOpcode(advance, OpCodes.Stfld) >= 2);
+        Assert.True(ILShapeInspector.CountOpcode(advance, OpCodes.Ldfld) >= 2);
+        Assert.Equal(0, ILShapeInspector.CountOpcode(advance, OpCodes.Ldarga) + ILShapeInspector.CountOpcode(advance, OpCodes.Ldarga_S));
+        var run = programType.GetMethod("run")!;
+        Assert.True(ILShapeInspector.CountOpcode(run, OpCodes.Ldloca) + ILShapeInspector.CountOpcode(run, OpCodes.Ldloca_S) >= 2);
     }
 
     // Stage 4b-i — the type-aware emitter, proven by adding BOOL alongside int. Comparisons now produce bool in
