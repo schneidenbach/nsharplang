@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — Columnar function inputs own body-node views
+
+`ColumnarFunctionInput` now stores its function-body forest as a `ColumnarNodeTable` rather than
+retaining six independent raw body-column fields and reconstructing the view at every emitter access.
+The public raw-array properties remain as compatibility accessors over the stored table.
+
+`NSharpCompilerDogfoodAdapter` now wraps parser-produced body columns once when it creates regular
+functions, constructors, property getters, and property setters. This keeps raw parser arrays at the
+kernel boundary while the columnar program/emitter path carries named node-table inputs.
+
 ## 2026-06-13 — Columnar program emission consumes program inputs
 
 `ColumnarIlEmitter` now accepts a `ColumnarProgramInput` bundle for whole-program emission: source

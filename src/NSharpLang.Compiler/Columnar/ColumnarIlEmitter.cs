@@ -79,18 +79,27 @@ public sealed class ColumnarFunctionInput
         int[]? typeParamSpecialConstraints = null, string[][]? typeParamTypeConstraints = null,
         string[]? returnTupleElementNames = null, string[]?[]? paramTupleElementNames = null,
         bool isAsync = false)
+        : this(
+            name, returnCanonical, paramNames, paramCanonicals,
+            new ColumnarNodeTable(kinds, valueStarts, valueLengths, childStart, childCount, childIndices),
+            bodyRoot, isStatic, typeParamNames, typeParamSpecialConstraints, typeParamTypeConstraints,
+            returnTupleElementNames, paramTupleElementNames, isAsync)
+    {
+    }
+
+    internal ColumnarFunctionInput(
+        string name, string returnCanonical, string[] paramNames, string[] paramCanonicals,
+        ColumnarNodeTable bodyNodes, int bodyRoot, bool isStatic = false, string[]? typeParamNames = null,
+        int[]? typeParamSpecialConstraints = null, string[][]? typeParamTypeConstraints = null,
+        string[]? returnTupleElementNames = null, string[]?[]? paramTupleElementNames = null,
+        bool isAsync = false)
     {
         Name = name;
         ReturnCanonical = returnCanonical;
         IsAsync = isAsync;
         ParamNames = paramNames;
         ParamCanonicals = paramCanonicals;
-        Kinds = kinds;
-        ValueStarts = valueStarts;
-        ValueLengths = valueLengths;
-        ChildStart = childStart;
-        ChildCount = childCount;
-        ChildIndices = childIndices;
+        BodyNodes = bodyNodes;
         BodyRoot = bodyRoot;
         IsStatic = isStatic;
         ReturnTupleElementNames = returnTupleElementNames;
@@ -110,13 +119,13 @@ public sealed class ColumnarFunctionInput
     public string ReturnCanonical { get; }
     public string[] ParamNames { get; }
     public string[] ParamCanonicals { get; }
-    public int[] Kinds { get; }
-    public int[] ValueStarts { get; }
-    public int[] ValueLengths { get; }
-    public int[] ChildStart { get; }
-    public int[] ChildCount { get; }
-    public int[] ChildIndices { get; }
-    internal ColumnarNodeTable BodyNodes => new(Kinds, ValueStarts, ValueLengths, ChildStart, ChildCount, ChildIndices);
+    public int[] Kinds => BodyNodes.Kinds;
+    public int[] ValueStarts => BodyNodes.ValueStarts;
+    public int[] ValueLengths => BodyNodes.ValueLengths;
+    public int[] ChildStart => BodyNodes.ChildStarts;
+    public int[] ChildCount => BodyNodes.ChildCounts;
+    public int[] ChildIndices => BodyNodes.ChildIndices;
+    internal ColumnarNodeTable BodyNodes { get; }
     public int BodyRoot { get; }
     // True for a `static func` member of a struct/record/class body (no implicit `this`; param ordinals are NOT
     // shifted). Always false for a top-level function (those are CLR-static on the Program type, but their static-

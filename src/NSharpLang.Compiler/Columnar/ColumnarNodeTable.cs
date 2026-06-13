@@ -34,6 +34,18 @@ internal readonly struct ColumnarNodeTable
 
     public int ValueLength(int index) => _valueLengths[index];
 
+    internal int[] Kinds => _kinds;
+
+    internal int[] ValueStarts => _valueStarts;
+
+    internal int[] ValueLengths => _valueLengths;
+
+    internal int[] ChildStarts => _childStarts;
+
+    internal int[] ChildCounts => _childCounts;
+
+    internal int[] ChildIndices => _childIndices;
+
     public int ChildCount(int index) => _childCounts[index];
 
     public int Child(int index, int childOrdinal) => _childIndices[_childStarts[index] + childOrdinal];

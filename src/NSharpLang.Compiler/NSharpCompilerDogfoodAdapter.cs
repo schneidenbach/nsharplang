@@ -1533,9 +1533,10 @@ internal static class NSharpCompilerDogfoodAdapter
         if (bodyNodeCount <= 0)
             return false;
 
+        var bodyNodes = new Columnar.ColumnarNodeTable(bk, bvs, bvl, bcs, bcc, bci);
         input = new Columnar.ColumnarFunctionInput(
             fname, returnCanonical, paramNames, paramCanonicals,
-            bk, bvs, bvl, bcs, bcc, bci, bres[0], isStatic, typeParamNames,
+            bodyNodes, bres[0], isStatic, typeParamNames,
             typeParamSpecials, typeParamTypeConstraints,
             returnTupleElementNames: returnTupleNames, paramTupleElementNames: paramTupleNames,
             isAsync: isAsync);
@@ -1644,9 +1645,10 @@ internal static class NSharpCompilerDogfoodAdapter
             chainArgTexts[a] = source.Substring(caStarts[a], caLengths[a]);
         }
 
+        var bodyNodes = new Columnar.ColumnarNodeTable(bk, bvs, bvl, bcs, bcc, bci);
         var body = new Columnar.ColumnarFunctionInput(
             "constructor", "void", paramNames, paramCanonicals,
-            bk, bvs, bvl, bcs, bcc, bci, bres[0]);
+            bodyNodes, bres[0]);
         input = new Columnar.ColumnarConstructorInput(body, caRes[0], chainArgKinds, chainArgTexts);
         return true;
     }
@@ -1685,9 +1687,10 @@ internal static class NSharpCompilerDogfoodAdapter
         var gres = new int[2];
         if (bindings.ParseStatementNodes(ck, cs, cv, n, getBodyBrace, gk, gvs, gvl, gcs, gcc, gci, gss, gsl, gres) <= 0)
             return false;
+        var getterNodes = new Columnar.ColumnarNodeTable(gk, gvs, gvl, gcs, gcc, gci);
         var getter = new Columnar.ColumnarFunctionInput(
             "get_" + propName, propType, System.Array.Empty<string>(), System.Array.Empty<string>(),
-            gk, gvs, gvl, gcs, gcc, gci, gres[0]);
+            getterNodes, gres[0]);
 
         Columnar.ColumnarFunctionInput? setter = null;
         var after = getBodyEnd + 1;
@@ -1708,9 +1711,10 @@ internal static class NSharpCompilerDogfoodAdapter
             var stres = new int[2];
             if (bindings.ParseStatementNodes(ck, cs, cv, n, setBodyBrace, stk, stvs, stvl, stcs, stcc, stci, stss, stsl, stres) <= 0)
                 return false;
+            var setterNodes = new Columnar.ColumnarNodeTable(stk, stvs, stvl, stcs, stcc, stci);
             setter = new Columnar.ColumnarFunctionInput(
                 "set_" + propName, "void", new[] { "value" }, new[] { propType },
-                stk, stvs, stvl, stcs, stcc, stci, stres[0]);
+                setterNodes, stres[0]);
         }
         else
         {
