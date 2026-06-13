@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — Columnar unused-local diagnostics reuse tokenized source inputs
+
+The Stage 3b unused-local parity pass now consumes `ColumnarTokenizedSource` instead of owning its
+own local tokenize/compact sequence. It reuses the bundle's raw line/column columns for NL001
+position parity and the shared compact columns for signature/body parsing.
+
+Unused-local parity remains the correctness gate. This removes the final local tokenize/compact
+sequence from the top-level function symbol/name/type/diagnostic parity passes.
+
 ## 2026-06-13 — Columnar diagnostics reuse tokenized source inputs
 
 The Stage 3b structural diagnostics parity pass now consumes `ColumnarTokenizedSource` instead of
