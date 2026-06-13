@@ -71,6 +71,32 @@ internal static class NSharpCompilerDogfoodAdapter
         return true;
     }
 
+    private static bool TryGetTopLevelFunctionDeclarationIndices(
+        string source,
+        ColumnarTokenizedSource tokens,
+        out int declarationCount,
+        out List<int> functionDeclarationIndices)
+    {
+        declarationCount = 0;
+        functionDeclarationIndices = new List<int>();
+
+        if (HasTopLevelContextualTestDeclaration(
+                source, tokens.RawKinds, tokens.RawStarts, tokens.RawValueLengths, tokens.RawCount))
+            return false;
+
+        declarationCount = tokens.DeclarationCount;
+        if (declarationCount < 0)
+            return false;
+
+        for (var i = 0; i < declarationCount; i++)
+        {
+            if (tokens.DeclarationKinds[i] == 7)
+                functionDeclarationIndices.Add(i);
+        }
+
+        return true;
+    }
+
     private static bool HasTopLevelContextualTestDeclaration(
         string source,
         int[] rawKinds,
@@ -191,43 +217,28 @@ internal static class NSharpCompilerDogfoodAdapter
 
         try
         {
-            var capacity = 3 * (source.Length + 1) + 8;
-            var rawKinds = new int[capacity];
-            var rawStarts = new int[capacity];
-            var rawValueLengths = new int[capacity];
-            var rawLines = new int[capacity];
-            var rawColumns = new int[capacity];
-            var rawCount = bindings.TokenizeMetadataWithIndentation(
-                source, rawKinds, rawStarts, rawValueLengths, rawLines, rawColumns);
-            if (rawCount < 0 || rawCount > capacity)
+            if (!TryTokenizeColumnarSource(bindings, source, out var tokens))
                 return false;
 
             if (!TryGetTopLevelFunctionDeclarationIndices(
-                    bindings, source, rawKinds, rawStarts, rawValueLengths, rawCount,
+                    source, tokens,
                     out var declCount, out var functionDeclarationIndices))
                 return false;
 
             // Per-declaration modifier flags ((int)Declaration.Modifiers); functionDeclarationIndices maps
             // each function back to its declaration slot.
+            var rawKinds = tokens.RawKinds;
+            var rawCount = tokens.RawCount;
             var modKinds = new int[rawCount + 1];
             var modFlags = new int[rawCount + 1];
             var modCount = bindings.TopLevelDeclarationModifiers(rawKinds, rawCount, modKinds, modFlags);
             if (modCount != declCount)
                 return false;
 
-            var ck = new int[rawCount];
-            var cs = new int[rawCount];
-            var cv = new int[rawCount];
-            var n = 0;
-            for (var i = 0; i < rawCount; i++)
-            {
-                if (rawKinds[i] == 136)
-                    continue;
-                ck[n] = rawKinds[i];
-                cs[n] = rawStarts[i];
-                cv[n] = rawValueLengths[i];
-                n++;
-            }
+            var ck = tokens.Kinds;
+            var cs = tokens.Starts;
+            var cv = tokens.ValueLengths;
+            var n = tokens.Count;
 
             var funcIndices = TopLevelFuncIndices(ck, n);
             if (funcIndices.Count != functionDeclarationIndices.Count)

@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — Columnar symbol pass reuses tokenized source inputs
+
+The Stage 1 top-level function symbol builder now consumes the same `ColumnarTokenizedSource`
+bundle used by program-input collection. It reuses the bundle's raw token columns, compacted token
+columns, and declaration-kind rows instead of owning a local tokenize/compact/declaration-kind
+sequence.
+
+Symbol parity remains the correctness gate; this continues the adapter cleanup by keeping token table
+ownership in one helper instead of scattering anonymous token arrays through each columnar stage.
+
 ## 2026-06-13 — Columnar program input collection shares token tables
 
 `NSharpCompilerDogfoodAdapter.TryGetColumnarProgramInput` now tokenizes and compacts a source once,
