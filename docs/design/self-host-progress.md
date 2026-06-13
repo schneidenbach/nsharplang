@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — CLI doc and linter import tables wrapped
+
+`CliDocOrdering.nl` now groups doc-symbol ordering rank columns, name/kind bucket counts and
+offsets, temp/result index buffers, slug input/output arrays, and symbol-kind filter inputs behind
+named normal structs. `LinterImports.nl` now groups import namespace ranks, used namespace ranks,
+used-flag/touched-rank scratch storage, and result indexes behind wrapper-aware core functions.
+
+The exported dogfood adapter functions remain flattened, including the checksum helpers appended by
+the parity corpus, while the internal CLI docs and linter loops no longer pass those table columns
+anonymously through their bodies.
+
 ## 2026-06-13 — Ordering scratch tables wrapped
 
 `FormatterImportOrdering.nl` and `TextEditOrdering.nl` now group their stable counting-sort scratch

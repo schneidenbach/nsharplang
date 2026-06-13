@@ -1,5 +1,30 @@
 import System
 
+struct CliDocSymbolOrderRankTable {
+    KindRanks: int[]
+    NameRanks: int[]
+    IncludeFlags: int[]
+}
+
+struct CliDocOrderBucketTable {
+    Counts: int[]
+    Offsets: int[]
+}
+
+struct CliDocOrderIndexTable {
+    Indices: int[]
+}
+
+struct CliDocSlugTable {
+    RawSlugs: string[]
+    ResultSlugs: string[]
+}
+
+struct CliDocSymbolKindFilterTable {
+    KindIds: int[]
+    TargetKindId: int
+}
+
 func CliDocSymbolOrderCountingIndicesInto(
     kindRanks: int[],
     nameRanks: int[],
@@ -10,41 +35,55 @@ func CliDocSymbolOrderCountingIndicesInto(
     kindOffsets: int[],
     tempIndices: int[],
     resultIndices: int[]): int {
-    count := CliDocOrderingMinInt(kindRanks.Length, nameRanks.Length)
-    count = CliDocOrderingMinInt(count, includeFlags.Length)
-    nameBucketCount := CliDocOrderingMinInt(nameCounts.Length, nameOffsets.Length)
-    kindBucketCount := CliDocOrderingMinInt(kindCounts.Length, kindOffsets.Length)
+    ranks := new CliDocSymbolOrderRankTable { KindRanks: kindRanks, NameRanks: nameRanks, IncludeFlags: includeFlags }
+    nameBuckets := new CliDocOrderBucketTable { Counts: nameCounts, Offsets: nameOffsets }
+    kindBuckets := new CliDocOrderBucketTable { Counts: kindCounts, Offsets: kindOffsets }
+    temp := new CliDocOrderIndexTable { Indices: tempIndices }
+    result := new CliDocOrderIndexTable { Indices: resultIndices }
+    return CliDocSymbolOrderCountingIndicesCore(ref ranks, ref nameBuckets, ref kindBuckets, ref temp, ref result)
+}
+
+func CliDocSymbolOrderCountingIndicesCore(
+    ranks: &CliDocSymbolOrderRankTable,
+    nameBuckets: &CliDocOrderBucketTable,
+    kindBuckets: &CliDocOrderBucketTable,
+    temp: &CliDocOrderIndexTable,
+    result: &CliDocOrderIndexTable): int {
+    count := CliDocOrderingMinInt(ranks.KindRanks.Length, ranks.NameRanks.Length)
+    count = CliDocOrderingMinInt(count, ranks.IncludeFlags.Length)
+    nameBucketCount := CliDocOrderingMinInt(nameBuckets.Counts.Length, nameBuckets.Offsets.Length)
+    kindBucketCount := CliDocOrderingMinInt(kindBuckets.Counts.Length, kindBuckets.Offsets.Length)
 
     i := 0
     while i < nameBucketCount {
-        nameCounts[i] = 0
-        nameOffsets[i] = 0
+        nameBuckets.Counts[i] = 0
+        nameBuckets.Offsets[i] = 0
         i = i + 1
     }
 
     i = 0
     while i < kindBucketCount {
-        kindCounts[i] = 0
-        kindOffsets[i] = 0
+        kindBuckets.Counts[i] = 0
+        kindBuckets.Offsets[i] = 0
         i = i + 1
     }
 
     includedCount := 0
     i = 0
     while i < count {
-        if includeFlags[i] != 0 {
-            nameRank := nameRanks[i]
-            kindRank := kindRanks[i]
+        if ranks.IncludeFlags[i] != 0 {
+            nameRank := ranks.NameRanks[i]
+            kindRank := ranks.KindRanks[i]
             if nameRank <= 0 || nameRank >= nameBucketCount || kindRank <= 0 || kindRank >= kindBucketCount {
                 return -1
             }
 
-            if includedCount >= tempIndices.Length || includedCount >= resultIndices.Length {
+            if includedCount >= temp.Indices.Length || includedCount >= result.Indices.Length {
                 return -1
             }
 
-            nameCounts[nameRank] = nameCounts[nameRank] + 1
-            kindCounts[kindRank] = kindCounts[kindRank] + 1
+            nameBuckets.Counts[nameRank] = nameBuckets.Counts[nameRank] + 1
+            kindBuckets.Counts[kindRank] = kindBuckets.Counts[kindRank] + 1
             includedCount = includedCount + 1
         }
 
@@ -54,18 +93,18 @@ func CliDocSymbolOrderCountingIndicesInto(
     offset := 0
     rank := 0
     while rank < nameBucketCount {
-        nameOffsets[rank] = offset
-        offset = offset + nameCounts[rank]
+        nameBuckets.Offsets[rank] = offset
+        offset = offset + nameBuckets.Counts[rank]
         rank = rank + 1
     }
 
     i = 0
     while i < count {
-        if includeFlags[i] != 0 {
-            nameRank := nameRanks[i]
-            writeIndex := nameOffsets[nameRank]
-            tempIndices[writeIndex] = i
-            nameOffsets[nameRank] = writeIndex + 1
+        if ranks.IncludeFlags[i] != 0 {
+            nameRank := ranks.NameRanks[i]
+            writeIndex := nameBuckets.Offsets[nameRank]
+            temp.Indices[writeIndex] = i
+            nameBuckets.Offsets[nameRank] = writeIndex + 1
         }
 
         i = i + 1
@@ -74,18 +113,18 @@ func CliDocSymbolOrderCountingIndicesInto(
     offset = 0
     rank = 0
     while rank < kindBucketCount {
-        kindOffsets[rank] = offset
-        offset = offset + kindCounts[rank]
+        kindBuckets.Offsets[rank] = offset
+        offset = offset + kindBuckets.Counts[rank]
         rank = rank + 1
     }
 
     i = 0
     while i < includedCount {
-        sourceIndex := tempIndices[i]
-        kindRank := kindRanks[sourceIndex]
-        writeIndex := kindOffsets[kindRank]
-        resultIndices[writeIndex] = sourceIndex
-        kindOffsets[kindRank] = writeIndex + 1
+        sourceIndex := temp.Indices[i]
+        kindRank := ranks.KindRanks[sourceIndex]
+        writeIndex := kindBuckets.Offsets[kindRank]
+        result.Indices[writeIndex] = sourceIndex
+        kindBuckets.Offsets[kindRank] = writeIndex + 1
         i = i + 1
     }
 
@@ -93,7 +132,12 @@ func CliDocSymbolOrderCountingIndicesInto(
 }
 
 func CliDocSlugsInto(rawSlugs: string[], resultSlugs: string[]): int {
-    count := CliDocOrderingMinInt(rawSlugs.Length, resultSlugs.Length)
+    slugs := new CliDocSlugTable { RawSlugs: rawSlugs, ResultSlugs: resultSlugs }
+    return CliDocSlugsCore(ref slugs)
+}
+
+func CliDocSlugsCore(slugs: &CliDocSlugTable): int {
+    count := CliDocOrderingMinInt(slugs.RawSlugs.Length, slugs.ResultSlugs.Length)
     bufferLength := 0
     if count > 0 {
         bufferLength = 128
@@ -102,14 +146,14 @@ func CliDocSlugsInto(rawSlugs: string[], resultSlugs: string[]): int {
     buffer := new char[](bufferLength)
     i := 0
     while i < count {
-        raw := rawSlugs[i]
+        raw := slugs.RawSlugs[i]
         length := raw.Length
         if length > bufferLength {
             bufferLength = length
             buffer = new char[](length)
         }
 
-        resultSlugs[i] = CliDocSlugInto(raw, length, buffer)
+        slugs.ResultSlugs[i] = CliDocSlugInto(raw, length, buffer)
         i = i + 1
     }
 
@@ -140,57 +184,63 @@ func CliDocSlugInto(raw: string, length: int, buffer: char[]): string {
 }
 
 func SymbolKindFilterIndicesInto(kindIds: int[], targetKindId: int, resultIndices: int[]): int {
+    symbols := new CliDocSymbolKindFilterTable { KindIds: kindIds, TargetKindId: targetKindId }
+    result := new CliDocOrderIndexTable { Indices: resultIndices }
+    return SymbolKindFilterIndicesCore(ref symbols, ref result)
+}
+
+func SymbolKindFilterIndicesCore(symbols: &CliDocSymbolKindFilterTable, result: &CliDocOrderIndexTable): int {
     count := 0
-    length := kindIds.Length
+    length := symbols.KindIds.Length
     i := 0
 
-    if resultIndices.Length >= length {
+    if result.Indices.Length >= length {
         unrolledLimit := length - 8
         while i <= unrolledLimit {
-            if kindIds[i] == targetKindId {
-                resultIndices[count] = i
+            if symbols.KindIds[i] == symbols.TargetKindId {
+                result.Indices[count] = i
                 count = count + 1
             }
 
             next := i + 1
-            if kindIds[next] == targetKindId {
-                resultIndices[count] = next
+            if symbols.KindIds[next] == symbols.TargetKindId {
+                result.Indices[count] = next
                 count = count + 1
             }
 
             next = i + 2
-            if kindIds[next] == targetKindId {
-                resultIndices[count] = next
+            if symbols.KindIds[next] == symbols.TargetKindId {
+                result.Indices[count] = next
                 count = count + 1
             }
 
             next = i + 3
-            if kindIds[next] == targetKindId {
-                resultIndices[count] = next
+            if symbols.KindIds[next] == symbols.TargetKindId {
+                result.Indices[count] = next
                 count = count + 1
             }
 
             next = i + 4
-            if kindIds[next] == targetKindId {
-                resultIndices[count] = next
+            if symbols.KindIds[next] == symbols.TargetKindId {
+                result.Indices[count] = next
                 count = count + 1
             }
 
             next = i + 5
-            if kindIds[next] == targetKindId {
-                resultIndices[count] = next
+            if symbols.KindIds[next] == symbols.TargetKindId {
+                result.Indices[count] = next
                 count = count + 1
             }
 
             next = i + 6
-            if kindIds[next] == targetKindId {
-                resultIndices[count] = next
+            if symbols.KindIds[next] == symbols.TargetKindId {
+                result.Indices[count] = next
                 count = count + 1
             }
 
             next = i + 7
-            if kindIds[next] == targetKindId {
-                resultIndices[count] = next
+            if symbols.KindIds[next] == symbols.TargetKindId {
+                result.Indices[count] = next
                 count = count + 1
             }
 
@@ -198,8 +248,8 @@ func SymbolKindFilterIndicesInto(kindIds: int[], targetKindId: int, resultIndice
         }
 
         while i < length {
-            if kindIds[i] == targetKindId {
-                resultIndices[count] = i
+            if symbols.KindIds[i] == symbols.TargetKindId {
+                result.Indices[count] = i
                 count = count + 1
             }
 
@@ -210,12 +260,12 @@ func SymbolKindFilterIndicesInto(kindIds: int[], targetKindId: int, resultIndice
     }
 
     while i < length {
-        if kindIds[i] == targetKindId {
-            if count >= resultIndices.Length {
+        if symbols.KindIds[i] == symbols.TargetKindId {
+            if count >= result.Indices.Length {
                 return -1
             }
 
-            resultIndices[count] = i
+            result.Indices[count] = i
             count = count + 1
         }
 
