@@ -4747,6 +4747,10 @@ class B
             "class Square: IShape {\n    side: int\n    constructor(s: int) {\n        side = s\n    }\n    func Area(): int {\n        return side * side\n    }\n}\n\n" +
             "class Wide: IShape {\n    w: int\n    constructor(v: int) {\n        w = v\n    }\n    func Area(): int {\n        return w * 2\n    }\n}\n\n" +
             "struct Tri: IShape {\n    b: int\n    func Area(): int {\n        return b * 3\n    }\n}\n\n" +
+            "interface IArea {\n    func Area2(): int\n}\n\n" +
+            "interface ITagged: IArea {\n    func Tag(): int\n}\n\n" +
+            "class TaggedSquare: ITagged {\n    side: int\n    constructor(s: int) {\n        side = s\n    }\n    func Area2(): int {\n        return side * side\n    }\n    func Tag(): int {\n        return side + 100\n    }\n}\n\n" +
+            "struct TaggedTri: ITagged {\n    b: int\n    func Area2(): int {\n        return b * 3\n    }\n    func Tag(): int {\n        return b + 200\n    }\n}\n\n" +
             "class Holder {\n    s: IShape\n    constructor(v: IShape) {\n        s = v\n    }\n}\n\n" +
             "class InitHolder {\n    s: IShape\n}\n\n" +
             "struct Slot {\n    s: IShape\n}\n\n" +
@@ -4765,6 +4769,10 @@ class B
             "func viaObjectInit(): int {\n    h := new InitHolder { s: new Square(4) }\n    return h.s.Area()\n}\n\n" +
             "func viaStructObjectInit(): int {\n    slot := new Slot { s: new Tri { b: 5 } }\n    return slot.s.Area()\n}\n\n" +
             "func listInterface(): int {\n    items := new List<IShape>()\n    items.Add(new Square(2))\n    items.Add(new Wide(3))\n    items.Add(new Tri { b: 4 })\n    total := 0\n    foreach item in items {\n        total = total + item.Area()\n    }\n    return total + items[0].Area()\n}\n\n" +
+            "func inheritedDispatch(a: IArea): int {\n    return a.Area2()\n}\n\n" +
+            "func derivedDispatch(t: ITagged): int {\n    return t.Tag()\n}\n\n" +
+            "func interfaceInheritance(): int {\n    let a: IArea = new TaggedSquare(4)\n    let t: IArea = new TaggedTri { b: 3 }\n    let tagged: ITagged = new TaggedSquare(3)\n    return a.Area2() + t.Area2() + tagged.Tag()\n}\n\n" +
+            "func inheritedUpcast(): int {\n    let baseView: IArea = new TaggedSquare(2)\n    return inheritedDispatch(baseView) + derivedDispatch(new TaggedSquare(3))\n}\n\n" +
             // is/as over interfaces ROUTE through the existing kind-46/47 isinst lowerings (the
             // review's stale-decline finding — pinned as PARITY, both polarities).
             "func isCheck(): int {\n    let s: IShape = new Square(2)\n    if s is Square {\n        return 1\n    }\n    return 0\n}\n\n" +
@@ -4782,6 +4790,8 @@ class B
             ("viaObjectInit", System.Array.Empty<object>()),
             ("viaStructObjectInit", System.Array.Empty<object>()),
             ("listInterface", System.Array.Empty<object>()),
+            ("interfaceInheritance", System.Array.Empty<object>()),
+            ("inheritedUpcast", System.Array.Empty<object>()),
             ("isCheck", System.Array.Empty<object>()),
             ("asCheck", System.Array.Empty<object>()));
 
@@ -4808,11 +4818,14 @@ class B
         // registries now enforce uniqueness ACROSS kinds (review-found over-accept, pre-existing
         // for enum/struct/union pairs and widened by each new type family);
         Assert.False(RouteColumnarProgram("enum Color {\n    Red,\n    Green\n}\n\ninterface Color {\n    func C(): int\n}\n\nfunc f(): int {\n    return 1\n}\n").Ok);
-        // DECLINES — oracle-ACCEPTED (later rungs): default interface methods, interface
-        // inheritance, and multi-interface implementation lists.
+        // DECLINES — oracle-ACCEPTED (later rungs): default interface methods and
+        // multi-interface implementation lists.
         Assert.False(RouteColumnarProgram("interface IGreet {\n    func Hi(): string {\n        return \"hi\"\n    }\n}\n\nfunc f(): int {\n    return 1\n}\n").Ok);
-        Assert.False(RouteColumnarProgram("interface IA {\n    func A(): int\n}\n\ninterface IB: IA {\n    func B(): int\n}\n\nfunc f(): int {\n    return 1\n}\n").Ok);
         Assert.False(RouteColumnarProgram("interface IA {\n    func A(): int\n}\n\ninterface IW {\n    func W(): int\n}\n\nclass Multi: IA, IW {\n    func A(): int {\n        return 1\n    }\n    func W(): int {\n        return 2\n    }\n}\n\nfunc f(): int {\n    return 1\n}\n").Ok);
+        // Interface inheritance still refuses malformed metadata: cycles and missing inherited
+        // members decline instead of producing unloadable assemblies.
+        Assert.False(RouteColumnarProgram("interface IA: IB {\n    func A(): int\n}\n\ninterface IB: IA {\n    func B(): int\n}\n\nfunc f(): int {\n    return 1\n}\n").Ok);
+        Assert.False(RouteColumnarProgram("interface IA {\n    func A(): int\n}\n\ninterface IB: IA {\n    func B(): int\n}\n\nclass Broken: IB {\n    func B(): int {\n        return 2\n    }\n}\n\nfunc f(): int {\n    return 1\n}\n").Ok);
     }
 
     // ASYNC rung A — the SYNC-LOWERING mirror (neither pipeline emits a state machine; the oracle's

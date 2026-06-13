@@ -11,6 +11,31 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — IF-2b interface inheritance: base metadata and inherited slots
+
+The second IF-2 residual slice routes base-interface hierarchies through the columnar
+dogfood path. The parser kernel now records base-interface names on interface declarations, the
+adapter carries those spans into `ColumnarInterfaceInput`, and the emitter defines all interface
+builders before resolving base lists so declaration order no longer matters for interface-to-interface
+references. Derived interfaces add their base interfaces to metadata, cycles and duplicate bases
+decline, and interface `CreateType` runs base-before-derived.
+
+Implementers now add both the directly named interface and inherited interfaces to their type
+metadata. Override binding, required-member completeness, method lookup, and interface upcasts all
+walk inherited interface slots, so `class C: ITagged` and `struct S: ITagged` satisfy and dispatch
+`IArea` members when `ITagged: IArea`.
+
+Coverage: `ColumnarCodegen_Parity_Interfaces` now value-compares inherited-interface dispatch
+through base-interface values, derived-interface dispatch, class and struct implementers, and
+explicit base-interface views. It also pins cycle and missing-inherited-member declines. The test
+intentionally avoids direct inherited-interface overload matching in the oracle path; that analyzer
+gap rejects `f(new TaggedSquare())` for `f(IArea)` even though the local `IArea` view routes.
+
+NEXT: finish multi-interface implementation lists and default interface methods. Then route-all,
+then the emitter port gated by the SoA design doc.
+
+---
+
 ## 2026-06-13 — IF-2a interface residuals: upcast flow gaps and List<IShape>
 
 The first IF-2 residual slice closes the review-found interface value-flow gaps without widening the

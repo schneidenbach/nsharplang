@@ -363,15 +363,15 @@ func TopLevelDeclarationKindsInto(tokenKinds: int[], count: int, outKinds: int[]
 // unexpected token (a non-int member value, a `:` underlying-type annotation, attributes, a missing name/brace) so
 // the host declines the whole program to the C# path. Mirrors Parser.cs ParseEnumDeclaration for the int-enum subset.
 // Parse ONE top-level `interface` declaration (at compacted token index `interfaceIndex`):
-// `interface Name { <method signatures> }`. Members are METHOD SIGNATURES ONLY -- `func name(params)
+// `interface Name [: Base[, ...]] { <method signatures> }`. Members are METHOD SIGNATURES ONLY -- `func name(params)
 // [: ret]` with NO body (a `{` before the next member boundary is a C#-8 DEFAULT method, unmodeled
 // -> -1); any non-`func` member (bare fields, properties) is -1 (the production pipeline silently
 // DROPS bare members and NL103s property bodies at emit -- declining inherits neither). Each
 // member's `func` token index goes to outMethodFuncIndices (the host parses signatures via the
-// shared ParseFunctionSignature kernel); outResult[0]/[1] = the interface NAME span; returns the
-// method count, -1 on any parse failure. Generic interfaces (`<` after the name) and
-// base-interface lists (`:` after the name) are unmodeled -> -1.
-func ParseInterfaceDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, interfaceIndex: int, outMethodFuncIndices: int[], outResult: int[]): int {
+// shared ParseFunctionSignature kernel); outResult[0]/[1] = the interface NAME span and outResult[2]
+// = base interface count, with base-name spans in outBaseNameStarts/Lengths. Returns the method
+// count, -1 on any parse failure. Generic interfaces (`<` after the name) remain unmodeled -> -1.
+func ParseInterfaceDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, interfaceIndex: int, outMethodFuncIndices: int[], outBaseNameStarts: int[], outBaseNameLengths: int[], outResult: int[]): int {
     pos := interfaceIndex
     if pos >= count || tokenKinds[pos] != 10 {
         return -1
@@ -384,6 +384,31 @@ func ParseInterfaceDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenV
     outResult[0] = tokenStarts[pos]
     outResult[1] = tokenValueLengths[pos]
     pos = pos + 1
+
+    if pos < count && tokenKinds[pos] == 100 {
+        return -1
+    }
+
+    baseCount := 0
+    if pos < count && tokenKinds[pos] == 122 {
+        pos = pos + 1
+        while true {
+            if pos >= count || tokenKinds[pos] != 0 {
+                return -1
+            }
+            outBaseNameStarts[baseCount] = tokenStarts[pos]
+            outBaseNameLengths[baseCount] = tokenValueLengths[pos]
+            baseCount = baseCount + 1
+            pos = pos + 1
+
+            if pos < count && tokenKinds[pos] == 134 {
+                pos = pos + 1
+                continue
+            }
+            break
+        }
+    }
+    outResult[2] = baseCount
 
     if pos >= count || tokenKinds[pos] != 129 {
         return -1

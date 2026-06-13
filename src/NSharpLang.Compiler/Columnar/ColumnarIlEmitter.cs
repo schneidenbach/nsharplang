@@ -14,10 +14,11 @@ namespace NSharpLang.Compiler.Columnar;
 /// </summary>
 public sealed class ColumnarInterfaceInput
 {
-    public ColumnarInterfaceInput(string name, string[] methodNames, string[] methodReturnCanonicals,
+    public ColumnarInterfaceInput(string name, string[] baseInterfaceNames, string[] methodNames, string[] methodReturnCanonicals,
         string[][] methodParamNames, string[][] methodParamCanonicals)
     {
         Name = name;
+        BaseInterfaceNames = baseInterfaceNames;
         MethodNames = methodNames;
         MethodReturnCanonicals = methodReturnCanonicals;
         MethodParamNames = methodParamNames;
@@ -25,6 +26,7 @@ public sealed class ColumnarInterfaceInput
     }
 
     public string Name { get; }
+    public string[] BaseInterfaceNames { get; }
     public string[] MethodNames { get; }
     public string[] MethodReturnCanonicals { get; }
     public string[][] MethodParamNames { get; }
@@ -340,6 +342,10 @@ internal sealed class ColumnarStructDef
     // locals/params/returns resolve and `iface.Method(args)` dispatch (ldloc+callvirt) through the
     // EXISTING machinery; object-init declines via the null DefaultCtor, PASS 0d/0e skip it.
     public bool IsInterface { get; init; }
+    // Interfaces this interface EXTENDS. For an implementer, ImplementedInterface records the directly named
+    // interface and this list lets lookup/completeness/upcasts walk inherited interface slots without duplicating
+    // those MethodBuilders on the derived interface.
+    public List<ColumnarStructDef> InterfaceBases { get; } = new();
     // The single interface this type IMPLEMENTS (`class C: IShape` — the colon name reclassified in
     // PASS 0a' when it resolves to an interface def), or null. IF-1 models ONE interface; lists
     // decline. Every interface member must be matched by name+signature (completeness checked in
@@ -1074,6 +1080,22 @@ public sealed class ColumnarIlEmitter
         for (var d = def; d != null; d = d.BaseDef)
         {
             if (d.Methods.TryGetValue(name, out method))
+                return true;
+            if (d.IsInterface && TryFindMethodOnInterfaceBases(d, name, out method))
+                return true;
+        }
+        method = default;
+        return false;
+    }
+
+    private static bool TryFindMethodOnInterfaceBases(
+        ColumnarStructDef def, string name, out (MethodBuilder Builder, Type[] ParamTypes, Type ReturnType) method)
+    {
+        foreach (var baseInterface in def.InterfaceBases)
+        {
+            if (baseInterface.Methods.TryGetValue(name, out method))
+                return true;
+            if (TryFindMethodOnInterfaceBases(baseInterface, name, out method))
                 return true;
         }
         method = default;
@@ -2809,14 +2831,11 @@ public sealed class ColumnarIlEmitter
         // have an enum-typed field; a struct-typed field resolves only if that struct was declared earlier.
         var structRegistry = new Dictionary<string, ColumnarStructDef>(StringComparer.Ordinal);
 
-        // PASS 0i (interfaces — IF-1): define every user interface (Public|Abstract|Interface) and
-        // its ABSTRACT method members, registered in the STRUCT registry with IsInterface=true so
-        // interface-typed locals/params/returns/fields resolve and `iface.Method(args)` dispatches
-        // (ldloc + callvirt) through the EXISTING machinery (object-init declines via the null
-        // DefaultCtor; PASS 0d/0e skip interfaces). Member signatures resolve against enums + the
-        // interfaces defined SO FAR — members referencing structs/records decline this rung
-        // (declaration-order limitation; scalars/strings dominate the probed surface).
-        var interfaceBuilders = new List<TypeBuilder>(interfaces.Count);
+        // PASS 0i (interfaces): define every user interface (Public|Abstract|Interface), register it
+        // in the STRUCT registry with IsInterface=true, then wire base-interface inheritance and abstract
+        // method members. All interface TypeBuilders are registered before any base list or signature
+        // resolves, so interface inheritance is order-insensitive.
+        var interfaceDefsInOrder = new List<ColumnarStructDef>(interfaces.Count);
         foreach (var iface in interfaces)
         {
             var interfaceTb = module.DefineType(iface.Name, TypeAttributes.Public | TypeAttributes.Interface | TypeAttributes.Abstract);
@@ -2825,6 +2844,23 @@ public sealed class ColumnarIlEmitter
             { IsInterface = true };
             if (!structRegistry.TryAdd(iface.Name, interfaceDef) || enumRegistry.ContainsKey(iface.Name))
                 return false; // duplicate type name (incl. cross-registry — the pipeline's NL306).
+            interfaceDefsInOrder.Add(interfaceDef);
+        }
+        for (var i = 0; i < interfaces.Count; i++)
+        {
+            var iface = interfaces[i];
+            var interfaceDef = interfaceDefsInOrder[i];
+            var seenBases = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var baseInterfaceName in iface.BaseInterfaceNames)
+            {
+                if (!seenBases.Add(baseInterfaceName)
+                    || !structRegistry.TryGetValue(baseInterfaceName, out var baseInterface)
+                    || !baseInterface.IsInterface
+                    || ReferenceEquals(baseInterface, interfaceDef))
+                    return false;
+                interfaceDef.InterfaceBases.Add(baseInterface);
+                interfaceDef.Builder.AddInterfaceImplementation(baseInterface.Builder);
+            }
             for (var m = 0; m < iface.MethodNames.Length; m++)
             {
                 Type memberReturn;
@@ -2840,7 +2876,7 @@ public sealed class ColumnarIlEmitter
                         || !IsSupportedType(memberParams[p]))
                         return false;
                 }
-                var abstractMethod = interfaceTb.DefineMethod(
+                var abstractMethod = interfaceDef.Builder.DefineMethod(
                     iface.MethodNames[m],
                     MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.HideBySig
                         | MethodAttributes.NewSlot | MethodAttributes.Abstract,
@@ -2848,7 +2884,15 @@ public sealed class ColumnarIlEmitter
                 if (!interfaceDef.Methods.TryAdd(iface.MethodNames[m], (abstractMethod, memberParams, memberReturn)))
                     return false; // duplicate interface member.
             }
-            interfaceBuilders.Add(interfaceTb);
+        }
+        var interfaceDepths = new int[interfaceDefsInOrder.Count];
+        var interfaceDepthMemo = new Dictionary<ColumnarStructDef, int>();
+        for (var i = 0; i < interfaceDefsInOrder.Count; i++)
+        {
+            var depth = InterfaceDepthOrMinusOne(interfaceDefsInOrder[i], interfaceDepthMemo, new HashSet<ColumnarStructDef>());
+            if (depth < 0)
+                return false; // interface inheritance cycle.
+            interfaceDepths[i] = depth;
         }
 
         var structBuilders = new TypeBuilder[structs.Count];
@@ -2964,7 +3008,12 @@ public sealed class ColumnarIlEmitter
             if (structRegistry.TryGetValue(baseName, out var implementedInterface) && implementedInterface.IsInterface)
             {
                 def.ImplementedInterface = implementedInterface;
-                def.Builder.AddInterfaceImplementation(implementedInterface.Builder);
+                var seenImplementedInterfaces = new HashSet<TypeBuilder>();
+                foreach (var implemented in EnumerateInterfaceAndBases(implementedInterface))
+                {
+                    if (seenImplementedInterfaces.Add(implemented.Builder))
+                        def.Builder.AddInterfaceImplementation(implemented.Builder);
+                }
                 continue;
             }
             if (!def.IsReference)
@@ -3092,12 +3141,10 @@ public sealed class ColumnarIlEmitter
                 var methodAttributes = MethodAttributes.Public | MethodAttributes.HideBySig;
                 MethodBuilder? overriddenInterfaceMethod = null;
                 if (def.ImplementedInterface != null
-                    && def.ImplementedInterface.Methods.TryGetValue(m.Name, out var interfaceMember)
-                    && interfaceMember.ReturnType == mReturn
-                    && ParamTypesMatch(interfaceMember.ParamTypes, mParamTypes))
+                    && TryFindInterfaceMethod(def.ImplementedInterface, m.Name, mReturn, mParamTypes, out var interfaceMember))
                 {
                     methodAttributes |= MethodAttributes.Virtual | MethodAttributes.Final | MethodAttributes.NewSlot;
-                    overriddenInterfaceMethod = interfaceMember.Builder;
+                    overriddenInterfaceMethod = interfaceMember;
                 }
                 var mb = def.Builder.DefineMethod(m.Name, methodAttributes, mReturn, mParamTypes);
                 if (overriddenInterfaceMethod != null)
@@ -3117,12 +3164,15 @@ public sealed class ColumnarIlEmitter
             var def = structRegistry[structs[s].Name];
             if (def.ImplementedInterface == null)
                 continue;
-            foreach (var (memberName, member) in def.ImplementedInterface.Methods)
+            foreach (var requiredInterface in EnumerateInterfaceAndBases(def.ImplementedInterface))
             {
-                if (!def.Methods.TryGetValue(memberName, out var impl)
-                    || impl.ReturnType != member.ReturnType
-                    || !ParamTypesMatch(member.ParamTypes, impl.ParamTypes))
-                    return false;
+                foreach (var (memberName, member) in requiredInterface.Methods)
+                {
+                    if (!def.Methods.TryGetValue(memberName, out var impl)
+                        || impl.ReturnType != member.ReturnType
+                        || !ParamTypesMatch(member.ParamTypes, impl.ParamTypes))
+                        return false;
+                }
             }
         }
 
@@ -3856,10 +3906,15 @@ public sealed class ColumnarIlEmitter
         // reference the un-finalized builders resolve to the finalized types at Save.
         foreach (var eb in enumBuilders)
             eb.CreateType();
-        // Interfaces bake BEFORE their implementers (CreateType on an implementing type requires
-        // its interfaces created — the enums-before-Program precedent).
-        foreach (var interfaceBuilder in interfaceBuilders)
-            interfaceBuilder.CreateType();
+        // Interfaces bake BEFORE their implementers, and base interfaces bake before derived interfaces.
+        for (var depth = 0; depth <= interfaces.Count; depth++)
+        {
+            for (var i = 0; i < interfaceDefsInOrder.Count; i++)
+            {
+                if (interfaceDepths[i] == depth)
+                    interfaceDefsInOrder[i].Builder.CreateType();
+            }
+        }
         // Struct/class types bake BASE-BEFORE-DERIVED (depth ascending): CreateType on a derived TypeBuilder
         // requires its parent to be created first. Depth 0 (no base) covers every value-type struct and standalone
         // class, so the no-inheritance ordering is unchanged.
@@ -10186,6 +10241,71 @@ public sealed class ColumnarIlEmitter
         return true;
     }
 
+    private static bool TryFindInterfaceMethod(
+        ColumnarStructDef interfaceDef, string name, Type returnType, Type[] paramTypes,
+        out MethodBuilder method)
+    {
+        if (interfaceDef.Methods.TryGetValue(name, out var own)
+            && own.ReturnType == returnType
+            && ParamTypesMatch(own.ParamTypes, paramTypes))
+        {
+            method = own.Builder;
+            return true;
+        }
+        foreach (var baseInterface in interfaceDef.InterfaceBases)
+        {
+            if (TryFindInterfaceMethod(baseInterface, name, returnType, paramTypes, out method))
+                return true;
+        }
+        method = null!;
+        return false;
+    }
+
+    private static IEnumerable<ColumnarStructDef> EnumerateInterfaceAndBases(ColumnarStructDef interfaceDef)
+    {
+        yield return interfaceDef;
+        foreach (var baseInterface in interfaceDef.InterfaceBases)
+        {
+            foreach (var inherited in EnumerateInterfaceAndBases(baseInterface))
+                yield return inherited;
+        }
+    }
+
+    private static bool InterfaceEqualsOrExtends(ColumnarStructDef interfaceDef, TypeBuilder targetBuilder)
+    {
+        foreach (var candidate in EnumerateInterfaceAndBases(interfaceDef))
+        {
+            if (ReferenceEquals(candidate.Builder, targetBuilder))
+                return true;
+        }
+        return false;
+    }
+
+    private static int InterfaceDepthOrMinusOne(
+        ColumnarStructDef interfaceDef,
+        Dictionary<ColumnarStructDef, int> memo,
+        HashSet<ColumnarStructDef> visiting)
+    {
+        if (memo.TryGetValue(interfaceDef, out var cached))
+            return cached;
+        if (!visiting.Add(interfaceDef))
+            return -1;
+        var depth = 0;
+        foreach (var baseInterface in interfaceDef.InterfaceBases)
+        {
+            var baseDepth = InterfaceDepthOrMinusOne(baseInterface, memo, visiting);
+            if (baseDepth < 0)
+            {
+                visiting.Remove(interfaceDef);
+                return -1;
+            }
+            depth = Math.Max(depth, baseDepth + 1);
+        }
+        visiting.Remove(interfaceDef);
+        memo[interfaceDef] = depth;
+        return depth;
+    }
+
     // INTERFACE upcast at value-flow boundaries (the oracle's EmitValueCoercion interface arm,
     // Operators.cs ~694): a value whose def IMPLEMENTS the target interface converts — VALUE-type
     // implementers BOX, reference implementers pass as-is (the object ref IS the interface value).
@@ -10199,7 +10319,7 @@ public sealed class ColumnarIlEmitter
         if (valueType is not TypeBuilder valueBuilder
             || FindDefByBuilder(valueBuilder) is not { } valueDef
             || valueDef.ImplementedInterface == null
-            || !ReferenceEquals(valueDef.ImplementedInterface.Builder, targetBuilder))
+            || !InterfaceEqualsOrExtends(valueDef.ImplementedInterface, targetBuilder))
             return false;
         if (!valueDef.IsReference)
             _il.Emit(OpCodes.Box, valueBuilder);

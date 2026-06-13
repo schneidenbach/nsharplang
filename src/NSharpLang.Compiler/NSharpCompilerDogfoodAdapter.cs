@@ -1782,11 +1782,18 @@ internal static class NSharpCompilerDogfoodAdapter
             {
                 var cap = n + 1;
                 var outMethodFuncIndices = new int[cap];
+                var outBaseNameStarts = new int[cap];
+                var outBaseNameLengths = new int[cap];
                 var outResult = new int[8];
-                var methodCount = bindings.ParseInterfaceDeclaration(ck, cs, cv, n, interfaceIndex, outMethodFuncIndices, outResult);
+                var methodCount = bindings.ParseInterfaceDeclaration(ck, cs, cv, n, interfaceIndex,
+                    outMethodFuncIndices, outBaseNameStarts, outBaseNameLengths, outResult);
                 if (methodCount < 0)
                     return false;
                 var interfaceName = source.Substring(outResult[0], outResult[1]);
+                var baseInterfaceCount = outResult[2];
+                var baseInterfaceNames = new string[baseInterfaceCount];
+                for (var b = 0; b < baseInterfaceCount; b++)
+                    baseInterfaceNames[b] = source.Substring(outBaseNameStarts[b], outBaseNameLengths[b]);
                 var methodNames = new string[methodCount];
                 var methodReturns = new string[methodCount];
                 var methodParamNames = new string[methodCount][];
@@ -1827,7 +1834,7 @@ internal static class NSharpCompilerDogfoodAdapter
                     }
                 }
                 interfaceInputs.Add(new Columnar.ColumnarInterfaceInput(
-                    interfaceName, methodNames, methodReturns, methodParamNames, methodParamCanonicals));
+                    interfaceName, baseInterfaceNames, methodNames, methodReturns, methodParamNames, methodParamCanonicals));
             }
             return true;
         }
@@ -3188,7 +3195,7 @@ internal static class NSharpCompilerDogfoodAdapter
         int[] outChildIndices, int[] outSpanStarts, int[] outSpanLengths, int[] outResult);
     private delegate int ParseInterfaceDeclarationInto(
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int interfaceIndex,
-        int[] outMethodFuncIndices, int[] outResult);
+        int[] outMethodFuncIndices, int[] outBaseNameStarts, int[] outBaseNameLengths, int[] outResult);
     private delegate int ParseEnumDeclarationInto(
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int enumIndex,
         int[] outNameStarts, int[] outNameLengths, int[] outValueStarts, int[] outValueLengths,
