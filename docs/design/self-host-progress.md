@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — Semantic-scope query internals drop unused raw helper exports
+
+`SemanticScopes.nl` no longer emits raw-array wrappers for internal scope lookup and name-set operations.
+`SemanticScopeFindBestContainingScope`, `SemanticScopeFindBestContainingScopeByScan`, and
+`SemanticScopeAddNameToSet` were declaration-only helpers after the visible-symbol and lookup kernels moved
+onto `SemanticScopePositionTable`, `SemanticScopeSortedIndexTable`, and `SemanticScopeNameSetScratch`.
+
+The adapter-bound semantic-scope entries and the parser-coverage helpers remain unchanged.
+
 ## 2026-06-13 — Lexer and ordering kernels drop declaration-only pass shims
 
 `LexerTokenKindScanner.nl`, `TextEditOrdering.nl`, and `FormatterImportOrdering.nl` no longer emit

@@ -564,24 +564,6 @@ func SemanticScopeComputeDepthByWalk(
     return depth
 }
 
-func SemanticScopeFindBestContainingScope(
-    scopeStartLines: int[],
-    scopeStartColumns: int[],
-    scopeEndLines: int[],
-    scopeEndColumns: int[],
-    scopeDepths: int[],
-    sortedScopeIds: int[],
-    sortedScopeStartLines: int[],
-    sortedScopeStartColumns: int[],
-    sortedScopeMaxEndLines: int[],
-    scopeCount: int,
-    line: int,
-    column: int): int {
-    positions := new SemanticScopePositionTable { StartLines: scopeStartLines, StartColumns: scopeStartColumns, EndLines: scopeEndLines, EndColumns: scopeEndColumns, Depths: scopeDepths }
-    sorted := new SemanticScopeSortedIndexTable { ScopeIds: sortedScopeIds, StartLines: sortedScopeStartLines, StartColumns: sortedScopeStartColumns, MaxEndLines: sortedScopeMaxEndLines }
-    return SemanticScopeFindBestContainingScopeCore(ref positions, ref sorted, scopeCount, line, column)
-}
-
 func SemanticScopeFindBestContainingScopeCore(
     positions: &SemanticScopePositionTable,
     sorted: &SemanticScopeSortedIndexTable,
@@ -624,19 +606,6 @@ func SemanticScopeFindBestContainingScopeCore(
     }
 
     return bestScope
-}
-
-func SemanticScopeFindBestContainingScopeByScan(
-    scopeStartLines: int[],
-    scopeStartColumns: int[],
-    scopeEndLines: int[],
-    scopeEndColumns: int[],
-    scopeDepths: int[],
-    scopeCount: int,
-    line: int,
-    column: int): int {
-    positions := new SemanticScopePositionTable { StartLines: scopeStartLines, StartColumns: scopeStartColumns, EndLines: scopeEndLines, EndColumns: scopeEndColumns, Depths: scopeDepths }
-    return SemanticScopeFindBestContainingScopeByScanCore(ref positions, scopeCount, line, column)
 }
 
 func SemanticScopeFindBestContainingScopeByScanCore(
@@ -705,15 +674,6 @@ func SemanticScopeStartBeforeOrAt(
     }
 
     return startColumn <= column
-}
-
-func SemanticScopeAddNameToSet(
-    nameId: int,
-    slotNameIds: int[],
-    touchedSlots: int[],
-    touchedCount: int): int {
-    scratch := new SemanticScopeNameSetScratch { SlotNameIds: slotNameIds, TouchedSlots: touchedSlots }
-    return SemanticScopeAddNameToSetCore(nameId, ref scratch, touchedCount)
 }
 
 func SemanticScopeAddNameToSetCore(
