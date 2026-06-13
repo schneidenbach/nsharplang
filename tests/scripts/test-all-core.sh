@@ -514,6 +514,8 @@ fi
 fi
 
 run_template_and_examples_steps() {
+ILVERIFY_BUILT_DIRS_FILE=$(mktemp)
+ILVERIFY_TEMP_DIRS=()
 section "Step 5: Install dotnet new Template"
 echo "Installing NSharpLang.Templates from local N# package cache..."
 if dotnet new install NSharpLang.Templates --add-source "$LOCAL_FEED" --force > /dev/null 2>&1; then
@@ -653,6 +655,7 @@ else
 
         if [ "$status" = "OK" ]; then
             handle_success "Example: $project_name"
+            printf '%s\n' "$REPO_ROOT/$project_dir/bin" >> "$ILVERIFY_BUILT_DIRS_FILE"
         else
             handle_error "Example: $project_name"
             echo "  Run manually: cd $project_dir && dotnet \"$CLI_DLL\" build"
@@ -687,6 +690,7 @@ else
         handle_error "CLI build artifact missing"
     else
         LEGACY_RESULTS_DIR=$(mktemp -d)
+        ILVERIFY_TEMP_DIRS+=("$LEGACY_RESULTS_DIR")
         LEGACY_LIST="$LEGACY_RESULTS_DIR/items.txt"
         i=0
         printf '%s' "$LEGACY_EXAMPLES" | while IFS= read -r nl_file; do
@@ -709,7 +713,7 @@ else
             mkdir -p "$output_dir"
 
             if dotnet "$cli_dll" build "$nl_file" --output "$output_dir" > "$log_file" 2>&1; then
-                printf "OK|%s|%s\n" "$example_name" "$nl_file" > "$result_file"
+                printf "OK|%s|%s|%s\n" "$example_name" "$nl_file" "$output_dir" > "$result_file"
             else
                 printf "FAIL|%s|%s\n" "$example_name" "$nl_file" > "$result_file"
             fi
@@ -721,6 +725,7 @@ else
             status=$(cut -d'|' -f1 "$result_file")
             example_name=$(cut -d'|' -f2 "$result_file")
             example_path=$(cut -d'|' -f3 "$result_file")
+            output_dir=$(cut -d'|' -f4 "$result_file")
 
             echo
             echo "Building single-file example: $example_name"
@@ -728,13 +733,12 @@ else
 
             if [ "$status" = "OK" ]; then
                 handle_success "Single-file example: $example_name"
+                printf '%s\n' "$output_dir" >> "$ILVERIFY_BUILT_DIRS_FILE"
             else
                 handle_error "Single-file example: $example_name"
                 echo "  Run manually: dotnet \"$CLI_DLL\" build \"$example_path\""
             fi
         done < "$LEGACY_LIST"
-
-        rm -rf "$LEGACY_RESULTS_DIR"
     fi
 fi
 
@@ -817,7 +821,7 @@ echo "Running ECMA-335 IL verification over emitted example/fixture assemblies..
 echo "(scripts/ilverify.sh is the single source of truth, shared with CI.)"
 if command -v ilverify >/dev/null 2>&1 || [ -x "$HOME/.dotnet/tools/ilverify" ]; then
     ILVERIFY_OUTPUT=$(mktemp)
-    if "$REPO_ROOT/scripts/ilverify.sh" > "$ILVERIFY_OUTPUT" 2>&1; then
+    if "$REPO_ROOT/scripts/ilverify.sh" --built-dirs-file "$ILVERIFY_BUILT_DIRS_FILE" > "$ILVERIFY_OUTPUT" 2>&1; then
         tail -1 "$ILVERIFY_OUTPUT"
         handle_success "IL verification gate"
     else
@@ -830,6 +834,11 @@ else
     echo "Install it with: dotnet tool install --global dotnet-ilverify"
     handle_error "IL verification gate (dotnet-ilverify not installed)"
 fi
+
+rm -f "$ILVERIFY_BUILT_DIRS_FILE"
+for temp_dir in "${ILVERIFY_TEMP_DIRS[@]}"; do
+    rm -rf "$temp_dir"
+done
 
 }
 

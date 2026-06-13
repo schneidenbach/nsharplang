@@ -140,6 +140,64 @@ input-set prefixes next to the step wrappers in test-all-core.sh —
 `tests/GateStepInputSetGuardTests.cs` enforces coverage of repo files tests read, the env-list
 sync between the two scripts, and the hash-step behavior itself.
 
+### 7. Gate Profiling And Slicing Guidance
+Fresh non-VS-Code commit-gate profile on 2026-06-13 before ILVerify output
+reuse:
+
+```text
+VSCODE_TESTS=skip ./scripts/test-all.sh --commit
+Total                                          6m 47s
+Step 3a: Systems BenchmarkDotNet Gate          2m 53s
+Step 3: Run Unit Tests                         1m 54s
+Step 10b: IL Verification Gate                 0m 48s
+Step 4: Pack and Install MSBuild SDK           0m 25s
+Step 2: Build N# Compiler                      0m 12s
+```
+
+After Step 10b was changed to verify the fresh Step 8/9 build outputs instead
+of rebuilding them inside `scripts/ilverify.sh`, the same required gate measured:
+
+```text
+VSCODE_TESTS=skip ./scripts/test-all.sh --commit
+Total                                          6m 31s
+Step 3a: Systems BenchmarkDotNet Gate          2m 41s
+Step 3: Run Unit Tests                         2m 22s
+Step 10b: IL Verification Gate                 0m 15s
+Step 4: Pack and Install MSBuild SDK           0m 19s
+Step 2: Build N# Compiler                      0m 17s
+```
+
+Per-test TRX profiling from the same pass showed the unit bucket is dominated by
+SDK/toolchain subprocess tests and a few full IL execution cases. Top class
+aggregates by summed test duration were `IlSdkToolchainConsumerTests` (~78s),
+`IlSdkToolchainStubTests` (~78s), `IlSdkToolchainTests` (~67s),
+`CompilerDogfoodProjectTests` (~61s), and `ILCompilerCoverageTests` (~46s).
+Those sums exceed wall time because xUnit runs collections concurrently; the
+critical path is still the slow `dotnet build`/`dotnet test` subprocess tests.
+
+Do not pay the full gate during normal edit loops. Use:
+
+```bash
+./scripts/dev.sh --since
+./scripts/dev.sh Columnar
+./scripts/dev.sh 'FullyQualifiedName~SomeTest&Category!=Slow'
+```
+
+`dev.sh --since` is intentionally fail-safe: central compiler, SDK/runtime,
+build, fixture, or unmapped changes run the full unit suite rather than silently
+narrowing. For backend-only commit verification, the required final command is
+still:
+
+```bash
+VSCODE_TESTS=skip ./scripts/test-all.sh --commit
+```
+
+The full gate avoids one known duplicate-work trap: Step 8/9 build the
+example/fixture surface, then Step 10b passes those fresh output directories to
+`scripts/ilverify.sh --built-dirs-file` so IL verification does not rebuild the
+same surface. Standalone `scripts/ilverify.sh` and CI keep the default behavior
+of building the surface themselves before verification.
+
 ## Test Categories
 
 ### Lexer Tests

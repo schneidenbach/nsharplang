@@ -22,6 +22,10 @@
 #
 # Regenerate the baseline with:   scripts/ilverify.sh --update-baseline
 #
+# The full local product gate already builds the example/fixture surface before
+# invoking this script. It may pass `--built-dirs-file <file>` to verify those
+# freshly-built output directories without rebuilding the same projects again.
+#
 set -euo pipefail
 
 # --------------------------------------------------------------------------
@@ -48,15 +52,31 @@ BASELINE_FILE="$REPO_ROOT/scripts/ilverify-baseline.txt"
 CLI_DLL="$REPO_ROOT/src/NSharpLang.Cli/bin/Debug/net10.0/Cli.dll"
 
 UPDATE_BASELINE=0
-for arg in "$@"; do
-    case "$arg" in
-        --update-baseline) UPDATE_BASELINE=1 ;;
+BUILT_DIRS_FILE=""
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --update-baseline)
+            UPDATE_BASELINE=1
+            shift
+            ;;
+        --built-dirs-file)
+            if [ "$#" -lt 2 ]; then
+                fail "--built-dirs-file requires a path argument"
+                exit 2
+            fi
+            BUILT_DIRS_FILE="$2"
+            shift 2
+            ;;
+        --built-dirs-file=*)
+            BUILT_DIRS_FILE="${1#--built-dirs-file=}"
+            shift
+            ;;
         -h|--help)
             grep '^#' "$0" | sed 's/^# \{0,1\}//'
             exit 0
             ;;
         *)
-            fail "Unknown argument: $arg"
+            fail "Unknown argument: $1"
             exit 2
             ;;
     esac
@@ -131,7 +151,7 @@ echo
 # --------------------------------------------------------------------------
 # Build the CLI compiler if needed
 # --------------------------------------------------------------------------
-if [ ! -f "$CLI_DLL" ]; then
+if [ -z "$BUILT_DIRS_FILE" ] && [ ! -f "$CLI_DLL" ]; then
     info "Building N# CLI (compiler)"
     dotnet build "$REPO_ROOT/src/NSharpLang.Cli/Cli.csproj" -v q
 fi
@@ -175,37 +195,65 @@ build_single_file() {
 
 BUILD_FAILED=0
 
-info "Building example/template/fixture projects"
-# Project-based examples and the representative issue-tracker fixture. We scope
-# fixtures narrowly: issue-tracker is the canonical end-to-end fixture and is
-# already exercised by the format/check gates, so its IL is product-relevant.
-PROJECT_YMLS="$(
-    {
-        find examples -name project.yml -type f 2>/dev/null
-        find tests/fixtures/issue-tracker -name project.yml -type f 2>/dev/null
-    } | sort -u
-)"
-while IFS= read -r project_yml; do
-    [ -z "$project_yml" ] && continue
-    build_project "$project_yml" || BUILD_FAILED=1
-done <<< "$PROJECT_YMLS"
+if [ -n "$BUILT_DIRS_FILE" ]; then
+    if [ ! -f "$BUILT_DIRS_FILE" ]; then
+        fail "Built output directory manifest not found: $BUILT_DIRS_FILE"
+        exit 2
+    fi
 
-info "Building single-file examples"
-# Single .nl files that are NOT part of a project directory (mirrors the
-# logic in tests/scripts/test-all-core.sh Step 9).
-while IFS= read -r nl_file; do
-    [ -z "$nl_file" ] && continue
-    dir="$(dirname "$nl_file")"
-    [ -f "$dir/project.yml" ] && continue
-    parent="$(dirname "$dir")"
-    [ -f "$parent/project.yml" ] && continue
-    build_single_file "$nl_file" || BUILD_FAILED=1
-done < <(find examples -name '*.nl' -type f 2>/dev/null | sort)
+    info "Using existing example/template/fixture build outputs"
+    while IFS= read -r built_dir; do
+        [ -z "$built_dir" ] && continue
+        if [ -d "$built_dir" ]; then
+            BUILT_DIRS+=("$built_dir")
+        else
+            fail "Built output directory not found: $built_dir"
+            BUILD_FAILED=1
+        fi
+    done < "$BUILT_DIRS_FILE"
 
-if [ "$BUILD_FAILED" = "1" ]; then
-    fail "One or more nlc builds failed; cannot run IL verification."
-    echo "    Fix the build failures above and re-run."
-    exit 1
+    if [ "${#BUILT_DIRS[@]}" -eq 0 ]; then
+        fail "Built output directory manifest was empty: $BUILT_DIRS_FILE"
+        exit 2
+    fi
+
+    if [ "$BUILD_FAILED" = "1" ]; then
+        fail "One or more expected build output directories were missing; cannot run IL verification."
+        exit 1
+    fi
+else
+    info "Building example/template/fixture projects"
+    # Project-based examples and the representative issue-tracker fixture. We scope
+    # fixtures narrowly: issue-tracker is the canonical end-to-end fixture and is
+    # already exercised by the format/check gates, so its IL is product-relevant.
+    PROJECT_YMLS="$(
+        {
+            find examples -name project.yml -type f 2>/dev/null
+            find tests/fixtures/issue-tracker -name project.yml -type f 2>/dev/null
+        } | sort -u
+    )"
+    while IFS= read -r project_yml; do
+        [ -z "$project_yml" ] && continue
+        build_project "$project_yml" || BUILD_FAILED=1
+    done <<< "$PROJECT_YMLS"
+
+    info "Building single-file examples"
+    # Single .nl files that are NOT part of a project directory (mirrors the
+    # logic in tests/scripts/test-all-core.sh Step 9).
+    while IFS= read -r nl_file; do
+        [ -z "$nl_file" ] && continue
+        dir="$(dirname "$nl_file")"
+        [ -f "$dir/project.yml" ] && continue
+        parent="$(dirname "$dir")"
+        [ -f "$parent/project.yml" ] && continue
+        build_single_file "$nl_file" || BUILD_FAILED=1
+    done < <(find examples -name '*.nl' -type f 2>/dev/null | sort)
+
+    if [ "$BUILD_FAILED" = "1" ]; then
+        fail "One or more nlc builds failed; cannot run IL verification."
+        echo "    Fix the build failures above and re-run."
+        exit 1
+    fi
 fi
 echo
 
