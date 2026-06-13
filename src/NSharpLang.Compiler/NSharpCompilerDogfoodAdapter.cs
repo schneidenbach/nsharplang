@@ -704,33 +704,6 @@ internal static class NSharpCompilerDogfoodAdapter
         }
     }
 
-    // COLUMNAR PIPELINE stage 4 SPIKE (docs/design/roadmap-to-done.md): emit a runnable .NET assembly for a
-    // single trivial top-level function whose body IL is generated DIRECTLY from the columnar tables (no C# AST).
-    // Proof that the columnar pipeline can drive codegen end-to-end. Narrow on purpose (one builtin-typed func;
-    // body = a Block of a single Return of a param / int-literal / paren / int +/-/* binary); declines (false,
-    // no assembly) on anything else, so the C# path is unaffected. The emitted type is "ColumnarSpike".
-    internal static bool TryEmitColumnarFunction(string source, out byte[] assembly, out string typeName, out string methodName)
-    {
-        assembly = System.Array.Empty<byte>();
-        typeName = string.Empty;
-        methodName = string.Empty;
-
-        // Single-function entry (the original spike surface): decline anything but exactly one top-level func.
-        var bindings = s_bindings.Value;
-        if (bindings == null || string.IsNullOrEmpty(source))
-            return false;
-        if (!TryTokenizeColumnarSource(bindings, source, out var tokens))
-            return false;
-        if (!TryGetColumnarFunctionInputs(bindings, source, tokens, out var inputs) || inputs.Count != 1)
-            return false;
-        var fn = inputs[0];
-        if (!Columnar.ColumnarIlEmitter.TryEmitSingleFunctionAssembly(fn, source, out assembly))
-            return false;
-        typeName = "ColumnarSpike";
-        methodName = fn.Name;
-        return true;
-    }
-
     // Multi-function entry — the standalone columnar backend (the chosen Stage 4j routing: a columnar-first
     // pipeline that owns emission, not a re-parse hook into the C# ILCompiler). Emit EVERY top-level function
     // into one assembly (type "ColumnarProgram") directly from the columnar tables, with NO C# AST; decline the

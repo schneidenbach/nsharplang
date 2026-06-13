@@ -114,8 +114,9 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       local slots (assign in source order at `:=`); calls/method-tokens (`_methods` ~10593) and `External` types
       deferred. Parity gate: route columnar-emitted method → `Assembly.Load` → invoke vs the C# path oracle (same
       pattern as `NSharpCompiledMethod.Bind`), assert equal across inputs + ilverify green. Decompose:
-      - [x] **4-spike DONE** — `Columnar/ColumnarIlEmitter.cs` + adapter `TryEmitColumnarFunction` emit a real
-        one-method assembly whose body IL comes straight from the columnar tables; the test LOADS + INVOKES it.
+      - [x] **4-spike DONE** — `Columnar/ColumnarIlEmitter.cs` plus the original adapter spike emitted a real
+        one-method assembly whose body IL came straight from the columnar tables; the test LOADS + INVOKES it.
+        That spike entry has since been retired in favor of the production-shaped `TryEmitColumnarProgram` route.
         Proven end-to-end for INT-ONLY top-level funcs: param load, int literal, paren, and int `+`/`-`/`*`
         binary (incl. nested left-assoc + multi-param) — `identity(42)==42`, `add(2,3)==5`, `poly(3,4,5)==7`,
         `(a+b)*b`, `a-b-c`. Folds in 4a (binary) + 4f (int literals) for the int subset. Self-contained
@@ -364,9 +365,9 @@ hand-built cases + the full 32-file corpus, each adversarially verified (the rev
 unit-task divergence in 3b-i and a global-rule ordering divergence in 3b-iii). **Stage 4 — columnar codegen
 is SCOPED** (read-only Explore workflow): reuse `ILCompiler._currentIL` via a separate columnar dispatcher, data
 ~80% sufficient from stages 1–3, decomposed into a spike + 4a–4k (see the Stage 4 item above). **The 4-spike
-is DONE** — `ColumnarIlEmitter` emits a runnable one-method assembly straight from the columnar tables (proven
-by load+invoke for int-only param/literal/paren/`+`/`-`/`*` functions), de-risking the emission seam; declines
-everything else so the C# path is unaffected; adversarially verified. **4d (int `:=` locals) is also DONE** —
+is DONE and retired** — `ColumnarIlEmitter` proved runnable one-method assemblies straight from the columnar
+tables (load+invoke for int-only param/literal/paren/`+`/`-`/`*` functions), then the coverage moved onto the
+production-shaped `TryEmitColumnarProgram` route. **4d (int `:=` locals) is also DONE** —
 `stloc`/`ldloc`, chained locals invoke-tested, shadowing/redeclaration declined (keeping the C# analyzer
 authoritative). **4g (if/else, both-branches-return cut, with int comparisons) is also DONE.** So the emitter
 now covers params, int literals, `+/-/*`, paren, `:=` locals, and if/else — invoke-tested, every unsupported or

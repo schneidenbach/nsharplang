@@ -2792,9 +2792,6 @@ internal sealed class ColumnarIlEmitter
         return type != null;
     }
 
-    internal static bool TryEmitSingleFunctionAssembly(ColumnarFunctionInput input, string source, out byte[] assembly)
-        => TryEmitColumnarAssembly("ColumnarSpike", "ColumnarSpike", new ColumnarProgramInput(source, new[] { input }), out assembly);
-
     /// <summary>
     /// Build a single assembly from one parsed columnar program bundle.
     /// </summary>

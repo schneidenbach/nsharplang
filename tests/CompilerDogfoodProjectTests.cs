@@ -2238,12 +2238,10 @@ class B
         }
     }
 
-    // COLUMNAR PIPELINE stage 4 SPIKE: emit a runnable .NET assembly for a trivial top-level function whose body
-    // IL is generated DIRECTLY from the columnar tables (no C# AST), then LOAD + INVOKE it and check results.
-    // Proves the columnar pipeline drives codegen end-to-end. Also checks the spike DECLINES (no assembly, C#
-    // path unaffected) on forms it does not yet support.
+    // COLUMNAR PIPELINE stage 4: emit runnable .NET assemblies whose method bodies are generated DIRECTLY from
+    // the columnar tables (no C# AST), then LOAD + INVOKE them and check results.
     [Fact]
-    public void ColumnarCodegen_Spike_EmitsRunnableTrivialFunctions()
+    public void ColumnarCodegen_ProgramRoute_EmitsRunnableTrivialFunctions()
     {
         AssertEmits("func identity(x: int): int {\n    return x\n}\n", "identity",
             (new object[] { 42 }, 42), (new object[] { -7 }, -7));
@@ -2323,44 +2321,43 @@ class B
         AssertEmits("func twice(n: int): int {\n    total := 0\n    i := 0\n    while i < n {\n        step := 2\n        total = total + step\n        i = i + 1\n    }\n    return total\n}\n", "twice",
             (new object[] { 3 }, 6), (new object[] { 0 }, 0));
 
-        // Declines (no assembly) on forms the spike does not support yet -> the C# path is unaffected.
-        Assert.False(RouteColumnarEmit("func two(): int {\n    return 1\n}\n\nfunc other(): int {\n    return 2\n}\n").Ok);
+        // Declines on forms the columnar program route does not support yet -> the C# path is unaffected.
         // (`return null` on a reference-typed function — incl. arrays — is now ACCEPTED via the N1
         // null-adoption rule; see ColumnarCodegen_Parity_NullAndCoalesce.)
         // MIXED int/long arithmetic (implicit widening) is not modelled -> decline (pure int/bool/long are now
         // supported; long single-function coverage lives in ColumnarCodegen_Parity_LongType).
-        Assert.False(RouteColumnarEmit("func mix(a: int, b: long): long {\n    return a + b\n}\n").Ok);
+        Assert.False(RouteColumnarProgram("func mix(a: int, b: long): long {\n    return a + b\n}\n").Ok);
         // a value-less `return` in an int function would emit invalid IL -> must decline.
-        Assert.False(RouteColumnarEmit("func novalue(): int {\n    return\n}\n").Ok);
+        Assert.False(RouteColumnarProgram("func novalue(): int {\n    return\n}\n").Ok);
         // a local shadowing a parameter is a diagnostic in N#; the spike must decline (not silently compile it).
-        Assert.False(RouteColumnarEmit("func shadow(x: int): int {\n    x := x + 1\n    return x\n}\n").Ok);
+        Assert.False(RouteColumnarProgram("func shadow(x: int): int {\n    x := x + 1\n    return x\n}\n").Ok);
         // redeclaring a local name with `:=` -> decline.
-        Assert.False(RouteColumnarEmit("func redecl(a: int): int {\n    x := a\n    x := x + 1\n    return x\n}\n").Ok);
+        Assert.False(RouteColumnarProgram("func redecl(a: int): int {\n    x := a\n    x := x + 1\n    return x\n}\n").Ok);
         // a comparison in value position (returning a bool from an int func) would diverge from N# types -> decline.
-        Assert.False(RouteColumnarEmit("func gt(a: int, b: int): int {\n    return a > b\n}\n").Ok);
+        Assert.False(RouteColumnarProgram("func gt(a: int, b: int): int {\n    return a > b\n}\n").Ok);
         // unreachable code after a return (an NL312 diagnostic) must decline, not emit code after `ret`.
-        Assert.False(RouteColumnarEmit("func unreach(a: int): int {\n    if a > 0 {\n        return 1\n        y := 2\n    } else {\n        return 0\n    }\n}\n").Ok);
+        Assert.False(RouteColumnarProgram("func unreach(a: int): int {\n    if a > 0 {\n        return 1\n        y := 2\n    } else {\n        return 0\n    }\n}\n").Ok);
         // compound assignment (`+=`) is now LOWERED (load/op/store) — see
         // ColumnarCodegen_Parity_CompoundAssignmentAndTernary.
         // (parameter assignment `a = a + 1` -> `starg` IS now modelled; see ColumnarCodegen_Parity_ParamAssignment.)
         // an int body that does NOT return on all paths (NL305) would emit IL with no final `ret` -> decline.
-        Assert.False(RouteColumnarEmit("func noRetAssign(a: int): int {\n    x := a\n    x = x + 1\n}\n").Ok);
-        Assert.False(RouteColumnarEmit("func noRetDecl(a: int): int {\n    x := a\n}\n").Ok);
+        Assert.False(RouteColumnarProgram("func noRetAssign(a: int): int {\n    x := a\n    x = x + 1\n}\n").Ok);
+        Assert.False(RouteColumnarProgram("func noRetDecl(a: int): int {\n    x := a\n}\n").Ok);
         // (a while whose body always-returns — a run-once `{ return X }` or a `continue`-scan loop — IS now
         // modelled: the bottom back-edge is skipped as dead, see ColumnarCodegen_Parity_WhileAlwaysReturnsBody.)
         // a loop-body local referenced AFTER the loop is out of scope in N# -> block scoping declines it
         // (rather than reading a possibly-unassigned method-level slot).
-        Assert.False(RouteColumnarEmit("func leak(n: int): int {\n    i := 0\n    while i < n {\n        temp := i\n        i = i + 1\n    }\n    return temp\n}\n").Ok);
+        Assert.False(RouteColumnarProgram("func leak(n: int): int {\n    i := 0\n    while i < n {\n        temp := i\n        i = i + 1\n    }\n    return temp\n}\n").Ok);
         // same leak via a BRACELESS single-statement loop body (`:=` directly, not a block) -> still declines.
-        Assert.False(RouteColumnarEmit("func bleak(n: int): int {\n    i := 0\n    while i < n  x := i\n    return x\n}\n").Ok);
+        Assert.False(RouteColumnarProgram("func bleak(n: int): int {\n    i := 0\n    while i < n  x := i\n    return x\n}\n").Ok);
         // an unsupported unary operator (logical `!`, also a type error on an int) -> decline.
-        Assert.False(RouteColumnarEmit("func lnot(a: int): int {\n    return !a\n}\n").Ok);
+        Assert.False(RouteColumnarProgram("func lnot(a: int): int {\n    return !a\n}\n").Ok);
     }
 
     // Stage 4c -- the columnar codegen PARITY ORACLE. The Stage-4 emitter is verified not against
     // hand-written expected constants (that only proves self-consistency) but against the
     // AUTHORITATIVE production C# ILCompiler: the SAME N# source is compiled by BOTH the columnar
-    // path (TryEmitColumnarFunction) and the C# AST path, then each emitted method is invoked over a
+    // path (TryEmitColumnarProgram) and the C# AST path, then each emitted method is invoked over a
     // spread of inputs -- including negatives, zero, ordering boundaries for comparisons, and
     // overflow extremes -- and the results MUST be identical. This is the acceptance gate every
     // future codegen-routing slice must clear: it proves the columnar IL is semantically equivalent
@@ -8419,11 +8416,12 @@ class B
     // assertion vacuous.
     private static void AssertColumnarMatchesCSharp(string source, string funcName, params object[][] argSets)
     {
-        var (ok, assembly, typeName, methodName) = RouteColumnarEmit(source);
+        var (ok, assembly, typeName, methodNames) = RouteColumnarProgram(source);
         Assert.True(ok, $"Columnar codegen declined a function the parity gate expects it to emit:\n{source}");
-        Assert.Equal(funcName, methodName);
+        Assert.NotNull(methodNames);
+        Assert.Contains(funcName, methodNames!);
         using var loadScope = CollectibleAssemblyScope.Load(assembly!);
-        var columnarMethod = loadScope.Assembly.GetType(typeName!)!.GetMethod(methodName!)!;
+        var columnarMethod = loadScope.Assembly.GetType(typeName!)!.GetMethod(funcName)!;
 
         foreach (var args in argSets)
         {
@@ -8617,28 +8615,18 @@ class B
 
     private static void AssertEmits(string source, string funcName, params (object[] Args, int Expected)[] cases)
     {
-        var (ok, assembly, typeName, methodName) = RouteColumnarEmit(source);
-        Assert.True(ok, $"Columnar codegen declined a supported spike function:\n{source}");
-        Assert.Equal(funcName, methodName);
+        var (ok, assembly, typeName, methodNames) = RouteColumnarProgram(source);
+        Assert.True(ok, $"Columnar codegen declined a supported function:\n{source}");
+        Assert.NotNull(methodNames);
+        Assert.Contains(funcName, methodNames!);
         using var loadScope = CollectibleAssemblyScope.Load(assembly!);
         var asm = loadScope.Assembly;
         var type = asm.GetType(typeName!);
         Assert.NotNull(type);
-        var method = type!.GetMethod(methodName!);
+        var method = type!.GetMethod(funcName);
         Assert.NotNull(method);
         foreach (var (args, expected) in cases)
             Assert.Equal(expected, (int)method!.Invoke(null, args)!);
-    }
-
-    private static (bool Ok, byte[]? Assembly, string? TypeName, string? MethodName) RouteColumnarEmit(string source)
-    {
-        var adapterType = typeof(Parser).Assembly.GetType("NSharpLang.Compiler.NSharpCompilerDogfoodAdapter")
-            ?? throw new InvalidOperationException("Compiler dogfood adapter type was not emitted.");
-        var method = adapterType.GetMethod("TryEmitColumnarFunction", BindingFlags.Static | BindingFlags.NonPublic)
-            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryEmitColumnarFunction.");
-        var args = new object?[] { source, null, null, null };
-        var ok = (bool)(method.Invoke(null, args) ?? false);
-        return (ok, (byte[]?)args[1], (string?)args[2], (string?)args[3]);
     }
 
     private static (bool Ok, List<List<ColumnarNameRef>>? Refs) RouteFunctionNameRefs(string source)

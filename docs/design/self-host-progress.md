@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — Single-function columnar spike route retired
+
+The old `TryEmitColumnarFunction` / `TryEmitSingleFunctionAssembly` path is gone. The former spike
+coverage now exercises the same whole-program `TryEmitColumnarProgram` route that production uses, and
+the obsolete `ColumnarSpike` wrapper assembly/type no longer exists.
+
+This deletes another parallel adapter/emitter entry after the standalone columnar backend became the
+default production route.
+
 ## 2026-06-13 — Columnar function inputs drop raw body accessors
 
 `ColumnarFunctionInput` now has a single body-table representation: the internal `ColumnarNodeTable`
