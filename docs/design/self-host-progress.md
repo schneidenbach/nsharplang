@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — Lexer metadata and trivia tables wrapped
+
+`LexerTokenKindScanner.nl` now also groups the full token metadata stream, indentation-brace
+post-pass inputs/outputs, indentation stack, and comment-trivia output columns behind named normal
+structs. `TokenizeMetadataInto`, `InsertIndentationBracesInto`,
+`TokenizeMetadataWithIndentationInto`, and `CommentsInto` keep the flattened dogfood adapter ABI;
+their internals now route through wrapper-aware core functions.
+
+Together with the token-kind slice below, the lexer scanner no longer carries anonymous
+parallel-array tables through its main token kind, token metadata, indentation, or comment loops.
+
 ## 2026-06-13 — Lexer token-kind tables wrapped
 
 `LexerTokenKindScanner.nl` now groups token-kind buffers and parser-compaction result indexes behind

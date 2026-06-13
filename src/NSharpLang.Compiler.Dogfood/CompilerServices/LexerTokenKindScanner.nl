@@ -6,6 +6,26 @@ struct LexerTokenIndexTable {
     Indices: int[]
 }
 
+struct LexerTokenMetadataTable {
+    Kinds: int[]
+    Starts: int[]
+    ValueLengths: int[]
+    Lines: int[]
+    Columns: int[]
+}
+
+struct LexerIndentStackTable {
+    Indents: int[]
+}
+
+struct LexerCommentTable {
+    Lines: int[]
+    Columns: int[]
+    Starts: int[]
+    Lengths: int[]
+    IsMultiLine: int[]
+}
+
 func TokenizeKinds(source: string): int[] {
     tokens := new LexerTokenKindTable { Kinds: new int[](source.Length + 1) }
     count := TokenizeKindsCore(source, ref tokens)
@@ -251,6 +271,11 @@ func TokenizeKindsCore(source: string, tokens: &LexerTokenKindTable): int {
 }
 
 func TokenizeMetadataInto(source: string, kinds: int[], starts: int[], valueLengths: int[], lines: int[], columns: int[]): int {
+    metadata := new LexerTokenMetadataTable { Kinds: kinds, Starts: starts, ValueLengths: valueLengths, Lines: lines, Columns: columns }
+    return TokenizeMetadataCore(source, ref metadata)
+}
+
+func TokenizeMetadataCore(source: string, metadata: &LexerTokenMetadataTable): int {
     position := 0
     length := source.Length
     count := 0
@@ -271,11 +296,11 @@ func TokenizeMetadataInto(source: string, kinds: int[], starts: int[], valueLeng
         tokenColumn := column
 
         if ch == '\n' {
-            kinds[count] = 136
-            starts[count] = start
-            valueLengths[count] = 1
-            lines[count] = tokenLine
-            columns[count] = tokenColumn
+            metadata.Kinds[count] = 136
+            metadata.Starts[count] = start
+            metadata.ValueLengths[count] = 1
+            metadata.Lines[count] = tokenLine
+            metadata.Columns[count] = tokenColumn
             count = count + 1
             position = position + 1
             line = line + 1
@@ -284,11 +309,11 @@ func TokenizeMetadataInto(source: string, kinds: int[], starts: int[], valueLeng
         }
 
         if ch == '\r' {
-            kinds[count] = 136
-            starts[count] = start
-            valueLengths[count] = 1
-            lines[count] = tokenLine
-            columns[count] = tokenColumn
+            metadata.Kinds[count] = 136
+            metadata.Starts[count] = start
+            metadata.ValueLengths[count] = 1
+            metadata.Lines[count] = tokenLine
+            metadata.Columns[count] = tokenColumn
             count = count + 1
             position = position + 1
             if position < length && source[position] == '\n' {
@@ -307,11 +332,11 @@ func TokenizeMetadataInto(source: string, kinds: int[], starts: int[], valueLeng
                 column = column + 1
             }
 
-            kinds[count] = 138
-            starts[count] = start
-            valueLengths[count] = position - start
-            lines[count] = tokenLine
-            columns[count] = tokenColumn
+            metadata.Kinds[count] = 138
+            metadata.Starts[count] = start
+            metadata.ValueLengths[count] = position - start
+            metadata.Lines[count] = tokenLine
+            metadata.Columns[count] = tokenColumn
             count = count + 1
             continue
         }
@@ -365,11 +390,11 @@ func TokenizeMetadataInto(source: string, kinds: int[], starts: int[], valueLeng
         if ch == '$' && position + 1 < length && source[position + 1] == '"' {
             if position + 3 < length && source[position + 2] == '"' && source[position + 3] == '"' {
                 nextPosition := ScanRawString(source, position + 4, length)
-                kinds[count] = 6
-                starts[count] = start
-                valueLengths[count] = nextPosition - start
-                lines[count] = tokenLine
-                columns[count] = tokenColumn
+                metadata.Kinds[count] = 6
+                metadata.Starts[count] = start
+                metadata.ValueLengths[count] = nextPosition - start
+                metadata.Lines[count] = tokenLine
+                metadata.Columns[count] = tokenColumn
                 count = count + 1
                 while position < nextPosition {
                     if source[position] == '\r' {
@@ -394,11 +419,11 @@ func TokenizeMetadataInto(source: string, kinds: int[], starts: int[], valueLeng
                 }
             } else {
                 nextPosition := ScanString(source, position + 1, length, true)
-                kinds[count] = 4
-                starts[count] = start
-                valueLengths[count] = nextPosition - start
-                lines[count] = tokenLine
-                columns[count] = tokenColumn
+                metadata.Kinds[count] = 4
+                metadata.Starts[count] = start
+                metadata.ValueLengths[count] = nextPosition - start
+                metadata.Lines[count] = tokenLine
+                metadata.Columns[count] = tokenColumn
                 count = count + 1
                 column = column + (nextPosition - start)
                 position = nextPosition
@@ -409,11 +434,11 @@ func TokenizeMetadataInto(source: string, kinds: int[], starts: int[], valueLeng
         if ch == '"' {
             if position + 2 < length && source[position + 1] == '"' && source[position + 2] == '"' {
                 nextPosition := ScanRawString(source, position + 3, length)
-                kinds[count] = 5
-                starts[count] = start
-                valueLengths[count] = RawStringValueLength(source, start, nextPosition)
-                lines[count] = tokenLine
-                columns[count] = tokenColumn
+                metadata.Kinds[count] = 5
+                metadata.Starts[count] = start
+                metadata.ValueLengths[count] = RawStringValueLength(source, start, nextPosition)
+                metadata.Lines[count] = tokenLine
+                metadata.Columns[count] = tokenColumn
                 count = count + 1
                 while position < nextPosition {
                     if source[position] == '\r' {
@@ -438,11 +463,11 @@ func TokenizeMetadataInto(source: string, kinds: int[], starts: int[], valueLeng
                 }
             } else {
                 nextPosition := ScanString(source, position, length, false)
-                kinds[count] = 4
-                starts[count] = start
-                valueLengths[count] = nextPosition - start
-                lines[count] = tokenLine
-                columns[count] = tokenColumn
+                metadata.Kinds[count] = 4
+                metadata.Starts[count] = start
+                metadata.ValueLengths[count] = nextPosition - start
+                metadata.Lines[count] = tokenLine
+                metadata.Columns[count] = tokenColumn
                 count = count + 1
                 column = column + (nextPosition - start)
                 position = nextPosition
@@ -452,11 +477,11 @@ func TokenizeMetadataInto(source: string, kinds: int[], starts: int[], valueLeng
 
         if ch == '\'' && IsLifetimeStartAt(source, position, length) {
             nextPosition := ScanLifetime(source, position, length)
-            kinds[count] = 142
-            starts[count] = start
-            valueLengths[count] = nextPosition - start
-            lines[count] = tokenLine
-            columns[count] = tokenColumn
+            metadata.Kinds[count] = 142
+            metadata.Starts[count] = start
+            metadata.ValueLengths[count] = nextPosition - start
+            metadata.Lines[count] = tokenLine
+            metadata.Columns[count] = tokenColumn
             count = count + 1
             column = column + (nextPosition - start)
             position = nextPosition
@@ -465,11 +490,11 @@ func TokenizeMetadataInto(source: string, kinds: int[], starts: int[], valueLeng
 
         if ch == '\'' {
             nextPosition := ScanCharLiteral(source, position, length)
-            kinds[count] = 3
-            starts[count] = start
-            valueLengths[count] = nextPosition - start
-            lines[count] = tokenLine
-            columns[count] = tokenColumn
+            metadata.Kinds[count] = 3
+            metadata.Starts[count] = start
+            metadata.ValueLengths[count] = nextPosition - start
+            metadata.Lines[count] = tokenLine
+            metadata.Columns[count] = tokenColumn
             count = count + 1
             column = column + (nextPosition - start)
             position = nextPosition
@@ -484,11 +509,11 @@ func TokenizeMetadataInto(source: string, kinds: int[], starts: int[], valueLeng
                 numberKind = 137
             }
 
-            kinds[count] = numberKind
-            starts[count] = start
-            valueLengths[count] = NumberValueLength(source, start, nextPosition)
-            lines[count] = tokenLine
-            columns[count] = tokenColumn
+            metadata.Kinds[count] = numberKind
+            metadata.Starts[count] = start
+            metadata.ValueLengths[count] = NumberValueLength(source, start, nextPosition)
+            metadata.Lines[count] = tokenLine
+            metadata.Columns[count] = tokenColumn
             count = count + 1
             column = column + (nextPosition - start)
             position = nextPosition
@@ -501,11 +526,11 @@ func TokenizeMetadataInto(source: string, kinds: int[], starts: int[], valueLeng
                 position = position + 1
             }
 
-            kinds[count] = KeywordKind(source, start, position - start)
-            starts[count] = start
-            valueLengths[count] = position - start
-            lines[count] = tokenLine
-            columns[count] = tokenColumn
+            metadata.Kinds[count] = KeywordKind(source, start, position - start)
+            metadata.Starts[count] = start
+            metadata.ValueLengths[count] = position - start
+            metadata.Lines[count] = tokenLine
+            metadata.Columns[count] = tokenColumn
             count = count + 1
             column = column + (position - start)
             continue
@@ -514,21 +539,21 @@ func TokenizeMetadataInto(source: string, kinds: int[], starts: int[], valueLeng
         operatorInfo := OperatorInfo(source, position, length)
         operatorKind := operatorInfo >> 2
         operatorWidth := operatorInfo & 3
-        kinds[count] = operatorKind
-        starts[count] = start
-        valueLengths[count] = operatorWidth
-        lines[count] = tokenLine
-        columns[count] = tokenColumn
+        metadata.Kinds[count] = operatorKind
+        metadata.Starts[count] = start
+        metadata.ValueLengths[count] = operatorWidth
+        metadata.Lines[count] = tokenLine
+        metadata.Columns[count] = tokenColumn
         count = count + 1
         position = position + operatorWidth
         column = column + operatorWidth
     }
 
-    kinds[count] = 135
-    starts[count] = position
-    valueLengths[count] = 0
-    lines[count] = line
-    columns[count] = column
+    metadata.Kinds[count] = 135
+    metadata.Starts[count] = position
+    metadata.ValueLengths[count] = 0
+    metadata.Lines[count] = line
+    metadata.Columns[count] = column
     count = count + 1
     return count
 }
@@ -558,9 +583,20 @@ func InsertIndentationBracesInto(
     outLines: int[],
     outColumns: int[],
     indentStack: int[]): int {
+    raw := new LexerTokenMetadataTable { Kinds: rawKinds, Starts: rawStarts, ValueLengths: rawValueLengths, Lines: rawLines, Columns: rawColumns }
+    output := new LexerTokenMetadataTable { Kinds: outKinds, Starts: outStarts, ValueLengths: outValueLengths, Lines: outLines, Columns: outColumns }
+    stack := new LexerIndentStackTable { Indents: indentStack }
+    return InsertIndentationBracesCore(ref raw, rawCount, ref output, ref stack)
+}
+
+func InsertIndentationBracesCore(
+    raw: &LexerTokenMetadataTable,
+    rawCount: int,
+    output: &LexerTokenMetadataTable,
+    indentStack: &LexerIndentStackTable): int {
     outCount := 0
     stackTop := 0
-    indentStack[0] = 0
+    indentStack.Indents[0] = 0
     atLineStart := true
     explicitBraceDepth := 0
     parenBracketDepth := 0
@@ -569,19 +605,19 @@ func InsertIndentationBracesInto(
 
     i := 0
     while i < rawCount {
-        kind := rawKinds[i]
-        tokenStart := rawStarts[i]
-        tokenValueLength := rawValueLengths[i]
-        tokenLine := rawLines[i]
-        tokenColumn := rawColumns[i]
+        kind := raw.Kinds[i]
+        tokenStart := raw.Starts[i]
+        tokenValueLength := raw.ValueLengths[i]
+        tokenLine := raw.Lines[i]
+        tokenColumn := raw.Columns[i]
         lineStart := tokenStart - (tokenColumn - 1)
 
         if kind == 136 {
-            outKinds[outCount] = kind
-            outStarts[outCount] = tokenStart
-            outValueLengths[outCount] = tokenValueLength
-            outLines[outCount] = tokenLine
-            outColumns[outCount] = tokenColumn
+            output.Kinds[outCount] = kind
+            output.Starts[outCount] = tokenStart
+            output.ValueLengths[outCount] = tokenValueLength
+            output.Lines[outCount] = tokenLine
+            output.Columns[outCount] = tokenColumn
             outCount = outCount + 1
             atLineStart = true
             i = i + 1
@@ -591,19 +627,19 @@ func InsertIndentationBracesInto(
         if kind == 135 {
             while stackTop > 0 {
                 stackTop = stackTop - 1
-                outKinds[outCount] = 130
-                outStarts[outCount] = lineStart
-                outValueLengths[outCount] = 1
-                outLines[outCount] = tokenLine
-                outColumns[outCount] = 1
+                output.Kinds[outCount] = 130
+                output.Starts[outCount] = lineStart
+                output.ValueLengths[outCount] = 1
+                output.Lines[outCount] = tokenLine
+                output.Columns[outCount] = 1
                 outCount = outCount + 1
             }
 
-            outKinds[outCount] = kind
-            outStarts[outCount] = tokenStart
-            outValueLengths[outCount] = tokenValueLength
-            outLines[outCount] = tokenLine
-            outColumns[outCount] = tokenColumn
+            output.Kinds[outCount] = kind
+            output.Starts[outCount] = tokenStart
+            output.ValueLengths[outCount] = tokenValueLength
+            output.Lines[outCount] = tokenLine
+            output.Columns[outCount] = tokenColumn
             outCount = outCount + 1
             return outCount
         }
@@ -625,24 +661,24 @@ func InsertIndentationBracesInto(
             }
 
             if parenBracketDepth == 0 && explicitBraceDepth == 0 {
-                previousIndent := indentStack[stackTop]
+                previousIndent := indentStack.Indents[stackTop]
                 if currentIndent > previousIndent {
                     stackTop = stackTop + 1
-                    indentStack[stackTop] = currentIndent
-                    outKinds[outCount] = 129
-                    outStarts[outCount] = lineStart
-                    outValueLengths[outCount] = 1
-                    outLines[outCount] = tokenLine
-                    outColumns[outCount] = 1
+                    indentStack.Indents[stackTop] = currentIndent
+                    output.Kinds[outCount] = 129
+                    output.Starts[outCount] = lineStart
+                    output.ValueLengths[outCount] = 1
+                    output.Lines[outCount] = tokenLine
+                    output.Columns[outCount] = 1
                     outCount = outCount + 1
                 } else if currentIndent < previousIndent {
-                    while stackTop > 0 && currentIndent < indentStack[stackTop] {
+                    while stackTop > 0 && currentIndent < indentStack.Indents[stackTop] {
                         stackTop = stackTop - 1
-                        outKinds[outCount] = 130
-                        outStarts[outCount] = lineStart
-                        outValueLengths[outCount] = 1
-                        outLines[outCount] = tokenLine
-                        outColumns[outCount] = 1
+                        output.Kinds[outCount] = 130
+                        output.Starts[outCount] = lineStart
+                        output.ValueLengths[outCount] = 1
+                        output.Lines[outCount] = tokenLine
+                        output.Columns[outCount] = 1
                         outCount = outCount + 1
                     }
                 }
@@ -667,11 +703,11 @@ func InsertIndentationBracesInto(
             }
         }
 
-        outKinds[outCount] = kind
-        outStarts[outCount] = tokenStart
-        outValueLengths[outCount] = tokenValueLength
-        outLines[outCount] = tokenLine
-        outColumns[outCount] = tokenColumn
+        output.Kinds[outCount] = kind
+        output.Starts[outCount] = tokenStart
+        output.ValueLengths[outCount] = tokenValueLength
+        output.Lines[outCount] = tokenLine
+        output.Columns[outCount] = tokenColumn
         outCount = outCount + 1
         i = i + 1
     }
@@ -686,27 +722,17 @@ func InsertIndentationBracesInto(
 // classification (see self-host-progress.md "Remaining gaps"); those are tracked, separate slices.
 // The out buffers must be sized for the grown stream (<= 3x (source.Length + 1) is always safe).
 func TokenizeMetadataWithIndentationInto(source: string, kinds: int[], starts: int[], valueLengths: int[], lines: int[], columns: int[]): int {
-    length := source.Length
-    rawKinds := new int[](length + 1)
-    rawStarts := new int[](length + 1)
-    rawValueLengths := new int[](length + 1)
-    rawLines := new int[](length + 1)
-    rawColumns := new int[](length + 1)
-    rawCount := TokenizeMetadataInto(source, rawKinds, rawStarts, rawValueLengths, rawLines, rawColumns)
-    indentStack := new int[](length + 2)
-    return InsertIndentationBracesInto(
-        rawKinds,
-        rawStarts,
-        rawValueLengths,
-        rawLines,
-        rawColumns,
-        rawCount,
-        kinds,
-        starts,
-        valueLengths,
-        lines,
-        columns,
-        indentStack)
+    raw := new LexerTokenMetadataTable {
+        Kinds: new int[](source.Length + 1),
+        Starts: new int[](source.Length + 1),
+        ValueLengths: new int[](source.Length + 1),
+        Lines: new int[](source.Length + 1),
+        Columns: new int[](source.Length + 1)
+    }
+    target := new LexerTokenMetadataTable { Kinds: kinds, Starts: starts, ValueLengths: valueLengths, Lines: lines, Columns: columns }
+    rawCount := TokenizeMetadataCore(source, ref raw)
+    indentStack := new LexerIndentStackTable { Indents: new int[](source.Length + 2) }
+    return InsertIndentationBracesCore(ref raw, rawCount, ref target, ref indentStack)
 }
 
 // Collect comment trivia exactly as the C# production lexer does (Lexer.Tokenize fills Lexer.Comments
@@ -718,6 +744,11 @@ func TokenizeMetadataWithIndentationInto(source: string, kinds: int[], starts: i
 // number/identifier/operator runs as units) so a `//` or `/*` INSIDE a literal is never misread as a
 // comment, and so line/column tracking through multi-line raw strings stays exact.
 func CommentsInto(source: string, lines: int[], columns: int[], starts: int[], lengths: int[], isMultiLine: int[]): int {
+    comments := new LexerCommentTable { Lines: lines, Columns: columns, Starts: starts, Lengths: lengths, IsMultiLine: isMultiLine }
+    return CommentsCore(source, ref comments)
+}
+
+func CommentsCore(source: string, comments: &LexerCommentTable): int {
     position := 0
     length := source.Length
     count := 0
@@ -776,11 +807,11 @@ func CommentsInto(source: string, lines: int[], columns: int[], starts: int[], l
                     column = column + 1
                 }
 
-                lines[count] = tokenLine
-                columns[count] = tokenColumn
-                starts[count] = start
-                lengths[count] = position - start
-                isMultiLine[count] = 0
+                comments.Lines[count] = tokenLine
+                comments.Columns[count] = tokenColumn
+                comments.Starts[count] = start
+                comments.Lengths[count] = position - start
+                comments.IsMultiLine[count] = 0
                 count = count + 1
                 continue
             }
@@ -816,11 +847,11 @@ func CommentsInto(source: string, lines: int[], columns: int[], starts: int[], l
                     column = column + 1
                 }
 
-                lines[count] = tokenLine
-                columns[count] = tokenColumn
-                starts[count] = start
-                lengths[count] = position - start
-                isMultiLine[count] = 1
+                comments.Lines[count] = tokenLine
+                comments.Columns[count] = tokenColumn
+                comments.Starts[count] = start
+                comments.Lengths[count] = position - start
+                comments.IsMultiLine[count] = 1
                 count = count + 1
                 continue
             }
