@@ -233,8 +233,9 @@ ownership lands.
    ordering now wrap their sort-key/rank, bucket, and temp/result index scratch tables. CLI doc
    ordering and linter import analysis now wrap doc-symbol ordering ranks/buckets, slug tables,
    symbol-kind filter inputs, import namespace ranks, used namespace ranks, flag scratch, and result
-   indexes without using the experimental `soa record` surface. These slices preserve the flattened
-   dogfood adapter ABI.
+   indexes. `DocQuery.nl` now wraps documentation type-candidate columns plus member-order
+   rank/bucket/index tables without using the experimental `soa record` surface. These slices
+   preserve the flattened dogfood adapter ABI.
 7. Only after those gates pass, start replacing C# emitter/analyzer internals that still require untyped
    parallel-array plumbing.
 

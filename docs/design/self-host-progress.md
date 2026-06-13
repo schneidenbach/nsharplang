@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — Doc query tables wrapped
+
+`DocQuery.nl` now groups documentation-query type candidate columns behind a named normal struct for
+scores, namespace lengths, full names, and active count. Its member-ordering counting sort also now
+routes kind/name ranks, name/kind bucket counts and offsets, and temp/result index buffers through
+wrapper-aware core functions.
+
+The public code-intelligence dogfood adapter entry points remain flattened (`DocQueryBestTypeIndex`
+and `DocQueryMemberOrderIndicesInto`), while the query-ranking and member-order internals no longer
+carry anonymous parallel arrays through their loops.
+
 ## 2026-06-13 — CLI doc and linter import tables wrapped
 
 `CliDocOrdering.nl` now groups doc-symbol ordering rank columns, name/kind bucket counts and

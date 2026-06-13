@@ -1,31 +1,57 @@
+struct DocQueryTypeCandidateTable {
+    Scores: int[]
+    NamespaceLengths: int[]
+    FullNames: string[]
+    Count: int
+}
+
+struct DocQueryMemberRankTable {
+    KindRanks: int[]
+    NameRanks: int[]
+}
+
+struct DocQueryBucketTable {
+    Counts: int[]
+    Offsets: int[]
+}
+
+struct DocQueryIndexTable {
+    Indices: int[]
+}
+
 func DocQueryBestTypeIndex(scores: int[], namespaceLengths: int[], fullNames: string[], count: int): int {
-    if count <= 0 {
+    candidates := new DocQueryTypeCandidateTable { Scores: scores, NamespaceLengths: namespaceLengths, FullNames: fullNames, Count: count }
+    return DocQueryBestTypeIndexCore(ref candidates)
+}
+
+func DocQueryBestTypeIndexCore(candidates: &DocQueryTypeCandidateTable): int {
+    if candidates.Count <= 0 {
         return -1
     }
 
-    if scores.Length < count || namespaceLengths.Length < count || fullNames.Length < count {
+    if candidates.Scores.Length < candidates.Count || candidates.NamespaceLengths.Length < candidates.Count || candidates.FullNames.Length < candidates.Count {
         return -1
     }
 
     bestIndex := 0
-    bestScore := scores[0]
-    bestNamespaceLength := namespaceLengths[0]
+    bestScore := candidates.Scores[0]
+    bestNamespaceLength := candidates.NamespaceLengths[0]
     i := 1
-    unrolledLimit := count - 8
+    unrolledLimit := candidates.Count - 8
 
     while i <= unrolledLimit {
-        score := scores[i]
+        score := candidates.Scores[i]
         if score > bestScore {
             bestIndex = i
             bestScore = score
-            bestNamespaceLength = namespaceLengths[i]
+            bestNamespaceLength = candidates.NamespaceLengths[i]
         } else if score == bestScore {
-            namespaceLength := namespaceLengths[i]
+            namespaceLength := candidates.NamespaceLengths[i]
             if namespaceLength < bestNamespaceLength {
                 bestIndex = i
                 bestNamespaceLength = namespaceLength
             } else if namespaceLength == bestNamespaceLength {
-                comparison := DocQueryCompareOrdinalIgnoreCase(fullNames[i], fullNames[bestIndex])
+                comparison := DocQueryCompareOrdinalIgnoreCase(candidates.FullNames[i], candidates.FullNames[bestIndex])
                 if comparison < 0 {
                     bestIndex = i
                 }
@@ -33,18 +59,18 @@ func DocQueryBestTypeIndex(scores: int[], namespaceLengths: int[], fullNames: st
         }
 
         candidateIndex := i + 1
-        score = scores[candidateIndex]
+        score = candidates.Scores[candidateIndex]
         if score > bestScore {
             bestIndex = candidateIndex
             bestScore = score
-            bestNamespaceLength = namespaceLengths[candidateIndex]
+            bestNamespaceLength = candidates.NamespaceLengths[candidateIndex]
         } else if score == bestScore {
-            namespaceLength := namespaceLengths[candidateIndex]
+            namespaceLength := candidates.NamespaceLengths[candidateIndex]
             if namespaceLength < bestNamespaceLength {
                 bestIndex = candidateIndex
                 bestNamespaceLength = namespaceLength
             } else if namespaceLength == bestNamespaceLength {
-                comparison := DocQueryCompareOrdinalIgnoreCase(fullNames[candidateIndex], fullNames[bestIndex])
+                comparison := DocQueryCompareOrdinalIgnoreCase(candidates.FullNames[candidateIndex], candidates.FullNames[bestIndex])
                 if comparison < 0 {
                     bestIndex = candidateIndex
                 }
@@ -52,18 +78,18 @@ func DocQueryBestTypeIndex(scores: int[], namespaceLengths: int[], fullNames: st
         }
 
         candidateIndex = i + 2
-        score = scores[candidateIndex]
+        score = candidates.Scores[candidateIndex]
         if score > bestScore {
             bestIndex = candidateIndex
             bestScore = score
-            bestNamespaceLength = namespaceLengths[candidateIndex]
+            bestNamespaceLength = candidates.NamespaceLengths[candidateIndex]
         } else if score == bestScore {
-            namespaceLength := namespaceLengths[candidateIndex]
+            namespaceLength := candidates.NamespaceLengths[candidateIndex]
             if namespaceLength < bestNamespaceLength {
                 bestIndex = candidateIndex
                 bestNamespaceLength = namespaceLength
             } else if namespaceLength == bestNamespaceLength {
-                comparison := DocQueryCompareOrdinalIgnoreCase(fullNames[candidateIndex], fullNames[bestIndex])
+                comparison := DocQueryCompareOrdinalIgnoreCase(candidates.FullNames[candidateIndex], candidates.FullNames[bestIndex])
                 if comparison < 0 {
                     bestIndex = candidateIndex
                 }
@@ -71,18 +97,18 @@ func DocQueryBestTypeIndex(scores: int[], namespaceLengths: int[], fullNames: st
         }
 
         candidateIndex = i + 3
-        score = scores[candidateIndex]
+        score = candidates.Scores[candidateIndex]
         if score > bestScore {
             bestIndex = candidateIndex
             bestScore = score
-            bestNamespaceLength = namespaceLengths[candidateIndex]
+            bestNamespaceLength = candidates.NamespaceLengths[candidateIndex]
         } else if score == bestScore {
-            namespaceLength := namespaceLengths[candidateIndex]
+            namespaceLength := candidates.NamespaceLengths[candidateIndex]
             if namespaceLength < bestNamespaceLength {
                 bestIndex = candidateIndex
                 bestNamespaceLength = namespaceLength
             } else if namespaceLength == bestNamespaceLength {
-                comparison := DocQueryCompareOrdinalIgnoreCase(fullNames[candidateIndex], fullNames[bestIndex])
+                comparison := DocQueryCompareOrdinalIgnoreCase(candidates.FullNames[candidateIndex], candidates.FullNames[bestIndex])
                 if comparison < 0 {
                     bestIndex = candidateIndex
                 }
@@ -90,18 +116,18 @@ func DocQueryBestTypeIndex(scores: int[], namespaceLengths: int[], fullNames: st
         }
 
         candidateIndex = i + 4
-        score = scores[candidateIndex]
+        score = candidates.Scores[candidateIndex]
         if score > bestScore {
             bestIndex = candidateIndex
             bestScore = score
-            bestNamespaceLength = namespaceLengths[candidateIndex]
+            bestNamespaceLength = candidates.NamespaceLengths[candidateIndex]
         } else if score == bestScore {
-            namespaceLength := namespaceLengths[candidateIndex]
+            namespaceLength := candidates.NamespaceLengths[candidateIndex]
             if namespaceLength < bestNamespaceLength {
                 bestIndex = candidateIndex
                 bestNamespaceLength = namespaceLength
             } else if namespaceLength == bestNamespaceLength {
-                comparison := DocQueryCompareOrdinalIgnoreCase(fullNames[candidateIndex], fullNames[bestIndex])
+                comparison := DocQueryCompareOrdinalIgnoreCase(candidates.FullNames[candidateIndex], candidates.FullNames[bestIndex])
                 if comparison < 0 {
                     bestIndex = candidateIndex
                 }
@@ -109,18 +135,18 @@ func DocQueryBestTypeIndex(scores: int[], namespaceLengths: int[], fullNames: st
         }
 
         candidateIndex = i + 5
-        score = scores[candidateIndex]
+        score = candidates.Scores[candidateIndex]
         if score > bestScore {
             bestIndex = candidateIndex
             bestScore = score
-            bestNamespaceLength = namespaceLengths[candidateIndex]
+            bestNamespaceLength = candidates.NamespaceLengths[candidateIndex]
         } else if score == bestScore {
-            namespaceLength := namespaceLengths[candidateIndex]
+            namespaceLength := candidates.NamespaceLengths[candidateIndex]
             if namespaceLength < bestNamespaceLength {
                 bestIndex = candidateIndex
                 bestNamespaceLength = namespaceLength
             } else if namespaceLength == bestNamespaceLength {
-                comparison := DocQueryCompareOrdinalIgnoreCase(fullNames[candidateIndex], fullNames[bestIndex])
+                comparison := DocQueryCompareOrdinalIgnoreCase(candidates.FullNames[candidateIndex], candidates.FullNames[bestIndex])
                 if comparison < 0 {
                     bestIndex = candidateIndex
                 }
@@ -128,18 +154,18 @@ func DocQueryBestTypeIndex(scores: int[], namespaceLengths: int[], fullNames: st
         }
 
         candidateIndex = i + 6
-        score = scores[candidateIndex]
+        score = candidates.Scores[candidateIndex]
         if score > bestScore {
             bestIndex = candidateIndex
             bestScore = score
-            bestNamespaceLength = namespaceLengths[candidateIndex]
+            bestNamespaceLength = candidates.NamespaceLengths[candidateIndex]
         } else if score == bestScore {
-            namespaceLength := namespaceLengths[candidateIndex]
+            namespaceLength := candidates.NamespaceLengths[candidateIndex]
             if namespaceLength < bestNamespaceLength {
                 bestIndex = candidateIndex
                 bestNamespaceLength = namespaceLength
             } else if namespaceLength == bestNamespaceLength {
-                comparison := DocQueryCompareOrdinalIgnoreCase(fullNames[candidateIndex], fullNames[bestIndex])
+                comparison := DocQueryCompareOrdinalIgnoreCase(candidates.FullNames[candidateIndex], candidates.FullNames[bestIndex])
                 if comparison < 0 {
                     bestIndex = candidateIndex
                 }
@@ -147,18 +173,18 @@ func DocQueryBestTypeIndex(scores: int[], namespaceLengths: int[], fullNames: st
         }
 
         candidateIndex = i + 7
-        score = scores[candidateIndex]
+        score = candidates.Scores[candidateIndex]
         if score > bestScore {
             bestIndex = candidateIndex
             bestScore = score
-            bestNamespaceLength = namespaceLengths[candidateIndex]
+            bestNamespaceLength = candidates.NamespaceLengths[candidateIndex]
         } else if score == bestScore {
-            namespaceLength := namespaceLengths[candidateIndex]
+            namespaceLength := candidates.NamespaceLengths[candidateIndex]
             if namespaceLength < bestNamespaceLength {
                 bestIndex = candidateIndex
                 bestNamespaceLength = namespaceLength
             } else if namespaceLength == bestNamespaceLength {
-                comparison := DocQueryCompareOrdinalIgnoreCase(fullNames[candidateIndex], fullNames[bestIndex])
+                comparison := DocQueryCompareOrdinalIgnoreCase(candidates.FullNames[candidateIndex], candidates.FullNames[bestIndex])
                 if comparison < 0 {
                     bestIndex = candidateIndex
                 }
@@ -168,19 +194,19 @@ func DocQueryBestTypeIndex(scores: int[], namespaceLengths: int[], fullNames: st
         i = i + 8
     }
 
-    while i < count {
-        score := scores[i]
+    while i < candidates.Count {
+        score := candidates.Scores[i]
         if score > bestScore {
             bestIndex = i
             bestScore = score
-            bestNamespaceLength = namespaceLengths[i]
+            bestNamespaceLength = candidates.NamespaceLengths[i]
         } else if score == bestScore {
-            namespaceLength := namespaceLengths[i]
+            namespaceLength := candidates.NamespaceLengths[i]
             if namespaceLength < bestNamespaceLength {
                 bestIndex = i
                 bestNamespaceLength = namespaceLength
             } else if namespaceLength == bestNamespaceLength {
-                comparison := DocQueryCompareOrdinalIgnoreCase(fullNames[i], fullNames[bestIndex])
+                comparison := DocQueryCompareOrdinalIgnoreCase(candidates.FullNames[i], candidates.FullNames[bestIndex])
                 if comparison < 0 {
                     bestIndex = i
                 }
@@ -202,73 +228,87 @@ func DocQueryMemberOrderIndicesInto(
     kindOffsets: int[],
     tempIndices: int[],
     resultIndices: int[]): int {
-    count := DocQueryMinInt(kindRanks.Length, nameRanks.Length)
-    nameBucketCount := DocQueryMinInt(nameCounts.Length, nameOffsets.Length)
-    kindBucketCount := DocQueryMinInt(kindCounts.Length, kindOffsets.Length)
+    ranks := new DocQueryMemberRankTable { KindRanks: kindRanks, NameRanks: nameRanks }
+    nameBuckets := new DocQueryBucketTable { Counts: nameCounts, Offsets: nameOffsets }
+    kindBuckets := new DocQueryBucketTable { Counts: kindCounts, Offsets: kindOffsets }
+    temp := new DocQueryIndexTable { Indices: tempIndices }
+    result := new DocQueryIndexTable { Indices: resultIndices }
+    return DocQueryMemberOrderIndicesCore(ref ranks, ref nameBuckets, ref kindBuckets, ref temp, ref result)
+}
 
-    if tempIndices.Length < count || resultIndices.Length < count {
+func DocQueryMemberOrderIndicesCore(
+    ranks: &DocQueryMemberRankTable,
+    nameBuckets: &DocQueryBucketTable,
+    kindBuckets: &DocQueryBucketTable,
+    temp: &DocQueryIndexTable,
+    result: &DocQueryIndexTable): int {
+    count := DocQueryMinInt(ranks.KindRanks.Length, ranks.NameRanks.Length)
+    nameBucketCount := DocQueryMinInt(nameBuckets.Counts.Length, nameBuckets.Offsets.Length)
+    kindBucketCount := DocQueryMinInt(kindBuckets.Counts.Length, kindBuckets.Offsets.Length)
+
+    if temp.Indices.Length < count || result.Indices.Length < count {
         return -1
     }
 
     i := 0
     while i < nameBucketCount {
-        nameCounts[i] = 0
-        nameOffsets[i] = 0
+        nameBuckets.Counts[i] = 0
+        nameBuckets.Offsets[i] = 0
         i = i + 1
     }
 
     i = 0
     while i < kindBucketCount {
-        kindCounts[i] = 0
-        kindOffsets[i] = 0
+        kindBuckets.Counts[i] = 0
+        kindBuckets.Offsets[i] = 0
         i = i + 1
     }
 
     i = 0
     while i < count {
-        nameRank := nameRanks[i]
-        kindRank := kindRanks[i]
+        nameRank := ranks.NameRanks[i]
+        kindRank := ranks.KindRanks[i]
         if nameRank <= 0 || nameRank >= nameBucketCount || kindRank <= 0 || kindRank >= kindBucketCount {
             return -1
         }
 
-        nameCounts[nameRank] = nameCounts[nameRank] + 1
-        kindCounts[kindRank] = kindCounts[kindRank] + 1
+        nameBuckets.Counts[nameRank] = nameBuckets.Counts[nameRank] + 1
+        kindBuckets.Counts[kindRank] = kindBuckets.Counts[kindRank] + 1
         i = i + 1
     }
 
     offset := 0
     rank := 0
     while rank < nameBucketCount {
-        nameOffsets[rank] = offset
-        offset = offset + nameCounts[rank]
+        nameBuckets.Offsets[rank] = offset
+        offset = offset + nameBuckets.Counts[rank]
         rank = rank + 1
     }
 
     i = 0
     while i < count {
-        nameRank := nameRanks[i]
-        writeIndex := nameOffsets[nameRank]
-        tempIndices[writeIndex] = i
-        nameOffsets[nameRank] = writeIndex + 1
+        nameRank := ranks.NameRanks[i]
+        writeIndex := nameBuckets.Offsets[nameRank]
+        temp.Indices[writeIndex] = i
+        nameBuckets.Offsets[nameRank] = writeIndex + 1
         i = i + 1
     }
 
     offset = 0
     rank = 0
     while rank < kindBucketCount {
-        kindOffsets[rank] = offset
-        offset = offset + kindCounts[rank]
+        kindBuckets.Offsets[rank] = offset
+        offset = offset + kindBuckets.Counts[rank]
         rank = rank + 1
     }
 
     i = 0
     while i < count {
-        sourceIndex := tempIndices[i]
-        kindRank := kindRanks[sourceIndex]
-        writeIndex := kindOffsets[kindRank]
-        resultIndices[writeIndex] = sourceIndex
-        kindOffsets[kindRank] = writeIndex + 1
+        sourceIndex := temp.Indices[i]
+        kindRank := ranks.KindRanks[sourceIndex]
+        writeIndex := kindBuckets.Offsets[kindRank]
+        result.Indices[writeIndex] = sourceIndex
+        kindBuckets.Offsets[kindRank] = writeIndex + 1
         i = i + 1
     }
 
