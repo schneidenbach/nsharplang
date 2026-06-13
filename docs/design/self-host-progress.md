@@ -11,6 +11,33 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — Phase P-4 columnar port: count-transitions emits shifted-compare helper
+
+The fourth Phase P rung ports the adjacent-transition count kernel into columnar. The route now
+recognizes the canonical body `current := a[i]; if current != previous { count++ }; previous = current`
+inside `for` and `while` unit-stride loops over `int[]`, then emits
+`CountTransitionsInt32(array, index, bound, previous)`. The helper returns `(countDelta, last)`, so
+columnar adds `countDelta` into the live counter, restores `previous` to the scalar loop's terminal
+carried value, and preserves the scalar terminal index with `index = max(index, bound)`.
+
+False-positive guards: exact temp/if/carry body order, no `else`, a single unit counter increment,
+int counter/index/previous locals or parameters, int[] source, side-effect-free int bound, and five
+distinct names for counter/array/index/previous/current. Bounds that read `count`, `previous`, or
+`current` decline so mutable-bound loops stay scalar. The temp-shadow guard applies here too because
+the vectorized path replaces the temp declaration.
+
+Coverage: `ColumnarCodegen_Parity_VectorizedCountTransitions` value-compares for/while forms,
+terminal `previous` restoration, terminal index behavior on empty/negative ranges, mutable-bound
+scalar fallback, and `long[]` fallback. IL-shape assertions prove matched `int[]` loops emit one
+helper call and keep only seed loads, while mutable-bound and `long[]` cases retain scalar element
+loads. A temp-shadow decline pin covers the columnar-only guard.
+
+NEXT: handle `uint[]` only after columnar array support admits `uint`; otherwise Phase P's current
+helper families are ported. Continue IF-2 residuals as route-all demands, then route-all, then the
+emitter port gated by the SoA design doc.
+
+---
+
 ## 2026-06-13 — Phase P-3 columnar port: min/max reductions emit SIMD helpers
 
 The third Phase P rung ports the min/max reduction family into columnar. The route now recognizes

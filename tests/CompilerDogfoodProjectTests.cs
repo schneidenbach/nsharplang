@@ -7261,6 +7261,63 @@ class B
         Assert.False(RouteColumnarProgram("func tempShadow(a: int[], n: int): int {\n    value := 99\n    min := 0\n    for i := 0; i < n; i++ {\n        value := a[i]\n        if value < min {\n            min = value\n        }\n    }\n    return min\n}\n").Ok);
     }
 
+    // Phase P-4 (columnar): adjacent-transition counts lower to CountTransitionsInt32 and restore the carried
+    // previous value exactly as the scalar loop would.
+    [Fact]
+    public void ColumnarCodegen_Parity_VectorizedCountTransitions()
+    {
+        var prog =
+            "func countTransitions(a: int[], n: int): int {\n    if n == 0 {\n        return 0\n    }\n    count := 0\n    previous := a[0]\n    for i := 1; i < n; i++ {\n        current := a[i]\n        if current != previous {\n            count = count + 1\n        }\n        previous = current\n    }\n    return count\n}\n\n" +
+            "func countTransitionsWhile(a: int[], n: int): int {\n    if n == 0 {\n        return 0\n    }\n    count := 0\n    previous := a[0]\n    i := 1\n    while i < n {\n        current := a[i]\n        if current != previous {\n            count++\n        }\n        previous = current\n        i = i + 1\n    }\n    return count\n}\n\n" +
+            "func lastPrevious(a: int[], n: int): int {\n    count := 0\n    previous := a[0]\n    for i := 1; i < n; i++ {\n        current := a[i]\n        if current != previous {\n            count += 1\n        }\n        previous = current\n    }\n    return previous\n}\n\n" +
+            "func terminalTransition(a: int[], n: int): int {\n    count := 0\n    previous := 0\n    i := 0\n    while i < n {\n        current := a[i]\n        if current != previous {\n            count++\n        }\n        previous = current\n        i = i + 1\n    }\n    return i\n}\n\n" +
+            "func mutablePreviousBound(a: int[]): int {\n    count := 0\n    previous := 4\n    i := 0\n    while i < previous {\n        current := a[i]\n        if current != previous {\n            count = count + 1\n        }\n        previous = current\n        i = i + 1\n    }\n    return count * 1000 + i * 10 + previous\n}\n\n" +
+            "func countTransitionsLong(a: long[], n: int): int {\n    count := 0\n    previous := a[0]\n    for i := 1; i < n; i++ {\n        current := a[i]\n        if current != previous {\n            count++\n        }\n        previous = current\n    }\n    return count\n}\n";
+
+        var runs = new[] { 7, 7, 8, 8, 8, -1, -1, 0, int.MaxValue, int.MaxValue, int.MinValue, int.MinValue, 42 };
+
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("countTransitions", new object[] { runs, 1 }),
+            ("countTransitions", new object[] { runs, runs.Length }),
+            ("countTransitionsWhile", new object[] { runs, runs.Length }),
+            ("lastPrevious", new object[] { runs, 1 }),
+            ("lastPrevious", new object[] { runs, runs.Length }),
+            ("terminalTransition", new object[] { Array.Empty<int>(), -5 }),
+            ("terminalTransition", new object[] { runs, 6 }),
+            ("mutablePreviousBound", new object[] { new[] { 3, 2, 2, 2 } }),
+            ("countTransitionsLong", new object[] { runs.Select(i => (long)i).ToArray(), runs.Length }));
+
+        var (ok, assembly, typeName, _) = RouteColumnarProgram(prog);
+        Assert.True(ok);
+        using var loadScope = CollectibleAssemblyScope.Load(assembly!);
+        var type = loadScope.Assembly.GetType(typeName!)!;
+
+        var countTransitions = type.GetMethod("countTransitions")!;
+        Assert.Equal(1, ILShapeInspector.CountOpcode(countTransitions, OpCodes.Call));
+        Assert.True(ILShapeInspector.CountOpcode(countTransitions, OpCodes.Ldelem_I4) <= 1);
+
+        var countTransitionsWhile = type.GetMethod("countTransitionsWhile")!;
+        Assert.Equal(1, ILShapeInspector.CountOpcode(countTransitionsWhile, OpCodes.Call));
+        Assert.True(ILShapeInspector.CountOpcode(countTransitionsWhile, OpCodes.Ldelem_I4) <= 1);
+
+        var lastPrevious = type.GetMethod("lastPrevious")!;
+        Assert.Equal(1, ILShapeInspector.CountOpcode(lastPrevious, OpCodes.Call));
+        Assert.True(ILShapeInspector.CountOpcode(lastPrevious, OpCodes.Ldelem_I4) <= 1);
+
+        var terminalTransition = type.GetMethod("terminalTransition")!;
+        Assert.Equal(1, ILShapeInspector.CountOpcode(terminalTransition, OpCodes.Call));
+        Assert.Equal(0, ILShapeInspector.CountOpcode(terminalTransition, OpCodes.Ldelem_I4));
+
+        var mutablePreviousBound = type.GetMethod("mutablePreviousBound")!;
+        Assert.Equal(0, ILShapeInspector.CountOpcode(mutablePreviousBound, OpCodes.Call));
+        Assert.True(ILShapeInspector.CountOpcode(mutablePreviousBound, OpCodes.Ldelem_I4) >= 1);
+
+        var countTransitionsLong = type.GetMethod("countTransitionsLong")!;
+        Assert.True(ILShapeInspector.CountOpcode(countTransitionsLong, OpCodes.Ldelem_I8) >= 1);
+
+        Assert.False(RouteColumnarProgram("func tempShadow(a: int[], n: int): int {\n    current := 99\n    count := 0\n    previous := 0\n    for i := 0; i < n; i++ {\n        current := a[i]\n        if current != previous {\n            count++\n        }\n        previous = current\n    }\n    return count\n}\n").Ok);
+    }
+
     // DOUBLE scalar (r8): float literals (ldc.r8), arithmetic (FP add/sub/mul/div/rem — x/0.0 -> Inf, 0.0/0.0 ->
     // NaN, no throw), unary negate, NaN-CORRECT comparisons (a <= NaN is false via the unordered complement),
     // casts (int/long <-> double), and double[] (new/read/write). Value-matched vs the C# ILCompiler over normal,

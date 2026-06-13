@@ -558,6 +558,8 @@ public sealed class ColumnarIlEmitter
         ResolveSimdReductionHelper(nameof(NSharpLang.Runtime.SimdReductions.MaxInt32));
     private static readonly MethodInfo s_minMaxInt32Reduction =
         ResolveSimdReductionHelper(nameof(NSharpLang.Runtime.SimdReductions.MinMaxInt32));
+    private static readonly MethodInfo s_countTransitionsInt32 =
+        ResolveSimdReductionHelper(nameof(NSharpLang.Runtime.SimdReductions.CountTransitionsInt32));
     private static readonly FieldInfo s_valueTupleItem1 =
         typeof(ValueTuple<int, int>).GetField("Item1")
         ?? throw new InvalidOperationException("ValueTuple<int,int>.Item1 not found.");
@@ -5030,6 +5032,8 @@ public sealed class ColumnarIlEmitter
                     return true;
                 if (TryEmitVectorizedMinMaxWhile(idx))
                     return true;
+                if (TryEmitVectorizedCountTransitionsWhile(idx))
+                    return true;
                 var body = Child(idx, 1);
                 var checkLabel = _il.DefineLabel();
                 var endLabel = _il.DefineLabel();
@@ -5125,6 +5129,21 @@ public sealed class ColumnarIlEmitter
                 }
 
                 if (TryEmitVectorizedMinMaxFor(cond, incr, body))
+                {
+                    foreach (var name in new List<string>(_locals.Keys))
+                    {
+                        if (!outerLocals.Contains(name))
+                            _locals.Remove(name);
+                    }
+                    foreach (var name in new List<string>(_liftedLocals.Keys))
+                    {
+                        if (!outerLifted.Contains(name))
+                            _liftedLocals.Remove(name);
+                    }
+                    return true;
+                }
+
+                if (TryEmitVectorizedCountTransitionsFor(cond, incr, body))
                 {
                     foreach (var name in new List<string>(_locals.Keys))
                     {
@@ -5480,6 +5499,32 @@ public sealed class ColumnarIlEmitter
         public int BoundNode { get; }
         public string Index { get; }
         public IReadOnlyList<ColumnarMinMaxReduction> Reductions { get; }
+    }
+
+    private sealed class ColumnarCountTransitionsShape
+    {
+        public ColumnarCountTransitionsShape(
+            int counterNode, int arrayNode, int indexNode, int previousNode, int boundNode,
+            string counter, string index, string previous)
+        {
+            CounterNode = counterNode;
+            ArrayNode = arrayNode;
+            IndexNode = indexNode;
+            PreviousNode = previousNode;
+            BoundNode = boundNode;
+            Counter = counter;
+            Index = index;
+            Previous = previous;
+        }
+
+        public int CounterNode { get; }
+        public int ArrayNode { get; }
+        public int IndexNode { get; }
+        public int PreviousNode { get; }
+        public int BoundNode { get; }
+        public string Counter { get; }
+        public string Index { get; }
+        public string Previous { get; }
     }
 
     // Phase P-1 (columnar): mirror the ILCompiler's canonical counted integer reduction lowering for
@@ -6118,6 +6163,194 @@ public sealed class ColumnarIlEmitter
             return false;
         min = reductions[0].IsMin ? reductions[0] : reductions[1];
         max = reductions[0].IsMin ? reductions[1] : reductions[0];
+        return true;
+    }
+
+    // Phase P-4 (columnar): mirror the ILCompiler's shifted-compare adjacent-transition count lowering.
+    // The matched body is exactly:
+    //   current := a[i]
+    //   if current != previous { count++ }
+    //   previous = current
+    // and the helper restores both count and the carried previous value.
+    private bool TryEmitVectorizedCountTransitionsWhile(int whileNode)
+    {
+        if (!TryMatchWhileCountTransitions(whileNode, out var shape))
+            return false;
+        return EmitVectorizedCountTransitions(shape);
+    }
+
+    private bool TryEmitVectorizedCountTransitionsFor(int conditionNode, int iteratorStatementNode, int bodyNode)
+    {
+        if (!TryMatchForCountTransitions(conditionNode, iteratorStatementNode, bodyNode, out var shape))
+            return false;
+        return EmitVectorizedCountTransitions(shape);
+    }
+
+    private bool TryMatchWhileCountTransitions(int whileNode, out ColumnarCountTransitionsShape shape)
+    {
+        shape = null!;
+        if (_childCount[whileNode] != 2)
+            return false;
+        if (!TryMatchReductionCondition(Child(whileNode, 0), out var indexNode, out var indexName, out var boundNode))
+            return false;
+        var body = Child(whileNode, 1);
+        if (_kinds[body] != 25 || _childCount[body] != 4)
+            return false;
+        if (!TryGetExpressionStatementExpression(Child(body, 3), out var increment)
+            || !TryMatchUnitIndexIncrement(increment, indexName, allowPostfix: true))
+            return false;
+        return TryMatchCountTransitionsBody(Child(body, 0), Child(body, 1), Child(body, 2), indexNode, indexName, boundNode, out shape);
+    }
+
+    private bool TryMatchForCountTransitions(int conditionNode, int iteratorStatementNode, int bodyNode, out ColumnarCountTransitionsShape shape)
+    {
+        shape = null!;
+        if (!TryMatchReductionCondition(conditionNode, out var indexNode, out var indexName, out var boundNode))
+            return false;
+        if (!TryGetExpressionStatementExpression(iteratorStatementNode, out var iterator)
+            || !TryMatchUnitIndexIncrement(iterator, indexName, allowPostfix: true))
+            return false;
+        if (_kinds[bodyNode] != 25 || _childCount[bodyNode] != 3)
+            return false;
+        return TryMatchCountTransitionsBody(Child(bodyNode, 0), Child(bodyNode, 1), Child(bodyNode, 2), indexNode, indexName, boundNode, out shape);
+    }
+
+    private bool TryMatchCountTransitionsBody(
+        int tempStatementNode, int ifStatementNode, int carryStatementNode, int indexNode, string indexName, int boundNode,
+        out ColumnarCountTransitionsShape shape)
+    {
+        shape = null!;
+
+        if (_kinds[tempStatementNode] != 24 || _childCount[tempStatementNode] != 1)
+            return false;
+        var currentName = Text(tempStatementNode);
+        if (IsVisibleBindingName(currentName))
+            return false;
+        if (!TryMatchArrayIndexByIdentifier(Child(tempStatementNode, 0), indexName, out var arrayNode, out var arrayName))
+            return false;
+
+        if (_kinds[ifStatementNode] != 27 || _childCount[ifStatementNode] != 2)
+            return false;
+        var condition = Child(ifStatementNode, 0);
+        if (_kinds[condition] != 12 || _childCount[condition] != 2 || Text(condition) != "!=")
+            return false;
+        if (!TryResolvePreviousForTransition(condition, currentName, out var previousNode, out var previousName))
+            return false;
+        if (!TryGetSingleReductionBodyStatement(Child(ifStatementNode, 1), out var thenStatement)
+            || !TryGetExpressionStatementExpression(thenStatement, out var counterIncrement)
+            || !TryMatchUnitCounterIncrement(counterIncrement, out var counterNode, out var counterName))
+            return false;
+
+        if (!TryGetExpressionStatementExpression(carryStatementNode, out var carry)
+            || _kinds[carry] != 14
+            || _childCount[carry] != 2
+            || Text(carry) != "="
+            || !TryGetIdentifierName(Child(carry, 0), out var carryTarget)
+            || carryTarget != previousName
+            || !TryGetIdentifierName(Child(carry, 1), out var carryValue)
+            || carryValue != currentName)
+            return false;
+
+        if (!AllDistinct(counterName, arrayName, indexName, previousName, currentName))
+            return false;
+        if (BoundReadsIdentifier(boundNode, counterName)
+            || BoundReadsIdentifier(boundNode, previousName)
+            || BoundReadsIdentifier(boundNode, currentName))
+            return false;
+
+        return TryBuildCountTransitionsShape(counterNode, arrayNode, indexNode, previousNode, boundNode, counterName, indexName, previousName, out shape);
+    }
+
+    private bool TryResolvePreviousForTransition(int compareNode, string currentName, out int previousNode, out string previousName)
+    {
+        previousNode = -1;
+        previousName = string.Empty;
+        var left = Child(compareNode, 0);
+        var right = Child(compareNode, 1);
+        if (TryGetIdentifierName(left, out var leftName) && leftName == currentName
+            && TryGetIdentifierName(right, out previousName))
+        {
+            previousNode = right;
+            return true;
+        }
+        if (TryGetIdentifierName(right, out var rightName) && rightName == currentName
+            && TryGetIdentifierName(left, out previousName))
+        {
+            previousNode = left;
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool AllDistinct(string a, string b, string c, string d, string e)
+        => a != b && a != c && a != d && a != e
+           && b != c && b != d && b != e
+           && c != d && c != e
+           && d != e;
+
+    private bool TryBuildCountTransitionsShape(
+        int counterNode, int arrayNode, int indexNode, int previousNode, int boundNode,
+        string counterName, string indexName, string previousName,
+        out ColumnarCountTransitionsShape shape)
+    {
+        shape = null!;
+        if (!TryGetPureLocalOrParameterType(counterNode, out _, out var counterType)
+            || !TryGetPureLocalOrParameterType(arrayNode, out _, out var arrayType)
+            || !TryGetPureLocalOrParameterType(indexNode, out _, out var indexType)
+            || !TryGetPureLocalOrParameterType(previousNode, out _, out var previousType))
+            return false;
+        if (counterType != typeof(int) || arrayType != typeof(int[]) || indexType != typeof(int) || previousType != typeof(int))
+            return false;
+        if (!IsSideEffectFreeInt32Bound(boundNode, indexName))
+            return false;
+
+        shape = new ColumnarCountTransitionsShape(
+            counterNode, arrayNode, indexNode, previousNode, boundNode,
+            counterName, indexName, previousName);
+        return true;
+    }
+
+    private bool EmitVectorizedCountTransitions(ColumnarCountTransitionsShape shape)
+    {
+        var boundLocal = _il.DeclareLocal(typeof(int));
+        if (!EmitExpression(shape.BoundNode, out var boundType) || boundType != typeof(int))
+            return false;
+        _il.Emit(OpCodes.Stloc, boundLocal);
+
+        var tupleLocal = _il.DeclareLocal(typeof(ValueTuple<int, int>));
+        if (!EmitExpression(shape.ArrayNode, out var arrayType) || arrayType != typeof(int[]))
+            return false;
+        if (!EmitExpression(shape.IndexNode, out var indexType) || indexType != typeof(int))
+            return false;
+        _il.Emit(OpCodes.Ldloc, boundLocal);
+        if (!EmitExpression(shape.PreviousNode, out var previousType) || previousType != typeof(int))
+            return false;
+        _il.Emit(OpCodes.Call, s_countTransitionsInt32);
+        _il.Emit(OpCodes.Stloc, tupleLocal);
+
+        if (!EmitExpression(shape.CounterNode, out var counterType) || counterType != typeof(int))
+            return false;
+        _il.Emit(OpCodes.Ldloca, tupleLocal);
+        _il.Emit(OpCodes.Ldfld, s_valueTupleItem1);
+        _il.Emit(OpCodes.Add);
+        if (!StoreReductionIdentifier(shape.Counter))
+            return false;
+
+        _il.Emit(OpCodes.Ldloca, tupleLocal);
+        _il.Emit(OpCodes.Ldfld, s_valueTupleItem2);
+        if (!StoreReductionIdentifier(shape.Previous))
+            return false;
+
+        if (!EmitExpression(shape.IndexNode, out indexType) || indexType != typeof(int))
+            return false;
+        _il.Emit(OpCodes.Ldloc, boundLocal);
+        var keepIndexLabel = _il.DefineLabel();
+        _il.Emit(OpCodes.Bge, keepIndexLabel);
+        _il.Emit(OpCodes.Ldloc, boundLocal);
+        if (!StoreReductionIdentifier(shape.Index))
+            return false;
+        _il.MarkLabel(keepIndexLabel);
         return true;
     }
 
