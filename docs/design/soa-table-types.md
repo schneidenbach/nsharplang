@@ -229,8 +229,9 @@ ownership lands.
    wraps analyzer coverage, missing-case result, and overload-signature rank tables. `SourceTextLines.nl`
    now wraps logical line ranges, line-start indexes, and dense offset-line maps. The small
    compiler-service utility pass also wraps struct-copy field flags, anonymous-union parameter flags,
-   and project source filter path/pattern/result tables without using the experimental `soa record`
-   surface. These slices preserve the flattened dogfood adapter ABI.
+   and project source filter path/pattern/result tables. Formatter import ordering and text-edit
+   ordering now wrap their sort-key/rank, bucket, and temp/result index scratch tables without using
+   the experimental `soa record` surface. These slices preserve the flattened dogfood adapter ABI.
 7. Only after those gates pass, start replacing C# emitter/analyzer internals that still require untyped
    parallel-array plumbing.
 

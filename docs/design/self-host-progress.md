@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — Ordering scratch tables wrapped
+
+`FormatterImportOrdering.nl` and `TextEditOrdering.nl` now group their stable counting-sort scratch
+columns behind named normal structs. Formatter import ordering wraps the System-prefix flags,
+namespace ranks, bucket counts/offsets, and temp/result permutation indexes; text-edit ordering wraps
+start/end position rank tables, bucket counts/offsets, and temp/result permutation indexes.
+
+The exported dogfood entry points still expose the flattened caller-owned array ABI, while the core
+ordering passes operate on wrapper-aware sort-key, rank, bucket, and index tables. This keeps the
+formatter and edit-ordering kernels in the post-parser table-wrapper migration without relying on the
+experimental `soa record` surface.
+
 ## 2026-06-13 — Compiler-service utility tables wrapped
 
 `StructCopyAnalysis.nl`, `AnonymousUnionShims.nl`, and `ProjectSourceFilter.nl` now route their core
