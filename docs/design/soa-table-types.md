@@ -255,7 +255,9 @@ ownership lands.
    table-wrapped too, leaving its array-taking functions as flattened adapter shims or scalar helper
    shims over wrapper-aware cores. `ParserTypeReferences.nl` has started the parser token-stream
    cleanup by wrapping token metadata, recursive argument stacks, child-index outputs, and result
-   slots for the type-reference recursive cores.
+   slots for the type-reference recursive cores. `ParserFunctionSignatures.nl` now composes those
+   parser wrappers from a flattened entry shim and groups parameter, type-parameter, `where`
+   constraint, and result columns behind named tables in its internal core.
 7. Only after those gates pass, start replacing C# emitter/analyzer internals that still require untyped
    parallel-array plumbing.
 

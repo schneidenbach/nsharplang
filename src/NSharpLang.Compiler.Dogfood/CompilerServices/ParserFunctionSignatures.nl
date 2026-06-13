@@ -45,6 +45,48 @@
 // RightParen 128, LeftBrace 129, RightBrace 130, LeftBracket 131, RightBracket 132.
 
 func ParseFunctionSignatureInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, funcIndex: int, outNodeKinds: int[], outNameStarts: int[], outNameLengths: int[], outChildStart: int[], outChildCount: int[], outChildIndices: int[], outSpanStarts: int[], outSpanLengths: int[], outParamNameStarts: int[], outParamNameLengths: int[], outParamTypeRoots: int[], outTypeParamStarts: int[], outTypeParamLengths: int[], outWhereNameStarts: int[], outWhereNameLengths: int[], outWhereItemCodes: int[], outResult: int[]): int {
+    tokens := new ParserTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
+    typeStack := new ParserArgumentStack { Values: new int[](count + 1) }
+    nodes := new ParserNodeTable { Kinds: outNodeKinds, ValueStarts: outNameStarts, ValueLengths: outNameLengths, ChildStart: outChildStart, ChildCount: outChildCount, SpanStarts: outSpanStarts, SpanLengths: outSpanLengths }
+    children := new ParserChildIndexTable { Indices: outChildIndices }
+    parameters := new ParserFunctionParameterTable { NameStarts: outParamNameStarts, NameLengths: outParamNameLengths, TypeRoots: outParamTypeRoots }
+    typeParams := new ParserFunctionTypeParameterTable { Starts: outTypeParamStarts, Lengths: outTypeParamLengths }
+    whereItems := new ParserFunctionWhereTable { NameStarts: outWhereNameStarts, NameLengths: outWhereNameLengths, ItemCodes: outWhereItemCodes }
+    result := new ParserResultTable { Values: outResult }
+    return ParseFunctionSignatureCore(ref tokens, count, funcIndex, ref typeStack, ref nodes, ref children, ref parameters, ref typeParams, ref whereItems, ref result)
+}
+
+struct ParserFunctionParameterTable {
+    NameStarts: int[]
+    NameLengths: int[]
+    TypeRoots: int[]
+}
+
+struct ParserFunctionTypeParameterTable {
+    Starts: int[]
+    Lengths: int[]
+}
+
+struct ParserFunctionWhereTable {
+    NameStarts: int[]
+    NameLengths: int[]
+    ItemCodes: int[]
+}
+
+func ParseFunctionSignatureCore(
+    tokens: &ParserTokenTable,
+    count: int,
+    funcIndex: int,
+    typeStack: &ParserArgumentStack,
+    nodes: &ParserNodeTable,
+    children: &ParserChildIndexTable,
+    parameters: &ParserFunctionParameterTable,
+    typeParams: &ParserFunctionTypeParameterTable,
+    whereItems: &ParserFunctionWhereTable,
+    outResult: &ParserResultTable): int {
+    tokenKinds := tokens.Kinds
+    tokenStarts := tokens.Starts
+    tokenValueLengths := tokens.ValueLengths
     funcNameStart := -1
     funcNameLength := 0
     i := funcIndex + 1
@@ -64,8 +106,8 @@ func ParseFunctionSignatureInto(tokenKinds: int[], tokenStarts: int[], tokenValu
             if tokenKinds[i] != 0 {
                 return -1
             }
-            outTypeParamStarts[typeParamCount] = tokenStarts[i]
-            outTypeParamLengths[typeParamCount] = tokenValueLengths[i]
+            typeParams.Starts[typeParamCount] = tokenStarts[i]
+            typeParams.Lengths[typeParamCount] = tokenValueLengths[i]
             typeParamCount = typeParamCount + 1
             i = i + 1
 
@@ -98,7 +140,6 @@ func ParseFunctionSignatureInto(tokenKinds: int[], tokenStarts: int[], tokenValu
     i = i + 1
 
     st := new ParserState { Pos: 0, NodeCursor: 0, ChildCursor: 0, ArgStackTop: 0, SplitGreaterDepth: 0, OwedGreaterByteEnd: 0 }
-    argStack := new int[](count + 1)
 
     paramCount := 0
 
@@ -138,15 +179,15 @@ func ParseFunctionSignatureInto(tokenKinds: int[], tokenStarts: int[], tokenValu
         st.Pos = i
         st.SplitGreaterDepth = 0
         st.ArgStackTop = 0
-        typeRoot := ParseUnionTypeReferenceNode(tokenKinds, tokenStarts, tokenValueLengths, count, ref st, argStack, outNodeKinds, outNameStarts, outNameLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, 0)
+        typeRoot := ParseUnionTypeReferenceNodeCore(ref tokens, count, ref st, ref typeStack, ref nodes, ref children, 0)
         if typeRoot < 0 {
             return -1
         }
         i = st.Pos
 
-        outParamNameStarts[paramCount] = paramNameStart
-        outParamNameLengths[paramCount] = paramNameLength
-        outParamTypeRoots[paramCount] = typeRoot
+        parameters.NameStarts[paramCount] = paramNameStart
+        parameters.NameLengths[paramCount] = paramNameLength
+        parameters.TypeRoots[paramCount] = typeRoot
         paramCount = paramCount + 1
 
         // Skip a `= default` value without parsing it (balanced to the next depth-0 `,` or `)`).
@@ -202,7 +243,7 @@ func ParseFunctionSignatureInto(tokenKinds: int[], tokenStarts: int[], tokenValu
             st.Pos = i
             st.SplitGreaterDepth = 0
             st.ArgStackTop = 0
-            returnRoot = ParseUnionTypeReferenceNode(tokenKinds, tokenStarts, tokenValueLengths, count, ref st, argStack, outNodeKinds, outNameStarts, outNameLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, 0)
+            returnRoot = ParseUnionTypeReferenceNodeCore(ref tokens, count, ref st, ref typeStack, ref nodes, ref children, 0)
             if returnRoot < 0 {
                 return -1
             }
@@ -249,16 +290,16 @@ func ParseFunctionSignatureInto(tokenKinds: int[], tokenStarts: int[], tokenValu
                 st.Pos = i
                 st.SplitGreaterDepth = 0
                 st.ArgStackTop = 0
-                itemCode = ParseUnionTypeReferenceNode(tokenKinds, tokenStarts, tokenValueLengths, count, ref st, argStack, outNodeKinds, outNameStarts, outNameLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, 0)
+                itemCode = ParseUnionTypeReferenceNodeCore(ref tokens, count, ref st, ref typeStack, ref nodes, ref children, 0)
                 if itemCode < 0 {
                     return -1
                 }
                 i = st.Pos
             }
 
-            outWhereNameStarts[whereItemCount] = whereNameStart
-            outWhereNameLengths[whereItemCount] = whereNameLength
-            outWhereItemCodes[whereItemCount] = itemCode
+            whereItems.NameStarts[whereItemCount] = whereNameStart
+            whereItems.NameLengths[whereItemCount] = whereNameLength
+            whereItems.ItemCodes[whereItemCount] = itemCode
             whereItemCount = whereItemCount + 1
 
             if i < count && tokenKinds[i] == 134 {
@@ -269,13 +310,13 @@ func ParseFunctionSignatureInto(tokenKinds: int[], tokenStarts: int[], tokenValu
         }
     }
 
-    outResult[0] = paramCount
-    outResult[1] = returnRoot
-    outResult[2] = st.NodeCursor
-    outResult[3] = funcNameStart
-    outResult[4] = funcNameLength
-    outResult[5] = typeParamCount
-    outResult[6] = i
-    outResult[7] = whereItemCount
+    outResult.Values[0] = paramCount
+    outResult.Values[1] = returnRoot
+    outResult.Values[2] = st.NodeCursor
+    outResult.Values[3] = funcNameStart
+    outResult.Values[4] = funcNameLength
+    outResult.Values[5] = typeParamCount
+    outResult.Values[6] = i
+    outResult.Values[7] = whereItemCount
     return paramCount
 }

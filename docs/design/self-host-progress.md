@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — Parser function-signature tables wrapped
+
+`ParserFunctionSignatures.nl` now keeps its flattened `ParseFunctionSignatureInto` ABI as a host
+entry shim, then routes the parser body through a wrapper-aware `ParseFunctionSignatureCore`.
+Function parameters, type parameters, generic constraint rows, parser tokens, type-reference argument
+scratch, child-index output, type-node output, and result slots are grouped behind named table
+structs.
+
+The slice also composes the type-reference parser through `ParseUnionTypeReferenceNodeCore`, so
+function signatures no longer re-flatten the token/type-node tables when parsing parameter types,
+return types, or `where` constraint type roots.
+
 ## 2026-06-13 — Parser type-reference token tables wrapped
 
 `ParserTypeReferences.nl` now wraps the recursive type-reference parser's token stream, argument
