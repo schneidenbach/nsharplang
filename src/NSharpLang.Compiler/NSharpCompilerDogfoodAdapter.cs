@@ -177,7 +177,7 @@ internal static class NSharpCompilerDogfoodAdapter
     /// pass only projects functions; kernel refusal still returns false. Canonical type strings match
     /// <see cref="Columnar.ColumnarFunctionSymbol.CanonicalType"/> exactly for parity.
     /// </summary>
-    internal static bool TryBuildTopLevelFunctionSymbols(string source, out List<Columnar.ColumnarFunctionSymbol> symbols)
+    private static bool TryBuildTopLevelFunctionSymbols(string source, out List<Columnar.ColumnarFunctionSymbol> symbols)
     {
         symbols = new List<Columnar.ColumnarFunctionSymbol>();
 
@@ -264,7 +264,7 @@ internal static class NSharpCompilerDogfoodAdapter
     /// functions are pre-declared so forward references resolve. Non-function top-level declarations are
     /// ignored; unsupported function forms or kernel refusal still return false.
     /// </summary>
-    internal static bool TryResolveTopLevelFunctionNames(string source, out List<List<Columnar.ColumnarNameRef>> perFunctionRefs)
+    private static bool TryResolveTopLevelFunctionNames(string source, out List<List<Columnar.ColumnarNameRef>> perFunctionRefs)
     {
         perFunctionRefs = new List<List<Columnar.ColumnarNameRef>>();
 
@@ -373,7 +373,7 @@ internal static class NSharpCompilerDogfoodAdapter
     /// its parameter types + the shared function map. Pure-N# surface is inferred; BCL forms yield "External".
     /// Non-function top-level declarations are ignored; unsupported function forms or kernel refusal return false.
     /// </summary>
-    internal static bool TryInferTopLevelFunctionTypes(string source, out List<List<string>> perFunctionTypes)
+    private static bool TryInferTopLevelFunctionTypes(string source, out List<List<string>> perFunctionTypes)
     {
         perFunctionTypes = new List<List<string>>();
 
@@ -483,7 +483,7 @@ internal static class NSharpCompilerDogfoodAdapter
     // descriptor list is empty or ["missing-return:<canonicalReturnType>"]. Reuses the stage-3 parse scaffold;
     // ignores non-function top-level declarations, declines on any unsupported function form, and
     // additionally on async/generator functions whose NL305 exemptions it cannot model (see below).
-    internal static bool TryCollectTopLevelFunctionDiagnostics(string source, out List<List<string>> perFunctionDiagnostics)
+    private static bool TryCollectTopLevelFunctionDiagnostics(string source, out List<List<string>> perFunctionDiagnostics)
     {
         perFunctionDiagnostics = new List<List<string>>();
 
@@ -610,7 +610,7 @@ internal static class NSharpCompilerDogfoodAdapter
     // in ColumnarDiagnosticsPass.CollectUnusedLocals. Non-function top-level declarations are ignored.
     // Interpolated strings ($"...{x}...") cannot hide a use: the kernel refuses them, so such sources decline
     // here (bodyNodeCount <= 0) to the C# linter.
-    internal static bool TryCollectUnusedLocals(string source, out List<List<string>> perFunctionUnusedLocals)
+    private static bool TryCollectUnusedLocals(string source, out List<List<string>> perFunctionUnusedLocals)
     {
         perFunctionUnusedLocals = new List<List<string>>();
 

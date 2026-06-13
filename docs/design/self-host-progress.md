@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — Columnar analysis probes stop advertising assembly-internal entry points
+
+The Stage 1-3b columnar parity probes on `NSharpCompilerDogfoodAdapter` are now private helper entries
+rather than assembly-internal surface. Production routing only needs `TryEmitColumnarProgram` and
+`TryEmitColumnarProgramMultiFile`; the symbol, name-resolution, type-inference, structural-diagnostic,
+and unused-local probes are test-only scaffolding kept reachable through non-public reflection.
+
+This removes another adapter-facing transition seam without changing the default columnar backend route.
+
 ## 2026-06-13 — Compiler dogfood adapter scratch members stop advertising public visibility
 
 `NSharpCompilerDogfoodAdapter` no longer has source-level `public` declarations inside its private
