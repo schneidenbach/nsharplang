@@ -7144,6 +7144,61 @@ class B
         Assert.True(ILShapeInspector.CountOpcode(sumDouble, OpCodes.Ldelem_R8) >= 1);
     }
 
+    // Phase P-2 (columnar): range-predicate counts lower to CountInRangeInt32 for int[] only.
+    // This ports the count-ascii kernel shape from the C# ILCompiler into the node-table route.
+    [Fact]
+    public void ColumnarCodegen_Parity_VectorizedRangePredicateCounts()
+    {
+        var prog =
+            "func countAscii(a: int[], n: int): int {\n    count := 0\n    for i := 0; i < n; i++ {\n        value := a[i]\n        if value >= 32 && value <= 126 {\n            count = count + 1\n        }\n    }\n    return count\n}\n\n" +
+            "func countInline(a: int[], n: int, lo: int, hi: int): int {\n    count := 0\n    for i := 0; i < n; i++ {\n        if a[i] >= lo && a[i] <= hi {\n            count++\n        }\n    }\n    return count\n}\n\n" +
+            "func countWhile(a: int[], n: int, lo: int, hi: int): int {\n    count := 0\n    i := 0\n    while i < n {\n        value := a[i]\n        if value >= lo && value <= hi {\n            count += 1\n        }\n        i = i + 1\n    }\n    return count\n}\n\n" +
+            "func terminalIndex(a: int[], n: int): int {\n    count := 0\n    i := 0\n    while i < n {\n        if a[i] >= 0 && a[i] <= 10 {\n            count++\n        }\n        i = i + 1\n    }\n    return i\n}\n\n" +
+            "func countLongArray(a: long[], n: int, lo: long, hi: long): int {\n    count := 0\n    for i := 0; i < n; i++ {\n        if a[i] >= lo && a[i] <= hi {\n            count++\n        }\n    }\n    return count\n}\n";
+
+        var ascii = Enumerable.Range(0, 257).Select(i => (i * 17 + 3) & 0xff).ToArray();
+        ascii[0] = 32;
+        ascii[1] = 126;
+        ascii[2] = 31;
+        ascii[3] = 127;
+
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("countAscii", new object[] { ascii, 0 }),
+            ("countAscii", new object[] { ascii, 64 }),
+            ("countAscii", new object[] { ascii, -7 }),
+            ("countInline", new object[] { ascii, 100, 32, 126 }),
+            ("countInline", new object[] { ascii, 100, 126, 32 }),
+            ("countWhile", new object[] { ascii, 257, 32, 126 }),
+            ("terminalIndex", new object[] { Array.Empty<int>(), -5 }),
+            ("terminalIndex", new object[] { ascii, 17 }),
+            ("countLongArray", new object[] { ascii.Select(i => (long)i).ToArray(), 100, 32L, 126L }));
+
+        var (ok, assembly, typeName, _) = RouteColumnarProgram(prog);
+        Assert.True(ok);
+        using var loadScope = CollectibleAssemblyScope.Load(assembly!);
+        var type = loadScope.Assembly.GetType(typeName!)!;
+
+        var countAscii = type.GetMethod("countAscii")!;
+        Assert.Equal(0, ILShapeInspector.CountOpcode(countAscii, OpCodes.Ldelem_I4));
+        Assert.True(ILShapeInspector.CountOpcode(countAscii, OpCodes.Call) >= 1);
+
+        var countInline = type.GetMethod("countInline")!;
+        Assert.Equal(0, ILShapeInspector.CountOpcode(countInline, OpCodes.Ldelem_I4));
+        Assert.True(ILShapeInspector.CountOpcode(countInline, OpCodes.Call) >= 1);
+
+        var countWhile = type.GetMethod("countWhile")!;
+        Assert.Equal(0, ILShapeInspector.CountOpcode(countWhile, OpCodes.Ldelem_I4));
+        Assert.True(ILShapeInspector.CountOpcode(countWhile, OpCodes.Call) >= 1);
+
+        var terminalIndex = type.GetMethod("terminalIndex")!;
+        Assert.Equal(0, ILShapeInspector.CountOpcode(terminalIndex, OpCodes.Ldelem_I4));
+
+        var countLongArray = type.GetMethod("countLongArray")!;
+        Assert.True(ILShapeInspector.CountOpcode(countLongArray, OpCodes.Ldelem_I8) >= 1);
+
+        Assert.False(RouteColumnarProgram("func tempShadow(a: int[], n: int): int {\n    value := 99\n    count := 0\n    for i := 0; i < n; i++ {\n        value := a[i]\n        if value >= 0 && value <= 10 {\n            count++\n        }\n    }\n    return count\n}\n").Ok);
+    }
+
     // DOUBLE scalar (r8): float literals (ldc.r8), arithmetic (FP add/sub/mul/div/rem — x/0.0 -> Inf, 0.0/0.0 ->
     // NaN, no throw), unary negate, NaN-CORRECT comparisons (a <= NaN is false via the unordered complement),
     // casts (int/long <-> double), and double[] (new/read/write). Value-matched vs the C# ILCompiler over normal,

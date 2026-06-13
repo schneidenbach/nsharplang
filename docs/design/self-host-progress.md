@@ -11,6 +11,33 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — Phase P-2 columnar port: range-predicate counts emit CountInRangeInt32
+
+The second Phase P rung ports the ILCompiler's masked-SIMD count-ascii shape into columnar. The
+columnar route now recognizes both supported predicate subject forms inside counted loops:
+`value := a[i]; if value >= lo && value <= hi { count++ }` and the inlined
+`if a[i] >= lo && a[i] <= hi { count++ }`, for both `for` and `while` unit-stride loops. The
+lowering emits `count += SimdReductions.CountInRangeInt32(array, index, bound, lo, hi)` and preserves
+the scalar terminal index with `index = max(index, bound)`.
+
+False-positive guards mirror the C# shape and add one columnar-specific rule: a temp-subject
+declaration must not shadow any visible binding, because the vectorized path replaces the loop body
+instead of emitting that `:=` declaration. The shape is restricted to pure int bounds and int
+lo/hi operands, an `int[]` source, int counter/index locals or parameters, no `else`, a single
+counter increment body, and distinct counter/array/index/temp names. Non-`int[]` arrays remain scalar.
+
+Coverage: `ColumnarCodegen_Parity_VectorizedRangePredicateCounts` value-compares temp/inlined
+forms, `for`/`while`, inclusive boundaries, `lo > hi`, empty/negative ranges, terminal index
+visibility, and `long[]` fallback. IL-shape assertions prove matched `int[]` functions contain no
+scalar `ldelem.i4`, while `long[]` still emits `ldelem.i8`. A temp-shadow route-decline pin covers
+the columnar-only guard.
+
+NEXT: finish remaining Phase P ports (min/max including fused min+max, count-transitions, and
+`uint[]` once columnar array support admits it), then IF-2 residuals as route-all demands, then
+route-all, then the emitter port gated by the SoA design doc.
+
+---
+
 ## 2026-06-13 — Phase P-1 columnar port: canonical integer reductions emit SIMD helpers
 
 Phase P has started in the columnar route. The first rung ports the ILCompiler's counted integer

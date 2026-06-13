@@ -550,6 +550,8 @@ public sealed class ColumnarIlEmitter
         ResolveSimdReductionHelper(nameof(NSharpLang.Runtime.SimdReductions.SumInt64));
     private static readonly MethodInfo s_sumUInt64Reduction =
         ResolveSimdReductionHelper(nameof(NSharpLang.Runtime.SimdReductions.SumUInt64));
+    private static readonly MethodInfo s_countInRangeInt32 =
+        ResolveSimdReductionHelper(nameof(NSharpLang.Runtime.SimdReductions.CountInRangeInt32));
 
     // True when this emitter is producing a CONSTRUCTOR body. In a VALUE-TYPE ctor, `this` (arg 0)
     // is the managed pointer to the caller's storage (newobj passes the new value's address), so
@@ -5012,6 +5014,8 @@ public sealed class ColumnarIlEmitter
                      // net-zero), so it is stack-consistent.
                 if (TryEmitVectorizedReductionWhile(idx))
                     return true;
+                if (TryEmitVectorizedRangeCountWhile(idx))
+                    return true;
                 var body = Child(idx, 1);
                 var checkLabel = _il.DefineLabel();
                 var endLabel = _il.DefineLabel();
@@ -5077,6 +5081,21 @@ public sealed class ColumnarIlEmitter
                     return false;
 
                 if (TryEmitVectorizedReductionFor(cond, incr, body))
+                {
+                    foreach (var name in new List<string>(_locals.Keys))
+                    {
+                        if (!outerLocals.Contains(name))
+                            _locals.Remove(name);
+                    }
+                    foreach (var name in new List<string>(_liftedLocals.Keys))
+                    {
+                        if (!outerLifted.Contains(name))
+                            _liftedLocals.Remove(name);
+                    }
+                    return true;
+                }
+
+                if (TryEmitVectorizedRangeCountFor(cond, incr, body))
                 {
                     foreach (var name in new List<string>(_locals.Keys))
                     {
@@ -5374,6 +5393,32 @@ public sealed class ColumnarIlEmitter
         public MethodInfo Helper { get; }
     }
 
+    private sealed class ColumnarRangeCountShape
+    {
+        public ColumnarRangeCountShape(
+            int counterNode, int arrayNode, int indexNode, int boundNode, int loNode, int hiNode,
+            string counter, string index)
+        {
+            CounterNode = counterNode;
+            ArrayNode = arrayNode;
+            IndexNode = indexNode;
+            BoundNode = boundNode;
+            LoNode = loNode;
+            HiNode = hiNode;
+            Counter = counter;
+            Index = index;
+        }
+
+        public int CounterNode { get; }
+        public int ArrayNode { get; }
+        public int IndexNode { get; }
+        public int BoundNode { get; }
+        public int LoNode { get; }
+        public int HiNode { get; }
+        public string Counter { get; }
+        public string Index { get; }
+    }
+
     // Phase P-1 (columnar): mirror the ILCompiler's canonical counted integer reduction lowering for
     // the columnar node tables, without materializing the C# AST. The matched loop is:
     //   while i < bound { acc = acc + a[i]; i = i + 1 }
@@ -5504,6 +5549,227 @@ public sealed class ColumnarIlEmitter
         if (elementType == typeof(long)) return s_sumInt64Reduction;
         if (elementType == typeof(ulong)) return s_sumUInt64Reduction;
         return null;
+    }
+
+    // Phase P-2 (columnar): mirror the ILCompiler's masked-SIMD range-predicate count lowering for the
+    // columnar node tables. The matched loop is:
+    //   [value := a[i]]
+    //   if subject >= lo && subject <= hi { count++ }
+    // with a unit-stride counted loop around it. The lowering is:
+    //   count += SimdReductions.CountInRangeInt32(array, index, bound, lo, hi); index = max(index, bound)
+    private bool TryEmitVectorizedRangeCountWhile(int whileNode)
+    {
+        if (!TryMatchWhileRangeCount(whileNode, out var shape))
+            return false;
+        return EmitVectorizedRangeCount(shape);
+    }
+
+    private bool TryEmitVectorizedRangeCountFor(int conditionNode, int iteratorStatementNode, int bodyNode)
+    {
+        if (!TryMatchForRangeCount(conditionNode, iteratorStatementNode, bodyNode, out var shape))
+            return false;
+        return EmitVectorizedRangeCount(shape);
+    }
+
+    private bool TryMatchWhileRangeCount(int whileNode, out ColumnarRangeCountShape shape)
+    {
+        shape = null!;
+        if (_childCount[whileNode] != 2)
+            return false;
+        if (!TryMatchReductionCondition(Child(whileNode, 0), out var indexNode, out var indexName, out var boundNode))
+            return false;
+
+        var body = Child(whileNode, 1);
+        if (_kinds[body] != 25)
+            return false;
+
+        int tempStatement;
+        int ifStatement;
+        int incrementStatement;
+        switch (_childCount[body])
+        {
+            case 2:
+                tempStatement = -1;
+                ifStatement = Child(body, 0);
+                incrementStatement = Child(body, 1);
+                break;
+            case 3:
+                tempStatement = Child(body, 0);
+                ifStatement = Child(body, 1);
+                incrementStatement = Child(body, 2);
+                break;
+            default:
+                return false;
+        }
+
+        if (!TryGetExpressionStatementExpression(incrementStatement, out var increment)
+            || !TryMatchUnitIndexIncrement(increment, indexName, allowPostfix: true))
+            return false;
+        return TryMatchRangeCountBody(tempStatement, ifStatement, indexNode, indexName, boundNode, out shape);
+    }
+
+    private bool TryMatchForRangeCount(int conditionNode, int iteratorStatementNode, int bodyNode, out ColumnarRangeCountShape shape)
+    {
+        shape = null!;
+        if (!TryMatchReductionCondition(conditionNode, out var indexNode, out var indexName, out var boundNode))
+            return false;
+        if (!TryGetExpressionStatementExpression(iteratorStatementNode, out var iterator)
+            || !TryMatchUnitIndexIncrement(iterator, indexName, allowPostfix: true))
+            return false;
+
+        int tempStatement;
+        int ifStatement;
+        if (_kinds[bodyNode] == 27)
+        {
+            tempStatement = -1;
+            ifStatement = bodyNode;
+        }
+        else if (_kinds[bodyNode] == 25 && _childCount[bodyNode] == 1)
+        {
+            tempStatement = -1;
+            ifStatement = Child(bodyNode, 0);
+        }
+        else if (_kinds[bodyNode] == 25 && _childCount[bodyNode] == 2)
+        {
+            tempStatement = Child(bodyNode, 0);
+            ifStatement = Child(bodyNode, 1);
+        }
+        else
+        {
+            return false;
+        }
+
+        return TryMatchRangeCountBody(tempStatement, ifStatement, indexNode, indexName, boundNode, out shape);
+    }
+
+    private bool TryMatchRangeCountBody(
+        int tempStatementNode, int ifStatementNode, int indexNode, string indexName, int boundNode,
+        out ColumnarRangeCountShape shape)
+    {
+        shape = null!;
+        if (_kinds[ifStatementNode] != 27 || _childCount[ifStatementNode] != 2)
+            return false;
+        var predicate = Child(ifStatementNode, 0);
+        if (_kinds[predicate] != 12 || _childCount[predicate] != 2 || Text(predicate) != "&&")
+            return false;
+        var ge = Child(predicate, 0);
+        var le = Child(predicate, 1);
+        if (_kinds[ge] != 12 || _childCount[ge] != 2 || Text(ge) != ">="
+            || _kinds[le] != 12 || _childCount[le] != 2 || Text(le) != "<=")
+            return false;
+
+        int arrayNode;
+        string arrayName;
+        string? tempName = null;
+        if (tempStatementNode >= 0)
+        {
+            if (_kinds[tempStatementNode] != 24 || _childCount[tempStatementNode] != 1)
+                return false;
+            tempName = Text(tempStatementNode);
+            if (IsVisibleBindingName(tempName))
+                return false;
+            if (!TryMatchArrayIndexByIdentifier(Child(tempStatementNode, 0), indexName, out arrayNode, out arrayName))
+                return false;
+            if (!TryGetIdentifierName(Child(ge, 0), out var geSubject) || geSubject != tempName)
+                return false;
+            if (!TryGetIdentifierName(Child(le, 0), out var leSubject) || leSubject != tempName)
+                return false;
+        }
+        else
+        {
+            if (!TryMatchArrayIndexByIdentifier(Child(ge, 0), indexName, out arrayNode, out arrayName))
+                return false;
+            if (!TryMatchArrayIndexByIdentifier(Child(le, 0), indexName, out _, out var secondArrayName)
+                || secondArrayName != arrayName)
+                return false;
+        }
+
+        var loNode = Child(ge, 1);
+        var hiNode = Child(le, 1);
+        if (!TryGetSingleRangeBodyStatement(Child(ifStatementNode, 1), out var thenStatement)
+            || !TryGetExpressionStatementExpression(thenStatement, out var counterIncrement)
+            || !TryMatchUnitCounterIncrement(counterIncrement, out var counterNode, out var counterName))
+            return false;
+
+        if (!IsInvariantRangeOperand(loNode, indexName, tempName, counterName)
+            || !IsInvariantRangeOperand(hiNode, indexName, tempName, counterName))
+            return false;
+        if (counterName == arrayName || counterName == indexName || arrayName == indexName)
+            return false;
+        if (tempName != null && (tempName == counterName || tempName == arrayName || tempName == indexName))
+            return false;
+        if (BoundReadsIdentifier(boundNode, counterName)
+            || (tempName != null && BoundReadsIdentifier(boundNode, tempName)))
+            return false;
+
+        return TryBuildRangeCountShape(counterNode, arrayNode, indexNode, boundNode, loNode, hiNode, counterName, arrayName, indexName, out shape);
+    }
+
+    private bool TryBuildRangeCountShape(
+        int counterNode, int arrayNode, int indexNode, int boundNode, int loNode, int hiNode,
+        string counterName, string arrayName, string indexName,
+        out ColumnarRangeCountShape shape)
+    {
+        shape = null!;
+        if (!TryGetPureLocalOrParameterType(counterNode, out _, out var counterType)
+            || !TryGetPureLocalOrParameterType(arrayNode, out _, out var arrayType)
+            || !TryGetPureLocalOrParameterType(indexNode, out _, out var indexType))
+            return false;
+        if (counterType != typeof(int) || arrayType != typeof(int[]) || indexType != typeof(int))
+            return false;
+        if (!IsSideEffectFreeInt32Bound(boundNode, indexName)
+            || !IsSideEffectFreeInt32Operand(loNode)
+            || !IsSideEffectFreeInt32Operand(hiNode))
+            return false;
+
+        shape = new ColumnarRangeCountShape(
+            counterNode, arrayNode, indexNode, boundNode, loNode, hiNode,
+            counterName, indexName);
+        return true;
+    }
+
+    private bool EmitVectorizedRangeCount(ColumnarRangeCountShape shape)
+    {
+        var boundLocal = _il.DeclareLocal(typeof(int));
+        if (!EmitExpression(shape.BoundNode, out var boundType) || boundType != typeof(int))
+            return false;
+        _il.Emit(OpCodes.Stloc, boundLocal);
+
+        var loLocal = _il.DeclareLocal(typeof(int));
+        if (!EmitExpression(shape.LoNode, out var loType) || loType != typeof(int))
+            return false;
+        _il.Emit(OpCodes.Stloc, loLocal);
+
+        var hiLocal = _il.DeclareLocal(typeof(int));
+        if (!EmitExpression(shape.HiNode, out var hiType) || hiType != typeof(int))
+            return false;
+        _il.Emit(OpCodes.Stloc, hiLocal);
+
+        // count = count + CountInRangeInt32(array, index, bound, lo, hi)
+        if (!EmitExpression(shape.CounterNode, out var counterType) || counterType != typeof(int))
+            return false;
+        if (!EmitExpression(shape.ArrayNode, out var arrayType) || arrayType != typeof(int[]))
+            return false;
+        if (!EmitExpression(shape.IndexNode, out var indexType) || indexType != typeof(int))
+            return false;
+        _il.Emit(OpCodes.Ldloc, boundLocal);
+        _il.Emit(OpCodes.Ldloc, loLocal);
+        _il.Emit(OpCodes.Ldloc, hiLocal);
+        _il.Emit(OpCodes.Call, s_countInRangeInt32);
+        _il.Emit(OpCodes.Add);
+        if (!StoreReductionIdentifier(shape.Counter))
+            return false;
+
+        if (!EmitExpression(shape.IndexNode, out indexType) || indexType != typeof(int))
+            return false;
+        _il.Emit(OpCodes.Ldloc, boundLocal);
+        var keepIndexLabel = _il.DefineLabel();
+        _il.Emit(OpCodes.Bge, keepIndexLabel);
+        _il.Emit(OpCodes.Ldloc, boundLocal);
+        if (!StoreReductionIdentifier(shape.Index))
+            return false;
+        _il.MarkLabel(keepIndexLabel);
+        return true;
     }
 
     private bool TryMatchReductionCondition(int conditionNode, out int indexNode, out string indexName, out int boundNode)
@@ -5637,6 +5903,56 @@ public sealed class ColumnarIlEmitter
         return false;
     }
 
+    private bool TryMatchUnitCounterIncrement(int node, out int counterNode, out string counterName)
+    {
+        counterNode = -1;
+        counterName = string.Empty;
+        if (_kinds[node] == 44 && _childCount[node] == 1 && Text(node) == "++")
+        {
+            var target = Child(node, 0);
+            if (!TryGetIdentifierName(target, out counterName))
+                return false;
+            counterNode = target;
+            return true;
+        }
+
+        if (_kinds[node] != 14 || _childCount[node] != 2)
+            return false;
+        var assignmentTarget = Child(node, 0);
+        if (!TryGetIdentifierName(assignmentTarget, out counterName))
+            return false;
+        var op = Text(node);
+        if (op == "+=")
+        {
+            if (!IsLiteralOne(Child(node, 1)))
+                return false;
+            counterNode = assignmentTarget;
+            return true;
+        }
+        if (op != "=")
+            return false;
+        var value = Child(node, 1);
+        if (_kinds[value] != 12
+            || _childCount[value] != 2
+            || Text(value) != "+"
+            || !TryGetIdentifierName(Child(value, 0), out var leftName)
+            || leftName != counterName
+            || !IsLiteralOne(Child(value, 1)))
+            return false;
+        counterNode = assignmentTarget;
+        return true;
+    }
+
+    private bool TryGetSingleRangeBodyStatement(int bodyNode, out int statementNode)
+        => TryGetSingleReductionBodyStatement(bodyNode, out statementNode);
+
+    private bool IsInvariantRangeOperand(int node, string indexName, string? tempName, string counterName)
+    {
+        if (TryGetIdentifierName(node, out var name))
+            return name != indexName && name != counterName && name != tempName;
+        return IsInt32Literal(node);
+    }
+
     private bool IsSideEffectFreeInt32Bound(int node, string indexName)
     {
         if (TryGetIdentifierName(node, out var name))
@@ -5654,6 +5970,13 @@ public sealed class ColumnarIlEmitter
         }
 
         return false;
+    }
+
+    private bool IsSideEffectFreeInt32Operand(int node)
+    {
+        if (TryGetIdentifierName(node, out _))
+            return TryGetPureLocalOrParameterType(node, out _, out var type) && type == typeof(int);
+        return IsInt32Literal(node);
     }
 
     private bool BoundReadsIdentifier(int node, string name)
