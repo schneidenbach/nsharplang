@@ -38,12 +38,7 @@ public readonly record struct ColumnarNameRef(string Name, ColumnarBindingKind K
 /// </summary>
 public sealed class ColumnarNameResolver
 {
-    private readonly int[] _kinds;
-    private readonly int[] _valueStarts;
-    private readonly int[] _valueLengths;
-    private readonly int[] _childStart;
-    private readonly int[] _childCount;
-    private readonly int[] _childIndices;
+    private readonly ColumnarNodeTable _nodes;
     private readonly string _source;
     private readonly HashSet<string> _parameters;
     private readonly HashSet<string> _functions;
@@ -56,12 +51,7 @@ public sealed class ColumnarNameResolver
         int[] childStart, int[] childCount, int[] childIndices, string source,
         IEnumerable<string> parameterNames, IEnumerable<string> functionNames)
     {
-        _kinds = kinds;
-        _valueStarts = valueStarts;
-        _valueLengths = valueLengths;
-        _childStart = childStart;
-        _childCount = childCount;
-        _childIndices = childIndices;
+        _nodes = new ColumnarNodeTable(kinds, valueStarts, valueLengths, childStart, childCount, childIndices);
         _source = source;
         _parameters = new HashSet<string>(parameterNames, System.StringComparer.Ordinal);
         _functions = new HashSet<string>(functionNames, System.StringComparer.Ordinal);
@@ -78,16 +68,16 @@ public sealed class ColumnarNameResolver
 
     private void ResolveStatement(int idx)
     {
-        switch (_kinds[idx])
+        switch (_nodes.Kind(idx))
         {
             case 25: // Block: a new local scope; statements in source order.
                 _localScopes.Add(new HashSet<string>(System.StringComparer.Ordinal));
-                for (var n = 0; n < _childCount[idx]; n++)
+                for (var n = 0; n < _nodes.ChildCount(idx); n++)
                     ResolveStatement(Child(idx, n));
                 _localScopes.RemoveAt(_localScopes.Count - 1);
                 break;
             case 24: // VariableDeclaration (:=): resolve the initializer, THEN the local enters scope.
-                if (_childCount[idx] > 0)
+                if (_nodes.ChildCount(idx) > 0)
                     ResolveExpression(Child(idx, 0));
                 DeclareLocal(Text(idx));
                 break;
@@ -98,11 +88,11 @@ public sealed class ColumnarNameResolver
             case 27: // If [condition, then, else?]
                 ResolveExpression(Child(idx, 0));
                 ResolveStatement(Child(idx, 1));
-                if (_childCount[idx] > 2)
+                if (_nodes.ChildCount(idx) > 2)
                     ResolveStatement(Child(idx, 2));
                 break;
             case 20: // Return [value?]
-                if (_childCount[idx] > 0)
+                if (_nodes.ChildCount(idx) > 0)
                     ResolveExpression(Child(idx, 0));
                 break;
             case 23: // ExpressionStatement [expr]
@@ -114,11 +104,14 @@ public sealed class ColumnarNameResolver
 
     private void ResolveExpression(int idx)
     {
-        switch (_kinds[idx])
+        switch (_nodes.Kind(idx))
         {
             case 6: // IdentifierExpression — the only bare-name lookup.
-                _refs.Add(new ColumnarNameRef(Text(idx), Classify(Text(idx))));
+            {
+                var name = Text(idx);
+                _refs.Add(new ColumnarNameRef(name, Classify(name)));
                 break;
+            }
             case 7: // Parenthesized [inner]
                 ResolveExpression(Child(idx, 0));
                 break;
@@ -126,7 +119,7 @@ public sealed class ColumnarNameResolver
                 ResolveExpression(Child(idx, 0));
                 break;
             case 9: // Call [callee, args...]
-                for (var n = 0; n < _childCount[idx]; n++)
+                for (var n = 0; n < _nodes.ChildCount(idx); n++)
                     ResolveExpression(Child(idx, n));
                 break;
             case 10: // IndexAccess [object, index]
@@ -150,7 +143,7 @@ public sealed class ColumnarNameResolver
                 ResolveExpression(Child(idx, 1));
                 break;
             case 15: // New [type, args...]; child[0] is a TYPE subtree (skip), args are expressions.
-                for (var n = 1; n < _childCount[idx]; n++)
+                for (var n = 1; n < _nodes.ChildCount(idx); n++)
                     ResolveExpression(Child(idx, n));
                 break;
             case 16: // Cast [type, operand]; child[0] is a TYPE subtree (skip), child[1] is the operand.
@@ -185,7 +178,7 @@ public sealed class ColumnarNameResolver
         return ColumnarBindingKind.NotInScope;
     }
 
-    private int Child(int idx, int n) => _childIndices[_childStart[idx] + n];
+    private int Child(int idx, int n) => _nodes.Child(idx, n);
 
-    private string Text(int idx) => _source.Substring(_valueStarts[idx], _valueLengths[idx]);
+    private string Text(int idx) => _nodes.Text(_source, idx);
 }

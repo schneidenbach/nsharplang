@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — Columnar name resolver node table view adopted
+
+`ColumnarNameResolver` now consumes the shared `ColumnarNodeTable` view internally, matching the
+type-inference and diagnostics passes. The constructor remains flattened for the current adapter
+boundary, but lexical name resolution no longer stores node kind/value/child columns as anonymous
+parallel-array fields.
+
+This removes the last raw columnar node-table fields from the small C# columnar analysis/name
+resolution passes. `ColumnarIlEmitter` still owns its larger emitter-local column fields and remains
+a separate, higher-risk migration target.
+
 ## 2026-06-13 — Columnar analyzer node table view introduced
 
 `ColumnarTypeInferer` and `ColumnarDiagnosticsPass` now share a named `ColumnarNodeTable` view for
