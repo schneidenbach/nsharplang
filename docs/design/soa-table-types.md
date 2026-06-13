@@ -218,7 +218,8 @@ ownership lands.
    import/top-level/member/case output columns behind named table wrappers.
 6. In progress: port symbol/type/diagnostic tables. `SemanticScopes.nl` now wraps source-position,
    parent/symbol-range, sorted-index, symbol-name, depth-output, and name-set scratch columns behind
-   normal table structs while preserving the flattened dogfood adapter ABI.
+   normal table structs, and `TypeLookup.nl` wraps declared-type lookup and type-creation ordering
+   tables the same way. Both slices preserve the flattened dogfood adapter ABI.
 7. Only after those gates pass, start replacing C# emitter/analyzer internals that still require untyped
    parallel-array plumbing.
 

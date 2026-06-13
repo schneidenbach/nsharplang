@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — Declared type lookup tables wrapped
+
+`TypeLookup.nl` now groups declared-type lookup columns behind named normal structs for suffix rank
+lookup, imported-name candidate selection, exact-name fallback, and type-creation ordering scratch.
+The production dogfood adapter and parity corpus still call the same flattened functions, while the
+core loops now operate on explicit type-table wrappers.
+
+This is the first type-table slice in the post-parser table pass, following the semantic scope
+symbol tables. Remaining work in this group is the diagnostic clustering/deduplication tables and
+other symbol/type kernels that still carry anonymous parallel arrays.
+
 ## 2026-06-13 — Semantic scope symbol tables wrapped
 
 `SemanticScopes.nl` now groups the semantic-scope columns behind named normal structs for source
