@@ -64,6 +64,57 @@ func Greeting(): string {
     }
 
     [Fact]
+    public void MultiFileCompiler_ExperimentalSoaFallsBackToIlWhenColumnarRouteIsEnabled()
+    {
+        var tempDir = CreateTempDir();
+        using var experimentalSoa = SetEnvironmentVariable("NSHARP_EXPERIMENTAL_SOA", "1");
+        using var columnarBackend = SetEnvironmentVariable("NSHARP_COLUMNAR_BACKEND", "1");
+
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: SoaFallbackProject
+backend: il
+outputType: exe
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+soa record NodeTable {
+    kind: int
+    start: int
+}
+
+func main() {
+    nodes := new NodeTable(1)
+    row := nodes.add()
+    nodes[row].kind = 7
+    nodes[row].start = 9
+    print nodes[row].kind + nodes[row].start + nodes.length
+}
+""");
+
+            var config = ProjectFileParser.Parse(Path.Combine(tempDir, "project.yml"));
+            var outputDir = Path.Combine(tempDir, "artifacts");
+            Directory.CreateDirectory(outputDir);
+
+            var compiler = new MultiFileCompiler(tempDir, config);
+            var outputPath = Path.Combine(outputDir, "SoaFallbackProject.dll");
+            var result = compiler.CompileToIlAssembly("SoaFallbackProject", outputPath);
+
+            Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors.Select(error => error.Message)));
+            CompilationArtifacts.WriteRuntimeConfig(config, outputPath);
+
+            var runResult = DotnetRunner.Run($"\"{outputPath}\"", workingDirectory: tempDir);
+            Assert.Equal(0, runResult.ExitCode);
+            Assert.Contains("17", runResult.Stdout);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void MultiFileCompiler_CanBuildPackageFirstSourceWithImports()
     {
         var tempDir = CreateTempDir();
@@ -1842,6 +1893,21 @@ func main(): void {
         var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-backend-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempDir);
         return tempDir;
+    }
+
+    private static IDisposable SetEnvironmentVariable(string name, string? value)
+    {
+        var previousValue = Environment.GetEnvironmentVariable(name);
+        Environment.SetEnvironmentVariable(name, value);
+        return new RestoreEnvironmentVariable(name, previousValue);
+    }
+
+    private sealed class RestoreEnvironmentVariable(string name, string? previousValue) : IDisposable
+    {
+        public void Dispose()
+        {
+            Environment.SetEnvironmentVariable(name, previousValue);
+        }
     }
 
     private static string GetPublishedAppPath(string publishDir, string assemblyName)

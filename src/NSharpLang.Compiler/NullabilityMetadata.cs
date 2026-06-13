@@ -73,6 +73,7 @@ public static class NullabilityMetadata
         StructTypeInfo s => s.Declaration.Name,
         RecordTypeInfo r => r.Declaration.Name,
         SoaRecordTypeInfo soa => soa.Declaration.Name,
+        SoaRowTypeInfo row => $"{row.Declaration.Name}.Row",
         InterfaceTypeInfo i => i.Declaration.Name,
         EnumTypeInfo e => e.Declaration.Name,
         UnionTypeInfo { IsAnonymous: true } u => string.Join(" | ", u.Arms.Select(FormatTypeInfo)),

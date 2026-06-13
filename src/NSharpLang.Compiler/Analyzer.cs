@@ -1209,13 +1209,28 @@ public class Analyzer : IDisposable
             ResolveDeclaredType(column.Type);
         }
 
-        Error(
-            ErrorCode.FeatureNotImplemented,
-            $"soa record '{soaRecordDecl.Name}' is parsed but not available in production builds yet",
-            soaRecordDecl.Line,
-            soaRecordDecl.Column,
-            suggestion: "Keep using regular records until the struct-of-arrays emitter slice lands",
-            length: "soa".Length);
+        if (!SoaFeature.IsEnabled)
+        {
+            Error(
+                ErrorCode.FeatureNotImplemented,
+                $"soa record '{soaRecordDecl.Name}' is parsed but not available in production builds yet",
+                soaRecordDecl.Line,
+                soaRecordDecl.Column,
+                suggestion: "Set NSHARP_EXPERIMENTAL_SOA=1 only for the compiler table migration gate; otherwise keep using regular records",
+                length: "soa".Length);
+            return;
+        }
+
+        if (_currentTypeName != null)
+        {
+            Error(
+                ErrorCode.FeatureNotImplemented,
+                $"nested soa record '{soaRecordDecl.Name}' is not part of the experimental lowering slice yet",
+                soaRecordDecl.Line,
+                soaRecordDecl.Column,
+                suggestion: "Move the soa record to top level while the wrapper ABI is being proven",
+                length: "soa".Length);
+        }
     }
 
     private void AnalyzeInterfaceDeclaration(InterfaceDeclaration interfaceDecl)
@@ -3132,6 +3147,11 @@ public class Analyzer : IDisposable
             finalType = BuiltInTypes.Unknown;
         }
 
+        if (finalType is SoaRowTypeInfo && varDecl.Initializer != null)
+        {
+            ReportSoaRowEscape(varDecl.Initializer, "stored in a variable");
+        }
+
         DeclareSymbol(varDecl.Name, finalType, varDecl.Line, varDecl.Column, "local");
 
         // Record in semantic model for IDE features (scoped)
@@ -3657,6 +3677,11 @@ public class Analyzer : IDisposable
             _currentExpectedType = expectedReturnValueType;
             var returnedType = AnalyzeExpression(returnStmt.Value);
             _currentExpectedType = previousExpectedType;
+            if (returnedType is SoaRowTypeInfo)
+            {
+                ReportSoaRowEscape(returnStmt.Value, "returned");
+            }
+
             if (!IsAssignable(expectedReturnValueType, returnedType))
             {
                 // Use ErrorMessageBuilder for better error message
@@ -5271,6 +5296,11 @@ public class Analyzer : IDisposable
                 : arrayType.ElementType;
         }
 
+        if (!isRangeAccess && receiverType is SoaRecordTypeInfo soaRecordType)
+        {
+            return new SoaRowTypeInfo(soaRecordType.Declaration);
+        }
+
         if (IsStringType(receiverType))
         {
             return isRangeAccess
@@ -5666,7 +5696,7 @@ public class Analyzer : IDisposable
             GenericTypeInfo => TryConvertTypeInfoToClrType(receiverType) != null,
             ReflectionTypeInfo reflection when IsSystemObjectType(reflection.Type) => false,
             ReflectionTypeInfo reflection => HasReliableReflectionMemberSet(reflection.Type),
-            ClassTypeInfo or StructTypeInfo or RecordTypeInfo
+            ClassTypeInfo or StructTypeInfo or RecordTypeInfo or SoaRecordTypeInfo or SoaRowTypeInfo
                 or InterfaceTypeInfo or EnumTypeInfo or UnionTypeInfo or NewtypeInfo
                 or TupleTypeInfo => true,
             NullableTypeInfo nullable => ShouldReportUndefinedMember(nullable.InnerType, memberName, includeStaticMembers),
@@ -5834,6 +5864,21 @@ public class Analyzer : IDisposable
             members.AddRange(GetPrimaryConstructorParameterNames(recordType.Declaration.PrimaryConstructorParameters, includeStaticMembers));
             members.AddRange(GetSourceObjectMemberNames(includeStaticMembers));
             return members;
+        }
+
+        if (receiverType is SoaRecordTypeInfo soaRecordType)
+        {
+            if (includeStaticMembers)
+                return new List<string> { "wrap" };
+
+            var members = soaRecordType.Declaration.Columns.Select(column => column.Name).ToList();
+            members.AddRange(new[] { "length", "capacity", "add", "clear", "ensureCapacity", "copyRow" });
+            return members;
+        }
+
+        if (receiverType is SoaRowTypeInfo soaRowType)
+        {
+            return soaRowType.Declaration.Columns.Select(column => column.Name).ToList();
         }
 
         if (receiverType is InterfaceTypeInfo interfaceType)
@@ -6030,6 +6075,48 @@ public class Analyzer : IDisposable
                 return BuiltInTypes.Bool;
             if (memberName == "Value")
                 return nullableType.InnerType;
+        }
+
+        if (objectType is SoaRowTypeInfo soaRowType)
+        {
+            if (TryGetSoaColumn(soaRowType.Declaration, memberName) is { } rowColumn)
+                return ResolveType(rowColumn.Type);
+
+            return BuiltInTypes.Unknown;
+        }
+
+        if (objectType is SoaRecordTypeInfo soaRecordType)
+        {
+            if (!includeStaticMembers)
+            {
+                if (TryGetSoaColumn(soaRecordType.Declaration, memberName) is { } column)
+                    return new ArrayTypeInfo(ResolveType(column.Type));
+
+                return memberName switch
+                {
+                    "length" or "capacity" => BuiltInTypes.Int,
+                    "add" => CreateSoaIntrinsicFunction(BuiltInTypes.Int),
+                    "clear" => CreateSoaIntrinsicFunction(BuiltInTypes.Void),
+                    "ensureCapacity" => CreateSoaIntrinsicFunction(BuiltInTypes.Void, BuiltInTypes.Int),
+                    "copyRow" => CreateSoaIntrinsicFunction(BuiltInTypes.Void, BuiltInTypes.Int, BuiltInTypes.Int),
+                    _ => BuiltInTypes.Unknown
+                };
+            }
+
+            if (memberName == "wrap")
+            {
+                var parameterTypes = soaRecordType.Declaration.Columns
+                    .Select(column => new ArrayTypeInfo(ResolveType(column.Type)) as TypeInfo)
+                    .Concat(new[] { BuiltInTypes.Int })
+                    .ToList();
+                return new FunctionTypeInfo(null)
+                {
+                    ParameterTypes = parameterTypes,
+                    ReturnType = soaRecordType
+                };
+            }
+
+            return BuiltInTypes.Unknown;
         }
 
         // Convert built-in simple types to reflection types for full CLR member resolution.
@@ -6276,6 +6363,30 @@ public class Analyzer : IDisposable
 
         memberType = BuiltInTypes.Unknown;
         return false;
+    }
+
+    private static SoaColumnDeclaration? TryGetSoaColumn(SoaRecordDeclaration declaration, string name)
+        => declaration.Columns.FirstOrDefault(column => column.Name == name);
+
+    private static FunctionTypeInfo CreateSoaIntrinsicFunction(TypeInfo returnType, params TypeInfo[] parameterTypes)
+    {
+        return new FunctionTypeInfo(null)
+        {
+            ParameterTypes = parameterTypes.ToList(),
+            ReturnType = returnType
+        };
+    }
+
+    private void ReportSoaRowEscape(Expression expression, string action)
+    {
+        var (line, column, length) = GetExpressionDiagnosticSpan(expression);
+        Error(
+            ErrorCode.InvalidSyntax,
+            $"SoA row views cannot be {action}; use the table and row index instead",
+            line,
+            column,
+            "Read or write a column with table[index].column in the same expression.",
+            length);
     }
 
     /// <summary>
@@ -7382,6 +7493,14 @@ public class Analyzer : IDisposable
                     continue;
                 }
                 argTypes.Add(AnalyzeExpressionWithExpectedType(arg.Value, null, allowUnboundCallableReference: isMethodGroup));
+            }
+        }
+
+        for (var i = 0; i < argTypes.Count; i++)
+        {
+            if (argTypes[i] is SoaRowTypeInfo)
+            {
+                ReportSoaRowEscape(call.Arguments[i].Value, "passed as an argument");
             }
         }
 
@@ -16766,6 +16885,11 @@ public record RecordTypeInfo(RecordDeclaration Declaration) : TypeInfo
 public record SoaRecordTypeInfo(SoaRecordDeclaration Declaration) : TypeInfo
 {
     public override string ToString() => Declaration.Name;
+}
+
+public record SoaRowTypeInfo(SoaRecordDeclaration Declaration) : TypeInfo
+{
+    public override string ToString() => $"{Declaration.Name}.Row";
 }
 
 public record InterfaceTypeInfo(InterfaceDeclaration Declaration) : TypeInfo

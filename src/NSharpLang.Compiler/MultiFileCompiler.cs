@@ -1018,6 +1018,9 @@ public class MultiFileCompiler
     {
         if (_sourceFiles.Count == 0)
             return false;
+        if (SoaFeature.IsEnabled && _compilationUnits.Values.Any(unit => ContainsSoaRecordDeclaration(unit.Declarations)))
+            return false;
+
         var sources = new List<string>(_sourceFiles.Count);
         foreach (var sourceFile in _sourceFiles)
         {
@@ -1034,6 +1037,25 @@ public class MultiFileCompiler
             return false;
         File.WriteAllBytes(outputPath, assembly);
         return true;
+    }
+
+    private static bool ContainsSoaRecordDeclaration(IEnumerable<Declaration> declarations)
+    {
+        foreach (var declaration in declarations)
+        {
+            switch (declaration)
+            {
+                case SoaRecordDeclaration:
+                    return true;
+                case ClassDeclaration classDeclaration when ContainsSoaRecordDeclaration(classDeclaration.Members):
+                case StructDeclaration structDeclaration when ContainsSoaRecordDeclaration(structDeclaration.Members):
+                case RecordDeclaration recordDeclaration when ContainsSoaRecordDeclaration(recordDeclaration.Members):
+                case InterfaceDeclaration interfaceDeclaration when ContainsSoaRecordDeclaration(interfaceDeclaration.Members):
+                    return true;
+            }
+        }
+
+        return false;
     }
 
     private CompilationUnit CreateMergedCompilationUnit()

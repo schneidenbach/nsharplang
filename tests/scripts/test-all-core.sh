@@ -216,7 +216,8 @@ SETS = {
 # two lists in sync; GateStepInputSetGuardTests enforces it). A marker stored
 # under one environment must never satisfy a run under another.
 ENV_NAMES = ("VSCODE_TESTS", "TEST_SUITE", "TEST_GREP", "TEST_ALL_JOBS",
-             "NLC_MSBUILD_SINGLE_NODE", "DOTNET_ROOT", "NSHARP_COLUMNAR_BACKEND")
+             "NLC_MSBUILD_SINGLE_NODE", "DOTNET_ROOT", "NSHARP_COLUMNAR_BACKEND",
+             "NSHARP_EXPERIMENTAL_SOA")
 
 def run_text(command):
     try:

@@ -119,6 +119,8 @@ public class GateStepInputSetGuardTests
 
         Assert.Contains("NSHARP_COLUMNAR_BACKEND", coreEnvNames);
         Assert.Contains("NSHARP_COLUMNAR_BACKEND", gateEnvNames);
+        Assert.Contains("NSHARP_EXPERIMENTAL_SOA", coreEnvNames);
+        Assert.Contains("NSHARP_EXPERIMENTAL_SOA", gateEnvNames);
         Assert.True(
             coreEnvNames.ToHashSet().SetEquals(gateEnvNames),
             "The per-step salt ENV_NAMES (tests/scripts/test-all-core.sh) and the whole-gate "

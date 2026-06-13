@@ -1,8 +1,8 @@
 # SoA Table Types
 
-**Status:** Design gate for the emitter-port phase. This document is the contract for adding a
-small N# surface that makes the existing columnar compiler tables pleasant to write without changing
-their layout.
+**Status:** Design gate plus first experimental wrapper-lowering slice for the emitter-port phase.
+This document is the contract for adding a small N# surface that makes the existing columnar compiler
+tables pleasant to write without changing their layout.
 
 ## Goal
 
@@ -176,10 +176,24 @@ Benchmark gate:
   BenchmarkDotNet tolerance;
 - if an ergonomic SoA rewrite slows a hot kernel, the rewrite is reverted or lowered more directly.
 
+## Current Experimental Slice
+
+`NSHARP_EXPERIMENTAL_SOA=1` enables the first direct-IL proof slice for top-level, non-generic SoA
+records. The slice emits a sealed value-type wrapper with one public array field per column plus
+`length` and `capacity`, supports `new Table(capacity)`, zero-copy `Table.wrap(columns..., length)`,
+column access, row projection, `add`, `clear`, `ensureCapacity`, and `copyRow`, and keeps row views
+non-escapable at analysis time. While the flag is enabled, `MultiFileCompiler` deliberately falls
+back from the default columnar backend to the C# IL backend for programs containing SoA declarations;
+the columnar backend does not own this surface yet.
+
+The flag is for compiler table-migration gates only. Production builds without the flag still report
+`NL323 FeatureNotImplemented` for every `soa record`.
+
 ## Migration Plan
 
 1. Done: add the parser and analyzer surface for non-generic `soa record` declarations, with no production use.
-2. Lower `new`, `wrap`, column access, row projection, `length`, and `capacity` to the existing arrays.
+2. Done behind `NSHARP_EXPERIMENTAL_SOA=1`: lower `new`, `wrap`, column access, row projection, `length`,
+   `capacity`, and the core table operations to wrapper-backed arrays in the direct IL backend.
 3. Port one cold parity-corpus table to prove diagnostics and IL shape.
 4. Port `ParserState` from `st: int[]` to a small normal struct only after member writes and by-ref lowering
    are proven; do not mix that with SoA table columns.

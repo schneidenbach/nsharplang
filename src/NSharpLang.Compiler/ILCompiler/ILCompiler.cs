@@ -9820,7 +9820,7 @@ public partial class ILCompiler
     /// </summary>
     public void Compile()
     {
-        if (FindSoaRecordDeclaration(_compilationUnit.Declarations) is { } soaRecord)
+        if (!SoaFeature.IsEnabled && FindSoaRecordDeclaration(_compilationUnit.Declarations) is { } soaRecord)
         {
             throw new InvalidOperationException(
                 $"compiler bug: soa record '{soaRecord.Name}' reached IL emission before the struct-of-arrays emitter is implemented");
@@ -9890,6 +9890,10 @@ public partial class ILCompiler
             else if (declaration is RecordDeclaration recordDecl)
             {
                 DeclareRecord(_moduleBuilder, recordDecl);
+            }
+            else if (declaration is SoaRecordDeclaration soaRecordDecl)
+            {
+                DeclareSoaRecord(_moduleBuilder, soaRecordDecl);
             }
             else if (declaration is InterfaceDeclaration interfaceDecl)
             {
@@ -16639,6 +16643,11 @@ public partial class ILCompiler
         // Handle member access assignments (obj.Field = value)
         if (assignment.Target is MemberAccessExpression memberAccess)
         {
+            if (TryEmitSoaRowColumnAssignment(assignment, memberAccess, leaveValueOnStack))
+            {
+                return;
+            }
+
             if (TryResolveStaticContainer(memberAccess.Object, out var staticType))
             {
                 var staticMemberType = GetMemberAccessType(memberAccess);
@@ -18776,6 +18785,11 @@ public partial class ILCompiler
             return;
         }
 
+        if (!memberAccess.IsNullConditional && TryEmitSoaRowColumnLoad(memberAccess))
+        {
+            return;
+        }
+
         if (memberAccess.IsNullConditional)
         {
             var nonNullMemberAccess = memberAccess with { IsNullConditional = false };
@@ -19981,6 +19995,11 @@ public partial class ILCompiler
         if (memberAccess.IsNullConditional)
         {
             return GetNullConditionalResultType(GetMemberAccessType(unwrapNullConditional));
+        }
+
+        if (TryGetSoaRowColumnType(unwrapNullConditional, out var soaColumnType))
+        {
+            return soaColumnType;
         }
 
         if (TryResolveStaticContainer(unwrapNullConditional.Object, out var staticType))

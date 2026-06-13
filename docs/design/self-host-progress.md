@@ -11,6 +11,30 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — SoA wrapper ABI proof: direct IL lowering behind a migration flag
+
+The first SoA lowering slice is implemented behind `NSHARP_EXPERIMENTAL_SOA=1`. Top-level
+non-generic `soa record` declarations now emit a sealed value-type wrapper with one CLR array field
+per column plus `length` and `capacity`. The direct IL backend supports `new Table(capacity)`,
+zero-copy `Table.wrap(columns..., length)`, column access, row projection (`table[i].column`),
+`add`, `clear`, `ensureCapacity`, and `copyRow`. Row projections lower directly to column array
+loads/stores, and analyzer row-view escape checks reject storing row views as values.
+
+Production builds stay gated: without the flag, SoA still reports `NL323 FeatureNotImplemented`.
+When the flag is enabled, `MultiFileCompiler` skips the default columnar route for programs that
+contain SoA declarations and falls back to the direct IL backend, because the standalone columnar
+emitter does not own this table surface yet.
+
+Coverage: focused SoA tests pin analyzer gating, flagged table/member typing, row escape diagnostics,
+direct IL execution for allocation/growth/row projection, zero-copy wrap, copy/clear operations, and
+production multi-file fallback with columnar routing enabled.
+
+NEXT: port one cold compiler table to this wrapper surface, verify emitted row-projection IL shape,
+then decide whether the next slice is flattened hot-function ABI lowering or direct columnar emitter
+ownership for SoA declarations.
+
+---
+
 ## 2026-06-13 — SoA syntax slice: non-generic declarations parse, query, and gate
 
 The first implementation slice for the emitter-port table model is in place without enabling production

@@ -227,6 +227,7 @@ env_names = [
     "NLC_MSBUILD_SINGLE_NODE",
     "DOTNET_ROOT",
     "NSHARP_COLUMNAR_BACKEND",
+    "NSHARP_EXPERIMENTAL_SOA",
 ]
 
 signature = {
