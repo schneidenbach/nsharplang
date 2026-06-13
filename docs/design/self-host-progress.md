@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — Production overload candidate tables wrapped
+
+`OverloadCandidates.nl` now groups compact overload score columns, candidate parameter-type ranges,
+argument type buffers, batch call slices, and selection results behind named normal structs. The
+public IL-compiler dogfood adapter ABI remains the same flattened arrays, while the single-call,
+table-backed, and batch selector cores operate on explicit overload-candidate table wrappers.
+
+This routes the production overload-candidate kernel through the same wrapper pattern that the
+earlier experimental SoA fixture proved, without enabling the experimental `soa record` surface in
+the dogfood project.
+
 ## 2026-06-13 — Binding lookup tables wrapped
 
 `BindingLookup.nl` now groups declaration, binding, query, candidate-column, nearest-declaration,
