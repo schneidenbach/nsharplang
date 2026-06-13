@@ -18,6 +18,80 @@
 // materializes "A.B.C"). Returns 1 and fills outResult[0]=start, outResult[1]=length when a package is
 // present; returns 0 otherwise (matching CompilationUnit.Package == null). The package keyword is only
 // recognized at depth 0, before any declaration body.
+struct NamespaceImportTable {
+    NsStarts: int[]
+    NsLengths: int[]
+    AliasStarts: int[]
+    AliasLengths: int[]
+}
+
+struct TopLevelDeclarationModifierTable {
+    Kinds: int[]
+    Modifiers: int[]
+}
+
+struct TopLevelDeclarationKindTable {
+    Kinds: int[]
+}
+
+struct TopLevelDeclarationNameTable {
+    Kinds: int[]
+    NameStarts: int[]
+    NameLengths: int[]
+}
+
+struct InterfaceDeclarationTable {
+    MethodFuncIndices: int[]
+    BaseNameStarts: int[]
+    BaseNameLengths: int[]
+}
+
+struct EnumMemberTable {
+    NameStarts: int[]
+    NameLengths: int[]
+    ValueStarts: int[]
+    ValueLengths: int[]
+    HasValue: int[]
+}
+
+struct StructDeclarationTable {
+    FieldNameStarts: int[]
+    FieldNameLengths: int[]
+    FieldTypeStarts: int[]
+    FieldTypeLengths: int[]
+    FieldStaticFlags: int[]
+    FieldInitKinds: int[]
+    FieldInitStarts: int[]
+    FieldInitLengths: int[]
+    MethodFuncIndices: int[]
+    MethodStaticFlags: int[]
+    CtorIndices: int[]
+    PropIndices: int[]
+    PropStaticFlags: int[]
+    TypeParamStarts: int[]
+    TypeParamLengths: int[]
+    BaseNameStarts: int[]
+    BaseNameLengths: int[]
+}
+
+struct ConstructorChainArgTable {
+    Kinds: int[]
+    Starts: int[]
+    Lengths: int[]
+}
+
+struct UnionDeclarationTable {
+    CaseNameStarts: int[]
+    CaseNameLengths: int[]
+    CaseFieldCounts: int[]
+    FieldNameStarts: int[]
+    FieldNameLengths: int[]
+    FieldTypeStarts: int[]
+    FieldTypeLengths: int[]
+    TypeParamStarts: int[]
+    TypeParamLengths: int[]
+}
+
 func PackageNameSpanInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, outResult: int[]): int {
     braceDepth := 0
     i := 0
@@ -69,6 +143,7 @@ func PackageNameSpanInto(tokenKinds: int[], tokenStarts: int[], tokenValueLength
 // (imports/package are at depth 0, before any brace) and records each namespace import's dotted-name
 // span and optional alias span (alias start = -1 when none). The host materializes the strings.
 func NamespaceImportSpansInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, outNsStarts: int[], outNsLengths: int[], outAliasStarts: int[], outAliasLengths: int[]): int {
+    imports := new NamespaceImportTable { NsStarts: outNsStarts, NsLengths: outNsLengths, AliasStarts: outAliasStarts, AliasLengths: outAliasLengths }
     outCount := 0
     i := 0
     while i < count {
@@ -112,10 +187,10 @@ func NamespaceImportSpansInto(tokenKinds: int[], tokenStarts: int[], tokenValueL
                     }
                 }
 
-                outNsStarts[outCount] = nsStart
-                outNsLengths[outCount] = nsEnd - nsStart
-                outAliasStarts[outCount] = aliasStart
-                outAliasLengths[outCount] = aliasLength
+                imports.NsStarts[outCount] = nsStart
+                imports.NsLengths[outCount] = nsEnd - nsStart
+                imports.AliasStarts[outCount] = aliasStart
+                imports.AliasLengths[outCount] = aliasLength
                 outCount = outCount + 1
                 continue
             }
@@ -184,6 +259,7 @@ func ModifierFlag(kind: int): int {
 // from `where` until the body `{` (which also ends the signature). All three top-level scanners share
 // this rule.
 func TopLevelDeclarationModifiersInto(tokenKinds: int[], count: int, outKinds: int[], outModifiers: int[]): int {
+    decls := new TopLevelDeclarationModifierTable { Kinds: outKinds, Modifiers: outModifiers }
     braceDepth := 0
     bracketDepth := 0
     parenDepth := 0
@@ -225,8 +301,8 @@ func TopLevelDeclarationModifiersInto(tokenKinds: int[], count: int, outKinds: i
                 if flag != 0 {
                     pending = pending | flag
                 } else if IsTopLevelDeclarationKeyword(kind) {
-                    outKinds[outCount] = kind
-                    outModifiers[outCount] = pending
+                    decls.Kinds[outCount] = kind
+                    decls.Modifiers[outCount] = pending
                     outCount = outCount + 1
                     pending = 0
                 }
@@ -250,6 +326,7 @@ func IsTopLevelDeclarationKeyword(kind: int): bool {
 // C# TestDeclaration's string name is out of scope for this slice. The host materializes the name from
 // source via outNameStarts/outNameLengths.
 func TopLevelDeclarationNameSpansInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, outKinds: int[], outNameStarts: int[], outNameLengths: int[]): int {
+    decls := new TopLevelDeclarationNameTable { Kinds: outKinds, NameStarts: outNameStarts, NameLengths: outNameLengths }
     braceDepth := 0
     bracketDepth := 0
     parenDepth := 0
@@ -286,13 +363,13 @@ func TopLevelDeclarationNameSpansInto(tokenKinds: int[], tokenStarts: int[], tok
             if kind == 53 {
                 inWhereClause = true
             } else if !inWhereClause && IsTopLevelDeclarationKeyword(kind) {
-                outKinds[outCount] = kind
+                decls.Kinds[outCount] = kind
                 if i + 1 < count && tokenKinds[i + 1] == 0 {
-                    outNameStarts[outCount] = tokenStarts[i + 1]
-                    outNameLengths[outCount] = tokenValueLengths[i + 1]
+                    decls.NameStarts[outCount] = tokenStarts[i + 1]
+                    decls.NameLengths[outCount] = tokenValueLengths[i + 1]
                 } else {
-                    outNameStarts[outCount] = -1
-                    outNameLengths[outCount] = 0
+                    decls.NameStarts[outCount] = -1
+                    decls.NameLengths[outCount] = 0
                 }
 
                 outCount = outCount + 1
@@ -306,6 +383,7 @@ func TopLevelDeclarationNameSpansInto(tokenKinds: int[], tokenStarts: int[], tok
 }
 
 func TopLevelDeclarationKindsInto(tokenKinds: int[], count: int, outKinds: int[]): int {
+    decls := new TopLevelDeclarationKindTable { Kinds: outKinds }
     braceDepth := 0
     bracketDepth := 0
     parenDepth := 0
@@ -342,7 +420,7 @@ func TopLevelDeclarationKindsInto(tokenKinds: int[], count: int, outKinds: int[]
             if kind == 53 {
                 inWhereClause = true
             } else if !inWhereClause && IsTopLevelDeclarationKeyword(kind) {
-                outKinds[outCount] = kind
+                decls.Kinds[outCount] = kind
                 outCount = outCount + 1
             }
         }
@@ -372,6 +450,7 @@ func TopLevelDeclarationKindsInto(tokenKinds: int[], count: int, outKinds: int[]
 // = base interface count, with base-name spans in outBaseNameStarts/Lengths. Returns the method
 // count, -1 on any parse failure. Generic interfaces (`<` after the name) remain unmodeled -> -1.
 func ParseInterfaceDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, interfaceIndex: int, outMethodFuncIndices: int[], outBaseNameStarts: int[], outBaseNameLengths: int[], outResult: int[]): int {
+    decl := new InterfaceDeclarationTable { MethodFuncIndices: outMethodFuncIndices, BaseNameStarts: outBaseNameStarts, BaseNameLengths: outBaseNameLengths }
     pos := interfaceIndex
     if pos >= count || tokenKinds[pos] != 10 {
         return -1
@@ -396,8 +475,8 @@ func ParseInterfaceDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenV
             if pos >= count || tokenKinds[pos] != 0 {
                 return -1
             }
-            outBaseNameStarts[baseCount] = tokenStarts[pos]
-            outBaseNameLengths[baseCount] = tokenValueLengths[pos]
+            decl.BaseNameStarts[baseCount] = tokenStarts[pos]
+            decl.BaseNameLengths[baseCount] = tokenValueLengths[pos]
             baseCount = baseCount + 1
             pos = pos + 1
 
@@ -420,7 +499,7 @@ func ParseInterfaceDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenV
         if tokenKinds[pos] != 7 {
             return -1
         }
-        outMethodFuncIndices[methodCount] = pos
+        decl.MethodFuncIndices[methodCount] = pos
         pos = pos + 1
         while pos < count && tokenKinds[pos] != 7 && tokenKinds[pos] != 130 {
             if tokenKinds[pos] == 129 {
@@ -450,6 +529,7 @@ func ParseInterfaceDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenV
 }
 
 func ParseEnumDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, enumIndex: int, outNameStarts: int[], outNameLengths: int[], outValueStarts: int[], outValueLengths: int[], outHasValue: int[], outResult: int[]): int {
+    members := new EnumMemberTable { NameStarts: outNameStarts, NameLengths: outNameLengths, ValueStarts: outValueStarts, ValueLengths: outValueLengths, HasValue: outHasValue }
     pos := enumIndex
     if pos >= count || tokenKinds[pos] != 14 {
         return -1
@@ -473,11 +553,11 @@ func ParseEnumDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValueL
         if tokenKinds[pos] != 0 {
             return -1
         }
-        outNameStarts[memberCount] = tokenStarts[pos]
-        outNameLengths[memberCount] = tokenValueLengths[pos]
-        outHasValue[memberCount] = 0
-        outValueStarts[memberCount] = -1
-        outValueLengths[memberCount] = 0
+        members.NameStarts[memberCount] = tokenStarts[pos]
+        members.NameLengths[memberCount] = tokenValueLengths[pos]
+        members.HasValue[memberCount] = 0
+        members.ValueStarts[memberCount] = -1
+        members.ValueLengths[memberCount] = 0
         pos = pos + 1
 
         if pos < count && tokenKinds[pos] == 93 {
@@ -485,9 +565,9 @@ func ParseEnumDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValueL
             if pos >= count || tokenKinds[pos] != 1 {
                 return -1
             }
-            outHasValue[memberCount] = 1
-            outValueStarts[memberCount] = tokenStarts[pos]
-            outValueLengths[memberCount] = tokenValueLengths[pos]
+            members.HasValue[memberCount] = 1
+            members.ValueStarts[memberCount] = tokenStarts[pos]
+            members.ValueLengths[memberCount] = tokenValueLengths[pos]
             pos = pos + 1
         }
 
@@ -540,6 +620,7 @@ func ParseEnumDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValueL
 // an INSTANCE field, and `static constructor` are not yet modelled and return -1 — the host declines the whole
 // program to the C# path.
 func ParseStructDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, structIndex: int, outFieldNameStarts: int[], outFieldNameLengths: int[], outFieldTypeStarts: int[], outFieldTypeLengths: int[], outFieldStaticFlags: int[], outFieldInitKinds: int[], outFieldInitStarts: int[], outFieldInitLengths: int[], outMethodFuncIndices: int[], outMethodStaticFlags: int[], outCtorIndices: int[], outPropIndices: int[], outPropStaticFlags: int[], outTypeParamStarts: int[], outTypeParamLengths: int[], outBaseNameStarts: int[], outBaseNameLengths: int[], outResult: int[]): int {
+    decl := new StructDeclarationTable { FieldNameStarts: outFieldNameStarts, FieldNameLengths: outFieldNameLengths, FieldTypeStarts: outFieldTypeStarts, FieldTypeLengths: outFieldTypeLengths, FieldStaticFlags: outFieldStaticFlags, FieldInitKinds: outFieldInitKinds, FieldInitStarts: outFieldInitStarts, FieldInitLengths: outFieldInitLengths, MethodFuncIndices: outMethodFuncIndices, MethodStaticFlags: outMethodStaticFlags, CtorIndices: outCtorIndices, PropIndices: outPropIndices, PropStaticFlags: outPropStaticFlags, TypeParamStarts: outTypeParamStarts, TypeParamLengths: outTypeParamLengths, BaseNameStarts: outBaseNameStarts, BaseNameLengths: outBaseNameLengths }
     pos := structIndex
     if pos >= count || (tokenKinds[pos] != 9 && tokenKinds[pos] != 13 && tokenKinds[pos] != 8) {
         return -1
@@ -566,8 +647,8 @@ func ParseStructDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValu
             if tokenKinds[pos] != 0 {
                 return -1
             }
-            outTypeParamStarts[typeParamCount] = tokenStarts[pos]
-            outTypeParamLengths[typeParamCount] = tokenValueLengths[pos]
+            decl.TypeParamStarts[typeParamCount] = tokenStarts[pos]
+            decl.TypeParamLengths[typeParamCount] = tokenValueLengths[pos]
             typeParamCount = typeParamCount + 1
             pos = pos + 1
 
@@ -604,8 +685,8 @@ func ParseStructDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValu
             if pos >= count || tokenKinds[pos] != 0 {
                 return -1
             }
-            outBaseNameStarts[baseNameCount] = tokenStarts[pos]
-            outBaseNameLengths[baseNameCount] = tokenValueLengths[pos]
+            decl.BaseNameStarts[baseNameCount] = tokenStarts[pos]
+            decl.BaseNameLengths[baseNameCount] = tokenValueLengths[pos]
             if baseNameCount == 0 {
                 outResult[5] = tokenStarts[pos]
                 outResult[6] = tokenValueLengths[pos]
@@ -649,8 +730,8 @@ func ParseStructDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValu
                 return -1
             }
             if pos + 4 < count && tokenKinds[pos + 4] == 129 {
-                outPropIndices[propCount] = pos + 1
-                outPropStaticFlags[propCount] = 1
+                decl.PropIndices[propCount] = pos + 1
+                decl.PropStaticFlags[propCount] = 1
                 propCount = propCount + 1
                 pos = pos + 4
 
@@ -672,14 +753,14 @@ func ParseStructDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValu
                 }
                 continue
             }
-            outFieldNameStarts[fieldCount] = tokenStarts[pos + 1]
-            outFieldNameLengths[fieldCount] = tokenValueLengths[pos + 1]
-            outFieldTypeStarts[fieldCount] = tokenStarts[pos + 3]
-            outFieldTypeLengths[fieldCount] = tokenValueLengths[pos + 3]
-            outFieldStaticFlags[fieldCount] = 1
-            outFieldInitKinds[fieldCount] = -1
-            outFieldInitStarts[fieldCount] = -1
-            outFieldInitLengths[fieldCount] = 0
+            decl.FieldNameStarts[fieldCount] = tokenStarts[pos + 1]
+            decl.FieldNameLengths[fieldCount] = tokenValueLengths[pos + 1]
+            decl.FieldTypeStarts[fieldCount] = tokenStarts[pos + 3]
+            decl.FieldTypeLengths[fieldCount] = tokenValueLengths[pos + 3]
+            decl.FieldStaticFlags[fieldCount] = 1
+            decl.FieldInitKinds[fieldCount] = -1
+            decl.FieldInitStarts[fieldCount] = -1
+            decl.FieldInitLengths[fieldCount] = 0
             pos = pos + 4
 
             if pos < count && tokenKinds[pos] == 93 {
@@ -699,9 +780,9 @@ func ParseStructDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValu
                         return -1
                     }
                 }
-                outFieldInitKinds[fieldCount] = tokenKinds[pos]
-                outFieldInitStarts[fieldCount] = tokenStarts[initStart]
-                outFieldInitLengths[fieldCount] = tokenStarts[pos] + tokenValueLengths[pos] - tokenStarts[initStart]
+                decl.FieldInitKinds[fieldCount] = tokenKinds[pos]
+                decl.FieldInitStarts[fieldCount] = tokenStarts[initStart]
+                decl.FieldInitLengths[fieldCount] = tokenStarts[pos] + tokenValueLengths[pos] - tokenStarts[initStart]
                 pos = pos + 1
             }
 
@@ -709,8 +790,8 @@ func ParseStructDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValu
         } else if tokenKinds[pos] == 0 && pos + 1 < count && tokenKinds[pos + 1] == 127 {
             fieldsDone = 1
         } else if tokenKinds[pos] == 0 && pos + 3 < count && tokenKinds[pos + 1] == 122 && tokenKinds[pos + 2] == 0 && tokenKinds[pos + 3] == 129 {
-            outPropIndices[propCount] = pos
-            outPropStaticFlags[propCount] = 0
+            decl.PropIndices[propCount] = pos
+            decl.PropStaticFlags[propCount] = 0
             propCount = propCount + 1
             pos = pos + 3
 
@@ -734,8 +815,8 @@ func ParseStructDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValu
             if tokenKinds[pos] != 0 {
                 return -1
             }
-            outFieldNameStarts[fieldCount] = tokenStarts[pos]
-            outFieldNameLengths[fieldCount] = tokenValueLengths[pos]
+            decl.FieldNameStarts[fieldCount] = tokenStarts[pos]
+            decl.FieldNameLengths[fieldCount] = tokenValueLengths[pos]
             pos = pos + 1
 
             if pos >= count || tokenKinds[pos] != 122 {
@@ -819,12 +900,12 @@ func ParseStructDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValu
                     suffixDone = 1
                 }
             }
-            outFieldTypeStarts[fieldCount] = fieldTypeStart
-            outFieldTypeLengths[fieldCount] = fieldTypeEnd - fieldTypeStart
-            outFieldStaticFlags[fieldCount] = 0
-            outFieldInitKinds[fieldCount] = -1
-            outFieldInitStarts[fieldCount] = -1
-            outFieldInitLengths[fieldCount] = 0
+            decl.FieldTypeStarts[fieldCount] = fieldTypeStart
+            decl.FieldTypeLengths[fieldCount] = fieldTypeEnd - fieldTypeStart
+            decl.FieldStaticFlags[fieldCount] = 0
+            decl.FieldInitKinds[fieldCount] = -1
+            decl.FieldInitStarts[fieldCount] = -1
+            decl.FieldInitLengths[fieldCount] = 0
 
             fieldCount = fieldCount + 1
         }
@@ -843,17 +924,17 @@ func ParseStructDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValu
     ctorCount := 0
     while pos < count && tokenKinds[pos] != 130 {
         if tokenKinds[pos] == 7 {
-            outMethodFuncIndices[methodCount] = pos
-            outMethodStaticFlags[methodCount] = 0
+            decl.MethodFuncIndices[methodCount] = pos
+            decl.MethodStaticFlags[methodCount] = 0
             methodCount = methodCount + 1
             pos = pos + 1
         } else if tokenKinds[pos] == 63 && pos + 1 < count && tokenKinds[pos + 1] == 7 {
-            outMethodFuncIndices[methodCount] = pos + 1
-            outMethodStaticFlags[methodCount] = 1
+            decl.MethodFuncIndices[methodCount] = pos + 1
+            decl.MethodStaticFlags[methodCount] = 1
             methodCount = methodCount + 1
             pos = pos + 2
         } else if tokenKinds[pos] == 0 && pos + 1 < count && tokenKinds[pos + 1] == 127 {
-            outCtorIndices[ctorCount] = pos
+            decl.CtorIndices[ctorCount] = pos
             ctorCount = ctorCount + 1
             pos = pos + 1
         } else {
@@ -909,6 +990,7 @@ func ParseStructDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValu
 // chained-arg count, or -1 on a malformed initializer or a non-{identifier,int-literal} arg (a complex expression /
 // string / other literal — the host declines such a chaining ctor to the C# path).
 func ParseConstructorChainInfoInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, ctorIndex: int, outArgKinds: int[], outArgStarts: int[], outArgLengths: int[], outResult: int[]): int {
+    args := new ConstructorChainArgTable { Kinds: outArgKinds, Starts: outArgStarts, Lengths: outArgLengths }
     outResult[0] = 0
     pos := ctorIndex + 1
     if pos >= count || tokenKinds[pos] != 127 {
@@ -959,9 +1041,9 @@ func ParseConstructorChainInfoInto(tokenKinds: int[], tokenStarts: int[], tokenV
         if tokenKinds[pos] != 0 && tokenKinds[pos] != 1 {
             return -1
         }
-        outArgKinds[argCount] = tokenKinds[pos]
-        outArgStarts[argCount] = tokenStarts[pos]
-        outArgLengths[argCount] = tokenValueLengths[pos]
+        args.Kinds[argCount] = tokenKinds[pos]
+        args.Starts[argCount] = tokenStarts[pos]
+        args.Lengths[argCount] = tokenValueLengths[pos]
         argCount = argCount + 1
         pos = pos + 1
 
@@ -996,6 +1078,7 @@ func ParseConstructorChainInfoInto(tokenKinds: int[], tokenStarts: int[], tokenV
 // the host declines the whole program to the C# path. Slice scope: unions whose case fields are single
 // builtin/bare-name/type-param-typed (the emitter further gates each field type to a supported CLR type).
 func ParseUnionDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, unionIndex: int, outCaseNameStarts: int[], outCaseNameLengths: int[], outCaseFieldCounts: int[], outFieldNameStarts: int[], outFieldNameLengths: int[], outFieldTypeStarts: int[], outFieldTypeLengths: int[], outTypeParamStarts: int[], outTypeParamLengths: int[], outResult: int[]): int {
+    decl := new UnionDeclarationTable { CaseNameStarts: outCaseNameStarts, CaseNameLengths: outCaseNameLengths, CaseFieldCounts: outCaseFieldCounts, FieldNameStarts: outFieldNameStarts, FieldNameLengths: outFieldNameLengths, FieldTypeStarts: outFieldTypeStarts, FieldTypeLengths: outFieldTypeLengths, TypeParamStarts: outTypeParamStarts, TypeParamLengths: outTypeParamLengths }
     pos := unionIndex
     if pos >= count || tokenKinds[pos] != 12 {
         return -1
@@ -1019,8 +1102,8 @@ func ParseUnionDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValue
             if tokenKinds[pos] != 0 {
                 return -1
             }
-            outTypeParamStarts[typeParamCount] = tokenStarts[pos]
-            outTypeParamLengths[typeParamCount] = tokenValueLengths[pos]
+            decl.TypeParamStarts[typeParamCount] = tokenStarts[pos]
+            decl.TypeParamLengths[typeParamCount] = tokenValueLengths[pos]
             typeParamCount = typeParamCount + 1
             pos = pos + 1
 
@@ -1055,8 +1138,8 @@ func ParseUnionDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValue
         if tokenKinds[pos] != 0 {
             return -1
         }
-        outCaseNameStarts[caseCount] = tokenStarts[pos]
-        outCaseNameLengths[caseCount] = tokenValueLengths[pos]
+        decl.CaseNameStarts[caseCount] = tokenStarts[pos]
+        decl.CaseNameLengths[caseCount] = tokenValueLengths[pos]
         pos = pos + 1
 
         if pos >= count || tokenKinds[pos] != 129 {
@@ -1069,8 +1152,8 @@ func ParseUnionDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValue
             if tokenKinds[pos] != 0 {
                 return -1
             }
-            outFieldNameStarts[totalFields] = tokenStarts[pos]
-            outFieldNameLengths[totalFields] = tokenValueLengths[pos]
+            decl.FieldNameStarts[totalFields] = tokenStarts[pos]
+            decl.FieldNameLengths[totalFields] = tokenValueLengths[pos]
             pos = pos + 1
 
             if pos >= count || tokenKinds[pos] != 122 {
@@ -1081,8 +1164,8 @@ func ParseUnionDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValue
             if pos >= count || tokenKinds[pos] != 0 {
                 return -1
             }
-            outFieldTypeStarts[totalFields] = tokenStarts[pos]
-            outFieldTypeLengths[totalFields] = tokenValueLengths[pos]
+            decl.FieldTypeStarts[totalFields] = tokenStarts[pos]
+            decl.FieldTypeLengths[totalFields] = tokenValueLengths[pos]
             pos = pos + 1
 
             totalFields = totalFields + 1
@@ -1101,7 +1184,7 @@ func ParseUnionDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValue
         }
         pos = pos + 1
 
-        outCaseFieldCounts[caseCount] = caseFieldCount
+        decl.CaseFieldCounts[caseCount] = caseFieldCount
         caseCount = caseCount + 1
     }
 

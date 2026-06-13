@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — Declaration parser tables wrapped
+
+`ParserDeclarations.nl` now groups its declaration output columns behind named normal structs at the
+flattened entry boundary: imports, top-level names/modifiers, interface bases/methods, enum members,
+struct/class/record members, constructor chain arguments, and union cases/fields. The public delegate
+signatures consumed by the dogfood adapter are unchanged, while the parser body no longer writes those
+parallel declaration columns through anonymous raw arrays.
+
+This completes the parser table-wrapper pass after the type-reference and expression/statement node
+tables. Remaining table work moves out of parser kernels and into symbol/type/diagnostic tables.
+
 ## 2026-06-13 — Expression and statement parser nodes wrapped
 
 `ParserExpressions.nl` now owns a normal `ParserExpressionNodeTable` wrapper for the shared
