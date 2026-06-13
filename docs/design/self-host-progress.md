@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — Columnar declaration-index helper uses tokenized source only
+
+The top-level function declaration-index helper now has a single token-bundle-shaped entry point.
+After the symbol, name-resolution, type-inference, structural-diagnostic, and unused-local parity
+passes moved to `ColumnarTokenizedSource`, the older raw-array overload was dead adapter surface and
+has been removed.
+
+This keeps declaration-family discovery behind the same named source-input contract as the rest of
+the columnar top-level function pipeline.
+
 ## 2026-06-13 — Columnar unused-local diagnostics reuse tokenized source inputs
 
 The Stage 3b unused-local parity pass now consumes `ColumnarTokenizedSource` instead of owning its

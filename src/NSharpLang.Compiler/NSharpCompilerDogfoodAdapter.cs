@@ -42,36 +42,6 @@ internal static class NSharpCompilerDogfoodAdapter
     internal static bool IsAvailable => s_bindings.Value != null;
 
     private static bool TryGetTopLevelFunctionDeclarationIndices(
-        Bindings bindings,
-        string source,
-        int[] rawKinds,
-        int[] rawStarts,
-        int[] rawValueLengths,
-        int rawCount,
-        out int declarationCount,
-        out List<int> functionDeclarationIndices)
-    {
-        declarationCount = 0;
-        functionDeclarationIndices = new List<int>();
-
-        if (HasTopLevelContextualTestDeclaration(source, rawKinds, rawStarts, rawValueLengths, rawCount))
-            return false;
-
-        var declKinds = new int[rawCount + 1];
-        declarationCount = bindings.TopLevelDeclarationKinds(rawKinds, rawCount, declKinds);
-        if (declarationCount < 0)
-            return false;
-
-        for (var i = 0; i < declarationCount; i++)
-        {
-            if (declKinds[i] == 7)
-                functionDeclarationIndices.Add(i);
-        }
-
-        return true;
-    }
-
-    private static bool TryGetTopLevelFunctionDeclarationIndices(
         string source,
         ColumnarTokenizedSource tokens,
         out int declarationCount,
