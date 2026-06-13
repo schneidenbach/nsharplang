@@ -11,6 +11,27 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — IF-2a interface residuals: upcast flow gaps and List<IShape>
+
+The first IF-2 residual slice closes the review-found interface value-flow gaps without widening the
+interface declaration model yet. The existing `TryEmitInterfaceUpcast` coercion now participates in
+implicit-`this` instance calls, external user instance calls, closed generic receiver method calls,
+generic/reference/value object initializers, and the shared `EmitArg` helper used by BCL collection
+methods. Value-type implementers still box at the boundary; reference implementers pass as object
+refs.
+
+Coverage: `ColumnarCodegen_Parity_Interfaces` now value-compares interface upcasts through
+instance-method arguments, bare `this` calls inside a class, reference object initializers, value
+struct object initializers, and `List<IShape>` add/index/foreach flows with mixed class and struct
+implementers. The old IF-1 dispatch/return/local/field/constructor coverage remains in the same
+parity test.
+
+NEXT: finish the structural IF-2 residuals: interface inheritance, multi-interface implementation
+lists, and default interface methods. Then route-all, then the emitter port gated by the SoA design
+doc.
+
+---
+
 ## 2026-06-13 — Phase P-5 columnar port: uint arrays unlock SumUInt32
 
 The deferred `uint[]` Phase P gap is closed. Columnar array support now admits `uint` as the

@@ -2094,7 +2094,9 @@ public sealed class ColumnarIlEmitter
         {
             if (!EmitExpression(Child(callIdx, a), out var argType))
                 return false;
-            if (!TypesEquivalent(argType, method.ParamTypes[a - 1]) && !TryEmitImplicitWidening(argType, method.ParamTypes[a - 1]))
+            if (!TypesEquivalent(argType, method.ParamTypes[a - 1])
+                && !TryEmitImplicitWidening(argType, method.ParamTypes[a - 1])
+                && !TryEmitInterfaceUpcast(argType, method.ParamTypes[a - 1]))
                 return false;
         }
         _il.Emit(_currentStruct!.IsReference ? OpCodes.Callvirt : OpCodes.Call, method.Builder);
@@ -8225,7 +8227,8 @@ public sealed class ColumnarIlEmitter
                             return false; // unknown or duplicately-assigned field -> decline.
                         var expectedInitType = SubstituteClosedTypeArguments(openInitField.FieldType, closedInitArgs);
                         _il.Emit(OpCodes.Dup);
-                        if (!EmitExpression(valueNode, out var closedInitValueType) || !TypesEquivalent(closedInitValueType, expectedInitType))
+                        if (!EmitExpression(valueNode, out var closedInitValueType)
+                            || (!TypesEquivalent(closedInitValueType, expectedInitType) && !TryEmitInterfaceUpcast(closedInitValueType, expectedInitType)))
                             return false;
                         _il.Emit(OpCodes.Stfld, TypeBuilder.GetField(closedInitType, openInitField));
                     }
@@ -8278,7 +8281,8 @@ public sealed class ColumnarIlEmitter
                         _il.Emit(OpCodes.Dup);
                         // TypesEquivalent, not !=: a builder-bound collection field's declared type and the
                         // init value's type come from independent resolutions (referentially distinct TBIs).
-                        if (!EmitExpression(valueNode, out var initValueType) || !TypesEquivalent(initValueType, initField.FieldType))
+                        if (!EmitExpression(valueNode, out var initValueType)
+                            || (!TypesEquivalent(initValueType, initField.FieldType) && !TryEmitInterfaceUpcast(initValueType, initField.FieldType)))
                             return false;
                         _il.Emit(OpCodes.Stfld, initField);
                     }
@@ -8300,7 +8304,8 @@ public sealed class ColumnarIlEmitter
                     if (!initStructDef.Fields.TryGetValue(fieldName, out var initField) || !assigned.Add(fieldName))
                         return false; // unknown or duplicately-assigned field -> decline.
                     _il.Emit(OpCodes.Ldloca, structValue);
-                    if (!EmitExpression(valueNode, out var initValueType) || !TypesEquivalent(initValueType, initField.FieldType))
+                    if (!EmitExpression(valueNode, out var initValueType)
+                        || (!TypesEquivalent(initValueType, initField.FieldType) && !TryEmitInterfaceUpcast(initValueType, initField.FieldType)))
                         return false;
                     _il.Emit(OpCodes.Stfld, initField);
                 }
@@ -9792,7 +9797,9 @@ public sealed class ColumnarIlEmitter
                     {
                         if (!EmitExpression(Child(callIdx, 1 + a), out var argType))
                             return false;
-                        if (!TypesEquivalent(argType, structMethod.ParamTypes[a]) && !TryEmitImplicitWidening(argType, structMethod.ParamTypes[a]))
+                        if (!TypesEquivalent(argType, structMethod.ParamTypes[a])
+                            && !TryEmitImplicitWidening(argType, structMethod.ParamTypes[a])
+                            && !TryEmitInterfaceUpcast(argType, structMethod.ParamTypes[a]))
                             return false;
                     }
                     _il.Emit(d.IsReference ? OpCodes.Callvirt : OpCodes.Call, structMethod.Builder);
@@ -9841,7 +9848,8 @@ public sealed class ColumnarIlEmitter
             for (var a = 0; a < argCount; a++)
             {
                 var expectedParam = SubstituteClosedTypeArguments(closedMethod.ParamTypes[a], closedArgs);
-                if (!EmitExpression(Child(callIdx, 1 + a), out var argType) || !TypesEquivalent(argType, expectedParam))
+                if (!EmitExpression(Child(callIdx, 1 + a), out var argType)
+                    || (!TypesEquivalent(argType, expectedParam) && !TryEmitInterfaceUpcast(argType, expectedParam)))
                     return false;
             }
             _il.Emit(closedDef.IsReference ? OpCodes.Callvirt : OpCodes.Call, TypeBuilder.GetMethod(receiverType, closedMethod.Builder));
@@ -10032,8 +10040,10 @@ public sealed class ColumnarIlEmitter
     // Emit the argument at child position `argPosition` of the call and require its type to match
     // `expected` (TypesEquivalent, not ==: builder-bound instantiations from independent resolutions
     // are referentially distinct — `outer.Add(inner)` on a List<List<Pt>> compares two distinct TBIs).
+    // Interface-typed arguments accept implementers through the same upcast/box path as sibling calls.
     private bool EmitArg(int callIdx, int argPosition, Type expected)
-        => EmitExpression(Child(callIdx, argPosition), out var argType) && TypesEquivalent(argType, expected);
+        => EmitExpression(Child(callIdx, argPosition), out var argType)
+           && (TypesEquivalent(argType, expected) || TryEmitInterfaceUpcast(argType, expected));
 
     private void EmitLoadArgument(int index)
     {
