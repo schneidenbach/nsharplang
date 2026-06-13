@@ -716,7 +716,12 @@ internal static class NSharpCompilerDogfoodAdapter
         methodName = string.Empty;
 
         // Single-function entry (the original spike surface): decline anything but exactly one top-level func.
-        if (!TryGetColumnarFunctionInputs(source, out var inputs) || inputs.Count != 1)
+        var bindings = s_bindings.Value;
+        if (bindings == null || string.IsNullOrEmpty(source))
+            return false;
+        if (!TryTokenizeColumnarSource(bindings, source, out var tokens))
+            return false;
+        if (!TryGetColumnarFunctionInputs(bindings, source, tokens, out var inputs) || inputs.Count != 1)
             return false;
         var fn = inputs[0];
         if (!Columnar.ColumnarIlEmitter.TryEmitSingleFunctionAssembly(fn, source, out assembly))
@@ -908,21 +913,9 @@ internal static class NSharpCompilerDogfoodAdapter
         }
     }
 
-    // Tokenize + compact `source`, require EVERY top-level declaration to be a `func`, and parse each into a
-    // ColumnarFunctionInput (signature + body node tables). Returns false on any tokenize/parse failure or a
-    // non-func top-level declaration, so the standalone backend declines and the C# path stays authoritative.
-    private static bool TryGetColumnarFunctionInputs(string source, out System.Collections.Generic.List<Columnar.ColumnarFunctionInput> inputs)
-    {
-        inputs = new System.Collections.Generic.List<Columnar.ColumnarFunctionInput>();
-        var bindings = s_bindings.Value;
-        if (bindings == null || string.IsNullOrEmpty(source))
-            return false;
-        if (!TryTokenizeColumnarSource(bindings, source, out var tokens))
-            return false;
-
-        return TryGetColumnarFunctionInputs(bindings, source, tokens, out inputs);
-    }
-
+    // Consume the shared token bundle and parse every top-level `func` into a ColumnarFunctionInput (signature +
+    // body node tables). Returns false on any parse failure or unsupported top-level declaration, so the
+    // columnar backend declines and the C# path stays authoritative.
     private static bool TryGetColumnarFunctionInputs(
         Bindings bindings, string source, ColumnarTokenizedSource tokens,
         out System.Collections.Generic.List<Columnar.ColumnarFunctionInput> inputs)

@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — Columnar function collector drops final source-string shim
+
+`TryEmitColumnarFunction` now owns its one-time tokenization and then calls the
+`ColumnarTokenizedSource`-shaped function collector directly. This removes the last private
+source-string collector overload from `NSharpCompilerDogfoodAdapter` while preserving the standalone
+single-function spike's decline behavior.
+
+All declaration-family collectors now share the same named tokenized-source contract.
+
 ## 2026-06-13 — Columnar type-family collectors drop source-string shims
 
 The enum, struct/class/record, union, and interface input collectors now expose only the
