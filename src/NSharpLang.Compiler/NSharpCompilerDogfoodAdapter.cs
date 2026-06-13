@@ -523,35 +523,23 @@ internal static class NSharpCompilerDogfoodAdapter
 
         try
         {
-            var capacity = 3 * (source.Length + 1) + 8;
-            var rawKinds = new int[capacity];
-            var rawStarts = new int[capacity];
-            var rawValueLengths = new int[capacity];
-            var rawLines = new int[capacity];
-            var rawColumns = new int[capacity];
-            var rawCount = bindings.TokenizeMetadataWithIndentation(
-                source, rawKinds, rawStarts, rawValueLengths, rawLines, rawColumns);
-            if (rawCount < 0 || rawCount > capacity)
+            if (!TryTokenizeColumnarSource(bindings, source, out var tokens))
                 return false;
 
             if (!TryGetTopLevelFunctionDeclarationIndices(
-                    bindings, source, rawKinds, rawStarts, rawValueLengths, rawCount,
+                    source, tokens,
                     out var declCount, out var functionDeclarationIndices))
                 return false;
 
-            var ck = new int[rawCount];
-            var cs = new int[rawCount];
-            var cv = new int[rawCount];
-            var n = 0;
-            for (var i = 0; i < rawCount; i++)
-            {
-                if (rawKinds[i] == 136)
-                    continue;
-                ck[n] = rawKinds[i];
-                cs[n] = rawStarts[i];
-                cv[n] = rawValueLengths[i];
-                n++;
-            }
+            var rawKinds = tokens.RawKinds;
+            var rawStarts = tokens.RawStarts;
+            var rawLines = tokens.RawLines;
+            var rawColumns = tokens.RawColumns;
+            var rawCount = tokens.RawCount;
+            var ck = tokens.Kinds;
+            var cs = tokens.Starts;
+            var cv = tokens.ValueLengths;
+            var n = tokens.Count;
 
             var funcIndices = TopLevelFuncIndices(ck, n);
             if (funcIndices.Count != functionDeclarationIndices.Count)
@@ -879,13 +867,20 @@ internal static class NSharpCompilerDogfoodAdapter
     private sealed class ColumnarTokenizedSource
     {
         public ColumnarTokenizedSource(
-            int[] rawKinds, int[] rawStarts, int[] rawValueLengths, int rawCount,
+            int[] rawKinds,
+            int[] rawStarts,
+            int[] rawValueLengths,
+            int[] rawLines,
+            int[] rawColumns,
+            int rawCount,
             int[] kinds, int[] starts, int[] valueLengths, int count,
             int[] declarationKinds, int declarationCount)
         {
             RawKinds = rawKinds;
             RawStarts = rawStarts;
             RawValueLengths = rawValueLengths;
+            RawLines = rawLines;
+            RawColumns = rawColumns;
             RawCount = rawCount;
             Kinds = kinds;
             Starts = starts;
@@ -898,6 +893,8 @@ internal static class NSharpCompilerDogfoodAdapter
         public int[] RawKinds { get; }
         public int[] RawStarts { get; }
         public int[] RawValueLengths { get; }
+        public int[] RawLines { get; }
+        public int[] RawColumns { get; }
         public int RawCount { get; }
         public int[] Kinds { get; }
         public int[] Starts { get; }
@@ -943,7 +940,7 @@ internal static class NSharpCompilerDogfoodAdapter
             }
 
             tokens = new ColumnarTokenizedSource(
-                rawKinds, rawStarts, rawValueLengths, rawCount,
+                rawKinds, rawStarts, rawValueLengths, rawLines, rawColumns, rawCount,
                 kinds, starts, valueLengths, count,
                 declarationKinds, declarationCount);
             return true;

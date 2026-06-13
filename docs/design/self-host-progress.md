@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — Columnar diagnostics reuse tokenized source inputs
+
+The Stage 3b structural diagnostics parity pass now consumes `ColumnarTokenizedSource` instead of
+owning another local tokenize/compact sequence. The token bundle now carries the tokenizer's raw
+line/column columns, so diagnostics can keep exact position parity while sharing the same raw and
+compacted token columns used by symbols, name resolution, type inference, and program collection.
+
+Definite-return, unreachable-code, and finally-transfer parity remain the correctness gates. The
+unused-local pass still has its own local token setup and is the next narrow cleanup target.
+
 ## 2026-06-13 — Columnar type inference reuses tokenized source inputs
 
 The Stage 3 top-level function type-inference parity pass now starts from
