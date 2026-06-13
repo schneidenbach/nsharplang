@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — Parser declaration token streams wrapped
+
+`ParserDeclarations.nl` now keeps its flattened declaration parser ABI but routes every body through
+named token-stream wrappers. Package/header scans, top-level declaration kind/name/modifier scans,
+interface, enum, struct/class/record, constructor-chain, and union declaration parsers now consume
+`ParserDeclarationTokenTable` or `ParserDeclarationKindStream` cores instead of carrying raw
+token-kind/start/length arrays through the implementation.
+
+The existing declaration output table wrappers remain unchanged, so the dogfood adapter still calls
+the same public entry points. Focused parser declaration parity and merged dogfood corpus route tests
+passed, as did the full non-VS-Code product gate.
+
 ## 2026-06-13 — Binder reconciliation: unary and bitwise promotion fixed
 
 The production analyzer now concretely types the ECMA numeric surface that stage-3 columnar review

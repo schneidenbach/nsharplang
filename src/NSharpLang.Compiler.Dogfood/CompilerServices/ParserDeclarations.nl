@@ -92,7 +92,25 @@ struct UnionDeclarationTable {
     TypeParamLengths: int[]
 }
 
+struct ParserDeclarationTokenTable {
+    Kinds: int[]
+    Starts: int[]
+    ValueLengths: int[]
+}
+
+struct ParserDeclarationKindStream {
+    Kinds: int[]
+}
+
 func PackageNameSpanInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, outResult: int[]): int {
+    tokens := new ParserDeclarationTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
+    return PackageNameSpanCore(ref tokens, count, outResult)
+}
+
+func PackageNameSpanCore(tokens: &ParserDeclarationTokenTable, count: int, outResult: int[]): int {
+    tokenKinds := tokens.Kinds
+    tokenStarts := tokens.Starts
+    tokenValueLengths := tokens.ValueLengths
     braceDepth := 0
     i := 0
     while i < count {
@@ -143,7 +161,15 @@ func PackageNameSpanInto(tokenKinds: int[], tokenStarts: int[], tokenValueLength
 // (imports/package are at depth 0, before any brace) and records each namespace import's dotted-name
 // span and optional alias span (alias start = -1 when none). The host materializes the strings.
 func NamespaceImportSpansInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, outNsStarts: int[], outNsLengths: int[], outAliasStarts: int[], outAliasLengths: int[]): int {
+    tokens := new ParserDeclarationTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
     imports := new NamespaceImportTable { NsStarts: outNsStarts, NsLengths: outNsLengths, AliasStarts: outAliasStarts, AliasLengths: outAliasLengths }
+    return NamespaceImportSpansCore(ref tokens, count, ref imports)
+}
+
+func NamespaceImportSpansCore(tokens: &ParserDeclarationTokenTable, count: int, imports: &NamespaceImportTable): int {
+    tokenKinds := tokens.Kinds
+    tokenStarts := tokens.Starts
+    tokenValueLengths := tokens.ValueLengths
     outCount := 0
     i := 0
     while i < count {
@@ -259,7 +285,13 @@ func ModifierFlag(kind: int): int {
 // from `where` until the body `{` (which also ends the signature). All three top-level scanners share
 // this rule.
 func TopLevelDeclarationModifiersInto(tokenKinds: int[], count: int, outKinds: int[], outModifiers: int[]): int {
+    tokens := new ParserDeclarationKindStream { Kinds: tokenKinds }
     decls := new TopLevelDeclarationModifierTable { Kinds: outKinds, Modifiers: outModifiers }
+    return TopLevelDeclarationModifiersCore(ref tokens, count, ref decls)
+}
+
+func TopLevelDeclarationModifiersCore(tokens: &ParserDeclarationKindStream, count: int, decls: &TopLevelDeclarationModifierTable): int {
+    tokenKinds := tokens.Kinds
     braceDepth := 0
     bracketDepth := 0
     parenDepth := 0
@@ -326,7 +358,15 @@ func IsTopLevelDeclarationKeyword(kind: int): bool {
 // C# TestDeclaration's string name is out of scope for this slice. The host materializes the name from
 // source via outNameStarts/outNameLengths.
 func TopLevelDeclarationNameSpansInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, outKinds: int[], outNameStarts: int[], outNameLengths: int[]): int {
+    tokens := new ParserDeclarationTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
     decls := new TopLevelDeclarationNameTable { Kinds: outKinds, NameStarts: outNameStarts, NameLengths: outNameLengths }
+    return TopLevelDeclarationNameSpansCore(ref tokens, count, ref decls)
+}
+
+func TopLevelDeclarationNameSpansCore(tokens: &ParserDeclarationTokenTable, count: int, decls: &TopLevelDeclarationNameTable): int {
+    tokenKinds := tokens.Kinds
+    tokenStarts := tokens.Starts
+    tokenValueLengths := tokens.ValueLengths
     braceDepth := 0
     bracketDepth := 0
     parenDepth := 0
@@ -383,7 +423,13 @@ func TopLevelDeclarationNameSpansInto(tokenKinds: int[], tokenStarts: int[], tok
 }
 
 func TopLevelDeclarationKindsInto(tokenKinds: int[], count: int, outKinds: int[]): int {
+    tokens := new ParserDeclarationKindStream { Kinds: tokenKinds }
     decls := new TopLevelDeclarationKindTable { Kinds: outKinds }
+    return TopLevelDeclarationKindsCore(ref tokens, count, ref decls)
+}
+
+func TopLevelDeclarationKindsCore(tokens: &ParserDeclarationKindStream, count: int, decls: &TopLevelDeclarationKindTable): int {
+    tokenKinds := tokens.Kinds
     braceDepth := 0
     bracketDepth := 0
     parenDepth := 0
@@ -450,7 +496,15 @@ func TopLevelDeclarationKindsInto(tokenKinds: int[], count: int, outKinds: int[]
 // = base interface count, with base-name spans in outBaseNameStarts/Lengths. Returns the method
 // count, -1 on any parse failure. Generic interfaces (`<` after the name) remain unmodeled -> -1.
 func ParseInterfaceDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, interfaceIndex: int, outMethodFuncIndices: int[], outBaseNameStarts: int[], outBaseNameLengths: int[], outResult: int[]): int {
+    tokens := new ParserDeclarationTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
     decl := new InterfaceDeclarationTable { MethodFuncIndices: outMethodFuncIndices, BaseNameStarts: outBaseNameStarts, BaseNameLengths: outBaseNameLengths }
+    return ParseInterfaceDeclarationCore(ref tokens, count, interfaceIndex, ref decl, outResult)
+}
+
+func ParseInterfaceDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int, interfaceIndex: int, decl: &InterfaceDeclarationTable, outResult: int[]): int {
+    tokenKinds := tokens.Kinds
+    tokenStarts := tokens.Starts
+    tokenValueLengths := tokens.ValueLengths
     pos := interfaceIndex
     if pos >= count || tokenKinds[pos] != 10 {
         return -1
@@ -529,7 +583,15 @@ func ParseInterfaceDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenV
 }
 
 func ParseEnumDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, enumIndex: int, outNameStarts: int[], outNameLengths: int[], outValueStarts: int[], outValueLengths: int[], outHasValue: int[], outResult: int[]): int {
+    tokens := new ParserDeclarationTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
     members := new EnumMemberTable { NameStarts: outNameStarts, NameLengths: outNameLengths, ValueStarts: outValueStarts, ValueLengths: outValueLengths, HasValue: outHasValue }
+    return ParseEnumDeclarationCore(ref tokens, count, enumIndex, ref members, outResult)
+}
+
+func ParseEnumDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int, enumIndex: int, members: &EnumMemberTable, outResult: int[]): int {
+    tokenKinds := tokens.Kinds
+    tokenStarts := tokens.Starts
+    tokenValueLengths := tokens.ValueLengths
     pos := enumIndex
     if pos >= count || tokenKinds[pos] != 14 {
         return -1
@@ -620,7 +682,15 @@ func ParseEnumDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValueL
 // an INSTANCE field, and `static constructor` are not yet modelled and return -1 — the host declines the whole
 // program to the C# path.
 func ParseStructDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, structIndex: int, outFieldNameStarts: int[], outFieldNameLengths: int[], outFieldTypeStarts: int[], outFieldTypeLengths: int[], outFieldStaticFlags: int[], outFieldInitKinds: int[], outFieldInitStarts: int[], outFieldInitLengths: int[], outMethodFuncIndices: int[], outMethodStaticFlags: int[], outCtorIndices: int[], outPropIndices: int[], outPropStaticFlags: int[], outTypeParamStarts: int[], outTypeParamLengths: int[], outBaseNameStarts: int[], outBaseNameLengths: int[], outResult: int[]): int {
+    tokens := new ParserDeclarationTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
     decl := new StructDeclarationTable { FieldNameStarts: outFieldNameStarts, FieldNameLengths: outFieldNameLengths, FieldTypeStarts: outFieldTypeStarts, FieldTypeLengths: outFieldTypeLengths, FieldStaticFlags: outFieldStaticFlags, FieldInitKinds: outFieldInitKinds, FieldInitStarts: outFieldInitStarts, FieldInitLengths: outFieldInitLengths, MethodFuncIndices: outMethodFuncIndices, MethodStaticFlags: outMethodStaticFlags, CtorIndices: outCtorIndices, PropIndices: outPropIndices, PropStaticFlags: outPropStaticFlags, TypeParamStarts: outTypeParamStarts, TypeParamLengths: outTypeParamLengths, BaseNameStarts: outBaseNameStarts, BaseNameLengths: outBaseNameLengths }
+    return ParseStructDeclarationCore(ref tokens, count, structIndex, ref decl, outResult)
+}
+
+func ParseStructDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int, structIndex: int, decl: &StructDeclarationTable, outResult: int[]): int {
+    tokenKinds := tokens.Kinds
+    tokenStarts := tokens.Starts
+    tokenValueLengths := tokens.ValueLengths
     pos := structIndex
     if pos >= count || (tokenKinds[pos] != 9 && tokenKinds[pos] != 13 && tokenKinds[pos] != 8) {
         return -1
@@ -990,7 +1060,15 @@ func ParseStructDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValu
 // chained-arg count, or -1 on a malformed initializer or a non-{identifier,int-literal} arg (a complex expression /
 // string / other literal — the host declines such a chaining ctor to the C# path).
 func ParseConstructorChainInfoInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, ctorIndex: int, outArgKinds: int[], outArgStarts: int[], outArgLengths: int[], outResult: int[]): int {
+    tokens := new ParserDeclarationTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
     args := new ConstructorChainArgTable { Kinds: outArgKinds, Starts: outArgStarts, Lengths: outArgLengths }
+    return ParseConstructorChainInfoCore(ref tokens, count, ctorIndex, ref args, outResult)
+}
+
+func ParseConstructorChainInfoCore(tokens: &ParserDeclarationTokenTable, count: int, ctorIndex: int, args: &ConstructorChainArgTable, outResult: int[]): int {
+    tokenKinds := tokens.Kinds
+    tokenStarts := tokens.Starts
+    tokenValueLengths := tokens.ValueLengths
     outResult[0] = 0
     pos := ctorIndex + 1
     if pos >= count || tokenKinds[pos] != 127 {
@@ -1078,7 +1156,15 @@ func ParseConstructorChainInfoInto(tokenKinds: int[], tokenStarts: int[], tokenV
 // the host declines the whole program to the C# path. Slice scope: unions whose case fields are single
 // builtin/bare-name/type-param-typed (the emitter further gates each field type to a supported CLR type).
 func ParseUnionDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, unionIndex: int, outCaseNameStarts: int[], outCaseNameLengths: int[], outCaseFieldCounts: int[], outFieldNameStarts: int[], outFieldNameLengths: int[], outFieldTypeStarts: int[], outFieldTypeLengths: int[], outTypeParamStarts: int[], outTypeParamLengths: int[], outResult: int[]): int {
+    tokens := new ParserDeclarationTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
     decl := new UnionDeclarationTable { CaseNameStarts: outCaseNameStarts, CaseNameLengths: outCaseNameLengths, CaseFieldCounts: outCaseFieldCounts, FieldNameStarts: outFieldNameStarts, FieldNameLengths: outFieldNameLengths, FieldTypeStarts: outFieldTypeStarts, FieldTypeLengths: outFieldTypeLengths, TypeParamStarts: outTypeParamStarts, TypeParamLengths: outTypeParamLengths }
+    return ParseUnionDeclarationCore(ref tokens, count, unionIndex, ref decl, outResult)
+}
+
+func ParseUnionDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int, unionIndex: int, decl: &UnionDeclarationTable, outResult: int[]): int {
+    tokenKinds := tokens.Kinds
+    tokenStarts := tokens.Starts
+    tokenValueLengths := tokens.ValueLengths
     pos := unionIndex
     if pos >= count || tokenKinds[pos] != 12 {
         return -1
