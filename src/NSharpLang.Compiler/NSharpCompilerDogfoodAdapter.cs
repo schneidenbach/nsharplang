@@ -793,10 +793,7 @@ internal static class NSharpCompilerDogfoodAdapter
         if (!TryGetColumnarFunctionInputs(source, out var inputs) || inputs.Count != 1)
             return false;
         var fn = inputs[0];
-        if (!Columnar.ColumnarIlEmitter.TryEmitSingleFunctionAssembly(
-                fn.Name, fn.ReturnCanonical, fn.ParamNames, fn.ParamCanonicals,
-                fn.Kinds, fn.ValueStarts, fn.ValueLengths, fn.ChildStart, fn.ChildCount, fn.ChildIndices,
-                source, fn.BodyRoot, out assembly))
+        if (!Columnar.ColumnarIlEmitter.TryEmitSingleFunctionAssembly(fn, source, out assembly))
             return false;
         typeName = "ColumnarSpike";
         methodName = fn.Name;

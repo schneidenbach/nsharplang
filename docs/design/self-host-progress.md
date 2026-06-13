@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — Columnar single-function spike consumes function inputs
+
+The original single-function columnar spike path now accepts a `ColumnarFunctionInput` directly.
+`NSharpCompilerDogfoodAdapter.TryEmitColumnarFunction` no longer peels an already-parsed function back
+into six raw body columns just to call the emitter. The flattened `TryEmitSingleFunctionAssembly`
+signature remains as a compatibility shim and delegates through the function-input overload.
+
+This closes the last raw body-table handoff in the C# adapter/emitter spike route while preserving
+the public spike helper used by tests and external callers.
+
 ## 2026-06-13 — Columnar analysis passes accept node table views
 
 `ColumnarNameResolver`, `ColumnarTypeInferer`, and `ColumnarDiagnosticsPass` now have internal

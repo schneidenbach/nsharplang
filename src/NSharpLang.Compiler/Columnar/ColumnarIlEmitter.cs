@@ -2787,8 +2787,11 @@ public sealed class ColumnarIlEmitter
         var input = new ColumnarFunctionInput(
             funcName, returnCanonical, paramNames, paramCanonicals,
             kinds, valueStarts, valueLengths, childStart, childCount, childIndices, bodyRoot);
-        return TryEmitColumnarAssembly("ColumnarSpike", "ColumnarSpike", new[] { input }, Array.Empty<ColumnarEnumInput>(), Array.Empty<ColumnarStructInput>(), Array.Empty<ColumnarUnionInput>(), Array.Empty<ColumnarInterfaceInput>(), source, out assembly);
+        return TryEmitSingleFunctionAssembly(input, source, out assembly);
     }
+
+    internal static bool TryEmitSingleFunctionAssembly(ColumnarFunctionInput input, string source, out byte[] assembly)
+        => TryEmitColumnarAssembly("ColumnarSpike", "ColumnarSpike", new[] { input }, Array.Empty<ColumnarEnumInput>(), Array.Empty<ColumnarStructInput>(), Array.Empty<ColumnarUnionInput>(), Array.Empty<ColumnarInterfaceInput>(), source, out assembly);
 
     /// <summary>
     /// Build a single assembly containing ALL of <paramref name="funcs"/> as static methods on one type
