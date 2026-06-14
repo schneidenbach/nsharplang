@@ -578,6 +578,56 @@ public partial class ILCompiler
         return true;
     }
 
+    private bool TryEmitSoaRowColumnIncrementOrDecrement(
+        MemberAccessExpression memberAccess,
+        int delta,
+        bool isPost,
+        bool leaveValueOnStack)
+    {
+        if (!TryResolveSoaRowColumnAccess(memberAccess, out var rowAccess, out _, out var columnField, out var elementType))
+        {
+            return false;
+        }
+
+        EmitExpression(rowAccess.Object);
+        _currentIL!.Emit(OpCodes.Ldfld, columnField);
+        var arrayLocal = _currentIL.DeclareLocal(columnField.FieldType);
+        _currentIL.Emit(OpCodes.Stloc, arrayLocal);
+
+        EmitExpressionWithExpectedType(rowAccess.Index, typeof(int));
+        var indexLocal = _currentIL.DeclareLocal(typeof(int));
+        _currentIL.Emit(OpCodes.Stloc, indexLocal);
+
+        _currentIL.Emit(OpCodes.Ldloc, arrayLocal);
+        _currentIL.Emit(OpCodes.Ldloc, indexLocal);
+        EmitArrayElementLoad(elementType);
+        var currentValueLocal = _currentIL.DeclareLocal(elementType);
+        _currentIL.Emit(OpCodes.Stloc, currentValueLocal);
+
+        LocalBuilder? expressionValueLocal = null;
+        if (leaveValueOnStack && isPost)
+        {
+            expressionValueLocal = currentValueLocal;
+        }
+
+        _currentIL.Emit(OpCodes.Ldloc, currentValueLocal);
+        EmitIncrementDelta(delta, elementType);
+        var updatedValueLocal = _currentIL.DeclareLocal(elementType);
+        _currentIL.Emit(OpCodes.Stloc, updatedValueLocal);
+
+        _currentIL.Emit(OpCodes.Ldloc, arrayLocal);
+        _currentIL.Emit(OpCodes.Ldloc, indexLocal);
+        _currentIL.Emit(OpCodes.Ldloc, updatedValueLocal);
+        EmitArrayElementStore(elementType);
+
+        if (leaveValueOnStack)
+        {
+            _currentIL.Emit(OpCodes.Ldloc, expressionValueLocal ?? updatedValueLocal);
+        }
+
+        return true;
+    }
+
     private static FunctionDeclaration CreateSyntheticSoaFunction(
         string name,
         List<Parameter> parameters,

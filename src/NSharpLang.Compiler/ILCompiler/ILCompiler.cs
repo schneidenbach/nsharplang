@@ -12381,6 +12381,13 @@ public partial class ILCompiler
             return true;
         }
 
+        var isPost = unary.Operator is UnaryOperator.PostIncrement or UnaryOperator.PostDecrement;
+        if (unary.Operand is MemberAccessExpression memberAccess
+            && TryEmitSoaRowColumnIncrementOrDecrement(memberAccess, delta, isPost, leaveValueOnStack: false))
+        {
+            return true;
+        }
+
         return false;
     }
 
@@ -15396,6 +15403,11 @@ public partial class ILCompiler
     private void EmitMemberIncrementOrDecrement(MemberAccessExpression memberAccess, int delta, bool isPost)
     {
         if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        if (TryEmitSoaRowColumnIncrementOrDecrement(memberAccess, delta, isPost, leaveValueOnStack: true))
+        {
+            return;
+        }
 
         var objectType = GetExpressionType(memberAccess.Object);
 

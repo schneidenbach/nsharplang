@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — SoA row-column increments lower to columns
+
+The experimental SoA wrapper emitter now handles `++` and `--` on row-column projections without routing
+through the normal member-addressing path. `nodes[row].kind++` caches the backing column array and row index
+once, reads the current element, stores the updated element back into the same column array, and preserves the
+postfix expression value when the increment is used as an expression.
+
+Behavior coverage pins postfix increment/decrement semantics across expression and statement contexts. IL-shape
+coverage asserts the row-column update uses direct column-field loads plus array element loads/stores, with no
+row allocation, boxing, delegate construction, heap array allocation, or virtual dispatch.
+
 ## 2026-06-13 — SoA row-column null-coalescing assignment lowers to columns
 
 The experimental SoA wrapper emitter no longer throws if a row-column assignment uses `??=`.

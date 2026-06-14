@@ -253,6 +253,31 @@ public class SoaRecordTests : ILCompilerTestBase
         Assert.Equal("fallback:ready", Assert.IsType<string>(CompileAndInvoke(source)));
     }
 
+    [Fact]
+    public void ILCompiler_SoaRecordRowColumnIncrementAndDecrement_PreservesPostfixSemantics()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var source = """
+            soa record NodeTable {
+                kind: int
+            }
+
+            func main(): int {
+                nodes := new NodeTable(1)
+                row := nodes.add()
+                nodes[row].kind = 10
+                oldUp := nodes[row].kind++
+                oldDown := nodes[row].kind--
+                nodes[row].kind++
+                nodes[row].kind++
+                return oldUp * 1000 + oldDown * 100 + nodes[row].kind
+            }
+            """;
+
+        Assert.Equal(11112, Assert.IsType<int>(CompileAndInvoke(source)));
+    }
+
     private static AnalysisResult Analyze(string source)
     {
         var lexer = new Lexer(source, "test.nl");

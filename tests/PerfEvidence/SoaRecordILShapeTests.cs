@@ -121,6 +121,38 @@ public class SoaRecordILShapeTests
         });
     }
 
+    [Fact]
+    public void RowColumnIncrementDecrement_UsesColumnArrayLoadStore()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bump(nodes: NodeTable, row: int): int {
+                old := nodes[row].kind++
+                nodes[row].kind--
+                return old + nodes[row].kind
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var bump = ILShapeInspector.GetProgramMethod(assembly, "bump");
+            AssertNoAllocationOrDispatch(bump);
+            Assert.True(
+                ILShapeInspector.CountOpcode(bump, OpCodes.Ldfld) >= 3,
+                "Row-column increment/decrement should load column fields directly.");
+            Assert.True(
+                CountArrayElementLoads(bump) >= 3,
+                "Row-column increment/decrement should load current values and the returned value from the column array.");
+            Assert.Equal(2, CountArrayElementStores(bump));
+            return 0;
+        });
+    }
+
     private static void AssertNoAllocationOrDispatch(MethodInfo method)
     {
         ILShapeInspector.AssertNoBoxing(method);
