@@ -18,14 +18,14 @@ reference columns. The pinned helper stores directly into the backing column arr
 the old element value, and stays free of row objects, boxing, array allocation, delegate construction,
 and virtual dispatch.
 
-## 2026-06-14 — Product dogfood coverage excludes parity-only stubs
+## 2026-06-14 — Parity-only probes leave the product dogfood directory
 
 `CompilerDogfoodProjectTests` now reads product compiler-service files without their parity-corpus
 twins when asserting shipped product coverage. `FormatterSafetyScan.nl`, `PathMatching.nl`, and
-`ErrorSuggestions.nl` remain comment-only product stubs and have a boundary test proving they expose
-no product functions; their extracted twins are still compiled through the dedicated product+parity
-merge and per-file parity tests. Current coverage accounting is therefore product-only for routing
-evidence and parity-merged only for rejected-probe evidence.
+`ErrorSuggestions.nl` have been deleted from `src/NSharpLang.Compiler.Dogfood/CompilerServices`;
+their extracted parity sources are still compiled through the dedicated product+parity merge and
+per-file parity tests. Current coverage accounting is therefore product-only for routing evidence
+and parity-merged only for rejected-probe evidence.
 
 ## 2026-06-14 — SoA null-conditional projections fail before emission
 

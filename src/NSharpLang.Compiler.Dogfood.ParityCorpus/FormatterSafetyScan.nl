@@ -1,8 +1,7 @@
 // PARITY CORPUS (Arc M1): checksum oracles extracted from
-// src/NSharpLang.Compiler.Dogfood/CompilerServices/FormatterSafetyScan.nl. These functions exist solely as
-// parity-test surfaces (tests + benchmarks bind them by NAME and compile them TOGETHER with
-// their product file — most delegate to sibling kernels that stay in the product). They are
-// NOT part of the shipped dogfood assembly.
+// the former src/NSharpLang.Compiler.Dogfood/CompilerServices/FormatterSafetyScan.nl product probe.
+// These functions exist solely as parity-test surfaces (tests + benchmarks bind them by NAME).
+// They are NOT part of the shipped dogfood assembly.
 
 // Compact severity/message-index scan for Formatter.FormatSafe reparse-error filtering.
 //

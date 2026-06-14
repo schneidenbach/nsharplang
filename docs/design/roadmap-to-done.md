@@ -65,7 +65,7 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       columnar type-inference parity corpus.
 - [x] **Stage 3b — columnar diagnostics** (pure-structural: definite-return, unreachable-after-terminal,
       unused-local). Parity vs the C# analyzer. **COMPLETE** — all three sub-slices below landed, each
-      parity-gated vs a C#-AST mirror on hand-built cases + the full 32-file corpus and adversarially verified.
+      parity-gated vs a C#-AST mirror on hand-built cases + the 29-file shipped product corpus and adversarially verified.
       - [x] **3b-i definite-return (NL305)** — `ColumnarDiagnosticsPass.StatementAlwaysReturns` is the columnar
         subset of `Analyzer.StatementAlwaysReturns` (Return exits; Block exits if any stmt exits; If exits only
         with an else where both branches exit; Break/Continue/ExprStmt/VarDecl/While non-exiting). The kernel
@@ -73,7 +73,7 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
         void (matches `Analyzer.cs:621`). Async/generator functions carry the `isAsyncUnitTask`/`isIterator`
         exemptions (BCL task-type knowledge the pass can't model) → the adapter DECLINES those sources to the C#
         analyzer (corpus has none, so zero coverage loss). Parity-tested vs a C#-AST mirror + exact expected
-        diagnostics on 7 hand-built cases, and on the full 32-file dogfood corpus (mirror parity + ZERO
+        diagnostics on 7 hand-built cases, and on the 29-file shipped product corpus (mirror parity + ZERO
         false-positive NL305 on valid self-host source). Adversarially verified (the review caught the async
         unit-task divergence; fixed + regression-tested).
       - [x] **3b-ii unreachable-after-terminal (NL312)** — `ColumnarDiagnosticsPass.CollectUnreachable` mirrors
@@ -83,7 +83,7 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
         statement's `line:col`, resolved from the tokenizer's own per-token line/col (a byte-offset→position map
         in the adapter) — empirically equal to the AST `Statement.Line/Column` (the exact-parity test would fail
         otherwise). Parity vs a C#-AST mirror on 6 hand-built cases (incl. only-first-reported, nested, and the
-        unreachable-before-missing-return ordering) + zero unreachable on the 32-file corpus. Adversarially
+        unreachable-before-missing-return ordering) + zero unreachable on the 29-file shipped product corpus. Adversarially
         verified (clean — no divergence).
       - [x] **3b-iii unused-local (NL001)** — `ColumnarDiagnosticsPass.CollectUnusedLocals` walks the body in
         SOURCE ORDER, faithful to the Linter's time-/scope-ordered NL001 (a first naive "global" attempt was
@@ -94,7 +94,7 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
         function) does NOT suppress, while an earlier use does. Discards (`_`/`_`-prefixed) exempt; params always
         used; assignment-target counts as a use; interpolated strings decline upstream (kernel refuses `$"..."`).
         Parity vs a C#-AST mirror reproducing the exact ordering on 9 hand-built cases (both ordering directions,
-        nesting, assignment, discard) + the full 32-file corpus. Adversarially verified (the prior global rule's
+        nesting, assignment, discard) + the 29-file shipped product corpus. Adversarially verified (the prior global rule's
         divergence is fixed; APPROVE, clean).
 - [~] **Stage 4 — columnar codegen.** Emit IL directly from the columnar + resolved tables for the systems
       subset; compile a trivial then a real dogfood function with NO C# AST. Parity: emitted IL runs identically
@@ -202,8 +202,8 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       flag-on emits an eligible program via the columnar pipeline (drop-in: assembly name + type `Program`),
       proven to differ from the C# IL yet run identically (`Stage5_ColumnarBackend_*`). Product corpus coverage
       is **26/29 shipped kernel files single-file, 29/29 via MULTI-FILE merge** after the 2026-06-14 rejected-probe
-      extraction; the three comment-only product stubs (`ErrorSuggestions`, `FormatterSafetyScan`, `PathMatching`)
-      are covered only by product+parity merge tests and do not inflate product routing evidence. Historical
+      extraction; the three parity-only files (`ErrorSuggestions`, `FormatterSafetyScan`, `PathMatching`) now live
+      only in `NSharpLang.Compiler.Dogfood.ParityCorpus` and do not inflate product routing evidence. Historical
       Phase A coverage before that extraction was driven by:
       SourceTextLines via Array.Fill +
       void-call statement + parameter assignment; PathMatching via char arithmetic; LinterImports via
@@ -367,7 +367,7 @@ essentially DONE. **Stage 3b — columnar diagnostics (Phase S) is COMPLETE**: 3
 (the columnar subset of `StatementAlwaysReturns`; `CollectUnreachable` mirroring `Analyzer.AnalyzeStatements`;
 `CollectUnusedLocals` reproducing the Linter's time-/scope-ordered NL001) — async/generator sources decline to
 C#; positions resolved from the tokenizer's own line/col matching the AST; parity vs a C#-AST mirror on
-hand-built cases + the full 32-file corpus, each adversarially verified (the reviews caught + we fixed an async
+hand-built cases + the 29-file shipped product corpus, each adversarially verified (the reviews caught + we fixed an async
 unit-task divergence in 3b-i and a global-rule ordering divergence in 3b-iii). **Stage 4 — columnar codegen
 is SCOPED** (read-only Explore workflow): reuse `ILCompiler._currentIL` via a separate columnar dispatcher, data
 ~80% sufficient from stages 1–3, decomposed into a spike + 4a–4k (see the Stage 4 item above). **The 4-spike
@@ -400,7 +400,8 @@ startup/size track.
 
 **Status cursor (2026-06-13).** Stages 3b (columnar diagnostics), 4 (columnar codegen spike→backend), and 5
 (production routing default-on with `NSHARP_COLUMNAR_BACKEND=0` as the C# opt-out) are DONE — the standalone columnar pipeline
-owns parse→emit for the modelled surface (32/32 dogfood corpus via multi-file merge) and is parity-gated per
+owns parse→emit for the modelled surface (29/29 shipped product files via multi-file merge, with parity-only probes outside
+product routing) and is parity-gated per
 slice. The live work is **Phase D rich-language columnar emit** (newest-on-top log:
 [`self-host-progress.md`](self-host-progress.md) is the authoritative cursor): D-11d class inheritance landed;
 the oracle static-member fix bundle landed (`7952bc54`); D-12/13/14 columnar STATIC METHODS/FIELDS/PROPERTIES landed (`80204c27`, `2982ef50`, `c3da5311` — the

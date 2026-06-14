@@ -18,6 +18,8 @@ namespace NSharpLang.Tests;
 
 public class CompilerDogfoodProjectTests
 {
+    private const int MinimumProductDogfoodFileCountAfterParityExtraction = 29;
+
     // The production-routed parser token-compaction kernel
     // (LexerTokenKindScanner.nl: ParserTokenCompactionIndicesInto) filters newline tokens by the
     // hard-coded integer ordinal 136. The Parser constructor routes through it via
@@ -1397,8 +1399,7 @@ class B
             built++;
         }
 
-        Assert.Equal(files.Count, built);
-        Assert.True(built >= 30, $"Expected the full dogfood corpus to build symbols; only {built} did.");
+        AssertFullProductDogfoodCorpusCoverage(files, built, "build symbols");
     }
 
     // COLUMNAR PIPELINE stage 2 (docs/design/columnar-pipeline.md): lexical name resolution over the columnar
@@ -1442,8 +1443,7 @@ class B
             resolved++;
         }
 
-        Assert.Equal(files.Count, resolved);
-        Assert.True(resolved >= 30, $"Expected the full dogfood corpus to resolve; only {resolved} did.");
+        AssertFullProductDogfoodCorpusCoverage(files, resolved, "resolve");
     }
 
     // COLUMNAR PIPELINE stage 3 (docs/design/columnar-pipeline.md): expression type inference over the
@@ -1504,8 +1504,7 @@ class B
             inferred++;
         }
 
-        Assert.Equal(files.Count, inferred);
-        Assert.True(inferred >= 30, $"Expected the full dogfood corpus to infer; only {inferred} did.");
+        AssertFullProductDogfoodCorpusCoverage(files, inferred, "infer");
     }
 
     private static (bool Ok, List<List<string>>? Types) RouteFunctionTypes(string source)
@@ -1762,8 +1761,7 @@ class B
             analyzed++;
         }
 
-        Assert.Equal(files.Count, analyzed);
-        Assert.True(analyzed >= 30, $"Expected the full dogfood corpus to analyze; only {analyzed} did.");
+        AssertFullProductDogfoodCorpusCoverage(files, analyzed, "analyze");
 
         // Boundary: async + generator functions carry the real analyzer's isAsyncUnitTask / isIterator NL305
         // exemptions, which depend on BCL task-type knowledge the columnar pass does not model. The pass must
@@ -1785,7 +1783,7 @@ class B
     // following statement is unreachable (reported once), recursing into nested blocks. Verified equal to the
     // C#-AST-walk mirror (which validates the reported line:col matches the AST) on hand-built cases, plus a
     // non-vacuous count of detected unreachable statements. The corpus (asserted in the test above) compiles,
-    // so it has zero unreachable — that test already pins zero false positives over the full 32-file corpus.
+    // so it has zero unreachable — that test already pins zero false positives over the shipped product corpus.
     [Fact]
     public void ColumnarDiagnostics_UnreachableAfterTerminal_MatchesAstWalk()
     {
@@ -2052,7 +2050,7 @@ class B
     // does NOT suppress, while an earlier use does. Verified equal to a C#-AST-walk mirror that reproduces that
     // exact ordering; descriptors sorted per function for comparison (identity, not the Linter's Dictionary
     // emission order, is the contract). Covers ordering both ways, nesting, assignment-marks-used, discard, and
-    // the full 32-file corpus.
+    // the shipped product corpus.
     [Fact]
     public void ColumnarDiagnostics_UnusedLocal_MatchesAstWalk()
     {
@@ -2107,8 +2105,7 @@ class B
             analyzed++;
         }
 
-        Assert.Equal(files.Count, analyzed);
-        Assert.True(analyzed >= 30, $"Expected the full dogfood corpus to analyze; only {analyzed} did.");
+        AssertFullProductDogfoodCorpusCoverage(files, analyzed, "analyze");
     }
 
     private static List<List<string>> SortPerFunction(List<List<string>> perFunction)
@@ -7946,9 +7943,10 @@ class B
     // Arc M1 ZERO-NEW-DECLINES: the extracted PARITY CORPUS (the 94 checksum oracles moved out of
     // the product files) must stay 100% columnar-compiled when merged with the product corpus —
     // the M-slice invariant (a modernized/extracted file that declines would fall back to the C#
-    // path SILENTLY). The corpus functions delegate to sibling kernels in the product files, so
-    // the assertion is the MULTI-FILE merge: every product file + every corpus file, asserting the
-    // merge routes AND every checksum function was emitted by NAME.
+    // path SILENTLY). Most corpus functions delegate to sibling kernels in product files; a few
+    // rejected probes now live only in the parity corpus. The assertion is the MULTI-FILE merge:
+    // every product file + every corpus file, asserting the merge routes AND every checksum function
+    // was emitted by NAME.
     [Fact]
     public void ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines()
     {
@@ -7980,20 +7978,19 @@ class B
         Assert.True(missing.Length == 0, $"checksum functions missing from the merged emit: {string.Join(", ", missing)}");
     }
 
-    // Boundary pin: rejected probes with product stubs must not expose shipped product functions. Their extracted
-    // parity-corpus twins are intentionally covered by the parity-corpus tests below, not by product coverage.
+    // Boundary pin: rejected probes must not exist in the shipped product dogfood directory. Their extracted
+    // parity-corpus sources are intentionally covered by the parity-corpus tests below, not by product coverage.
     [Fact]
-    public void ColumnarCodegen_ParityOnlyStubs_DoNotCountAsProductCoverage()
+    public void ColumnarCodegen_ParityOnlyFiles_AreAbsentFromProductCoverage()
     {
         foreach (var name in new[] { "ErrorSuggestions.nl", "FormatterSafetyScan.nl", "PathMatching.nl" })
         {
-            var source = ReadDogfoodProductFile(name);
-            var parsed = new Parser(new Lexer(source, name).Tokenize(), name, source).ParseCompilationUnit();
-            Assert.NotNull(parsed.CompilationUnit);
-            Assert.Empty(parsed.CompilationUnit!.Declarations.OfType<FunctionDeclaration>());
+            Assert.False(File.Exists(DogfoodProductFilePath(name)), $"{name} must live only in the parity corpus.");
 
+            var source = ReadDogfoodFileWithParityCorpus(name);
             var (ok, _, _, methodNames) = RouteColumnarProgram(source);
-            Assert.False(ok && methodNames is { Length: > 0 }, $"{name} must not expose product dogfood functions.");
+            Assert.True(ok, $"{name} parity corpus should still compile outside product coverage.");
+            Assert.NotEmpty(methodNames!);
         }
     }
 
@@ -20102,8 +20099,9 @@ func main() {
         int DefaultsUsed);
 
     // Arc M1: the dogfood PRODUCT compile plus the extracted PARITY CORPUS (the checksum oracles
-    // moved to src/NSharpLang.Compiler.Dogfood.ParityCorpus — they compile TOGETHER with the
-    // product files in tests; the SHIPPED dogfood assembly excludes them, which is the point).
+    // moved to src/NSharpLang.Compiler.Dogfood.ParityCorpus — they compile with product files in
+    // tests when they have a product twin; parity-only rejected probes compile from the corpus
+    // alone. The SHIPPED dogfood assembly excludes them, which is the point).
     private static MultiFileCompiler CreateDogfoodWithParityCorpusCompiler(string projectRoot, ProjectConfig config)
     {
         var corpusDir = Path.Combine(FindRepoRoot(), "src", "NSharpLang.Compiler.Dogfood.ParityCorpus");
@@ -20115,17 +20113,33 @@ func main() {
 
     private static string ReadDogfoodProductFile(string fileName)
     {
-        var repoRoot = FindRepoRoot();
-        return File.ReadAllText(Path.Combine(repoRoot, "src", "NSharpLang.Compiler.Dogfood", "CompilerServices", fileName));
+        return File.ReadAllText(DogfoodProductFilePath(fileName));
     }
 
-    // Arc M1: a dogfood product file's source with its parity-corpus twin CONCATENATED back — the
-    // corpus checksum functions delegate to sibling kernels in the product file, so the merged
-    // text is one self-contained program exactly like the pre-extraction file.
+    private static string DogfoodProductFilePath(string fileName)
+    {
+        var repoRoot = FindRepoRoot();
+        return Path.Combine(repoRoot, "src", "NSharpLang.Compiler.Dogfood", "CompilerServices", fileName);
+    }
+
+    private static void AssertFullProductDogfoodCorpusCoverage(IReadOnlyCollection<string> files, int covered, string verb)
+    {
+        Assert.True(
+            files.Count >= MinimumProductDogfoodFileCountAfterParityExtraction,
+            $"Expected at least {MinimumProductDogfoodFileCountAfterParityExtraction} shipped dogfood files after parity extraction; found {files.Count}.");
+        Assert.True(
+            covered == files.Count,
+            $"Expected the full product dogfood corpus to {verb}; only {covered} of {files.Count} did.");
+    }
+
+    // Arc M1: a dogfood product file's source with its parity-corpus twin CONCATENATED back when both exist.
+    // Some rejected probes now live ONLY in the parity corpus, so the merged text may be just that extracted
+    // corpus file. Product coverage must use ReadDogfoodProductFile instead.
     private static string ReadDogfoodFileWithParityCorpus(string fileName)
     {
         var repoRoot = FindRepoRoot();
-        var source = ReadDogfoodProductFile(fileName);
+        var productPath = DogfoodProductFilePath(fileName);
+        var source = File.Exists(productPath) ? File.ReadAllText(productPath) : string.Empty;
         var corpusPath = Path.Combine(repoRoot, "src", "NSharpLang.Compiler.Dogfood.ParityCorpus", fileName);
         return File.Exists(corpusPath)
             ? MergeDogfoodSourceWithParityCorpus(source, File.ReadAllText(corpusPath))
