@@ -4473,6 +4473,7 @@ public class Analyzer : IDisposable
             UncheckedExpression uncheckedExpr => AnalyzeUncheckedExpression(uncheckedExpr),
             RangeExpression range => AnalyzeRangeExpression(range),
             SpreadExpression spread => AnalyzeSpreadExpression(spread),
+            WithExpression with => AnalyzeWithExpression(with),
             ParenthesizedExpression paren => AnalyzeExpression(paren.Inner),
             DefaultExpression defaultExpr => AnalyzeDefaultExpression(defaultExpr),
             _ => BuiltInTypes.Unknown
@@ -10695,6 +10696,12 @@ public class Analyzer : IDisposable
 
         if (targetType is not ReflectionEventInfo eventInfo)
         {
+            if (ReportSoaRowEscapeIfNeeded(on.Target, targetType, "used as an event target"))
+            {
+                AnalyzeLambda(on.Handler, reportInferenceFailure: false);
+                return subscriptionType;
+            }
+
             // Don't pile a "not an event" error on top of an already-reported resolution failure.
             if (!BuiltInTypes.IsUnknown(targetType))
             {
@@ -10753,6 +10760,11 @@ public class Analyzer : IDisposable
     private void AnalyzeOffStatement(OffStatement off)
     {
         var handleType = AnalyzeExpression(off.Handle);
+
+        if (ReportSoaRowEscapeIfNeeded(off.Handle, handleType, "used as an off handle"))
+        {
+            return;
+        }
 
         if (BuiltInTypes.IsUnknown(handleType))
         {
@@ -11883,6 +11895,26 @@ public class Analyzer : IDisposable
         }
 
         return innerType;
+    }
+
+    private TypeInfo AnalyzeWithExpression(WithExpression with)
+    {
+        var targetType = AnalyzeExpression(with.Target);
+        var targetIsSoaRow = ReportSoaRowEscapeIfNeeded(with.Target, targetType, "used as a with target");
+
+        foreach (var property in with.Properties)
+        {
+            if (property.IndexExpression != null)
+            {
+                var indexType = AnalyzeExpression(property.IndexExpression);
+                ReportSoaRowEscapeIfNeeded(property.IndexExpression, indexType, "used as a with initializer index");
+            }
+
+            var valueType = AnalyzeExpression(property.Value);
+            ReportSoaRowEscapeIfNeeded(property.Value, valueType, "stored in a with expression");
+        }
+
+        return targetIsSoaRow ? BuiltInTypes.Unknown : targetType;
     }
 
     private TypeInfo AnalyzeMatchExpression(MatchExpression match)

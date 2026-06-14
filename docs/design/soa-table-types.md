@@ -158,7 +158,8 @@ The compiler must produce direct diagnostics for common misuse:
   switch subjects, operator operands, casts, `is` tests, `must` unwraps, awaits, ternary results, and match
   results, bare expression statements, control conditions, match subjects/guards, foreach collections,
   range bounds, spread expressions, `alloc`, allocation lengths, checked/unchecked expressions, field
-  initializers, invalid member/index receivers, index values, and pattern values);
+  initializers, invalid member/index receivers, index values, pattern values, `with` targets/values,
+  and event subscription handles);
 - mismatched `wrap` columns: "column lengths for NodeTable do not match";
 - unsupported element type: "SoA column type X is not supported in this lowering";
 - hidden allocation request: "this operation would allocate row objects; use column access instead".
