@@ -5651,6 +5651,19 @@ public class Analyzer : IDisposable
         ReportPossibleNullAccess(member.Object, objectType, member.Line, member.Column, "dereference", member.IsNullConditional);
         var receiverType = GetNonNullableType(objectType);
 
+        if (receiverType is SoaRecordTypeInfo && member.IsNullConditional)
+        {
+            ReportSoaTableNullConditionalAccess(member);
+            return BuiltInTypes.Unknown;
+        }
+
+        if (receiverType is SoaRowTypeInfo
+            && member.IsNullConditional)
+        {
+            ReportSoaRowEscape(member.Object, "used with null-conditional member access");
+            return BuiltInTypes.Unknown;
+        }
+
         if (receiverType is SoaRowTypeInfo soaRowType
             && TryGetSoaColumn(soaRowType.Declaration, member.MemberName) is null)
         {
@@ -5679,6 +5692,12 @@ public class Analyzer : IDisposable
 
         var indexType = AnalyzeExpression(index.Index);
         var receiverType = GetNonNullableType(objectType);
+        if (receiverType is SoaRecordTypeInfo && index.IsNullConditional)
+        {
+            ReportSoaRowEscape(index, "used with null-conditional indexing");
+            return BuiltInTypes.Unknown;
+        }
+
         var isSoaRowReceiver = receiverType is SoaRowTypeInfo;
         var isSoaRowIndex = ReportSoaRowEscapeIfNeeded(index.Index, indexType, "used as an index value");
         if (isSoaRowReceiver)
@@ -6810,6 +6829,18 @@ public class Analyzer : IDisposable
             line,
             column,
             "Read or write a column with table[index].column in the same expression.",
+            length);
+    }
+
+    private void ReportSoaTableNullConditionalAccess(MemberAccessExpression member)
+    {
+        var (line, column, length) = GetExpressionDiagnosticSpan(member);
+        Error(
+            ErrorCode.InvalidSyntax,
+            "SoA tables cannot use null-conditional member access",
+            line,
+            column,
+            "SoA table wrappers are value views; use direct table.member access.",
             length);
     }
 

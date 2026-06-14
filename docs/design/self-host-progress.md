@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA null-conditional projections fail before emission
+
+The analyzer now rejects null-conditional access on experimental SoA tables and row projections before
+the IL backend sees them. `table?[index].column`, `table[index]?.column`, and `table?.column` now get
+direct SoA diagnostics with column-access guidance instead of drifting into the generic null-conditional
+member/index emitter, which only owns ordinary CLR reference/member shapes.
+
 ## 2026-06-14 — Nameof targets are checked before emission
 
 The analyzer now enforces the same `nameof` target shape the direct IL backend can emit: identifiers and

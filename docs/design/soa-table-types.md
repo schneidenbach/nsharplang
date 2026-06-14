@@ -161,7 +161,7 @@ The compiler must produce direct diagnostics for common misuse:
   results, bare expression statements, control conditions, match subjects/guards, foreach collections,
   range bounds, spread expressions, `alloc`, allocation lengths, checked/unchecked expressions, field
   initializers, invalid member/index receivers, index values, pattern values, `with` targets/values,
-  `nameof` targets, and event subscription handles);
+  `nameof` targets, event subscription handles, and null-conditional table/row projections);
 - mismatched `wrap` columns: "column lengths for NodeTable do not match";
 - null `wrap` columns: "columns for NodeTable.wrap cannot be null";
 - invalid `wrap` length: "length for NodeTable.wrap must be between 0 and column length";
