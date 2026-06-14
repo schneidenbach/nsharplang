@@ -11,6 +11,12 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA row-view escape diagnostics cover discards and yields
+
+SoA row views now report the SoA-specific escape diagnostic when they are explicitly discarded with
+`_ = row` or yielded from iterator bodies. Yield statements also analyze their yielded expression now,
+so generator bodies do not skip row-view validation.
+
 ## 2026-06-14 — SoA row-view escape diagnostics cover thrown values
 
 SoA row views now report the SoA-specific escape diagnostic when they are used as thrown values in both

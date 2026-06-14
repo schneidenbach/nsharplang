@@ -2245,6 +2245,13 @@ public class Analyzer : IDisposable
                 _breakTargetFinallyDepth = whileBreakDepth;
                 _continueTargetFinallyDepth = whileContinueDepth;
                 break;
+            case YieldStatement yieldStmt:
+                if (yieldStmt.Value != null)
+                {
+                    var yieldedType = AnalyzeExpression(yieldStmt.Value);
+                    ReportSoaRowEscapeIfNeeded(yieldStmt.Value, yieldedType, "yielded");
+                }
+                break;
             case ReturnStatement returnStmt:
                 AnalyzeReturnStatement(returnStmt);
                 break;
@@ -10474,7 +10481,9 @@ public class Analyzer : IDisposable
                     discardLength);
             }
 
-            return AnalyzeExpression(assignment.Value);
+            var discardedType = AnalyzeExpression(assignment.Value);
+            ReportSoaRowEscapeIfNeeded(assignment.Value, discardedType, "discarded");
+            return discardedType;
         }
 
         var previousSuppressNullabilityFlowType = _suppressNullabilityFlowType;
