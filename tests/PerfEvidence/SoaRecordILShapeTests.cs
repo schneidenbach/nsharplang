@@ -2630,6 +2630,85 @@ public class SoaRecordILShapeTests
         });
     }
 
+    [Fact]
+    public void EnumColumnComparisons_UseColumnArrayLoadsWithoutRowOrSliceAllocation()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                kind: NodeKind
+            }
+
+            enum NodeKind {
+                Unknown = 0,
+                Identifier = 1,
+                Literal = 2,
+                Error = 3
+            }
+
+            func compare(nodes: NodeTable, row: int): int {
+                nodes[row].kind = NodeKind.Identifier
+                rowScore := nodes[row].kind == NodeKind.Identifier ? 100000 : 0
+                rowScore += nodes[row].kind != NodeKind.Literal ? 10000 : 0
+                rowScore += nodes[row].kind < NodeKind.Literal ? 1000 : 0
+                rowScore += nodes[row].kind <= NodeKind.Identifier ? 100 : 0
+                rowScore += nodes[row].kind > NodeKind.Unknown ? 10 : 0
+                rowScore += nodes[row].kind >= NodeKind.Identifier ? 1 : 0
+
+                nodes.kind[row] = NodeKind.Literal
+                directScore := nodes.kind[row] == NodeKind.Literal ? 200000 : 0
+                directScore += nodes.kind[row] != NodeKind.Identifier ? 20000 : 0
+                directScore += nodes.kind[row] > NodeKind.Identifier ? 2000 : 0
+                directScore += nodes.kind[row] >= NodeKind.Literal ? 200 : 0
+                directScore += nodes.kind[row] < NodeKind.Error ? 20 : 0
+                directScore += nodes.kind[row] <= NodeKind.Literal ? 2 : 0
+
+                nodes.kind[^1] = NodeKind.Identifier
+                fromEndScore := nodes.kind[^1] == NodeKind.Identifier ? 300000 : 0
+                fromEndScore += nodes.kind[^1] != NodeKind.Literal ? 30000 : 0
+                fromEndScore += nodes.kind[^1] < NodeKind.Literal ? 3000 : 0
+                fromEndScore += nodes.kind[^1] <= NodeKind.Identifier ? 300 : 0
+                fromEndScore += nodes.kind[^1] > NodeKind.Unknown ? 30 : 0
+                fromEndScore += nodes.kind[^1] >= NodeKind.Identifier ? 3 : 0
+
+                return rowScore + directScore + fromEndScore
+            }
+
+            func main(): int {
+                nodes := new NodeTable(1)
+                row := nodes.add()
+                return compare(nodes, row)
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var compare = ILShapeInspector.GetProgramMethod(assembly, "compare");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(666666, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoFromEndSliceAllocation(compare);
+            Assert.True(
+                ILShapeInspector.CountOpcode(compare, OpCodes.Ldfld) >= 21,
+                "Enum SoA comparisons should load backing column fields directly.");
+            Assert.Equal(18, CountArrayElementLoads(compare));
+            Assert.Equal(3, CountArrayElementStores(compare));
+            Assert.True(
+                ILShapeInspector.CountOpcode(compare, OpCodes.Ceq) >= 15,
+                "Enum SoA equality comparisons should use direct comparison opcodes.");
+            Assert.True(
+                ILShapeInspector.CountOpcode(compare, OpCodes.Clt) >= 6,
+                "Enum SoA less-than comparisons should use direct comparison opcodes.");
+            Assert.True(
+                ILShapeInspector.CountOpcode(compare, OpCodes.Cgt) >= 6,
+                "Enum SoA greater-than comparisons should use direct comparison opcodes.");
+
+            return 0;
+        });
+    }
+
     private static void AssertNoAllocationOrDispatch(MethodInfo method)
     {
         ILShapeInspector.AssertNoBoxing(method);
