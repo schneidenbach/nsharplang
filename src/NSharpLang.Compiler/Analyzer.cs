@@ -2294,7 +2294,8 @@ public class Analyzer : IDisposable
                 AnalyzeSwitchStatement(switchStmt);
                 break;
             case PrintStatement printStmt:
-                AnalyzeExpression(printStmt.Value);
+                var printValueType = AnalyzeExpression(printStmt.Value);
+                ReportSoaRowEscapeIfNeeded(printStmt.Value, printValueType, "printed");
                 break;
             case OffStatement off:
                 AnalyzeOffStatement(off);
@@ -4754,7 +4755,8 @@ public class Analyzer : IDisposable
         {
             if (part is InterpolatedStringHole hole)
             {
-                AnalyzeExpression(hole.Expression);
+                var holeType = AnalyzeExpression(hole.Expression);
+                ReportSoaRowEscapeIfNeeded(hole.Expression, holeType, "formatted in an interpolated string");
             }
         }
         return BuiltInTypes.String;
