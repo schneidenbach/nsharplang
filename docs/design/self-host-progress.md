@@ -11,6 +11,12 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA copyRow guards target overflow
+
+`table.copyRow(from, to)` now rejects a dynamic `to == int.MaxValue` before computing `to + 1`
+for capacity growth and length updates. The generated wrapper reports a SoA-specific
+`ArgumentException` instead of allowing unchecked integer wraparound to steer capacity or indexing.
+
 ## 2026-06-14 — SoA copyRow rejects source rows outside length
 
 `table.copyRow(from, to)` now validates the dynamic source row against the table length before reading

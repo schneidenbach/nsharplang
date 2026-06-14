@@ -414,6 +414,7 @@ public partial class ILCompiler
         var validSourceLabel = il.DefineLabel();
         var validTargetLabel = il.DefineLabel();
         var validSourceRangeLabel = il.DefineLabel();
+        var validTargetIncrementLabel = il.DefineLabel();
         var keepLengthLabel = il.DefineLabel();
 
         il.Emit(OpCodes.Ldarg_1);
@@ -434,6 +435,12 @@ public partial class ILCompiler
         il.Emit(OpCodes.Blt, validSourceRangeLabel);
         EmitSoaArgumentException(il, $"source row for {info.Declaration.Name}.copyRow must be less than length");
         il.MarkLabel(validSourceRangeLabel);
+
+        il.Emit(OpCodes.Ldarg_2);
+        il.Emit(OpCodes.Ldc_I4, int.MaxValue);
+        il.Emit(OpCodes.Bne_Un, validTargetIncrementLabel);
+        EmitSoaArgumentException(il, $"target row for {info.Declaration.Name}.copyRow is too large");
+        il.MarkLabel(validTargetIncrementLabel);
 
         il.Emit(OpCodes.Ldarg_2);
         il.Emit(OpCodes.Ldc_I4_1);
