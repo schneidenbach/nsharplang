@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — Anonymous-union shim trusted wrapper leaves product dogfood
+
+`AnonymousUnionDeclaresPublicShimTrusted` no longer ships as a top-level dogfood export. The live
+adapter ABI still binds `AnonymousUnionDeclaresPublicShim`, which now performs the bounds guard,
+constructs the parameter table, and calls the table-shaped core directly. Reflection coverage pins
+the public product surface so this transition-era convenience wrapper does not come back.
+
 ## 2026-06-14 — SoA wrap length mismatch reports a direct table diagnostic
 
 The generated experimental `Table.wrap(columns..., length)` method now distinguishes mismatched

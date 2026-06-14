@@ -9961,6 +9961,19 @@ func main(): int {
             ?.GetValue(null) ?? false);
         Assert.True(isAvailable, "The production test output must carry NSharpLang.Compiler.Dogfood.dll.");
 
+        var dogfoodAssemblyPath = Path.Combine(AppContext.BaseDirectory, "NSharpLang.Compiler.Dogfood.dll");
+        using (var dogfoodScope = CollectibleAssemblyScope.LoadFromFile(dogfoodAssemblyPath))
+        {
+            var programType = dogfoodScope.Assembly.GetType("Program")
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit Program.");
+            Assert.NotNull(programType.GetMethod(
+                "AnonymousUnionDeclaresPublicShim",
+                BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic));
+            Assert.Null(programType.GetMethod(
+                "AnonymousUnionDeclaresPublicShimTrusted",
+                BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic));
+        }
+
         var tryDeclaresAnonymousUnionShims = adapterType.GetMethod(
                 "TryDeclaresAnonymousUnionShims",
                 BindingFlags.Static | BindingFlags.NonPublic)

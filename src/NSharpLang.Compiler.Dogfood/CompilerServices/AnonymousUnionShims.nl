@@ -7,10 +7,6 @@ func AnonymousUnionDeclaresPublicShim(parameterFlags: int[], count: int): int {
         return -1
     }
 
-    return AnonymousUnionDeclaresPublicShimTrusted(parameterFlags, count)
-}
-
-func AnonymousUnionDeclaresPublicShimTrusted(parameterFlags: int[], count: int): int {
     parameters := new AnonymousUnionParameterTable { Flags: parameterFlags }
     return AnonymousUnionDeclaresPublicShimTrustedCore(ref parameters, count)
 }
