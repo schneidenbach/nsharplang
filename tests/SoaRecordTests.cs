@@ -115,6 +115,39 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaRecordWithFlag_RejectsDuplicateColumnName()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+                kind: int
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.DuplicateDeclaration);
+        Assert.Contains("SoA column 'kind' is already defined", error.Message);
+        Assert.Contains("unique name", error.Message);
+    }
+
+    [Fact]
+    public void Analyzer_SoaRecordWithFlag_RejectsGeneratedMemberColumnName()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                length: int
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.DuplicateDeclaration);
+        Assert.Contains("SoA column 'length' conflicts with a generated table member", error.Message);
+        Assert.Contains("reserve length, capacity, add, clear, ensureCapacity, copyRow, and wrap", error.Suggestion);
+    }
+
+    [Fact]
     public void Analyzer_SoaRowViewCannotEscapeIntoLocal()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

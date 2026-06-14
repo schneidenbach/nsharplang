@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA column names are validated before wrapper emission
+
+Experimental SoA declarations now reject duplicate column names and column names that collide with
+generated wrapper members (`length`, `capacity`, `add`, `clear`, `ensureCapacity`, `copyRow`, and
+`wrap`) during analysis. Invalid table shapes now produce source diagnostics instead of reaching
+Reflection.Emit field or method definition failures.
+
 ## 2026-06-14 — SoA table member mutation fails before emission
 
 The analyzer now rejects direct writes to experimental SoA wrapper members such as `table.column = arr`,

@@ -160,6 +160,8 @@ shape changes must go through construction, `wrap`, `add`, `clear`, `ensureCapac
 
 The compiler must produce direct diagnostics for common misuse:
 
+- duplicate or reserved column names: "SoA column 'X' is already defined" or
+  "SoA column 'X' conflicts with a generated table member";
 - row value escapes: "SoA row views cannot be stored or returned; use the table and row index" (including
   locals, assignments, explicit returns, expression-bodied functions/local functions/properties/lambdas,
   explicit discards, call/constructor arguments, array literals, tuple literals, initializer values, yielding,

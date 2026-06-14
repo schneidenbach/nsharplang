@@ -1234,6 +1234,8 @@ public class Analyzer : IDisposable
                 length: "soa".Length);
         }
 
+        ValidateSoaColumnNames(soaRecordDecl);
+
         foreach (var (column, columnType) in columnTypes)
         {
             var resolvedColumnType = ResolveTypeAlias(columnType);
@@ -1251,6 +1253,39 @@ public class Analyzer : IDisposable
                 length);
         }
     }
+
+    private void ValidateSoaColumnNames(SoaRecordDeclaration soaRecordDecl)
+    {
+        var columnNames = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var column in soaRecordDecl.Columns)
+        {
+            var (line, columnPosition, length) = GetSoaColumnNameDiagnosticSpan(column, soaRecordDecl);
+            if (!columnNames.Add(column.Name))
+            {
+                Error(
+                    ErrorCode.DuplicateDeclaration,
+                    $"SoA column '{column.Name}' is already defined — each column in a soa record must have a unique name",
+                    line,
+                    columnPosition,
+                    "Rename one of the columns so every table member has one storage slot.",
+                    length);
+            }
+
+            if (IsReservedSoaTableMemberName(column.Name))
+            {
+                Error(
+                    ErrorCode.DuplicateDeclaration,
+                    $"SoA column '{column.Name}' conflicts with a generated table member",
+                    line,
+                    columnPosition,
+                    "Rename the column; SoA tables reserve length, capacity, add, clear, ensureCapacity, copyRow, and wrap.",
+                    length);
+            }
+        }
+    }
+
+    private static bool IsReservedSoaTableMemberName(string name)
+        => name is "length" or "capacity" or "add" or "clear" or "ensureCapacity" or "copyRow" or "wrap";
 
     private bool IsSupportedSoaColumnType(TypeInfo type)
     {
@@ -1277,6 +1312,15 @@ public class Analyzer : IDisposable
             column.Line,
             column.Column,
             Math.Max(1, column.Name.Length));
+    }
+
+    private static (int Line, int Column, int Length) GetSoaColumnNameDiagnosticSpan(
+        SoaColumnDeclaration column,
+        SoaRecordDeclaration declaration)
+    {
+        var line = column.Line > 0 ? column.Line : declaration.Line;
+        var columnPosition = column.Column > 0 ? column.Column : declaration.Column;
+        return (line, columnPosition, Math.Max(1, column.Name.Length));
     }
 
     private void AnalyzeInterfaceDeclaration(InterfaceDeclaration interfaceDecl)
