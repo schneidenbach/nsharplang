@@ -23,12 +23,12 @@ stays complete without reintroducing a shipped product resource.
 ## 2026-06-14 — SoA target-typed new still requires capacity
 
 Target-typed `new()` is now pinned as an analyzer error for SoA table wrappers in typed locals,
-returns, expression-bodied functions/local functions, call arguments, fields, expression-bodied
-properties, object initializer members, `with` expression members, assignments, array literals, array
-initializers, collection literal elements, tuple literal elements, and typed ternary/match result arms.
-Even with an expected `NodeTable` type, construction must spell a non-negative capacity with
-`new NodeTable(capacity)` or use `NodeTable.wrap(...)`; zero-argument target-typed construction does
-not reach IL lowering.
+returns, expression-bodied functions/local functions, call arguments, default parameter values, fields,
+expression-bodied properties, object initializer members, `with` expression members, assignments, array
+literals, array initializers, collection literal elements, tuple literal elements, and typed
+ternary/match result arms. Even with an expected `NodeTable` type, construction must spell a
+non-negative capacity with `new NodeTable(capacity)` or use `NodeTable.wrap(...)`; zero-argument
+target-typed construction does not reach IL lowering.
 
 ## 2026-06-14 — SoA row pseudo-types stay internal
 
@@ -48,11 +48,11 @@ path.
 
 Target-typed `default` is now rejected for experimental SoA table wrappers during analysis. A default
 CLR value would bypass `new Table(capacity)`/`Table.wrap(...)` and leave backing column arrays null, so
-typed locals, returns, expression-bodied functions/local functions, call arguments, fields,
-expression-bodied properties, object initializer members, `with` expression members, assignments,
-array literals, array initializers, collection literal elements, tuple literal elements, and typed
-ternary/match result arms now report a direct SoA construction diagnostic before IL lowering can emit
-an invalid wrapper value.
+typed locals, returns, expression-bodied functions/local functions, call arguments, default parameter
+values, fields, expression-bodied properties, object initializer members, `with` expression members,
+assignments, array literals, array initializers, collection literal elements, tuple literal elements,
+and typed ternary/match result arms now report a direct SoA construction diagnostic before IL lowering
+can emit an invalid wrapper value.
 
 ## 2026-06-14 — SoA unsupported-declaration gates stop column-type cascades
 

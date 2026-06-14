@@ -16774,9 +16774,10 @@ public class Analyzer : IDisposable
             if (hasDefault)
             {
                 foundOptional = true;
+                var reportedSoaDefaultParameterDiagnostic = ReportSoaDefaultParameterValueIfNeeded(param);
 
                 // Validate that default value is a compile-time constant
-                if (!IsValidDefaultValue(param.DefaultValue!))
+                if (!reportedSoaDefaultParameterDiagnostic && !IsValidDefaultValue(param.DefaultValue!))
                 {
                     var (defaultLine, defaultColumn, defaultLength) = GetExpressionDiagnosticSpan(param.DefaultValue!);
                     Error(ErrorCode.InvalidDefaultParameterValue,
@@ -16796,6 +16797,24 @@ public class Analyzer : IDisposable
                 }
             }
         }
+    }
+
+    private bool ReportSoaDefaultParameterValueIfNeeded(Parameter parameter)
+    {
+        if (!SoaFeature.IsEnabled || parameter.DefaultValue == null)
+        {
+            return false;
+        }
+
+        var parameterType = ResolveDeclaredType(parameter.Type);
+        if (ResolveTypeAlias(GetNonNullableType(parameterType)) is not SoaRecordTypeInfo)
+        {
+            return false;
+        }
+
+        var errorsBefore = _errors.Count;
+        AnalyzeExpressionWithExpectedType(parameter.DefaultValue, parameterType);
+        return _errors.Count > errorsBefore;
     }
 
     private static (int Line, int Column, int Length) GetParameterDiagnosticSpan(
