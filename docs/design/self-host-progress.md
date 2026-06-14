@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA add and clear cover verified element types
+
+Generated `add` and `clear` now have mixed column-type opcode evidence over `int`, `uint`, `long`,
+`bool`, `char`, `string`, and `string?` columns. `add` returns the old length, grows through the
+generated `ensureCapacity`, and updates only the length metadata; `clear` resets only length. Both
+remain free of row construction, heap array allocation, backing-column element traffic, boxing,
+delegate construction, and virtual dispatch.
+
 ## 2026-06-14 — SoA generated wrapper methods cover verified element types
 
 Generated `new`, `wrap`, and `ensureCapacity` now have mixed column-type opcode evidence over `int`,

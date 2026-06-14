@@ -1346,6 +1346,86 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void AddAndClearVerifiedColumnTypes_UseLengthMetadataWithoutElementTraffic()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                kind: int
+                flags: uint
+                start: long
+                active: bool
+                marker: char
+                name: string
+                optionalName: string?
+                count: int
+            }
+
+            func main(): int {
+                nodes := new NodeTable(1)
+                first := nodes.add()
+                second := nodes.add()
+
+                nodes[first].kind = 3
+                nodes[first].flags = (uint)7
+                nodes[first].start = 19L
+                nodes[first].active = true
+                nodes[first].marker = 'A'
+                nodes[first].name = "name"
+                nodes[first].optionalName = null
+                nodes[first].count = 11
+
+                nodes[second].kind = 5
+                nodes[second].count = 13
+
+                beforeClear := first * 1000000
+                beforeClear += second * 100000
+                beforeClear += nodes.length * 10000
+                beforeClear += nodes.capacity * 1000
+                beforeClear += nodes[first].kind * 10
+                beforeClear += nodes[second].count
+
+                nodes.clear()
+                return beforeClear + nodes.length
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var tableType = assembly.GetType("NodeTable");
+            Assert.NotNull(tableType);
+
+            var add = tableType!.GetMethod("add", BindingFlags.Public | BindingFlags.Instance);
+            var clear = tableType.GetMethod("clear", BindingFlags.Public | BindingFlags.Instance);
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+            Assert.NotNull(add);
+            Assert.NotNull(clear);
+
+            Assert.Equal(124043, Assert.IsType<int>(main.Invoke(null, null)));
+
+            ILShapeInspector.AssertNoBoxing(add!);
+            Assert.Equal(1, ILShapeInspector.CountOpcode(add!, OpCodes.Newobj)); // length guard exception
+            Assert.Equal(0, ILShapeInspector.CountOpcode(add!, OpCodes.Newarr));
+            Assert.Equal(0, ILShapeInspector.CountDelegateConstructions(add!));
+            Assert.Equal(0, ILShapeInspector.CountOpcode(add!, OpCodes.Callvirt));
+            Assert.Equal(1, ILShapeInspector.CountOpcode(add!, OpCodes.Call)); // ensureCapacity
+            Assert.Equal(1, ILShapeInspector.CountOpcode(add!, OpCodes.Ldfld));
+            Assert.Equal(1, ILShapeInspector.CountOpcode(add!, OpCodes.Stfld));
+            Assert.Equal(0, CountArrayElementLoads(add!));
+            Assert.Equal(0, CountArrayElementStores(add!));
+
+            AssertNoAllocationOrDispatch(clear!);
+            Assert.Equal(0, ILShapeInspector.CountOpcode(clear!, OpCodes.Ldfld));
+            Assert.Equal(1, ILShapeInspector.CountOpcode(clear!, OpCodes.Stfld));
+            Assert.Equal(0, CountArrayElementLoads(clear!));
+            Assert.Equal(0, CountArrayElementStores(clear!));
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void RowColumnNullCoalesceAssign_UsesColumnArrayLoadStore()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
