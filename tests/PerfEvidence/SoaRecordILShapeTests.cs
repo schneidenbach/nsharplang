@@ -2407,6 +2407,70 @@ public class SoaRecordILShapeTests
         });
     }
 
+    [Fact]
+    public void EnumColumnUpdates_UseColumnArrayLoadStoreWithoutRowOrSliceAllocation()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                kind: NodeKind
+            }
+
+            enum NodeKind {
+                Unknown,
+                Identifier,
+                Literal,
+                Error
+            }
+
+            func update(nodes: NodeTable, row: int): int {
+                nodes[row].kind = NodeKind.Identifier
+                oldRow := nodes[row].kind++
+                oldDirect := nodes.kind[row]++
+                oldFromEnd := nodes.kind[^1]--
+                preRow := ++nodes[row].kind
+                preDirect := --nodes.kind[row]
+                preFromEnd := ++nodes.kind[^1]
+                current := nodes[row].kind
+
+                total := oldRow == NodeKind.Identifier ? 1000000 : 0
+                total += oldDirect == NodeKind.Literal ? 100000 : 0
+                total += oldFromEnd == NodeKind.Error ? 10000 : 0
+                total += preRow == NodeKind.Error ? 1000 : 0
+                total += preDirect == NodeKind.Literal ? 100 : 0
+                total += preFromEnd == NodeKind.Error ? 10 : 0
+                total += current == NodeKind.Error ? 1 : 0
+                return total
+            }
+
+            func main(): int {
+                nodes := new NodeTable(1)
+                row := nodes.add()
+                return update(nodes, row)
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var update = ILShapeInspector.GetProgramMethod(assembly, "update");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(1111111, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoFromEndSliceAllocation(update);
+            Assert.True(
+                ILShapeInspector.CountOpcode(update, OpCodes.Ldfld) >= 4,
+                "Enum SoA updates should load backing column fields directly.");
+            Assert.True(
+                CountArrayElementLoads(update) >= 7,
+                "Enum SoA updates should read current and returned values from the backing array.");
+            Assert.Equal(7, CountArrayElementStores(update));
+
+            return 0;
+        });
+    }
+
     private static void AssertNoAllocationOrDispatch(MethodInfo method)
     {
         ILShapeInspector.AssertNoBoxing(method);

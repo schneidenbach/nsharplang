@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA enum updates have row/direct IL-shape proof
+
+Int-backed enum SoA columns now have opcode evidence for the update shapes admitted by the general
+enum language rules. Row projection, direct column indexing, and direct from-end column indexing all
+support prefix/postfix enum increment/decrement through backing-column array traffic, with no row
+construction, slice allocation, boxing, delegate construction, or virtual dispatch.
+
 ## 2026-06-14 — SoA int-backed enum columns are admitted
 
 SoA column type validation now accepts int-backed N# enums and still rejects string enums. The direct
