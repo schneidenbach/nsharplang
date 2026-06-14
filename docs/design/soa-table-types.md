@@ -175,6 +175,9 @@ reject `++`/`--` during analysis. Compound assignment must type-check through th
 and produce a result assignable back to the column, so boolean columns reject `+=`, `-=`, `*=`, and `/=`
 before lowering. Direct column-element access through `table.column[row]` is also
 permitted for explicit systems kernels when the index shape is one the built-in array path supports.
+The same nullability rule applies to both row projection and direct column elements: `??` and `??=`
+require a nullable/reference column element and non-nullable columns reject the operation during
+analysis.
 Replacing wrapper column arrays, mutating `length`/`capacity` directly, or mutating column slices is
 not allowed: shape changes must go through construction, `wrap`, `add`, `clear`, `ensureCapacity`, or
 `copyRow`.
@@ -220,7 +223,7 @@ The compiler must produce direct diagnostics for common misuse:
 - unsupported element type: "SoA column type X is not supported in this lowering";
 - unsupported row-column compound assignment: "The '+' operator doesn't work with 'X' and 'Y'";
 - non-integral row-column increment/decrement: "The '++' operator doesn't work with 'X'";
-- non-nullable row-column null coalescing: "The left side of '??' has type 'X', which can't be null";
+- non-nullable row/direct column null coalescing: "The left side of '??' has type 'X', which can't be null";
 - non-int or range row indexes: "SoA table indexes must be int row ids";
 - statically negative row indexes: "SoA table row indexes must not be negative" or
   "SoA column row indexes must not be negative";

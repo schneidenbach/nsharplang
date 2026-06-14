@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — Direct SoA column non-nullable coalescing stops in analysis
+
+Direct column element null-coalescing now has the same unsupported-case pins as row projection.
+`table.column[row] ?? fallback` and `table.column[row] ??= fallback` over non-nullable columns report
+the existing non-nullable coalescing diagnostics during analysis, so invalid systems-kernel column
+traffic does not reach IL lowering.
+
 ## 2026-06-14 — Direct SoA column null-coalescing IL shape is pinned
 
 Direct column element null-coalescing now has runtime and opcode evidence beside row projection.

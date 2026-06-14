@@ -4687,6 +4687,48 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaRecordNullCoalesceAssignOnNonNullableDirectColumnElement_IsRejected()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable, row: int) {
+                nodes.kind[row] ??= 5
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains("left side of '??=' has type 'int'", error.Message);
+        Assert.Contains("can't be null", error.Message);
+        Assert.Contains("make the target nullable", error.Suggestion);
+    }
+
+    [Fact]
+    public void Analyzer_SoaRecordNullCoalesceOnNonNullableDirectColumnElement_IsRejected()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable, row: int): int {
+                return nodes.kind[row] ?? 5
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains("left side of '??' has type 'int'", error.Message);
+        Assert.Contains("can't be null", error.Message);
+        Assert.Contains("make the left side nullable", error.Suggestion);
+    }
+
+    [Fact]
     public void Analyzer_SoaRecordNonIntegralRowColumnIncrement_IsRejected()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
