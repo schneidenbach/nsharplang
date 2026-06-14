@@ -494,11 +494,6 @@ public partial class ILCompiler
             return false;
         }
 
-        if (assignment.Operator == AssignmentOperator.NullCoalesceAssign)
-        {
-            throw new InvalidOperationException("SoA row column null-coalescing assignment is not supported");
-        }
-
         EmitExpression(rowAccess.Object);
         _currentIL!.Emit(OpCodes.Ldfld, columnField);
         var arrayLocal = _currentIL.DeclareLocal(columnField.FieldType);
@@ -507,6 +502,48 @@ public partial class ILCompiler
         EmitExpressionWithExpectedType(rowAccess.Index, typeof(int));
         var indexLocal = _currentIL.DeclareLocal(typeof(int));
         _currentIL.Emit(OpCodes.Stloc, indexLocal);
+
+        if (assignment.Operator == AssignmentOperator.NullCoalesceAssign)
+        {
+            _currentIL.Emit(OpCodes.Ldloc, arrayLocal);
+            _currentIL.Emit(OpCodes.Ldloc, indexLocal);
+            EmitArrayElementLoad(elementType);
+            var currentValueLocal = _currentIL.DeclareLocal(elementType);
+            _currentIL.Emit(OpCodes.Stloc, currentValueLocal);
+
+            if (!elementType.IsValueType || Nullable.GetUnderlyingType(elementType) != null)
+            {
+                var hasValueLabel = _currentIL.DefineLabel();
+                var endLabel = _currentIL.DefineLabel();
+
+                EmitBranchIfHasValue(elementType, currentValueLocal, hasValueLabel);
+                if (assignment.Value is DefaultExpression)
+                {
+                    EmitDefaultValue(elementType);
+                }
+                else
+                {
+                    EmitExpressionWithExpectedType(assignment.Value, elementType);
+                }
+
+                _currentIL.Emit(OpCodes.Stloc, currentValueLocal);
+                _currentIL.Emit(OpCodes.Ldloc, arrayLocal);
+                _currentIL.Emit(OpCodes.Ldloc, indexLocal);
+                _currentIL.Emit(OpCodes.Ldloc, currentValueLocal);
+                EmitArrayElementStore(elementType);
+                _currentIL.Emit(OpCodes.Br, endLabel);
+
+                _currentIL.MarkLabel(hasValueLabel);
+                _currentIL.MarkLabel(endLabel);
+            }
+
+            if (leaveValueOnStack)
+            {
+                _currentIL.Emit(OpCodes.Ldloc, currentValueLocal);
+            }
+
+            return true;
+        }
 
         if (assignment.Operator != AssignmentOperator.Assign)
         {

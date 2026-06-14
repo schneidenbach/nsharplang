@@ -90,6 +90,37 @@ public class SoaRecordILShapeTests
         });
     }
 
+    [Fact]
+    public void RowColumnNullCoalesceAssign_UsesColumnArrayLoadStore()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                text: string
+            }
+
+            func adopt(nodes: NodeTable, row: int): string {
+                nodes[row].text ??= "fallback"
+                return nodes[row].text
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var adopt = ILShapeInspector.GetProgramMethod(assembly, "adopt");
+            AssertNoAllocationOrDispatch(adopt);
+            Assert.True(
+                ILShapeInspector.CountOpcode(adopt, OpCodes.Ldfld) >= 2,
+                "Row-column null coalescing should load the column field directly.");
+            Assert.True(
+                CountArrayElementLoads(adopt) >= 2,
+                "Row-column null coalescing should read the current value and the returned value from the column array.");
+            Assert.Equal(1, CountArrayElementStores(adopt));
+            return 0;
+        });
+    }
+
     private static void AssertNoAllocationOrDispatch(MethodInfo method)
     {
         ILShapeInspector.AssertNoBoxing(method);

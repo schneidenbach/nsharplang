@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — SoA row-column null-coalescing assignment lowers to columns
+
+The experimental SoA wrapper emitter no longer throws if a row-column assignment uses `??=`.
+`nodes[row].text ??= "fallback"` now uses the same single-evaluation shape as normal indexed
+null-coalescing assignment: cache the backing column array and row index, load the current element,
+branch when it already has a value, and store only the fallback value back into the column array.
+
+Behavior coverage proves null values are adopted and non-null values are preserved. IL-shape coverage pins
+the important SoA invariant: direct column-field loads plus array element loads/stores, with no row object
+allocation, boxing, delegate construction, or virtual dispatch.
+
 ## 2026-06-13 — Roadmap cursor syncs to route-all and SoA-stage reality
 
 `roadmap-to-done.md` now reflects the imported endgame state instead of the older Stage-5/6 snapshot:

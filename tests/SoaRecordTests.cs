@@ -228,6 +228,31 @@ public class SoaRecordTests : ILCompilerTestBase
         Assert.Equal(4520, Assert.IsType<int>(CompileAndInvoke(source)));
     }
 
+    [Fact]
+    public void ILCompiler_SoaRecordNullCoalesceAssignOnRowColumn_StoresOnlyWhenNull()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var source = """
+            soa record NodeTable {
+                text: string
+            }
+
+            func main(): string {
+                nodes := new NodeTable(2)
+                first := nodes.add()
+                second := nodes.add()
+                nodes[first].text ??= "fallback"
+                nodes[first].text ??= "other"
+                nodes[second].text = "ready"
+                nodes[second].text ??= "ignored"
+                return nodes[first].text + ":" + nodes[second].text
+            }
+            """;
+
+        Assert.Equal("fallback:ready", Assert.IsType<string>(CompileAndInvoke(source)));
+    }
+
     private static AnalysisResult Analyze(string source)
     {
         var lexer = new Lexer(source, "test.nl");
