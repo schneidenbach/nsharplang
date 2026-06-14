@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — SoA row-column assignment statements stop reloading discarded values
+
+SoA row-column assignments now use the statement-context lowering path directly. Plain row writes like
+`nodes[row].kind = 3` and compound row writes like `nodes[row].kind += 1` reuse the existing column-array
+store lowering with `leaveValueOnStack: false`, instead of emitting an assignment expression result and then
+letting the expression-statement wrapper discard it with `pop`.
+
+IL-shape coverage now asserts representative row writes have no discard `pop` while still using direct
+column-field loads plus array element loads/stores and no row allocation or dispatch.
+
 ## 2026-06-13 — SoA row-column increments lower to columns
 
 The experimental SoA wrapper emitter now handles `++` and `--` on row-column projections without routing

@@ -12322,6 +12322,12 @@ public partial class ILCompiler
             return true;
         }
 
+        if (assignment.Target is MemberAccessExpression memberAccess
+            && TryEmitSoaRowColumnAssignment(assignment, memberAccess, leaveValueOnStack: false))
+        {
+            return true;
+        }
+
         if (assignment.Target is IndexAccessExpression indexAccess
             && assignment.Operator == AssignmentOperator.Assign
             && !indexAccess.IsNullConditional)

@@ -45,6 +45,7 @@ public class SoaRecordILShapeTests
             Assert.Equal(2, CountArrayElementLoads(read));
             Assert.Equal(0, CountArrayElementStores(read));
 
+            Assert.Equal(0, ILShapeInspector.CountOpcode(write, OpCodes.Pop));
             Assert.True(
                 ILShapeInspector.CountOpcode(write, OpCodes.Ldfld) >= 4,
                 "Row writes should load column array fields directly.");
