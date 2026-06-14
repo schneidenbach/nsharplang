@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA row-view event target coverage is pinned
+
+The SoA row-view escape suite now pins event subscription targets as well as unsubscribe handles.
+`on table[index] (...) => { }` reports the SoA-specific diagnostic with the `table[index].column`
+guidance instead of falling through to the generic event-target validation path, so both event
+subscription boundaries are covered by focused tests.
+
 ## 2026-06-14 — Analyzer overload-signature parity probe leaves product dogfood
 
 The overload-signature distinctness probe in `AnalyzerExhaustiveness.nl` has moved to the parity corpus
