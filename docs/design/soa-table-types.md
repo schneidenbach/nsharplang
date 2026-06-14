@@ -180,8 +180,9 @@ null-coalescing reads and assignment, compound assignment, and increment/decreme
 column element types. These accepted operations lower to the backing column arrays without row-object
 materialization; non-integral columns such as `string` still support reads/stores/null coalescing but
 reject `++`/`--` during analysis. Int-backed enum columns support the enum language's prefix/postfix
-increment and decrement forms plus same-enum bitwise expressions, but arithmetic compound assignment
-is not part of the enum column proof. Compound assignment must type-check through the underlying
+increment and decrement forms, same-enum bitwise expressions, and unary bitwise-not. Arithmetic
+compound assignment is not part of the enum column proof. Each compound assignment must type-check
+through the underlying
 operator and produce a result assignable back to the column, so boolean and enum columns reject `+=`,
 `-=`, `*=`, and `/=` before lowering. Direct column-element access through `table.column[row]`
 follows the same update typing rules and is also
@@ -308,8 +309,8 @@ element-type set, direct column null-coalescing reads/assignments, and from-end 
 including expression-valued simple stores, default stores across the verified scalar/reference
 element-type set, including expression-valued default stores, without old-element reads, verified
 scalar/reference element reads/stores, int-backed enum reads/stores/default stores/generated methods,
-same-enum bitwise expression stores, plus prefix/postfix update forms, integral `uint`/`long`/`char`
-update forms, and null-coalescing reads/assignments.
+same-enum bitwise and unary bitwise-not expression stores, plus prefix/postfix update forms, integral
+`uint`/`long`/`char` update forms, and null-coalescing reads/assignments.
 Row-projection null-coalescing
 reads/assignments have the same direct column proof, with range/slice allocation still rejected during
 analysis. Row-projection integral `uint`/`long`/`char` update forms are pinned with the same

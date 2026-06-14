@@ -2579,6 +2579,57 @@ public class SoaRecordILShapeTests
         });
     }
 
+    [Fact]
+    public void EnumColumnUnaryBitwiseNot_UsesColumnArrayLoadStoreWithoutRowOrSliceAllocation()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                kind: NodeKind
+            }
+
+            enum NodeKind {
+                Unknown = 0,
+                Identifier = 1,
+                Literal = 2
+            }
+
+            func update(nodes: NodeTable, row: int): int {
+                nodes[row].kind = NodeKind.Identifier
+                rowValue := nodes[row].kind = ~nodes[row].kind
+                nodes.kind[row] = NodeKind.Literal
+                directValue := nodes.kind[row] = ~nodes.kind[row]
+                nodes.kind[^1] = NodeKind.Unknown
+                fromEndValue := nodes.kind[^1] = ~nodes.kind[^1]
+                return (int)rowValue * 100 + (int)directValue * 10 + (int)fromEndValue
+            }
+
+            func main(): int {
+                nodes := new NodeTable(1)
+                row := nodes.add()
+                return update(nodes, row)
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var update = ILShapeInspector.GetProgramMethod(assembly, "update");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(-231, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoFromEndSliceAllocation(update);
+            Assert.True(
+                ILShapeInspector.CountOpcode(update, OpCodes.Ldfld) >= 6,
+                "Enum SoA unary bitwise stores should load backing column fields directly.");
+            Assert.Equal(3, CountArrayElementLoads(update));
+            Assert.Equal(6, CountArrayElementStores(update));
+
+            return 0;
+        });
+    }
+
     private static void AssertNoAllocationOrDispatch(MethodInfo method)
     {
         ILShapeInspector.AssertNoBoxing(method);
