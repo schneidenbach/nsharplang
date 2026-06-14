@@ -146,8 +146,8 @@ nodes.copyRow(from, to)
 `add` returns the old `length` and increments it after ensuring capacity. `clear` sets `length = 0`
 without clearing column arrays. `ensureCapacity` grows every column together and preserves existing
 rows. `copyRow` emits one element copy per column. The generated parameter names are part of the
-semantic signature: `copyRow(from: src, to: dst)` is valid, and unknown or duplicate generated
-operation argument names are rejected before lowering.
+semantic signature: `ensureCapacity(capacity: n)` and `copyRow(from: src, to: dst)` are valid, and
+unknown or duplicate generated operation argument names are rejected before lowering.
 
 Bulk transforms such as filtering, sorting, and compaction remain explicit kernels. `soa record` should
 not grow LINQ-like methods that obscure allocation or control flow.

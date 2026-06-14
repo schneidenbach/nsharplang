@@ -6737,7 +6737,7 @@ public class Analyzer : IDisposable
                     "length" or "capacity" => BuiltInTypes.Int,
                     "add" => CreateSoaIntrinsicFunction("add", BuiltInTypes.Int),
                     "clear" => CreateSoaIntrinsicFunction("clear", BuiltInTypes.Void),
-                    "ensureCapacity" => CreateSoaIntrinsicFunction("ensureCapacity", BuiltInTypes.Void, ("required", BuiltInTypes.Int)),
+                    "ensureCapacity" => CreateSoaIntrinsicFunction("ensureCapacity", BuiltInTypes.Void, ("capacity", BuiltInTypes.Int)),
                     "copyRow" => CreateSoaIntrinsicFunction("copyRow", BuiltInTypes.Void, ("from", BuiltInTypes.Int), ("to", BuiltInTypes.Int)),
                     _ => BuiltInTypes.Unknown
                 };

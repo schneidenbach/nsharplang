@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA ensureCapacity uses a source-spellable parameter name
+
+The generated SoA `ensureCapacity` signature now exposes `capacity` as its parameter name in both
+semantic analysis and emitted wrapper metadata. Named calls such as `table.ensureCapacity(capacity: n)`
+now bind and execute through the same generated method path as positional calls, while wrong-typed and
+negative named capacities fail during analysis before wrapper lowering.
+
 ## 2026-06-14 — SoA generated operation names bind semantically
 
 Generated SoA operation signatures now carry analyzer-visible parameter names, matching the synthetic

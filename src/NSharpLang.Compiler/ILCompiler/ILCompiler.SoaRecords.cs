@@ -256,7 +256,7 @@ public partial class ILCompiler
             typeof(void),
             new[] { typeof(int) });
         _methods[GetMethodKey(info.Builder, "ensureCapacity")] = method;
-        method.DefineParameter(1, ParameterAttributes.None, "required");
+        method.DefineParameter(1, ParameterAttributes.None, "capacity");
         RegisterDeclaredMethodOverload(
             GetMethodKey(info.Builder, "ensureCapacity"),
             CreateSyntheticSoaFunction(
@@ -264,7 +264,7 @@ public partial class ILCompiler
                 new List<Parameter>
                 {
                     new(
-                        "required",
+                        "capacity",
                         new SimpleTypeReference("int", info.Declaration.Line, info.Declaration.Column),
                         DefaultValue: null,
                         IsThis: false,

@@ -1840,6 +1840,26 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaTableEnsureCapacityNamedArgumentTypeUsesParameterBinding()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable) {
+                nodes.ensureCapacity(capacity: "4")
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains("Argument 'capacity' to 'ensureCapacity' is 'string'", error.Message);
+        Assert.Contains("expects 'int'", error.Message);
+    }
+
+    [Fact]
     public void Analyzer_SoaTableEnsureCapacityRejectsNegativeLiteral()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
@@ -1851,6 +1871,26 @@ public class SoaRecordTests : ILCompilerTestBase
 
             func bad(nodes: NodeTable) {
                 nodes.ensureCapacity(-1)
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains("SoA table capacity must not be negative", error.Message);
+        Assert.Contains("ensureCapacity expects a non-negative int argument", error.Suggestion);
+    }
+
+    [Fact]
+    public void Analyzer_SoaTableEnsureCapacityRejectsNegativeNamedLiteral()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable) {
+                nodes.ensureCapacity(capacity: -1)
             }
             """);
 
@@ -1909,7 +1949,7 @@ public class SoaRecordTests : ILCompilerTestBase
             }
 
             func ok(nodes: NodeTable) {
-                nodes.ensureCapacity(2)
+                nodes.ensureCapacity(capacity: 2)
                 nodes.copyRow(to: 1, from: 0)
             }
             """);
@@ -2064,6 +2104,31 @@ public class SoaRecordTests : ILCompilerTestBase
             """;
 
         Assert.Equal(2632, Assert.IsType<int>(CompileAndInvoke(source)));
+    }
+
+    [Fact]
+    public void ILCompiler_SoaRecordGeneratedOperationsBindNamedArguments()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var source = """
+            soa record NodeTable {
+                kind: int
+                start: int
+            }
+
+            func main(): int {
+                nodes := new NodeTable(1)
+                first := nodes.add()
+                nodes[first].kind = 7
+                nodes[first].start = 8
+                nodes.ensureCapacity(capacity: 3)
+                nodes.copyRow(to: 2, from: first)
+                return nodes.capacity * 1000 + nodes.length * 100 + nodes[2].kind * 10 + nodes[2].start
+            }
+            """;
+
+        Assert.Equal(4378, Assert.IsType<int>(CompileAndInvoke(source)));
     }
 
     [Fact]
