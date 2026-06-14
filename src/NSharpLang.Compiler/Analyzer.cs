@@ -4440,7 +4440,7 @@ public class Analyzer : IDisposable
             NewExpression newExpr => AnalyzeNewExpression(newExpr),
             AllocExpression alloc => AnalyzeExpression(alloc.Expression),
             StackAllocExpression stackAlloc => AnalyzeStackAllocExpression(stackAlloc),
-            CastExpression cast => ResolveType(cast.TargetType),
+            CastExpression cast => AnalyzeCastExpression(cast),
             IsExpression isExpr => AnalyzeIsExpression(isExpr),
             AwaitExpression await => AnalyzeAwaitExpression(await),
             ThrowExpression throwExpr => AnalyzeThrowExpression(throwExpr),
@@ -4809,6 +4809,11 @@ public class Analyzer : IDisposable
             {
                 rightType = AnalyzeExpression(binary.Right);
             }
+            if (ReportSoaRowEscapeIfNeeded(binary.Left, leftType, "used as an operator operand")
+                | ReportSoaRowEscapeIfNeeded(binary.Right, rightType, "used as an operator operand"))
+            {
+                return BuiltInTypes.Unknown;
+            }
             return AnalyzeLogicalOp(leftType, rightType, binary);
         }
 
@@ -4831,11 +4836,21 @@ public class Analyzer : IDisposable
             {
                 rightType = AnalyzeExpression(binary.Right);
             }
+            if (ReportSoaRowEscapeIfNeeded(binary.Left, leftType, "used as an operator operand")
+                | ReportSoaRowEscapeIfNeeded(binary.Right, rightType, "used as an operator operand"))
+            {
+                return BuiltInTypes.Unknown;
+            }
             return AnalyzeLogicalOp(leftType, rightType, binary);
         }
 
         var leftT = AnalyzeExpression(binary.Left);
         var rightT = AnalyzeExpression(binary.Right);
+        if (ReportSoaRowEscapeIfNeeded(binary.Left, leftT, "used as an operator operand")
+            | ReportSoaRowEscapeIfNeeded(binary.Right, rightT, "used as an operator operand"))
+        {
+            return BuiltInTypes.Unknown;
+        }
 
         return binary.Operator switch
         {
@@ -5400,6 +5415,10 @@ public class Analyzer : IDisposable
     private TypeInfo AnalyzeUnaryExpression(UnaryExpression unary)
     {
         var operandType = AnalyzeExpression(unary.Operand);
+        if (ReportSoaRowEscapeIfNeeded(unary.Operand, operandType, "used as a unary operand"))
+        {
+            return BuiltInTypes.Unknown;
+        }
 
         return unary.Operator switch
         {
@@ -5474,6 +5493,10 @@ public class Analyzer : IDisposable
     private TypeInfo AnalyzeMustExpression(MustExpression must)
     {
         var operandType = AnalyzeExpression(must.Expression);
+        if (ReportSoaRowEscapeIfNeeded(must.Expression, operandType, "unwrapped with 'must'"))
+        {
+            return BuiltInTypes.Unknown;
+        }
 
         if (operandType is NullableTypeInfo nullable)
         {
@@ -6672,12 +6695,15 @@ public class Analyzer : IDisposable
             length);
     }
 
-    private void ReportSoaRowEscapeIfNeeded(Expression expression, TypeInfo type, string action)
+    private bool ReportSoaRowEscapeIfNeeded(Expression expression, TypeInfo type, string action)
     {
         if (type is SoaRowTypeInfo)
         {
             ReportSoaRowEscape(expression, action);
+            return true;
         }
+
+        return false;
     }
 
     /// <summary>
@@ -7757,8 +7783,8 @@ public class Analyzer : IDisposable
             // so pairing arguments with declared parameters skips the `this` parameter (mirrors the
             // paramStartIndex shift in the argument validation below). Without the shift a lambda
             // argument pairs with the RECEIVER's type and loses its delegate-type inference source.
-            var expectedParamOffset = functionType.Declaration is { Parameters.Count: > 0 } decl
-                && decl.Parameters[0].IsThis ? 1 : 0;
+            var expectedParamOffset = functionType.Declaration is { } decl
+                && IsReceiverStyleExtensionCall(decl, call) ? 1 : 0;
             for (int i = 0; i < call.Arguments.Count; i++)
             {
                 var expectedIndex = i + expectedParamOffset;
@@ -7803,11 +7829,9 @@ public class Analyzer : IDisposable
             {
                 var parameters = funcType.Declaration.Parameters;
 
-                // Check if this is an extension method (first param has IsThis = true)
-                var isExtensionMethod = parameters.Count > 0 && parameters[0].IsThis;
-
-                // For extension methods, skip the first parameter (the "this" parameter)
-                var paramStartIndex = isExtensionMethod ? 1 : 0;
+                // Receiver-style extension calls (`value.Extension(...)`) bind the receiver to the
+                // `this` parameter. Direct calls (`Extension(value, ...)`) pass it explicitly.
+                var paramStartIndex = IsReceiverStyleExtensionCall(funcType.Declaration, call) ? 1 : 0;
                 var effectiveParamCount = parameters.Count - paramStartIndex;
 
                 // Check if last parameter is params
@@ -8244,6 +8268,11 @@ public class Analyzer : IDisposable
         };
     }
 
+    private static bool IsReceiverStyleExtensionCall(FunctionDeclaration declaration, CallExpression call)
+        => declaration.Parameters.Count > 0
+            && declaration.Parameters[0].IsThis
+            && call.Callee is MemberAccessExpression;
+
     private string FormatNSharpMethodSignature(FunctionDeclaration declaration, CallExpression call)
     {
         var parameterStart = call.Callee is MemberAccessExpression &&
@@ -8429,8 +8458,7 @@ public class Analyzer : IDisposable
 
         foreach (var decl in methodGroup.Declarations)
         {
-            var isExtension = decl.Parameters.Count > 0 && decl.Parameters[0].IsThis;
-            var paramStart = isExtension ? 1 : 0;
+            var paramStart = IsReceiverStyleExtensionCall(decl, call) ? 1 : 0;
             var effectiveParamCount = decl.Parameters.Count - paramStart;
             var hasParams = decl.Parameters.Count > 0 &&
                             decl.Parameters[^1].Modifier == Ast.ParameterModifier.Params;
@@ -8645,8 +8673,7 @@ public class Analyzer : IDisposable
     /// </summary>
     private void ValidateNSharpCallArguments(FunctionDeclaration decl, CallExpression call, List<TypeInfo> argTypes)
     {
-        var isExtension = decl.Parameters.Count > 0 && decl.Parameters[0].IsThis;
-        var paramStart = isExtension ? 1 : 0;
+        var paramStart = IsReceiverStyleExtensionCall(decl, call) ? 1 : 0;
         var effectiveParamCount = decl.Parameters.Count - paramStart;
         var hasParams = decl.Parameters.Count > 0 &&
                         decl.Parameters[^1].Modifier == Ast.ParameterModifier.Params;
@@ -8841,8 +8868,7 @@ public class Analyzer : IDisposable
         CallExpression call,
         string typeParameter)
     {
-        var isExtension = decl.Parameters.Count > 0 && decl.Parameters[0].IsThis;
-        var paramStart = isExtension ? 1 : 0;
+        var paramStart = IsReceiverStyleExtensionCall(decl, call) ? 1 : 0;
 
         Expression? offendingArgument = null;
         for (var i = 0; i + paramStart < decl.Parameters.Count && i < call.Arguments.Count; i++)
@@ -8972,15 +8998,15 @@ public class Analyzer : IDisposable
         }
 
         // Phase 2: Infer from argument types
-        var isExtension = decl.Parameters.Count > 0 && decl.Parameters[0].IsThis;
-        var paramStart = isExtension ? 1 : 0;
+        var isReceiverStyleExtension = IsReceiverStyleExtensionCall(decl, call);
+        var paramStart = isReceiverStyleExtension ? 1 : 0;
         var hasParams = decl.Parameters.Count > 0 &&
                         decl.Parameters[^1].Modifier == Ast.ParameterModifier.Params;
         var effectiveParamCount = decl.Parameters.Count - paramStart;
         var regularParamCount = hasParams ? effectiveParamCount - 1 : effectiveParamCount;
 
         // For extension methods, infer from the receiver type (the `this` parameter)
-        if (isExtension && call.Callee is MemberAccessExpression memberAccess)
+        if (isReceiverStyleExtension && call.Callee is MemberAccessExpression memberAccess)
         {
             var receiverType = AnalyzeExpression(memberAccess.Object);
             CollectNSharpTypeParameterBounds(decl.Parameters[0].Type, receiverType, decl.TypeParameters, allBounds);
@@ -11064,6 +11090,11 @@ public class Analyzer : IDisposable
 
         var thenType = AnalyzeExpression(ternary.ThenExpression);
         var elseType = AnalyzeExpression(ternary.ElseExpression);
+        if (ReportSoaRowEscapeIfNeeded(ternary.ThenExpression, thenType, "used as a ternary result")
+            | ReportSoaRowEscapeIfNeeded(ternary.ElseExpression, elseType, "used as a ternary result"))
+        {
+            return BuiltInTypes.Unknown;
+        }
 
         // Return common type
         return GetCommonType(thenType, elseType);
@@ -11701,6 +11732,10 @@ public class Analyzer : IDisposable
     {
         var sourceType = AnalyzeExpression(isExpr.Expression);
         var targetType = ResolveType(isExpr.Type);
+        if (ReportSoaRowEscapeIfNeeded(isExpr.Expression, sourceType, "tested with 'is'"))
+        {
+            return BuiltInTypes.Bool;
+        }
 
         if (!IsPatternPossible(sourceType, targetType))
         {
@@ -11714,9 +11749,22 @@ public class Analyzer : IDisposable
         return BuiltInTypes.Bool;
     }
 
+    private TypeInfo AnalyzeCastExpression(CastExpression cast)
+    {
+        var sourceType = AnalyzeExpression(cast.Expression);
+        var targetType = ResolveType(cast.TargetType);
+        if (ReportSoaRowEscapeIfNeeded(cast.Expression, sourceType, "cast"))
+        {
+            return BuiltInTypes.Unknown;
+        }
+
+        return targetType;
+    }
+
     private TypeInfo AnalyzeAwaitExpression(AwaitExpression await)
     {
         var exprType = AnalyzeExpression(await.Expression);
+        ReportSoaRowEscapeIfNeeded(await.Expression, exprType, "awaited");
         // TODO: Unwrap Task<T> to get T
         return BuiltInTypes.Unknown;
     }
@@ -11787,6 +11835,10 @@ public class Analyzer : IDisposable
 
             // Analyze the case expression
             var caseType = AnalyzeExpression(matchCase.Expression);
+            if (ReportSoaRowEscapeIfNeeded(matchCase.Expression, caseType, "used as a match result"))
+            {
+                caseType = BuiltInTypes.Unknown;
+            }
 
             // Ensure all cases return compatible types
             if (resultType == null)

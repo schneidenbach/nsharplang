@@ -537,6 +537,170 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaRowViewCannotBeUsedAsOperatorOperand()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable): bool {
+                return nodes[0] == null
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("SoA row views cannot be used as an operator operand", error.Message);
+        Assert.Contains("table[index].column", error.Suggestion);
+    }
+
+    [Fact]
+    public void Analyzer_SoaRowViewCannotBeUsedAsUnaryOperand()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable) {
+                assert !nodes[0]
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("SoA row views cannot be used as a unary operand", error.Message);
+        Assert.Contains("table[index].column", error.Suggestion);
+    }
+
+    [Fact]
+    public void Analyzer_SoaRowViewCannotBeCast()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable) {
+                value := nodes[0] as object
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("SoA row views cannot be cast", error.Message);
+        Assert.Contains("table[index].column", error.Suggestion);
+    }
+
+    [Fact]
+    public void Analyzer_SoaRowViewCannotBeTestedWithIs()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable) {
+                if nodes[0] is object {
+                }
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("SoA row views cannot be tested with 'is'", error.Message);
+        Assert.Contains("table[index].column", error.Suggestion);
+    }
+
+    [Fact]
+    public void Analyzer_SoaRowViewCannotBeUnwrappedWithMust()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable) {
+                value := must nodes[0]
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("SoA row views cannot be unwrapped with 'must'", error.Message);
+        Assert.Contains("table[index].column", error.Suggestion);
+    }
+
+    [Fact]
+    public void Analyzer_SoaRowViewCannotBeAwaited()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable) {
+                await nodes[0]
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("SoA row views cannot be awaited", error.Message);
+        Assert.Contains("table[index].column", error.Suggestion);
+    }
+
+    [Fact]
+    public void Analyzer_SoaRowViewCannotBeUsedAsTernaryResult()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable, ok: bool) {
+                value := ok ? nodes[0] : null
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("SoA row views cannot be used as a ternary result", error.Message);
+        Assert.Contains("table[index].column", error.Suggestion);
+    }
+
+    [Fact]
+    public void Analyzer_SoaRowViewCannotBeUsedAsMatchResult()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable, ok: bool) {
+                value := match ok {
+                    true => nodes[0],
+                    false => null
+                }
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("SoA row views cannot be used as a match result", error.Message);
+        Assert.Contains("table[index].column", error.Suggestion);
+    }
+
+    [Fact]
     public void Analyzer_SoaRowViewCannotEscapeThroughAssignment()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

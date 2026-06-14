@@ -2747,6 +2747,20 @@ func Main() {
     }
 
     [Fact]
+    public void ExtensionMethod_DirectCallPassesThisParameter_NoError()
+    {
+        AssertNoErrors(@"
+            func Sum(this arr: int[]): int {
+                return arr[0]
+            }
+
+            func Average(this arr: int[]): double {
+                return (double)Sum(arr) / (double)arr.Length
+            }
+        ");
+    }
+
+    [Fact]
     public void ExtensionMethod_OnVariableType_NoError()
     {
         AssertNoErrors(@"
