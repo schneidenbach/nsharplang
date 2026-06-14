@@ -13112,8 +13112,10 @@ public class Analyzer : IDisposable
 
     private TypeInfo AnalyzeCastExpression(CastExpression cast)
     {
-        var sourceType = AnalyzeExpression(cast.Expression);
         var targetType = ResolveType(cast.TargetType);
+        var sourceType = ShouldUseCastTargetExpectedType(cast)
+            ? AnalyzeExpressionWithExpectedType(cast.Expression, targetType)
+            : AnalyzeExpression(cast.Expression);
         if (ReportSoaRowEscapeIfNeeded(cast.Expression, sourceType, "cast"))
         {
             return BuiltInTypes.Unknown;
@@ -13121,6 +13123,11 @@ public class Analyzer : IDisposable
 
         return targetType;
     }
+
+    private static bool ShouldUseCastTargetExpectedType(CastExpression cast)
+        => cast.Kind == CastKind.Hard
+            && (cast.Expression is DefaultExpression
+                or NewExpression { Type: null });
 
     private TypeInfo AnalyzeAwaitExpression(AwaitExpression await)
     {

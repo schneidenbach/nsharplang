@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA hard casts carry target-typed construction context
+
+Hard casts now provide their target type to target-typed `default` and `new()` operands during
+analysis. `(NodeTable)default` reports the SoA default-construction diagnostic instead of a generic
+cannot-infer error, and `(NodeTable)new()` reports the missing-capacity SoA constructor diagnostic
+before IL lowering can see an invalid wrapper construction.
+
 ## 2026-06-14 — SoA row pseudo-type diagnostics are pinned broadly
 
 `NodeTable.Row` diagnostic coverage now includes field annotations, expression-bodied property
