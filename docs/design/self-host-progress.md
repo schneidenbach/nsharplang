@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA row pseudo-type diagnostics are pinned broadly
+
+`NodeTable.Row` diagnostic coverage now includes field annotations, expression-bodied property
+annotations, type aliases, array element annotations, and generic type arguments in addition to the
+existing parameter, return, and local pins. These declared-type positions all stop at the SoA row-type
+diagnostic instead of leaking a dotted external type toward later compiler phases.
+
 ## 2026-06-14 — SoA optional parameter defaults reject table values
 
 SoA table parameters now reject every optional-parameter default form before later compiler phases.

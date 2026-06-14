@@ -1148,6 +1148,111 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaRowTypeCannotBeUsedAsFieldAnnotation()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            class Holder {
+                row: NodeTable.Row
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("SoA row type 'NodeTable.Row' is not part of this lowering", error.Message);
+        Assert.Contains("table and an int row index", error.Suggestion);
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.TypeNotFound);
+    }
+
+    [Fact]
+    public void Analyzer_SoaRowTypeCannotBeUsedAsPropertyAnnotation()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            class Holder {
+                Row: NodeTable.Row => 0
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("SoA row type 'NodeTable.Row' is not part of this lowering", error.Message);
+        Assert.Contains("table and an int row index", error.Suggestion);
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.TypeNotFound);
+    }
+
+    [Fact]
+    public void Analyzer_SoaRowTypeCannotBeUsedAsTypeAlias()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            type NodeRow = NodeTable.Row
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("SoA row type 'NodeTable.Row' is not part of this lowering", error.Message);
+        Assert.Contains("table and an int row index", error.Suggestion);
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.TypeNotFound);
+    }
+
+    [Fact]
+    public void Analyzer_SoaRowTypeCannotBeUsedAsArrayElementAnnotation()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(rows: NodeTable.Row[]): int {
+                return 0
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("SoA row type 'NodeTable.Row' is not part of this lowering", error.Message);
+        Assert.Contains("table and an int row index", error.Suggestion);
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.TypeNotFound);
+    }
+
+    [Fact]
+    public void Analyzer_SoaRowTypeCannotBeUsedAsGenericArgumentAnnotation()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            import System.Collections.Generic
+
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(rows: List<NodeTable.Row>): int {
+                return 0
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("SoA row type 'NodeTable.Row' is not part of this lowering", error.Message);
+        Assert.Contains("table and an int row index", error.Suggestion);
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.TypeNotFound);
+    }
+
+    [Fact]
     public void Analyzer_SoaRowViewCannotEscapeThroughExpressionBodiedFunction()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
