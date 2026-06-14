@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA table defaults fail before emission
+
+Target-typed `default` is now rejected for experimental SoA table wrappers during analysis. A default
+CLR value would bypass `new Table(capacity)`/`Table.wrap(...)` and leave backing column arrays null, so
+typed locals and returns now report a direct SoA construction diagnostic before IL lowering can emit an
+invalid wrapper value.
+
 ## 2026-06-14 — SoA unsupported-declaration gates stop column-type cascades
 
 Disabled `soa record` declarations now stop at the experimental feature gate before resolving column

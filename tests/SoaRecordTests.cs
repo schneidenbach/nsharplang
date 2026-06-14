@@ -186,6 +186,47 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaTableCannotBeDefaultInitializedInLocal()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(): int {
+                nodes: NodeTable = default
+                return nodes.length
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("SoA table 'NodeTable' cannot be default-initialized", error.Message);
+        Assert.Contains("new NodeTable(capacity)", error.Suggestion);
+    }
+
+    [Fact]
+    public void Analyzer_SoaTableCannotBeDefaultReturned()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(): NodeTable {
+                return default
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("SoA table 'NodeTable' cannot be default-initialized", error.Message);
+        Assert.Contains("NodeTable.wrap", error.Suggestion);
+    }
+
+    [Fact]
     public void Analyzer_SoaRowViewCannotEscapeIntoLocal()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

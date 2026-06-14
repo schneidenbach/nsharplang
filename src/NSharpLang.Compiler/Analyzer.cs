@@ -4801,6 +4801,11 @@ public class Analyzer : IDisposable
         // Target-typed: use _currentExpectedType if available
         if (_currentExpectedType != null)
         {
+            if (ReportSoaDefaultValueIfNeeded(defaultExpr, _currentExpectedType))
+            {
+                return BuiltInTypes.Unknown;
+            }
+
             return _currentExpectedType;
         }
 
@@ -4812,6 +4817,22 @@ public class Analyzer : IDisposable
             defaultExpr.Column,
             length: "default".Length);
         return BuiltInTypes.Unknown;
+    }
+
+    private bool ReportSoaDefaultValueIfNeeded(DefaultExpression defaultExpr, TypeInfo expectedType)
+    {
+        var resolvedExpectedType = ResolveTypeAlias(GetNonNullableType(expectedType));
+        if (resolvedExpectedType is not SoaRecordTypeInfo soaRecordType)
+            return false;
+
+        Error(
+            ErrorCode.InvalidSyntax,
+            $"SoA table '{soaRecordType.Declaration.Name}' cannot be default-initialized",
+            defaultExpr.Line,
+            defaultExpr.Column,
+            $"Use new {soaRecordType.Declaration.Name}(capacity) or {soaRecordType.Declaration.Name}.wrap(..., length: count) so every backing column array is valid.",
+            "default".Length);
+        return true;
     }
 
     private TypeInfo AnalyzeRangeExpression(RangeExpression range)

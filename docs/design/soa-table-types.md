@@ -66,7 +66,9 @@ and initializes `length = 0`. `wrap` creates a view over caller-provided arrays,
 lengths/capacity, and performs no element copy. `wrap` exposes generated parameter names for each
 column plus `length`, so named calls such as `NodeTable.wrap(length: n, kind: kinds)` bind
 semantically, including target-typed argument inference; negative literal `length` values are
-rejected during analysis.
+rejected during analysis. Target-typed `default` is not a construction form for SoA tables because it
+would produce a CLR wrapper value with null backing column arrays; use `new Table(capacity)` or
+`Table.wrap(...)` instead.
 
 ## Lowering
 
@@ -193,6 +195,7 @@ The compiler must produce direct diagnostics for common misuse:
   "length for NodeTable.wrap must be between 0 and column length" for dynamic runtime bounds;
 - invalid `new` capacity: "SoA table capacity must be int" or "SoA table capacity must not be negative"
   for analyzer-known literals, or "capacity for NodeTable must be non-negative" for dynamic runtime values;
+- invalid default construction: "SoA table 'NodeTable' cannot be default-initialized";
 - invalid generated operation calls: "`add`, `clear`, `ensureCapacity`, and `copyRow` must be called with
   their declared argument counts, names, and types, and literal `ensureCapacity`/`copyRow` capacity
   or row arguments must be non-negative"; dynamic negative `ensureCapacity`/`copyRow` values throw
