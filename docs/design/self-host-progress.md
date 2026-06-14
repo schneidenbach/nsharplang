@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA string decrement diagnostics stop before emission
+
+String SoA columns now have analyzer pins for rejected `--` update forms across row projection,
+direct column indexing, and direct from-end column indexing. Together with the existing `++` pins,
+non-integral string column updates fail with the source operator diagnostic before any row or direct
+column assignment lowering.
+
 ## 2026-06-14 — SoA string equality has IL-shape proof
 
 String SoA columns now have opcode evidence for `==` and `!=` expressions across row projection,
