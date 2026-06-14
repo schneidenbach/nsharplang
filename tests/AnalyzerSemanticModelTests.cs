@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using Xunit;
 using NSharpLang.Compiler;
 using NSharpLang.Compiler.Ast;
@@ -245,6 +246,29 @@ func test() {
 
         Assert.NotNull(xUseType);
         Assert.Equal("int", xUseType!.ToString());
+    }
+
+    [Fact]
+    public void Analyzer_SizeofExpression_RecordsIntType()
+    {
+        var source = @"
+func test() {
+    size := sizeof(int) + 1
+}";
+
+        var result = Analyze(source);
+
+        Assert.False(result.HasErrors,
+            result.Errors.Count > 0
+                ? $"Expected no errors but got: {string.Join(", ", result.Errors.Select(e => e.Message))}"
+                : "");
+        Assert.Equal("int", result.SemanticModel.LookupIdentifier("size")?.ToString());
+
+        var sizeofColumn = FindColumn(source, 3, "sizeof");
+        var sizeofType = result.SemanticModel.LookupTypeAtPosition(3, sizeofColumn);
+
+        Assert.NotNull(sizeofType);
+        Assert.Equal("int", sizeofType!.ToString());
     }
 
     [Fact]

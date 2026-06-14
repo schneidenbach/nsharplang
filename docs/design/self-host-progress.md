@@ -11,6 +11,12 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — Analyzer records `sizeof` as an `int` expression
+
+`sizeof(T)` now participates in semantic analysis instead of falling through to `unknown`. The analyzer
+validates the operand type and records the expression as `int`, matching the IL backend's `sizeof` lowering
+and keeping semantic-model consumers from losing type information for a parser/IL-supported expression form.
+
 ## 2026-06-14 — SoA row-view escape diagnostics cover tuple elements
 
 Tuple expressions now analyze their elements and report the SoA-specific escape diagnostic when an element

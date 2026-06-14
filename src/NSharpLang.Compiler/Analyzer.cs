@@ -4469,6 +4469,7 @@ public class Analyzer : IDisposable
             MatchExpression match => AnalyzeMatchExpression(match),
             TypeOfExpression typeofExpr => AnalyzeTypeofExpression(typeofExpr),
             NameofExpression nameofExpr => AnalyzeNameofExpression(nameofExpr),
+            SizeOfExpression sizeofExpr => AnalyzeSizeofExpression(sizeofExpr),
             CheckedExpression checkedExpr => AnalyzeCheckedExpression(checkedExpr),
             UncheckedExpression uncheckedExpr => AnalyzeUncheckedExpression(uncheckedExpr),
             RangeExpression range => AnalyzeRangeExpression(range),
@@ -11871,6 +11872,12 @@ public class Analyzer : IDisposable
         AnalyzeExpression(nameofExpr.Target);
         // nameof always returns string
         return BuiltInTypes.String;
+    }
+
+    private TypeInfo AnalyzeSizeofExpression(SizeOfExpression sizeofExpr)
+    {
+        ResolveType(sizeofExpr.Type);
+        return BuiltInTypes.Int;
     }
 
     private TypeInfo AnalyzeCheckedExpression(CheckedExpression checkedExpr)
