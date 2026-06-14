@@ -2784,6 +2784,26 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaTableColumnFromEndRangeSliceCannotBeAssigned()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable) {
+                nodes.kind[1..^1] = [1]
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("Array slices cannot be assigned", error.Message);
+        Assert.Contains("Assign individual elements", error.Suggestion);
+    }
+
+    [Fact]
     public void Analyzer_SoaTableColumnSliceCannotBeCompoundAssigned()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
@@ -2862,6 +2882,27 @@ public class SoaRecordTests : ILCompilerTestBase
         var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
         Assert.Contains("SoA column range slices allocate arrays", error.Message);
         Assert.Contains("table.column[row]", error.Suggestion);
+    }
+
+    [Fact]
+    public void Analyzer_SoaTableColumnFromEndRangeReadWouldAllocate()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable): int {
+                slice := nodes.kind[1..^1]
+                return slice[0]
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("SoA column range slices allocate arrays", error.Message);
+        Assert.Contains("allocation-free view lowering", error.Suggestion);
     }
 
     [Fact]

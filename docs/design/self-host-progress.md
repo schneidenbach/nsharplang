@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA direct-column from-end ranges stay out of emission
+
+Direct backing-column range slices with `System.Index` bounds now have regression coverage. Reads and
+writes such as `table.column[1..^1]` report the existing slice-allocation diagnostics during analysis,
+so hidden `RuntimeHelpers.GetSubArray` lowering remains outside systems kernels until an allocation-free
+view shape is designed and proven.
+
 ## 2026-06-14 — Direct SoA from-end unsupported operations stop in analysis
 
 Direct backing-column `System.Index` elements now have regression pins for the same unsupported

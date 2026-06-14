@@ -195,7 +195,8 @@ not allowed: shape changes must go through construction, `wrap`, `add`, `clear`,
 
 Direct column range reads (`table.column[start..end]`) are rejected because ordinary array slice
 semantics allocate a sliced array. They can be admitted only after an allocation-free span/view lowering
-has pinned IL-shape evidence.
+has pinned IL-shape evidence. That rejection also applies when the range uses `System.Index`
+from-end bounds, such as `table.column[1..^1]`.
 
 ## Diagnostics
 
