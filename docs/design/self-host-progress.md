@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — Formatter safety-scan rejected probe leaves product dogfood
+
+`FormatterSafetyHasError`, `FormatterSafetyErrorIndicesInto`, and their small table/core helpers
+moved to the parity corpus beside `FormatterSafetyErrorIndicesChecksumInto`. The scan remains
+compiled for the original first-real-file parity/benchmark evidence, but it is not a product route:
+the documented representative benchmark missed the 5x gate, so `Formatter.FormatSafe` stays on the
+C# safety path.
+
 ## 2026-06-14 — Code-intelligence convenience wrappers leave product dogfood
 
 The source-splitting convenience wrappers for identifier spans, editor spans, declaration-name
