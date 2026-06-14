@@ -74,6 +74,9 @@ return, expression-bodied function/local function, call argument, default parame
 expression-bodied property, object initializer member, `with` expression member, assignment target,
 array literal element, array initializer element, collection literal element, tuple literal element,
 or typed ternary/match result arm.
+Parameter declarations cannot use any SoA table as an optional-parameter default, including `null`
+or `new Table(capacity)`, because defaults are metadata constants while table wrappers require
+runtime-owned columns or caller-provided wrapped columns.
 
 ## Lowering
 

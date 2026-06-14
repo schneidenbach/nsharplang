@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA optional parameter defaults reject table values
+
+SoA table parameters now reject every optional-parameter default form before later compiler phases.
+The existing target-typed `default` and zero-argument `new()` diagnostics stay precise, while `null`
+and explicit `new Table(capacity)` defaults now report that SoA tables cannot be metadata defaults.
+Table wrappers must be constructed or wrapped at runtime by the caller or by an overload.
+
 ## 2026-06-14 — Benchmark resources stop requiring rejected product probes
 
 Benchmark source loading no longer embeds stale product-path resources for rejected parity-only

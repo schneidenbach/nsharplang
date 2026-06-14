@@ -329,6 +329,46 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaTableCannotUseNullAsDefaultParameterValue()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable = null) {
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidDefaultParameterValue);
+        Assert.Contains("SoA table 'NodeTable' cannot be used as a default parameter value", error.Message);
+        Assert.Contains("new NodeTable(capacity)", error.Suggestion);
+        Assert.Contains("NodeTable.wrap", error.Suggestion);
+    }
+
+    [Fact]
+    public void Analyzer_SoaTableCannotUseCapacityConstructorAsDefaultParameterValue()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable = new NodeTable(1)) {
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidDefaultParameterValue);
+        Assert.Contains("SoA table 'NodeTable' cannot be used as a default parameter value", error.Message);
+        Assert.Contains("new NodeTable(capacity)", error.Suggestion);
+        Assert.Contains("NodeTable.wrap", error.Suggestion);
+    }
+
+    [Fact]
     public void Analyzer_SoaTableCannotBeDefaultInitializedInField()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

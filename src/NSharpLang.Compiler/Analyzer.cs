@@ -16807,14 +16807,28 @@ public class Analyzer : IDisposable
         }
 
         var parameterType = ResolveDeclaredType(parameter.Type);
-        if (ResolveTypeAlias(GetNonNullableType(parameterType)) is not SoaRecordTypeInfo)
+        if (ResolveTypeAlias(GetNonNullableType(parameterType)) is not SoaRecordTypeInfo soaRecordType)
         {
             return false;
         }
 
         var errorsBefore = _errors.Count;
         AnalyzeExpressionWithExpectedType(parameter.DefaultValue, parameterType);
-        return _errors.Count > errorsBefore;
+        if (_errors.Count > errorsBefore)
+        {
+            return true;
+        }
+
+        var tableName = soaRecordType.Declaration.Name;
+        var (line, column, length) = GetExpressionDiagnosticSpan(parameter.DefaultValue);
+        Error(
+            ErrorCode.InvalidDefaultParameterValue,
+            $"SoA table '{tableName}' cannot be used as a default parameter value — optional parameter defaults are metadata constants, but SoA tables must be constructed or wrapped at runtime",
+            line,
+            column,
+            $"Use an overload that creates the table with 'new {tableName}(capacity)' or accepts a '{tableName}.wrap(...)' value from the caller.",
+            length);
+        return true;
     }
 
     private static (int Line, int Column, int Length) GetParameterDiagnosticSpan(
