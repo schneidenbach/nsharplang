@@ -296,6 +296,78 @@ public class SoaRecordILShapeTests
         });
     }
 
+    [Fact]
+    public void VerifiedColumnTypes_UseColumnArrayLoadStoreWithoutRowAllocation()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                kind: int
+                flags: uint
+                start: long
+                active: bool
+                marker: char
+                name: string
+                optionalName: string?
+                count: int
+            }
+
+            func setAll(nodes: NodeTable, row: int, name: string, optionalName: string?) {
+                nodes[row].kind = 3
+                nodes[row].flags = (uint)7
+                nodes[row].start = 19L
+                nodes[row].active = true
+                nodes[row].marker = 'A'
+                nodes[row].name = name
+                nodes[row].optionalName = optionalName
+                nodes[row].count = 11
+            }
+
+            func readScalars(nodes: NodeTable, row: int): int {
+                total := nodes[row].kind
+                total += (int)nodes[row].flags
+                total += (int)nodes[row].start
+                total += (nodes[row].active ? 100 : 0)
+                total += (int)nodes[row].marker
+                total += nodes[row].count
+                return total
+            }
+
+            func readName(nodes: NodeTable, row: int): string {
+                return nodes[row].name
+            }
+
+            func readOptional(nodes: NodeTable, row: int): string? {
+                return nodes[row].optionalName
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var setAll = ILShapeInspector.GetProgramMethod(assembly, "setAll");
+            var readScalars = ILShapeInspector.GetProgramMethod(assembly, "readScalars");
+            var readName = ILShapeInspector.GetProgramMethod(assembly, "readName");
+            var readOptional = ILShapeInspector.GetProgramMethod(assembly, "readOptional");
+
+            AssertNoAllocationOrDispatch(setAll);
+            AssertNoAllocationOrDispatch(readScalars);
+            AssertNoAllocationOrDispatch(readName);
+            AssertNoAllocationOrDispatch(readOptional);
+
+            Assert.Equal(8, CountArrayElementStores(setAll));
+            Assert.Equal(0, CountArrayElementLoads(setAll));
+            Assert.Equal(6, CountArrayElementLoads(readScalars));
+            Assert.Equal(0, CountArrayElementStores(readScalars));
+            Assert.Equal(1, CountArrayElementLoads(readName));
+            Assert.Equal(1, CountArrayElementLoads(readOptional));
+            Assert.Equal(0, CountArrayElementStores(readName));
+            Assert.Equal(0, CountArrayElementStores(readOptional));
+
+            return 0;
+        });
+    }
+
     private static void AssertNoAllocationOrDispatch(MethodInfo method)
     {
         ILShapeInspector.AssertNoBoxing(method);

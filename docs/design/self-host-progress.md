@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA verified column types have runtime and IL proof
+
+The experimental SoA wrapper proof now exercises every currently accepted column element kind:
+`int`, `uint`, `long`, `bool`, `char`, `string`, `string?`, and aliases to those types. Runtime
+coverage pins row load/store semantics across the full set, and IL-shape coverage keeps those
+row projections as direct column-array traffic with no row allocation, boxing, hidden array
+allocation, or dispatch.
+
 ## 2026-06-14 — SoA constructor IL shape is pinned
 
 The experimental `new Table(capacity)` lowering now has direct IL-shape evidence: the constructor

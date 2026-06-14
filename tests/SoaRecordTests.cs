@@ -1393,6 +1393,52 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void ILCompiler_SoaRecordVerifiedColumnTypes_LoadStoreRoundTrip()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var source = """
+            type CountColumn = int
+            type OptionalNameColumn = string?
+
+            soa record NodeTable {
+                kind: int
+                flags: uint
+                start: long
+                active: bool
+                marker: char
+                name: string
+                optionalName: OptionalNameColumn
+                count: CountColumn
+            }
+
+            func main(): int {
+                nodes := new NodeTable(1)
+                row := nodes.add()
+                nodes[row].kind = 3
+                nodes[row].flags = (uint)7
+                nodes[row].start = 19L
+                nodes[row].active = true
+                nodes[row].marker = 'A'
+                nodes[row].name = "abcd"
+                nodes[row].optionalName = null
+                nodes[row].count = 11
+                total := nodes[row].kind
+                total += (int)nodes[row].flags
+                total += (int)nodes[row].start
+                total += (nodes[row].active ? 100 : 0)
+                total += (int)nodes[row].marker
+                total += nodes[row].name.Length
+                total += (nodes[row].optionalName == null ? 1000 : 0)
+                total += nodes[row].count
+                return total
+            }
+            """;
+
+        Assert.Equal(1209, Assert.IsType<int>(CompileAndInvoke(source)));
+    }
+
+    [Fact]
     public void ILCompiler_SoaRecordWrap_IsZeroCopyAndValidatesLength()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
