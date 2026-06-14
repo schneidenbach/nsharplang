@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA production gate stops column-type cascades
+
+Disabled `soa record` declarations now stop at the experimental feature gate before resolving column
+types. Production builds therefore report the single `NSHARP_EXPERIMENTAL_SOA` diagnostic even when
+the unavailable table body mentions migration-only or missing column types, while the enabled
+experimental path still validates column names and supported element types before lowering.
+
 ## 2026-06-14 — SoA null-conditional projections are pinned as diagnostics
 
 SoA table wrappers and row projections now have analyzer coverage for null-conditional misuse:

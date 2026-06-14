@@ -32,6 +32,23 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaRecordWithoutFlag_DoesNotResolveColumnTypes()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, null);
+
+        var result = Analyze("""
+            soa record NodeTable {
+                payload: MissingColumnType
+            }
+            """);
+
+        var error = Assert.Single(result.Errors);
+        Assert.Equal(ErrorCode.FeatureNotImplemented, error.Code);
+        Assert.Contains("soa record 'NodeTable'", error.Message);
+        Assert.DoesNotContain("MissingColumnType", error.Message);
+    }
+
+    [Fact]
     public void Analyzer_SoaRecordWithFlag_TypesTableMembersAndRowProjection()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

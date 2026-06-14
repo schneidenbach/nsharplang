@@ -1207,12 +1207,6 @@ public class Analyzer : IDisposable
 
     private void AnalyzeSoaRecordDeclaration(SoaRecordDeclaration soaRecordDecl)
     {
-        var columnTypes = new List<(SoaColumnDeclaration Column, TypeInfo Type)>(soaRecordDecl.Columns.Count);
-        foreach (var column in soaRecordDecl.Columns)
-        {
-            columnTypes.Add((column, ResolveDeclaredType(column.Type)));
-        }
-
         if (!SoaFeature.IsEnabled)
         {
             Error(
@@ -1223,6 +1217,12 @@ public class Analyzer : IDisposable
                 suggestion: "Set NSHARP_EXPERIMENTAL_SOA=1 only for the compiler table migration gate; otherwise keep using regular records",
                 length: "soa".Length);
             return;
+        }
+
+        var columnTypes = new List<(SoaColumnDeclaration Column, TypeInfo Type)>(soaRecordDecl.Columns.Count);
+        foreach (var column in soaRecordDecl.Columns)
+        {
+            columnTypes.Add((column, ResolveDeclaredType(column.Type)));
         }
 
         if (_currentTypeName != null)
