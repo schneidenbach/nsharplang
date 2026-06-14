@@ -123,48 +123,6 @@ struct CliCountResultTable {
     Counts: int[]
 }
 
-func CliPositionalArgIndicesInto(
-    args: string[],
-    optionsWithValues: string[],
-    resultIndices: int[]): int {
-    arguments := new CliArgumentTable { Args: args }
-    options := new CliOptionValueTable { Options: optionsWithValues }
-    results := new CliIndexResultTable { Indices: resultIndices }
-    return CliPositionalArgIndicesCore(ref arguments, ref options, ref results)
-}
-
-func CliPositionalArgIndicesCore(
-    args: &CliArgumentTable,
-    optionsWithValues: &CliOptionValueTable,
-    resultIndices: &CliIndexResultTable): int {
-    resultCount := 0
-    i := 0
-    while i < args.Args.Length {
-        arg := args.Args[i]
-        if CliArgumentIsOptionWithValueCore(arg, ref optionsWithValues) {
-            i = i + 2
-            continue
-        }
-
-        if CliArgumentIsValueLessFlag(arg) {
-            i = i + 1
-            continue
-        }
-
-        if arg.Length == 0 || arg[0] != '-' {
-            if resultCount < resultIndices.Indices.Length {
-                resultIndices.Indices[resultCount] = i
-            }
-
-            resultCount = resultCount + 1
-        }
-
-        i = i + 1
-    }
-
-    return resultCount
-}
-
 func CliFirstPositionalArgIndex(args: string[], optionsWithValues: string[]): int {
     arguments := new CliArgumentTable { Args: args }
     options := new CliOptionValueTable { Options: optionsWithValues }

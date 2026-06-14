@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — Positional-argument batch probe leaves product dogfood
+
+`CliPositionalArgIndicesInto` and its batch core moved from product `CliArguments.nl` to the parity
+corpus beside `CliPositionalArgChecksumInto`. The live CLI adapter still uses the scalar
+`CliFirstPositionalArgIndex` ABI, while the benchmark-only batch positional scan no longer ships in
+the product dogfood assembly.
+
 ## 2026-06-14 — Watch-argument forwarding probe leaves product dogfood
 
 `CliWatchForwardedArgIndicesInto` and its watch-option helper moved from product `CliArguments.nl` to
