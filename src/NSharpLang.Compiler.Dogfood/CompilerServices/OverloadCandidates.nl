@@ -14,13 +14,8 @@
 //   paramsFlags[i]   - 1 when the candidate uses a params expansion, else 0 (non-params preferred)
 //   defaultsUsed[i]  - count of parameters filled from defaults (fewer preferred)
 //
-// The broader compact table also carries the per-candidate parameter type ids, flattened into a
-// single array with per-candidate offsets and counts, so callers can verify and reuse a single
-// owned buffer instead of re-projecting GetParameters() per candidate:
-//   paramTypeOffsets[i] - start index of candidate i's parameter type ids in paramTypeIds
-//   paramTypeCounts[i]  - number of parameter type ids for candidate i
-//   paramTypeIds[]      - flattened parameter type ids for all candidates
-//   argTypeIds[]        - the call-site argument type ids (length = argCount)
+// Wider table and batch-selection parity probes live in the parity corpus so the shipped dogfood
+// assembly exposes only the scalar route used by the compiler adapter.
 
 struct OverloadCandidateScoreTable {
     ValidFlags: int[]
@@ -30,25 +25,6 @@ struct OverloadCandidateScoreTable {
     DefaultsUsed: int[]
 }
 
-struct OverloadCandidateParameterTypeTable {
-    Offsets: int[]
-    Counts: int[]
-    TypeIds: int[]
-}
-
-struct OverloadArgumentTypeTable {
-    TypeIds: int[]
-}
-
-struct OverloadCallSliceTable {
-    Offsets: int[]
-    Counts: int[]
-}
-
-struct OverloadSelectionResultTable {
-    Indices: int[]
-}
-
 func OverloadCandidateCountFits(candidates: &OverloadCandidateScoreTable, count: int): bool {
     return count >= 0
         && count <= candidates.ValidFlags.Length
@@ -56,21 +32,6 @@ func OverloadCandidateCountFits(candidates: &OverloadCandidateScoreTable, count:
         && count <= candidates.GenericFlags.Length
         && count <= candidates.ParamsFlags.Length
         && count <= candidates.DefaultsUsed.Length
-}
-
-func OverloadCandidateTableCountFits(
-    candidates: &OverloadCandidateScoreTable,
-    parameterTypes: &OverloadCandidateParameterTypeTable,
-    count: int): bool {
-    return OverloadCandidateCountFits(ref candidates, count)
-        && count <= parameterTypes.Offsets.Length
-        && count <= parameterTypes.Counts.Length
-}
-
-func OverloadCandidateParameterRangeFits(parameterTypes: &OverloadCandidateParameterTypeTable, index: int): bool {
-    offset := parameterTypes.Offsets[index]
-    count := parameterTypes.Counts[index]
-    return offset >= 0 && count >= 0 && offset + count <= parameterTypes.TypeIds.Length
 }
 
 func OverloadCandidateShouldTake(
@@ -151,115 +112,4 @@ func OverloadSelectBestCandidateCore(candidates: &OverloadCandidateScoreTable, c
     }
 
     return bestIndex
-}
-
-func OverloadSelectBestCandidateFromTableCore(
-    candidates: &OverloadCandidateScoreTable,
-    parameterTypes: &OverloadCandidateParameterTypeTable,
-    arguments: &OverloadArgumentTypeTable,
-    argCount: int,
-    count: int): int {
-    if !OverloadCandidateTableCountFits(ref candidates, ref parameterTypes, count) {
-        return -2
-    }
-
-    if argCount < 0 || argCount > arguments.TypeIds.Length {
-        return -2
-    }
-
-    bestIndex := -1
-    bestScore := -1
-    bestIsGeneric := 1
-    bestUsesParams := 1
-    bestDefaultsUsed := 2147483647
-
-    i := 0
-    while i < count {
-        candidateValid := candidates.ValidFlags[i] != 0
-        if candidateValid {
-            if !OverloadCandidateParameterRangeFits(ref parameterTypes, i) {
-                candidateValid = false
-            }
-        }
-
-        if candidateValid {
-            score := candidates.Scores[i]
-            isGeneric := candidates.GenericFlags[i]
-            usesParams := candidates.ParamsFlags[i]
-            defaults := candidates.DefaultsUsed[i]
-
-            if OverloadCandidateShouldTake(bestIndex, bestScore, bestIsGeneric, bestUsesParams, bestDefaultsUsed, score, isGeneric, usesParams, defaults) {
-                bestIndex = i
-                bestScore = score
-                bestIsGeneric = isGeneric
-                bestUsesParams = usesParams
-                bestDefaultsUsed = defaults
-            }
-        }
-
-        i = i + 1
-    }
-
-    return bestIndex
-}
-
-func OverloadSelectBatchCore(
-    candidates: &OverloadCandidateScoreTable,
-    calls: &OverloadCallSliceTable,
-    callCount: int,
-    result: &OverloadSelectionResultTable): int {
-    if callCount < 0 || callCount > calls.Offsets.Length || callCount > calls.Counts.Length
-        || callCount > result.Indices.Length {
-        return -1
-    }
-
-    resolvedCount := 0
-    c := 0
-    while c < callCount {
-        offset := calls.Offsets[c]
-        candidateCount := calls.Counts[c]
-        bestIndex := -1
-
-        if offset >= 0 && candidateCount >= 0
-            && offset <= candidates.ValidFlags.Length - candidateCount
-            && offset <= candidates.Scores.Length - candidateCount
-            && offset <= candidates.GenericFlags.Length - candidateCount
-            && offset <= candidates.ParamsFlags.Length - candidateCount
-            && offset <= candidates.DefaultsUsed.Length - candidateCount {
-            bestScore := -1
-            bestIsGeneric := 1
-            bestUsesParams := 1
-            bestDefaultsUsed := 2147483647
-
-            i := 0
-            while i < candidateCount {
-                slot := offset + i
-                if candidates.ValidFlags[slot] != 0 {
-                    score := candidates.Scores[slot]
-                    isGeneric := candidates.GenericFlags[slot]
-                    usesParams := candidates.ParamsFlags[slot]
-                    defaults := candidates.DefaultsUsed[slot]
-
-                    if OverloadCandidateShouldTake(bestIndex, bestScore, bestIsGeneric, bestUsesParams, bestDefaultsUsed, score, isGeneric, usesParams, defaults) {
-                        bestIndex = i
-                        bestScore = score
-                        bestIsGeneric = isGeneric
-                        bestUsesParams = usesParams
-                        bestDefaultsUsed = defaults
-                    }
-                }
-
-                i = i + 1
-            }
-        }
-
-        result.Indices[c] = bestIndex
-        if bestIndex >= 0 {
-            resolvedCount = resolvedCount + 1
-        }
-
-        c = c + 1
-    }
-
-    return resolvedCount
 }

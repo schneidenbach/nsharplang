@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — Parity-only CLI and overload cores leave the shipped dogfood surface
+
+`CliTestOptionSummaryCore` now lives in the parity corpus beside its checksum oracle instead of the
+product `CliArguments.nl` compiler-service file. The table/batch-only overload candidate probes moved
+the same way: their parameter/call/result table structs and core functions are now parity-corpus
+support code, while the shipped product dogfood file keeps only the scalar overload selector that the
+compiler adapter actually calls.
+
 ## 2026-06-14 — Analyzer records `base` expressions as their base type
 
 Bare `base` expressions and `base.member` receivers now get the same semantic type the IL backend already
