@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA null-conditional projections are pinned as diagnostics
+
+SoA table wrappers and row projections now have analyzer coverage for null-conditional misuse:
+`table?.member`, `table?[row]`, and `table[row]?.column` all report SoA-specific diagnostics before
+nullable lowering or IL emission. Table wrappers remain value views, and row projections remain usable
+only through direct scalar column access.
+
 ## 2026-06-14 — SoA row-view write forms stay out of emission
 
 Row views are now pinned as invalid write targets across plain assignment, compound assignment, and
