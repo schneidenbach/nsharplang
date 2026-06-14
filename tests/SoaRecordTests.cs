@@ -1763,6 +1763,30 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void ILCompiler_SoaRecordNullCoalesceOnRowColumn_ChoosesFallbackOrExistingValue()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var source = """
+            soa record NodeTable {
+                text: string
+            }
+
+            func main(): string {
+                nodes := new NodeTable(2)
+                first := nodes.add()
+                second := nodes.add()
+                missing := nodes[first].text ?? "fallback"
+                nodes[second].text = "ready"
+                existing := nodes[second].text ?? "ignored"
+                return missing + ":" + existing
+            }
+            """;
+
+        Assert.Equal("fallback:ready", Assert.IsType<string>(CompileAndInvoke(source)));
+    }
+
+    [Fact]
     public void Analyzer_SoaRecordNullCoalesceAssignOnNonNullableRowColumn_IsRejected()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

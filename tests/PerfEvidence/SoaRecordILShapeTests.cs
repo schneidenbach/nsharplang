@@ -324,6 +324,59 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void RowColumnNullCoalesce_UsesColumnArrayLoad()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                text: string
+            }
+
+            func chooseMissing(nodes: NodeTable, row: int): string {
+                return nodes[row].text ?? "fallback"
+            }
+
+            func chooseExisting(nodes: NodeTable, row: int): string {
+                nodes[row].text = "ready"
+                return nodes[row].text ?? "fallback"
+            }
+
+            func main(): string {
+                nodes := new NodeTable(2)
+                first := nodes.add()
+                second := nodes.add()
+                return chooseMissing(nodes, first) + ":" + chooseExisting(nodes, second)
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var chooseMissing = ILShapeInspector.GetProgramMethod(assembly, "chooseMissing");
+            var chooseExisting = ILShapeInspector.GetProgramMethod(assembly, "chooseExisting");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal("fallback:ready", Assert.IsType<string>(main.Invoke(null, null)));
+
+            AssertNoAllocationOrDispatch(chooseMissing);
+            Assert.True(
+                ILShapeInspector.CountOpcode(chooseMissing, OpCodes.Ldfld) >= 1,
+                "Row-column null-coalescing expressions should load the column field directly.");
+            Assert.Equal(1, CountArrayElementLoads(chooseMissing));
+            Assert.Equal(0, CountArrayElementStores(chooseMissing));
+
+            AssertNoAllocationOrDispatch(chooseExisting);
+            Assert.True(
+                ILShapeInspector.CountOpcode(chooseExisting, OpCodes.Ldfld) >= 2,
+                "Row-column null-coalescing expressions should keep direct column field access after an existing store.");
+            Assert.Equal(1, CountArrayElementLoads(chooseExisting));
+            Assert.Equal(1, CountArrayElementStores(chooseExisting));
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void RowColumnDefaultAssignment_StoresDefaultWithoutReadingOldValue()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

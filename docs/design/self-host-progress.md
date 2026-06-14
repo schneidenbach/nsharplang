@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA row-column null-coalescing reads have IL-shape proof
+
+Plain `table[row].column ?? fallback` over nullable/reference SoA columns now has runtime and
+IL-shape evidence beside the existing `??=` proof. The pinned helpers cover both missing and
+already-stored column values while keeping the read as direct backing-column array traffic with no
+row object, boxing, hidden array allocation, delegate construction, or virtual dispatch.
+
 ## 2026-06-14 — SoA table indexes reject non-int and range operands before emission
 
 The analyzer now enforces the row-index contract for experimental SoA tables: `table[index]` must use
