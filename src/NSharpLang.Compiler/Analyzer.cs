@@ -2955,11 +2955,13 @@ public class Analyzer : IDisposable
     {
         // Analyze the condition expression
         var condType = AnalyzeExpression(assertStmt.Condition);
+        ReportSoaRowEscapeIfNeeded(assertStmt.Condition, condType, "asserted");
 
         // Analyze optional message expression
         if (assertStmt.Message != null)
         {
-            AnalyzeExpression(assertStmt.Message);
+            var messageType = AnalyzeExpression(assertStmt.Message);
+            ReportSoaRowEscapeIfNeeded(assertStmt.Message, messageType, "used as an assertion message");
         }
 
         // We don't strictly require boolean type because we support various comparison patterns
@@ -3907,7 +3909,8 @@ public class Analyzer : IDisposable
         }
         else if (usingStmt.Expression != null)
         {
-            AnalyzeExpression(usingStmt.Expression);
+            var resourceType = AnalyzeExpression(usingStmt.Expression);
+            ReportSoaRowEscapeIfNeeded(usingStmt.Expression, resourceType, "used as a using resource");
             // TODO: Check if type implements IDisposable
         }
 
@@ -3927,7 +3930,11 @@ public class Analyzer : IDisposable
         // unverifiable IL that segfaults the process inside Monitor.Enter.
         var lockeeType = ResolveTypeAlias(AnalyzeExpression(lockStmt.LockObject));
 
-        if (lockeeType is SimpleTypeInfo named && TryGetEnclosingTypeParameter(named.Name, out var isReferenceConstrained))
+        if (lockeeType is SoaRowTypeInfo)
+        {
+            ReportSoaRowEscape(lockStmt.LockObject, "locked");
+        }
+        else if (lockeeType is SimpleTypeInfo named && TryGetEnclosingTypeParameter(named.Name, out var isReferenceConstrained))
         {
             // Stricter than C# by design: Roslyn boxes an unconstrained T (a lock that can never
             // provide mutual exclusion); N# requires the type parameter to be provably a reference.
@@ -4064,6 +4071,7 @@ public class Analyzer : IDisposable
     private void AnalyzeSwitchStatement(SwitchStatement switchStmt)
     {
         var valueType = AnalyzeExpression(switchStmt.Value);
+        ReportSoaRowEscapeIfNeeded(switchStmt.Value, valueType, "used as a switch value");
 
         // A `break` in a case body targets the switch itself (the emitter pushes a break label per
         // switch), so for NL319 the break target's finally depth is the switch's entry depth.

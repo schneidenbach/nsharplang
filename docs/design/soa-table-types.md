@@ -154,7 +154,8 @@ The compiler must produce direct diagnostics for common misuse:
 - row value escapes: "SoA row views cannot be stored or returned; use the table and row index" (including
   locals, assignments, explicit returns, expression-bodied functions/local functions/properties/lambdas,
   explicit discards, call/constructor arguments, array literals, tuple literals, initializer values, yielding,
-  throwing, printing, and string interpolation);
+  throwing, printing, string interpolation, assertions, assertion messages, using resources, locks, and
+  switch subjects);
 - mismatched `wrap` columns: "column lengths for NodeTable do not match";
 - unsupported element type: "SoA column type X is not supported in this lowering";
 - hidden allocation request: "this operation would allocate row objects; use column access instead".
