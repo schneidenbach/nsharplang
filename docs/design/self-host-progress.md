@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA row-view escape diagnostics cover initializer and constructor boundaries
+
+SoA row views now report the SoA-specific escape diagnostic when they appear in array literals,
+array/collection initializer values, or constructor arguments. The existing return-path diagnostic is
+also pinned by coverage, so row views cannot leak through the common storage/API boundaries while the
+runtime still has no public row object model.
+
+Focused SoA coverage asserts each path reports the actionable `table[index].column` guidance instead
+of allowing a row view to become an array element, initializer value, or constructed-object argument.
+
 ## 2026-06-14 — Parity-only dogfood wrappers stop shipping
 
 Several checksum-only dogfood helper wrappers now live entirely in the parity corpus instead of the

@@ -6650,6 +6650,14 @@ public class Analyzer : IDisposable
             length);
     }
 
+    private void ReportSoaRowEscapeIfNeeded(Expression expression, TypeInfo type, string action)
+    {
+        if (type is SoaRowTypeInfo)
+        {
+            ReportSoaRowEscape(expression, action);
+        }
+    }
+
     /// <summary>
     /// Resolves a member from a list of N#-declared members by name.
     /// Returns NSharpMethodGroupInfo when multiple function overloads exist.
@@ -11044,9 +11052,11 @@ public class Analyzer : IDisposable
         }
 
         var firstType = AnalyzeExpression(array.Elements[0]);
+        ReportSoaRowEscapeIfNeeded(array.Elements[0], firstType, "stored in an array");
         foreach (var elem in array.Elements.Skip(1))
         {
             var elemType = AnalyzeExpression(elem);
+            ReportSoaRowEscapeIfNeeded(elem, elemType, "stored in an array");
             if (!IsAssignable(firstType, elemType))
             {
                 var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetExpressionDiagnosticSpan(elem);
@@ -11149,7 +11159,8 @@ public class Analyzer : IDisposable
         // Analyze constructor arguments
         foreach (var arg in newExpr.ConstructorArguments)
         {
-            AnalyzeExpression(arg.Value);
+            var argType = AnalyzeExpression(arg.Value);
+            ReportSoaRowEscapeIfNeeded(arg.Value, argType, "passed as a constructor argument");
         }
 
         if (newExpr.ArrayLengthExpression != null)
@@ -11210,7 +11221,8 @@ public class Analyzer : IDisposable
     {
         if (prop.Name == null || prop.IndexExpression != null)
         {
-            AnalyzeExpression(prop.Value);
+            var initializerValueType = AnalyzeExpression(prop.Value);
+            ReportSoaRowEscapeIfNeeded(prop.Value, initializerValueType, "stored in an initializer");
             return;
         }
 
