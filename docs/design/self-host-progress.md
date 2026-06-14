@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — Watch-argument forwarding probe leaves product dogfood
+
+`CliWatchForwardedArgIndicesInto` and its watch-option helper moved from product `CliArguments.nl` to
+the parity corpus beside `CliWatchForwardedArgChecksumInto`. The benchmark/parity evidence remains
+available when compiling the parity corpus, but the shipped dogfood assembly no longer exposes this
+unrouted `nlc watch` argument probe.
+
 ## 2026-06-14 — Reference-resolution score probe leaves product dogfood
 
 `CliReferenceResolutionBestScoreIndex` and its private score table moved out of product `CliArguments.nl`

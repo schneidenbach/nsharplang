@@ -214,43 +214,6 @@ func CliRunFirstOperandIndexCore(args: &CliArgumentTable): int {
     return -1
 }
 
-func CliWatchForwardedArgIndicesInto(args: string[], resultIndices: int[]): int {
-    arguments := new CliArgumentTable { Args: args }
-    results := new CliIndexResultTable { Indices: resultIndices }
-    return CliWatchForwardedArgIndicesCore(ref arguments, ref results)
-}
-
-func CliWatchForwardedArgIndicesCore(args: &CliArgumentTable, resultIndices: &CliIndexResultTable): int {
-    resultCount := 0
-    i := 1
-
-    while i < args.Args.Length {
-        arg := args.Args[i]
-        if CliWatchArgumentIsOptionWithValue(arg) {
-            i = i + 2
-            continue
-        }
-
-        if arg == "--help" || arg == "-h" {
-            i = i + 1
-            continue
-        }
-
-        if resultCount < resultIndices.Indices.Length {
-            resultIndices.Indices[resultCount] = i
-        }
-
-        resultCount = resultCount + 1
-        i = i + 1
-    }
-
-    return resultCount
-}
-
-func CliWatchArgumentIsOptionWithValue(arg: string): bool {
-    return arg == "--project" || arg == "--debounce-ms" || arg == "--max-runs"
-}
-
 func CliPublishOptionsInto(args: string[], resultIndices: int[]): int {
     arguments := new CliArgumentTable { Args: args }
     results := new CliIndexResultTable { Indices: resultIndices }
