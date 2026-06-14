@@ -1545,34 +1545,6 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         }
     }
 
-    internal static bool TryGetVisibleVariablesAtPosition(
-        SemanticModel semanticModel,
-        int line,
-        int column,
-        out Dictionary<string, TypeInfo> visibleVariables)
-    {
-        return NSharpCompilerDogfoodAdapter.TryGetVisibleVariablesAtPosition(
-            semanticModel,
-            line,
-            column,
-            out visibleVariables);
-    }
-
-    internal static bool TryLookupIdentifierAtPosition(
-        SemanticModel semanticModel,
-        string name,
-        int line,
-        int column,
-        out TypeInfo? typeInfo)
-    {
-        return NSharpCompilerDogfoodAdapter.TryLookupIdentifierAtPosition(
-            semanticModel,
-            name,
-            line,
-            column,
-            out typeInfo);
-    }
-
     internal static bool TryClassifyCompletionReceiver(
         string beforeCursor,
         out bool isMemberAccess,

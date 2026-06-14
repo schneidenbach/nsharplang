@@ -9146,28 +9146,11 @@ class B
     }
 
     [Fact]
-    public void CodeIntelligenceDogfoodAdapter_LoadsPackagedNSharpAssembly()
+    public void CompilerDogfoodAdapter_LoadsSemanticScopePackagedNSharpAssembly()
     {
-        var source = """
-func main() {
-    value := input.Count
-
-    print value
-}
-""";
-        var filePath = Path.GetFullPath(Path.Combine(Path.GetTempPath(), $"dogfood-adapter-{Guid.NewGuid():N}.nl"));
-        var snapshot = new ProjectSnapshot(
-            Path.GetTempPath(),
-            new Dictionary<string, CompilationUnit>(),
-            new Dictionary<string, SemanticModel>(),
-            Array.Empty<CompilerError>(),
-            new Analyzer(),
-            new[] { filePath },
-            sourceTexts: new Dictionary<string, string> { [filePath] = source });
-
-        var adapterType = typeof(CodeIntelligenceService).Assembly.GetType(
-                "NSharpLang.Compiler.CodeIntelligence.NSharpCodeIntelligenceDogfoodAdapter")
-            ?? throw new InvalidOperationException("Dogfood code-intelligence adapter type was not emitted.");
+        var adapterType = typeof(SemanticModel).Assembly.GetType(
+                "NSharpLang.Compiler.NSharpCompilerDogfoodAdapter")
+            ?? throw new InvalidOperationException("Dogfood compiler adapter type was not emitted.");
 
         var isAvailable = (bool)(adapterType.GetProperty(
                 "IsAvailable",
@@ -9217,6 +9200,37 @@ func main() {
         var missingLookupArgs = new object?[] { semanticModel, "missing", 5, 10, null };
         Assert.True((bool)(tryLookupIdentifierAtPosition.Invoke(null, missingLookupArgs) ?? false));
         Assert.Null(missingLookupArgs[4]);
+    }
+
+    [Fact]
+    public void CodeIntelligenceDogfoodAdapter_LoadsPackagedNSharpAssembly()
+    {
+        var source = """
+func main() {
+    value := input.Count
+
+    print value
+}
+""";
+        var filePath = Path.GetFullPath(Path.Combine(Path.GetTempPath(), $"dogfood-adapter-{Guid.NewGuid():N}.nl"));
+        var snapshot = new ProjectSnapshot(
+            Path.GetTempPath(),
+            new Dictionary<string, CompilationUnit>(),
+            new Dictionary<string, SemanticModel>(),
+            Array.Empty<CompilerError>(),
+            new Analyzer(),
+            new[] { filePath },
+            sourceTexts: new Dictionary<string, string> { [filePath] = source });
+
+        var adapterType = typeof(CodeIntelligenceService).Assembly.GetType(
+                "NSharpLang.Compiler.CodeIntelligence.NSharpCodeIntelligenceDogfoodAdapter")
+            ?? throw new InvalidOperationException("Dogfood code-intelligence adapter type was not emitted.");
+
+        var isAvailable = (bool)(adapterType.GetProperty(
+                "IsAvailable",
+                BindingFlags.Static | BindingFlags.NonPublic)
+            ?.GetValue(null) ?? false);
+        Assert.True(isAvailable, "The production test output must carry NSharpLang.Compiler.Dogfood.dll.");
 
         var tryExtractIdentifierName = adapterType.GetMethod(
                 "TryExtractIdentifierName",

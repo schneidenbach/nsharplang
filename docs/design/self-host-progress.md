@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — Code-intelligence semantic-scope forwarders removed
+
+`NSharpCodeIntelligenceDogfoodAdapter` no longer exposes semantic-scope lookup methods that only
+forwarded to `NSharpCompilerDogfoodAdapter`. The compiler adapter remains the single C# bridge for
+`SemanticScopeVisibleSymbolIndicesInto` and `SemanticScopeLookupSymbolIndicesInto`, and the packaging
+test now validates that route directly.
+
 ## 2026-06-14 — Unbound dogfood wrappers move to parity corpus
 
 The shipped dogfood compiler-service files no longer carry the last adapter-unbound flattened
