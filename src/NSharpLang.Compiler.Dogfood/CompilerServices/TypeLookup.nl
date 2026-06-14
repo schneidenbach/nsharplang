@@ -10,11 +10,6 @@ struct DeclaredTypeNameCandidateTable {
     TailHashes: int[]
 }
 
-struct DeclaredTypeExactNameTable {
-    Names: string[]
-    TailHashes: int[]
-}
-
 struct TypeCreationOrderTable {
     Keys: string[]
     DotCounts: int[]
@@ -33,10 +28,6 @@ func DeclaredTypeNameCandidateCapacity(types: &DeclaredTypeNameCandidateTable): 
     count := TypeLookupMinInt(types.Names.Length, types.ImportedNamespaceFlags.Length)
     count = TypeLookupMinInt(count, types.TailHashes.Length)
     return count
-}
-
-func DeclaredTypeExactNameCapacity(types: &DeclaredTypeExactNameTable): int {
-    return TypeLookupMinInt(types.Names.Length, types.TailHashes.Length)
 }
 
 func TypeCreationOrderInputCapacity(order: &TypeCreationOrderTable): int {
@@ -219,39 +210,6 @@ func TypeCreationOrderIndicesCore(order: &TypeCreationOrderTable, count: int): i
     }
 
     return count
-}
-
-func DeclaredTypeExactNameFirstIndex(
-    names: string[],
-    tailHashes: int[],
-    typeName: string,
-    queryTailHash: int,
-    count: int): int {
-    types := new DeclaredTypeExactNameTable { Names: names, TailHashes: tailHashes }
-    return DeclaredTypeExactNameFirstIndexCore(ref types, typeName, queryTailHash, count)
-}
-
-func DeclaredTypeExactNameFirstIndexCore(
-    types: &DeclaredTypeExactNameTable,
-    typeName: string,
-    queryTailHash: int,
-    count: int): int {
-    if count < 0 || count > DeclaredTypeExactNameCapacity(ref types) {
-        return -2
-    }
-
-    useTailHash := typeName.Length > 0
-    i := 0
-    while i < count {
-        if (!useTailHash || types.TailHashes[i] == queryTailHash)
-            && types.Names[i] == typeName {
-            return i + 1
-        }
-
-        i = i + 1
-    }
-
-    return 0
 }
 
 func TypeLookupMinInt(left: int, right: int): int {

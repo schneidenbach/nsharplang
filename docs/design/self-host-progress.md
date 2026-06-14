@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — Declared-type exact-name probe leaves product dogfood
+
+`DeclaredTypeExactNameFirstIndex` and its tiny table/capacity helper moved to the parity corpus with
+`DeclaredTypeExactNameFirstChecksum`. Product dogfood keeps the accepted declared-type suffix,
+name-candidate, and creation-order routes; the exact-name first-wins scan remains benchmark-only
+because it passed parity but missed the normal speed gate.
+
 ## 2026-06-14 — Typo-suggestion pressure probe leaves product dogfood
 
 `TypoSuggestionIndicesInto` and its Levenshtein/scoring helper closure moved to the parity corpus
