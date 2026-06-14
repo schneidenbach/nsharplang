@@ -185,7 +185,7 @@ stores and compound assignments return the stored value, prefix/postfix incremen
 ordinary result semantics, and default stores write the backing column without reading the old value
 or materializing a row. These accepted direct-column update shapes also apply to `System.Index`
 from-end element access such as `table.column[^1]`, including expression-valued simple stores,
-default stores, null-coalescing reads, and null-coalescing assignments.
+default stores, prefix/postfix increment/decrement, null-coalescing reads, and null-coalescing assignments.
 The same nullability rule applies to both row projection and direct column elements: `??` and `??=`
 require a nullable/reference column element and non-nullable columns reject the operation during
 analysis. Direct-column from-end access uses those same update and nullability diagnostics, so

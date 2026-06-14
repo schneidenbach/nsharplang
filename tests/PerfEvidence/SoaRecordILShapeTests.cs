@@ -412,6 +412,49 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void DirectColumnFromEndDecrement_UsesColumnArrayOffsetWithoutSliceAllocation()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                kind: int
+            }
+
+            func decrementLast(nodes: NodeTable): int {
+                nodes.kind[^1] = 10
+                old := nodes.kind[^1]--
+                pre := --nodes.kind[^1]
+                return old * 100 + pre * 10 + nodes.kind[^1]
+            }
+
+            func main(): int {
+                nodes := new NodeTable(2)
+                return decrementLast(nodes)
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var decrementLast = ILShapeInspector.GetProgramMethod(assembly, "decrementLast");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(1088, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoFromEndSliceAllocation(decrementLast);
+            Assert.True(
+                ILShapeInspector.CountOpcode(decrementLast, OpCodes.Ldfld) >= 4,
+                "Direct SoA from-end decrement should load the backing column field directly.");
+            Assert.True(
+                CountArrayElementLoads(decrementLast) >= 3,
+                "Direct SoA from-end decrement should read current and returned values from the backing array.");
+            Assert.Equal(3, CountArrayElementStores(decrementLast));
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void DirectColumnFromEndNullCoalescing_UsesColumnArrayOffsetWithoutSliceAllocation()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

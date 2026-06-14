@@ -11,6 +11,12 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — Direct SoA from-end decrements have IL-shape proof
+
+Direct backing-column `System.Index` decrement now has opcode evidence alongside increment. Postfix
+`table.column[^1]--` and prefix `--table.column[^1]` stay on backing-array traffic with no slice
+allocation, row construction, boxing, delegate construction, or virtual dispatch.
+
 ## 2026-06-14 — SoA slice mutation diagnostics cover from-end ranges
 
 Column slice update diagnostics now cover decrement and the `System.Index` range variants of
