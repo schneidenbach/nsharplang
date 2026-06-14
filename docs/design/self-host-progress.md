@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — Semantic-scope scalar wrappers leave product dogfood
+
+`SemanticScopes.nl` no longer emits the raw-array `SemanticScopeIdStartsBefore` and
+`SemanticScopeClearTouched` helpers. The live product route keeps `SemanticScopeIdStartsBeforeCore`
+inside the iterative sort and `SemanticScopeClearTouchedCore` inside name-set cleanup, while the
+raw wrappers now live in the parity corpus and are pinned absent from product coverage.
+
 ## 2026-06-14 — Linter parity wrapper leaves product dogfood
 
 `LinterImports.nl` no longer emits the raw-array `LinterImportsClearAllUsedFlags` helper. The shipped
@@ -4395,7 +4402,7 @@ AGENTS.md "shrink/remove the *DogfoodAdapter bridges."
 The LAST parse-blocked file falls — Phase A self-host coverage COMPLETE. SemanticScopes.nl declined at PARSE
 (`TryGetColumnarFunctionInputs` returned false). A per-function parse probe (reflect the private parse entry, route
 each of the 20 funcs solo, tag parse-fail vs emit-fail) pinned two procedures — `SemanticScopeSortIdsByStart`
-(an iterative quicksort) and `SemanticScopeClearTouched` — that OMIT the return type: `func name(params) {` with
+(an iterative quicksort) and `SemanticScopeClearTouchedCore` — that OMIT the return type: `func name(params) {` with
 no `: ReturnType` (implicit void). A synthetic `func f(a: int[]) {` reproduced it; `func g(a: int[]): void {`
 parsed fine — isolating the construct to the omitted return type.
 

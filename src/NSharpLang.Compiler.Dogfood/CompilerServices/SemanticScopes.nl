@@ -503,15 +503,6 @@ func SemanticScopeSortIdsByStart(
     }
 }
 
-func SemanticScopeIdStartsBefore(
-    left: int,
-    right: int,
-    scopeStartLines: int[],
-    scopeStartColumns: int[]): bool {
-    source := new SemanticScopeSortSourceTable { StartLines: scopeStartLines, StartColumns: scopeStartColumns, EndLines: scopeStartLines }
-    return SemanticScopeIdStartsBeforeCore(left, right, ref source)
-}
-
 func SemanticScopeIdStartsBeforeCore(
     left: int,
     right: int,
@@ -715,11 +706,6 @@ func SemanticScopeAddNameToSetCore(
     }
 
     return -1
-}
-
-func SemanticScopeClearTouched(slotNameIds: int[], touchedSlots: int[], touchedCount: int) {
-    scratch := new SemanticScopeNameSetScratch { SlotNameIds: slotNameIds, TouchedSlots: touchedSlots }
-    SemanticScopeClearTouchedCore(ref scratch, touchedCount)
 }
 
 func SemanticScopeClearTouchedCore(scratch: &SemanticScopeNameSetScratch, touchedCount: int) {

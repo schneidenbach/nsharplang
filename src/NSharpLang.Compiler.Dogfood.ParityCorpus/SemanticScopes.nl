@@ -1,8 +1,22 @@
-// PARITY CORPUS (Arc M1): checksum oracles extracted from
+// PARITY CORPUS (Arc M1): checksum oracles and helper wrappers extracted from
 // src/NSharpLang.Compiler.Dogfood/CompilerServices/SemanticScopes.nl. These functions exist solely as
 // parity-test surfaces (tests + benchmarks bind them by NAME and compile them TOGETHER with
 // their product file — most delegate to sibling kernels that stay in the product). They are
 // NOT part of the shipped dogfood assembly.
+
+func SemanticScopeIdStartsBefore(
+    left: int,
+    right: int,
+    scopeStartLines: int[],
+    scopeStartColumns: int[]): bool {
+    source := new SemanticScopeSortSourceTable { StartLines: scopeStartLines, StartColumns: scopeStartColumns, EndLines: scopeStartLines }
+    return SemanticScopeIdStartsBeforeCore(left, right, ref source)
+}
+
+func SemanticScopeClearTouched(slotNameIds: int[], touchedSlots: int[], touchedCount: int) {
+    scratch := new SemanticScopeNameSetScratch { SlotNameIds: slotNameIds, TouchedSlots: touchedSlots }
+    SemanticScopeClearTouchedCore(ref scratch, touchedCount)
+}
 
 func SemanticScopeVisibleSymbolChecksumInto(
     scopeParentIds: int[],

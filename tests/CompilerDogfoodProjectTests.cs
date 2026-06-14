@@ -7622,9 +7622,9 @@ class B
 
     // MILESTONE: SemanticScopes.nl compiles end-to-end with no C# AST — the LAST parse-blocked systems-dogfood
     // file, completing 32/32 corpus coverage via the merge cluster. Its blocker was two IMPLICIT-VOID procedures
-    // (SemanticScopeSortIdsByStart — an iterative quicksort — and SemanticScopeClearTouched) whose omitted return
-    // type the emit adapter mis-treated as a parse error. BuildSortedIndexChecksumInto exercises the implicit-void
-    // quicksort transitively (value-matched vs the C# pipeline); the pure helpers anchor scalar parity.
+    // (SemanticScopeSortIdsByStart — an iterative quicksort — and SemanticScopeClearTouchedCore) whose omitted
+    // return type the emit adapter mis-treated as a parse error. BuildSortedIndexChecksumInto exercises the
+    // implicit-void quicksort transitively (value-matched vs the C# pipeline); parity helpers anchor scalar checks.
     [Fact]
     public void ColumnarCodegen_CompilesRealDogfoodFile_SemanticScopes()
     {
@@ -7632,7 +7632,7 @@ class B
         var (ok, _, _, methodNames) = RouteColumnarProgram(source);
         Assert.True(ok, "Columnar backend declined the real SemanticScopes.nl (expected full support).");
         Assert.Contains("SemanticScopeSortIdsByStart", methodNames!);  // implicit-void quicksort
-        Assert.Contains("SemanticScopeClearTouched", methodNames!);    // implicit-void array-clear
+        Assert.Contains("SemanticScopeClearTouchedCore", methodNames!); // implicit-void array-clear product helper
 
         // 4 scopes in UNSORTED (line, column) order so the implicit-void quicksort actually permutes; the checksum
         // observes the sorted output (scratch + output arrays are deterministically rebuilt from the read-only
@@ -7988,6 +7988,19 @@ class B
         var (linterParityOk, _, _, linterParityMethods) = RouteColumnarProgram(linterWithParity);
         Assert.True(linterParityOk, "LinterImports.nl parity corpus should still compile with the extracted wrapper.");
         Assert.Contains("LinterImportsClearAllUsedFlags", linterParityMethods!);
+
+        var semanticProduct = ReadDogfoodProductFile("SemanticScopes.nl");
+        var (semanticOk, _, _, semanticProductMethods) = RouteColumnarProgram(semanticProduct);
+        Assert.True(semanticOk, "SemanticScopes.nl product source should still compile without parity wrappers.");
+        Assert.Contains("SemanticScopeClearTouchedCore", semanticProductMethods!);
+        Assert.DoesNotContain("SemanticScopeClearTouched", semanticProductMethods!);
+        Assert.DoesNotContain("SemanticScopeIdStartsBefore", semanticProductMethods!);
+
+        var semanticWithParity = ReadDogfoodFileWithParityCorpus("SemanticScopes.nl");
+        var (semanticParityOk, _, _, semanticParityMethods) = RouteColumnarProgram(semanticWithParity);
+        Assert.True(semanticParityOk, "SemanticScopes.nl parity corpus should still compile with the extracted wrappers.");
+        Assert.Contains("SemanticScopeClearTouched", semanticParityMethods!);
+        Assert.Contains("SemanticScopeIdStartsBefore", semanticParityMethods!);
     }
 
     // PRODUCT CORPUS COVERAGE (ratcheting): how many shipped dogfood compiler-service files, excluding extracted
