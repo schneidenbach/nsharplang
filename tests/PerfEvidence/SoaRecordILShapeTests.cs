@@ -2622,6 +2622,64 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void BoolColumnBitwiseExpressions_UseColumnArrayLoadStoreWithoutRowOrSliceAllocation()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                active: bool
+            }
+
+            func update(nodes: NodeTable, row: int): int {
+                nodes[row].active = false
+                rowValue := nodes[row].active = nodes[row].active | true
+                nodes.active[row] = true
+                directValue := nodes.active[row] = nodes.active[row] ^ true
+                nodes.active[^1] = true
+                fromEndValue := nodes.active[^1] = nodes.active[^1] & true
+
+                total := rowValue ? 100 : 0
+                total += directValue ? 10 : 0
+                total += fromEndValue ? 1 : 0
+                return total
+            }
+
+            func main(): int {
+                nodes := new NodeTable(1)
+                row := nodes.add()
+                return update(nodes, row)
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var update = ILShapeInspector.GetProgramMethod(assembly, "update");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(101, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoFromEndSliceAllocation(update);
+            Assert.True(
+                ILShapeInspector.CountOpcode(update, OpCodes.Ldfld) >= 6,
+                "Bool SoA bitwise stores should load backing column fields directly.");
+            Assert.Equal(3, CountArrayElementLoads(update));
+            Assert.Equal(6, CountArrayElementStores(update));
+            Assert.True(
+                ILShapeInspector.CountOpcode(update, OpCodes.Or) >= 1,
+                "Bool SoA bitwise-or should use the direct OR opcode.");
+            Assert.True(
+                ILShapeInspector.CountOpcode(update, OpCodes.Xor) >= 1,
+                "Bool SoA bitwise-xor should use the direct XOR opcode.");
+            Assert.True(
+                ILShapeInspector.CountOpcode(update, OpCodes.And) >= 1,
+                "Bool SoA bitwise-and should use the direct AND opcode.");
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void EnumColumnUnaryBitwiseNot_UsesColumnArrayLoadStoreWithoutRowOrSliceAllocation()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA bool bitwise expressions have IL-shape proof
+
+Boolean SoA columns now have opcode evidence for built-in `|`, `^`, and `&` expressions feeding
+expression-valued stores across row projection, direct column indexing, and direct from-end column
+indexing. Bool arithmetic compound assignment still fails during analysis, but accepted bitwise
+stores stay on backing-column array traffic with no row construction, slice allocation, boxing,
+delegate construction, or virtual dispatch.
+
 ## 2026-06-14 — SoA variable from-end indexes split row and column semantics
 
 SoA row projection now has analyzer coverage for variable-held `System.Index` values such as
