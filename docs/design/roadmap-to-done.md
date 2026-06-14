@@ -201,25 +201,26 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       C# fallback on decline —
       flag-on emits an eligible program via the columnar pipeline (drop-in: assembly name + type `Program`),
       proven to differ from the C# IL yet run identically (`Stage5_ColumnarBackend_*`). Product corpus coverage
-      is **26/29 shipped kernel files single-file, 29/29 via MULTI-FILE merge** after the 2026-06-14 rejected-probe
-      extraction; the three parity-only files (`ErrorSuggestions`, `FormatterSafetyScan`, `PathMatching`) now live
+      is **25/28 shipped kernel files single-file, 28/28 via MULTI-FILE merge** after the 2026-06-14 rejected-probe
+      extraction; the four parity-only files (`ErrorSuggestions`, `FormatterSafetyScan`, `PathMatching`, `SourceTextLines`) now live
       only in `NSharpLang.Compiler.Dogfood.ParityCorpus` and do not inflate product routing evidence. Historical
       Phase A coverage before that extraction was driven by:
       SourceTextLines via Array.Fill +
       void-call statement + parameter assignment; PathMatching via char arithmetic; LinterImports via
       discarded-call statement; CliDocOrdering via `new string(char[],int,int)`; CliQueryParsing via the `ulong`
       unsigned scalar + `BitOperations.PopCount`; LexerTokenKindScanner via lowercase `char.` static predicates; DiagnosticDeduplication via void functions; IdentifierSpans via while-scan-loop; CompletionReceivers via StringBuilder; CliArguments via StringComparison enum + IndexOf overloads + char/int promotion; DiagnosticClusters via Math.Abs + int.ToString("x") (value-type instance) + string concat + String.Compare(3/6-arg) + Trim + StringBuilder-as-param; SemanticScopes via the implicit-void return type (`func f(...) {` — adapter now canonicalizes returnRoot=-1 → "void");
-      floor corrected 16→20 then →27 then →28 then →29 before the rejected-probe extraction). The 3 not-single-file files (ParserExpressions/
+      floor corrected 16→20 then →27 then →28 then →29 before the rejected-probe extraction, then ratcheted to
+      28 shipped files after SourceTextLines moved to parity-only evidence). The 3 not-single-file files (ParserExpressions/
       ParserFunctionSignatures/ParserStatements) are legitimately CROSS-FILE and compile when merged — nothing in
       the shipped kernel corpus is unmodeled.
       **MULTI-FILE merge LANDED** (`TryEmitColumnarProgramMultiFile`): the dogfood program is multi-file
       (cross-file public calls, e.g. ParserFunctionSignatures→ParserTypeReferences); the backend merges files into
       one columnar program so cross-file calls resolve, parity-gated vs a genuine separate-file MultiFileCompiler
       oracle — the eligible cross-file cluster (ParserExpressions/ParserStatements/ParserFunctionSignatures + the
-      22 single-file files) compiles merged. The FULL corpus now compiles (DiagnosticClusters DONE 2026-06-08 via
+      25 single-file files) compiles merged. The FULL corpus now compiles (DiagnosticClusters DONE 2026-06-08 via
       Math.Abs + int.ToString(fmt) value-type instance call + string concat + String.Compare 3/6-arg + Trim +
       StringBuilder-as-param; SemanticScopes DONE 2026-06-08 via the implicit-void return type — the adapter
-      canonicalizes returnRoot=-1 → "void"). PHASE A product self-host coverage COMPLETE (29/29 shipped kernel
+      canonicalizes returnRoot=-1 → "void"). PHASE A product self-host coverage COMPLETE (28/28 shipped kernel
       files via merge; extracted rejected probes compile only in the parity corpus). Multi-file
       production routing LANDED 2026-06-08 (`TryEmitWithColumnarBackend` routes >1 source through the merge).
       **NEVER-SLOWER MEASURED 2026-06-08** (`ColumnarBackendEmitBenchmarks`, same production entry, flag toggled):
@@ -400,7 +401,7 @@ startup/size track.
 
 **Status cursor (2026-06-13).** Stages 3b (columnar diagnostics), 4 (columnar codegen spike→backend), and 5
 (production routing default-on with `NSHARP_COLUMNAR_BACKEND=0` as the C# opt-out) are DONE — the standalone columnar pipeline
-owns parse→emit for the modelled surface (29/29 shipped product files via multi-file merge, with parity-only probes outside
+owns parse→emit for the modelled surface (28/28 shipped product files via multi-file merge, with parity-only probes outside
 product routing) and is parity-gated per
 slice. The live work is **Phase D rich-language columnar emit** (newest-on-top log:
 [`self-host-progress.md`](self-host-progress.md) is the authoritative cursor): D-11d class inheritance landed;

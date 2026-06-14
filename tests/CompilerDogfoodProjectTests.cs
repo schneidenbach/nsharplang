@@ -18,7 +18,7 @@ namespace NSharpLang.Tests;
 
 public class CompilerDogfoodProjectTests
 {
-    private const int MinimumProductDogfoodFileCountAfterParityExtraction = 29;
+    private const int MinimumProductDogfoodFileCountAfterParityExtraction = 28;
 
     // The production-routed parser token-compaction kernel
     // (LexerTokenKindScanner.nl: ParserTokenCompactionIndicesInto) filters newline tokens by the
@@ -7736,19 +7736,16 @@ class B
             ("addChars", new object[] { 'a', 'b' }));   // 195
     }
 
-    // MILESTONE: the standalone columnar backend compiles SourceTextLines.nl — the heaviest line-mapping I/O
-    // kernel — end-to-end with NO C# AST, every exercised function matching the authoritative C# pipeline. The
-    // enabling feature is Array.Fill<int>(int[], int, int, int) invoked as a bare void statement (the new
-    // void-call-statement form); everything else (string IndexOf/Substring/indexing/.Length, int[]/string[]
-    // read+write, shifts, sibling calls, if/while/break) was already modelled. Reads the actual file so it
-    // tracks the real source.
+    // REJECTED-PROBE PIN: SourceTextLines.nl no longer owns shipped product dogfood functions because its
+    // production-shaped benchmark missed the speed gate. The extracted parity-corpus file still compiles
+    // end-to-end and keeps the Array.Fill / line-map evidence pinned outside product coverage.
     [Fact]
-    public void ColumnarCodegen_CompilesRealDogfoodFile_SourceTextLines()
+    public void ColumnarCodegen_CompilesParityCorpusFile_SourceTextLines()
     {
         var source = ReadDogfoodFileWithParityCorpus("SourceTextLines.nl");
 
         var (ok, _, _, methodNames) = RouteColumnarProgram(source);
-        Assert.True(ok, "Columnar backend declined the real SourceTextLines.nl (expected full support).");
+        Assert.True(ok, "Columnar backend declined the extracted SourceTextLines.nl parity corpus.");
         Assert.Contains("BuildDenseLineRangesAndOffsetLineIndicesInto", methodNames!); // the Array.Fill function.
         Assert.Contains("LineMapCachedChecksumInto", methodNames!);
         Assert.Contains("SplitLogicalLines", methodNames!);
@@ -7911,7 +7908,7 @@ class B
             "FormatterImportOrdering.nl", "IdentifierSpans.nl",
             "LexerTokenKindScanner.nl", "LinterImports.nl", "OverloadCandidates.nl", "ParserDeclarations.nl",
             "ParserExpressions.nl", "ParserFunctionSignatures.nl", "ParserStatements.nl", "ParserTypeReferences.nl",
-            "ProjectSourceFilter.nl", "SemanticScopes.nl", "SourceTextLines.nl", "StructCopyAnalysis.nl",
+            "ProjectSourceFilter.nl", "SemanticScopes.nl", "StructCopyAnalysis.nl",
             "TextEditOrdering.nl", "TypeLookup.nl",
         };
         var sources = cluster.Select(n => File.ReadAllText(Path.Combine(dir, n))).ToArray();
@@ -7969,7 +7966,7 @@ class B
     [Fact]
     public void ColumnarCodegen_ParityOnlyFiles_AreAbsentFromProductCoverage()
     {
-        foreach (var name in new[] { "ErrorSuggestions.nl", "FormatterSafetyScan.nl", "PathMatching.nl" })
+        foreach (var name in new[] { "ErrorSuggestions.nl", "FormatterSafetyScan.nl", "PathMatching.nl", "SourceTextLines.nl" })
         {
             Assert.False(File.Exists(DogfoodProductFilePath(name)), $"{name} must live only in the parity corpus.");
 
@@ -8061,7 +8058,7 @@ class B
             "CompletionGrouping.nl", "CompletionReceivers.nl", "DiagnosticClusters.nl", "DiagnosticDeduplication.nl", "DocQuery.nl",
             "FormatterImportOrdering.nl", "IdentifierSpans.nl",
             "LexerTokenKindScanner.nl", "LinterImports.nl", "OverloadCandidates.nl", "ParserDeclarations.nl",
-            "ParserTypeReferences.nl", "ProjectSourceFilter.nl", "SemanticScopes.nl", "SourceTextLines.nl",
+            "ParserTypeReferences.nl", "ProjectSourceFilter.nl", "SemanticScopes.nl",
             "StructCopyAnalysis.nl", "TextEditOrdering.nl", "TypeLookup.nl",
         };
         var dir = Path.Combine(FindRepoRoot(), "src", "NSharpLang.Compiler.Dogfood", "CompilerServices");

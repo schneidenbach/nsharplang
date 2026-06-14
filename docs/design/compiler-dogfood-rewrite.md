@@ -191,12 +191,13 @@ Current source-text dogfood benchmarks:
   fused four-wide N# loop with a valid-batch fast path and scalar fallback for invalid batches.
   Equal-length trusted batches use one fused eight-wide N# hot loop over both query streams.
 
-The dogfood project also includes `CompilerServices/SourceTextLines.nl`; `CompilerDogfoodProjectTests`
-compiles it through the SDK project and verifies both returned strings and range buffers against the
-current C# `SourceTextLines.SplitLogicalLines` behavior for empty, trailing-separator, CRLF,
-standalone-CR, LF, and mixed-newline cases. It also verifies line-start construction,
-offset-to-line/column lookup, line/column-to-offset validation, cached build-and-query checksums,
-validating cached-query checksums, and the trusted valid-query checksum contract over those cases.
+The source-text candidate now lives only in
+`NSharpLang.Compiler.Dogfood.ParityCorpus/SourceTextLines.nl`. `CompilerDogfoodProjectTests` compiles
+that extracted parity file and verifies both returned strings and range buffers against the current
+C# `SourceTextLines.SplitLogicalLines` behavior for empty, trailing-separator, CRLF, standalone-CR,
+LF, and mixed-newline cases. It also verifies line-start construction, offset-to-line/column lookup,
+line/column-to-offset validation, cached build-and-query checksums, validating cached-query checksums,
+and the trusted valid-query checksum contract over those cases.
 
 The line-map build-and-query dry run on 2026-06-03 showed the N# candidate passing checksum parity and
 reporting zero managed allocation. The representative corpus ran about 3.5x faster than the C#

@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SourceTextLines extracted from product dogfood
+
+`SourceTextLines.nl` moved out of `src/NSharpLang.Compiler.Dogfood/CompilerServices` and into the
+parity corpus as a self-contained file. Its line-map kernels still compile and run through the
+columnar backend for parity evidence, but they no longer ship in the dogfood compiler-service
+assembly or count toward product routing coverage because the production-shaped benchmark never
+cleared the speed gate.
+
+Product dogfood coverage is now ratcheted to 28 shipped files: 25 compile as single-file kernels and
+the three parser files compile through the multi-file merge. The parity-only absence test now pins
+`SourceTextLines.nl` beside the other extracted rejected probes.
+
 ## 2026-06-14 — SoA add guards length overflow
 
 `table.add()` now rejects a wrapped table whose current `length` is already `int.MaxValue` before
@@ -1186,8 +1198,8 @@ without widening the experimental `soa record` surface.
 ## 2026-06-13 — Source text line tables wrapped
 
 `SourceTextLines.nl` now groups logical line start/length ranges, line-start-only indexes, and dense
-offset-to-line maps behind named normal structs. The exported dogfood parity functions still expose
-the flattened arrays used by the adapter and tests, while range building, line-start building,
+offset-to-line maps behind named normal structs. The exported parity functions still expose
+the flattened arrays used by tests, while range building, line-start building,
 offset-to-line lookup, column lookup, line/column-to-offset lookup, and dense offset-map construction
 route through wrapper-aware cores.
 
@@ -4907,7 +4919,7 @@ pop matches `EmitExpressionStatement`, stack balance holds (one value → one po
 ## 2026-06-08 — Array.Fill + void-call statement + parameter assignment → corpus coverage 13 → 14 (SourceTextLines)
 
 Three composing features land together, flipping the heaviest line-mapping I/O kernel `SourceTextLines.nl`
-(the actual dogfood compiler-service file) to compile end-to-end through the columnar backend with NO C# AST:
+(then an actual dogfood compiler-service file) to compile end-to-end through the columnar backend with NO C# AST:
 
 1. **Bare VOID-call statement.** `ExpressionStatement` (columnar kind 23) previously handled only a `=`
    assignment (to a `:=` local or `a[i] = v`). It now also accepts a Call (kind 9) whose emitted result type
@@ -4930,7 +4942,7 @@ Three composing features land together, flipping the heaviest line-mapping I/O k
 Parity-gated (`ColumnarCodegen_Parity_ArrayFill`: int/long/char/string element fills + a partial start/count
 range + decline surface — 2-arg overload, discarded non-void result, value/element type mismatch;
 `ColumnarCodegen_Parity_ParamAssignment`: int/long param mutation inside if/while + re-read + a wrong-type
-decline). The milestone test `ColumnarCodegen_CompilesRealDogfoodFile_SourceTextLines` reads the actual file,
+decline). The milestone test now named `ColumnarCodegen_CompilesParityCorpusFile_SourceTextLines` reads the extracted parity file,
 asserts the backend accepts it, and invokes representative functions (incl. the `Array.Fill`-using
 `BuildDenseLineRangesAndOffsetLineIndicesInto` directly, and `LineMapCachedChecksumInto` which exercises it
 transitively) over five line-ending shapes (empty / no-break / `\n` / mixed `\n\r\n\r` / only-`\n`) with
