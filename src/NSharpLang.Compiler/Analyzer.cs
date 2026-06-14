@@ -2220,7 +2220,8 @@ public class Analyzer : IDisposable
             case WhileStatement whileStmt:
                 var condType = AnalyzeExpression(whileStmt.Condition);
                 var (whileThenNarrowings, _) = ExtractFlowNarrowings(whileStmt.Condition);
-                if (!IsBoolType(condType))
+                var isSoaRowCondition = ReportSoaRowEscapeIfNeeded(whileStmt.Condition, condType, "used as a 'while' condition");
+                if (!isSoaRowCondition && !IsBoolType(condType))
                 {
                     ReportBooleanConditionTypeMismatch(whileStmt.Condition, "a 'while' loop", condType);
                 }
@@ -2328,9 +2329,12 @@ public class Analyzer : IDisposable
     private void AnalyzeExpressionStatement(ExpressionStatement exprStmt)
     {
         var errorsBefore = _errors.Count;
-        AnalyzeExpression(exprStmt.Expression);
+        var expressionType = AnalyzeExpression(exprStmt.Expression);
 
         if (ContainsParserErrorPlaceholder(exprStmt.Expression))
+            return;
+
+        if (_errors.Count == errorsBefore && ReportSoaRowEscapeIfNeeded(exprStmt.Expression, expressionType, "discarded"))
             return;
 
         if (!IsValidExpressionStatement(exprStmt.Expression) && _errors.Count == errorsBefore)
@@ -3235,8 +3239,9 @@ public class Analyzer : IDisposable
         // Allow unknown types (they might be boolean from external methods we can't fully resolve)
         // Extract flow-sensitive type narrowings from the condition (null checks, is-patterns, && chains)
         var (thenNarrowings, elseNarrowings) = ExtractFlowNarrowings(ifStmt.Condition);
+        var isSoaRowCondition = ReportSoaRowEscapeIfNeeded(ifStmt.Condition, condType, "used as an 'if' condition");
 
-        if (!IsBoolType(condType) && !BuiltInTypes.IsUnknown(condType) && !ContainsParserErrorPlaceholder(ifStmt.Condition))
+        if (!isSoaRowCondition && !IsBoolType(condType) && !BuiltInTypes.IsUnknown(condType) && !ContainsParserErrorPlaceholder(ifStmt.Condition))
         {
             // Use ErrorMessageBuilder for better error message
             var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetExpressionDiagnosticSpan(ifStmt.Condition);
@@ -3507,7 +3512,8 @@ public class Analyzer : IDisposable
         if (forStmt.Condition != null)
         {
             var condType = AnalyzeExpression(forStmt.Condition);
-            if (!IsBoolType(condType))
+            var isSoaRowCondition = ReportSoaRowEscapeIfNeeded(forStmt.Condition, condType, "used as a 'for' condition");
+            if (!isSoaRowCondition && !IsBoolType(condType))
             {
                 ReportBooleanConditionTypeMismatch(forStmt.Condition, "a 'for' loop", condType);
             }
@@ -3551,6 +3557,10 @@ public class Analyzer : IDisposable
     private void AnalyzeForeachStatement(ForeachStatement foreachStmt)
     {
         var collectionType = AnalyzeExpression(foreachStmt.Collection);
+        if (ReportSoaRowEscapeIfNeeded(foreachStmt.Collection, collectionType, "used as a foreach collection"))
+        {
+            collectionType = BuiltInTypes.Unknown;
+        }
 
         // Check if collection is enumerable
         // For now, just check if it's an array or has a known collection type
@@ -3583,6 +3593,10 @@ public class Analyzer : IDisposable
     private void AnalyzeAwaitForeachStatement(AwaitForEachStatement awaitForeachStmt)
     {
         var collectionType = AnalyzeExpression(awaitForeachStmt.Collection);
+        if (ReportSoaRowEscapeIfNeeded(awaitForeachStmt.Collection, collectionType, "used as an async foreach collection"))
+        {
+            collectionType = BuiltInTypes.Unknown;
+        }
 
         // Check if collection is IAsyncEnumerable<T>
         // For now, similar to regular foreach, we'll check for async enumerable types
@@ -4438,7 +4452,7 @@ public class Analyzer : IDisposable
             TupleExpression tuple => AnalyzeTupleExpression(tuple),
             ArrayLiteralExpression array => AnalyzeArrayLiteral(array),
             NewExpression newExpr => AnalyzeNewExpression(newExpr),
-            AllocExpression alloc => AnalyzeExpression(alloc.Expression),
+            AllocExpression alloc => AnalyzeAllocExpression(alloc),
             StackAllocExpression stackAlloc => AnalyzeStackAllocExpression(stackAlloc),
             CastExpression cast => AnalyzeCastExpression(cast),
             IsExpression isExpr => AnalyzeIsExpression(isExpr),
@@ -4692,13 +4706,15 @@ public class Analyzer : IDisposable
         // Analyze start if present
         if (range.Start != null)
         {
-            AnalyzeExpression(range.Start);
+            var startType = AnalyzeExpression(range.Start);
+            ReportSoaRowEscapeIfNeeded(range.Start, startType, "used as a range bound");
         }
 
         // Analyze end if present
         if (range.End != null)
         {
-            AnalyzeExpression(range.End);
+            var endType = AnalyzeExpression(range.End);
+            ReportSoaRowEscapeIfNeeded(range.End, endType, "used as a range bound");
         }
 
         // All range expressions return System.Range
@@ -4709,10 +4725,25 @@ public class Analyzer : IDisposable
     {
         // Analyze the inner expression
         var innerType = AnalyzeExpression(spread.Expression);
+        if (ReportSoaRowEscapeIfNeeded(spread.Expression, innerType, "spread"))
+        {
+            return BuiltInTypes.Unknown;
+        }
 
         // For spread in function calls, we expect the inner expression to be an array or enumerable
         // The C# compiler will handle validation of whether the spread is valid
         // For now, we just return the inner type (the collection type itself)
+        return innerType;
+    }
+
+    private TypeInfo AnalyzeAllocExpression(AllocExpression alloc)
+    {
+        var innerType = AnalyzeExpression(alloc.Expression);
+        if (ReportSoaRowEscapeIfNeeded(alloc.Expression, innerType, "allocated"))
+        {
+            return BuiltInTypes.Unknown;
+        }
+
         return innerType;
     }
 
@@ -11083,7 +11114,8 @@ public class Analyzer : IDisposable
     private TypeInfo AnalyzeTernary(TernaryExpression ternary)
     {
         var condType = AnalyzeExpression(ternary.Condition);
-        if (!IsBoolType(condType))
+        var isSoaRowCondition = ReportSoaRowEscapeIfNeeded(ternary.Condition, condType, "used as a ternary condition");
+        if (!isSoaRowCondition && !IsBoolType(condType))
         {
             ReportBooleanConditionTypeMismatch(ternary.Condition, "a ternary expression", condType);
         }
@@ -11247,7 +11279,11 @@ public class Analyzer : IDisposable
             }
 
             var lengthType = AnalyzeExpression(newExpr.ArrayLengthExpression);
-            if (lengthType != BuiltInTypes.Int)
+            if (ReportSoaRowEscapeIfNeeded(newExpr.ArrayLengthExpression, lengthType, "used as an array length"))
+            {
+                // A row-view diagnostic is more useful than the generic int-length mismatch.
+            }
+            else if (lengthType != BuiltInTypes.Int)
             {
                 Error(ErrorCode.TypeMismatch,
                     $"Array length must be an int, not '{lengthType}'",
@@ -11264,7 +11300,8 @@ public class Analyzer : IDisposable
                 // Analyze index expression if this is an indexer initializer
                 if (prop.IndexExpression != null)
                 {
-                    AnalyzeExpression(prop.IndexExpression);
+                    var indexType = AnalyzeExpression(prop.IndexExpression);
+                    ReportSoaRowEscapeIfNeeded(prop.IndexExpression, indexType, "used as an initializer index");
                 }
 
                 AnalyzeObjectInitializerPropertyValue(type, unionCaseConstructionName, prop);
@@ -11554,7 +11591,11 @@ public class Analyzer : IDisposable
     private TypeInfo AnalyzeStackAllocExpression(StackAllocExpression stackAlloc)
     {
         var lengthType = AnalyzeExpression(stackAlloc.LengthExpression);
-        if (!BuiltInTypes.IsUnknown(lengthType) && !IsImplicitlyIntStackAllocLength(lengthType))
+        if (ReportSoaRowEscapeIfNeeded(stackAlloc.LengthExpression, lengthType, "used as a stackalloc length"))
+        {
+            // A row-view diagnostic is more useful than the generic int-length mismatch.
+        }
+        else if (!BuiltInTypes.IsUnknown(lengthType) && !IsImplicitlyIntStackAllocLength(lengthType))
         {
             Error(ErrorCode.TypeMismatch,
                 $"stackalloc length must be an int, but this is a '{lengthType}'",
@@ -11797,19 +11838,35 @@ public class Analyzer : IDisposable
     private TypeInfo AnalyzeCheckedExpression(CheckedExpression checkedExpr)
     {
         // Analyze the inner expression - type is preserved
-        return AnalyzeExpression(checkedExpr.Expression);
+        var innerType = AnalyzeExpression(checkedExpr.Expression);
+        if (ReportSoaRowEscapeIfNeeded(checkedExpr.Expression, innerType, "used in a checked expression"))
+        {
+            return BuiltInTypes.Unknown;
+        }
+
+        return innerType;
     }
 
     private TypeInfo AnalyzeUncheckedExpression(UncheckedExpression uncheckedExpr)
     {
         // Analyze the inner expression - type is preserved
-        return AnalyzeExpression(uncheckedExpr.Expression);
+        var innerType = AnalyzeExpression(uncheckedExpr.Expression);
+        if (ReportSoaRowEscapeIfNeeded(uncheckedExpr.Expression, innerType, "used in an unchecked expression"))
+        {
+            return BuiltInTypes.Unknown;
+        }
+
+        return innerType;
     }
 
     private TypeInfo AnalyzeMatchExpression(MatchExpression match)
     {
         // Analyze the value being matched
         var valueType = AnalyzeExpression(match.Value);
+        if (ReportSoaRowEscapeIfNeeded(match.Value, valueType, "used as a match value"))
+        {
+            valueType = BuiltInTypes.Unknown;
+        }
 
         // Analyze each case and track variable bindings
         TypeInfo? resultType = null;
@@ -11825,7 +11882,8 @@ public class Analyzer : IDisposable
             if (matchCase.Guard != null)
             {
                 var guardType = AnalyzeExpression(matchCase.Guard);
-                if (!IsAssignable(BuiltInTypes.Bool, guardType))
+                var isSoaRowGuard = ReportSoaRowEscapeIfNeeded(matchCase.Guard, guardType, "used as a match guard");
+                if (!isSoaRowGuard && !IsAssignable(BuiltInTypes.Bool, guardType))
                 {
                     var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetExpressionDiagnosticSpan(matchCase.Guard);
                     Error(ErrorCode.GuardNotBoolean, $"A match guard must be a boolean, but this expression is '{guardType}'",
