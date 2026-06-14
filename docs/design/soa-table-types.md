@@ -69,7 +69,8 @@ semantically, including target-typed argument inference; negative literal `lengt
 rejected during analysis. Target-typed `default` is not a construction form for SoA tables because it
 would produce a CLR wrapper value with null backing column arrays; use `new Table(capacity)` or
 `Table.wrap(...)` instead. Target-typed `new()` without the required capacity argument is rejected
-the same way as `new Table()`, including when the expected table type comes from a call argument.
+the same way as `new Table()`, including when the expected table type comes from a typed local,
+return, call argument, field, or object initializer member.
 
 ## Lowering
 
@@ -199,6 +200,8 @@ The compiler must produce direct diagnostics for common misuse:
 - invalid `new` capacity: "SoA table capacity must be int" or "SoA table capacity must not be negative"
   for analyzer-known literals, or "capacity for NodeTable must be non-negative" for dynamic runtime values;
 - invalid default construction: "SoA table 'NodeTable' cannot be default-initialized";
+- invalid target-typed zero-argument construction: "SoA table 'NodeTable' construction expects
+  exactly one int capacity argument";
 - invalid generated operation calls: "`add`, `clear`, `ensureCapacity`, and `copyRow` must be called with
   their declared argument counts, names, and types, and literal `ensureCapacity`/`copyRow` capacity
   or row arguments must be non-negative"; dynamic negative `ensureCapacity`/`copyRow` values throw
