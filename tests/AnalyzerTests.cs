@@ -1592,6 +1592,22 @@ func Main() {
     }
 
     [Fact]
+    public void NullCoalesce_NonNullableValueLeft_Invalid()
+    {
+        var result = Analyze(@"
+            func Main(): int {
+                x := 10
+                return x ?? 5
+            }
+        ");
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains("left side of '??' has type 'int'", error.Message);
+        Assert.Contains("can't be null", error.Message);
+        Assert.Contains("make the left side nullable", error.Suggestion);
+    }
+
+    [Fact]
     public void NullableType_Valid()
     {
         AssertNoErrors(@"

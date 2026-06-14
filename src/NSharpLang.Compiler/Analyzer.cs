@@ -4957,6 +4957,8 @@ public class Analyzer : IDisposable
 
     private TypeInfo AnalyzeNullCoalesceOp(TypeInfo leftType, TypeInfo rightType, BinaryExpression expr)
     {
+        CheckNullCoalesceLeftOperand(expr, leftType);
+
         // If right side is a throw expression, the result type is the left type
         // e.g., string? ?? throw => string (C# infers this correctly)
         if (expr.Right is ThrowExpression)
@@ -4967,6 +4969,23 @@ public class Analyzer : IDisposable
         // Otherwise, the result is the right type (the fallback value)
         // In C#: T? ?? T returns T
         return rightType;
+    }
+
+    private void CheckNullCoalesceLeftOperand(BinaryExpression expression, TypeInfo leftType)
+    {
+        if (CanNullCoalesceCheckForNull(leftType))
+        {
+            return;
+        }
+
+        var (line, column, length) = GetExpressionDiagnosticSpan(expression.Left);
+        Error(
+            ErrorCode.TypeMismatch,
+            $"The left side of '??' has type '{leftType}', which can't be null",
+            line,
+            column,
+            "Use the value directly, or make the left side nullable before using '??'.",
+            length);
     }
 
     private TypeInfo AnalyzeArithmeticOp(TypeInfo left, TypeInfo right, BinaryExpression expr)
@@ -10776,14 +10795,7 @@ public class Analyzer : IDisposable
             return;
         }
 
-        var resolvedTarget = ResolveTypeAlias(targetType);
-        if (BuiltInTypes.IsUnknown(resolvedTarget)
-            || resolvedTarget is ExternalTypeInfo
-            || resolvedTarget is GenericTypeInfo
-            || resolvedTarget is NullableTypeInfo
-            || IsReferenceType(resolvedTarget)
-            || (resolvedTarget is ReflectionTypeInfo reflectionTarget
-                && Nullable.GetUnderlyingType(reflectionTarget.Type) != null))
+        if (CanNullCoalesceCheckForNull(targetType))
         {
             return;
         }
@@ -10796,6 +10808,18 @@ public class Analyzer : IDisposable
             column,
             "Use '=' for values that are always present, or make the target nullable before using '??='.",
             length);
+    }
+
+    private bool CanNullCoalesceCheckForNull(TypeInfo type)
+    {
+        var resolved = ResolveTypeAlias(type);
+        return BuiltInTypes.IsUnknown(resolved)
+            || resolved is ExternalTypeInfo
+            || resolved is GenericTypeInfo
+            || resolved is NullableTypeInfo
+            || IsReferenceType(resolved)
+            || (resolved is ReflectionTypeInfo reflection
+                && Nullable.GetUnderlyingType(reflection.Type) != null);
     }
 
     private TypeInfo AnalyzeOnSubscription(OnSubscriptionExpression on)

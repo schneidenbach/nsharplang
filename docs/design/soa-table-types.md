@@ -171,6 +171,7 @@ The compiler must produce direct diagnostics for common misuse:
 - null `wrap` columns: "columns for NodeTable.wrap cannot be null";
 - invalid `wrap` length: "length for NodeTable.wrap must be between 0 and column length";
 - unsupported element type: "SoA column type X is not supported in this lowering";
+- non-nullable row-column null coalescing: "The left side of '??' has type 'X', which can't be null";
 - hidden allocation request: "this operation would allocate row objects; use column access instead".
 
 These diagnostics must point at the row access or column declaration, not at generated lowering code.

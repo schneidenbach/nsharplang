@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — Null-coalescing rejects non-nullable value operands before emission
+
+The analyzer now rejects plain `??` when its left operand cannot be null, including SoA row-column value
+reads such as `table[row].intColumn ?? fallback`. This closes the same silent-emission path already
+closed for `??=`: non-nullable value columns now produce source diagnostics instead of reaching the IL
+backend path that would treat the fallback as unreachable.
+
 ## 2026-06-14 — Raw lexer parity wrappers leave product dogfood
 
 `LexerTokenKindScanner.nl` now keeps the compiler-routed composed lexer entry
