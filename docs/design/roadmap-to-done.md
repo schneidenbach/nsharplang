@@ -190,25 +190,28 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       end-to-end. See memory `project_routing_standalone_columnar_pipeline`.
 - [x] **Stage 5 — end-to-end route.** Compile the dogfood corpus through the standalone columnar pipeline with no
       internal materialization; behind a flag, then default-on once never-slower + parity proven end-to-end.
-      **FIRST REAL FILE COMPILES (2026-06-08):** `FormatterSafetyScan.nl` (the actual dogfood compiler-service
-      file) is compiled end-to-end by the columnar backend with NO C# AST, all 3 functions parity-matched to the
-      C# pipeline (`ColumnarCodegen_CompilesRealDogfoodFile_FormatterSafetyScan`). Enabled by int[]/long[] arrays
-      (resolve, `.Length`, `Ldelem`/`Stelem`) + short-circuit `&&`/`||`. Per `project_columnar_gap_analysis` the
-      next batch is the ~13 pure-int[] kernels (~40%), then strings (~37%). The corpus has NO structs/generics/
-      match (rare-to-absent) and 0% double, so those are OFF the self-host path.
+      **FIRST FILE PROOF (2026-06-08; now retained as rejected-probe evidence):** `FormatterSafetyScan.nl`
+      originally compiled end-to-end by the columnar backend with NO C# AST, all 3 functions parity-matched to
+      the C# pipeline. Its production-shaped benchmark later missed the speed gate, so the formatter scan moved
+      to `NSharpLang.Compiler.Dogfood.ParityCorpus` and no longer counts as shipped product routing evidence.
+      The parity-corpus test still compiles the extracted scan to keep the historical int[]/long[]/short-circuit
+      coverage live without routing `Formatter.FormatSafe` through N#.
       **PRODUCTION ROUTING LANDED (2026-06-08; default-on 2026-06-13):** the columnar backend is wired into `MultiFileCompiler.
       CompileToIlAssembly` by default, with `NSHARP_COLUMNAR_BACKEND=0` as the explicit C#-backend opt-out and
       C# fallback on decline —
       flag-on emits an eligible program via the columnar pipeline (drop-in: assembly name + type `Program`),
-      proven to differ from the C# IL yet run identically (`Stage5_ColumnarBackend_*`). Corpus coverage **29/32
-      (~91%) SINGLE-FILE, 32/32 (100%) via MULTI-FILE merge — PHASE A SELF-HOST COMPLETE** (2026-06-08:
+      proven to differ from the C# IL yet run identically (`Stage5_ColumnarBackend_*`). Product corpus coverage
+      is **26/29 shipped kernel files single-file, 29/29 via MULTI-FILE merge** after the 2026-06-14 rejected-probe
+      extraction; the three comment-only product stubs (`ErrorSuggestions`, `FormatterSafetyScan`, `PathMatching`)
+      are covered only by product+parity merge tests and do not inflate product routing evidence. Historical
+      Phase A coverage before that extraction was driven by:
       SourceTextLines via Array.Fill +
       void-call statement + parameter assignment; PathMatching via char arithmetic; LinterImports via
       discarded-call statement; CliDocOrdering via `new string(char[],int,int)`; CliQueryParsing via the `ulong`
       unsigned scalar + `BitOperations.PopCount`; LexerTokenKindScanner via lowercase `char.` static predicates; DiagnosticDeduplication via void functions; IdentifierSpans via while-scan-loop; CompletionReceivers via StringBuilder; CliArguments via StringComparison enum + IndexOf overloads + char/int promotion; DiagnosticClusters via Math.Abs + int.ToString("x") (value-type instance) + string concat + String.Compare(3/6-arg) + Trim + StringBuilder-as-param; SemanticScopes via the implicit-void return type (`func f(...) {` — adapter now canonicalizes returnRoot=-1 → "void");
-      floor corrected 16→20 then →27 then →28 then →29). The 3 not-single-file files (ParserExpressions/
+      floor corrected 16→20 then →27 then →28 then →29 before the rejected-probe extraction). The 3 not-single-file files (ParserExpressions/
       ParserFunctionSignatures/ParserStatements) are legitimately CROSS-FILE and compile when merged — nothing in
-      the corpus is unmodeled.
+      the shipped kernel corpus is unmodeled.
       **MULTI-FILE merge LANDED** (`TryEmitColumnarProgramMultiFile`): the dogfood program is multi-file
       (cross-file public calls, e.g. ParserFunctionSignatures→ParserTypeReferences); the backend merges files into
       one columnar program so cross-file calls resolve, parity-gated vs a genuine separate-file MultiFileCompiler
@@ -216,7 +219,8 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       22 single-file files) compiles merged. The FULL corpus now compiles (DiagnosticClusters DONE 2026-06-08 via
       Math.Abs + int.ToString(fmt) value-type instance call + string concat + String.Compare 3/6-arg + Trim +
       StringBuilder-as-param; SemanticScopes DONE 2026-06-08 via the implicit-void return type — the adapter
-      canonicalizes returnRoot=-1 → "void"). PHASE A self-host coverage COMPLETE (32/32 via merge). Multi-file
+      canonicalizes returnRoot=-1 → "void"). PHASE A product self-host coverage COMPLETE (29/29 shipped kernel
+      files via merge; extracted rejected probes compile only in the parity corpus). Multi-file
       production routing LANDED 2026-06-08 (`TryEmitWithColumnarBackend` routes >1 source through the merge).
       **NEVER-SLOWER MEASURED 2026-06-08** (`ColumnarBackendEmitBenchmarks`, same production entry, flag toggled):
       columnar emit is end-to-end TIED-to-marginally-faster vs C# `ILCompiler` (Representative 3.947 vs 3.963 ms;

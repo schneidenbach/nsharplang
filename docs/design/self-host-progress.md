@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — Product dogfood coverage excludes parity-only stubs
+
+`CompilerDogfoodProjectTests` now reads product compiler-service files without their parity-corpus
+twins when asserting shipped product coverage. `FormatterSafetyScan.nl`, `PathMatching.nl`, and
+`ErrorSuggestions.nl` remain comment-only product stubs and have a boundary test proving they expose
+no product functions; their extracted twins are still compiled through the dedicated product+parity
+merge and per-file parity tests. Current coverage accounting is therefore product-only for routing
+evidence and parity-merged only for rejected-probe evidence.
+
 ## 2026-06-14 — SoA null-conditional projections fail before emission
 
 The analyzer now rejects null-conditional access on experimental SoA tables and row projections before

@@ -2855,19 +2855,16 @@ class B
         Assert.False(RouteColumnarProgram("func badWrite(a: int[]): int {\n    a[0] = 5L\n    return 0\n}\n").Ok); // long value into an int[] slot
     }
 
-    // MILESTONE (Stage 5 proof-of-concept): the standalone columnar backend compiles a REAL dogfood
-    // compiler-service file — FormatterSafetyScan.nl — end-to-end straight from its columnar tables with NO C#
-    // AST, and every function produces results IDENTICAL to the authoritative C# pipeline. This is the first
-    // real self-host target: it uses only int[] params, `.Length`, read+write indexing, `&&`/`||`, if/while,
-    // and a sibling call — exactly the feature set just built. The test reads the actual file (so it tracks the
-    // real source, not a copy).
+    // REJECTED-PROBE PIN: FormatterSafetyScan.nl no longer owns shipped product dogfood functions because its
+    // benchmark missed the speed gate. The extracted parity-corpus twin still compiles end-to-end so the old
+    // first-file checksum evidence stays live without being counted as product routing evidence.
     [Fact]
-    public void ColumnarCodegen_CompilesRealDogfoodFile_FormatterSafetyScan()
+    public void ColumnarCodegen_CompilesParityCorpusFile_FormatterSafetyScan()
     {
         var source = ReadDogfoodFileWithParityCorpus("FormatterSafetyScan.nl");
 
         var (ok, _, _, methodNames) = RouteColumnarProgram(source);
-        Assert.True(ok, "Columnar backend declined the real FormatterSafetyScan.nl (expected full support).");
+        Assert.True(ok, "Columnar backend declined the extracted FormatterSafetyScan.nl parity corpus.");
         Assert.Contains("FormatterSafetyHasError", methodNames!);
         Assert.Contains("FormatterSafetyErrorIndicesInto", methodNames!);
         Assert.Contains("FormatterSafetyErrorIndicesChecksumInto", methodNames!);
@@ -7797,16 +7794,15 @@ class B
         AssertColumnarProgramMatchesCSharp(source, calls.ToArray());
     }
 
-    // MILESTONE: PathMatching.nl compiles end-to-end with no C# AST. Enabled by char arithmetic (`left - 'A'`
-    // promotes to int) on top of char-parameter assignment (`left = CodeIntelligencePathNormalizeSlash(left)`).
-    // The case-insensitive path matcher exercises char indexing, char compares, sibling calls, and the char
-    // subtraction case-fold. Reads the actual file.
+    // REJECTED-PROBE PIN: PathMatching.nl no longer owns shipped product dogfood functions because its
+    // production-shaped benchmark missed the speed gate. The extracted parity-corpus twin still compiles
+    // end-to-end and keeps the char arithmetic / case-fold evidence pinned outside product coverage.
     [Fact]
-    public void ColumnarCodegen_CompilesRealDogfoodFile_PathMatching()
+    public void ColumnarCodegen_CompilesParityCorpusFile_PathMatching()
     {
         var source = ReadDogfoodFileWithParityCorpus("PathMatching.nl");
         var (ok, _, _, methodNames) = RouteColumnarProgram(source);
-        Assert.True(ok, "Columnar backend declined the real PathMatching.nl (expected full support).");
+        Assert.True(ok, "Columnar backend declined the extracted PathMatching.nl parity corpus.");
         Assert.Contains("CodeIntelligencePathCharsEqualIgnoreCase", methodNames!); // the char-subtraction case-fold.
 
         AssertColumnarProgramMatchesCSharp(source,
@@ -7915,13 +7911,11 @@ class B
             ("ParseFunctionSignatureInto", FuncG()));
     }
 
-    // MULTI-FILE COVERAGE (ratcheting): the feature-eligible dogfood files that form a CLOSED cross-file cluster
-    // all compile MERGED into one columnar program. The 20 single-file-compiling files PLUS the three that are
-    // eligible but cross-file-blocked single-file — ParserExpressions, ParserStatements, ParserFunctionSignatures
-    // (they call public functions in ParserTypeReferences / each other) — = 23 of 32 files (~72%) compile via
-    // multi-file merge with NO C# AST. The merge declines on ANY unresolved cross-file call, so its success
-    // proves the 23 are closed under their public calls. A regression breaking any file's multi-file
-    // compatibility fails here. Deep cross-file VALUE parity lives in ColumnarCodegen_MultiFile_RealParserCluster.
+    // MULTI-FILE COVERAGE (ratcheting): the feature-eligible shipped dogfood files that form a CLOSED cross-file
+    // cluster all compile MERGED into one columnar program. Parity-only rejected probes stay out of this product
+    // cluster and are covered by ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines instead. The
+    // merge declines on ANY unresolved cross-file call, so success proves the product kernels are closed under
+    // their public calls. Deep cross-file VALUE parity lives in ColumnarCodegen_MultiFile_RealParserCluster.
     [Fact]
     public void ColumnarCodegen_MultiFile_EligibleClusterCompiles()
     {
@@ -7931,10 +7925,10 @@ class B
             "AnalyzerExhaustiveness.nl", "AnonymousUnionShims.nl", "AotRequirements.nl", "BindingLookup.nl",
             "CliArguments.nl", "CliDocOrdering.nl", "CliQueryParsing.nl", "CliTreeDependencies.nl",
             "CompletionGrouping.nl", "CompletionReceivers.nl", "DiagnosticClusters.nl", "DiagnosticDeduplication.nl", "DocQuery.nl",
-            "ErrorSuggestions.nl", "FormatterImportOrdering.nl", "FormatterSafetyScan.nl", "IdentifierSpans.nl",
+            "FormatterImportOrdering.nl", "IdentifierSpans.nl",
             "LexerTokenKindScanner.nl", "LinterImports.nl", "OverloadCandidates.nl", "ParserDeclarations.nl",
             "ParserExpressions.nl", "ParserFunctionSignatures.nl", "ParserStatements.nl", "ParserTypeReferences.nl",
-            "PathMatching.nl", "ProjectSourceFilter.nl", "SemanticScopes.nl", "SourceTextLines.nl", "StructCopyAnalysis.nl",
+            "ProjectSourceFilter.nl", "SemanticScopes.nl", "SourceTextLines.nl", "StructCopyAnalysis.nl",
             "TextEditOrdering.nl", "TypeLookup.nl",
         };
         var sources = cluster.Select(n => File.ReadAllText(Path.Combine(dir, n))).ToArray();
@@ -7986,12 +7980,29 @@ class B
         Assert.True(missing.Length == 0, $"checksum functions missing from the merged emit: {string.Join(", ", missing)}");
     }
 
-    // CORPUS COVERAGE (ratcheting): how many REAL dogfood compiler-service files, plus their extracted
-    // parity-corpus twins when present, the standalone columnar backend can compile end-to-end with no C# AST.
+    // Boundary pin: rejected probes with product stubs must not expose shipped product functions. Their extracted
+    // parity-corpus twins are intentionally covered by the parity-corpus tests below, not by product coverage.
+    [Fact]
+    public void ColumnarCodegen_ParityOnlyStubs_DoNotCountAsProductCoverage()
+    {
+        foreach (var name in new[] { "ErrorSuggestions.nl", "FormatterSafetyScan.nl", "PathMatching.nl" })
+        {
+            var source = ReadDogfoodProductFile(name);
+            var parsed = new Parser(new Lexer(source, name).Tokenize(), name, source).ParseCompilationUnit();
+            Assert.NotNull(parsed.CompilationUnit);
+            Assert.Empty(parsed.CompilationUnit!.Declarations.OfType<FunctionDeclaration>());
+
+            var (ok, _, _, methodNames) = RouteColumnarProgram(source);
+            Assert.False(ok && methodNames is { Length: > 0 }, $"{name} must not expose product dogfood functions.");
+        }
+    }
+
+    // PRODUCT CORPUS COVERAGE (ratcheting): how many shipped dogfood compiler-service files, excluding extracted
+    // parity-only twins, the standalone columnar backend can compile end-to-end with no C# AST.
     // Each named file below must compile (a regression that breaks one fails here), each emitting a loadable
     // assembly with at least one function. The total compiling count is asserted >= the named floor, so future
-    // features only RAISE coverage. As more files compile, add them to the list. (Deep per-function parity lives in
-    // ColumnarCodegen_CompilesRealDogfoodFile_FormatterSafetyScan; this test proves COMPILATION breadth.)
+    // features only RAISE coverage. As more files compile, add them to the list. Extracted parity probes are
+    // checked separately by the parity-corpus tests so they cannot inflate shipped product coverage.
     [Fact]
     public void ColumnarCodegen_CompilesRealDogfoodCorpus_Coverage()
     {
@@ -8001,16 +8012,16 @@ class B
             "AnalyzerExhaustiveness.nl", "AnonymousUnionShims.nl", "AotRequirements.nl", "BindingLookup.nl",
             "CliArguments.nl", "CliDocOrdering.nl", "CliQueryParsing.nl", "CliTreeDependencies.nl",
             "CompletionGrouping.nl", "CompletionReceivers.nl", "DiagnosticClusters.nl", "DiagnosticDeduplication.nl", "DocQuery.nl",
-            "ErrorSuggestions.nl", "FormatterImportOrdering.nl", "FormatterSafetyScan.nl", "IdentifierSpans.nl",
+            "FormatterImportOrdering.nl", "IdentifierSpans.nl",
             "LexerTokenKindScanner.nl", "LinterImports.nl", "OverloadCandidates.nl", "ParserDeclarations.nl",
-            "ParserTypeReferences.nl", "PathMatching.nl", "ProjectSourceFilter.nl", "SemanticScopes.nl", "SourceTextLines.nl",
+            "ParserTypeReferences.nl", "ProjectSourceFilter.nl", "SemanticScopes.nl", "SourceTextLines.nl",
             "StructCopyAnalysis.nl", "TextEditOrdering.nl", "TypeLookup.nl",
         };
         var dir = Path.Combine(FindRepoRoot(), "src", "NSharpLang.Compiler.Dogfood", "CompilerServices");
 
         foreach (var name in expectedCompiling)
         {
-            var (ok, assembly, _, methodNames) = RouteColumnarProgram(ReadDogfoodFileWithParityCorpus(name));
+            var (ok, assembly, _, methodNames) = RouteColumnarProgram(ReadDogfoodProductFile(name));
             Assert.True(ok, $"Expected the columnar backend to compile dogfood file {name}, but it declined.");
             Assert.NotEmpty(methodNames!);
             using var loadScope = CollectibleAssemblyScope.Load(assembly!); // the emitted IL is a loadable assembly.
@@ -8018,7 +8029,11 @@ class B
         }
 
         var totalCompiling = Directory.EnumerateFiles(dir, "*.nl")
-            .Count(f => RouteColumnarProgram(ReadDogfoodFileWithParityCorpus(Path.GetFileName(f))).Ok);
+            .Count(f =>
+            {
+                var (ok, _, _, methodNames) = RouteColumnarProgram(ReadDogfoodProductFile(Path.GetFileName(f)));
+                return ok && methodNames is { Length: > 0 };
+            });
         Assert.True(totalCompiling >= expectedCompiling.Length,
             $"Corpus coverage regressed: {totalCompiling} files compile, expected >= {expectedCompiling.Length}.");
     }
@@ -20098,13 +20113,19 @@ func main() {
         return new MultiFileCompiler(files, projectRoot, config);
     }
 
-    // Arc M1: a real dogfood file's source with its parity-corpus twin CONCATENATED back — the
+    private static string ReadDogfoodProductFile(string fileName)
+    {
+        var repoRoot = FindRepoRoot();
+        return File.ReadAllText(Path.Combine(repoRoot, "src", "NSharpLang.Compiler.Dogfood", "CompilerServices", fileName));
+    }
+
+    // Arc M1: a dogfood product file's source with its parity-corpus twin CONCATENATED back — the
     // corpus checksum functions delegate to sibling kernels in the product file, so the merged
     // text is one self-contained program exactly like the pre-extraction file.
     private static string ReadDogfoodFileWithParityCorpus(string fileName)
     {
         var repoRoot = FindRepoRoot();
-        var source = File.ReadAllText(Path.Combine(repoRoot, "src", "NSharpLang.Compiler.Dogfood", "CompilerServices", fileName));
+        var source = ReadDogfoodProductFile(fileName);
         var corpusPath = Path.Combine(repoRoot, "src", "NSharpLang.Compiler.Dogfood.ParityCorpus", fileName);
         return File.Exists(corpusPath)
             ? MergeDogfoodSourceWithParityCorpus(source, File.ReadAllText(corpusPath))
