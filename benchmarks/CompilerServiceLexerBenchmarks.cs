@@ -932,7 +932,8 @@ internal static class DogfoodCompilerSources
     public static string CodeIntelligenceTextEditOrdering => ReadResource(TextEditOrderingResourceName);
     public static string FormatterImportOrdering => ReadResource(FormatterImportOrderingResourceName);
     public static string CodeIntelligenceBindingLookup => ReadResource(BindingLookupResourceName);
-    public static string CodeIntelligenceSemanticScopes => ReadResource(SemanticScopesResourceName);
+    public static string CodeIntelligenceSemanticScopes =>
+        ReadParityResource("SemanticScopesCore.nl") + Environment.NewLine + ReadResource(SemanticScopesResourceName);
     public static string CodeIntelligenceCompletionReceivers => ReadResource(CompletionReceiversResourceName);
     public static string CodeIntelligenceCompletionGrouping => ReadResource(CompletionGroupingResourceName);
     public static string CodeIntelligencePathMatching => ReadResource(PathMatchingResourceName);
@@ -957,19 +958,35 @@ internal static class DogfoodCompilerSources
         // files into src/NSharpLang.Compiler.Dogfood.ParityCorpus (embedded under the
         // NSharpLang.Benchmarks.ParityCorpus.* logical names). They delegate to sibling kernels in
         // the product file, so each file's source is the PRODUCT text plus its corpus twin — the
-        // exact pre-extraction compilation unit the recorded benchmark numbers were taken on.
-        var text = ReadResourceCore(resourceName)
-            ?? throw new InvalidOperationException($"Missing embedded N# dogfood source '{resourceName}'.");
+        // exact pre-extraction compilation unit the recorded benchmark numbers were taken on. Some
+        // rejected probes now live only in the parity corpus; those resolve directly to the corpus
+        // resource without requiring a stale product resource entry.
+        var text = ReadResourceCore(resourceName);
         const string dogfoodPrefix = "NSharpLang.Benchmarks.Dogfood.CompilerServices.";
         if (resourceName.StartsWith(dogfoodPrefix, StringComparison.Ordinal))
         {
             var corpus = ReadResourceCore("NSharpLang.Benchmarks.ParityCorpus." + resourceName.Substring(dogfoodPrefix.Length));
+            if (text == null)
+            {
+                return corpus
+                    ?? throw new InvalidOperationException($"Missing embedded N# dogfood source '{resourceName}'.");
+            }
+
             if (corpus != null)
             {
                 return text + Environment.NewLine + corpus;
             }
         }
-        return text;
+
+        return text
+            ?? throw new InvalidOperationException($"Missing embedded N# dogfood source '{resourceName}'.");
+    }
+
+    private static string ReadParityResource(string fileName)
+    {
+        var resourceName = "NSharpLang.Benchmarks.ParityCorpus." + fileName;
+        return ReadResourceCore(resourceName)
+            ?? throw new InvalidOperationException($"Missing embedded N# parity source '{resourceName}'.");
     }
 
     private static string? ReadResourceCore(string resourceName)

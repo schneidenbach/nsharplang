@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — Benchmark resources stop requiring rejected product probes
+
+Benchmark source loading no longer embeds stale product-path resources for rejected parity-only
+probes. `SourceTextLines`, `FormatterSafetyScan`, `PathMatching`, `ErrorSuggestions`, `LinterImports`,
+and the `SemanticScopes` wrapper now resolve from `NSharpLang.Compiler.Dogfood.ParityCorpus` when no
+product dogfood file exists, while real product files still concatenate their parity twin when one is
+present. `SemanticScopesCore.nl` is composed explicitly with the parity wrapper so the benchmark source
+stays complete without reintroducing a shipped product resource.
+
 ## 2026-06-14 — SoA target-typed new still requires capacity
 
 Target-typed `new()` is now pinned as an analyzer error for SoA table wrappers in typed locals,
