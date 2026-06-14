@@ -71,7 +71,7 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
         with an else where both branches exit; Break/Continue/ExprStmt/VarDecl/While non-exiting). The kernel
         refuses throw/switch/try/wrapper forms, so the subset is faithful by construction; omitted return type =
         void (matches `Analyzer.cs:621`). Async/generator functions carry the `isAsyncUnitTask`/`isIterator`
-        exemptions (BCL task-type knowledge the pass can't model) → the adapter DECLINES those sources to the C#
+        exemptions (BCL task-type knowledge the pass can't model) → the parity harness DECLINES those sources to the C#
         analyzer (corpus has none, so zero coverage loss). Parity-tested vs a C#-AST mirror + exact expected
         diagnostics on 7 hand-built cases, and on the 29-file shipped product corpus (mirror parity + ZERO
         false-positive NL305 on valid self-host source). Adversarially verified (the review caught the async
@@ -81,13 +81,13 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
         following statement is reported unreachable (once, then the list is skipped), recursing into nested
         blocks / if-branches / while-bodies exactly as `AnalyzeStatement` does. Reported position is the
         statement's `line:col`, resolved from the tokenizer's own per-token line/col (a byte-offset→position map
-        in the adapter) — empirically equal to the AST `Statement.Line/Column` (the exact-parity test would fail
+        in the parity harness) — empirically equal to the AST `Statement.Line/Column` (the exact-parity test would fail
         otherwise). Parity vs a C#-AST mirror on 6 hand-built cases (incl. only-first-reported, nested, and the
         unreachable-before-missing-return ordering) + zero unreachable on the 29-file shipped product corpus. Adversarially
         verified (clean — no divergence).
       - [x] **3b-iii unused-local (NL001)** — `ColumnarDiagnosticsPass.CollectUnusedLocals` walks the body in
         SOURCE ORDER, faithful to the Linter's time-/scope-ordered NL001 (a first naive "global" attempt was
-        reverted — see `fe61aa51`). The adapter processes functions in source order sharing one `usedNames` set
+        reverted — see `fe61aa51`). The parity harness processes functions in source order sharing one `usedNames` set
         that accumulates every identifier use (the file-level `_usedVariables` analog), seeded with each
         function's params and NEVER cleared between functions; each Block's `:=` locals are checked at the
         Block's exit against `usedNames` AS OF THEN — so a use after the block closes (later sibling block / later

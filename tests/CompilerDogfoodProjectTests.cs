@@ -1509,13 +1509,8 @@ class B
 
     private static (bool Ok, List<List<string>>? Types) RouteFunctionTypes(string source)
     {
-        var adapterType = typeof(Parser).Assembly.GetType("NSharpLang.Compiler.NSharpCompilerDogfoodAdapter")
-            ?? throw new InvalidOperationException("Compiler dogfood adapter type was not emitted.");
-        var method = adapterType.GetMethod("TryInferTopLevelFunctionTypes", BindingFlags.Static | BindingFlags.NonPublic)
-            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryInferTopLevelFunctionTypes.");
-        var args = new object?[] { source, null };
-        var ok = (bool)(method.Invoke(null, args) ?? false);
-        return (ok, (List<List<string>>?)args[1]);
+        var ok = ColumnarDogfoodParityProbe.TryInferTopLevelFunctionTypes(source, out var types);
+        return (ok, types);
     }
 
     // The C# AST mirror of ColumnarTypeInferer -- the EXACT same inference (via the shared ColumnarTypeLattice)
@@ -1856,13 +1851,8 @@ class B
 
     private static (bool Ok, List<List<string>>? Diags) RouteFunctionDiagnostics(string source)
     {
-        var adapterType = typeof(Parser).Assembly.GetType("NSharpLang.Compiler.NSharpCompilerDogfoodAdapter")
-            ?? throw new InvalidOperationException("Compiler dogfood adapter type was not emitted.");
-        var method = adapterType.GetMethod("TryCollectTopLevelFunctionDiagnostics", BindingFlags.Static | BindingFlags.NonPublic)
-            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryCollectTopLevelFunctionDiagnostics.");
-        var args = new object?[] { source, null };
-        var ok = (bool)(method.Invoke(null, args) ?? false);
-        return (ok, (List<List<string>>?)args[1]);
+        var ok = ColumnarDogfoodParityProbe.TryCollectTopLevelFunctionDiagnostics(source, out var diags);
+        return (ok, diags);
     }
 
     // The production pipeline's verdict for a single-file program: analyzer diagnostics by DiagnosticId.
@@ -2113,13 +2103,8 @@ class B
 
     private static (bool Ok, List<List<string>>? Unused) RouteUnusedLocals(string source)
     {
-        var adapterType = typeof(Parser).Assembly.GetType("NSharpLang.Compiler.NSharpCompilerDogfoodAdapter")
-            ?? throw new InvalidOperationException("Compiler dogfood adapter type was not emitted.");
-        var method = adapterType.GetMethod("TryCollectUnusedLocals", BindingFlags.Static | BindingFlags.NonPublic)
-            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryCollectUnusedLocals.");
-        var args = new object?[] { source, null };
-        var ok = (bool)(method.Invoke(null, args) ?? false);
-        return (ok, (List<List<string>>?)args[1]);
+        var ok = ColumnarDogfoodParityProbe.TryCollectUnusedLocals(source, out var unused);
+        return (ok, unused);
     }
 
     // C# AST mirror of TryCollectUnusedLocals — the SAME time-/scope-ordered walk on the object-graph AST:
@@ -8650,13 +8635,8 @@ class B
 
     private static (bool Ok, List<List<ColumnarNameRef>>? Refs) RouteFunctionNameRefs(string source)
     {
-        var adapterType = typeof(Parser).Assembly.GetType("NSharpLang.Compiler.NSharpCompilerDogfoodAdapter")
-            ?? throw new InvalidOperationException("Compiler dogfood adapter type was not emitted.");
-        var method = adapterType.GetMethod("TryResolveTopLevelFunctionNames", BindingFlags.Static | BindingFlags.NonPublic)
-            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryResolveTopLevelFunctionNames.");
-        var args = new object?[] { source, null };
-        var ok = (bool)(method.Invoke(null, args) ?? false);
-        return (ok, (List<List<ColumnarNameRef>>?)args[1]);
+        var ok = ColumnarDogfoodParityProbe.TryResolveTopLevelFunctionNames(source, out var refs);
+        return (ok, refs);
     }
 
     private static List<List<string>> ColumnarRefStrings(List<List<ColumnarNameRef>> perFunction)
@@ -8739,13 +8719,8 @@ class B
 
     private static (bool Ok, List<ColumnarFunctionSymbol>? Symbols) RouteFunctionSymbols(string source)
     {
-        var adapterType = typeof(Parser).Assembly.GetType("NSharpLang.Compiler.NSharpCompilerDogfoodAdapter")
-            ?? throw new InvalidOperationException("Compiler dogfood adapter type was not emitted.");
-        var method = adapterType.GetMethod("TryBuildTopLevelFunctionSymbols", BindingFlags.Static | BindingFlags.NonPublic)
-            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryBuildTopLevelFunctionSymbols.");
-        var args = new object?[] { source, null };
-        var ok = (bool)(method.Invoke(null, args) ?? false);
-        return (ok, (List<ColumnarFunctionSymbol>?)args[1]);
+        var ok = ColumnarDogfoodParityProbe.TryBuildTopLevelFunctionSymbols(source, out var symbols);
+        return (ok, symbols);
     }
 
     private static List<string> CSharpFunctionSignatures(string source, string filePath)

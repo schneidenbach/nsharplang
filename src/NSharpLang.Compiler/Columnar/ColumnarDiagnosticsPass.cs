@@ -7,7 +7,7 @@ namespace NSharpLang.Compiler.Columnar;
 /// computed DIRECTLY over the columnar statement tables — no C# AST. These are the analyzer's
 /// control-flow-shaped checks that need no type information: definite-return (NL305, "not all code paths
 /// return a value"), unreachable-after-terminal (NL312), and unused-local (NL001, via
-/// <see cref="CollectUnusedLocals"/> walked in source order with the adapter's cross-function name set).
+/// <see cref="CollectUnusedLocals"/> walked in source order with the caller's cross-function name set).
 ///
 /// This walks the SAME node tables Stage 3 (<see cref="ColumnarTypeInferer"/>) walks, over the statement node
 /// kinds the parser kernel emits: 20 Return, 21 Break, 22 Continue, 23 ExpressionStatement,

@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — Stage 1-3b parity probes leave the compiler dogfood adapter
+
+The declared-symbol, name-resolution, type-inference, definite-return/unreachable, and unused-local
+columnar parity probes no longer live as private methods on `NSharpCompilerDogfoodAdapter`. The
+focused tests now own a test-only `ColumnarDogfoodParityProbe` that loads the dogfood parser kernels
+directly, preserving the same C#-AST mirror coverage while removing another non-product surface from
+the compiler adapter. The production adapter keeps the default-on columnar emit route and live
+compiler-service kernels only.
+
 ## 2026-06-14 — SoA default row-column stores have IL-shape proof
 
 The SoA IL-shape evidence now covers `nodes[row].column = default` for both scalar and nullable
