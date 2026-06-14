@@ -11,6 +11,12 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA row-column compound assignment has IL-shape proof
+
+The SoA IL-shape evidence now pins accepted compound assignment on row columns (`nodes[row].column +=`
+and `*=`). The lowering reads and stores through the backing column arrays, preserves runtime semantics,
+and stays free of row objects, boxing, array allocation, delegate construction, and virtual dispatch.
+
 ## 2026-06-14 — Stage 1-3b parity probes leave the compiler dogfood adapter
 
 The declared-symbol, name-resolution, type-inference, definite-return/unreachable, and unused-local

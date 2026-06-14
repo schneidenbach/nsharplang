@@ -309,6 +309,50 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void RowColumnCompoundAssignment_UsesColumnArrayLoadStore()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                kind: int
+            }
+
+            func adjust(nodes: NodeTable, row: int): int {
+                nodes[row].kind += 5
+                nodes[row].kind *= 2
+                return nodes[row].kind
+            }
+
+            func main(): int {
+                nodes := new NodeTable(1)
+                row := nodes.add()
+                nodes[row].kind = 8
+                return adjust(nodes, row)
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var adjust = ILShapeInspector.GetProgramMethod(assembly, "adjust");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(26, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoAllocationOrDispatch(adjust);
+            Assert.True(
+                ILShapeInspector.CountOpcode(adjust, OpCodes.Ldfld) >= 3,
+                "Row-column compound assignment should load column fields directly.");
+            Assert.True(
+                CountArrayElementLoads(adjust) >= 3,
+                "Row-column compound assignment should read current values and the returned value from the column array.");
+            Assert.Equal(2, CountArrayElementStores(adjust));
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void RowColumnIncrementDecrement_UsesColumnArrayLoadStore()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

@@ -149,6 +149,10 @@ rows. `copyRow` emits one element copy per column.
 Bulk transforms such as filtering, sorting, and compaction remain explicit kernels. `soa record` should
 not grow LINQ-like methods that obscure allocation or control flow.
 
+Row-column access supports direct reads, simple stores, default stores, null-coalescing assignment,
+compound assignment, and increment/decrement over the verified column element types. These accepted
+operations lower to the backing column arrays without row-object materialization.
+
 ## Diagnostics
 
 The compiler must produce direct diagnostics for common misuse:
