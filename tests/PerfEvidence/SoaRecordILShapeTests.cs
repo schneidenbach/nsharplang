@@ -187,6 +187,76 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void DirectColumnVerifiedTypeDefaultStores_DoNotReadOldElement()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                kind: int
+                flags: uint
+                start: long
+                active: bool
+                marker: char
+                name: string
+                optionalName: string?
+                count: int
+            }
+
+            func clearAll(nodes: NodeTable, row: int) {
+                nodes.kind[row] = default
+                nodes.flags[row] = default
+                nodes.start[row] = default
+                nodes.active[row] = default
+                nodes.marker[row] = default
+                nodes.name[row] = default
+                nodes.optionalName[row] = default
+                nodes.count[row] = default
+            }
+
+            func main(): int {
+                nodes := new NodeTable(1)
+                row := nodes.add()
+                nodes.kind[row] = 3
+                nodes.flags[row] = (uint)7
+                nodes.start[row] = 19L
+                nodes.active[row] = true
+                nodes.marker[row] = 'A'
+                nodes.name[row] = "name"
+                nodes.optionalName[row] = "optional"
+                nodes.count[row] = 11
+                clearAll(nodes, row)
+                total := nodes.kind[row]
+                total += (int)nodes.flags[row]
+                total += (int)nodes.start[row]
+                total += (nodes.active[row] ? 100 : 0)
+                total += (int)nodes.marker[row]
+                total += nodes.count[row]
+                total += (nodes.name[row] == null ? 1000 : 0)
+                total += (nodes.optionalName[row] == null ? 10000 : 0)
+                return total
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var clearAll = ILShapeInspector.GetProgramMethod(assembly, "clearAll");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(11000, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoAllocationOrDispatch(clearAll);
+            Assert.True(
+                ILShapeInspector.CountOpcode(clearAll, OpCodes.Ldfld) >= 8,
+                "Direct column default stores should load backing column fields directly.");
+            Assert.Equal(0, CountArrayElementLoads(clearAll));
+            Assert.Equal(8, CountArrayElementStores(clearAll));
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void DirectColumnAssignmentExpression_ReturnsAssignedValueWithoutRowAllocation()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
@@ -666,6 +736,75 @@ public class SoaRecordILShapeTests
             Assert.Equal(1, CountArrayElementLoads(readOptional));
             Assert.Equal(0, CountArrayElementStores(readName));
             Assert.Equal(0, CountArrayElementStores(readOptional));
+
+            return 0;
+        });
+    }
+
+    [Fact]
+    public void DirectColumnFromEndVerifiedTypeDefaultStores_DoNotReadOldElement()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                kind: int
+                flags: uint
+                start: long
+                active: bool
+                marker: char
+                name: string
+                optionalName: string?
+                count: int
+            }
+
+            func clearLast(nodes: NodeTable) {
+                nodes.kind[^1] = default
+                nodes.flags[^1] = default
+                nodes.start[^1] = default
+                nodes.active[^1] = default
+                nodes.marker[^1] = default
+                nodes.name[^1] = default
+                nodes.optionalName[^1] = default
+                nodes.count[^1] = default
+            }
+
+            func main(): int {
+                nodes := new NodeTable(2)
+                nodes.kind[^1] = 3
+                nodes.flags[^1] = (uint)7
+                nodes.start[^1] = 19L
+                nodes.active[^1] = true
+                nodes.marker[^1] = 'A'
+                nodes.name[^1] = "name"
+                nodes.optionalName[^1] = "optional"
+                nodes.count[^1] = 11
+                clearLast(nodes)
+                total := nodes.kind[^1]
+                total += (int)nodes.flags[^1]
+                total += (int)nodes.start[^1]
+                total += (nodes.active[^1] ? 100 : 0)
+                total += (int)nodes.marker[^1]
+                total += nodes.count[^1]
+                total += (nodes.name[^1] == null ? 1000 : 0)
+                total += (nodes.optionalName[^1] == null ? 10000 : 0)
+                return total
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var clearLast = ILShapeInspector.GetProgramMethod(assembly, "clearLast");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(11000, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoFromEndSliceAllocation(clearLast);
+            Assert.True(
+                ILShapeInspector.CountOpcode(clearLast, OpCodes.Ldfld) >= 8,
+                "Direct SoA from-end default stores should load backing column fields directly.");
+            Assert.Equal(0, CountArrayElementLoads(clearLast));
+            Assert.Equal(8, CountArrayElementStores(clearLast));
 
             return 0;
         });
