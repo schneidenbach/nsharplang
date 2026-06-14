@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — Build-option summary probe leaves product dogfood
+
+`CliBuildOptionSummaryInto`, its table core, and the private option-kind classifier now live in the
+parity corpus with `CliBuildOptionSummaryChecksumInto`. The shipped CLI path still uses the accepted
+`CliBuildFirstOperandIndexInto` route for build operands and keeps build option discovery in C#, so
+the old benchmark-only build-option summary probe no longer ships in the product dogfood assembly.
+
 ## 2026-06-14 — Positional-argument batch probe leaves product dogfood
 
 `CliPositionalArgIndicesInto` and its batch core moved from product `CliArguments.nl` to the parity

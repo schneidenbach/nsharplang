@@ -297,6 +297,206 @@ func CliTidyRemovalLineKeepChecksumInto(lines: string[], packageNames: string[],
     return checksum
 }
 
+func CliBuildOptionSummaryInto(args: string[], resultIndices: int[]): int {
+    arguments := new CliArgumentTable { Args: args }
+    results := new CliIndexResultTable { Indices: resultIndices }
+    return CliBuildOptionSummaryCore(ref arguments, ref results)
+}
+
+func CliBuildOptionSummaryCore(args: &CliArgumentTable, resultIndices: &CliIndexResultTable): int {
+    if resultIndices.Indices.Length < 9 {
+        return -1
+    }
+
+    resultIndices.Indices[0] = -1
+    resultIndices.Indices[1] = -1
+    resultIndices.Indices[2] = -1
+    resultIndices.Indices[3] = 0
+    resultIndices.Indices[4] = 0
+    resultIndices.Indices[5] = 0
+    resultIndices.Indices[6] = 0
+    resultIndices.Indices[7] = 0
+    resultIndices.Indices[8] = 0
+
+    outputLongIndex := -1
+    outputShortIndex := -1
+    i := 0
+    while i < args.Args.Length {
+        arg := args.Args[i]
+        if i == 0 && arg == "help" {
+            resultIndices.Indices[8] = 1
+        }
+
+        kind := CliBuildOptionSummaryKind(arg)
+        if kind == 1 {
+            if outputLongIndex < 0 && i + 1 < args.Args.Length {
+                outputLongIndex = i + 1
+            }
+        } else if kind == 2 {
+            if outputShortIndex < 0 && i + 1 < args.Args.Length {
+                outputShortIndex = i + 1
+            }
+        } else if kind == 3 {
+            if resultIndices.Indices[1] < 0 && i + 1 < args.Args.Length {
+                resultIndices.Indices[1] = i + 1
+            }
+        } else if kind == 4 {
+            if resultIndices.Indices[2] < 0 && i + 1 < args.Args.Length {
+                resultIndices.Indices[2] = i + 1
+            }
+        } else if kind == 5 {
+            resultIndices.Indices[3] = 1
+        } else if kind == 6 {
+            resultIndices.Indices[4] = 1
+        } else if kind == 7 {
+            resultIndices.Indices[5] = 1
+        } else if kind == 8 {
+            resultIndices.Indices[6] = 1
+        } else if kind == 9 {
+            resultIndices.Indices[7] = 1
+        } else if kind == 10 {
+            resultIndices.Indices[8] = 1
+        }
+
+        i = i + 1
+    }
+
+    if outputLongIndex >= 0 {
+        resultIndices.Indices[0] = outputLongIndex
+    } else {
+        resultIndices.Indices[0] = outputShortIndex
+    }
+
+    return 0
+}
+
+func CliBuildOptionSummaryKind(arg: string): int {
+    length := arg.Length
+    if length == 2 {
+        if arg[0] != '-' {
+            return 0
+        }
+
+        if arg[1] == 'o' {
+            return 2
+        }
+
+        if arg[1] == 'h' {
+            return 10
+        }
+
+        return 0
+    }
+
+    if length < 5 || arg[0] != '-' || arg[1] != '-' {
+        return 0
+    }
+
+    if length == 5 {
+        if arg[2] == 'a' && arg[3] == 'o' && arg[4] == 't' {
+            return 9
+        }
+
+        return 0
+    }
+
+    if length == 6 {
+        if arg[2] == 'h'
+            && arg[3] == 'e'
+            && arg[4] == 'l'
+            && arg[5] == 'p' {
+            return 10
+        }
+
+        return 0
+    }
+
+    if length == 8 {
+        if arg[2] == 'o'
+            && arg[3] == 'u'
+            && arg[4] == 't'
+            && arg[5] == 'p'
+            && arg[6] == 'u'
+            && arg[7] == 't' {
+            return 1
+        }
+
+        return 0
+    }
+
+    if length == 9 {
+        marker := arg[2]
+        if marker == 'b'
+            && arg[3] == 'a'
+            && arg[4] == 'c'
+            && arg[5] == 'k'
+            && arg[6] == 'e'
+            && arg[7] == 'n'
+            && arg[8] == 'd' {
+            return 3
+        }
+
+        if marker == 'p'
+            && arg[3] == 'r'
+            && arg[4] == 'o'
+            && arg[5] == 'j'
+            && arg[6] == 'e'
+            && arg[7] == 'c'
+            && arg[8] == 't' {
+            return 4
+        }
+
+        if marker == 'r'
+            && arg[3] == 'e'
+            && arg[4] == 'l'
+            && arg[5] == 'e'
+            && arg[6] == 'a'
+            && arg[7] == 's'
+            && arg[8] == 'e' {
+            return 5
+        }
+
+        if marker == 't'
+            && arg[3] == 'i'
+            && arg[4] == 'm'
+            && arg[5] == 'i'
+            && arg[6] == 'n'
+            && arg[7] == 'g'
+            && arg[8] == 's' {
+            return 7
+        }
+
+        if marker == 'v'
+            && arg[3] == 'e'
+            && arg[4] == 'r'
+            && arg[5] == 'b'
+            && arg[6] == 'o'
+            && arg[7] == 's'
+            && arg[8] == 'e' {
+            return 6
+        }
+
+        return 0
+    }
+
+    if length == 13
+        && arg[2] == 'p'
+        && arg[3] == 'e'
+        && arg[4] == 'r'
+        && arg[5] == 'f'
+        && arg[6] == '-'
+        && arg[7] == 'r'
+        && arg[8] == 'e'
+        && arg[9] == 'p'
+        && arg[10] == 'o'
+        && arg[11] == 'r'
+        && arg[12] == 't' {
+        return 8
+    }
+
+    return 0
+}
+
 func CliBuildOptionSummaryChecksumInto(args: string[], resultIndices: int[]): int {
     code := CliBuildOptionSummaryInto(args, resultIndices)
     if code < 0 {
