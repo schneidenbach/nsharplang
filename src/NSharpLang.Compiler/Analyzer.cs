@@ -4794,8 +4794,9 @@ public class Analyzer : IDisposable
     private TypeInfo AnalyzeAllocExpression(AllocExpression alloc)
     {
         var innerType = AnalyzeExpression(alloc.Expression);
-        if (ReportSoaRowEscapeIfNeeded(alloc.Expression, innerType, "allocated"))
+        if (innerType is SoaRowTypeInfo)
         {
+            ReportSoaRowHiddenAllocation(alloc.Expression);
             return BuiltInTypes.Unknown;
         }
 
@@ -6794,6 +6795,18 @@ public class Analyzer : IDisposable
         Error(
             ErrorCode.InvalidSyntax,
             $"SoA row views cannot be {action}; use the table and row index instead",
+            line,
+            column,
+            "Read or write a column with table[index].column in the same expression.",
+            length);
+    }
+
+    private void ReportSoaRowHiddenAllocation(Expression expression)
+    {
+        var (line, column, length) = GetExpressionDiagnosticSpan(expression);
+        Error(
+            ErrorCode.InvalidSyntax,
+            "this operation would allocate row objects; use column access instead",
             line,
             column,
             "Read or write a column with table[index].column in the same expression.",

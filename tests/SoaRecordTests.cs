@@ -1040,7 +1040,7 @@ public class SoaRecordTests : ILCompilerTestBase
             """);
 
         var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
-        Assert.Contains("SoA row views cannot be allocated", error.Message);
+        Assert.Contains("this operation would allocate row objects; use column access instead", error.Message);
         Assert.Contains("table[index].column", error.Suggestion);
     }
 

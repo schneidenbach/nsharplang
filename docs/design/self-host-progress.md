@@ -11,6 +11,12 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA row allocation requests report hidden allocation directly
+
+`alloc (table[index])` now reports the design-level hidden-allocation diagnostic instead of the
+generic row-escape wording. The analyzer points at the row access and tells the developer to use
+column access, preserving the no-row-object contract for experimental SoA tables.
+
 ## 2026-06-14 — Anonymous-union shim trusted wrapper leaves product dogfood
 
 `AnonymousUnionDeclaresPublicShimTrusted` no longer ships as a top-level dogfood export. The live
