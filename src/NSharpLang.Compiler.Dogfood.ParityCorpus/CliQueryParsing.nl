@@ -4,6 +4,32 @@
 // their product file — most delegate to sibling kernels that stay in the product). They are
 // NOT part of the shipped dogfood assembly.
 
+struct CliQueryPositionInputTable {
+    Positions: string[]
+}
+
+func CliQueryPositionsInto(
+    positions: string[],
+    resultLines: int[],
+    resultColumns: int[]): int {
+    input := new CliQueryPositionInputTable { Positions: positions }
+    results := new CliQueryPositionResultTable { Lines: resultLines, Columns: resultColumns }
+    return CliQueryPositionsCore(ref input, ref results)
+}
+
+func CliQueryPositionsCore(input: &CliQueryPositionInputTable, results: &CliQueryPositionResultTable): int {
+    count := CliQueryMinInt(input.Positions.Length, results.Lines.Length)
+    count = CliQueryMinInt(count, results.Columns.Length)
+
+    i := 0
+    while i < count {
+        CliTryParsePositionPartsCore(input.Positions[i], ref results, i, i)
+        i = i + 1
+    }
+
+    return count
+}
+
 func CliQueryPositionChecksumInto(
     positions: string[],
     resultLines: int[],

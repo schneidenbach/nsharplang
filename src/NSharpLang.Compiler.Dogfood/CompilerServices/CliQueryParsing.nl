@@ -1,10 +1,6 @@
 import System
 import System.Numerics
 
-struct CliQueryPositionInputTable {
-    Positions: string[]
-}
-
 struct CliQueryPositionResultTable {
     Lines: int[]
     Columns: int[]
@@ -27,28 +23,6 @@ struct CliBatchResultWordTable {
 
 struct CliQueryIntResultTable {
     Values: int[]
-}
-
-func CliQueryPositionsInto(
-    positions: string[],
-    resultLines: int[],
-    resultColumns: int[]): int {
-    input := new CliQueryPositionInputTable { Positions: positions }
-    results := new CliQueryPositionResultTable { Lines: resultLines, Columns: resultColumns }
-    return CliQueryPositionsCore(ref input, ref results)
-}
-
-func CliQueryPositionsCore(input: &CliQueryPositionInputTable, results: &CliQueryPositionResultTable): int {
-    count := CliQueryMinInt(input.Positions.Length, results.Lines.Length)
-    count = CliQueryMinInt(count, results.Columns.Length)
-
-    i := 0
-    while i < count {
-        CliTryParsePositionPartsCore(input.Positions[i], ref results, i, i)
-        i = i + 1
-    }
-
-    return count
 }
 
 func CliBatchDuplicateIdRanksInto(

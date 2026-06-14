@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — Query-position batch probe leaves product dogfood
+
+`CliQueryPositionsInto`, its batch core, and the private position input table moved to the parity
+corpus beside `CliQueryPositionChecksumInto`. Product dogfood still keeps the scalar
+`CliTryParsePositionInto` parser and shared result table/core for parity coverage, while the
+benchmark-only batch `nlc query --pos` pressure wrapper no longer ships in the product assembly.
+
 ## 2026-06-14 — Build-operand batch wrappers leave product dogfood
 
 `CliBuildOperandSummaryInto`, `CliBuildOperandIndicesInto`, and the batch index core moved to the
