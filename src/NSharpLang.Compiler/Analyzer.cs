@@ -8144,6 +8144,19 @@ public class Analyzer : IDisposable
         var argTypes = new List<TypeInfo>();
         if (calleeType is FunctionTypeInfo functionType && functionType.ParameterTypes != null)
         {
+            int[]? syntheticParameterIndexByArgument = null;
+            if (functionType.Declaration == null
+                && call.Arguments.Count == functionType.ParameterTypes.Count
+                && TryBindSyntheticFunctionArguments(
+                    functionType,
+                    functionType.SyntheticName ?? GetCallTargetName(call) ?? "function",
+                    call,
+                    out var boundSyntheticArguments,
+                    reportErrors: false))
+            {
+                syntheticParameterIndexByArgument = boundSyntheticArguments;
+            }
+
             // An EXTENSION method's receiver is supplied by the member access, not the argument list,
             // so pairing arguments with declared parameters skips the `this` parameter (mirrors the
             // paramStartIndex shift in the argument validation below). Without the shift a lambda
@@ -8152,8 +8165,11 @@ public class Analyzer : IDisposable
                 && IsReceiverStyleExtensionCall(decl, call) ? 1 : 0;
             for (int i = 0; i < call.Arguments.Count; i++)
             {
-                var expectedIndex = i + expectedParamOffset;
+                var expectedIndex = syntheticParameterIndexByArgument != null
+                    ? syntheticParameterIndexByArgument[i]
+                    : i + expectedParamOffset;
                 var expectedType = expectedIndex < functionType.ParameterTypes.Count
+                    && expectedIndex >= 0
                     ? functionType.ParameterTypes[expectedIndex]
                     : null;
                 argTypes.Add(AnalyzeExpressionWithExpectedType(call.Arguments[i].Value, expectedType));
@@ -8518,7 +8534,8 @@ public class Analyzer : IDisposable
         FunctionTypeInfo functionType,
         string functionName,
         CallExpression call,
-        out int[] parameterIndexByArgument)
+        out int[] parameterIndexByArgument,
+        bool reportErrors = true)
     {
         var expectedCount = functionType.ParameterTypes?.Count ?? 0;
         parameterIndexByArgument = Enumerable.Repeat(-1, call.Arguments.Count).ToArray();
@@ -8538,22 +8555,28 @@ public class Analyzer : IDisposable
                     : -1;
                 if (parameterIndex < 0 || parameterIndex >= expectedCount)
                 {
-                    ReportSyntheticArgumentBindingError(
-                        functionType,
-                        functionName,
-                        argument,
-                        $"'{functionName}' has no parameter named '{argumentName}'");
+                    if (reportErrors)
+                    {
+                        ReportSyntheticArgumentBindingError(
+                            functionType,
+                            functionName,
+                            argument,
+                            $"'{functionName}' has no parameter named '{argumentName}'");
+                    }
                     success = false;
                     continue;
                 }
 
                 if (boundArgumentIndexByParameter[parameterIndex] >= 0)
                 {
-                    ReportSyntheticArgumentBindingError(
-                        functionType,
-                        functionName,
-                        argument,
-                        $"'{functionName}' got multiple values for parameter '{argumentName}'");
+                    if (reportErrors)
+                    {
+                        ReportSyntheticArgumentBindingError(
+                            functionType,
+                            functionName,
+                            argument,
+                            $"'{functionName}' got multiple values for parameter '{argumentName}'");
+                    }
                     success = false;
                     continue;
                 }
@@ -8571,11 +8594,14 @@ public class Analyzer : IDisposable
 
             if (nextPositionalParameter >= expectedCount)
             {
-                ReportSyntheticArgumentBindingError(
-                    functionType,
-                    functionName,
-                    argument,
-                    $"'{functionName}' got more positional arguments than its signature accepts");
+                if (reportErrors)
+                {
+                    ReportSyntheticArgumentBindingError(
+                        functionType,
+                        functionName,
+                        argument,
+                        $"'{functionName}' got more positional arguments than its signature accepts");
+                }
                 success = false;
                 continue;
             }

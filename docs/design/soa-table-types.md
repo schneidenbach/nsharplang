@@ -65,7 +65,8 @@ nodes := NodeTable.wrap(kind, valueStart, valueLength, childStart, childCount, s
 and initializes `length = 0`. `wrap` creates a view over caller-provided arrays, verifies matching
 lengths/capacity, and performs no element copy. `wrap` exposes generated parameter names for each
 column plus `length`, so named calls such as `NodeTable.wrap(length: n, kind: kinds)` bind
-semantically; negative literal `length` values are rejected during analysis.
+semantically, including target-typed argument inference; negative literal `length` values are
+rejected during analysis.
 
 ## Lowering
 

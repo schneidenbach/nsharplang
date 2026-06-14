@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA named arguments drive expected-type inference
+
+Synthetic generated signatures now bind named arguments before argument expression analysis, not only
+during final validation. Reordered `Table.wrap` calls with target-typed `default` or `new()` column
+arguments now infer from the named column parameter instead of the raw argument position, keeping
+semantic-model facts aligned with the generated wrapper signature before IL lowering sees the call.
+
 ## 2026-06-14 — SoA wrap names and negative lengths validate before emission
 
 `Table.wrap` now participates in the same generated-signature validation as table operations:
