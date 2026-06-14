@@ -8001,6 +8001,22 @@ class B
         Assert.True(semanticParityOk, "SemanticScopes.nl parity corpus should still compile with the extracted wrappers.");
         Assert.Contains("SemanticScopeClearTouched", semanticParityMethods!);
         Assert.Contains("SemanticScopeIdStartsBefore", semanticParityMethods!);
+
+        var cliQueryProduct = ReadDogfoodProductFile("CliQueryParsing.nl");
+        var (cliQueryOk, _, _, cliQueryProductMethods) = RouteColumnarProgram(cliQueryProduct);
+        Assert.True(cliQueryOk, "CliQueryParsing.nl product source should still compile without query-position parity probes.");
+        Assert.Contains("CliBatchResultPackedSuccessCount", cliQueryProductMethods!);
+        Assert.DoesNotContain("CliTryParsePositionInto", cliQueryProductMethods!);
+        Assert.DoesNotContain("CliTryParsePositionPartsCore", cliQueryProductMethods!);
+        Assert.DoesNotContain("CliQueryIsWhiteSpace", cliQueryProductMethods!);
+        Assert.DoesNotContain("CliQueryMinInt", cliQueryProductMethods!);
+
+        var cliQueryWithParity = ReadDogfoodFileWithParityCorpus("CliQueryParsing.nl");
+        var (cliQueryParityOk, _, _, cliQueryParityMethods) = RouteColumnarProgram(cliQueryWithParity);
+        Assert.True(cliQueryParityOk, "CliQueryParsing.nl parity corpus should still compile with query-position probes.");
+        Assert.Contains("CliTryParsePositionInto", cliQueryParityMethods!);
+        Assert.Contains("CliQueryIsWhiteSpace", cliQueryParityMethods!);
+        Assert.Contains("CliQueryMinInt", cliQueryParityMethods!);
     }
 
     // PRODUCT CORPUS COVERAGE (ratcheting): how many shipped dogfood compiler-service files, excluding extracted

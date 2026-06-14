@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — Query-position parser leaves product dogfood
+
+The `CliQueryParsing.nl` query-position probe cluster now lives entirely in the parity corpus:
+`CliTryParsePositionInto`, the shared result/int tables, parser cores, whitespace helper, and min helper
+all moved beside `CliQueryPositionsInto` and `CliQueryPositionChecksumInto`. The shipped product file
+keeps the adapter-routed duplicate-rank and packed-result kernels, and coverage now pins the
+query-position names absent from product-only emission but present in product+parity emission.
+
 ## 2026-06-14 — Semantic-scope scalar wrappers leave product dogfood
 
 `SemanticScopes.nl` no longer emits the raw-array `SemanticScopeIdStartsBefore` and
@@ -204,10 +212,10 @@ message-pattern/id/next-command probes no longer ship in the product assembly.
 
 ## 2026-06-14 — Query-position batch probe leaves product dogfood
 
-`CliQueryPositionsInto`, its batch core, and the private position input table moved to the parity
-corpus beside `CliQueryPositionChecksumInto`. Product dogfood still keeps the scalar
-`CliTryParsePositionInto` parser and shared result table/core for parity coverage, while the
-benchmark-only batch `nlc query --pos` pressure wrapper no longer ships in the product assembly.
+`CliQueryPositionsInto`, its batch core, the private position input table, and later the scalar
+query-position parser cluster moved to the parity corpus beside `CliQueryPositionChecksumInto`.
+Product dogfood keeps only the adapter-routed duplicate-rank and packed-result query kernels, while
+the benchmark-only `nlc query --pos` pressure path no longer ships in the product assembly.
 
 ## 2026-06-14 — Build-operand batch wrappers leave product dogfood
 
@@ -4606,8 +4614,9 @@ the words. Parity-gated: `ColumnarCodegen_Parity_ULong` — every operator teste
 (> long.MaxValue) so a wrong SIGNED opcode would diverge (e.g. `0x8000…UL >> 1` logical 0x4000… not signed
 0xC000…; `0x8000…UL < 1UL` is FALSE unsigned but TRUE signed), plus `ulong.MaxValue` literal, `ulong[]` read,
 `~`, and the unary-minus / cast declines — and the milestone `ColumnarCodegen_CompilesRealDogfoodFile_CliQueryParsing`
-(the real file: `CliBatchResultPackedSuccessCount` over high-bit-set words, `CliBatchResultPopCount64`,
-`CliTryParsePositionInto`, `CliQueryIsWhiteSpace`). Adversarially reviewed (read-only, 2 lenses): every unsigned
+(the product file: `CliBatchResultPackedSuccessCount` over high-bit-set words and
+`CliBatchResultPopCount64`; the parity source now owns `CliTryParsePositionInto` and
+`CliQueryIsWhiteSpace`). Adversarially reviewed (read-only, 2 lenses): every unsigned
 opcode matches the C# ILCompiler with file:line evidence (15604/15618/15652…), the literal matches
 `EmitUnsignedIntegerLiteralMagnitude`, the tests are discriminating + non-vacuous, declines are safe. The one
 implementation difference (`Ldelem_I8` vs the C# generic `Ldelem` for `ulong[]`) is benign — same bit pattern,
