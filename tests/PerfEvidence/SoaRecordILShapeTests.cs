@@ -2733,6 +2733,59 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void StringColumnCompoundAssignment_UsesColumnArrayLoadStoreAndStringConcat()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                name: string
+            }
+
+            func update(nodes: NodeTable, row: int): int {
+                nodes[row].name = "a"
+                rowValue := nodes[row].name += "b"
+
+                nodes.name[row] = "c"
+                directValue := nodes.name[row] += "d"
+
+                nodes.name[^1] = "e"
+                fromEndValue := nodes.name[^1] += "f"
+
+                total := rowValue == "ab" ? 100 : 0
+                total += directValue == "cd" ? 10 : 0
+                total += fromEndValue == "ef" ? 1 : 0
+                return total
+            }
+
+            func main(): int {
+                nodes := new NodeTable(1)
+                row := nodes.add()
+                return update(nodes, row)
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var update = ILShapeInspector.GetProgramMethod(assembly, "update");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(111, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoFromEndSliceAllocation(update);
+            var fieldLoads = ILShapeInspector.CountOpcode(update, OpCodes.Ldfld);
+            Assert.True(
+                fieldLoads >= 6,
+                $"String SoA compound assignment should load backing column fields directly; saw {fieldLoads} field loads.");
+            Assert.Equal(3, CountArrayElementLoads(update));
+            Assert.Equal(6, CountArrayElementStores(update));
+            Assert.Equal(3, ILShapeInspector.CountCallsTo(update, typeof(string), nameof(string.Concat)));
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void EnumColumnUnaryBitwiseNot_UsesColumnArrayLoadStoreWithoutRowOrSliceAllocation()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

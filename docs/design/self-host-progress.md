@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA string compound assignment has IL-shape proof
+
+String SoA columns now have opcode evidence for concatenating `+=` expressions across row
+projection, direct column indexing, and direct from-end column indexing. The accepted compound stores
+read and write backing column arrays directly and call `string.Concat(string, string)`, with no row
+construction, slice allocation, boxing, delegate construction, or virtual dispatch.
+
 ## 2026-06-14 — SoA string decrement diagnostics stop before emission
 
 String SoA columns now have analyzer pins for rejected `--` update forms across row projection,
