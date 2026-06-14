@@ -11,6 +11,12 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA length/capacity mutation diagnostics are pinned
+
+Generated table metadata members now have a complete direct-mutation regression matrix. `length` and
+`capacity` reject simple assignment, compound assignment, and increment/decrement forms during
+analysis, keeping shape changes routed through `add`, `clear`, `ensureCapacity`, and `copyRow`.
+
 ## 2026-06-14 — SoA static negative indexes reject reads and writes
 
 Static negative row ids now have analyzer pins for the full row/direct-column read/write matrix.

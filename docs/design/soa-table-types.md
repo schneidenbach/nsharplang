@@ -193,7 +193,8 @@ unsupported `table.column[^1]` writes stop before IL lowering instead of falling
 backend.
 Replacing wrapper column arrays, mutating `length`/`capacity` directly, or mutating column slices is
 not allowed: shape changes must go through construction, `wrap`, `add`, `clear`, `ensureCapacity`, or
-`copyRow`.
+`copyRow`. Direct `length`/`capacity` simple assignment, compound assignment, and increment/decrement
+forms all reject during analysis.
 
 Direct column range reads (`table.column[start..end]`) are rejected because ordinary array slice
 semantics allocate a sliced array. They can be admitted only after an allocation-free span/view lowering
@@ -241,7 +242,8 @@ The compiler must produce direct diagnostics for common misuse:
 - non-int, `System.Index`, or range row indexes: "SoA table indexes must be int row ids";
 - statically negative row indexes on row/direct-column reads or writes:
   "SoA table row indexes must not be negative" or "SoA column row indexes must not be negative";
-- direct table member mutation: "SoA table member 'X' cannot be assigned directly";
+- direct table member mutation: "SoA table member 'X' cannot be assigned directly" for simple and
+  compound assignment, or "SoA table member 'X' cannot be incremented or decremented directly";
 - non-int direct column element indexes: "Array indexes must be int, System.Index, or System.Range";
 - direct column slice mutation: "Array slices cannot be assigned" or
   "Array slices cannot be incremented or decremented";

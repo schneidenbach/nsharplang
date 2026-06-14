@@ -3425,6 +3425,46 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaTableCapacityCannotBeAssignedDirectly()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable) {
+                nodes.capacity = 0
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("SoA table member 'capacity' cannot be assigned directly", error.Message);
+        Assert.Contains("add, clear, ensureCapacity, or copyRow", error.Suggestion);
+    }
+
+    [Fact]
+    public void Analyzer_SoaTableLengthCannotBeCompoundAssignedDirectly()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable) {
+                nodes.length += 1
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("SoA table member 'length' cannot be assigned directly", error.Message);
+        Assert.Contains("add, clear, ensureCapacity, or copyRow", error.Suggestion);
+    }
+
+    [Fact]
     public void Analyzer_SoaTableCapacityCannotBeCompoundAssignedDirectly()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
@@ -3461,6 +3501,66 @@ public class SoaRecordTests : ILCompilerTestBase
 
         var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
         Assert.Contains("SoA table member 'length' cannot be incremented or decremented directly", error.Message);
+        Assert.Contains("add, clear, ensureCapacity, or copyRow", error.Suggestion);
+    }
+
+    [Fact]
+    public void Analyzer_SoaTableLengthCannotBeDecrementedDirectly()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable) {
+                nodes.length--
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("SoA table member 'length' cannot be incremented or decremented directly", error.Message);
+        Assert.Contains("add, clear, ensureCapacity, or copyRow", error.Suggestion);
+    }
+
+    [Fact]
+    public void Analyzer_SoaTableCapacityCannotBeIncrementedDirectly()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable) {
+                nodes.capacity++
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("SoA table member 'capacity' cannot be incremented or decremented directly", error.Message);
+        Assert.Contains("add, clear, ensureCapacity, or copyRow", error.Suggestion);
+    }
+
+    [Fact]
+    public void Analyzer_SoaTableCapacityCannotBeDecrementedDirectly()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable) {
+                nodes.capacity--
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("SoA table member 'capacity' cannot be incremented or decremented directly", error.Message);
         Assert.Contains("add, clear, ensureCapacity, or copyRow", error.Suggestion);
     }
 
