@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA row verified type default stores avoid old reads
+
+Row-projection default stores now have mixed element-type opcode evidence. `table[row].column = default`
+over `int`, `uint`, `long`, `bool`, `char`, `string`, and `string?` columns writes backing arrays
+without reading old elements, while still avoiding row construction, heap array allocation, boxing,
+delegate construction, and virtual dispatch.
+
 ## 2026-06-14 — Direct SoA verified type default stores avoid old reads
 
 Direct column default stores now have mixed element-type opcode evidence. Ordinary

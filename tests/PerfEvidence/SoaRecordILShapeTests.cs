@@ -1219,6 +1219,76 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void RowColumnVerifiedTypeDefaultStores_DoNotReadOldElement()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                kind: int
+                flags: uint
+                start: long
+                active: bool
+                marker: char
+                name: string
+                optionalName: string?
+                count: int
+            }
+
+            func clearAll(nodes: NodeTable, row: int) {
+                nodes[row].kind = default
+                nodes[row].flags = default
+                nodes[row].start = default
+                nodes[row].active = default
+                nodes[row].marker = default
+                nodes[row].name = default
+                nodes[row].optionalName = default
+                nodes[row].count = default
+            }
+
+            func main(): int {
+                nodes := new NodeTable(1)
+                row := nodes.add()
+                nodes[row].kind = 3
+                nodes[row].flags = (uint)7
+                nodes[row].start = 19L
+                nodes[row].active = true
+                nodes[row].marker = 'A'
+                nodes[row].name = "name"
+                nodes[row].optionalName = "optional"
+                nodes[row].count = 11
+                clearAll(nodes, row)
+                total := nodes[row].kind
+                total += (int)nodes[row].flags
+                total += (int)nodes[row].start
+                total += (nodes[row].active ? 100 : 0)
+                total += (int)nodes[row].marker
+                total += nodes[row].count
+                total += (nodes[row].name == null ? 1000 : 0)
+                total += (nodes[row].optionalName == null ? 10000 : 0)
+                return total
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var clearAll = ILShapeInspector.GetProgramMethod(assembly, "clearAll");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(11000, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoAllocationOrDispatch(clearAll);
+            Assert.True(
+                ILShapeInspector.CountOpcode(clearAll, OpCodes.Ldfld) >= 8,
+                "Row-column default stores should load backing column fields directly.");
+            Assert.Equal(0, CountArrayElementLoads(clearAll));
+            Assert.Equal(8, CountArrayElementStores(clearAll));
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void RowColumnCompoundAssignment_UsesColumnArrayLoadStore()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

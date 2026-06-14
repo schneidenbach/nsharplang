@@ -289,14 +289,15 @@ The flag is for compiler table-migration gates only. Production builds without t
 
 IL-shape tests pin the current wrapper proof: row projection over an existing table emits direct
 column field loads and array element loads/stores with no row allocation, boxing, delegate
-construction, heap array allocation, or virtual dispatch; explicit direct column element operations
-(`table.column[row]`) have the same column-array proof for stores, expression-valued stores, default
-stores across the verified scalar/reference element-type set without old-element reads, compound
-stores, prefix/postfix increments, reads across the verified scalar/reference element-type set,
-direct column null-coalescing
-reads/assignments, and from-end `System.Index` access including expression-valued simple stores,
-default stores across the verified scalar/reference element-type set without old-element reads,
-verified scalar/reference element reads/stores, and null-coalescing reads/assignments.
+construction, heap array allocation, or virtual dispatch, including default stores across the
+verified scalar/reference element-type set without old-element reads; explicit direct column element
+operations (`table.column[row]`) have the same column-array proof for stores, expression-valued
+stores, default stores across the verified scalar/reference element-type set without old-element
+reads, compound stores, prefix/postfix increments, reads across the verified scalar/reference
+element-type set, direct column null-coalescing reads/assignments, and from-end `System.Index` access
+including expression-valued simple stores, default stores across the verified scalar/reference
+element-type set without old-element reads, verified scalar/reference element reads/stores, and
+null-coalescing reads/assignments.
 Row-projection null-coalescing
 reads/assignments have the same direct column proof, with range/slice allocation still rejected during
 analysis. The
