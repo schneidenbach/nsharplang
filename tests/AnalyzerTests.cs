@@ -10785,4 +10785,17 @@ func f(): StringBuilder {
     return new StringBuilder { Capcity: 10 }
 }", ErrorCode.UndefinedMember);
     }
+
+    [Fact]
+    public void Nameof_UnsupportedTarget_ReportsAnalyzerDiagnostic()
+    {
+        var error = AssertHasErrorCode("""
+func f(): string {
+    return nameof(1 + 2)
+}
+""", ErrorCode.InvalidSyntax);
+
+        Assert.Contains("nameof can only name an identifier or member access", error.Message);
+        Assert.Contains("nameof(value)", error.Suggestion ?? string.Empty);
+    }
 }

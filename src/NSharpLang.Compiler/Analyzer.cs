@@ -11927,8 +11927,27 @@ public class Analyzer : IDisposable
 
     private TypeInfo AnalyzeNameofExpression(NameofExpression nameofExpr)
     {
-        // Analyze the target expression to ensure it's valid
-        AnalyzeExpression(nameofExpr.Target);
+        // Analyze the target expression to ensure it's valid, then keep the analyzer
+        // contract aligned with the IL backend: nameof lowers to a string literal for
+        // identifiers and member accesses only.
+        var targetType = AnalyzeExpression(nameofExpr.Target);
+        if (ReportSoaRowEscapeIfNeeded(nameofExpr.Target, targetType, "used as a nameof target"))
+        {
+            return BuiltInTypes.String;
+        }
+
+        if (nameofExpr.Target is not (IdentifierExpression or MemberAccessExpression))
+        {
+            var (line, column, length) = GetExpressionDiagnosticSpan(nameofExpr.Target);
+            Error(
+                ErrorCode.InvalidSyntax,
+                "nameof can only name an identifier or member access",
+                line,
+                column,
+                "Use nameof(value) or nameof(value.Member).",
+                length);
+        }
+
         // nameof always returns string
         return BuiltInTypes.String;
     }

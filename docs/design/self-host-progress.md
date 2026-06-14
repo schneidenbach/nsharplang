@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — Nameof targets are checked before emission
+
+The analyzer now enforces the same `nameof` target shape the direct IL backend can emit: identifiers and
+member accesses only. Unsupported targets report `NL103` during analysis instead of reaching
+`EmitNameofExpression`, and SoA row-view targets get the row-specific diagnostic with the standard
+`table[index].column` guidance. This closes another backend-crash path in the experimental SoA row-view
+escape surface.
+
 ## 2026-06-14 — SoA wrap validation reports null and length failures directly
 
 The generated experimental `Table.wrap(columns..., length)` method now separates all validation
