@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — Roadmap cursor syncs to route-all and SoA-stage reality
+
+`roadmap-to-done.md` now reflects the imported endgame state instead of the older Stage-5/6 snapshot:
+route-all/default-on has landed, the Phase-P columnar ports and IF-2 residuals are complete, and Stage 6 is
+now a C# surface-shrink plus SoA/emitter-port proof phase rather than a rich-language coverage wait. The
+stale multi-file route comment in `NSharpCompilerDogfoodAdapter` now describes the current default-on
+Stage-5 route instead of "remaining work".
+
+This is documentation/comment-only, but it is an execution fix: future self-host slices should start from
+SoA wrapper evidence or redundant adapter-surface deletion, not from the completed scalar/route-all queue.
+
 ## 2026-06-13 — Binding lookup drops unused flattened helper exports
 
 `BindingLookup.nl` no longer emits declaration-only flattened wrappers for strict lookup equality,

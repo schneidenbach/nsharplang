@@ -188,7 +188,7 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       plus a redundant second parse (the columnar kernels parse source; `ILCompiler` has no source access), so
       it was rejected. Flagged off; the C# pipeline stays default until parity + never-slower are proven
       end-to-end. See memory `project_routing_standalone_columnar_pipeline`.
-- [~] **Stage 5 — end-to-end route.** Compile the dogfood corpus through the standalone columnar pipeline with no
+- [x] **Stage 5 — end-to-end route.** Compile the dogfood corpus through the standalone columnar pipeline with no
       internal materialization; behind a flag, then default-on once never-slower + parity proven end-to-end.
       **FIRST REAL FILE COMPILES (2026-06-08):** `FormatterSafetyScan.nl` (the actual dogfood compiler-service
       file) is compiled end-to-end by the columnar backend with NO C# AST, all 3 functions parity-matched to the
@@ -213,8 +213,7 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       (cross-file public calls, e.g. ParserFunctionSignatures→ParserTypeReferences); the backend merges files into
       one columnar program so cross-file calls resolve, parity-gated vs a genuine separate-file MultiFileCompiler
       oracle — the eligible cross-file cluster (ParserExpressions/ParserStatements/ParserFunctionSignatures + the
-      22 single-file files) compiles merged. Remaining for default-on: route multi-file into the Stage-5
-      production path (currently single-file) — the FULL corpus now compiles (DiagnosticClusters DONE 2026-06-08 via
+      22 single-file files) compiles merged. The FULL corpus now compiles (DiagnosticClusters DONE 2026-06-08 via
       Math.Abs + int.ToString(fmt) value-type instance call + string concat + String.Compare 3/6-arg + Trim +
       StringBuilder-as-param; SemanticScopes DONE 2026-06-08 via the implicit-void return type — the adapter
       canonicalizes returnRoot=-1 → "void"). PHASE A self-host coverage COMPLETE (32/32 via merge). Multi-file
@@ -225,13 +224,16 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       parse+analyze dominate the total. The default-on flip is now complete with the C# path retained as the
       `NSHARP_COLUMNAR_BACKEND=0` opt-out; remaining self-host work is columnar-owned analysis and the Stage 6
       C# surface shrink.
-- [ ] **Stage 6 — delete C#.** Remove the C# binder/analyzer/codegen paths the columnar pipeline replaces;
-      shrink/remove the `*DogfoodAdapter` bridges. Track C# LOC deleted. **BLOCKED on coverage:** the columnar
-      backend models ~41% of the systems dogfood subset and ~0% of the rich language (classes/generics/match/
-      async/LINQ — the examples + full suite still need the C# `ILCompiler`). Deleting it now breaks the
-      product; Stage 6 waits until the columnar pipeline covers everything the product compiles. The SoA
-      table-type design gate is complete in [`soa-table-types.md`](soa-table-types.md); implementation starts
-      with the non-generic `soa record` surface and keeps the current parallel-array ABI.
+- [~] **Stage 6 — delete C#.** Remove the C# binder/analyzer/codegen paths the columnar pipeline replaces;
+      shrink/remove the `*DogfoodAdapter` bridges. Track C# LOC deleted. **Current cursor (2026-06-13):**
+      route-all/default-on has landed, including the Phase-P vectorization port and IF-2 residuals; the C#
+      backend remains as the explicit `NSHARP_COLUMNAR_BACKEND=0/false` fallback and as the parity oracle.
+      The active blocker is no longer rich-language route coverage. It is replacing transition-era C# surface
+      only where columnar ownership is complete, and proving the emitter-port table model before moving hot
+      compiler tables. The SoA table-type design gate is complete in [`soa-table-types.md`](soa-table-types.md);
+      non-generic `soa record` parsing/lowering and the cold overload-candidate fixture are in place behind
+      `NSHARP_EXPERIMENTAL_SOA=1`. Next slices should either shrink redundant adapter/C# transition surface
+      or migrate the next compiler table only when the wrapper ABI/lowering evidence is present.
 - [ ] **Coverage expansion** (pulled in as stages need them): class/struct/enum/record/interface/union decls
       + members; for/foreach/let/match/lambdas/generics/tuples/is-as/range/`new[size]`/`new{init}`. Each is a
       parser-kernel form added + parity-gated, then threaded through stages 1–4.
@@ -435,10 +437,10 @@ declines for type-param/member collisions, record user ctors — whose body assi
 a newly-pinned oracle defect — and static fields on generic types). NAMED TUPLES then landed in two
 halves (oracle `7e151c7c`: t.x threw at emit despite analyzer acceptance — per-variable name retention +
 ItemN rewriting; columnar: kernel kinds 7/43 name channels, name-erased canonicals, the same per-variable
-mapping; a pre-existing bare-tuple-typed-local over-accept fixed). **Next: SCALAR COMPLETENESS**
-(byte/sbyte/short/ushort/uint, decimal, widening, `+=`/`++`/`--`, ternary, casts — the
-`project_csharp_retirement_map` slice order), then Stage 6 (route-all → delete `ILCompiler/` +
-`Analyzer.cs`) and Phase T (CLI/LSP on columnar).
+mapping; a pre-existing bare-tuple-typed-local over-accept fixed). The scalar, strings, nullability,
+collections, async, interfaces, Phase-P columnar ports, and route-all/default-on rungs have since landed
+in the progress log. The active path is Stage 6 surface shrink plus SoA/emitter-port proof work before
+`ILCompiler/` and `Analyzer.cs` can be retired.
 
 The `systems-language-perf` worktree (P-minmax(c) + P3/P-ctrans) has been merged into `systems-language`
 (commit `d2a447f3`).

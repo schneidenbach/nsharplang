@@ -764,8 +764,8 @@ internal static class NSharpCompilerDogfoodAdapter
         return true;
     }
 
-    // MULTI-FILE entry (Stage-5 remaining work: the columnar backend was single-file only). The dogfood
-    // compiler-service is a MULTI-FILE program — a function in one file calls public functions in others (e.g.
+    // MULTI-FILE entry for the default-on Stage-5 route. The dogfood compiler-service is a MULTI-FILE
+    // program — a function in one file calls public functions in others (e.g.
     // ParserFunctionSignatures.ParseFunctionSignatureInto calls ParserTypeReferences.ParseUnionTypeReferenceNode).
     // A single-file emit cannot resolve such a cross-file call (the callee is not a sibling), so those files
     // decline even though every construct they use is modelled. This merges the files by concatenating their
