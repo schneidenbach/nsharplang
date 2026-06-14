@@ -5655,7 +5655,7 @@ public class Analyzer : IDisposable
             UnaryOperator.BitwiseNot => AnalyzeUnaryBitwiseNot(operandType, unary),
             UnaryOperator.PreIncrement or UnaryOperator.PreDecrement
                 or UnaryOperator.PostIncrement or UnaryOperator.PostDecrement => AnalyzeIncrementOrDecrement(operandType, unary),
-            UnaryOperator.IndexFromEnd => LookupType("System.Index") ?? BuiltInTypes.DeferredExternal,
+            UnaryOperator.IndexFromEnd => GetIndexType(),
             _ => BuiltInTypes.Unknown
         };
     }
@@ -6015,7 +6015,12 @@ public class Analyzer : IDisposable
     private void ReportInvalidSoaRowIndex(Expression expression, TypeInfo indexType, bool isRangeAccess)
     {
         var (line, column, length) = GetExpressionDiagnosticSpan(expression);
-        var indexDescription = isRangeAccess ? "a range" : $"'{indexType}'";
+        var resolvedIndexType = ResolveTypeAlias(indexType);
+        var indexDescription = isRangeAccess
+            ? "a range"
+            : IsIndexLikeType(resolvedIndexType)
+                ? "'System.Index'"
+                : $"'{indexType}'";
         Error(
             ErrorCode.TypeMismatch,
             $"SoA table indexes must be int row ids, but this index has type {indexDescription}",
@@ -6124,6 +6129,9 @@ public class Analyzer : IDisposable
 
     private TypeInfo GetRangeType()
         => LookupType("System.Range") ?? new ReflectionTypeInfo(typeof(Range));
+
+    private TypeInfo GetIndexType()
+        => LookupType("System.Index") ?? new ReflectionTypeInfo(typeof(Index));
 
     private TypeInfo GetNonNullableType(TypeInfo type)
         => ResolveTypeAlias(type) is NullableTypeInfo nullable ? nullable.InnerType : type;

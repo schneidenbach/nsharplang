@@ -2660,6 +2660,27 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaTableCannotUseFromEndRowIndex()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable): int {
+                return nodes[^1].kind
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains("SoA table indexes must be int row ids", error.Message);
+        Assert.Contains("System.Index", error.Message);
+        Assert.Contains("table[index].column", error.Suggestion);
+    }
+
+    [Fact]
     public void Analyzer_SoaTableRowIndexCannotBeNegativeLiteral()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

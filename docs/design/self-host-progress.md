@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA row projection rejects from-end indexes
+
+SoA table row projection now has a regression pin for `table[^1].column`. Direct column arrays can use
+`System.Index` because they index the backing array, but table row projections must stay on explicit
+`int` row ids; prefix `^` now resolves to `System.Index` during analysis, and from-end row lookup
+stops at the SoA row-index diagnostic before lowering.
+
 ## 2026-06-14 — Direct SoA column unsupported updates stop in analysis
 
 Direct column element mutation now has analyzer pins for the same unsupported value cases as row

@@ -125,6 +125,8 @@ checksum += nodes[i].valueStart
 
 The compiler rewrites those to column element operations. This means:
 
+- `nodes[^1].kind` declines; row projection indexes are explicit `int` row ids, while `System.Index`
+  from-end access is only valid on direct backing columns such as `nodes.kind[^1]`.
 - `row := nodes[i]` declines unless `row` is a stack-only ephemeral used in the same statement.
 - `return nodes[i]` declines.
 - `list.Add(nodes[i])` declines.
@@ -229,7 +231,7 @@ The compiler must produce direct diagnostics for common misuse:
 - unsupported row/direct column compound assignment: "The '+' operator doesn't work with 'X' and 'Y'";
 - non-integral row/direct column increment/decrement: "The '++' operator doesn't work with 'X'";
 - non-nullable row/direct column null coalescing: "The left side of '??' has type 'X', which can't be null";
-- non-int or range row indexes: "SoA table indexes must be int row ids";
+- non-int, `System.Index`, or range row indexes: "SoA table indexes must be int row ids";
 - statically negative row indexes: "SoA table row indexes must not be negative" or
   "SoA column row indexes must not be negative";
 - direct table member mutation: "SoA table member 'X' cannot be assigned directly";
