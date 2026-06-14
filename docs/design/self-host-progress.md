@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA row pseudo-types are blocked in type expressions
+
+`NodeTable.Row` diagnostics are now pinned for `typeof(NodeTable.Row)` and
+`sizeof(NodeTable.Row)` in addition to declared-type positions. The row pseudo-type therefore
+stops at semantic analysis even when used through type-only expressions, preserving the rule that
+rows are projection syntax over a table plus row index and never become metadata-visible values.
+
 ## 2026-06-14 — Nullable SoA expected types still require table capacity
 
 Target-typed `new()` now looks through nullable SoA expected types before validating table

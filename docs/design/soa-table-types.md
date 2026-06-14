@@ -198,8 +198,8 @@ The compiler must produce direct diagnostics for common misuse:
   range bounds, spread expressions, `alloc`, allocation lengths, checked/unchecked expressions, field
   initializers, invalid member/index receivers, index values, pattern values, `with` targets/indexes/values,
   `nameof` targets, event subscription handles, and null-conditional table/row projections);
-- row type annotations: "SoA row type 'NodeTable.Row' is not part of this lowering" for parameter,
-  return, local, or other declared-type positions;
+- row type annotations/type expressions: "SoA row type 'NodeTable.Row' is not part of this lowering"
+  for parameter, return, local, other declared-type positions, `typeof`, and `sizeof`;
 - mismatched `wrap` columns: "column lengths for NodeTable do not match";
 - null `wrap` columns: "SoA table wrap column 'X' cannot be null" for literal null/default column
   arguments, or "columns for NodeTable.wrap cannot be null" for dynamic runtime values;

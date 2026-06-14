@@ -1467,6 +1467,48 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaRowTypeCannotBeUsedInTypeofExpression()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(): Type {
+                return typeof(NodeTable.Row)
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("SoA row type 'NodeTable.Row' is not part of this lowering", error.Message);
+        Assert.Contains("table and an int row index", error.Suggestion);
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.TypeNotFound);
+    }
+
+    [Fact]
+    public void Analyzer_SoaRowTypeCannotBeUsedInSizeofExpression()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(): int {
+                return sizeof(NodeTable.Row)
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("SoA row type 'NodeTable.Row' is not part of this lowering", error.Message);
+        Assert.Contains("table and an int row index", error.Suggestion);
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.TypeNotFound);
+    }
+
+    [Fact]
     public void Analyzer_SoaRowViewCannotEscapeThroughExpressionBodiedFunction()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
