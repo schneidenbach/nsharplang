@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA generated operation names bind semantically
+
+Generated SoA operation signatures now carry analyzer-visible parameter names, matching the synthetic
+methods emitted for the wrapper. Named calls such as `copyRow(to: dst, from: src)` bind by parameter
+before type and literal validation, so unknown names, duplicates, and named negative row ids fail
+during analysis with the same source-level contract the backend will emit.
+
 ## 2026-06-14 — SoA generated operations reject negative literals
 
 Generated SoA table operations now carry synthetic operation identity through semantic analysis, so

@@ -6737,22 +6737,23 @@ public class Analyzer : IDisposable
                     "length" or "capacity" => BuiltInTypes.Int,
                     "add" => CreateSoaIntrinsicFunction("add", BuiltInTypes.Int),
                     "clear" => CreateSoaIntrinsicFunction("clear", BuiltInTypes.Void),
-                    "ensureCapacity" => CreateSoaIntrinsicFunction("ensureCapacity", BuiltInTypes.Void, BuiltInTypes.Int),
-                    "copyRow" => CreateSoaIntrinsicFunction("copyRow", BuiltInTypes.Void, BuiltInTypes.Int, BuiltInTypes.Int),
+                    "ensureCapacity" => CreateSoaIntrinsicFunction("ensureCapacity", BuiltInTypes.Void, ("required", BuiltInTypes.Int)),
+                    "copyRow" => CreateSoaIntrinsicFunction("copyRow", BuiltInTypes.Void, ("from", BuiltInTypes.Int), ("to", BuiltInTypes.Int)),
                     _ => BuiltInTypes.Unknown
                 };
             }
 
             if (memberName == "wrap")
             {
-                var parameterTypes = soaRecordType.Declaration.Columns
-                    .Select(column => new ArrayTypeInfo(ResolveType(column.Type)) as TypeInfo)
-                    .Concat(new[] { BuiltInTypes.Int })
+                var parameters = soaRecordType.Declaration.Columns
+                    .Select(column => (Name: column.Name, Type: new ArrayTypeInfo(ResolveType(column.Type)) as TypeInfo))
+                    .Concat(new[] { (Name: "length", Type: BuiltInTypes.Int as TypeInfo) })
                     .ToList();
                 return new FunctionTypeInfo(null)
                 {
                     SyntheticName = "wrap",
-                    ParameterTypes = parameterTypes,
+                    ParameterNames = parameters.Select(parameter => parameter.Name).ToList(),
+                    ParameterTypes = parameters.Select(parameter => parameter.Type).ToList(),
                     ReturnType = soaRecordType
                 };
             }
@@ -7009,12 +7010,16 @@ public class Analyzer : IDisposable
     private static SoaColumnDeclaration? TryGetSoaColumn(SoaRecordDeclaration declaration, string name)
         => declaration.Columns.FirstOrDefault(column => column.Name == name);
 
-    private static FunctionTypeInfo CreateSoaIntrinsicFunction(string syntheticName, TypeInfo returnType, params TypeInfo[] parameterTypes)
+    private static FunctionTypeInfo CreateSoaIntrinsicFunction(
+        string syntheticName,
+        TypeInfo returnType,
+        params (string Name, TypeInfo Type)[] parameters)
     {
         return new FunctionTypeInfo(null)
         {
             SyntheticName = syntheticName,
-            ParameterTypes = parameterTypes.ToList(),
+            ParameterNames = parameters.Select(parameter => parameter.Name).ToList(),
+            ParameterTypes = parameters.Select(parameter => parameter.Type).ToList(),
             ReturnType = returnType
         };
     }
@@ -8473,10 +8478,17 @@ public class Analyzer : IDisposable
             return;
         }
 
-        for (var i = 0; i < expectedCount; i++)
+        if (!TryBindSyntheticFunctionArguments(functionType, functionName, call, out var parameterIndexByArgument))
+            return;
+
+        for (var argumentIndex = 0; argumentIndex < call.Arguments.Count; argumentIndex++)
         {
-            var expectedType = ResolveTypeAlias(functionType.ParameterTypes[i]);
-            var argType = ResolveTypeAlias(argTypes[i]);
+            var parameterIndex = parameterIndexByArgument[argumentIndex];
+            if (parameterIndex < 0 || parameterIndex >= expectedCount)
+                continue;
+
+            var expectedType = ResolveTypeAlias(functionType.ParameterTypes[parameterIndex]);
+            var argType = ResolveTypeAlias(argTypes[argumentIndex]);
             if (BuiltInTypes.IsUnknown(expectedType)
                 || BuiltInTypes.IsUnknown(argType)
                 || argType is SoaRowTypeInfo
@@ -8485,24 +8497,133 @@ public class Analyzer : IDisposable
                 continue;
             }
 
-            var (line, column, length) = GetExpressionDiagnosticSpan(call.Arguments[i].Value);
+            var (line, column, length) = GetExpressionDiagnosticSpan(call.Arguments[argumentIndex].Value);
+            var argumentName = call.Arguments[argumentIndex].Name;
+            var argumentDescription = argumentName != null
+                ? $"Argument '{argumentName}'"
+                : $"Argument {argumentIndex + 1}";
             Error(
                 ErrorCode.TypeMismatch,
-                $"Argument {i + 1} to '{functionName}' is '{argType}', but this parameter expects '{expectedType}'",
+                $"{argumentDescription} to '{functionName}' is '{argType}', but this parameter expects '{expectedType}'",
                 line,
                 column,
                 "Pass a value with the expected type, or update the function signature.",
                 length);
         }
 
-        ValidateSoaSyntheticFunctionCall(functionType, functionName, call, argTypes);
+        ValidateSoaSyntheticFunctionCall(functionType, functionName, call, argTypes, parameterIndexByArgument);
+    }
+
+    private bool TryBindSyntheticFunctionArguments(
+        FunctionTypeInfo functionType,
+        string functionName,
+        CallExpression call,
+        out int[] parameterIndexByArgument)
+    {
+        var expectedCount = functionType.ParameterTypes?.Count ?? 0;
+        parameterIndexByArgument = Enumerable.Repeat(-1, call.Arguments.Count).ToArray();
+
+        var parameterNames = functionType.ParameterNames;
+        var boundArgumentIndexByParameter = Enumerable.Repeat(-1, expectedCount).ToArray();
+        var nextPositionalParameter = 0;
+        var success = true;
+
+        for (var argumentIndex = 0; argumentIndex < call.Arguments.Count; argumentIndex++)
+        {
+            var argument = call.Arguments[argumentIndex];
+            if (argument.Name is { } argumentName)
+            {
+                var parameterIndex = parameterNames != null
+                    ? parameterNames.FindIndex(parameterName => parameterName == argumentName)
+                    : -1;
+                if (parameterIndex < 0 || parameterIndex >= expectedCount)
+                {
+                    ReportSyntheticArgumentBindingError(
+                        functionType,
+                        functionName,
+                        argument,
+                        $"'{functionName}' has no parameter named '{argumentName}'");
+                    success = false;
+                    continue;
+                }
+
+                if (boundArgumentIndexByParameter[parameterIndex] >= 0)
+                {
+                    ReportSyntheticArgumentBindingError(
+                        functionType,
+                        functionName,
+                        argument,
+                        $"'{functionName}' got multiple values for parameter '{argumentName}'");
+                    success = false;
+                    continue;
+                }
+
+                boundArgumentIndexByParameter[parameterIndex] = argumentIndex;
+                parameterIndexByArgument[argumentIndex] = parameterIndex;
+                continue;
+            }
+
+            while (nextPositionalParameter < expectedCount
+                   && boundArgumentIndexByParameter[nextPositionalParameter] >= 0)
+            {
+                nextPositionalParameter++;
+            }
+
+            if (nextPositionalParameter >= expectedCount)
+            {
+                ReportSyntheticArgumentBindingError(
+                    functionType,
+                    functionName,
+                    argument,
+                    $"'{functionName}' got more positional arguments than its signature accepts");
+                success = false;
+                continue;
+            }
+
+            boundArgumentIndexByParameter[nextPositionalParameter] = argumentIndex;
+            parameterIndexByArgument[argumentIndex] = nextPositionalParameter;
+            nextPositionalParameter++;
+        }
+
+        return success;
+    }
+
+    private void ReportSyntheticArgumentBindingError(
+        FunctionTypeInfo functionType,
+        string functionName,
+        Argument argument,
+        string message)
+    {
+        var (line, column, length) = GetExpressionDiagnosticSpan(argument.Value);
+        Error(
+            ErrorCode.NoMatchingOverload,
+            message,
+            line,
+            column,
+            $"Use {FormatSyntheticFunctionSignature(functionType, functionName)}, or remove the argument name.",
+            length);
+    }
+
+    private static string FormatSyntheticFunctionSignature(FunctionTypeInfo functionType, string functionName)
+    {
+        var parameterCount = functionType.ParameterTypes?.Count ?? 0;
+        if (parameterCount == 0)
+            return $"{functionName}()";
+
+        var names = functionType.ParameterNames;
+        var parameters = Enumerable.Range(0, parameterCount)
+            .Select(index => names != null && index < names.Count && names[index] is { } name
+                ? name
+                : $"arg{index + 1}");
+        return $"{functionName}({string.Join(", ", parameters)})";
     }
 
     private void ValidateSoaSyntheticFunctionCall(
         FunctionTypeInfo functionType,
         string functionName,
         CallExpression call,
-        IReadOnlyList<TypeInfo> argTypes)
+        IReadOnlyList<TypeInfo> argTypes,
+        IReadOnlyList<int> parameterIndexByArgument)
     {
         switch (functionType.SyntheticName)
         {
@@ -8511,7 +8632,8 @@ public class Analyzer : IDisposable
                     functionName,
                     call,
                     argTypes,
-                    argumentIndex: 0,
+                    parameterIndexByArgument,
+                    parameterIndex: 0,
                     "SoA table capacity must not be negative",
                     "Use zero or a positive capacity; the table can grow later with add or ensureCapacity.");
                 break;
@@ -8521,14 +8643,16 @@ public class Analyzer : IDisposable
                     functionName,
                     call,
                     argTypes,
-                    argumentIndex: 0,
+                    parameterIndexByArgument,
+                    parameterIndex: 0,
                     "SoA table source row id must not be negative",
                     "Use zero or a valid non-negative source row id.");
                 ValidateSyntheticNonNegativeIntArgument(
                     functionName,
                     call,
                     argTypes,
-                    argumentIndex: 1,
+                    parameterIndexByArgument,
+                    parameterIndex: 1,
                     "SoA table target row id must not be negative",
                     "Use zero or a valid non-negative target row id.");
                 break;
@@ -8539,10 +8663,24 @@ public class Analyzer : IDisposable
         string functionName,
         CallExpression call,
         IReadOnlyList<TypeInfo> argTypes,
-        int argumentIndex,
+        IReadOnlyList<int> parameterIndexByArgument,
+        int parameterIndex,
         string message,
         string suggestion)
     {
+        var argumentIndex = -1;
+        for (var i = 0; i < parameterIndexByArgument.Count; i++)
+        {
+            if (parameterIndexByArgument[i] == parameterIndex)
+            {
+                argumentIndex = i;
+                break;
+            }
+        }
+
+        if (argumentIndex < 0)
+            return;
+
         if (argumentIndex >= call.Arguments.Count || argumentIndex >= argTypes.Count)
             return;
 
@@ -18262,6 +18400,7 @@ public record TupleTypeInfo(List<(string? Name, TypeInfo Type)> Elements) : Type
 public record FunctionTypeInfo(FunctionDeclaration? Declaration) : TypeInfo
 {
     public string? SyntheticName { get; set; }
+    public List<string>? ParameterNames { get; set; }
     public List<TypeInfo>? ParameterTypes { get; set; }
     public List<Ast.ParameterModifier>? ParameterModifiers { get; set; }
     public TypeInfo? ReturnType { get; set; }

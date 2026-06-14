@@ -1899,6 +1899,87 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaTableGeneratedOperationsAllowDeclaredNamedArguments()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func ok(nodes: NodeTable) {
+                nodes.ensureCapacity(2)
+                nodes.copyRow(to: 1, from: 0)
+            }
+            """);
+
+        Assert.False(
+            result.HasErrors,
+            $"Expected no errors but got: {string.Join(", ", result.Errors.Select(e => $"{e.DiagnosticId}:{e.Message}"))}");
+    }
+
+    [Fact]
+    public void Analyzer_SoaTableCopyRowNamedArgumentTypeUsesParameterBinding()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable) {
+                nodes.copyRow(to: "1", from: 0)
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains("Argument 'to' to 'copyRow' is 'string'", error.Message);
+        Assert.Contains("expects 'int'", error.Message);
+    }
+
+    [Fact]
+    public void Analyzer_SoaTableCopyRowRejectsUnknownNamedArgument()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable) {
+                nodes.copyRow(source: 0, to: 1)
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.NoMatchingOverload);
+        Assert.Contains("'copyRow' has no parameter named 'source'", error.Message);
+        Assert.Contains("copyRow(from, to)", error.Suggestion);
+    }
+
+    [Fact]
+    public void Analyzer_SoaTableCopyRowRejectsDuplicateNamedArgument()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable) {
+                nodes.copyRow(from: 0, from: 1)
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.NoMatchingOverload);
+        Assert.Contains("'copyRow' got multiple values for parameter 'from'", error.Message);
+        Assert.Contains("copyRow(from, to)", error.Suggestion);
+    }
+
+    [Fact]
     public void Analyzer_SoaTableCopyRowRejectsNegativeSourceLiteral()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
@@ -1930,6 +2011,26 @@ public class SoaRecordTests : ILCompilerTestBase
 
             func bad(nodes: NodeTable) {
                 nodes.copyRow(0, -1)
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains("SoA table target row id must not be negative", error.Message);
+        Assert.Contains("copyRow expects a non-negative int argument", error.Suggestion);
+    }
+
+    [Fact]
+    public void Analyzer_SoaTableCopyRowRejectsNegativeNamedTargetLiteral()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable) {
+                nodes.copyRow(to: -1, from: 0)
             }
             """);
 
