@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — Code-intelligence convenience wrappers leave product dogfood
+
+The source-splitting convenience wrappers for identifier spans, editor spans, declaration-name
+columns, member receivers, source contexts/lines, completion prefixes, doc comments, and variable
+declaration names moved to the parity corpus beside their checksum or benchmark oracles. The now
+unrouted non-cached member-receiver and variable-declaration `FromLines` helper pairs moved with
+those wrappers. Product dogfood keeps the adapter-bound cached `FromLines`/`FromCache` kernels that
+the code-intelligence service actually routes through.
+
 ## 2026-06-14 — Declared-type exact-name probe leaves product dogfood
 
 `DeclaredTypeExactNameFirstIndex` and its tiny table/capacity helper moved to the parity corpus with
