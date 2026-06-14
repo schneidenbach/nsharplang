@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — Direct SoA from-end assignment expressions have IL-shape proof
+
+Direct backing-column `System.Index` simple assignment expressions now have opcode evidence beside
+compound and default assignments. `value := table.column[^1] = next` returns the assigned value while
+staying on backing-array traffic with no old-element read, slice allocation, row construction,
+boxing, delegate construction, or virtual dispatch.
+
 ## 2026-06-14 — SoA direct-column from-end ranges stay out of emission
 
 Direct backing-column range slices with `System.Index` bounds now have regression coverage. Reads and

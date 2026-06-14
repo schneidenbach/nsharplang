@@ -182,8 +182,8 @@ Direct column elements support the same scalar update shapes as row projection: 
 stores and compound assignments return the stored value, prefix/postfix increments preserve their
 ordinary result semantics, and default stores write the backing column without reading the old value
 or materializing a row. These accepted direct-column update shapes also apply to `System.Index`
-from-end element access such as `table.column[^1]`, including default stores, null-coalescing reads,
-and null-coalescing assignments.
+from-end element access such as `table.column[^1]`, including expression-valued simple stores,
+default stores, null-coalescing reads, and null-coalescing assignments.
 The same nullability rule applies to both row projection and direct column elements: `??` and `??=`
 require a nullable/reference column element and non-nullable columns reject the operation during
 analysis. Direct-column from-end access uses those same update and nullability diagnostics, so
@@ -286,8 +286,8 @@ column field loads and array element loads/stores with no row allocation, boxing
 construction, heap array allocation, or virtual dispatch; explicit direct column element operations
 (`table.column[row]`) have the same column-array proof for stores, expression-valued stores, default
 stores, compound stores, prefix/postfix increments, reads, direct column null-coalescing
-reads/assignments, and from-end `System.Index` access including default stores plus
-null-coalescing reads/assignments.
+reads/assignments, and from-end `System.Index` access including expression-valued simple stores,
+default stores, and null-coalescing reads/assignments.
 Row-projection null-coalescing
 reads/assignments have the same direct column proof, with range/slice allocation still rejected during
 analysis. The

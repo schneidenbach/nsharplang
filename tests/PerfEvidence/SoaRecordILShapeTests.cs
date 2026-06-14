@@ -322,6 +322,45 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void DirectColumnFromEndAssignmentExpression_ReturnsAssignedValueWithoutSliceAllocation()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                kind: int
+            }
+
+            func assignLast(nodes: NodeTable): int {
+                assigned := nodes.kind[^1] = 42
+                return assigned * 10 + nodes.kind[^1]
+            }
+
+            func main(): int {
+                nodes := new NodeTable(2)
+                return assignLast(nodes)
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var assignLast = ILShapeInspector.GetProgramMethod(assembly, "assignLast");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(462, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoFromEndSliceAllocation(assignLast);
+            Assert.True(
+                ILShapeInspector.CountOpcode(assignLast, OpCodes.Ldfld) >= 2,
+                "Direct SoA from-end assignment expressions should load backing column fields directly.");
+            Assert.Equal(1, CountArrayElementLoads(assignLast));
+            Assert.Equal(1, CountArrayElementStores(assignLast));
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void DirectColumnFromEndIndexUpdates_UseColumnArrayOffsetWithoutSliceAllocation()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
