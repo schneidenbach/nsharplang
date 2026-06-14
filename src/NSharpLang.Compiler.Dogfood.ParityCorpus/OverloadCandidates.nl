@@ -18,18 +18,10 @@ func OverloadSelectBestCandidateChecksum(
     argTypeIds: int[],
     argCount: int,
     count: int): int {
-    bestIndex := OverloadSelectBestCandidateFromTable(
-        validFlags,
-        scores,
-        genericFlags,
-        paramsFlags,
-        defaultsUsed,
-        paramTypeOffsets,
-        paramTypeCounts,
-        paramTypeIds,
-        argTypeIds,
-        argCount,
-        count)
+    candidates := new OverloadCandidateScoreTable { ValidFlags: validFlags, Scores: scores, GenericFlags: genericFlags, ParamsFlags: paramsFlags, DefaultsUsed: defaultsUsed }
+    parameterTypes := new OverloadCandidateParameterTypeTable { Offsets: paramTypeOffsets, Counts: paramTypeCounts, TypeIds: paramTypeIds }
+    arguments := new OverloadArgumentTypeTable { TypeIds: argTypeIds }
+    bestIndex := OverloadSelectBestCandidateFromTableCore(ref candidates, ref parameterTypes, ref arguments, argCount, count)
 
     if bestIndex < 0 {
         return bestIndex
@@ -54,16 +46,10 @@ func OverloadSelectBatchChecksumInto(
     callCounts: int[],
     callCount: int,
     resultIndices: int[]): int {
-    resolvedCount := OverloadSelectBatchInto(
-        validFlags,
-        scores,
-        genericFlags,
-        paramsFlags,
-        defaultsUsed,
-        callOffsets,
-        callCounts,
-        callCount,
-        resultIndices)
+    candidates := new OverloadCandidateScoreTable { ValidFlags: validFlags, Scores: scores, GenericFlags: genericFlags, ParamsFlags: paramsFlags, DefaultsUsed: defaultsUsed }
+    calls := new OverloadCallSliceTable { Offsets: callOffsets, Counts: callCounts }
+    result := new OverloadSelectionResultTable { Indices: resultIndices }
+    resolvedCount := OverloadSelectBatchCore(ref candidates, ref calls, callCount, ref result)
 
     if resolvedCount < 0 {
         return resolvedCount

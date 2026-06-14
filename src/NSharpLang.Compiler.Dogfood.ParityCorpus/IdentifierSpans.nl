@@ -351,15 +351,11 @@ func CodeIntelligenceDocCommentChecksumFromLinesInto(
     checksum := 0
     i := 0
     queryCount := queryLines.Length
+    lines := new CodeIntelligenceLineRangeTable { Starts: lineStarts, Lengths: lineLengths, Count: lineCount }
 
     while i < queryCount {
         definitionLine := queryLines[i]
-        startLine := FindCodeIntelligenceDocCommentStartLine(
-            source,
-            lineStarts,
-            lineLengths,
-            lineCount,
-            definitionLine)
+        startLine := FindCodeIntelligenceDocCommentStartLineCore(source, ref lines, definitionLine)
 
         commentLineCount := 0
         textLength := -1
@@ -439,10 +435,17 @@ func CodeIntelligenceVariableDeclarationNameCachedChecksumInto(
     queryLines: int[],
     resultStarts: int[],
     resultLengths: int[]): int {
-    CodeIntelligenceVariableDeclarationNamesCachedInto(
+    lineCount := BuildCodeIntelligenceLineRangesInto(source, lineStarts, lineLengths)
+    BuildCodeIntelligenceVariableDeclarationNameCacheInto(
         source,
         lineStarts,
         lineLengths,
+        lineCount,
+        nameStartsByLine,
+        nameLengthsByLine)
+
+    CodeIntelligenceVariableDeclarationNamesFromCacheInto(
+        lineCount,
         nameStartsByLine,
         nameLengthsByLine,
         queryLines,

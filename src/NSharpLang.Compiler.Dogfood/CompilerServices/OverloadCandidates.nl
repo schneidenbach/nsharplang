@@ -153,29 +153,6 @@ func OverloadSelectBestCandidateCore(candidates: &OverloadCandidateScoreTable, c
     return bestIndex
 }
 
-// Broader compact-table entry point: validates the flattened parameter-type-id table bounds before
-// selecting, then returns the winning candidate index. This is the table-owning shape the IL binder
-// uses: parameter type ids are stored once in a flat buffer instead of re-projecting
-// GetParameters() per candidate. The supplied argument-type-id array is bounds-validated so a single
-// caller-owned buffer can be reused across call sites.
-func OverloadSelectBestCandidateFromTable(
-    validFlags: int[],
-    scores: int[],
-    genericFlags: int[],
-    paramsFlags: int[],
-    defaultsUsed: int[],
-    paramTypeOffsets: int[],
-    paramTypeCounts: int[],
-    paramTypeIds: int[],
-    argTypeIds: int[],
-    argCount: int,
-    count: int): int {
-    candidates := new OverloadCandidateScoreTable { ValidFlags: validFlags, Scores: scores, GenericFlags: genericFlags, ParamsFlags: paramsFlags, DefaultsUsed: defaultsUsed }
-    parameterTypes := new OverloadCandidateParameterTypeTable { Offsets: paramTypeOffsets, Counts: paramTypeCounts, TypeIds: paramTypeIds }
-    arguments := new OverloadArgumentTypeTable { TypeIds: argTypeIds }
-    return OverloadSelectBestCandidateFromTableCore(ref candidates, ref parameterTypes, ref arguments, argCount, count)
-}
-
 func OverloadSelectBestCandidateFromTableCore(
     candidates: &OverloadCandidateScoreTable,
     parameterTypes: &OverloadCandidateParameterTypeTable,
@@ -224,26 +201,6 @@ func OverloadSelectBestCandidateFromTableCore(
     }
 
     return bestIndex
-}
-
-// Batch entry point: resolves a whole stream of call sites against a shared compact candidate table
-// in one N#-owned loop, writing the selected candidate index per call into caller-owned storage.
-// callOffsets[c]/callCounts[c] describe the contiguous candidate slice for call site c inside the
-// shared candidate columns. Returns the number of call sites that resolved to a candidate.
-func OverloadSelectBatchInto(
-    validFlags: int[],
-    scores: int[],
-    genericFlags: int[],
-    paramsFlags: int[],
-    defaultsUsed: int[],
-    callOffsets: int[],
-    callCounts: int[],
-    callCount: int,
-    resultIndices: int[]): int {
-    candidates := new OverloadCandidateScoreTable { ValidFlags: validFlags, Scores: scores, GenericFlags: genericFlags, ParamsFlags: paramsFlags, DefaultsUsed: defaultsUsed }
-    calls := new OverloadCallSliceTable { Offsets: callOffsets, Counts: callCounts }
-    result := new OverloadSelectionResultTable { Indices: resultIndices }
-    return OverloadSelectBatchCore(ref candidates, ref calls, callCount, ref result)
 }
 
 func OverloadSelectBatchCore(

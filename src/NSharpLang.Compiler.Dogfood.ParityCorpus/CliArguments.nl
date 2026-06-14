@@ -19,7 +19,9 @@ func CliWatchForwardedArgChecksumInto(args: string[], resultIndices: int[]): int
 }
 
 func CliTestOptionSummaryChecksumInto(args: string[], resultIndices: int[]): int {
-    code := CliTestOptionSummaryInto(args, resultIndices)
+    arguments := new CliArgumentTable { Args: args }
+    results := new CliIndexResultTable { Indices: resultIndices }
+    code := CliTestOptionSummaryCore(ref arguments, ref results)
     if code < 0 {
         return code
     }
@@ -1010,7 +1012,9 @@ func CliTestOutcomeSummaryChecksumInto(outcomeRanks: int[], count: int, resultCo
 }
 
 func CliFormatDiscoveredPathChecksumInto(relativePaths: string[], resultFlags: int[]): int {
-    count := CliFormatDiscoveredPathFlagsInto(relativePaths, resultFlags)
+    paths := new CliPathTable { Paths: relativePaths }
+    flags := new CliFlagResultTable { Flags: resultFlags }
+    count := CliFormatDiscoveredPathFlagsCore(ref paths, ref flags)
     checksum := count
     i := 0
 

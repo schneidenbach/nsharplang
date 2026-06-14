@@ -945,33 +945,6 @@ func CodeIntelligenceVariableDeclarationNamesInto(
         resultLengths)
 }
 
-func CodeIntelligenceVariableDeclarationNamesCachedInto(
-    source: string,
-    lineStarts: int[],
-    lineLengths: int[],
-    nameStartsByLine: int[],
-    nameLengthsByLine: int[],
-    queryLines: int[],
-    resultStarts: int[],
-    resultLengths: int[]): int {
-    lineCount := BuildCodeIntelligenceLineRangesInto(source, lineStarts, lineLengths)
-    BuildCodeIntelligenceVariableDeclarationNameCacheInto(
-        source,
-        lineStarts,
-        lineLengths,
-        lineCount,
-        nameStartsByLine,
-        nameLengthsByLine)
-
-    return CodeIntelligenceVariableDeclarationNamesFromCacheInto(
-        lineCount,
-        nameStartsByLine,
-        nameLengthsByLine,
-        queryLines,
-        resultStarts,
-        resultLengths)
-}
-
 func CodeIntelligenceVariableDeclarationNamesFromLinesInto(
     source: string,
     lineStarts: int[],
@@ -1373,16 +1346,6 @@ func IsCodeIntelligenceWholeIdentifierBoundary(
     }
 
     return true
-}
-
-func FindCodeIntelligenceDocCommentStartLine(
-    source: string,
-    lineStarts: int[],
-    lineLengths: int[],
-    lineCount: int,
-    definitionLine: int): int {
-    lines := new CodeIntelligenceLineRangeTable { Starts: lineStarts, Lengths: lineLengths, Count: lineCount }
-    return FindCodeIntelligenceDocCommentStartLineCore(source, ref lines, definitionLine)
 }
 
 func FindCodeIntelligenceDocCommentStartLineCore(

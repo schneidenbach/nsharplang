@@ -142,21 +142,6 @@ func AnalyzerOverloadSignatureDistinct(
     return AnalyzerOverloadSignatureDistinctCore(ref candidate, 0, candidateLength, ref existing, existingCount)
 }
 
-// Distinctness verdict for a candidate row stored at an arbitrary offset inside candidateRanks. Used
-// by the batched checksum kernel so each candidate can share one packed candidate-rank buffer.
-func AnalyzerOverloadSignatureDistinctSlice(
-    candidateRanks: int[],
-    candidateOffset: int,
-    candidateLength: int,
-    existingRanks: int[],
-    existingOffsets: int[],
-    existingLengths: int[],
-    existingCount: int): int {
-    candidate := new AnalyzerSignatureRankBuffer { Ranks: candidateRanks }
-    existing := new AnalyzerOverloadSignatureTable { Ranks: existingRanks, Offsets: existingOffsets, Lengths: existingLengths }
-    return AnalyzerOverloadSignatureDistinctCore(ref candidate, candidateOffset, candidateLength, ref existing, existingCount)
-}
-
 func AnalyzerOverloadSignatureDistinctCore(
     candidate: &AnalyzerSignatureRankBuffer,
     candidateOffset: int,

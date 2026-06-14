@@ -103,6 +103,9 @@ func AnalyzerOverloadSignatureDistinctChecksumInto(
         return -1
     }
 
+    candidate := new AnalyzerSignatureRankBuffer { Ranks: candidateRanks }
+    existing := new AnalyzerOverloadSignatureTable { Ranks: existingRanks, Offsets: existingOffsets, Lengths: existingLengths }
+
     checksum := candidateCount
     distinctCount := 0
     c := 0
@@ -116,14 +119,7 @@ func AnalyzerOverloadSignatureDistinctChecksumInto(
             return -1
         }
 
-        verdict := AnalyzerOverloadSignatureDistinctSlice(
-            candidateRanks,
-            candidateOffset,
-            candidateLength,
-            existingRanks,
-            existingOffsets,
-            existingLengths,
-            existingCount)
+        verdict := AnalyzerOverloadSignatureDistinctCore(ref candidate, candidateOffset, candidateLength, ref existing, existingCount)
         if verdict < 0 {
             return -1
         }

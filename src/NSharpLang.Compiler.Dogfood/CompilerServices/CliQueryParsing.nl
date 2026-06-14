@@ -145,16 +145,6 @@ func CliTryParsePositionInto(position: string, result: int[]): int {
     return CliTryParsePositionPartsCore(position, ref results, 0, 1)
 }
 
-func CliTryParsePositionPartsInto(
-    position: string,
-    resultLines: int[],
-    lineIndex: int,
-    resultColumns: int[],
-    columnIndex: int): int {
-    results := new CliQueryPositionResultTable { Lines: resultLines, Columns: resultColumns }
-    return CliTryParsePositionPartsCore(position, ref results, lineIndex, columnIndex)
-}
-
 func CliTryParsePositionPartsCore(
     position: string,
     results: &CliQueryPositionResultTable,

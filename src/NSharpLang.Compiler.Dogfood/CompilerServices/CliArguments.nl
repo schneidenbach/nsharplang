@@ -543,12 +543,6 @@ func CliPublishArgumentKind(arg: string): int {
     return 0
 }
 
-func CliTestOptionSummaryInto(args: string[], resultIndices: int[]): int {
-    arguments := new CliArgumentTable { Args: args }
-    results := new CliIndexResultTable { Indices: resultIndices }
-    return CliTestOptionSummaryCore(ref arguments, ref results)
-}
-
 func CliTestOptionSummaryCore(args: &CliArgumentTable, resultIndices: &CliIndexResultTable): int {
     if resultIndices.Indices.Length < 10 {
         return -1
@@ -3095,12 +3089,6 @@ func CliShouldFormatDiscoveredPath(relativePath: string): int {
     }
 
     return 1
-}
-
-func CliFormatDiscoveredPathFlagsInto(relativePaths: string[], resultFlags: int[]): int {
-    paths := new CliPathTable { Paths: relativePaths }
-    flags := new CliFlagResultTable { Flags: resultFlags }
-    return CliFormatDiscoveredPathFlagsCore(ref paths, ref flags)
 }
 
 func CliFormatDiscoveredPathFlagsCore(

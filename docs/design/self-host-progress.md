@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — Parity-only dogfood wrappers stop shipping
+
+Several checksum-only dogfood helper wrappers now live entirely in the parity corpus instead of the
+product dogfood surface. The parity oracles call the table-shaped cores directly for overload batch
+selection, overload signature distinctness, CLI query position parsing, CLI test option summaries, and
+format-discovered-path filtering; the variable-declaration-name cached checksum now composes the live
+cache-build and cache-query entries directly.
+
+This removes redundant array-shaped exports from the shipped dogfood assembly while preserving the
+same parity coverage and the live host ABIs used by the compiler, CLI, and code-intelligence adapters.
+
 ## 2026-06-13 — SoA row-column assignment statements stop reloading discarded values
 
 SoA row-column assignments now use the statement-context lowering path directly. Plain row writes like

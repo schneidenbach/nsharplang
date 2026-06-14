@@ -10,11 +10,12 @@ func CliQueryPositionChecksumInto(
     resultColumns: int[]): int {
     count := CliQueryMinInt(positions.Length, resultLines.Length)
     count = CliQueryMinInt(count, resultColumns.Length)
+    results := new CliQueryPositionResultTable { Lines: resultLines, Columns: resultColumns }
     checksum := count
     i := 0
 
     while i < count {
-        parsed := CliTryParsePositionPartsInto(positions[i], resultLines, i, resultColumns, i)
+        parsed := CliTryParsePositionPartsCore(positions[i], ref results, i, i)
         checksum = checksum + parsed * 97 + resultLines[i] * 31 + resultColumns[i] * 17
         i = i + 1
     }
