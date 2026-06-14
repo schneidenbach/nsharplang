@@ -5606,16 +5606,69 @@ public class Analyzer : IDisposable
             return BuiltInTypes.Unknown;
         }
 
+        if (isIncrementOrDecrement && ReportInvalidIncrementOrDecrementTargetIfNeeded(unary))
+        {
+            return BuiltInTypes.Unknown;
+        }
+
         return unary.Operator switch
         {
             UnaryOperator.Negate => AnalyzeUnaryNegation(operandType, unary),
             UnaryOperator.Not => BuiltInTypes.Bool,
             UnaryOperator.BitwiseNot => AnalyzeUnaryBitwiseNot(operandType, unary),
             UnaryOperator.PreIncrement or UnaryOperator.PreDecrement
-                or UnaryOperator.PostIncrement or UnaryOperator.PostDecrement => operandType,
+                or UnaryOperator.PostIncrement or UnaryOperator.PostDecrement => AnalyzeIncrementOrDecrement(operandType, unary),
             UnaryOperator.IndexFromEnd => LookupType("System.Index") ?? BuiltInTypes.DeferredExternal,
             _ => BuiltInTypes.Unknown
         };
+    }
+
+    private bool ReportInvalidIncrementOrDecrementTargetIfNeeded(UnaryExpression unary)
+    {
+        if (IsIncrementOrDecrementTarget(unary.Operand))
+        {
+            return false;
+        }
+
+        var opText = GetUnaryOperatorSymbol(unary.Operator) ?? "operator";
+        var (line, column, length) = GetExpressionDiagnosticSpan(unary.Operand);
+        Error(
+            ErrorCode.InvalidSyntax,
+            $"The '{opText}' operator needs an assignable target",
+            line,
+            column,
+            "Use a variable, field, property, or indexed element as the operand.",
+            length);
+        return true;
+    }
+
+    private static bool IsIncrementOrDecrementTarget(Expression expression) => expression switch
+    {
+        ParenthesizedExpression parenthesized => IsIncrementOrDecrementTarget(parenthesized.Inner),
+        IdentifierExpression identifier => !IsDiscardTarget(identifier),
+        MemberAccessExpression => true,
+        IndexAccessExpression => true,
+        _ => false
+    };
+
+    private TypeInfo AnalyzeIncrementOrDecrement(TypeInfo operandType, UnaryExpression unary)
+    {
+        if (BuiltInTypes.IsUnknown(operandType))
+        {
+            return BuiltInTypes.Unknown;
+        }
+
+        var resolved = ResolveTypeAlias(operandType);
+        if (IsIntegralType(resolved) || IsBitwiseEnumType(resolved))
+        {
+            return operandType;
+        }
+
+        ReportUnaryOperatorOperandMismatch(
+            unary,
+            operandType,
+            "the operand needs an integral numeric value");
+        return BuiltInTypes.Unknown;
     }
 
     private TypeInfo AnalyzeUnaryNegation(TypeInfo operandType, UnaryExpression unary)

@@ -156,12 +156,14 @@ Bulk transforms such as filtering, sorting, and compaction remain explicit kerne
 not grow LINQ-like methods that obscure allocation or control flow.
 
 Row-column access supports direct reads, simple stores, expression-valued stores, default stores,
-null-coalescing reads and assignment, compound assignment, and increment/decrement over the verified
+null-coalescing reads and assignment, compound assignment, and increment/decrement for integral
 column element types. These accepted operations lower to the backing column arrays without row-object
-materialization. Direct column-element access through `table.column[row]` is also permitted for explicit
-systems kernels when the index shape is one the built-in array path supports. Replacing wrapper column
-arrays, mutating `length`/`capacity` directly, or assigning to column slices is not allowed: shape changes
-must go through construction, `wrap`, `add`, `clear`, `ensureCapacity`, or `copyRow`.
+materialization; non-integral columns such as `string` still support reads/stores/null coalescing but
+reject `++`/`--` during analysis. Direct column-element access through `table.column[row]` is also
+permitted for explicit systems kernels when the index shape is one the built-in array path supports.
+Replacing wrapper column arrays, mutating `length`/`capacity` directly, or assigning to column slices
+is not allowed: shape changes must go through construction, `wrap`, `add`, `clear`, `ensureCapacity`,
+or `copyRow`.
 
 Direct column range reads (`table.column[start..end]`) are rejected because ordinary array slice
 semantics allocate a sliced array. They can be admitted only after an allocation-free span/view lowering
@@ -197,6 +199,7 @@ The compiler must produce direct diagnostics for common misuse:
   `length` throw "source row for NodeTable.copyRow must be less than length";
   target rows too large to extend throw "target row for NodeTable.copyRow is too large";
 - unsupported element type: "SoA column type X is not supported in this lowering";
+- non-integral row-column increment/decrement: "The '++' operator doesn't work with 'X'";
 - non-nullable row-column null coalescing: "The left side of '??' has type 'X', which can't be null";
 - non-int or range row indexes: "SoA table indexes must be int row ids";
 - direct table member mutation: "SoA table member 'X' cannot be assigned directly";

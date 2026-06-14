@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — Increment/decrement rejects non-integral operands before emission
+
+The analyzer now validates `++`/`--` as real write operations instead of treating them as side-effecting
+syntax for any operand type. Increment/decrement operands must be assignable targets and must have an
+integral or enum-like type under the current lowering. Unsupported cases such as `stringValue++`,
+`1++`, and `table[row].stringColumn++` now report source diagnostics before IL emission, while the
+existing `int` SoA row-column increment/decrement path remains unchanged.
+
 ## 2026-06-14 — Direct SoA column element IL shape is pinned
 
 Direct SoA column element operations (`table.column[row]`) now have explicit IL-shape evidence beside

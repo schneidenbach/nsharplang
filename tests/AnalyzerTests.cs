@@ -834,6 +834,35 @@ func Main() {
     }
 
     [Fact]
+    public void Increment_NonIntegralOperand_Error()
+    {
+        var result = AnalyzeWithSource(@"
+            func Main() {
+                value := ""hello""
+                value++
+            }
+        ");
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains("'++' operator doesn't work with 'string'", error.Message);
+        Assert.Contains("integral numeric value", error.Message);
+    }
+
+    [Fact]
+    public void Increment_NonAssignableTarget_Error()
+    {
+        var result = AnalyzeWithSource(@"
+            func Main() {
+                1++
+            }
+        ");
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("'++' operator needs an assignable target", error.Message);
+        Assert.Contains("variable, field, property, or indexed element", error.Suggestion);
+    }
+
+    [Fact]
     public void ClassDeclaration_Valid()
     {
         AssertNoErrors(@"

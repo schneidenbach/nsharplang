@@ -2879,6 +2879,26 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaRecordNonIntegralRowColumnIncrement_IsRejected()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                text: string
+            }
+
+            func bad(nodes: NodeTable, row: int) {
+                nodes[row].text++
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains("'++' operator doesn't work with 'string'", error.Message);
+        Assert.Contains("integral numeric value", error.Message);
+    }
+
+    [Fact]
     public void ILCompiler_SoaRecordRowColumnIncrementAndDecrement_PreservesPostfixSemantics()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
