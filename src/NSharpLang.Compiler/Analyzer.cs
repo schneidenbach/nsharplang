@@ -5882,8 +5882,15 @@ public class Analyzer : IDisposable
         var objectType = AnalyzeExpression(index.Object);
         ReportPossibleNullAccess(index.Object, objectType, index.Line, index.Column, "index", index.IsNullConditional);
 
-        var indexType = AnalyzeExpression(index.Index);
         var receiverType = GetNonNullableType(objectType);
+        var previousExpectedIndexType = _currentExpectedType;
+        if (ShouldUseIntExpectedTypeForIndex(receiverType))
+        {
+            _currentExpectedType = BuiltInTypes.Int;
+        }
+
+        var indexType = AnalyzeExpression(index.Index);
+        _currentExpectedType = previousExpectedIndexType;
         if (receiverType is SoaRecordTypeInfo && index.IsNullConditional)
         {
             ReportSoaRowEscape(index, "used with null-conditional indexing");
@@ -5936,6 +5943,15 @@ public class Analyzer : IDisposable
         var elementType = ResolveIndexElementType(receiverType, indexType, isRangeAccess);
 
         return index.IsNullConditional ? MakeNullableResult(elementType) : elementType;
+    }
+
+    private bool ShouldUseIntExpectedTypeForIndex(TypeInfo receiverType)
+    {
+        var resolvedReceiverType = ResolveTypeAlias(receiverType);
+        return resolvedReceiverType is SoaRecordTypeInfo
+            || resolvedReceiverType is ArrayTypeInfo
+            || resolvedReceiverType is ReflectionTypeInfo { Type.IsArray: true }
+            || IsStringType(resolvedReceiverType);
     }
 
     private bool ValidateBuiltInIndexAccess(
@@ -12240,11 +12256,52 @@ public class Analyzer : IDisposable
         return new TupleTypeInfo(elements);
     }
 
+    private TypeInfo? GetExpectedArrayElementType(TypeInfo? expectedType)
+    {
+        if (expectedType == null)
+        {
+            return null;
+        }
+
+        return ResolveTypeAlias(expectedType) switch
+        {
+            ArrayTypeInfo arrayType => arrayType.ElementType,
+            ReflectionTypeInfo reflectionType when reflectionType.Type.IsArray && reflectionType.Type.GetElementType() != null
+                => ConvertReflectionType(reflectionType.Type.GetElementType()!),
+            _ => null
+        };
+    }
+
     private TypeInfo AnalyzeArrayLiteral(ArrayLiteralExpression array)
     {
+        var expectedElementType = GetExpectedArrayElementType(_currentExpectedType);
         if (array.Elements.Count == 0)
         {
-            return new ArrayTypeInfo(BuiltInTypes.Unknown);
+            return new ArrayTypeInfo(expectedElementType ?? BuiltInTypes.Unknown);
+        }
+
+        if (expectedElementType != null)
+        {
+            foreach (var elem in array.Elements)
+            {
+                var previousExpectedType = _currentExpectedType;
+                _currentExpectedType = expectedElementType;
+                var elemType = AnalyzeExpression(elem);
+                _currentExpectedType = previousExpectedType;
+
+                ReportSoaRowEscapeIfNeeded(elem, elemType, "stored in an array");
+                if (!IsAssignable(expectedElementType, elemType))
+                {
+                    var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetExpressionDiagnosticSpan(elem);
+                    Error(ErrorCode.TypeMismatch,
+                        $"Array element is '{elemType}', but the target array expects '{expectedElementType}'",
+                        diagnosticLine,
+                        diagnosticColumn,
+                        length: diagnosticLength);
+                }
+            }
+
+            return new ArrayTypeInfo(expectedElementType);
         }
 
         var firstType = AnalyzeExpression(array.Elements[0]);
@@ -12499,8 +12556,29 @@ public class Analyzer : IDisposable
     {
         if (prop.Name == null || prop.IndexExpression != null)
         {
+            var expectedElementType = prop.Name == null && prop.IndexExpression == null
+                ? GetExpectedArrayElementType(constructedType)
+                : null;
+            var previousInitializerExpectedType = _currentExpectedType;
+            if (expectedElementType != null)
+            {
+                _currentExpectedType = expectedElementType;
+            }
+
             var initializerValueType = AnalyzeExpression(prop.Value);
+            _currentExpectedType = previousInitializerExpectedType;
             ReportSoaRowEscapeIfNeeded(prop.Value, initializerValueType, "stored in an initializer");
+            if (expectedElementType != null && !IsAssignable(expectedElementType, initializerValueType))
+            {
+                var (initializerDiagnosticLine, initializerDiagnosticColumn, initializerDiagnosticLength) =
+                    GetExpressionDiagnosticSpan(prop.Value);
+                Error(ErrorCode.TypeMismatch,
+                    $"Array initializer element is '{initializerValueType}', but the target array expects '{expectedElementType}'",
+                    initializerDiagnosticLine,
+                    initializerDiagnosticColumn,
+                    length: initializerDiagnosticLength);
+            }
+
             return;
         }
 
