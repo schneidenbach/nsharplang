@@ -91,11 +91,6 @@ func ProjectSourceFilterIsTestFile(path: string): bool {
         && ProjectSourceFilterCharEqualsIgnoreCase(path[start + 8], 'l')
 }
 
-func ProjectSourceFilterIsExcluded(path: string, excludePatterns: string[]): bool {
-    patterns := new ProjectSourceExcludePatternTable { Patterns: excludePatterns }
-    return ProjectSourceFilterIsExcludedCore(path, ref patterns)
-}
-
 func ProjectSourceFilterIsExcludedCore(path: string, patterns: &ProjectSourceExcludePatternTable): bool {
     j := 0
     while j < patterns.Patterns.Length {

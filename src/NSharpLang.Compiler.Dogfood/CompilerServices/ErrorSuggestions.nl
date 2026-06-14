@@ -155,15 +155,6 @@ func TypoSuggestionIndicesCore(
     return writeIndex
 }
 
-func TypoSuggestionLevenshteinDistance(
-    left: string,
-    right: string,
-    previousDistances: int[],
-    currentDistances: int[]): int {
-    distances := new TypoSuggestionDistanceTable { Previous: previousDistances, Current: currentDistances }
-    return TypoSuggestionLevenshteinDistanceCore(left, right, ref distances)
-}
-
 func TypoSuggestionLevenshteinDistanceCore(
     left: string,
     right: string,

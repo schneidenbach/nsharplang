@@ -879,18 +879,6 @@ func DiagnosticClusterCompactGroupMembersCore(
     return offset
 }
 
-func SortDiagnosticClusterGroups(
-    resultRootIndices: int[],
-    resultCounts: int[],
-    groupCount: int,
-    files: string[],
-    lines: int[],
-    columns: int[]): void {
-    groups := new DiagnosticClusterGroupTable { RootIndices: resultRootIndices, Counts: resultCounts }
-    locations := new DiagnosticClusterLocationTable { Files: files, Lines: lines, Columns: columns }
-    SortDiagnosticClusterGroupsCore(ref groups, groupCount, ref locations)
-}
-
 func SortDiagnosticClusterGroupsCore(groups: &DiagnosticClusterGroupTable, groupCount: int, locations: &DiagnosticClusterLocationTable): void {
     i := 1
     while i < groupCount {
@@ -908,18 +896,6 @@ func SortDiagnosticClusterGroupsCore(groups: &DiagnosticClusterGroupTable, group
         groups.Counts[j + 1] = count
         i = i + 1
     }
-}
-
-func IsDiagnosticClusterGroupBefore(
-    leftRoot: int,
-    leftCount: int,
-    rightRoot: int,
-    rightCount: int,
-    files: string[],
-    lines: int[],
-    columns: int[]): bool {
-    locations := new DiagnosticClusterLocationTable { Files: files, Lines: lines, Columns: columns }
-    return IsDiagnosticClusterGroupBeforeCore(leftRoot, leftCount, rightRoot, rightCount, ref locations)
 }
 
 func IsDiagnosticClusterGroupBeforeCore(
@@ -967,20 +943,6 @@ func IsDiagnosticClusterRootBeforeCore(
     }
 
     return String.Compare(locations.Files[left], locations.Files[right], StringComparison.OrdinalIgnoreCase) < 0
-}
-
-func DiagnosticClusterCompactGroupingKeysEqual(
-    left: int,
-    right: int,
-    codeIds: int[],
-    severityIds: int[],
-    categoryIds: int[],
-    sourceConstructIds: int[],
-    recipeIds: int[],
-    riskIds: int[],
-    messagePatternIds: int[]): bool {
-    keys := new DiagnosticClusterGroupingKeyTable { CodeIds: codeIds, SeverityIds: severityIds, CategoryIds: categoryIds, SourceConstructIds: sourceConstructIds, RecipeIds: recipeIds, RiskIds: riskIds, MessagePatternIds: messagePatternIds }
-    return DiagnosticClusterCompactGroupingKeysEqualCore(left, right, ref keys)
 }
 
 func DiagnosticClusterCompactGroupingKeysEqualCore(
@@ -1035,12 +997,6 @@ func PositiveModulo(value: int, divisor: int): int {
     return result
 }
 
-func CreateDiagnosticClusterNextCommand(filePath: string, line: int, column: int): string {
-    builder := new StringBuilder(filePath.Length + 48)
-    AppendDiagnosticClusterNextCommand(builder, filePath, line, column)
-    return builder.ToString()
-}
-
 func AppendDiagnosticClusterNextCommand(builder: StringBuilder, filePath: string, line: int, column: int): void {
     builder.Append("nlc query inspect --file ")
     AppendEscapedDiagnosticCommandArgument(builder, filePath)
@@ -1048,12 +1004,6 @@ func AppendDiagnosticClusterNextCommand(builder: StringBuilder, filePath: string
     builder.Append(line)
     builder.Append(':')
     builder.Append(column)
-}
-
-func EscapeDiagnosticCommandArgument(value: string): string {
-    builder := new StringBuilder(value.Length + 2)
-    AppendEscapedDiagnosticCommandArgument(builder, value)
-    return builder.ToString()
 }
 
 func AppendEscapedDiagnosticCommandArgument(builder: StringBuilder, value: string): void {

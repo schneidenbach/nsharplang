@@ -313,18 +313,6 @@ func HashReferenceDeduplicationKey(
     return hash
 }
 
-func DiagnosticDeduplicationKeysEqual(
-    left: int,
-    right: int,
-    codeIds: int[],
-    fileRanks: int[],
-    lineNumbers: int[],
-    columns: int[],
-    messageIds: int[]): bool {
-    keys := new DiagnosticDeduplicationKeyTable { CodeIds: codeIds, FileIds: fileRanks, LineNumbers: lineNumbers, Columns: columns, MessageIds: messageIds }
-    return DiagnosticDeduplicationKeysEqualCore(left, right, ref keys)
-}
-
 func DiagnosticDeduplicationKeysEqualCore(
     left: int,
     right: int,
@@ -334,16 +322,6 @@ func DiagnosticDeduplicationKeysEqualCore(
         && keys.LineNumbers[left] == keys.LineNumbers[right]
         && keys.Columns[left] == keys.Columns[right]
         && keys.MessageIds[left] == keys.MessageIds[right]
-}
-
-func ReferenceDeduplicationKeysEqual(
-    left: int,
-    right: int,
-    fileRanks: int[],
-    lineNumbers: int[],
-    columns: int[]): bool {
-    keys := new ReferenceDeduplicationKeyTable { FileIds: fileRanks, LineNumbers: lineNumbers, Columns: columns }
-    return ReferenceDeduplicationKeysEqualCore(left, right, ref keys)
 }
 
 func ReferenceDeduplicationKeysEqualCore(
@@ -390,17 +368,6 @@ func SortDiagnosticDeduplicationIndicesCore(
     }
 }
 
-func SiftDownDiagnosticDeduplicationIndices(
-    resultIndices: int[],
-    start: int,
-    end: int,
-    fileRanks: int[],
-    lineNumbers: int[],
-    columns: int[]): void {
-    keys := new ReferenceDeduplicationKeyTable { FileIds: fileRanks, LineNumbers: lineNumbers, Columns: columns }
-    SiftDownDiagnosticDeduplicationIndicesCore(resultIndices, start, end, ref keys)
-}
-
 func SiftDownDiagnosticDeduplicationIndicesCore(
     resultIndices: int[],
     start: int,
@@ -429,16 +396,6 @@ func SiftDownDiagnosticDeduplicationIndicesCore(
         resultIndices[swapIndex] = temp
         root = swapIndex
     }
-}
-
-func IsDiagnosticDeduplicationIndexBefore(
-    left: int,
-    right: int,
-    fileRanks: int[],
-    lineNumbers: int[],
-    columns: int[]): bool {
-    keys := new ReferenceDeduplicationKeyTable { FileIds: fileRanks, LineNumbers: lineNumbers, Columns: columns }
-    return IsDiagnosticDeduplicationIndexBeforeCore(left, right, ref keys)
 }
 
 func IsDiagnosticDeduplicationIndexBeforeCore(

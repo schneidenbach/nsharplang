@@ -11,6 +11,19 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — Compiler-service kernels drop unused flattened helper exports
+
+The query-position parser, project-source filter, diagnostic clustering, diagnostic/reference
+deduplication, and typo-suggestion kernels no longer emit declaration-only flattened wrappers around
+their table-shaped cores when those wrappers have no production, adapter, parity, or test callers. The
+stable batch entries such as `CliTryParsePositionPartsInto`, `ProjectSourceFilterKeptIndicesInto`,
+`DiagnosticClusterCompactGroupsInto`, `DiagnosticDeduplicateInto`, and `TypoSuggestionIndicesInto`
+continue to own the host ABI, while real-file columnar coverage pins such as
+`SortDiagnosticDeduplicationIndices` and `IsDiagnosticClusterRootBefore` remain in place.
+
+This keeps backend compiler-service dogfood code centered on table-wrapped product routes instead of
+old scalar and sort-helper compatibility conveniences.
+
 ## 2026-06-13 — CLI argument kernels drop wrapper-only scalar helpers
 
 `CliArguments.nl` no longer emits single-item raw helper wrappers that had no source, adapter, parity, or

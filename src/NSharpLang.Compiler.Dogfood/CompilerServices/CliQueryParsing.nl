@@ -202,16 +202,6 @@ func CliTryParsePositionPartsCore(
     return 1
 }
 
-func CliTryParseSimplePositivePositionInto(
-    position: string,
-    resultLines: int[],
-    lineIndex: int,
-    resultColumns: int[],
-    columnIndex: int): int {
-    results := new CliQueryPositionResultTable { Lines: resultLines, Columns: resultColumns }
-    return CliTryParseSimplePositivePositionCore(position, ref results, lineIndex, columnIndex)
-}
-
 func CliTryParseSimplePositivePositionCore(
     position: string,
     results: &CliQueryPositionResultTable,
@@ -275,11 +265,6 @@ func CliTryParseSimplePositivePositionCore(
     results.Lines[lineIndex] = line
     results.Columns[columnIndex] = column
     return 1
-}
-
-func CliTryParseIntSegmentInto(text: string, start: int, end: int, result: int[], resultIndex: int): bool {
-    intResult := new CliQueryIntResultTable { Values: result }
-    return CliTryParseIntSegmentCore(text, start, end, ref intResult, resultIndex)
 }
 
 func CliTryParseIntSegmentCore(
