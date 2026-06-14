@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — Reference-resolution score probe leaves product dogfood
+
+`CliReferenceResolutionBestScoreIndex` and its private score table moved out of product `CliArguments.nl`
+into the parity corpus beside `CliReferenceResolutionBestScoreChecksum`. The probe remains compiled and
+checked with the parity batch, but the shipped dogfood assembly no longer exposes a benchmark-only CLI
+reference-resolution helper with no adapter or command caller.
+
 ## 2026-06-14 — SoA records are first-class in language-server navigation
 
 The language server now treats `soa record` declarations as navigable type symbols instead of dropping

@@ -119,10 +119,6 @@ struct CliSeenRankTable {
     Ranks: int[]
 }
 
-struct CliScoreTable {
-    Scores: int[]
-}
-
 struct CliCountResultTable {
     Counts: int[]
 }
@@ -2584,37 +2580,6 @@ func CliStableDistinctRankIndicesCore(
     }
 
     return resultCount
-}
-
-func CliReferenceResolutionBestScoreIndex(scores: int[], count: int): int {
-    scoreTable := new CliScoreTable { Scores: scores }
-    return CliReferenceResolutionBestScoreIndexCore(ref scoreTable, count)
-}
-
-func CliReferenceResolutionBestScoreIndexCore(scoresTable: &CliScoreTable, count: int): int {
-    scores := scoresTable.Scores
-    if count <= 0 {
-        return -1
-    }
-
-    if count > scores.Length {
-        return -2
-    }
-
-    bestIndex := -1
-    bestScore := -1
-    i := 0
-    while i < count {
-        score := scores[i]
-        if score >= 0 && score > bestScore {
-            bestScore = score
-            bestIndex = i
-        }
-
-        i = i + 1
-    }
-
-    return bestIndex
 }
 
 func CliTidyDependencyStatusSummaryInto(statusRanks: int[], resultCounts: int[]): int {
