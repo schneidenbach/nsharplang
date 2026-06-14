@@ -470,19 +470,6 @@ func BindingLookupBuildNearestDeclarationIndexCore(
     return declarationCount
 }
 
-func BindingLookupFindIndex(
-    fileRanks: int[],
-    lineNumbers: int[],
-    columns: int[],
-    slotIndices: int[],
-    fileRank: int,
-    line: int,
-    column: int): int {
-    locations := new BindingLookupLocationTable { FileRanks: fileRanks, LineNumbers: lineNumbers, Columns: columns }
-    slots := new BindingLookupSlotTable { Indices: slotIndices }
-    return BindingLookupFindIndexCore(ref locations, ref slots, fileRank, line, column)
-}
-
 func BindingLookupFindIndexCore(
     locations: &BindingLookupLocationTable,
     slots: &BindingLookupSlotTable,
@@ -520,16 +507,6 @@ func BindingLookupFindIndexCore(
     }
 
     return -1
-}
-
-func BindingLookupKeysEqual(
-    left: int,
-    right: int,
-    fileRanks: int[],
-    lineNumbers: int[],
-    columns: int[]): bool {
-    locations := new BindingLookupLocationTable { FileRanks: fileRanks, LineNumbers: lineNumbers, Columns: columns }
-    return BindingLookupKeysEqualCore(left, right, ref locations)
 }
 
 func BindingLookupKeysEqualCore(
@@ -650,16 +627,6 @@ func BindingLookupCandidateColumnMaxDistance(column: int, spanStart: int, spanEn
     return maxDistance
 }
 
-func BindingLookupCandidateColumnsByCompactSort(
-    column: int,
-    spanStart: int,
-    spanEnd: int,
-    resultColumns: int[],
-    writeIndex: int): int {
-    columns := new BindingLookupCandidateColumnTable { Columns: resultColumns }
-    return BindingLookupCandidateColumnsByCompactSortCore(column, spanStart, spanEnd, ref columns, writeIndex)
-}
-
 func BindingLookupCandidateColumnsByCompactSortCore(
     column: int,
     spanStart: int,
@@ -701,15 +668,6 @@ func BindingLookupCandidateColumnsByCompactSortCore(
     }
 
     return writeIndex
-}
-
-func BindingLookupAppendCandidateColumn(
-    resultColumns: int[],
-    writeIndex: int,
-    segmentStart: int,
-    candidate: int): int {
-    columns := new BindingLookupCandidateColumnTable { Columns: resultColumns }
-    return BindingLookupAppendCandidateColumnCore(ref columns, writeIndex, segmentStart, candidate)
 }
 
 func BindingLookupAppendCandidateColumnCore(

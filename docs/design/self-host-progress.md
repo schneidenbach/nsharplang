@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — Binding lookup drops unused flattened helper exports
+
+`BindingLookup.nl` no longer emits declaration-only flattened wrappers for strict lookup equality,
+hash-slot lookup, candidate-column compact sorting, or candidate-column append. The live
+code-intelligence adapter entries remain `BindingLookupBuildSlotsInto`,
+`BindingLookupQueryDeclarationIndicesInto`, `BindingLookupCandidateColumnsInto`,
+`BindingLookupBuildNearestDeclarationIndexInto`, and `BindingLookupFindNearestDeclarationIndicesInto`;
+those still route through the table-shaped cores directly.
+
+This removes the final low-reference dogfood compiler-service helper exports while leaving the
+production semantic lookup ABI unchanged.
+
 ## 2026-06-13 — Lexer indentation standalone wrapper retired
 
 `LexerTokenKindScanner.nl` no longer emits the standalone flattened `InsertIndentationBracesInto`
