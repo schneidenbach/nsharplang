@@ -178,6 +178,7 @@ public class Analyzer : IDisposable
     private GeneratedSymbolIndex _generatedSymbols = GeneratedSymbolIndex.Empty;
     private SemanticModel _semanticModel = new(); // Semantic model for IDE features
     private BindingMap _bindingMap = new(); // Binding map for semantic references
+    private readonly HashSet<MemberAccessExpression> _soaColumnMemberAccesses = new(ReferenceEqualityComparer.Instance);
     private readonly Stack<int> _semanticScopeIds = new(); // Parallel scope ID stack for SemanticModel
     private int _currentLine; // Tracks last analyzed line for scope end positions
     private bool _suppressNullabilityFlowType;
@@ -280,6 +281,7 @@ public class Analyzer : IDisposable
         _extensionMethods.Clear();
         _semanticModel = new SemanticModel();  // Reset semantic model for new analysis
         _bindingMap = new BindingMap(); // Reset binding map for new analysis
+        _soaColumnMemberAccesses.Clear();
         _semanticScopeIds.Clear();
         _currentLine = 0;
         _suppressNullabilityFlowType = false;
@@ -5778,6 +5780,11 @@ public class Analyzer : IDisposable
         {
             ReportUndefinedMember(receiverType, member, includeStaticMembers);
         }
+        else if (receiverType is SoaRecordTypeInfo soaRecordType
+                 && TryGetSoaColumn(soaRecordType.Declaration, member.MemberName) != null)
+        {
+            _soaColumnMemberAccesses.Add(member);
+        }
 
         return member.IsNullConditional ? MakeNullableResult(memberType) : memberType;
     }
@@ -5811,6 +5818,14 @@ public class Analyzer : IDisposable
         if (receiverType is SoaRecordTypeInfo && !IsValidSoaRowIndex(indexType, isRangeAccess))
         {
             ReportInvalidSoaRowIndex(index.Index, indexType, isRangeAccess);
+            return BuiltInTypes.Unknown;
+        }
+
+        if (isRangeAccess
+            && _assignmentTargetExpressionTypes == null
+            && IsSoaColumnMemberAccess(index.Object))
+        {
+            ReportSoaColumnSliceHiddenAllocation(index);
             return BuiltInTypes.Unknown;
         }
 
@@ -5884,6 +5899,25 @@ public class Analyzer : IDisposable
             line,
             column,
             "Use an int element index, '^n' for from-end access, or a '..' range for slicing.",
+            length);
+    }
+
+    private bool IsSoaColumnMemberAccess(Expression expression) => expression switch
+    {
+        MemberAccessExpression member => _soaColumnMemberAccesses.Contains(member),
+        ParenthesizedExpression parenthesized => IsSoaColumnMemberAccess(parenthesized.Inner),
+        _ => false
+    };
+
+    private void ReportSoaColumnSliceHiddenAllocation(IndexAccessExpression index)
+    {
+        var (line, column, length) = GetExpressionDiagnosticSpan(index);
+        Error(
+            ErrorCode.InvalidSyntax,
+            "SoA column range slices allocate arrays; use explicit element indexing instead",
+            line,
+            column,
+            "Iterate with int row indexes over table.column[row], or add an allocation-free view lowering with IL-shape evidence before using slices in compiler table kernels.",
             length);
     }
 

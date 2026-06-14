@@ -1345,6 +1345,49 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaTableColumnRangeReadWouldAllocate()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable): int {
+                slice := nodes.kind[0..1]
+                return slice[0]
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("SoA column range slices allocate arrays", error.Message);
+        Assert.Contains("table.column[row]", error.Suggestion);
+    }
+
+    [Fact]
+    public void Analyzer_SoaTableColumnRangeValueReadWouldAllocate()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable): int {
+                range := 0..1
+                slice := nodes.kind[range]
+                return slice[0]
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("SoA column range slices allocate arrays", error.Message);
+        Assert.Contains("allocation-free view lowering", error.Suggestion);
+    }
+
+    [Fact]
     public void Analyzer_SoaRowViewCannotBeUsedAsRelationalPatternValue()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

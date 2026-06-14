@@ -11,14 +11,21 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA column range reads reject hidden array allocation
+
+Direct SoA column range reads such as `table.column[0..1]` and `table.column[range]` now fail during
+analysis with a hidden-allocation diagnostic. Ordinary array range reads remain accepted, but SoA column
+slices are blocked until the language owns an allocation-free span/view lowering with pinned IL-shape
+evidence. This keeps explicit systems kernels on element indexing instead of accidentally routing compiler
+table code through `RuntimeHelpers.GetSubArray`.
+
 ## 2026-06-14 — Built-in index diagnostics cover SoA column access
 
 Direct SoA column element access now inherits analyzer-side built-in array index validation, so
 `table.column["0"]` fails with a source diagnostic before IL lowering. Array slice writes such as
 `table.column[0..1] = values` now also fail during analysis instead of reaching the direct IL backend's
 unsupported range-assignment path. Valid `int`, `System.Index`/`^n`, and read-only range indexing for
-ordinary arrays remain unchanged; the SoA design note now calls out direct column slice reads as a
-remaining hidden-allocation case to settle before production table routing.
+ordinary arrays remain unchanged.
 
 ## 2026-06-14 — SoA column names are validated before wrapper emission
 
