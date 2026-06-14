@@ -1698,6 +1698,106 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaTableCapacityConstructorRequiresOneArgument()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad() {
+                nodes := new NodeTable()
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.NoMatchingOverload);
+        Assert.Contains("expects exactly one int capacity argument", error.Message);
+        Assert.Contains("new NodeTable(capacity)", error.Suggestion);
+    }
+
+    [Fact]
+    public void Analyzer_SoaTableCapacityConstructorRejectsExtraArguments()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad() {
+                nodes := new NodeTable(1, 2)
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.NoMatchingOverload);
+        Assert.Contains("expects exactly one int capacity argument", error.Message);
+        Assert.Contains("but 2 were provided", error.Message);
+    }
+
+    [Fact]
+    public void Analyzer_SoaTableCapacityConstructorRequiresInt()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad() {
+                nodes := new NodeTable("4")
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains("SoA table capacity must be int", error.Message);
+        Assert.Contains("'string'", error.Message);
+    }
+
+    [Fact]
+    public void Analyzer_SoaTableCapacityConstructorRejectsUnknownNamedArgument()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad() {
+                nodes := new NodeTable(size: 4)
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.NoMatchingOverload);
+        Assert.Contains("has no parameter named 'size'", error.Message);
+        Assert.Contains("capacity", error.Suggestion);
+    }
+
+    [Fact]
+    public void Analyzer_SoaTableCapacityConstructorRejectsNegativeLiteral()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad() {
+                nodes := new NodeTable(-1)
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains("SoA table capacity must not be negative", error.Message);
+        Assert.Contains("zero or a positive capacity", error.Suggestion);
+    }
+
+    [Fact]
     public void ILCompiler_SoaRecordNewAddAndRowProjection_LowersToColumns()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

@@ -61,8 +61,9 @@ nodes := new NodeTable(capacity)
 nodes := NodeTable.wrap(kind, valueStart, valueLength, childStart, childCount, sourceStart, length)
 ```
 
-`new` allocates exactly one array per column and initializes `length = 0`. `wrap` creates a view over
-caller-provided arrays, verifies matching lengths/capacity, and performs no element copy.
+`new` takes exactly one non-negative `int` capacity argument, allocates exactly one array per column,
+and initializes `length = 0`. `wrap` creates a view over caller-provided arrays, verifies matching
+lengths/capacity, and performs no element copy.
 
 ## Lowering
 
@@ -179,6 +180,7 @@ The compiler must produce direct diagnostics for common misuse:
 - mismatched `wrap` columns: "column lengths for NodeTable do not match";
 - null `wrap` columns: "columns for NodeTable.wrap cannot be null";
 - invalid `wrap` length: "length for NodeTable.wrap must be between 0 and column length";
+- invalid `new` capacity: "SoA table capacity must be int" or "SoA table capacity must not be negative";
 - unsupported element type: "SoA column type X is not supported in this lowering";
 - non-nullable row-column null coalescing: "The left side of '??' has type 'X', which can't be null";
 - non-int or range row indexes: "SoA table indexes must be int row ids";

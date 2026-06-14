@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA capacity constructors validate before wrapper lowering
+
+Experimental SoA construction now validates the only supported wrapper constructor shape during
+analysis: `new Table(capacity)` with exactly one non-negative `int` capacity argument. Missing, extra,
+wrongly named, non-int, and negative literal capacities now report source diagnostics instead of falling
+through to generated constructor lookup or array allocation behavior in the IL backend.
+
 ## 2026-06-14 — SoA column range reads reject hidden array allocation
 
 Direct SoA column range reads such as `table.column[0..1]` and `table.column[range]` now fail during

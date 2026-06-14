@@ -11781,11 +11781,26 @@ public class Analyzer : IDisposable
             }
         }
 
-        // Analyze constructor arguments
-        foreach (var arg in newExpr.ConstructorArguments)
+        var soaConstructionType = ResolveTypeAlias(type) as SoaRecordTypeInfo;
+        var constructorArgumentTypes = new List<TypeInfo>(newExpr.ConstructorArguments.Count);
+        for (var i = 0; i < newExpr.ConstructorArguments.Count; i++)
         {
+            var arg = newExpr.ConstructorArguments[i];
+            var previousExpectedType = _currentExpectedType;
+            if (soaConstructionType != null && newExpr.ConstructorArguments.Count == 1 && i == 0)
+            {
+                _currentExpectedType = BuiltInTypes.Int;
+            }
+
             var argType = AnalyzeExpression(arg.Value);
+            _currentExpectedType = previousExpectedType;
+            constructorArgumentTypes.Add(argType);
             ReportSoaRowEscapeIfNeeded(arg.Value, argType, "passed as a constructor argument");
+        }
+
+        if (soaConstructionType != null)
+        {
+            ValidateSoaRecordConstruction(newExpr, soaConstructionType, constructorArgumentTypes);
         }
 
         if (newExpr.ArrayLengthExpression != null)
@@ -11832,6 +11847,68 @@ public class Analyzer : IDisposable
         }
 
         return type;
+    }
+
+    private void ValidateSoaRecordConstruction(
+        NewExpression newExpr,
+        SoaRecordTypeInfo soaRecordType,
+        IReadOnlyList<TypeInfo> constructorArgumentTypes)
+    {
+        var expectedShape = $"new {soaRecordType.Declaration.Name}(capacity)";
+        if (newExpr.ConstructorArguments.Count != 1)
+        {
+            Error(
+                ErrorCode.NoMatchingOverload,
+                $"SoA table '{soaRecordType.Declaration.Name}' construction expects exactly one int capacity argument, but {newExpr.ConstructorArguments.Count} were provided",
+                newExpr.Line,
+                newExpr.Column,
+                $"Use '{expectedShape}' with a non-negative int capacity.",
+                "new".Length);
+            return;
+        }
+
+        var capacityArgument = newExpr.ConstructorArguments[0];
+        if (capacityArgument.Name is { } argumentName && argumentName != "capacity")
+        {
+            var (line, column, length) = GetExpressionDiagnosticSpan(capacityArgument.Value);
+            Error(
+                ErrorCode.NoMatchingOverload,
+                $"SoA table '{soaRecordType.Declaration.Name}' construction has no parameter named '{argumentName}'",
+                line,
+                column,
+                $"Use '{expectedShape}', or rename the argument to 'capacity'.",
+                length);
+            return;
+        }
+
+        var capacityType = ResolveTypeAlias(constructorArgumentTypes[0]);
+        if (capacityType is SoaRowTypeInfo || BuiltInTypes.IsUnknown(capacityType))
+            return;
+
+        if (capacityType != BuiltInTypes.Int)
+        {
+            var (line, column, length) = GetExpressionDiagnosticSpan(capacityArgument.Value);
+            Error(
+                ErrorCode.TypeMismatch,
+                $"SoA table capacity must be int, but this argument has type '{capacityType}'",
+                line,
+                column,
+                $"Use '{expectedShape}' with an int capacity.",
+                length);
+            return;
+        }
+
+        if (IsConstantNegative(capacityArgument.Value))
+        {
+            var (line, column, length) = GetExpressionDiagnosticSpan(capacityArgument.Value);
+            Error(
+                ErrorCode.TypeMismatch,
+                "SoA table capacity must not be negative",
+                line,
+                column,
+                "Use zero or a positive capacity; the table can grow later with add or ensureCapacity.",
+                length);
+        }
     }
 
     /// <summary>
