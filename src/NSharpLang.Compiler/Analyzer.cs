@@ -168,6 +168,7 @@ public class Analyzer : IDisposable
     // member resolution run without generic type parameters in scope and must stay lenient.
     private bool _reportUnresolvedTypes;
     private readonly HashSet<(string Name, int Line, int Column)> _reportedUnresolvedTypeRefs = new();
+    private readonly HashSet<(string Name, int Line, int Column)> _reportedSoaRowTypeRefs = new();
     private readonly HashSet<string> _referencedPackageNames = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Type> _externalTypeCache = new(); // Cache for external type lookups
     private readonly Dictionary<string, bool> _externalNamespaceCache = new(); // Cache for namespace existence checks
@@ -289,6 +290,7 @@ public class Analyzer : IDisposable
         _reportedNullabilityDiagnostics.Clear();
         _reportedUnverifiedErrorResultDiagnostics.Clear();
         _reportedUnresolvedTypeRefs.Clear();
+        _reportedSoaRowTypeRefs.Clear();
         _reportUnresolvedTypes = false;
         _currentReturnType = null;
         _currentFunction = null;
@@ -13827,7 +13829,7 @@ public class Analyzer : IDisposable
     {
         var resolved = typeRef switch
         {
-            SimpleTypeReference simple => ResolveSimpleType(simple.Name, simple.Line, simple.Column),
+            SimpleTypeReference simple => ResolveSimpleType(simple),
             GenericTypeReference generic => ResolveGenericType(generic),
             ArrayTypeReference array => new ArrayTypeInfo(ResolveType(array.ElementType)),
             NullableTypeReference nullable => new NullableTypeInfo(ResolveType(nullable.InnerType)),
@@ -13847,8 +13849,26 @@ public class Analyzer : IDisposable
         return resolved;
     }
 
+    private TypeInfo ResolveSimpleType(SimpleTypeReference simple)
+    {
+        if (ReportSoaRowTypeReferenceIfNeeded(simple.Name, simple.Line, simple.Column))
+        {
+            return BuiltInTypes.Unknown;
+        }
+
+        return ResolveSimpleType(simple.Name, simple.Line, simple.Column);
+    }
+
     private TypeInfo ResolveGenericType(GenericTypeReference generic)
     {
+        if (generic.Line > 0)
+        {
+            if (ReportSoaRowTypeReferenceIfNeeded(generic.Name, generic.Line, generic.Column))
+            {
+                return BuiltInTypes.Unknown;
+            }
+        }
+
         var typeArguments = generic.TypeArguments.Select(ResolveType).ToList();
 
         if (generic.Line > 0)
@@ -13914,6 +13934,34 @@ public class Analyzer : IDisposable
         }
 
         return new GenericTypeInfo(generic.Name, typeArguments);
+    }
+
+    private bool ReportSoaRowTypeReferenceIfNeeded(string name, int line, int column)
+    {
+        const string rowSuffix = ".Row";
+        if (!SoaFeature.IsEnabled || line <= 0 || !name.EndsWith(rowSuffix, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var tableName = name[..^rowSuffix.Length];
+        if (tableName.Length == 0 || ResolveTypeAlias(LookupType(tableName) ?? BuiltInTypes.Unknown) is not SoaRecordTypeInfo)
+        {
+            return false;
+        }
+
+        if (_reportedSoaRowTypeRefs.Add((name, line, column)))
+        {
+            Error(
+                ErrorCode.InvalidSyntax,
+                $"SoA row type '{name}' is not part of this lowering",
+                line,
+                column,
+                $"Pass the '{tableName}' table and an int row index instead; row views exist only as table[index].column projection syntax.",
+                name.Length);
+        }
+
+        return true;
     }
 
     /// <summary>

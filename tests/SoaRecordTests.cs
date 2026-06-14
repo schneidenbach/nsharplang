@@ -49,6 +49,27 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaRecordWithoutFlag_DoesNotReportRowTypeAnnotation()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, null);
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(row: NodeTable.Row): int {
+                return 0
+            }
+            """);
+
+        var error = Assert.Single(result.Errors);
+        Assert.Equal(ErrorCode.FeatureNotImplemented, error.Code);
+        Assert.Contains("soa record 'NodeTable'", error.Message);
+        Assert.DoesNotContain("NodeTable.Row", error.Message);
+    }
+
+    [Fact]
     public void Analyzer_NestedSoaRecordWithFlag_DoesNotResolveColumnTypes()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
@@ -289,6 +310,70 @@ public class SoaRecordTests : ILCompilerTestBase
         var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
         Assert.Contains("SoA row views cannot be returned", error.Message);
         Assert.Contains("table[index].column", error.Suggestion);
+    }
+
+    [Fact]
+    public void Analyzer_SoaRowTypeCannotBeUsedAsParameterAnnotation()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(row: NodeTable.Row): int {
+                return 0
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("SoA row type 'NodeTable.Row' is not part of this lowering", error.Message);
+        Assert.Contains("table and an int row index", error.Suggestion);
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.TypeNotFound);
+    }
+
+    [Fact]
+    public void Analyzer_SoaRowTypeCannotBeUsedAsReturnAnnotation()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable): NodeTable.Row {
+                return 0
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("SoA row type 'NodeTable.Row' is not part of this lowering", error.Message);
+        Assert.Contains("table and an int row index", error.Suggestion);
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.TypeNotFound);
+    }
+
+    [Fact]
+    public void Analyzer_SoaRowTypeCannotBeUsedAsLocalAnnotation()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable): int {
+                row: NodeTable.Row = 0
+                return 0
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("SoA row type 'NodeTable.Row' is not part of this lowering", error.Message);
+        Assert.Contains("table and an int row index", error.Suggestion);
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.TypeNotFound);
     }
 
     [Fact]

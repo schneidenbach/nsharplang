@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA row pseudo-types stay internal
+
+`NodeTable.Row` is now rejected in declared-type positions instead of flowing through the dotted
+external-type fallback. Parameters, returns, and locals that try to name a row type report a direct
+SoA diagnostic before emission, preserving the rule that row views are only projection syntax over a
+table plus int row index.
+
 ## 2026-06-14 — SoA negative-zero literals stay valid
 
 Analyzer-known negative checks now use parsed integer magnitude instead of raw literal text. SoA row
