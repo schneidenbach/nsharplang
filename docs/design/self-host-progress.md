@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — Direct SoA column default stores have IL-shape proof
+
+Direct column element default stores now have the same opcode evidence as row projection.
+`table.column[row] = default` writes the backing column array without first reading the old element,
+and expression-valued default assignment returns the assigned default while still avoiding row
+construction, hidden array allocation, boxing, delegate construction, and virtual dispatch.
+
 ## 2026-06-14 — Direct SoA column non-nullable coalescing stops in analysis
 
 Direct column element null-coalescing now has the same unsupported-case pins as row projection.

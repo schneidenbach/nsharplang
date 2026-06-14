@@ -99,6 +99,94 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void DirectColumnDefaultAssignment_StoresDefaultWithoutReadingOldValue()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                kind: int
+                text: string?
+            }
+
+            func clearColumns(nodes: NodeTable, row: int) {
+                nodes.kind[row] = default
+                nodes.text[row] = default
+            }
+
+            func main(): int {
+                nodes := new NodeTable(1)
+                row := nodes.add()
+                nodes.kind[row] = 9
+                nodes.text[row] = "set"
+                clearColumns(nodes, row)
+                return nodes.kind[row] + (nodes.text[row] == null ? 100 : 0)
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var clearColumns = ILShapeInspector.GetProgramMethod(assembly, "clearColumns");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(100, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoAllocationOrDispatch(clearColumns);
+            Assert.True(
+                ILShapeInspector.CountOpcode(clearColumns, OpCodes.Ldfld) >= 2,
+                "Direct column default assignment should load column fields directly.");
+            Assert.Equal(0, CountArrayElementLoads(clearColumns));
+            Assert.Equal(2, CountArrayElementStores(clearColumns));
+
+            return 0;
+        });
+    }
+
+    [Fact]
+    public void DirectColumnDefaultAssignmentExpression_ReturnsDefaultValueWithoutRowAllocation()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                kind: int
+                text: string?
+            }
+
+            func clearAsExpression(nodes: NodeTable, row: int): int {
+                kindDefault := nodes.kind[row] = default
+                textDefault := nodes.text[row] = default
+                return kindDefault + (textDefault == null ? 100 : 0) + nodes.kind[row] + (nodes.text[row] == null ? 1000 : 0)
+            }
+
+            func main(): int {
+                nodes := new NodeTable(1)
+                row := nodes.add()
+                nodes.kind[row] = 9
+                nodes.text[row] = "set"
+                return clearAsExpression(nodes, row)
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var clearAsExpression = ILShapeInspector.GetProgramMethod(assembly, "clearAsExpression");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(1100, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoAllocationOrDispatch(clearAsExpression);
+            Assert.True(
+                ILShapeInspector.CountOpcode(clearAsExpression, OpCodes.Ldfld) >= 4,
+                "Direct column default assignment expressions should load column fields directly.");
+            Assert.Equal(2, CountArrayElementLoads(clearAsExpression));
+            Assert.Equal(2, CountArrayElementStores(clearAsExpression));
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void DirectColumnFromEndIndex_UsesColumnArrayOffsetWithoutSliceAllocation()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
