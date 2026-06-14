@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — Direct SoA column element IL shape is pinned
+
+Direct SoA column element operations (`table.column[row]`) now have explicit IL-shape evidence beside
+row projection. The proof covers simple stores, compound stores, increments, reads, and from-end
+`System.Index` access, requiring direct column field plus array element traffic with no row objects,
+boxing, hidden sliced-array allocation, delegate construction, or virtual dispatch. The analyzer suite
+also pins compound mutation of generated table members (`table.column += ...`, `table.capacity += ...`)
+as a pre-emission diagnostic, keeping table shape changes routed through construction, `wrap`, `add`,
+`clear`, `ensureCapacity`, or `copyRow`.
+
 ## 2026-06-14 — Semantic-scope bridge moved fully to parity corpus
 
 `SemanticScopes.nl` no longer ships in `NSharpLang.Compiler.Dogfood/CompilerServices`, and

@@ -57,6 +57,95 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void DirectColumnElementAccess_UsesColumnArrayLoadStoreWithoutRowAllocation()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                kind: int
+            }
+
+            func update(nodes: NodeTable, row: int): int {
+                nodes.kind[row] = 3
+                nodes.kind[row] += 4
+                old := nodes.kind[row]++
+                return old * 10 + nodes.kind[row]
+            }
+
+            func main(): int {
+                nodes := new NodeTable(1)
+                row := nodes.add()
+                return update(nodes, row)
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var update = ILShapeInspector.GetProgramMethod(assembly, "update");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(78, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoAllocationOrDispatch(update);
+            Assert.True(
+                ILShapeInspector.CountOpcode(update, OpCodes.Ldfld) >= 4,
+                "Direct SoA column element operations should load the column field directly.");
+            Assert.Equal(3, CountArrayElementLoads(update));
+            Assert.Equal(3, CountArrayElementStores(update));
+
+            return 0;
+        });
+    }
+
+    [Fact]
+    public void DirectColumnFromEndIndex_UsesColumnArrayOffsetWithoutSliceAllocation()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                kind: int
+            }
+
+            func lastSlot(nodes: NodeTable): int {
+                nodes.kind[^1] = 9
+                return nodes.kind[^1]
+            }
+
+            func main(): int {
+                nodes := new NodeTable(1)
+                row := nodes.add()
+                return lastSlot(nodes) + row
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var lastSlot = ILShapeInspector.GetProgramMethod(assembly, "lastSlot");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(9, Assert.IsType<int>(main.Invoke(null, null)));
+
+            ILShapeInspector.AssertNoBoxing(lastSlot);
+            Assert.Equal(0, ILShapeInspector.CountOpcode(lastSlot, OpCodes.Newarr));
+            Assert.Equal(0, ILShapeInspector.CountDelegateConstructions(lastSlot));
+            Assert.Equal(0, ILShapeInspector.CountOpcode(lastSlot, OpCodes.Callvirt));
+            Assert.Equal(0, ILShapeInspector.CountCallsTo(
+                lastSlot,
+                typeof(System.Runtime.CompilerServices.RuntimeHelpers),
+                nameof(System.Runtime.CompilerServices.RuntimeHelpers.GetSubArray)));
+            Assert.True(
+                ILShapeInspector.CountOpcode(lastSlot, OpCodes.Ldfld) >= 2,
+                "Direct SoA from-end column access should still read the backing column field.");
+            Assert.Equal(1, CountArrayElementLoads(lastSlot));
+            Assert.Equal(1, CountArrayElementStores(lastSlot));
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void NewCapacityConstructor_AllocatesOneArrayPerColumnWithoutRowObjects()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
