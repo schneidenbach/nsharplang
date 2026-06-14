@@ -19512,7 +19512,7 @@ public partial class ILCompiler
             MustExpression mustExpression => GetMustExpressionType(mustExpression),
             BinaryExpression binary => GetBinaryExpressionType(binary),
             ParenthesizedExpression paren => GetExpressionType(paren.Inner),
-            AssignmentExpression assignment => GetExpressionType(assignment.Value),
+            AssignmentExpression assignment => GetAssignmentExpressionType(assignment),
             TupleExpression tuple => GetTupleExpressionType(tuple),
             NewExpression newExpr => newExpr.Type != null || _expectedExpressionType != null || IsAnonymousObjectCreation(newExpr)
                 ? MapValueStructUnionCaseToUnion(ResolveNewExpressionType(newExpr))
@@ -19554,6 +19554,22 @@ public partial class ILCompiler
 
         GetLambdaSignature(lambda, out var parameterTypes, out var returnType);
         return CreateDelegateType(parameterTypes, returnType);
+    }
+
+    private Type GetAssignmentExpressionType(AssignmentExpression assignment)
+    {
+        if (assignment.Target is IdentifierExpression { Name: "_" })
+        {
+            return GetExpressionType(assignment.Value);
+        }
+
+        return assignment.Target switch
+        {
+            IdentifierExpression identifier => GetIdentifierType(identifier),
+            MemberAccessExpression memberAccess => GetMemberAccessType(memberAccess),
+            IndexAccessExpression indexAccess => GetIndexAccessType(indexAccess),
+            _ => GetExpressionType(assignment.Value)
+        };
     }
 
     private Type GetMatchExpressionType(MatchExpression match)

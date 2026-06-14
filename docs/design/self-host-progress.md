@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA default row-column assignment expressions preserve default values
+
+The SoA IL-shape evidence now covers `value := table[row].column = default` for scalar and nullable
+reference columns. The expression returns the assigned default while the store goes straight through
+the backing column arrays with no row object, boxing, hidden array allocation, delegate construction,
+or virtual dispatch.
+
 ## 2026-06-14 — SoA null-coalescing row-column assignment expressions preserve values
 
 The SoA IL-shape evidence now covers `value := table[row].column ??= fallback` in both null and
