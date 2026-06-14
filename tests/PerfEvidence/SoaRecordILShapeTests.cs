@@ -426,6 +426,66 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void DirectColumnIntegralVerifiedTypeUpdates_UseColumnArrayLoadStoreWithoutRowAllocation()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                flags: uint
+                start: long
+                marker: char
+            }
+
+            func update(nodes: NodeTable, row: int): int {
+                nodes.flags[row] += (uint)5
+                oldFlags := nodes.flags[row]++
+                nodes.start[row] += 7L
+                oldStart := nodes.start[row]--
+                oldMarker := nodes.marker[row]++
+                preMarker := ++nodes.marker[row]
+
+                total := (int)nodes.flags[row]
+                total += (int)oldFlags * 10
+                total += (int)nodes.start[row]
+                total += (int)oldStart
+                total += (int)oldMarker
+                total += (int)preMarker
+                total += (int)nodes.marker[row]
+                return total
+            }
+
+            func main(): int {
+                nodes := new NodeTable(1)
+                row := nodes.add()
+                nodes.flags[row] = (uint)2
+                nodes.start[row] = 20L
+                nodes.marker[row] = 'A'
+                return update(nodes, row)
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var update = ILShapeInspector.GetProgramMethod(assembly, "update");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(330, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoAllocationOrDispatch(update);
+            Assert.True(
+                ILShapeInspector.CountOpcode(update, OpCodes.Ldfld) >= 9,
+                "Direct column integral updates should load backing column fields directly.");
+            Assert.True(
+                CountArrayElementLoads(update) >= 9,
+                "Direct column integral updates should read current and returned values from backing arrays.");
+            Assert.Equal(6, CountArrayElementStores(update));
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void DirectColumnFromEndIndex_UsesColumnArrayOffsetWithoutSliceAllocation()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
@@ -600,6 +660,65 @@ public class SoaRecordILShapeTests
                 CountArrayElementLoads(decrementLast) >= 3,
                 "Direct SoA from-end decrement should read current and returned values from the backing array.");
             Assert.Equal(3, CountArrayElementStores(decrementLast));
+
+            return 0;
+        });
+    }
+
+    [Fact]
+    public void DirectColumnFromEndIntegralVerifiedTypeUpdates_UseColumnArrayOffsetWithoutSliceAllocation()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                flags: uint
+                start: long
+                marker: char
+            }
+
+            func updateLast(nodes: NodeTable): int {
+                nodes.flags[^1] += (uint)5
+                oldFlags := nodes.flags[^1]++
+                nodes.start[^1] += 7L
+                oldStart := nodes.start[^1]--
+                oldMarker := nodes.marker[^1]++
+                preMarker := ++nodes.marker[^1]
+
+                total := (int)nodes.flags[^1]
+                total += (int)oldFlags * 10
+                total += (int)nodes.start[^1]
+                total += (int)oldStart
+                total += (int)oldMarker
+                total += (int)preMarker
+                total += (int)nodes.marker[^1]
+                return total
+            }
+
+            func main(): int {
+                nodes := new NodeTable(2)
+                nodes.flags[^1] = (uint)2
+                nodes.start[^1] = 20L
+                nodes.marker[^1] = 'A'
+                return updateLast(nodes)
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var updateLast = ILShapeInspector.GetProgramMethod(assembly, "updateLast");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(330, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoFromEndSliceAllocation(updateLast);
+            Assert.True(
+                ILShapeInspector.CountOpcode(updateLast, OpCodes.Ldfld) >= 9,
+                "Direct from-end integral updates should load backing column fields directly.");
+            Assert.True(
+                CountArrayElementLoads(updateLast) >= 9,
+                "Direct from-end integral updates should read current and returned values from backing arrays.");
+            Assert.Equal(6, CountArrayElementStores(updateLast));
 
             return 0;
         });
@@ -1966,6 +2085,66 @@ public class SoaRecordILShapeTests
                 CountArrayElementLoads(bump) >= 3,
                 "Row-column prefix increment/decrement should load current values and the returned value from the column array.");
             Assert.Equal(2, CountArrayElementStores(bump));
+            return 0;
+        });
+    }
+
+    [Fact]
+    public void RowColumnIntegralVerifiedTypeUpdates_UseColumnArrayLoadStoreWithoutRowAllocation()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                flags: uint
+                start: long
+                marker: char
+            }
+
+            func update(nodes: NodeTable, row: int): int {
+                nodes[row].flags += (uint)5
+                oldFlags := nodes[row].flags++
+                nodes[row].start += 7L
+                oldStart := nodes[row].start--
+                oldMarker := nodes[row].marker++
+                preMarker := ++nodes[row].marker
+
+                total := (int)nodes[row].flags
+                total += (int)oldFlags * 10
+                total += (int)nodes[row].start
+                total += (int)oldStart
+                total += (int)oldMarker
+                total += (int)preMarker
+                total += (int)nodes[row].marker
+                return total
+            }
+
+            func main(): int {
+                nodes := new NodeTable(1)
+                row := nodes.add()
+                nodes[row].flags = (uint)2
+                nodes[row].start = 20L
+                nodes[row].marker = 'A'
+                return update(nodes, row)
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var update = ILShapeInspector.GetProgramMethod(assembly, "update");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(330, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoAllocationOrDispatch(update);
+            Assert.True(
+                ILShapeInspector.CountOpcode(update, OpCodes.Ldfld) >= 9,
+                "Row-column integral updates should load backing column fields directly.");
+            Assert.True(
+                CountArrayElementLoads(update) >= 9,
+                "Row-column integral updates should read current and returned values from backing arrays.");
+            Assert.Equal(6, CountArrayElementStores(update));
+
             return 0;
         });
     }

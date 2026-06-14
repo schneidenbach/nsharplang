@@ -301,12 +301,15 @@ reads, compound stores, prefix/postfix increments, reads across the verified sca
 element-type set, direct column null-coalescing reads/assignments, and from-end `System.Index` access
 including expression-valued simple stores, default stores across the verified scalar/reference
 element-type set, including expression-valued default stores, without old-element reads, verified
-scalar/reference element reads/stores, and null-coalescing reads/assignments.
+scalar/reference element reads/stores, integral `uint`/`long`/`char` update forms, and
+null-coalescing reads/assignments.
 Row-projection null-coalescing
 reads/assignments have the same direct column proof, with range/slice allocation still rejected during
-analysis. The generated `new`, `wrap`, `add`, `clear`, `ensureCapacity`, and `copyRow` methods are
-also pinned across the verified scalar/reference element-type set. Construction allocates exactly one
-array per column and stores column/metadata fields; `wrap` stores incoming column references without
+analysis. Row-projection integral `uint`/`long`/`char` update forms are pinned with the same
+backing-column array proof. The generated `new`, `wrap`, `add`, `clear`, `ensureCapacity`, and
+`copyRow` methods are also pinned across the verified scalar/reference element-type set.
+Construction allocates exactly one array per column and stores column/metadata fields; `wrap` stores
+incoming column references without
 allocating arrays or copying elements; `add` updates only length metadata after calling
 `ensureCapacity`; `clear` resets only length; `ensureCapacity` emits one `Array.Resize<T>` per column;
 and `copyRow` emits one element load/store pair per column while still calling `ensureCapacity` for

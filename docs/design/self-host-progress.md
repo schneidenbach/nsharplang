@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA integral updates cover non-int verified types
+
+SoA row projection, direct column indexing, and direct from-end column indexing now have IL-shape
+evidence for accepted `uint`, `long`, and `char` update forms. Compound `uint`/`long` stores and
+prefix/postfix `uint`/`long`/`char` increments/decrements stay on backing-column array traffic with
+no row construction, slice allocation, boxing, delegate construction, or virtual dispatch.
+
 ## 2026-06-14 — SoA unsupported declaration shapes are pinned before emission
 
 SoA declarations now have explicit regression coverage for the remaining unsupported table shapes
