@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA row-column assignment expressions preserve assigned values
+
+The SoA IL-shape evidence now covers row-column assignment expressions whose assigned value is consumed
+by an enclosing initializer. Both `nodes[row].column += value` and `nodes[row].column = value` store
+through the backing column arrays, leave the assigned value available, and still avoid row objects,
+boxing, array allocation, delegate construction, and virtual dispatch.
+
 ## 2026-06-14 — SoA row-column compound assignment has IL-shape proof
 
 The SoA IL-shape evidence now pins accepted compound assignment on row columns (`nodes[row].column +=`
