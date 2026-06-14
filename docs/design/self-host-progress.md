@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — Direct SoA column null-coalescing IL shape is pinned
+
+Direct column element null-coalescing now has runtime and opcode evidence beside row projection.
+`table.column[row] ?? fallback` and `table.column[row] ??= fallback` both operate on the backing
+column array directly, with no row construction, heap array allocation, boxing, delegate construction,
+or virtual dispatch.
+
 ## 2026-06-14 — SoA row-column null-coalescing IL shape is pinned
 
 Accepted row-column null-coalescing operations now have method-level opcode evidence. Both

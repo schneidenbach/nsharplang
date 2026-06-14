@@ -4539,6 +4539,112 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void ILCompiler_SoaRecordNullCoalesceOnDirectColumnElement_ChoosesFallbackOrExistingValue()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var source = """
+            soa record NodeTable {
+                text: string
+            }
+
+            func main(): string {
+                nodes := new NodeTable(2)
+                first := nodes.add()
+                second := nodes.add()
+                missing := nodes.text[first] ?? "fallback"
+                nodes.text[second] = "ready"
+                existing := nodes.text[second] ?? "ignored"
+                nodes.text[first] ??= "assigned"
+                nodes.text[first] ??= "other"
+                return missing + ":" + existing + ":" + nodes.text[first]
+            }
+            """;
+
+        Assert.Equal("fallback:ready:assigned", Assert.IsType<string>(CompileAndInvoke(source)));
+    }
+
+    [Fact]
+    public void ILCompiler_SoaRecordNullCoalesceOnDirectColumnElement_UsesColumnElementILShape()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var source = """
+            soa record NodeTable {
+                text: string
+            }
+
+            func readOrFallback(nodes: NodeTable, row: int): string {
+                return nodes.text[row] ?? "fallback"
+            }
+
+            func main(): string {
+                nodes := new NodeTable(1)
+                row := nodes.add()
+                return readOrFallback(nodes, row)
+            }
+            """;
+
+        var opCodes = CompileAndInspect(source, assembly =>
+        {
+            var readOrFallback = assembly.GetType("Program")!.GetMethod(
+                "readOrFallback",
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(readOrFallback);
+            return GetMethodOpCodes(readOrFallback!);
+        });
+
+        Assert.Contains(OpCodes.Ldfld, opCodes);
+        Assert.Contains(opCodes, IsArrayElementLoad);
+        Assert.DoesNotContain(OpCodes.Newobj, opCodes);
+        Assert.DoesNotContain(OpCodes.Newarr, opCodes);
+        Assert.DoesNotContain(OpCodes.Box, opCodes);
+        Assert.DoesNotContain(OpCodes.Ldftn, opCodes);
+        Assert.DoesNotContain(OpCodes.Callvirt, opCodes);
+    }
+
+    [Fact]
+    public void ILCompiler_SoaRecordNullCoalesceAssignOnDirectColumnElement_UsesColumnElementILShape()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var source = """
+            soa record NodeTable {
+                text: string
+            }
+
+            func setIfMissing(nodes: NodeTable, row: int): string {
+                nodes.text[row] ??= "fallback"
+                return nodes.text[row]
+            }
+
+            func main(): string {
+                nodes := new NodeTable(1)
+                row := nodes.add()
+                return setIfMissing(nodes, row)
+            }
+            """;
+
+        var opCodes = CompileAndInspect(source, assembly =>
+        {
+            var setIfMissing = assembly.GetType("Program")!.GetMethod(
+                "setIfMissing",
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(setIfMissing);
+            return GetMethodOpCodes(setIfMissing!);
+        });
+
+        Assert.Contains(OpCodes.Ldfld, opCodes);
+        Assert.Contains(opCodes, IsArrayElementLoad);
+        Assert.Contains(opCodes, IsArrayElementStore);
+        Assert.DoesNotContain(OpCodes.Newobj, opCodes);
+        Assert.DoesNotContain(OpCodes.Newarr, opCodes);
+        Assert.DoesNotContain(OpCodes.Box, opCodes);
+        Assert.DoesNotContain(OpCodes.Ldftn, opCodes);
+        Assert.DoesNotContain(OpCodes.Callvirt, opCodes);
+    }
+
+    [Fact]
     public void Analyzer_SoaRecordNullCoalesceAssignOnNonNullableRowColumn_IsRejected()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
