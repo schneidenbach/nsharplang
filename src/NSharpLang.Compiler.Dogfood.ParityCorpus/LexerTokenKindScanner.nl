@@ -4,6 +4,27 @@
 // their product file — most delegate to sibling kernels that stay in the product). They are
 // NOT part of the shipped dogfood assembly.
 
+func TokenizeKinds(source: string): int[] {
+    tokens := new LexerTokenKindTable { Kinds: new int[](source.Length + 1) }
+    count := TokenizeKindsCore(source, ref tokens)
+    return CopyKindsCore(ref tokens, count)
+}
+
+func TokenizeKindsInto(source: string, buffer: int[]): int {
+    tokens := new LexerTokenKindTable { Kinds: buffer }
+    return TokenizeKindsCore(source, ref tokens)
+}
+
+func TokenizeMetadataInto(source: string, kinds: int[], starts: int[], valueLengths: int[], lines: int[], columns: int[]): int {
+    metadata := new LexerTokenMetadataTable { Kinds: kinds, Starts: starts, ValueLengths: valueLengths, Lines: lines, Columns: columns }
+    return TokenizeMetadataCore(source, ref metadata)
+}
+
+func CommentsInto(source: string, lines: int[], columns: int[], starts: int[], lengths: int[], isMultiLine: int[]): int {
+    comments := new LexerCommentTable { Lines: lines, Columns: columns, Starts: starts, Lengths: lengths, IsMultiLine: isMultiLine }
+    return CommentsCore(source, ref comments)
+}
+
 func ParserTokenCompactionChecksumInto(tokenKinds: int[], resultIndices: int[]): int {
     length := tokenKinds.Length
     if resultIndices.Length < length {

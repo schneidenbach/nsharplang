@@ -26,12 +26,6 @@ struct LexerCommentTable {
     IsMultiLine: int[]
 }
 
-func TokenizeKinds(source: string): int[] {
-    tokens := new LexerTokenKindTable { Kinds: new int[](source.Length + 1) }
-    count := TokenizeKindsCore(source, ref tokens)
-    return CopyKindsCore(ref tokens, count)
-}
-
 func ParserTokenCompactionIndicesInto(tokenKinds: int[], resultIndices: int[]): int {
     tokens := new LexerTokenKindTable { Kinds: tokenKinds }
     result := new LexerTokenIndexTable { Indices: resultIndices }
@@ -122,11 +116,6 @@ func ParserTokenCompactionIndicesCore(tokens: &LexerTokenKindTable, result: &Lex
     }
 
     return count
-}
-
-func TokenizeKindsInto(source: string, buffer: int[]): int {
-    tokens := new LexerTokenKindTable { Kinds: buffer }
-    return TokenizeKindsCore(source, ref tokens)
 }
 
 func TokenizeKindsCore(source: string, tokens: &LexerTokenKindTable): int {
@@ -268,11 +257,6 @@ func TokenizeKindsCore(source: string, tokens: &LexerTokenKindTable): int {
     tokens.Kinds[count] = 135
     count = count + 1
     return count
-}
-
-func TokenizeMetadataInto(source: string, kinds: int[], starts: int[], valueLengths: int[], lines: int[], columns: int[]): int {
-    metadata := new LexerTokenMetadataTable { Kinds: kinds, Starts: starts, ValueLengths: valueLengths, Lines: lines, Columns: columns }
-    return TokenizeMetadataCore(source, ref metadata)
 }
 
 func TokenizeMetadataCore(source: string, metadata: &LexerTokenMetadataTable): int {
@@ -721,14 +705,9 @@ func TokenizeMetadataWithIndentationInto(source: string, kinds: int[], starts: i
 // this records line, column, start offset, length, and isMultiLine (1 = block /* */, 0 = line // or
 // doc ///). The comment text C# stores is the full span including delimiters for line/doc comments and
 // "/*" + inner + "*/" for block comments -- both equal (end - start), so `length` here = end - start.
-// The loop mirrors TokenizeMetadataInto's token dispatch (consuming strings/raw strings/char/lifetime/
+// The loop mirrors TokenizeMetadataCore's token dispatch (consuming strings/raw strings/char/lifetime/
 // number/identifier/operator runs as units) so a `//` or `/*` INSIDE a literal is never misread as a
 // comment, and so line/column tracking through multi-line raw strings stays exact.
-func CommentsInto(source: string, lines: int[], columns: int[], starts: int[], lengths: int[], isMultiLine: int[]): int {
-    comments := new LexerCommentTable { Lines: lines, Columns: columns, Starts: starts, Lengths: lengths, IsMultiLine: isMultiLine }
-    return CommentsCore(source, ref comments)
-}
-
 func CommentsCore(source: string, comments: &LexerCommentTable): int {
     position := 0
     length := source.Length

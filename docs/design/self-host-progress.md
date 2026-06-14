@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — Raw lexer parity wrappers leave product dogfood
+
+`LexerTokenKindScanner.nl` now keeps the compiler-routed composed lexer entry
+`TokenizeMetadataWithIndentationInto` in the shipped dogfood source while moving raw parity entry points
+(`TokenizeKinds`, `TokenizeKindsInto`, `TokenizeMetadataInto`, and `CommentsInto`) into the parity
+corpus. Product-only coverage pins those probes absent from emission, and product+parity coverage keeps
+the lexer parity tests alive without counting them as shipped compiler routing evidence.
+
 ## 2026-06-14 — Null-coalescing assignment rejects non-nullable value targets before emission
 
 The analyzer now rejects `??=` when the assignment target cannot be null, including SoA row-column

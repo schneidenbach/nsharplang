@@ -8017,6 +8017,23 @@ class B
         Assert.Contains("CliTryParsePositionInto", cliQueryParityMethods!);
         Assert.Contains("CliQueryIsWhiteSpace", cliQueryParityMethods!);
         Assert.Contains("CliQueryMinInt", cliQueryParityMethods!);
+
+        var lexerProduct = ReadDogfoodProductFile("LexerTokenKindScanner.nl");
+        var (lexerOk, _, _, lexerProductMethods) = RouteColumnarProgram(lexerProduct);
+        Assert.True(lexerOk, "LexerTokenKindScanner.nl product source should still compile without raw lexer parity wrappers.");
+        Assert.Contains("TokenizeMetadataWithIndentationInto", lexerProductMethods!);
+        Assert.DoesNotContain("TokenizeKinds", lexerProductMethods!);
+        Assert.DoesNotContain("TokenizeKindsInto", lexerProductMethods!);
+        Assert.DoesNotContain("TokenizeMetadataInto", lexerProductMethods!);
+        Assert.DoesNotContain("CommentsInto", lexerProductMethods!);
+
+        var lexerWithParity = ReadDogfoodFileWithParityCorpus("LexerTokenKindScanner.nl");
+        var (lexerParityOk, _, _, lexerParityMethods) = RouteColumnarProgram(lexerWithParity);
+        Assert.True(lexerParityOk, "LexerTokenKindScanner.nl parity corpus should still compile with raw lexer parity wrappers.");
+        Assert.Contains("TokenizeKinds", lexerParityMethods!);
+        Assert.Contains("TokenizeKindsInto", lexerParityMethods!);
+        Assert.Contains("TokenizeMetadataInto", lexerParityMethods!);
+        Assert.Contains("CommentsInto", lexerParityMethods!);
     }
 
     // PRODUCT CORPUS COVERAGE (ratcheting): how many shipped dogfood compiler-service files, excluding extracted
