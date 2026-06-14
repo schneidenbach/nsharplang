@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA generated wrapper methods cover verified element types
+
+Generated `new`, `wrap`, and `ensureCapacity` now have mixed column-type opcode evidence over `int`,
+`uint`, `long`, `bool`, `char`, `string`, and `string?` columns. Construction allocates exactly one
+backing array per column and stores only column/metadata fields, `wrap` stores caller-provided column
+references without allocating arrays or copying elements, and `ensureCapacity` grows every column via
+one `Array.Resize<T>` call per column while preserving existing row values. These generated methods
+remain free of row construction, boxing, delegate construction, and virtual dispatch.
+
 ## 2026-06-14 — SoA copyRow has verified element-type IL-shape proof
 
 Generated `copyRow` now has mixed column-type opcode evidence. Copying a row over `int`, `uint`,
