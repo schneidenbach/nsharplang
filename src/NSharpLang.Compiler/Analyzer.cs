@@ -12309,25 +12309,32 @@ public class Analyzer : IDisposable
         return expectedTuple.Elements[elementIndex].Type;
     }
 
-    private TypeInfo? GetExpectedArrayElementType(TypeInfo? expectedType)
+    private (TypeInfo ElementType, string TargetKind)? GetExpectedElementType(TypeInfo? expectedType)
     {
         if (expectedType == null)
         {
             return null;
         }
 
-        return ResolveTypeAlias(expectedType) switch
+        var resolvedExpectedType = ResolveTypeAlias(expectedType);
+        if (IsCollectionType(resolvedExpectedType, out var collectionElementType))
         {
-            ArrayTypeInfo arrayType => arrayType.ElementType,
+            return (collectionElementType, "collection");
+        }
+
+        return resolvedExpectedType switch
+        {
+            ArrayTypeInfo arrayType => (arrayType.ElementType, "array"),
             ReflectionTypeInfo reflectionType when reflectionType.Type.IsArray && reflectionType.Type.GetElementType() != null
-                => ConvertReflectionType(reflectionType.Type.GetElementType()!),
+                => (ConvertReflectionType(reflectionType.Type.GetElementType()!), "array"),
             _ => null
         };
     }
 
     private TypeInfo AnalyzeArrayLiteral(ArrayLiteralExpression array)
     {
-        var expectedElementType = GetExpectedArrayElementType(_currentExpectedType);
+        var expectedElement = GetExpectedElementType(_currentExpectedType);
+        var expectedElementType = expectedElement?.ElementType;
         if (array.Elements.Count == 0)
         {
             return new ArrayTypeInfo(expectedElementType ?? BuiltInTypes.Unknown);
@@ -12335,6 +12342,10 @@ public class Analyzer : IDisposable
 
         if (expectedElementType != null)
         {
+            var targetKind = expectedElement?.TargetKind ?? "array";
+            var elementLabel = targetKind == "collection" ? "Collection element" : "Array element";
+            var storageContext = targetKind == "collection" ? "stored in a collection literal" : "stored in an array";
+
             foreach (var elem in array.Elements)
             {
                 var previousExpectedType = _currentExpectedType;
@@ -12342,12 +12353,12 @@ public class Analyzer : IDisposable
                 var elemType = AnalyzeExpression(elem);
                 _currentExpectedType = previousExpectedType;
 
-                ReportSoaRowEscapeIfNeeded(elem, elemType, "stored in an array");
+                ReportSoaRowEscapeIfNeeded(elem, elemType, storageContext);
                 if (!IsAssignable(expectedElementType, elemType))
                 {
                     var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetExpressionDiagnosticSpan(elem);
                     Error(ErrorCode.TypeMismatch,
-                        $"Array element is '{elemType}', but the target array expects '{expectedElementType}'",
+                        $"{elementLabel} is '{elemType}', but the target {targetKind} expects '{expectedElementType}'",
                         diagnosticLine,
                         diagnosticColumn,
                         length: diagnosticLength);
@@ -12609,9 +12620,10 @@ public class Analyzer : IDisposable
     {
         if (prop.Name == null || prop.IndexExpression != null)
         {
-            var expectedElementType = prop.Name == null && prop.IndexExpression == null
-                ? GetExpectedArrayElementType(constructedType)
+            var expectedElement = prop.Name == null && prop.IndexExpression == null
+                ? GetExpectedElementType(constructedType)
                 : null;
+            var expectedElementType = expectedElement?.ElementType;
             var previousInitializerExpectedType = _currentExpectedType;
             if (expectedElementType != null)
             {
@@ -12623,10 +12635,12 @@ public class Analyzer : IDisposable
             ReportSoaRowEscapeIfNeeded(prop.Value, initializerValueType, "stored in an initializer");
             if (expectedElementType != null && !IsAssignable(expectedElementType, initializerValueType))
             {
+                var targetKind = expectedElement?.TargetKind ?? "array";
+                var elementLabel = targetKind == "collection" ? "Collection initializer element" : "Array initializer element";
                 var (initializerDiagnosticLine, initializerDiagnosticColumn, initializerDiagnosticLength) =
                     GetExpressionDiagnosticSpan(prop.Value);
                 Error(ErrorCode.TypeMismatch,
-                    $"Array initializer element is '{initializerValueType}', but the target array expects '{expectedElementType}'",
+                    $"{elementLabel} is '{initializerValueType}', but the target {targetKind} expects '{expectedElementType}'",
                     initializerDiagnosticLine,
                     initializerDiagnosticColumn,
                     length: initializerDiagnosticLength);

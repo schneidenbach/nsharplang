@@ -2828,7 +2828,7 @@ func Main() {
             func Main() {
                 let numbers: List<int> = [""not"", ""ints""]
             }
-        ", "is typed as");
+        ", "target collection expects 'int'");
     }
 
     [Fact]
