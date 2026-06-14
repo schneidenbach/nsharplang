@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA enum bitwise expressions have IL-shape proof
+
+Int-backed enum SoA columns now have opcode evidence for same-enum bitwise expressions feeding
+expression-valued stores across row projection, direct column indexing, and direct from-end column
+indexing. `|`, `^`, and `&` stay on backing-column array traffic with no row construction, slice
+allocation, boxing, delegate construction, or virtual dispatch.
+
 ## 2026-06-14 — SoA enum null-coalescing stops before emission
 
 Int-backed enum SoA columns now have analyzer pins for non-nullable `??` and `??=` across row
