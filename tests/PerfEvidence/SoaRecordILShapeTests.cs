@@ -443,6 +443,69 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void DirectColumnFromEndDefaultStores_DoNotReadOldElement()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                kind: int
+                text: string?
+            }
+
+            func clearLast(nodes: NodeTable) {
+                nodes.kind[^1] = default
+                nodes.text[^1] = default
+            }
+
+            func clearLastAsExpression(nodes: NodeTable): int {
+                kindDefault := nodes.kind[^1] = default
+                textDefault := nodes.text[^1] = default
+                return kindDefault + (textDefault == null ? 100 : 0)
+            }
+
+            func main(): int {
+                nodes := new NodeTable(2)
+                nodes.kind[^1] = 9
+                nodes.text[^1] = "set"
+                clearLast(nodes)
+                first := nodes.kind[^1] + (nodes.text[^1] == null ? 100 : 0)
+
+                nodes.kind[^1] = 8
+                nodes.text[^1] = "set"
+                second := clearLastAsExpression(nodes)
+                third := nodes.kind[^1] + (nodes.text[^1] == null ? 1000 : 0)
+                return first + second + third
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var clearLast = ILShapeInspector.GetProgramMethod(assembly, "clearLast");
+            var clearLastAsExpression = ILShapeInspector.GetProgramMethod(assembly, "clearLastAsExpression");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(1200, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoFromEndSliceAllocation(clearLast);
+            Assert.True(
+                ILShapeInspector.CountOpcode(clearLast, OpCodes.Ldfld) >= 2,
+                "Direct SoA from-end default stores should load backing column fields directly.");
+            Assert.Equal(0, CountArrayElementLoads(clearLast));
+            Assert.Equal(2, CountArrayElementStores(clearLast));
+
+            AssertNoFromEndSliceAllocation(clearLastAsExpression);
+            Assert.True(
+                ILShapeInspector.CountOpcode(clearLastAsExpression, OpCodes.Ldfld) >= 2,
+                "Direct SoA from-end default assignment expressions should load backing column fields directly.");
+            Assert.Equal(0, CountArrayElementLoads(clearLastAsExpression));
+            Assert.Equal(2, CountArrayElementStores(clearLastAsExpression));
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void NewCapacityConstructor_AllocatesOneArrayPerColumnWithoutRowObjects()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

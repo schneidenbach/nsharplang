@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — Direct SoA from-end default stores avoid old reads
+
+Direct backing-column `System.Index` default stores now have opcode evidence matching ordinary
+direct-column stores. `table.column[^1] = default` and expression-valued default assignments write the
+backing array without reading the old element, while still avoiding slice allocation, row
+construction, boxing, delegate construction, and virtual dispatch.
+
 ## 2026-06-14 — Direct SoA from-end null-coalescing has IL-shape proof
 
 Direct backing-column `System.Index` null-coalescing now has opcode evidence for both reads and
