@@ -15,6 +15,147 @@ func TokenizeKindsInto(source: string, buffer: int[]): int {
     return TokenizeKindsCore(source, ref tokens)
 }
 
+func TokenizeKindsCore(source: string, tokens: &LexerTokenKindTable): int {
+    position := 0
+    length := source.Length
+    count := 0
+
+    while position < length {
+        ch := source[position]
+
+        if IsWhitespaceExceptNewline(ch) {
+            position = position + 1
+            continue
+        }
+
+        if ch == '\n' {
+            tokens.Kinds[count] = 136
+            count = count + 1
+            position = position + 1
+            continue
+        }
+
+        if ch == '\r' {
+            tokens.Kinds[count] = 136
+            count = count + 1
+            position = position + 1
+            if position < length && source[position] == '\n' {
+                position = position + 1
+            }
+            continue
+        }
+
+        if ch == '#' {
+            tokens.Kinds[count] = 138
+            count = count + 1
+            position = position + 1
+            while position < length && source[position] != '\n' && source[position] != '\r' {
+                position = position + 1
+            }
+            continue
+        }
+
+        if ch == '/' && position + 1 < length {
+            next := source[position + 1]
+            if next == '/' {
+                position = position + 2
+                while position < length && source[position] != '\n' && source[position] != '\r' {
+                    position = position + 1
+                }
+                continue
+            }
+
+            if next == '*' {
+                position = position + 2
+                while position < length {
+                    if source[position] == '*' && position + 1 < length && source[position + 1] == '/' {
+                        position = position + 2
+                        break
+                    }
+
+                    position = position + 1
+                }
+                continue
+            }
+        }
+
+        if ch == '$' && position + 1 < length && source[position + 1] == '"' {
+            if position + 3 < length && source[position + 2] == '"' && source[position + 3] == '"' {
+                tokens.Kinds[count] = 6
+                count = count + 1
+                position = ScanRawString(source, position + 4, length)
+            } else {
+                tokens.Kinds[count] = 4
+                count = count + 1
+                position = ScanString(source, position + 1, length, true)
+            }
+            continue
+        }
+
+        if ch == '"' {
+            if position + 2 < length && source[position + 1] == '"' && source[position + 2] == '"' {
+                tokens.Kinds[count] = 5
+                count = count + 1
+                position = ScanRawString(source, position + 3, length)
+            } else {
+                tokens.Kinds[count] = 4
+                count = count + 1
+                position = ScanString(source, position, length, false)
+            }
+            continue
+        }
+
+        if ch == '\'' && IsLifetimeStartAt(source, position, length) {
+            tokens.Kinds[count] = 142
+            count = count + 1
+            position = ScanLifetime(source, position, length)
+            continue
+        }
+
+        if ch == '\'' {
+            tokens.Kinds[count] = 3
+            count = count + 1
+            position = ScanCharLiteral(source, position, length)
+            continue
+        }
+
+        if IsDigit(ch) {
+            numberInfo := ScanNumberInfo(source, position, length)
+            numberKind := numberInfo & 3
+            if numberKind == 3 {
+                numberKind = 137
+            }
+
+            tokens.Kinds[count] = numberKind
+            count = count + 1
+            position = numberInfo >> 2
+            continue
+        }
+
+        if IsIdentifierStart(ch) {
+            start := position
+            position = position + 1
+            while position < length && IsIdentifierPart(source[position]) {
+                position = position + 1
+            }
+
+            tokens.Kinds[count] = KeywordKind(source, start, position - start)
+            count = count + 1
+            continue
+        }
+
+        operatorInfo := OperatorInfo(source, position, length)
+        operatorKind := operatorInfo >> 2
+        tokens.Kinds[count] = operatorKind
+        count = count + 1
+        position = position + (operatorInfo & 3)
+    }
+
+    tokens.Kinds[count] = 135
+    count = count + 1
+    return count
+}
+
 func TokenizeMetadataInto(source: string, kinds: int[], starts: int[], valueLengths: int[], lines: int[], columns: int[]): int {
     metadata := new LexerTokenMetadataTable { Kinds: kinds, Starts: starts, ValueLengths: valueLengths, Lines: lines, Columns: columns }
     return TokenizeMetadataCore(source, ref metadata)
