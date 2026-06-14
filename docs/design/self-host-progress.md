@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — Direct SoA from-end null-coalescing has IL-shape proof
+
+Direct backing-column `System.Index` null-coalescing now has opcode evidence for both reads and
+`??=` assignments. `table.column[^1] ?? fallback` and `table.column[^1] ??= fallback` stay on the
+backing array with no slice allocation, row construction, boxing, delegate construction, or virtual
+dispatch.
+
 ## 2026-06-14 — SoA wrap rejects positional default columns
 
 `Table.wrap(default, length)` now has regression coverage beside positional `null` and named

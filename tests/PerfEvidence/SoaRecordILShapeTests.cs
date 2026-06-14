@@ -373,6 +373,76 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void DirectColumnFromEndNullCoalescing_UsesColumnArrayOffsetWithoutSliceAllocation()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                text: string
+            }
+
+            func readLast(nodes: NodeTable): string {
+                return nodes.text[^1] ?? "fallback"
+            }
+
+            func assignMissing(nodes: NodeTable): string {
+                return nodes.text[^1] ??= "assigned"
+            }
+
+            func keepExisting(nodes: NodeTable): string {
+                nodes.text[^1] = "ready"
+                return nodes.text[^1] ??= "ignored"
+            }
+
+            func main(): string {
+                nodes := new NodeTable(2)
+                missing := readLast(nodes)
+                assigned := assignMissing(nodes)
+                existing := keepExisting(nodes)
+                return missing + ":" + assigned + ":" + existing
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var readLast = ILShapeInspector.GetProgramMethod(assembly, "readLast");
+            var assignMissing = ILShapeInspector.GetProgramMethod(assembly, "assignMissing");
+            var keepExisting = ILShapeInspector.GetProgramMethod(assembly, "keepExisting");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal("fallback:assigned:ready", Assert.IsType<string>(main.Invoke(null, null)));
+
+            AssertNoFromEndSliceAllocation(readLast);
+            Assert.True(
+                ILShapeInspector.CountOpcode(readLast, OpCodes.Ldfld) >= 1,
+                "Direct SoA from-end null-coalescing reads should load the backing column field.");
+            Assert.Equal(1, CountArrayElementLoads(readLast));
+            Assert.Equal(0, CountArrayElementStores(readLast));
+
+            AssertNoFromEndSliceAllocation(assignMissing);
+            Assert.True(
+                ILShapeInspector.CountOpcode(assignMissing, OpCodes.Ldfld) >= 1,
+                "Direct SoA from-end null-coalescing assignment should load the backing column field.");
+            Assert.True(
+                CountArrayElementLoads(assignMissing) >= 1,
+                "Direct SoA from-end null-coalescing assignment should read the current value from the backing array.");
+            Assert.Equal(1, CountArrayElementStores(assignMissing));
+
+            AssertNoFromEndSliceAllocation(keepExisting);
+            Assert.True(
+                ILShapeInspector.CountOpcode(keepExisting, OpCodes.Ldfld) >= 2,
+                "Direct SoA from-end null-coalescing assignment should keep direct column field access after an existing store.");
+            Assert.True(
+                CountArrayElementLoads(keepExisting) >= 1,
+                "Direct SoA from-end null-coalescing assignment should read an existing column value before deciding to store.");
+            Assert.Equal(2, CountArrayElementStores(keepExisting));
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void NewCapacityConstructor_AllocatesOneArrayPerColumnWithoutRowObjects()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
@@ -1023,6 +1093,18 @@ public class SoaRecordILShapeTests
         Assert.Equal(0, ILShapeInspector.CountDelegateConstructions(method));
         Assert.Equal(0, ILShapeInspector.CountOpcode(method, OpCodes.Call));
         Assert.Equal(0, ILShapeInspector.CountOpcode(method, OpCodes.Callvirt));
+    }
+
+    private static void AssertNoFromEndSliceAllocation(MethodInfo method)
+    {
+        ILShapeInspector.AssertNoBoxing(method);
+        Assert.Equal(0, ILShapeInspector.CountOpcode(method, OpCodes.Newarr));
+        Assert.Equal(0, ILShapeInspector.CountDelegateConstructions(method));
+        Assert.Equal(0, ILShapeInspector.CountOpcode(method, OpCodes.Callvirt));
+        Assert.Equal(0, ILShapeInspector.CountCallsTo(
+            method,
+            typeof(System.Runtime.CompilerServices.RuntimeHelpers),
+            nameof(System.Runtime.CompilerServices.RuntimeHelpers.GetSubArray)));
     }
 
     private static int CountArrayElementLoads(MethodBase method)
