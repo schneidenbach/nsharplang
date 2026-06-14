@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA unsupported column diagnostics are enforced
+
+The experimental `soa record` analyzer now rejects column element types outside the verified wrapper
+lowering set. The accepted set is `int`, `uint`, `long`, `bool`, `char`, `string`, `string?`, and
+aliases to those types; broader object, array, enum, and user value-type columns stay behind a direct
+`SoA column type 'X' is not supported in this lowering` diagnostic until their load/store shape is
+IL-verified.
+
 ## 2026-06-14 — SoA add and ensureCapacity IL shape is pinned
 
 The experimental SoA table-operation evidence now covers `add` and `ensureCapacity` directly.

@@ -119,12 +119,14 @@ feature exists to avoid.
 
 ## Type Rules
 
-V1 admits column element types already supported by the columnar backend:
+The current experimental lowering admits only the column element types that have been verified by
+the direct-IL wrapper proof:
 
 - numeric scalars used by the compiler tables (`int`, `uint`, `long`, `bool`, `char`);
-- `string` and nullable reference columns only when the surrounding code already routes them;
-- enum element columns when the enum has an explicit underlying representation;
-- user value types only after their column element load/store shape is IL-verified.
+- `string` and `string?` columns.
+
+Future slices can admit enum element columns when the enum has an explicit underlying representation,
+and user value types only after their column element load/store shape is IL-verified.
 
 No nested SoA columns, no generic SoA records in v1, and no columns whose element type requires hidden
 copy constructors or disposal.
@@ -202,7 +204,8 @@ The flag is for compiler table-migration gates only. Production builds without t
 IL-shape tests pin the current wrapper proof: row projection over an existing table emits direct
 column field loads and array element loads/stores with no row allocation, boxing, delegate
 construction, heap array allocation, or virtual dispatch; `wrap` stores incoming column references
-without allocating arrays or copying elements.
+without allocating arrays or copying elements; `add`, `ensureCapacity`, `copyRow`, and `clear` keep
+the same column-array shape without row allocation or virtual dispatch.
 
 The first migration fixture uses the real overload-candidate compact table shape under the
 experimental flag. It wraps the existing candidate columns as `OverloadCandidateTable`, preserves the

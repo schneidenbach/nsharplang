@@ -54,6 +54,66 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaRecordWithFlag_AllowsVerifiedColumnTypes()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            type CountColumn = int
+            type OptionalNameColumn = string?
+
+            soa record NodeTable {
+                kind: int
+                flags: uint
+                start: long
+                active: bool
+                marker: char
+                name: string
+                optionalName: OptionalNameColumn
+                count: CountColumn
+            }
+            """);
+
+        Assert.False(
+            result.HasErrors,
+            $"Expected no errors but got: {string.Join(", ", result.Errors.Select(e => $"{e.DiagnosticId}:{e.Message}"))}");
+    }
+
+    [Fact]
+    public void Analyzer_SoaRecordWithFlag_RejectsUnsupportedColumnType()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                payload: object
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.FeatureNotImplemented);
+        Assert.Contains("SoA column type 'object' is not supported in this lowering", error.Message);
+        Assert.Contains("Use int, uint, long, bool, char, string, or string?", error.Suggestion);
+    }
+
+    [Fact]
+    public void Analyzer_SoaRecordWithFlag_RejectsUnsupportedAliasedColumnType()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            type PayloadColumn = object
+
+            soa record NodeTable {
+                payload: PayloadColumn
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.FeatureNotImplemented);
+        Assert.Contains("SoA column type 'object' is not supported in this lowering", error.Message);
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.TypeNotFound);
+    }
+
+    [Fact]
     public void Analyzer_SoaRowViewCannotEscapeIntoLocal()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

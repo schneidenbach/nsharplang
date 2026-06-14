@@ -1205,9 +1205,10 @@ public class Analyzer : IDisposable
 
     private void AnalyzeSoaRecordDeclaration(SoaRecordDeclaration soaRecordDecl)
     {
+        var columnTypes = new List<(SoaColumnDeclaration Column, TypeInfo Type)>(soaRecordDecl.Columns.Count);
         foreach (var column in soaRecordDecl.Columns)
         {
-            ResolveDeclaredType(column.Type);
+            columnTypes.Add((column, ResolveDeclaredType(column.Type)));
         }
 
         if (!SoaFeature.IsEnabled)
@@ -1232,6 +1233,50 @@ public class Analyzer : IDisposable
                 suggestion: "Move the soa record to top level while the wrapper ABI is being proven",
                 length: "soa".Length);
         }
+
+        foreach (var (column, columnType) in columnTypes)
+        {
+            var resolvedColumnType = ResolveTypeAlias(columnType);
+            if (IsSupportedSoaColumnType(resolvedColumnType))
+                continue;
+
+            var (line, columnPosition, length) = GetSoaColumnTypeDiagnosticSpan(column);
+            Error(
+                ErrorCode.FeatureNotImplemented,
+                $"SoA column type '{resolvedColumnType}' is not supported in this lowering",
+                line,
+                columnPosition,
+                "Use int, uint, long, bool, char, string, or string? columns until this table migration " +
+                "verifies another element shape",
+                length);
+        }
+    }
+
+    private bool IsSupportedSoaColumnType(TypeInfo type)
+    {
+        var resolved = ResolveTypeAlias(type);
+        if (BuiltInTypes.IsUnknown(resolved))
+            return true;
+
+        if (resolved is NullableTypeInfo nullable)
+            return ResolveTypeAlias(nullable.InnerType) == BuiltInTypes.String;
+
+        return resolved == BuiltInTypes.Int
+            || resolved == BuiltInTypes.UInt
+            || resolved == BuiltInTypes.Long
+            || resolved == BuiltInTypes.Bool
+            || resolved == BuiltInTypes.Char
+            || resolved == BuiltInTypes.String;
+    }
+
+    private static (int Line, int Column, int Length) GetSoaColumnTypeDiagnosticSpan(SoaColumnDeclaration column)
+    {
+        var typeSpan = GetTypeReferenceStartSpan(column.Type);
+        return GetSourceSpanDiagnosticSpan(
+            typeSpan,
+            column.Line,
+            column.Column,
+            Math.Max(1, column.Name.Length));
     }
 
     private void AnalyzeInterfaceDeclaration(InterfaceDeclaration interfaceDecl)
