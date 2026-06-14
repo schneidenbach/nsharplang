@@ -148,8 +148,10 @@ the direct-IL wrapper proof:
 Future slices can admit enum element columns when the enum has an explicit underlying representation,
 and user value types only after their column element load/store shape is IL-verified.
 
-No nested SoA columns, no generic SoA records in v1, and no columns whose element type requires hidden
-copy constructors or disposal.
+Generic SoA records are not accepted in v1 because their flattened ABI still needs an explicit
+design. Array columns, nullable non-string columns, nested SoA-table columns, and any element type
+that requires hidden copy constructors or disposal are rejected until their load/store and wrapper
+method shapes have direct IL proof.
 
 ## Operations
 
@@ -237,7 +239,8 @@ The compiler must produce direct diagnostics for common misuse:
   overflow throws "length for NodeTable.add is too large", and dynamic `copyRow` sources at or beyond
   `length` throw "source row for NodeTable.copyRow must be less than length";
   target rows too large to extend throw "target row for NodeTable.copyRow is too large";
-- unsupported element type: "SoA column type X is not supported in this lowering";
+- unsupported element type, including arrays, nullable non-string columns, and nested SoA-table
+  columns: "SoA column type X is not supported in this lowering";
 - unsupported row/direct column compound assignment: "The '+' operator doesn't work with 'X' and 'Y'";
 - non-integral row/direct column increment/decrement: "The '++' operator doesn't work with 'X'";
 - non-nullable row/direct column null coalescing: "The left side of '??' has type 'X', which can't be null";

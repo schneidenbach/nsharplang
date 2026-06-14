@@ -89,6 +89,21 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Parser_SoaRecordRejectsTypeParametersBeforeAnalysis()
+    {
+        var result = ParseWithErrors("""
+            soa record NodeTable<T> {
+                kind: int
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("soa record type parameters are not supported yet", error.Message);
+        Assert.Contains("Generic soa tables need an explicit ABI design", error.HumanExplanation);
+        Assert.Contains("Remove the type parameter list", error.ContextualHint);
+    }
+
+    [Fact]
     public void Analyzer_SoaRecordWithFlag_TypesTableMembersAndRowProjection()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
@@ -171,6 +186,58 @@ public class SoaRecordTests : ILCompilerTestBase
         var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.FeatureNotImplemented);
         Assert.Contains("SoA column type 'object' is not supported in this lowering", error.Message);
         Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.TypeNotFound);
+    }
+
+    [Fact]
+    public void Analyzer_SoaRecordWithFlag_RejectsArrayColumnType()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                values: int[]
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.FeatureNotImplemented);
+        Assert.Contains("SoA column type 'int[]' is not supported in this lowering", error.Message);
+        Assert.Contains("Use int, uint, long, bool, char, string, or string?", error.Suggestion);
+    }
+
+    [Fact]
+    public void Analyzer_SoaRecordWithFlag_RejectsNullableNonStringColumnType()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                maybeKind: int?
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.FeatureNotImplemented);
+        Assert.Contains("SoA column type 'int?' is not supported in this lowering", error.Message);
+        Assert.Contains("Use int, uint, long, bool, char, string, or string?", error.Suggestion);
+    }
+
+    [Fact]
+    public void Analyzer_SoaRecordWithFlag_RejectsNestedSoaColumnType()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record ChildTable {
+                kind: int
+            }
+
+            soa record ParentTable {
+                child: ChildTable
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.FeatureNotImplemented);
+        Assert.Contains("SoA column type 'ChildTable' is not supported in this lowering", error.Message);
+        Assert.Contains("Use int, uint, long, bool, char, string, or string?", error.Suggestion);
     }
 
     [Fact]
@@ -5287,6 +5354,14 @@ public class SoaRecordTests : ILCompilerTestBase
         var parseResult = parser.ParseCompilationUnit();
         Assert.True(parseResult.Success, string.Join(Environment.NewLine, parseResult.Errors.Select(error => error.Message)));
         return parseResult.CompilationUnit!;
+    }
+
+    private static ParseResult ParseWithErrors(string source)
+    {
+        var lexer = new Lexer(source, "test.nl");
+        var tokens = lexer.Tokenize();
+        var parser = new Parser(tokens, "test.nl", source);
+        return parser.ParseCompilationUnit();
     }
 
     private static AnalysisResult Analyze(string source)

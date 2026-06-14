@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA unsupported declaration shapes are pinned before emission
+
+SoA declarations now have explicit regression coverage for the remaining unsupported table shapes
+that must not reach IL lowering. Generic `soa record<T>` syntax reports a parser diagnostic with the
+ABI-design explanation and recovery hint, while array columns, nullable non-string columns, and
+nested SoA-table columns report the supported-element diagnostic during analysis under
+`NSHARP_EXPERIMENTAL_SOA=1`.
+
 ## 2026-06-14 — SoA add and clear cover verified element types
 
 Generated `add` and `clear` now have mixed column-type opcode evidence over `int`, `uint`, `long`,
