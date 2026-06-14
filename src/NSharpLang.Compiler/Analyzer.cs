@@ -1219,12 +1219,6 @@ public class Analyzer : IDisposable
             return;
         }
 
-        var columnTypes = new List<(SoaColumnDeclaration Column, TypeInfo Type)>(soaRecordDecl.Columns.Count);
-        foreach (var column in soaRecordDecl.Columns)
-        {
-            columnTypes.Add((column, ResolveDeclaredType(column.Type)));
-        }
-
         if (_currentTypeName != null)
         {
             Error(
@@ -1234,6 +1228,13 @@ public class Analyzer : IDisposable
                 soaRecordDecl.Column,
                 suggestion: "Move the soa record to top level while the wrapper ABI is being proven",
                 length: "soa".Length);
+            return;
+        }
+
+        var columnTypes = new List<(SoaColumnDeclaration Column, TypeInfo Type)>(soaRecordDecl.Columns.Count);
+        foreach (var column in soaRecordDecl.Columns)
+        {
+            columnTypes.Add((column, ResolveDeclaredType(column.Type)));
         }
 
         ValidateSoaColumnNames(soaRecordDecl);
