@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — Direct SoA column expression updates have IL-shape proof
+
+Direct column element updates now match the row-projection expression coverage. Consumed compound
+assignment and simple assignment results over `table.column[row]` return the stored value, and prefix
+`++`/`--` returns the updated value, while all of those paths stay on direct column-field plus array
+element traffic with no row construction, hidden array allocation, boxing, delegate construction, or
+virtual dispatch.
+
 ## 2026-06-14 — Direct SoA column default stores have IL-shape proof
 
 Direct column element default stores now have the same opcode evidence as row projection.

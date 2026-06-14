@@ -175,9 +175,10 @@ reject `++`/`--` during analysis. Compound assignment must type-check through th
 and produce a result assignable back to the column, so boolean columns reject `+=`, `-=`, `*=`, and `/=`
 before lowering. Direct column-element access through `table.column[row]` is also
 permitted for explicit systems kernels when the index shape is one the built-in array path supports.
-Direct column elements support the same scalar default-store shape as row projection: statement-form
-stores write the backing column without reading the old value, and expression-form stores return the
-assigned default value without materializing a row.
+Direct column elements support the same scalar update shapes as row projection: expression-valued
+stores and compound assignments return the stored value, prefix/postfix increments preserve their
+ordinary result semantics, and default stores write the backing column without reading the old value
+or materializing a row.
 The same nullability rule applies to both row projection and direct column elements: `??` and `??=`
 require a nullable/reference column element and non-nullable columns reject the operation during
 analysis.
@@ -275,10 +276,11 @@ The flag is for compiler table-migration gates only. Production builds without t
 IL-shape tests pin the current wrapper proof: row projection over an existing table emits direct
 column field loads and array element loads/stores with no row allocation, boxing, delegate
 construction, heap array allocation, or virtual dispatch; explicit direct column element operations
-(`table.column[row]`) have the same column-array proof for stores, default stores, compound stores,
-increments, reads, direct column null-coalescing reads/assignments, and from-end `System.Index`
-access. Row-projection null-coalescing reads/assignments have the same direct column proof, with
-range/slice allocation still rejected during analysis. The
+(`table.column[row]`) have the same column-array proof for stores, expression-valued stores, default
+stores, compound stores, prefix/postfix increments, reads, direct column null-coalescing
+reads/assignments, and from-end `System.Index` access. Row-projection null-coalescing
+reads/assignments have the same direct column proof, with range/slice allocation still rejected during
+analysis. The
 generated `copyRow` method has the same direct column-element shape and no row object construction,
 inline array allocation, boxing, delegate construction, or virtual dispatch, while still calling
 `ensureCapacity` for explicit growth. `wrap` stores incoming column references without allocating arrays

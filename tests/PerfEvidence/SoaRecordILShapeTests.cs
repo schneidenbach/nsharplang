@@ -187,6 +187,94 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void DirectColumnAssignmentExpression_ReturnsAssignedValueWithoutRowAllocation()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                kind: int
+            }
+
+            func adjust(nodes: NodeTable, row: int): int {
+                assigned := nodes.kind[row] += 5
+                stored := nodes.kind[row] = assigned + 2
+                return assigned * 100 + stored * 10 + nodes.kind[row]
+            }
+
+            func main(): int {
+                nodes := new NodeTable(1)
+                row := nodes.add()
+                nodes.kind[row] = 8
+                return adjust(nodes, row)
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var adjust = ILShapeInspector.GetProgramMethod(assembly, "adjust");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(1465, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoAllocationOrDispatch(adjust);
+            Assert.True(
+                ILShapeInspector.CountOpcode(adjust, OpCodes.Ldfld) >= 3,
+                "Direct column assignment expressions should load column fields directly.");
+            Assert.True(
+                CountArrayElementLoads(adjust) >= 2,
+                "Direct column assignment expressions should read current and returned values from the column array.");
+            Assert.Equal(2, CountArrayElementStores(adjust));
+
+            return 0;
+        });
+    }
+
+    [Fact]
+    public void DirectColumnPrefixIncrementDecrement_ReturnsUpdatedValueWithoutRowAllocation()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bump(nodes: NodeTable, row: int): int {
+                preUp := ++nodes.kind[row]
+                preDown := --nodes.kind[row]
+                return preUp * 100 + preDown * 10 + nodes.kind[row]
+            }
+
+            func main(): int {
+                nodes := new NodeTable(1)
+                row := nodes.add()
+                nodes.kind[row] = 10
+                return bump(nodes, row)
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var bump = ILShapeInspector.GetProgramMethod(assembly, "bump");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(1210, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoAllocationOrDispatch(bump);
+            Assert.True(
+                ILShapeInspector.CountOpcode(bump, OpCodes.Ldfld) >= 3,
+                "Direct column prefix increment/decrement should load column fields directly.");
+            Assert.True(
+                CountArrayElementLoads(bump) >= 3,
+                "Direct column prefix increment/decrement should load current values and the returned value from the column array.");
+            Assert.Equal(2, CountArrayElementStores(bump));
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void DirectColumnFromEndIndex_UsesColumnArrayOffsetWithoutSliceAllocation()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
