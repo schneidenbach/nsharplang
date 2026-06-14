@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA table indexes reject non-int and range operands before emission
+
+The analyzer now enforces the row-index contract for experimental SoA tables: `table[index]` must use
+an `int` row id. Non-int indexes such as strings and range/slice indexes now produce a SoA-specific
+diagnostic pointing back to `table[index].column` instead of being treated as row views or drifting
+into generic index/member behavior before IL emission.
+
 ## 2026-06-14 — Null-coalescing rejects non-nullable value operands before emission
 
 The analyzer now rejects plain `??` when its left operand cannot be null, including SoA row-column value

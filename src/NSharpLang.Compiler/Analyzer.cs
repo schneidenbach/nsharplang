@@ -5730,9 +5730,37 @@ public class Analyzer : IDisposable
         }
 
         var isRangeAccess = index.Index is RangeExpression || IsRangeLikeType(indexType);
+        if (receiverType is SoaRecordTypeInfo && !IsValidSoaRowIndex(indexType, isRangeAccess))
+        {
+            ReportInvalidSoaRowIndex(index.Index, indexType, isRangeAccess);
+            return BuiltInTypes.Unknown;
+        }
+
         var elementType = ResolveIndexElementType(receiverType, indexType, isRangeAccess);
 
         return index.IsNullConditional ? MakeNullableResult(elementType) : elementType;
+    }
+
+    private bool IsValidSoaRowIndex(TypeInfo indexType, bool isRangeAccess)
+    {
+        if (isRangeAccess)
+            return false;
+
+        var resolvedIndexType = ResolveTypeAlias(indexType);
+        return BuiltInTypes.IsUnknown(resolvedIndexType) || resolvedIndexType == BuiltInTypes.Int;
+    }
+
+    private void ReportInvalidSoaRowIndex(Expression expression, TypeInfo indexType, bool isRangeAccess)
+    {
+        var (line, column, length) = GetExpressionDiagnosticSpan(expression);
+        var indexDescription = isRangeAccess ? "a range" : $"'{indexType}'";
+        Error(
+            ErrorCode.TypeMismatch,
+            $"SoA table indexes must be int row ids, but this index has type {indexDescription}",
+            line,
+            column,
+            "Use an int row index and read or write a column with table[index].column.",
+            length);
     }
 
     private TypeInfo ResolveIndexElementType(TypeInfo receiverType, TypeInfo indexType, bool isRangeAccess)
