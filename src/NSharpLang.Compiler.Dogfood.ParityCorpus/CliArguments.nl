@@ -297,6 +297,63 @@ func CliTidyRemovalLineKeepChecksumInto(lines: string[], packageNames: string[],
     return checksum
 }
 
+func CliBuildOperandSummaryInto(
+    args: string[],
+    kindIds: int[],
+    nextIndices: int[],
+    previousIndices: int[],
+    nextOptionIndices: int[],
+    resultIndices: int[]): int {
+    arguments := new CliArgumentTable { Args: args }
+    kinds := new CliBuildArgumentKindTable { Kinds: kindIds }
+    links := new CliBuildArgumentLinkTable {
+        NextIndices: nextIndices,
+        PreviousIndices: previousIndices,
+        NextOptionIndices: nextOptionIndices
+    }
+    results := new CliIndexResultTable { Indices: resultIndices }
+    return CliBuildOperandSummaryCore(ref arguments, ref kinds, ref links, ref results)
+}
+
+func CliBuildOperandIndicesInto(
+    args: string[],
+    kindIds: int[],
+    nextIndices: int[],
+    previousIndices: int[],
+    nextOptionIndices: int[],
+    resultIndices: int[]): int {
+    arguments := new CliArgumentTable { Args: args }
+    kinds := new CliBuildArgumentKindTable { Kinds: kindIds }
+    links := new CliBuildArgumentLinkTable {
+        NextIndices: nextIndices,
+        PreviousIndices: previousIndices,
+        NextOptionIndices: nextOptionIndices
+    }
+    results := new CliIndexResultTable { Indices: resultIndices }
+    return CliBuildOperandIndicesCore(ref arguments, ref kinds, ref links, ref results)
+}
+
+func CliBuildOperandIndicesCore(
+    args: &CliArgumentTable,
+    kindIds: &CliBuildArgumentKindTable,
+    links: &CliBuildArgumentLinkTable,
+    resultIndices: &CliIndexResultTable): int {
+    count := CliBuildOperandSummaryCore(ref args, ref kindIds, ref links, ref resultIndices)
+    if count <= 0 {
+        return count
+    }
+
+    sourceIndex := resultIndices.Indices[0]
+    resultCount := 0
+    while sourceIndex >= 0 {
+        resultIndices.Indices[resultCount] = sourceIndex
+        resultCount = resultCount + 1
+        sourceIndex = links.NextIndices[sourceIndex]
+    }
+
+    return resultCount
+}
+
 func CliBuildOptionSummaryInto(args: string[], resultIndices: int[]): int {
     arguments := new CliArgumentTable { Args: args }
     results := new CliIndexResultTable { Indices: resultIndices }

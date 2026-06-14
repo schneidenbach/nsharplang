@@ -1101,24 +1101,6 @@ func CliExportCSharpFirstOperandIndexCore(
     return -1
 }
 
-func CliBuildOperandSummaryInto(
-    args: string[],
-    kindIds: int[],
-    nextIndices: int[],
-    previousIndices: int[],
-    nextOptionIndices: int[],
-    resultIndices: int[]): int {
-    arguments := new CliArgumentTable { Args: args }
-    kinds := new CliBuildArgumentKindTable { Kinds: kindIds }
-    links := new CliBuildArgumentLinkTable {
-        NextIndices: nextIndices,
-        PreviousIndices: previousIndices,
-        NextOptionIndices: nextOptionIndices
-    }
-    results := new CliIndexResultTable { Indices: resultIndices }
-    return CliBuildOperandSummaryCore(ref arguments, ref kinds, ref links, ref results)
-}
-
 func CliBuildOperandSummaryCore(
     args: &CliArgumentTable,
     kindIds: &CliBuildArgumentKindTable,
@@ -1213,45 +1195,6 @@ func CliBuildOperandSummaryCore(
     count = CliBuildRemoveOptionKindPairsCore(ref kindIds, ref links, backendHead, 3, ref resultIndices, count)
     count = CliBuildRemoveOptionKindPairsCore(ref kindIds, ref links, projectHead, 4, ref resultIndices, count)
     return count
-}
-
-func CliBuildOperandIndicesInto(
-    args: string[],
-    kindIds: int[],
-    nextIndices: int[],
-    previousIndices: int[],
-    nextOptionIndices: int[],
-    resultIndices: int[]): int {
-    arguments := new CliArgumentTable { Args: args }
-    kinds := new CliBuildArgumentKindTable { Kinds: kindIds }
-    links := new CliBuildArgumentLinkTable {
-        NextIndices: nextIndices,
-        PreviousIndices: previousIndices,
-        NextOptionIndices: nextOptionIndices
-    }
-    results := new CliIndexResultTable { Indices: resultIndices }
-    return CliBuildOperandIndicesCore(ref arguments, ref kinds, ref links, ref results)
-}
-
-func CliBuildOperandIndicesCore(
-    args: &CliArgumentTable,
-    kindIds: &CliBuildArgumentKindTable,
-    links: &CliBuildArgumentLinkTable,
-    resultIndices: &CliIndexResultTable): int {
-    count := CliBuildOperandSummaryCore(ref args, ref kindIds, ref links, ref resultIndices)
-    if count <= 0 {
-        return count
-    }
-
-    sourceIndex := resultIndices.Indices[0]
-    resultCount := 0
-    while sourceIndex >= 0 {
-        resultIndices.Indices[resultCount] = sourceIndex
-        resultCount = resultCount + 1
-        sourceIndex = links.NextIndices[sourceIndex]
-    }
-
-    return resultCount
 }
 
 func CliFixSafetyFilterIndicesInto(

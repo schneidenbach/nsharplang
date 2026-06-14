@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — Build-operand batch wrappers leave product dogfood
+
+`CliBuildOperandSummaryInto`, `CliBuildOperandIndicesInto`, and the batch index core moved to the
+parity corpus. The product dogfood file keeps `CliBuildOperandSummaryCore` because the accepted
+`CliBuildFirstOperandIndexInto` adapter route still calls it for leading-option fallback cases, but
+the direct batch wrappers no longer ship in the product dogfood assembly.
+
 ## 2026-06-14 — Fix-edit flattening probe leaves product dogfood
 
 `CliFixEditFlattenIndicesInto`, its table core, and the private flatten table wrappers moved to the
