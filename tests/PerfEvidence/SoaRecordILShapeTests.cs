@@ -142,6 +142,60 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void AddAndEnsureCapacity_UseLengthCapacityAndArrayResizeWithoutRowAllocation()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                kind: int
+                start: int
+            }
+
+            func exercise(nodes: NodeTable): int {
+                index := nodes.add()
+                nodes.ensureCapacity(index + 4)
+                return nodes.length + nodes.capacity
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var tableType = assembly.GetType("NodeTable");
+            Assert.NotNull(tableType);
+
+            var add = tableType!.GetMethod("add", BindingFlags.Public | BindingFlags.Instance);
+            var ensureCapacity = tableType.GetMethod("ensureCapacity", BindingFlags.Public | BindingFlags.Instance);
+            Assert.NotNull(add);
+            Assert.NotNull(ensureCapacity);
+
+            ILShapeInspector.AssertNoBoxing(add!);
+            Assert.Equal(0, ILShapeInspector.CountOpcode(add!, OpCodes.Newobj));
+            Assert.Equal(0, ILShapeInspector.CountOpcode(add!, OpCodes.Newarr));
+            Assert.Equal(0, ILShapeInspector.CountDelegateConstructions(add!));
+            Assert.Equal(0, ILShapeInspector.CountOpcode(add!, OpCodes.Callvirt));
+            Assert.Equal(1, ILShapeInspector.CountOpcode(add!, OpCodes.Call));
+            Assert.Equal(1, ILShapeInspector.CountOpcode(add!, OpCodes.Ldfld));
+            Assert.Equal(1, ILShapeInspector.CountOpcode(add!, OpCodes.Stfld));
+            Assert.Equal(0, CountArrayElementLoads(add!));
+            Assert.Equal(0, CountArrayElementStores(add!));
+
+            ILShapeInspector.AssertNoBoxing(ensureCapacity!);
+            Assert.Equal(0, ILShapeInspector.CountOpcode(ensureCapacity!, OpCodes.Newobj));
+            Assert.Equal(0, ILShapeInspector.CountOpcode(ensureCapacity!, OpCodes.Newarr));
+            Assert.Equal(0, ILShapeInspector.CountDelegateConstructions(ensureCapacity!));
+            Assert.Equal(0, ILShapeInspector.CountOpcode(ensureCapacity!, OpCodes.Callvirt));
+            Assert.Equal(2, ILShapeInspector.CountCallsTo(ensureCapacity!, typeof(Array), nameof(Array.Resize)));
+            Assert.Equal(2, ILShapeInspector.CountOpcode(ensureCapacity!, OpCodes.Ldflda));
+            Assert.Equal(1, ILShapeInspector.CountOpcode(ensureCapacity!, OpCodes.Stfld));
+            Assert.Equal(0, CountArrayElementLoads(ensureCapacity!));
+            Assert.Equal(0, CountArrayElementStores(ensureCapacity!));
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void RowColumnNullCoalesceAssign_UsesColumnArrayLoadStore()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

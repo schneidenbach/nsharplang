@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA add and ensureCapacity IL shape is pinned
+
+The experimental SoA table-operation evidence now covers `add` and `ensureCapacity` directly.
+`add` is pinned as a length read/update with one direct `ensureCapacity` call and no column traffic.
+`ensureCapacity` is pinned to direct `Array.Resize` calls, one per column, followed by the capacity
+field update; it must not allocate row objects, box, build delegates, or dispatch virtually.
+
 ## 2026-06-14 — SoA copyRow and clear IL shape is pinned
 
 The experimental SoA wrapper proof now inspects the generated `copyRow` and `clear` methods directly.
