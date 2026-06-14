@@ -5520,8 +5520,36 @@ public class Analyzer : IDisposable
 
     private TypeInfo AnalyzeUnaryExpression(UnaryExpression unary)
     {
-        var operandType = AnalyzeExpression(unary.Operand);
+        var isIncrementOrDecrement = unary.Operator is UnaryOperator.PreIncrement or UnaryOperator.PreDecrement
+            or UnaryOperator.PostIncrement or UnaryOperator.PostDecrement;
+        Dictionary<Expression, TypeInfo>? targetExpressionTypes = null;
+        TypeInfo operandType;
+        if (isIncrementOrDecrement && IsMemberAccessWriteTarget(unary.Operand))
+        {
+            var previousAssignmentTargetExpressionTypes = _assignmentTargetExpressionTypes;
+            targetExpressionTypes = new Dictionary<Expression, TypeInfo>(ReferenceEqualityComparer.Instance);
+            _assignmentTargetExpressionTypes = targetExpressionTypes;
+            try
+            {
+                operandType = AnalyzeExpression(unary.Operand);
+            }
+            finally
+            {
+                _assignmentTargetExpressionTypes = previousAssignmentTargetExpressionTypes;
+            }
+        }
+        else
+        {
+            operandType = AnalyzeExpression(unary.Operand);
+        }
+
         if (ReportSoaRowEscapeIfNeeded(unary.Operand, operandType, "used as a unary operand"))
+        {
+            return BuiltInTypes.Unknown;
+        }
+
+        if (isIncrementOrDecrement
+            && ReportSoaTableMemberMutationIfNeeded(unary.Operand, targetExpressionTypes, "incremented or decremented directly"))
         {
             return BuiltInTypes.Unknown;
         }
@@ -10729,7 +10757,7 @@ public class Analyzer : IDisposable
             // Resolve the target without the bare-event guard so we can give a tailored
             // "use on/off" message instead of the generic one.
             _allowEventReference = true;
-            if (assignment.Target is MemberAccessExpression)
+            if (IsMemberAccessWriteTarget(assignment.Target))
             {
                 // Collect the target chain's sub-expression types for the NL322 classifier below.
                 targetExpressionTypes = new Dictionary<Expression, TypeInfo>(ReferenceEqualityComparer.Instance);
@@ -10756,6 +10784,20 @@ public class Analyzer : IDisposable
             AnalyzeExpression(assignment.Value);
             // Return an error-recovery type (not the event) so the caller's bare-event guard
             // doesn't pile on a second diagnostic for the same assignment.
+            return BuiltInTypes.Unknown;
+        }
+
+        if (ReportSoaTableMemberMutationIfNeeded(assignment.Target, targetExpressionTypes, "assigned directly"))
+        {
+            var previousExpectedTypeForInvalidTarget = _currentExpectedType;
+            _currentExpectedType = targetType;
+            var invalidValueType = AnalyzeExpression(assignment.Value);
+            _currentExpectedType = previousExpectedTypeForInvalidTarget;
+            if (invalidValueType is SoaRowTypeInfo)
+            {
+                ReportSoaRowEscape(assignment.Value, "assigned");
+            }
+
             return BuiltInTypes.Unknown;
         }
 
@@ -11026,9 +11068,60 @@ public class Analyzer : IDisposable
         SetNullStateInCurrentScope(path, valueState);
     }
 
-    // Sub-expression types of the assignment TARGET currently being analyzed (reference-keyed;
-    // populated at the AnalyzeExpression tail, consumed by the NL322 receiver-chain classifier).
+    private static bool IsMemberAccessWriteTarget(Expression expression) => expression switch
+    {
+        MemberAccessExpression => true,
+        ParenthesizedExpression parenthesized => IsMemberAccessWriteTarget(parenthesized.Inner),
+        _ => false
+    };
+
+    // Sub-expression types of the assignment/unary-write TARGET currently being analyzed (reference-keyed;
+    // populated at the AnalyzeExpression tail, consumed by write-target classifiers).
     private Dictionary<Expression, TypeInfo>? _assignmentTargetExpressionTypes;
+
+    private bool ReportSoaTableMemberMutationIfNeeded(
+        Expression target,
+        Dictionary<Expression, TypeInfo>? expressionTypes,
+        string action)
+    {
+        if (target is ParenthesizedExpression parenthesized)
+            return ReportSoaTableMemberMutationIfNeeded(parenthesized.Inner, expressionTypes, action);
+
+        if (target is not MemberAccessExpression member
+            || expressionTypes == null
+            || !expressionTypes.TryGetValue(member.Object, out var receiverType))
+        {
+            return false;
+        }
+
+        if (ResolveTypeAlias(GetNonNullableType(receiverType)) is not SoaRecordTypeInfo soaRecordType)
+            return false;
+
+        var isColumn = TryGetSoaColumn(soaRecordType.Declaration, member.MemberName) != null;
+        var isBookkeepingField = member.MemberName is "length" or "capacity";
+        if (!isColumn && !isBookkeepingField)
+            return false;
+
+        ReportSoaTableMemberMutation(member, action, isColumn);
+        return true;
+    }
+
+    private void ReportSoaTableMemberMutation(MemberAccessExpression member, string action, bool isColumn)
+    {
+        var line = member.Line;
+        var column = GetMemberNameColumn(member);
+        var length = Math.Max(1, member.MemberName.Length);
+        var suggestion = isColumn
+            ? "Write individual rows with table[index].column, or construct/wrap the table with the desired column arrays."
+            : "Use add, clear, ensureCapacity, or copyRow so length and capacity stay consistent with the columns.";
+        Error(
+            ErrorCode.InvalidSyntax,
+            $"SoA table member '{member.MemberName}' cannot be {action}",
+            line,
+            column,
+            suggestion,
+            length);
+    }
 
     // NL322: report when a member write's receiver chain bottoms out in a value-typed expression
     // that is NOT a variable. CONSERVATIVE by design — hops whose types or members cannot be

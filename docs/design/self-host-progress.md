@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA table member mutation fails before emission
+
+The analyzer now rejects direct writes to experimental SoA wrapper members such as `table.column = arr`,
+`table.length = n`, and `table.length++`. Row-column writes and explicit column-element writes remain
+accepted, but table shape changes must go through construction, `wrap`, `add`, `clear`, `ensureCapacity`,
+or `copyRow` so length, capacity, and backing columns stay consistent before IL lowering sees the code.
+
 ## 2026-06-14 — SoA row-column null-coalescing reads have IL-shape proof
 
 Plain `table[row].column ?? fallback` over nullable/reference SoA columns now has runtime and

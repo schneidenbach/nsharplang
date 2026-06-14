@@ -152,7 +152,9 @@ not grow LINQ-like methods that obscure allocation or control flow.
 Row-column access supports direct reads, simple stores, expression-valued stores, default stores,
 null-coalescing reads and assignment, compound assignment, and increment/decrement over the verified
 column element types. These accepted operations lower to the backing column arrays without row-object
-materialization.
+materialization. Direct column-element access through `table.column[row]` is also permitted for explicit
+systems kernels, but replacing wrapper column arrays or mutating `length`/`capacity` directly is not:
+shape changes must go through construction, `wrap`, `add`, `clear`, `ensureCapacity`, or `copyRow`.
 
 ## Diagnostics
 
@@ -173,6 +175,7 @@ The compiler must produce direct diagnostics for common misuse:
 - unsupported element type: "SoA column type X is not supported in this lowering";
 - non-nullable row-column null coalescing: "The left side of '??' has type 'X', which can't be null";
 - non-int or range row indexes: "SoA table indexes must be int row ids";
+- direct table member mutation: "SoA table member 'X' cannot be assigned directly";
 - hidden allocation request: "this operation would allocate row objects; use column access instead".
 
 These diagnostics must point at the row access or column declaration, not at generated lowering code.
