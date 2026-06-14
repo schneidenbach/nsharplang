@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA target-typed new still requires capacity
+
+Target-typed `new()` is now pinned as an analyzer error for SoA table wrappers in typed locals and
+returns. Even with an expected `NodeTable` type, construction must spell a non-negative capacity with
+`new NodeTable(capacity)` or use `NodeTable.wrap(...)`; zero-argument target-typed construction does
+not reach IL lowering.
+
 ## 2026-06-14 — SoA row pseudo-types stay internal
 
 `NodeTable.Row` is now rejected in declared-type positions instead of flowing through the dotted
