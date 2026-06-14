@@ -570,25 +570,6 @@ func TokenizeMetadataCore(source: string, metadata: &LexerTokenMetadataTable): i
 // depth (raw count + 1 is always safe). A virtual brace's start offset is derived as
 // (triggerStart - (triggerColumn - 1)), i.e. the start offset of the trigger token's line, with
 // column fixed to 1 -- identical to how the production lexer positions the inserted braces.
-func InsertIndentationBracesInto(
-    rawKinds: int[],
-    rawStarts: int[],
-    rawValueLengths: int[],
-    rawLines: int[],
-    rawColumns: int[],
-    rawCount: int,
-    outKinds: int[],
-    outStarts: int[],
-    outValueLengths: int[],
-    outLines: int[],
-    outColumns: int[],
-    indentStack: int[]): int {
-    raw := new LexerTokenMetadataTable { Kinds: rawKinds, Starts: rawStarts, ValueLengths: rawValueLengths, Lines: rawLines, Columns: rawColumns }
-    output := new LexerTokenMetadataTable { Kinds: outKinds, Starts: outStarts, ValueLengths: outValueLengths, Lines: outLines, Columns: outColumns }
-    stack := new LexerIndentStackTable { Indents: indentStack }
-    return InsertIndentationBracesCore(ref raw, rawCount, ref output, ref stack)
-}
-
 func InsertIndentationBracesCore(
     raw: &LexerTokenMetadataTable,
     rawCount: int,

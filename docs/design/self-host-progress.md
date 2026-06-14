@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — Lexer indentation standalone wrapper retired
+
+`LexerTokenKindScanner.nl` no longer emits the standalone flattened `InsertIndentationBracesInto`
+entry. The indentation post-pass remains in N# as `InsertIndentationBracesCore`, and the production
+dogfood adapter/test route continues through the composed `TokenizeMetadataWithIndentationInto`
+entry that tokenizes raw metadata and invokes the core directly.
+
+This removes the last non-code-intelligence single-reference compiler-service export surfaced by the
+backend cleanup sweep while preserving the token-stream ABI used by the compiler and parity tests.
+
 ## 2026-06-13 — Unrouted CLI test-filter benchmark probe retired
 
 `CliArguments.nl` no longer carries the `CliTestFilterMatchIndicesInto` benchmark probe or its private
@@ -522,9 +532,9 @@ loops route through wrapper-aware cores and avoid anonymous table plumbing.
 
 `LexerTokenKindScanner.nl` now also groups the full token metadata stream, indentation-brace
 post-pass inputs/outputs, indentation stack, and comment-trivia output columns behind named normal
-structs. `TokenizeMetadataInto`, `InsertIndentationBracesInto`,
-`TokenizeMetadataWithIndentationInto`, and `CommentsInto` keep the flattened dogfood adapter ABI;
-their internals now route through wrapper-aware core functions.
+structs. `TokenizeMetadataInto`, `TokenizeMetadataWithIndentationInto`, and `CommentsInto` keep the
+flattened dogfood adapter ABI; the indentation post-pass stays behind the composed tokenizer route,
+and their internals now route through wrapper-aware core functions.
 
 Together with the token-kind slice below, the lexer scanner no longer carries anonymous
 parallel-array tables through its main token kind, token metadata, indentation, or comment loops.
@@ -6206,7 +6216,7 @@ hand-built cases) and drove out the gap list below. Systems keywords are closed 
 next slices.
 
 Added two N# kernels to `CompilerServices/LexerTokenKindScanner.nl`:
-- `InsertIndentationBracesInto(...)` — a faithful, zero-alloc (caller-owned-buffer) port of
+- `InsertIndentationBracesCore(...)` — a faithful, zero-alloc (caller-owned-buffer) port of
   `InsertIndentationBraces`, operating purely over the raw metadata arrays
   (kind/start/valueLength/line/column). It tracks an indent stack, explicit-brace depth, and
   paren/bracket depth; opens a virtual `LeftBrace` (ordinal 129) on indentation increase and closes
