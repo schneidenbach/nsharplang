@@ -1032,6 +1032,111 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaRowViewCannotEscapeThroughFieldInitializer()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            class Holder {
+                Nodes: NodeTable = new NodeTable(1)
+                Row: object = Nodes[0]
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("SoA row views cannot be stored in a field", error.Message);
+        Assert.Contains("table[index].column", error.Suggestion);
+    }
+
+    [Fact]
+    public void Analyzer_SoaRowViewCannotBeUsedAsMemberReceiver()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable) {
+                value := nodes[0].ToString
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("SoA row views cannot be used as a member receiver", error.Message);
+        Assert.Contains("table[index].column", error.Suggestion);
+    }
+
+    [Fact]
+    public void Analyzer_SoaRowViewCannotBeUsedAsIndexReceiver()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable) {
+                value := nodes[0][0]
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("SoA row views cannot be used as an index receiver", error.Message);
+        Assert.Contains("table[index].column", error.Suggestion);
+    }
+
+    [Fact]
+    public void Analyzer_SoaRowViewCannotBeUsedAsIndexValue()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable) {
+                values := [1, 2]
+                value := values[nodes[0]]
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("SoA row views cannot be used as an index value", error.Message);
+        Assert.Contains("table[index].column", error.Suggestion);
+    }
+
+    [Fact]
+    public void Analyzer_SoaRowViewCannotBeUsedAsRelationalPatternValue()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable): int {
+                return match 5 {
+                    < (nodes[0]) => 1,
+                    _ => 0
+                }
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("SoA row views cannot be used as a relational pattern value", error.Message);
+        Assert.Contains("table[index].column", error.Suggestion);
+    }
+
+    [Fact]
     public void Analyzer_SoaRowViewCannotEscapeThroughAssignment()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

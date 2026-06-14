@@ -1405,7 +1405,11 @@ public class Analyzer : IDisposable
                 // Infer type from initializer
                 fieldType = AnalyzeExpression(field.Initializer);
 
-                if (BuiltInTypes.IsUnknown(fieldType))
+                if (ReportSoaRowEscapeIfNeeded(field.Initializer, fieldType, "stored in a field"))
+                {
+                    fieldType = BuiltInTypes.Unknown;
+                }
+                else if (BuiltInTypes.IsUnknown(fieldType))
                 {
                     Error($"I can't figure out the type of '{field.Name}' from its initializer — try adding an explicit type annotation", field.Line, field.Column);
                 }
@@ -1421,7 +1425,8 @@ public class Analyzer : IDisposable
                 _currentExpectedType = fieldType;
                 var initType = AnalyzeExpression(field.Initializer);
                 _currentExpectedType = previousExpectedType;
-                if (!IsAssignable(fieldType, initType))
+                var isSoaRowInitializer = ReportSoaRowEscapeIfNeeded(field.Initializer, initType, "stored in a field");
+                if (!isSoaRowInitializer && !IsAssignable(fieldType, initType))
                 {
                     var (diagnosticLine, diagnosticColumn, diagnosticLength) =
                         GetExpressionDiagnosticSpan(field.Initializer);
@@ -4146,7 +4151,8 @@ public class Analyzer : IDisposable
 
             case LiteralPattern literalPattern:
                 // Just analyze the literal expression for type checking
-                AnalyzeExpression(literalPattern.Literal);
+                var literalType = AnalyzeExpression(literalPattern.Literal);
+                ReportSoaRowEscapeIfNeeded(literalPattern.Literal, literalType, "used as a pattern value");
                 break;
 
             case UnionCasePattern unionPattern:
@@ -4226,6 +4232,7 @@ public class Analyzer : IDisposable
             case RelationalPattern relationalPattern:
                 // Analyze the value expression and ensure it's compatible with valueType
                 var relationalValueType = AnalyzeExpression(relationalPattern.Value);
+                ReportSoaRowEscapeIfNeeded(relationalPattern.Value, relationalValueType, "used as a relational pattern value");
                 // The value type should be comparable (numeric, string, etc.)
                 // For now, we'll allow any relational pattern without strict type checking
                 break;
@@ -5595,6 +5602,13 @@ public class Analyzer : IDisposable
         ReportPossibleNullAccess(member.Object, objectType, member.Line, member.Column, "dereference", member.IsNullConditional);
         var receiverType = GetNonNullableType(objectType);
 
+        if (receiverType is SoaRowTypeInfo soaRowType
+            && TryGetSoaColumn(soaRowType.Declaration, member.MemberName) is null)
+        {
+            ReportSoaRowEscape(member.Object, "used as a member receiver");
+            return BuiltInTypes.Unknown;
+        }
+
         ValidateDeclaredMemberVisibility(receiverType, member);
         TryRecordMemberBinding(receiverType, member);
 
@@ -5616,6 +5630,18 @@ public class Analyzer : IDisposable
 
         var indexType = AnalyzeExpression(index.Index);
         var receiverType = GetNonNullableType(objectType);
+        var isSoaRowReceiver = receiverType is SoaRowTypeInfo;
+        var isSoaRowIndex = ReportSoaRowEscapeIfNeeded(index.Index, indexType, "used as an index value");
+        if (isSoaRowReceiver)
+        {
+            ReportSoaRowEscape(index.Object, "used as an index receiver");
+        }
+
+        if (isSoaRowReceiver || isSoaRowIndex)
+        {
+            return BuiltInTypes.Unknown;
+        }
+
         var isRangeAccess = index.Index is RangeExpression || IsRangeLikeType(indexType);
         var elementType = ResolveIndexElementType(receiverType, indexType, isRangeAccess);
 
