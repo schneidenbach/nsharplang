@@ -239,8 +239,8 @@ The compiler must produce direct diagnostics for common misuse:
 - non-integral row/direct column increment/decrement: "The '++' operator doesn't work with 'X'";
 - non-nullable row/direct column null coalescing: "The left side of '??' has type 'X', which can't be null";
 - non-int, `System.Index`, or range row indexes: "SoA table indexes must be int row ids";
-- statically negative row indexes: "SoA table row indexes must not be negative" or
-  "SoA column row indexes must not be negative";
+- statically negative row indexes on row/direct-column reads or writes:
+  "SoA table row indexes must not be negative" or "SoA column row indexes must not be negative";
 - direct table member mutation: "SoA table member 'X' cannot be assigned directly";
 - non-int direct column element indexes: "Array indexes must be int, System.Index, or System.Range";
 - direct column slice mutation: "Array slices cannot be assigned" or

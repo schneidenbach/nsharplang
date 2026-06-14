@@ -11,6 +11,12 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA static negative indexes reject reads and writes
+
+Static negative row ids now have analyzer pins for the full row/direct-column read/write matrix.
+`table[-1].column`, `table[-1].column = value`, `table.column[-1]`, and
+`table.column[-1] = value` all report the SoA negative row-id diagnostics before IL lowering.
+
 ## 2026-06-14 — SoA row projection rejects range/from-end write indexes
 
 SoA row projection now has write-context regression pins for the same non-`int` row ids as read
