@@ -4427,6 +4427,7 @@ public class Analyzer : IDisposable
             OnSubscriptionExpression on => AnalyzeOnSubscription(on),
             LambdaExpression lambda => AnalyzeLambda(lambda, _currentExpectedType),
             TernaryExpression ternary => AnalyzeTernary(ternary),
+            TupleExpression tuple => AnalyzeTupleExpression(tuple),
             ArrayLiteralExpression array => AnalyzeArrayLiteral(array),
             NewExpression newExpr => AnalyzeNewExpression(newExpr),
             AllocExpression alloc => AnalyzeExpression(alloc.Expression),
@@ -11058,6 +11059,20 @@ public class Analyzer : IDisposable
 
         // Return common type
         return GetCommonType(thenType, elseType);
+    }
+
+    private TypeInfo AnalyzeTupleExpression(TupleExpression tuple)
+    {
+        var elements = new List<(string? Name, TypeInfo Type)>(tuple.Elements.Count);
+
+        foreach (var element in tuple.Elements)
+        {
+            var elementType = AnalyzeExpression(element.Value);
+            ReportSoaRowEscapeIfNeeded(element.Value, elementType, "stored in a tuple");
+            elements.Add((element.Name, elementType));
+        }
+
+        return new TupleTypeInfo(elements);
     }
 
     private TypeInfo AnalyzeArrayLiteral(ArrayLiteralExpression array)

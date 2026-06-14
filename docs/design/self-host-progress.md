@@ -11,6 +11,12 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA row-view escape diagnostics cover tuple elements
+
+Tuple expressions now analyze their elements and report the SoA-specific escape diagnostic when an element
+is a row view. A tuple literal such as `(row: table[i], fallback: 0)` can no longer package a bare row
+while the runtime has no public row object model.
+
 ## 2026-06-14 — SoA row-view escape diagnostics cover discards and yields
 
 SoA row views now report the SoA-specific escape diagnostic when they are explicitly discarded with
