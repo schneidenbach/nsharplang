@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA enum default stores avoid old reads
+
+Int-backed enum SoA columns now have opcode evidence for expression-valued default stores across row
+projection, direct column indexing, and direct from-end column indexing. The stores return the
+assigned enum default value and write the backing column arrays without reading old elements, while
+still avoiding row construction, slice allocation, boxing, delegate construction, and virtual
+dispatch.
+
 ## 2026-06-14 — SoA enum updates have row/direct IL-shape proof
 
 Int-backed enum SoA columns now have opcode evidence for the update shapes admitted by the general
