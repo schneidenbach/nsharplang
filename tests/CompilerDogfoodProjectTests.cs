@@ -18,7 +18,7 @@ namespace NSharpLang.Tests;
 
 public class CompilerDogfoodProjectTests
 {
-    private const int MinimumProductDogfoodFileCountAfterParityExtraction = 27;
+    private const int MinimumProductDogfoodFileCountAfterParityExtraction = 26;
 
     // The production-routed parser token-compaction kernel
     // (LexerTokenKindScanner.nl: ParserTokenCompactionIndicesInto) filters newline tokens by the
@@ -7620,25 +7620,27 @@ class B
         Assert.False(RouteColumnarProgram("func f(a: int) {\n    return a\n}\n").Ok);
     }
 
-    // MILESTONE: SemanticScopes.nl compiles end-to-end with no C# AST — the LAST parse-blocked systems-dogfood
-    // file, completing 32/32 corpus coverage via the merge cluster. Its blocker was two IMPLICIT-VOID procedures
-    // (SemanticScopeSortIdsByStart — an iterative quicksort — and SemanticScopeClearTouchedCore) whose omitted
-    // return type the emit adapter mis-treated as a parse error. BuildSortedIndexChecksumInto exercises the
-    // implicit-void quicksort transitively (value-matched vs the C# pipeline); parity helpers anchor scalar checks.
+    // MILESTONE: SemanticScopes.nl compiles end-to-end with no C# AST. It now lives only in the parity corpus
+    // because the production semantic-scope public API bridge missed the 5x gate and was removed. Its original
+    // blocker was two IMPLICIT-VOID procedures (SemanticScopeSortIdsByStart — an iterative quicksort — and
+    // SemanticScopeClearTouchedCore) whose omitted return type the emit adapter mis-treated as a parse error.
+    // BuildSortedIndexChecksumInto exercises the implicit-void quicksort transitively (value-matched vs the C#
+    // pipeline); parity helpers anchor scalar checks.
     [Fact]
-    public void ColumnarCodegen_CompilesRealDogfoodFile_SemanticScopes()
+    public void ColumnarCodegen_CompilesParityCorpusFile_SemanticScopes()
     {
-        var source = ReadDogfoodFileWithParityCorpus("SemanticScopes.nl");
-        var (ok, _, _, methodNames) = RouteColumnarProgram(source);
-        Assert.True(ok, "Columnar backend declined the real SemanticScopes.nl (expected full support).");
+        var sources = new[] { ReadDogfoodParityFile("SemanticScopesCore.nl"), ReadDogfoodParityFile("SemanticScopes.nl") };
+        var (ok, _, _, methodNames) = RouteColumnarMultiFile(sources);
+        Assert.True(ok, "Columnar backend declined the parity-only SemanticScopes corpus sources (expected full support).");
         Assert.Contains("SemanticScopeSortIdsByStart", methodNames!);  // implicit-void quicksort
-        Assert.Contains("SemanticScopeClearTouchedCore", methodNames!); // implicit-void array-clear product helper
+        Assert.Contains("SemanticScopeClearTouchedCore", methodNames!); // implicit-void array-clear helper
+        Assert.Contains("SemanticScopeClearTouched", methodNames!);     // extracted parity wrapper
 
         // 4 scopes in UNSORTED (line, column) order so the implicit-void quicksort actually permutes; the checksum
         // observes the sorted output (scratch + output arrays are deterministically rebuilt from the read-only
         // position inputs each call, so the shared-array reuse across columnar/oracle is harmless).
         int[] startLines = { 5, 1, 3, 1 }, startCols = { 0, 2, 0, 0 }, endLines = { 9, 9, 4, 2 };
-        AssertColumnarProgramMatchesCSharp(source,
+        AssertColumnarMultiFileMatchesCSharp(sources,
             ("SemanticScopeBuildSortedIndexChecksumInto", new object[]
             {
                 startLines, startCols, endLines,
@@ -7908,7 +7910,7 @@ class B
             "FormatterImportOrdering.nl", "IdentifierSpans.nl",
             "LexerTokenKindScanner.nl", "OverloadCandidates.nl", "ParserDeclarations.nl",
             "ParserExpressions.nl", "ParserFunctionSignatures.nl", "ParserStatements.nl", "ParserTypeReferences.nl",
-            "ProjectSourceFilter.nl", "SemanticScopes.nl", "StructCopyAnalysis.nl",
+            "ProjectSourceFilter.nl", "StructCopyAnalysis.nl",
             "TextEditOrdering.nl", "TypeLookup.nl",
         };
         var sources = cluster.Select(n => File.ReadAllText(Path.Combine(dir, n))).ToArray();
@@ -7966,7 +7968,7 @@ class B
     [Fact]
     public void ColumnarCodegen_ParityOnlyFiles_AreAbsentFromProductCoverage()
     {
-        foreach (var name in new[] { "ErrorSuggestions.nl", "FormatterSafetyScan.nl", "LinterImports.nl", "PathMatching.nl", "SourceTextLines.nl" })
+        foreach (var name in new[] { "ErrorSuggestions.nl", "FormatterSafetyScan.nl", "LinterImports.nl", "PathMatching.nl", "SemanticScopesCore.nl", "SourceTextLines.nl" })
         {
             Assert.False(File.Exists(DogfoodProductFilePath(name)), $"{name} must live only in the parity corpus.");
 
@@ -7994,16 +7996,11 @@ class B
                 $"{functionName} should still be available when {fileName} is merged with its parity corpus.");
         }
 
-        var semanticProduct = ReadDogfoodProductFile("SemanticScopes.nl");
-        var (semanticOk, _, _, semanticProductMethods) = RouteColumnarProgram(semanticProduct);
-        Assert.True(semanticOk, "SemanticScopes.nl product source should still compile without parity wrappers.");
-        Assert.Contains("SemanticScopeClearTouchedCore", semanticProductMethods!);
-        Assert.DoesNotContain("SemanticScopeClearTouched", semanticProductMethods!);
-        Assert.DoesNotContain("SemanticScopeIdStartsBefore", semanticProductMethods!);
-
-        var semanticWithParity = ReadDogfoodFileWithParityCorpus("SemanticScopes.nl");
-        var (semanticParityOk, _, _, semanticParityMethods) = RouteColumnarProgram(semanticWithParity);
-        Assert.True(semanticParityOk, "SemanticScopes.nl parity corpus should still compile with the extracted wrappers.");
+        Assert.False(File.Exists(DogfoodProductFilePath("SemanticScopes.nl")), "SemanticScopes.nl must live only in the parity corpus.");
+        var semanticSources = new[] { ReadDogfoodParityFile("SemanticScopesCore.nl"), ReadDogfoodParityFile("SemanticScopes.nl") };
+        var (semanticParityOk, _, _, semanticParityMethods) = RouteColumnarMultiFile(semanticSources);
+        Assert.True(semanticParityOk, "SemanticScopes.nl parity corpus should still compile with the extracted core and wrappers.");
+        Assert.Contains("SemanticScopeClearTouchedCore", semanticParityMethods!);
         Assert.Contains("SemanticScopeClearTouched", semanticParityMethods!);
         Assert.Contains("SemanticScopeIdStartsBefore", semanticParityMethods!);
 
@@ -8066,7 +8063,7 @@ class B
             "CompletionGrouping.nl", "CompletionReceivers.nl", "DiagnosticClusters.nl", "DiagnosticDeduplication.nl", "DocQuery.nl",
             "FormatterImportOrdering.nl", "IdentifierSpans.nl",
             "LexerTokenKindScanner.nl", "OverloadCandidates.nl", "ParserDeclarations.nl",
-            "ParserTypeReferences.nl", "ProjectSourceFilter.nl", "SemanticScopes.nl",
+            "ParserTypeReferences.nl", "ProjectSourceFilter.nl",
             "StructCopyAnalysis.nl", "TextEditOrdering.nl", "TypeLookup.nl",
         };
         var dir = Path.Combine(FindRepoRoot(), "src", "NSharpLang.Compiler.Dogfood", "CompilerServices");
@@ -9143,63 +9140,6 @@ class B
             // Stable schema: identical input must serialize byte-identically.
             Assert.Equal(json, OutputFormatter.AstToJson(units));
         }
-    }
-
-    [Fact]
-    public void CompilerDogfoodAdapter_LoadsSemanticScopePackagedNSharpAssembly()
-    {
-        var adapterType = typeof(SemanticModel).Assembly.GetType(
-                "NSharpLang.Compiler.NSharpCompilerDogfoodAdapter")
-            ?? throw new InvalidOperationException("Dogfood compiler adapter type was not emitted.");
-
-        var isAvailable = (bool)(adapterType.GetProperty(
-                "IsAvailable",
-                BindingFlags.Static | BindingFlags.NonPublic)
-            ?.GetValue(null) ?? false);
-        Assert.True(isAvailable, "The production test output must carry NSharpLang.Compiler.Dogfood.dll.");
-
-        var semanticModel = new SemanticModel();
-        var rootScope = semanticModel.OpenScope(-1, 1, 1);
-        semanticModel.RecordScopedVariable(rootScope, "x", BuiltInTypes.Int);
-        semanticModel.RecordScopedVariable(rootScope, "y", BuiltInTypes.String);
-        var innerScope = semanticModel.OpenScope(rootScope, 4, 1);
-        semanticModel.RecordScopedVariable(innerScope, "x", BuiltInTypes.Bool);
-        semanticModel.RecordScopedVariable(innerScope, "z", BuiltInTypes.Double);
-        semanticModel.CloseScope(innerScope, 8, 120);
-        semanticModel.CloseScope(rootScope, 12, 120);
-        semanticModel.RecordProperty("Name", BuiltInTypes.String);
-
-        var tryGetVisibleVariablesAtPosition = adapterType.GetMethod(
-                "TryGetVisibleVariablesAtPosition",
-                BindingFlags.Static | BindingFlags.NonPublic)
-            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryGetVisibleVariablesAtPosition.");
-        var visibleArgs = new object?[] { semanticModel, 5, 10, null };
-        Assert.True((bool)(tryGetVisibleVariablesAtPosition.Invoke(null, visibleArgs) ?? false));
-        var visibleVariables = Assert.IsType<Dictionary<string, NSharpLang.Compiler.TypeInfo>>(visibleArgs[3]);
-        Assert.Equal("bool", visibleVariables["x"].ToString());
-        Assert.Equal("string", visibleVariables["y"].ToString());
-        Assert.Equal("double", visibleVariables["z"].ToString());
-
-        var tryLookupIdentifierAtPosition = adapterType.GetMethod(
-                "TryLookupIdentifierAtPosition",
-                BindingFlags.Static | BindingFlags.NonPublic)
-            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryLookupIdentifierAtPosition.");
-
-        var innerLookupArgs = new object?[] { semanticModel, "x", 5, 10, null };
-        Assert.True((bool)(tryLookupIdentifierAtPosition.Invoke(null, innerLookupArgs) ?? false));
-        Assert.Equal("bool", innerLookupArgs[4]?.ToString());
-
-        var outerLookupArgs = new object?[] { semanticModel, "y", 5, 10, null };
-        Assert.True((bool)(tryLookupIdentifierAtPosition.Invoke(null, outerLookupArgs) ?? false));
-        Assert.Equal("string", outerLookupArgs[4]?.ToString());
-
-        var propertyLookupArgs = new object?[] { semanticModel, "Name", 5, 10, null };
-        Assert.True((bool)(tryLookupIdentifierAtPosition.Invoke(null, propertyLookupArgs) ?? false));
-        Assert.Equal("string", propertyLookupArgs[4]?.ToString());
-
-        var missingLookupArgs = new object?[] { semanticModel, "missing", 5, 10, null };
-        Assert.True((bool)(tryLookupIdentifierAtPosition.Invoke(null, missingLookupArgs) ?? false));
-        Assert.Null(missingLookupArgs[4]);
     }
 
     [Fact]
@@ -20173,6 +20113,12 @@ func main() {
     private static string ReadDogfoodProductFile(string fileName)
     {
         return File.ReadAllText(DogfoodProductFilePath(fileName));
+    }
+
+    private static string ReadDogfoodParityFile(string fileName)
+    {
+        var repoRoot = FindRepoRoot();
+        return File.ReadAllText(Path.Combine(repoRoot, "src", "NSharpLang.Compiler.Dogfood.ParityCorpus", fileName));
     }
 
     private static string DogfoodProductFilePath(string fileName)

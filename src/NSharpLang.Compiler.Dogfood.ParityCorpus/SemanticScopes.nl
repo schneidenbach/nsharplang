@@ -1,8 +1,6 @@
-// PARITY CORPUS (Arc M1): checksum oracles and helper wrappers extracted from
-// src/NSharpLang.Compiler.Dogfood/CompilerServices/SemanticScopes.nl. These functions exist solely as
-// parity-test surfaces (tests + benchmarks bind them by NAME and compile them TOGETHER with
-// their product file — most delegate to sibling kernels that stay in the product). They are
-// NOT part of the shipped dogfood assembly.
+// PARITY CORPUS (Arc M1): checksum oracles and helper wrappers for the semantic-scope kernels.
+// These functions exist solely as parity-test surfaces (tests + benchmarks bind them by NAME and
+// compile them together with SemanticScopesCore.nl). They are NOT part of the shipped dogfood assembly.
 
 func SemanticScopeIdStartsBefore(
     left: int,

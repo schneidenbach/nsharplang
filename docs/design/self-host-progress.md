@@ -11,12 +11,23 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — Semantic-scope bridge moved fully to parity corpus
+
+`SemanticScopes.nl` no longer ships in `NSharpLang.Compiler.Dogfood/CompilerServices`, and
+`NSharpCompilerDogfoodAdapter` no longer binds `SemanticScope*` delegates or carries the compact
+`SemanticModel` cache used by the rejected public-API bridge. The former core now lives as
+`SemanticScopesCore.nl` in the parity corpus, beside the checksum/wrapper `SemanticScopes.nl` file,
+so parity and benchmark probes can keep compiling without exposing an unrouted product ABI.
+
+Product dogfood coverage is now 26 shipped files: 23 compile as single-file kernels and the three
+parser files compile through the multi-file merge.
+
 ## 2026-06-14 — Code-intelligence semantic-scope forwarders removed
 
 `NSharpCodeIntelligenceDogfoodAdapter` no longer exposes semantic-scope lookup methods that only
-forwarded to `NSharpCompilerDogfoodAdapter`. The compiler adapter remains the single C# bridge for
-`SemanticScopeVisibleSymbolIndicesInto` and `SemanticScopeLookupSymbolIndicesInto`, and the packaging
-test now validates that route directly.
+forwarded to `NSharpCompilerDogfoodAdapter`. This was an intermediate consolidation step before the
+remaining compiler-adapter bridge was removed and the semantic-scope kernels moved fully to the parity
+corpus.
 
 ## 2026-06-14 — Unbound dogfood wrappers move to parity corpus
 
@@ -30,7 +41,7 @@ route after the parity wrapper extraction.
 Those ABIs moved to `NSharpLang.Compiler.Dogfood.ParityCorpus`, where existing parser, lexer,
 linter, and diagnostic parity tests can still bind them by name. The remaining product files keep
 only wrapper-aware cores reached from actual adapter roots or cross-file parser routes. Product
-dogfood coverage is now 27 shipped files: 24 compile as single-file kernels and the three parser
+dogfood coverage was then 27 shipped files: 24 compile as single-file kernels and the three parser
 files compile through the multi-file merge.
 
 ## 2026-06-14 — SourceTextLines extracted from product dogfood
@@ -232,9 +243,10 @@ query-position names absent from product-only emission but present in product+pa
 ## 2026-06-14 — Semantic-scope scalar wrappers leave product dogfood
 
 `SemanticScopes.nl` no longer emits the raw-array `SemanticScopeIdStartsBefore` and
-`SemanticScopeClearTouched` helpers. The live product route keeps `SemanticScopeIdStartsBeforeCore`
-inside the iterative sort and `SemanticScopeClearTouchedCore` inside name-set cleanup, while the
-raw wrappers now live in the parity corpus and are pinned absent from product coverage.
+`SemanticScopeClearTouched` helpers. At this checkpoint the live product route kept
+`SemanticScopeIdStartsBeforeCore` inside the iterative sort and `SemanticScopeClearTouchedCore`
+inside name-set cleanup, while the raw wrappers moved to the parity corpus and were pinned absent
+from product coverage.
 
 ## 2026-06-14 — Linter parity wrapper leaves product dogfood
 
@@ -673,7 +685,8 @@ This keeps the CLI dogfood surface focused on product routes instead of scalar c
 `SemanticScopeAddNameToSet` were declaration-only helpers after the visible-symbol and lookup kernels moved
 onto `SemanticScopePositionTable`, `SemanticScopeSortedIndexTable`, and `SemanticScopeNameSetScratch`.
 
-The adapter-bound semantic-scope entries and the parser-coverage helpers remain unchanged.
+At this checkpoint the adapter-bound semantic-scope entries and parser-coverage helpers remained
+unchanged; the remaining bridge was removed later after the public API route missed the 5x gate.
 
 ## 2026-06-13 — Lexer and ordering kernels drop declaration-only pass shims
 

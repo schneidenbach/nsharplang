@@ -601,13 +601,17 @@ Current compiler-performance dogfood benchmarks:
 The dogfood project now includes `CompilerServices/IdentifierSpans.nl`,
 `CompilerServices/CompletionReceivers.nl`, `CompilerServices/DiagnosticClusters.nl`,
 `CompilerServices/DiagnosticDeduplication.nl`, `CompilerServices/BindingLookup.nl`,
-`CompilerServices/SemanticScopes.nl`, `CompilerServices/CliQueryParsing.nl`,
+`CompilerServices/CliQueryParsing.nl`,
 `CompilerServices/CliArguments.nl`, `CompilerServices/CliDocOrdering.nl`,
 `CompilerServices/CompletionGrouping.nl`, `CompilerServices/PathMatching.nl`,
 `CompilerServices/TextEditOrdering.nl`, `CompilerServices/AotRequirements.nl`,
 `CompilerServices/StructCopyAnalysis.nl`, `CompilerServices/AnonymousUnionShims.nl`,
 `CompilerServices/ErrorSuggestions.nl`, `CompilerServices/AnalyzerExhaustiveness.nl`,
 `CompilerServices/TypeLookup.nl`, and `CompilerServices/OverloadCandidates.nl`.
+The semantic-scope kernels formerly shipped as `CompilerServices/SemanticScopes.nl` now live only in
+the parity corpus as `SemanticScopesCore.nl` plus the checksum/wrapper `SemanticScopes.nl`; the
+public `SemanticModel` bridge missed the production 5x gate, so no shipped product adapter binds
+those symbols until a wider batched/caller-owned route exists.
 `CompilerDogfoodProjectTests`
 compiles it through the SDK project and checks returned spans against the production snap rules for
 valid selections, nearby punctuation/whitespace selections, invalid lines, empty lines, CRLF input,
@@ -769,6 +773,8 @@ position-aware scoped identifier lookup before member-completion type materializ
 BenchmarkDotNet memory report was present and showed no managed allocation reported for either path.
 This is acceptance-grade benchmark evidence for scoped identifier selection after the host has built
 compact scope/symbol tables and the sorted scope-start index.
+As of 2026-06-14 these kernels are retained as parity-corpus evidence only; the single-query public
+API bridge below did not clear the production-shaped 5x gate.
 
 `BindingLookupFindNearestDeclarationIndicesInto` passed parity and reported zero managed allocation
 in the same normal BenchmarkDotNet evidence tier for nearest same-file declaration selection by
@@ -1921,13 +1927,12 @@ The same compact `BindingMap` cache now routes sorted nearest-declaration index 
 the compiled N# dense name-id counting builder when the dogfood assembly is available, with the
 previous C# `Array.Sort(order, CompareDeclarationOrder)` builder kept as the fallback for unavailable,
 invalid, or out-of-order same-name N# output.
-The compact `SemanticModel` cache for semantic-scope kernels now lives in
-`NSharpCompilerDogfoodAdapter` rather than the code-intelligence adapter, but CLI/daemon completion
-does not route its single-query visible-variable or receiver identifier lookups through that bridge.
-Production-shaped dry probes missed the 5x gate once the public dictionary/`TypeInfo` boundary and
-per-call adapter overhead were included, so `CompletionEngine` keeps the current
+The semantic-scope public API bridge was removed from both code-intelligence and compiler dogfood
+adapters. Production-shaped dry probes missed the 5x gate once the public dictionary/`TypeInfo`
+boundary and per-call adapter overhead were included, so `CompletionEngine` keeps the current
 `SemanticModel.GetVisibleVariablesAtPosition` and `SemanticModel.LookupIdentifierAtPosition` paths
-until a wider batched or caller-owned completion route lands.
+until a wider batched or caller-owned completion route lands. The semantic-scope N# kernels now live
+only in the parity corpus.
 CLI/daemon member-access completion also routes public completion-item kind grouping through the
 compiled N# grouping kernel when the dogfood assembly is available, with the previous LINQ
 `GroupBy`/`ToList` shape kept as the fallback.
@@ -2354,9 +2359,10 @@ produce a production-shaped win:
   reported `22.261 ms` N# vs `51.869 ms` C# on the representative row (about 2.3x) and
   `129.700 ms` N# vs `48.833 ms` C# on the large row (slower). The lookup bridge reported
   `33.502 ms` N# vs `30.026 ms` C# representative and `186.249 ms` N# vs `140.916 ms` C# large.
-  Keep the compact semantic-scope kernels for batched/caller-owned routes, but do not route
-  `SemanticModel.GetVisibleVariablesAtPosition`, `SemanticModel.LookupIdentifierAtPosition`, or
-  completion's single-query calls through this adapter bridge.
+  Keep the compact semantic-scope kernels in the parity corpus for future batched/caller-owned
+  routes, but do not route `SemanticModel.GetVisibleVariablesAtPosition`,
+  `SemanticModel.LookupIdentifierAtPosition`, or completion's single-query calls through an adapter
+  bridge.
 - NL010 namespace unused-import checking: the dense-rank N# kernel removes the repeated
   known-type/member scans and allocations from the C# `Any(...Contains...)` loop, but it only clears
   the gate when ranks are already available. The optimized dry probe measured ranked-core rows at
@@ -2401,7 +2407,7 @@ materialization with no compact integer-domain kernel, so they cannot clear the 
 one-off adapter call. The pieces with a genuine compact-array shape (grouping, dedup, clustering,
 ranking, span/offset math) have *already* been routed — see the accepted code-intel kernels
 (`IdentifierSpans.nl`, `CompletionGrouping.nl`, `CompletionReceivers.nl`, `DiagnosticClusters.nl`,
-`DiagnosticDeduplication.nl`, `SemanticScopes.nl`, etc.) and their benchmark entries above. What
+`DiagnosticDeduplication.nl`, etc.) and their benchmark entries above. What
 remains below is the residue: the per-call string assembly that wraps those kernels.
 
 Recent rejected probes (Rejected Probes section; semantic-scope public-API bridge, NL010 namespace
