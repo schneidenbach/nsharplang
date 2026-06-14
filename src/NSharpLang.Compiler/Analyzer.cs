@@ -761,7 +761,8 @@ public class Analyzer : IDisposable
         else if (func.ExpressionBody != null)
         {
             // Expression-bodied method: check expression type matches return type
-            var exprType = AnalyzeExpression(func.ExpressionBody);
+            var expectedExpressionType = functionReturnType != BuiltInTypes.Void ? functionReturnType : null;
+            var exprType = AnalyzeExpressionWithExpectedType(func.ExpressionBody, expectedExpressionType);
             ReportSoaRowEscapeIfNeeded(func.ExpressionBody, exprType, "returned");
             if (functionReturnType == BuiltInTypes.Void && exprType != BuiltInTypes.Void)
             {
@@ -3154,7 +3155,8 @@ public class Analyzer : IDisposable
         }
         else if (func.ExpressionBody != null)
         {
-            var exprType = AnalyzeExpression(func.ExpressionBody);
+            var expectedExpressionType = returnType != BuiltInTypes.Void ? returnType : null;
+            var exprType = AnalyzeExpressionWithExpectedType(func.ExpressionBody, expectedExpressionType);
             ReportSoaRowEscapeIfNeeded(func.ExpressionBody, exprType, "returned");
             // Verify expression type matches return type
             if (returnType != BuiltInTypes.Void && !IsAssignable(returnType, exprType))
