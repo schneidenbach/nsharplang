@@ -413,6 +413,7 @@ public partial class ILCompiler
         var requiredLocal = il.DeclareLocal(typeof(int));
         var validSourceLabel = il.DefineLabel();
         var validTargetLabel = il.DefineLabel();
+        var validSourceRangeLabel = il.DefineLabel();
         var keepLengthLabel = il.DefineLabel();
 
         il.Emit(OpCodes.Ldarg_1);
@@ -426,6 +427,13 @@ public partial class ILCompiler
         il.Emit(OpCodes.Bge, validTargetLabel);
         EmitSoaArgumentException(il, $"target row for {info.Declaration.Name}.copyRow must be non-negative");
         il.MarkLabel(validTargetLabel);
+
+        il.Emit(OpCodes.Ldarg_1);
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Ldfld, info.LengthField);
+        il.Emit(OpCodes.Blt, validSourceRangeLabel);
+        EmitSoaArgumentException(il, $"source row for {info.Declaration.Name}.copyRow must be less than length");
+        il.MarkLabel(validSourceRangeLabel);
 
         il.Emit(OpCodes.Ldarg_2);
         il.Emit(OpCodes.Ldc_I4_1);

@@ -2592,6 +2592,29 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void ILCompiler_SoaRecordCopyRowDynamicSourcePastLength_ReportsRowMessage()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var source = """
+            soa record NodeTable {
+                kind: int
+            }
+
+            func copyFrom(from: int): int {
+                nodes := new NodeTable(3)
+                row := nodes.add()
+                nodes[row].kind = 7
+                nodes.copyRow(from, 0)
+                return nodes[0].kind
+            }
+            """;
+
+        var error = Assert.Throws<ArgumentException>(() => CompileAndInvoke(source, "copyFrom", 1));
+        Assert.Equal("source row for NodeTable.copyRow must be less than length", error.Message);
+    }
+
+    [Fact]
     public void ILCompiler_SoaRecordWrapLengthBeyondCapacity_ReportsLengthMessage()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
@@ -2674,7 +2697,7 @@ public class SoaRecordTests : ILCompilerTestBase
         Assert.Contains(opCodes, IsArrayElementLoad);
         Assert.Contains(opCodes, IsArrayElementStore);
         Assert.Contains(OpCodes.Call, opCodes); // ensureCapacity
-        Assert.Equal(2, opCodes.Count(opCode => opCode == OpCodes.Newobj)); // source/target guard exceptions
+        Assert.Equal(3, opCodes.Count(opCode => opCode == OpCodes.Newobj)); // source/target/range guard exceptions
         Assert.DoesNotContain(OpCodes.Newarr, opCodes);
         Assert.DoesNotContain(OpCodes.Box, opCodes);
         Assert.DoesNotContain(OpCodes.Ldftn, opCodes);

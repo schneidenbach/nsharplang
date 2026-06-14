@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA copyRow rejects source rows outside length
+
+`table.copyRow(from, to)` now validates the dynamic source row against the table length before reading
+column arrays. Negative source/target rows and source rows at or beyond `length` report SoA-specific
+`ArgumentException` messages instead of copying default backing-array slots or surfacing raw CLR index
+exceptions. Valid copy-to-extension behavior is unchanged.
+
 ## 2026-06-14 — SoA generated operations validate dynamic negative bounds
 
 Generated SoA wrapper methods now reject dynamic negative values before they reach CLR array allocation

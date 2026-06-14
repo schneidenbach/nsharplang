@@ -158,7 +158,7 @@ public class SoaRecordILShapeTests
             Assert.NotNull(clear);
 
             ILShapeInspector.AssertNoBoxing(copyRow!);
-            Assert.Equal(2, ILShapeInspector.CountOpcode(copyRow!, OpCodes.Newobj)); // source/target guard exceptions
+            Assert.Equal(3, ILShapeInspector.CountOpcode(copyRow!, OpCodes.Newobj)); // source/target/range guard exceptions
             Assert.Equal(0, ILShapeInspector.CountOpcode(copyRow!, OpCodes.Newarr));
             Assert.Equal(0, ILShapeInspector.CountDelegateConstructions(copyRow!));
             Assert.Equal(0, ILShapeInspector.CountOpcode(copyRow!, OpCodes.Callvirt));

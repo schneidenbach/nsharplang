@@ -192,7 +192,8 @@ The compiler must produce direct diagnostics for common misuse:
 - invalid generated operation calls: "`add`, `clear`, `ensureCapacity`, and `copyRow` must be called with
   their declared argument counts, names, and types, and literal `ensureCapacity`/`copyRow` capacity
   or row arguments must be non-negative"; dynamic negative `ensureCapacity`/`copyRow` values throw
-  "capacity/source row/target row for NodeTable.operation must be non-negative";
+  "capacity/source row/target row for NodeTable.operation must be non-negative", and dynamic `copyRow`
+  sources at or beyond `length` throw "source row for NodeTable.copyRow must be less than length";
 - unsupported element type: "SoA column type X is not supported in this lowering";
 - non-nullable row-column null coalescing: "The left side of '??' has type 'X', which can't be null";
 - non-int or range row indexes: "SoA table indexes must be int row ids";
