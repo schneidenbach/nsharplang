@@ -3500,6 +3500,37 @@ func main(): void
     }
 
     [Fact]
+    public async Task DocumentSymbol_SoaRecordAsync()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test/soa_symbols.nl";
+
+        var source = @"soa record NodeTable {
+    kind: int
+    text: string
+}
+";
+
+        harness.OpenDocument(uri, source);
+
+        var result = await harness.GetDocumentSymbolsAsync(uri);
+        Assert.NotNull(result);
+
+        var symbols = result!.Select(s => s.DocumentSymbol).ToList();
+        Assert.Single(symbols);
+
+        var tableSymbol = symbols[0];
+        Assert.Equal("NodeTable", tableSymbol.Name);
+        Assert.Equal(LspSymbolKind.Class, tableSymbol.Kind);
+        Assert.Equal("soa", tableSymbol.Detail);
+        Assert.NotNull(tableSymbol.Children);
+
+        var columns = tableSymbol.Children!.ToList();
+        Assert.Contains(columns, c => c.Name == "kind" && c.Kind == LspSymbolKind.Field && c.Detail == "int");
+        Assert.Contains(columns, c => c.Name == "text" && c.Kind == LspSymbolKind.Field && c.Detail == "string");
+    }
+
+    [Fact]
     public async Task DocumentSymbol_InterfaceAsync()
     {
         var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
@@ -4039,6 +4070,26 @@ func baz(): void {
         Assert.Contains(allSymbols!, s => s.Name == "Person");
     }
 
+    [Fact]
+    public async Task WorkspaceSymbols_IncludesSoaRecordColumns()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test/ws_symbols_soa.nl";
+        var source = @"soa record NodeTable {
+    kind: int
+    valueStart: int
+}
+";
+        harness.OpenDocument(uri, source);
+
+        var result = await harness.GetWorkspaceSymbolsAsync("");
+        Assert.NotNull(result);
+
+        Assert.Contains(result!, s => s.Name == "NodeTable" && s.Kind == LspSymbolKind.Class);
+        Assert.Contains(result!, s => s.Name == "kind" && s.Kind == LspSymbolKind.Field && s.ContainerName == "NodeTable");
+        Assert.Contains(result!, s => s.Name == "valueStart" && s.Kind == LspSymbolKind.Field && s.ContainerName == "NodeTable");
+    }
+
     #endregion
 
     #region Folding Range Tests
@@ -4086,6 +4137,26 @@ func baz(): void {
 
         // Should have at least class folding and method folding
         Assert.True(result!.Count() >= 2);
+    }
+
+    [Fact]
+    public async Task FoldingRange_FoldsSoaRecord()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test/folding_soa.nl";
+        var source = @"soa record NodeTable {
+    kind: int
+    valueStart: int
+}
+";
+        harness.OpenDocument(uri, source);
+
+        var result = await harness.GetFoldingRangesAsync(uri);
+        Assert.NotNull(result);
+
+        var tableRange = result!.FirstOrDefault(r => r.StartLine == 0);
+        Assert.NotNull(tableRange);
+        Assert.Equal(3, tableRange!.EndLine);
     }
 
     [Fact]
@@ -4650,6 +4721,27 @@ func bar() {
         Assert.Equal(2, result!.Count());
     }
 
+    [Fact]
+    public async Task SelectionRange_ReturnsSoaColumnChain()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test/selrange_soa.nl";
+        var source = @"soa record NodeTable {
+    kind: int
+    valueStart: int
+}
+";
+        harness.OpenDocument(uri, source);
+
+        var result = await harness.GetSelectionRangesAsync(uri, new Position(1, 5));
+        Assert.NotNull(result);
+
+        var selection = Assert.Single(result!);
+        Assert.Equal(1, selection.Range.Start.Line);
+        Assert.NotNull(selection.Parent);
+        Assert.Equal(0, selection.Parent!.Range.Start.Line);
+    }
+
     #endregion
 
     #region Call Hierarchy Tests
@@ -5101,6 +5193,25 @@ func Read(widget: Widget): int {
         Assert.NotNull(lenses);
         // Should have lenses for the class and its members
         Assert.NotEmpty(lenses!);
+    }
+
+    [Fact]
+    public async Task CodeLens_SoaRecordDeclarationHasLens()
+    {
+        var harness = new LspTestHarness(_fixture.XmlDocReader, _fixture.TypeResolver);
+        var uri = "file:///test/codelens_soa.nl";
+        var source = @"soa record NodeTable {
+    kind: int
+}
+";
+        harness.OpenDocument(uri, source);
+
+        var lenses = await harness.GetCodeLensesAsync(uri);
+        Assert.NotNull(lenses);
+
+        var lens = Assert.Single(lenses!);
+        Assert.NotNull(lens.Command);
+        Assert.Equal("0 references", lens.Command!.Title);
     }
 
     [Fact]

@@ -233,6 +233,7 @@ public class CodeLensHandler : CodeLensHandlerBase
         ClassDeclaration c => c.Name,
         StructDeclaration s => s.Name,
         RecordDeclaration r => r.Name,
+        SoaRecordDeclaration soa => soa.Name,
         InterfaceDeclaration i => i.Name,
         EnumDeclaration e => e.Name,
         _ => null

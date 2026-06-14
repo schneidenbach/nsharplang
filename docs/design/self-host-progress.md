@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA records are first-class in language-server navigation
+
+The language server now treats `soa record` declarations as navigable type symbols instead of dropping
+them at the IDE boundary. Document symbols show the SoA declaration with its column fields, workspace
+symbols index both the declaration and columns, selection ranges descend to column lines, and CodeLens
+emits the normal reference lens on the declaration. This keeps the systems-language data layout work
+visible in the same VS Code/LLM-facing surfaces as classes, records, structs, and enums.
+
 ## 2026-06-14 — SoA row-view event target coverage is pinned
 
 The SoA row-view escape suite now pins event subscription targets as well as unsubscribe handles.

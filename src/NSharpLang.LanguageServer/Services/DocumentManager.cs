@@ -1206,6 +1206,10 @@ public class DocumentManager
             {
                 symbols[recordDecl.Name] = CreateTypeSymbol(recordDecl, text);
             }
+            else if (decl is SoaRecordDeclaration soaRecordDecl)
+            {
+                symbols[soaRecordDecl.Name] = CreateSoaRecordSymbol(soaRecordDecl, text);
+            }
             else if (decl is InterfaceDeclaration interfaceDecl)
             {
                 symbols[interfaceDecl.Name] = CreateTypeSymbol(interfaceDecl, text);
@@ -1286,6 +1290,14 @@ public class DocumentManager
                 case RecordDeclaration recordDecl:
                     AddLocation(recordDecl.Name, SymbolKind.Record, recordDecl.Line, recordDecl.Column);
                     foreach (var member in recordDecl.Members) VisitDeclaration(member);
+                    break;
+
+                case SoaRecordDeclaration soaRecordDecl:
+                    AddLocation(soaRecordDecl.Name, SymbolKind.Record, soaRecordDecl.Line, soaRecordDecl.Column);
+                    foreach (var column in soaRecordDecl.Columns)
+                    {
+                        AddLocation(column.Name, SymbolKind.Field, column.Line, column.Column);
+                    }
                     break;
 
                 case InterfaceDeclaration interfaceDecl:
@@ -1587,6 +1599,26 @@ public class DocumentManager
             Modifiers = recordDecl.Modifiers
         };
         ExtractMembers(symbol, recordDecl.Members, text);
+        return symbol;
+    }
+
+    private SymbolInfo CreateSoaRecordSymbol(SoaRecordDeclaration soaRecordDecl, string text)
+    {
+        var symbol = new SymbolInfo(soaRecordDecl.Name, SymbolKind.Record)
+        {
+            TypeName = "soa",
+            Documentation = ExtractLeadingDocumentation(text, soaRecordDecl.Line),
+            Modifiers = soaRecordDecl.Modifiers
+        };
+
+        foreach (var column in soaRecordDecl.Columns)
+        {
+            symbol.Members.Add(new SymbolInfo(column.Name, SymbolKind.Field)
+            {
+                TypeName = column.Type.ToString()
+            });
+        }
+
         return symbol;
     }
 

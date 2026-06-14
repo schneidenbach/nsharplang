@@ -217,6 +217,17 @@ public class WorkspaceSymbolHandler : WorkspaceSymbolsHandlerBase
                         }
                     }
                 }
+
+                if (decl is SoaRecordDeclaration soaRecord)
+                {
+                    foreach (var column in soaRecord.Columns)
+                    {
+                        if (column.Name == memberName)
+                        {
+                            return (column.Line, column.Column);
+                        }
+                    }
+                }
             }
         }
 
@@ -231,6 +242,7 @@ public class WorkspaceSymbolHandler : WorkspaceSymbolsHandlerBase
             ClassDeclaration c => c.Name,
             StructDeclaration s => s.Name,
             RecordDeclaration r => r.Name,
+            SoaRecordDeclaration soa => soa.Name,
             InterfaceDeclaration i => i.Name,
             EnumDeclaration e => e.Name,
             UnionDeclaration u => u.Name,
