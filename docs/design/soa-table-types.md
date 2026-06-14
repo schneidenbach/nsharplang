@@ -123,10 +123,12 @@ nodes[i].kind = NodeKind.MatchExpression
 checksum += nodes[i].valueStart
 ```
 
-The compiler rewrites those to column element operations. This means:
+The compiler rewrites those to column element operations for both reads and writes. This means:
 
 - `nodes[^1].kind` declines; row projection indexes are explicit `int` row ids, while `System.Index`
-  from-end access is only valid on direct backing columns such as `nodes.kind[^1]`.
+  from-end access is only valid on direct backing columns such as `nodes.kind[^1]`. The same rule
+  applies to write targets such as `nodes[^1].kind = value`.
+- `nodes[0..1].kind = value` declines; range indexes would be row-slice syntax, not a scalar row id.
 - `row := nodes[i]` declines unless `row` is a stack-only ephemeral used in the same statement.
 - `return nodes[i]` declines.
 - `list.Add(nodes[i])` declines.

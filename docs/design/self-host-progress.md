@@ -11,6 +11,12 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA row projection rejects range/from-end write indexes
+
+SoA row projection now has write-context regression pins for the same non-`int` row ids as read
+projection. `table[0..1].column = value` and `table[^1].column = value` report the row-index
+diagnostic during analysis, keeping invalid row views out of assignment lowering.
+
 ## 2026-06-14 — Direct SoA from-end assignment expressions have IL-shape proof
 
 Direct backing-column `System.Index` simple assignment expressions now have opcode evidence beside
