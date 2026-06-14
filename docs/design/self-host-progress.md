@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA enum null-coalescing stops before emission
+
+Int-backed enum SoA columns now have analyzer pins for non-nullable `??` and `??=` across row
+projection, direct column indexing, and direct from-end column indexing. Enum columns remain valid
+SoA elements, but null-coalescing over them reports the source nullability diagnostic before any row
+or direct-column assignment lowering.
+
 ## 2026-06-14 — SoA enum compound assignments stop before emission
 
 Int-backed enum SoA columns now have analyzer pins for unsupported arithmetic compound assignment

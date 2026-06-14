@@ -5379,6 +5379,162 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaRecordNullCoalesceAssignOnEnumRowColumn_IsRejected()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            enum NodeKind {
+                Unknown,
+                Identifier
+            }
+
+            soa record NodeTable {
+                kind: NodeKind
+            }
+
+            func bad(nodes: NodeTable, row: int) {
+                nodes[row].kind ??= NodeKind.Identifier
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains("left side of '??=' has type 'NodeKind'", error.Message);
+        Assert.Contains("can't be null", error.Message);
+        Assert.Contains("make the target nullable", error.Suggestion);
+    }
+
+    [Fact]
+    public void Analyzer_SoaRecordNullCoalesceOnEnumRowColumn_IsRejected()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            enum NodeKind {
+                Unknown,
+                Identifier
+            }
+
+            soa record NodeTable {
+                kind: NodeKind
+            }
+
+            func bad(nodes: NodeTable, row: int): NodeKind {
+                return nodes[row].kind ?? NodeKind.Identifier
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains("left side of '??' has type 'NodeKind'", error.Message);
+        Assert.Contains("can't be null", error.Message);
+        Assert.Contains("make the left side nullable", error.Suggestion);
+    }
+
+    [Fact]
+    public void Analyzer_SoaRecordNullCoalesceAssignOnEnumDirectColumnElement_IsRejected()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            enum NodeKind {
+                Unknown,
+                Identifier
+            }
+
+            soa record NodeTable {
+                kind: NodeKind
+            }
+
+            func bad(nodes: NodeTable, row: int) {
+                nodes.kind[row] ??= NodeKind.Identifier
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains("left side of '??=' has type 'NodeKind'", error.Message);
+        Assert.Contains("can't be null", error.Message);
+        Assert.Contains("make the target nullable", error.Suggestion);
+    }
+
+    [Fact]
+    public void Analyzer_SoaRecordNullCoalesceOnEnumDirectColumnElement_IsRejected()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            enum NodeKind {
+                Unknown,
+                Identifier
+            }
+
+            soa record NodeTable {
+                kind: NodeKind
+            }
+
+            func bad(nodes: NodeTable, row: int): NodeKind {
+                return nodes.kind[row] ?? NodeKind.Identifier
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains("left side of '??' has type 'NodeKind'", error.Message);
+        Assert.Contains("can't be null", error.Message);
+        Assert.Contains("make the left side nullable", error.Suggestion);
+    }
+
+    [Fact]
+    public void Analyzer_SoaRecordNullCoalesceAssignOnEnumFromEndDirectColumnElement_IsRejected()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            enum NodeKind {
+                Unknown,
+                Identifier
+            }
+
+            soa record NodeTable {
+                kind: NodeKind
+            }
+
+            func bad(nodes: NodeTable) {
+                nodes.kind[^1] ??= NodeKind.Identifier
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains("left side of '??=' has type 'NodeKind'", error.Message);
+        Assert.Contains("can't be null", error.Message);
+        Assert.Contains("make the target nullable", error.Suggestion);
+    }
+
+    [Fact]
+    public void Analyzer_SoaRecordNullCoalesceOnEnumFromEndDirectColumnElement_IsRejected()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            enum NodeKind {
+                Unknown,
+                Identifier
+            }
+
+            soa record NodeTable {
+                kind: NodeKind
+            }
+
+            func bad(nodes: NodeTable): NodeKind {
+                return nodes.kind[^1] ?? NodeKind.Identifier
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains("left side of '??' has type 'NodeKind'", error.Message);
+        Assert.Contains("can't be null", error.Message);
+        Assert.Contains("make the left side nullable", error.Suggestion);
+    }
+
+    [Fact]
     public void Analyzer_SoaRecordNonIntegralRowColumnIncrement_IsRejected()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

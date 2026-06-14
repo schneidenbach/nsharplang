@@ -248,7 +248,8 @@ The compiler must produce direct diagnostics for common misuse:
 - unsupported row/direct column compound assignment, including enum arithmetic compound assignment:
   "The '+' operator doesn't work with 'X' and 'Y'";
 - non-integral row/direct column increment/decrement: "The '++' operator doesn't work with 'X'";
-- non-nullable row/direct column null coalescing: "The left side of '??' has type 'X', which can't be null";
+- non-nullable row/direct column null coalescing, including enum columns:
+  "The left side of '??' has type 'X', which can't be null";
 - non-int, `System.Index`, or range row indexes: "SoA table indexes must be int row ids";
 - statically negative row indexes on row/direct-column reads or writes:
   "SoA table row indexes must not be negative" or "SoA column row indexes must not be negative";
