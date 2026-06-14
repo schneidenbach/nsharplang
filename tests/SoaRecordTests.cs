@@ -2142,7 +2142,27 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
-    public void Analyzer_SoaTableWrapNamedDefaultUsesBoundExpectedType()
+    public void Analyzer_SoaTableWrapRejectsNullColumnLiteral()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad() {
+                nodes := NodeTable.wrap(null, 0)
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains("SoA table wrap column 'kind' cannot be null", error.Message);
+        Assert.Contains("backing 'kind' column array", error.Suggestion);
+    }
+
+    [Fact]
+    public void Analyzer_SoaTableWrapRejectsNullNamedColumnLiteral()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
 
@@ -2152,14 +2172,36 @@ public class SoaRecordTests : ILCompilerTestBase
                 name: string
             }
 
-            func ok() {
-                nodes := NodeTable.wrap(name: default, kind: default, length: 0)
+            func bad() {
+                kinds := new int[](2)
+                nodes := NodeTable.wrap(name: null, kind: kinds, length: 0)
             }
             """);
 
-        Assert.False(
-            result.HasErrors,
-            $"Expected no errors but got: {string.Join(", ", result.Errors.Select(e => $"{e.DiagnosticId}:{e.Message}"))}");
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains("SoA table wrap column 'name' cannot be null", error.Message);
+        Assert.Contains("backing 'name' column array", error.Suggestion);
+    }
+
+    [Fact]
+    public void Analyzer_SoaTableWrapRejectsDefaultNamedColumnLiteral()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+                name: string
+            }
+
+            func bad() {
+                nodes := NodeTable.wrap(name: default, kind: new(), length: 0)
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains("SoA table wrap column 'name' cannot be null", error.Message);
+        Assert.Contains("backing 'name' column array", error.Suggestion);
     }
 
     [Fact]

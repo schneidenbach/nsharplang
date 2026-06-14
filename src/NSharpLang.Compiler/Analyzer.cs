@@ -8655,6 +8655,8 @@ public class Analyzer : IDisposable
         {
             case "wrap":
             {
+                ValidateSoaWrapColumnArguments(functionType, functionName, call, parameterIndexByArgument);
+
                 var lengthParameterIndex = functionType.ParameterNames?.FindIndex(parameterName => parameterName == "length") ?? -1;
                 if (lengthParameterIndex >= 0)
                 {
@@ -8699,6 +8701,43 @@ public class Analyzer : IDisposable
                     "SoA table target row id must not be negative",
                     "Use zero or a valid non-negative target row id.");
                 break;
+        }
+    }
+
+    private void ValidateSoaWrapColumnArguments(
+        FunctionTypeInfo functionType,
+        string functionName,
+        CallExpression call,
+        IReadOnlyList<int> parameterIndexByArgument)
+    {
+        if (functionType.ParameterTypes == null)
+            return;
+
+        for (var argumentIndex = 0; argumentIndex < call.Arguments.Count; argumentIndex++)
+        {
+            var parameterIndex = parameterIndexByArgument[argumentIndex];
+            if (parameterIndex < 0
+                || parameterIndex >= functionType.ParameterTypes.Count
+                || ResolveTypeAlias(functionType.ParameterTypes[parameterIndex]) is not ArrayTypeInfo)
+            {
+                continue;
+            }
+
+            var argument = call.Arguments[argumentIndex];
+            if (argument.Value is not NullLiteralExpression and not DefaultExpression)
+                continue;
+
+            var columnName = functionType.ParameterNames != null && parameterIndex < functionType.ParameterNames.Count
+                ? functionType.ParameterNames[parameterIndex]
+                : $"column {parameterIndex + 1}";
+            var (line, column, length) = GetExpressionDiagnosticSpan(argument.Value);
+            Error(
+                ErrorCode.TypeMismatch,
+                $"SoA table wrap column '{columnName}' cannot be null",
+                line,
+                column,
+                $"Pass the backing '{columnName}' column array, or allocate one before calling {functionName}.",
+                length);
         }
     }
 
