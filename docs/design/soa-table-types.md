@@ -294,7 +294,7 @@ construction, heap array allocation, or virtual dispatch; explicit direct column
 stores, compound stores, prefix/postfix increments, reads across the verified scalar/reference
 element-type set, direct column null-coalescing
 reads/assignments, and from-end `System.Index` access including expression-valued simple stores,
-default stores, and null-coalescing reads/assignments.
+default stores, verified scalar/reference element reads/stores, and null-coalescing reads/assignments.
 Row-projection null-coalescing
 reads/assignments have the same direct column proof, with range/slice allocation still rejected during
 analysis. The

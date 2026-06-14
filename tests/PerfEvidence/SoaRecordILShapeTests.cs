@@ -588,6 +588,90 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void DirectColumnFromEndVerifiedTypes_UseColumnArrayOffsetWithoutSliceAllocation()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                kind: int
+                flags: uint
+                start: long
+                active: bool
+                marker: char
+                name: string
+                optionalName: string?
+                count: int
+            }
+
+            func setLast(nodes: NodeTable, name: string, optionalName: string?) {
+                nodes.kind[^1] = 3
+                nodes.flags[^1] = (uint)7
+                nodes.start[^1] = 19L
+                nodes.active[^1] = true
+                nodes.marker[^1] = 'A'
+                nodes.name[^1] = name
+                nodes.optionalName[^1] = optionalName
+                nodes.count[^1] = 11
+            }
+
+            func readScalars(nodes: NodeTable): int {
+                total := nodes.kind[^1]
+                total += (int)nodes.flags[^1]
+                total += (int)nodes.start[^1]
+                total += (nodes.active[^1] ? 100 : 0)
+                total += (int)nodes.marker[^1]
+                total += nodes.count[^1]
+                return total
+            }
+
+            func readName(nodes: NodeTable): string {
+                return nodes.name[^1]
+            }
+
+            func readOptional(nodes: NodeTable): string? {
+                return nodes.optionalName[^1]
+            }
+
+            func main(): int {
+                nodes := new NodeTable(2)
+                setLast(nodes, "abcd", null)
+                total := readScalars(nodes)
+                total += readName(nodes).Length
+                total += (readOptional(nodes) == null ? 1000 : 0)
+                return total
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var setLast = ILShapeInspector.GetProgramMethod(assembly, "setLast");
+            var readScalars = ILShapeInspector.GetProgramMethod(assembly, "readScalars");
+            var readName = ILShapeInspector.GetProgramMethod(assembly, "readName");
+            var readOptional = ILShapeInspector.GetProgramMethod(assembly, "readOptional");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(1209, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoFromEndSliceAllocation(setLast);
+            AssertNoFromEndSliceAllocation(readScalars);
+            AssertNoFromEndSliceAllocation(readName);
+            AssertNoFromEndSliceAllocation(readOptional);
+
+            Assert.Equal(8, CountArrayElementStores(setLast));
+            Assert.Equal(0, CountArrayElementLoads(setLast));
+            Assert.Equal(6, CountArrayElementLoads(readScalars));
+            Assert.Equal(0, CountArrayElementStores(readScalars));
+            Assert.Equal(1, CountArrayElementLoads(readName));
+            Assert.Equal(1, CountArrayElementLoads(readOptional));
+            Assert.Equal(0, CountArrayElementStores(readName));
+            Assert.Equal(0, CountArrayElementStores(readOptional));
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void NewCapacityConstructor_AllocatesOneArrayPerColumnWithoutRowObjects()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

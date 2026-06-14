@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — Direct SoA from-end verified column types have IL-shape proof
+
+Direct `table.column[^1]` access now has mixed element-type opcode evidence. `int`, `uint`, `long`,
+`bool`, `char`, `string`, and `string?` columns round-trip through from-end direct column loads/stores
+with no slice allocation, row construction, heap array allocation, boxing, delegate construction, or
+virtual dispatch.
+
 ## 2026-06-14 — Direct SoA verified column types have IL-shape proof
 
 Direct `table.column[row]` access now has the same mixed element-type opcode proof as row
