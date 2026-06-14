@@ -9199,6 +9199,21 @@ public class Analyzer : IDisposable
         }
     }
 
+    private TypeInfo AnalyzeExpressionWithoutExpectedType(Expression expression)
+    {
+        var previousExpectedType = _currentExpectedType;
+        _currentExpectedType = null;
+
+        try
+        {
+            return AnalyzeExpression(expression);
+        }
+        finally
+        {
+            _currentExpectedType = previousExpectedType;
+        }
+    }
+
     private bool TryAnalyzeResultConstructorCall(CallExpression call, out TypeInfo resultType)
     {
         resultType = BuiltInTypes.Unknown;
@@ -12223,15 +12238,16 @@ public class Analyzer : IDisposable
 
     private TypeInfo AnalyzeTernary(TernaryExpression ternary)
     {
-        var condType = AnalyzeExpression(ternary.Condition);
+        var expectedResultType = _currentExpectedType;
+        var condType = AnalyzeExpressionWithExpectedType(ternary.Condition, BuiltInTypes.Bool);
         var isSoaRowCondition = ReportSoaRowEscapeIfNeeded(ternary.Condition, condType, "used as a ternary condition");
         if (!isSoaRowCondition && !IsBoolType(condType))
         {
             ReportBooleanConditionTypeMismatch(ternary.Condition, "a ternary expression", condType);
         }
 
-        var thenType = AnalyzeExpression(ternary.ThenExpression);
-        var elseType = AnalyzeExpression(ternary.ElseExpression);
+        var thenType = AnalyzeExpressionWithExpectedType(ternary.ThenExpression, expectedResultType);
+        var elseType = AnalyzeExpressionWithExpectedType(ternary.ElseExpression, expectedResultType);
         if (ReportSoaRowEscapeIfNeeded(ternary.ThenExpression, thenType, "used as a ternary result")
             | ReportSoaRowEscapeIfNeeded(ternary.ElseExpression, elseType, "used as a ternary result"))
         {
@@ -13194,8 +13210,10 @@ public class Analyzer : IDisposable
 
     private TypeInfo AnalyzeMatchExpression(MatchExpression match)
     {
+        var expectedResultType = _currentExpectedType;
+
         // Analyze the value being matched
-        var valueType = AnalyzeExpression(match.Value);
+        var valueType = AnalyzeExpressionWithoutExpectedType(match.Value);
         if (ReportSoaRowEscapeIfNeeded(match.Value, valueType, "used as a match value"))
         {
             valueType = BuiltInTypes.Unknown;
@@ -13214,7 +13232,7 @@ public class Analyzer : IDisposable
             // Analyze guard expression if present
             if (matchCase.Guard != null)
             {
-                var guardType = AnalyzeExpression(matchCase.Guard);
+                var guardType = AnalyzeExpressionWithExpectedType(matchCase.Guard, BuiltInTypes.Bool);
                 var isSoaRowGuard = ReportSoaRowEscapeIfNeeded(matchCase.Guard, guardType, "used as a match guard");
                 if (!isSoaRowGuard && !IsAssignable(BuiltInTypes.Bool, guardType))
                 {
@@ -13225,7 +13243,7 @@ public class Analyzer : IDisposable
             }
 
             // Analyze the case expression
-            var caseType = AnalyzeExpression(matchCase.Expression);
+            var caseType = AnalyzeExpressionWithExpectedType(matchCase.Expression, expectedResultType);
             if (ReportSoaRowEscapeIfNeeded(matchCase.Expression, caseType, "used as a match result"))
             {
                 caseType = BuiltInTypes.Unknown;

@@ -421,6 +421,51 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaTableCannotBeDefaultInitializedInTernaryResult()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(ok: bool): int {
+                let nodes: NodeTable = ok ? new NodeTable(1) : default
+                return 0
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("SoA table 'NodeTable' cannot be default-initialized", error.Message);
+        Assert.Contains("NodeTable.wrap", error.Suggestion);
+    }
+
+    [Fact]
+    public void Analyzer_SoaTableCannotBeDefaultInitializedInMatchResult()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(ok: bool): int {
+                let nodes: NodeTable = match ok {
+                    true => new NodeTable(1),
+                    false => default
+                }
+                return 0
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("SoA table 'NodeTable' cannot be default-initialized", error.Message);
+        Assert.Contains("NodeTable.wrap", error.Suggestion);
+    }
+
+    [Fact]
     public void Analyzer_SoaTableCannotUseTargetTypedNewWithoutCapacityInLocal()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
@@ -625,6 +670,51 @@ public class SoaRecordTests : ILCompilerTestBase
 
             func bad(): int {
                 let values: (NodeTable, int) = (new(), 1)
+                return 0
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.NoMatchingOverload);
+        Assert.Contains("SoA table 'NodeTable' construction expects exactly one int capacity argument", error.Message);
+        Assert.Contains("new NodeTable(capacity)", error.Suggestion);
+    }
+
+    [Fact]
+    public void Analyzer_SoaTableCannotUseTargetTypedNewWithoutCapacityInTernaryResult()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(ok: bool): int {
+                let nodes: NodeTable = ok ? new() : new NodeTable(1)
+                return 0
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.NoMatchingOverload);
+        Assert.Contains("SoA table 'NodeTable' construction expects exactly one int capacity argument", error.Message);
+        Assert.Contains("new NodeTable(capacity)", error.Suggestion);
+    }
+
+    [Fact]
+    public void Analyzer_SoaTableCannotUseTargetTypedNewWithoutCapacityInMatchResult()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(ok: bool): int {
+                let nodes: NodeTable = match ok {
+                    true => new(),
+                    false => new NodeTable(1)
+                }
                 return 0
             }
             """);

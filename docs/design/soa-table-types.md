@@ -71,7 +71,7 @@ would produce a CLR wrapper value with null backing column arrays; use `new Tabl
 `Table.wrap(...)` instead. Target-typed `new()` without the required capacity argument is rejected
 the same way as `new Table()`, including when the expected table type comes from a typed local,
 return, call argument, field, object initializer member, assignment target, array literal element,
-array initializer element, or tuple literal element.
+array initializer element, tuple literal element, or typed ternary/match result arm.
 
 ## Lowering
 
