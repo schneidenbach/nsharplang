@@ -143,15 +143,17 @@ The current experimental lowering admits only the column element types that have
 the direct-IL wrapper proof:
 
 - numeric scalars used by the compiler tables (`int`, `uint`, `long`, `bool`, `char`);
-- `string` and `string?` columns.
+- `string` and `string?` columns;
+- int-backed enum columns.
 
-Future slices can admit enum element columns when the enum has an explicit underlying representation,
-and user value types only after their column element load/store shape is IL-verified.
+Future slices can admit user value types only after their column element load/store shape is
+IL-verified. String enums remain outside this lowering because they are string constants, not dense
+table element values.
 
 Generic SoA records are not accepted in v1 because their flattened ABI still needs an explicit
-design. Array columns, nullable non-string columns, nested SoA-table columns, and any element type
-that requires hidden copy constructors or disposal are rejected until their load/store and wrapper
-method shapes have direct IL proof.
+design. Array columns, nullable non-string columns, string-enum columns, nested SoA-table columns,
+and any element type that requires hidden copy constructors or disposal are rejected until their
+load/store and wrapper method shapes have direct IL proof.
 
 ## Operations
 
@@ -239,8 +241,8 @@ The compiler must produce direct diagnostics for common misuse:
   overflow throws "length for NodeTable.add is too large", and dynamic `copyRow` sources at or beyond
   `length` throw "source row for NodeTable.copyRow must be less than length";
   target rows too large to extend throw "target row for NodeTable.copyRow is too large";
-- unsupported element type, including arrays, nullable non-string columns, and nested SoA-table
-  columns: "SoA column type X is not supported in this lowering";
+- unsupported element type, including arrays, nullable non-string columns, string-enum columns, and
+  nested SoA-table columns: "SoA column type X is not supported in this lowering";
 - unsupported row/direct column compound assignment: "The '+' operator doesn't work with 'X' and 'Y'";
 - non-integral row/direct column increment/decrement: "The '++' operator doesn't work with 'X'";
 - non-nullable row/direct column null coalescing: "The left side of '??' has type 'X', which can't be null";
@@ -301,8 +303,8 @@ reads, compound stores, prefix/postfix increments, reads across the verified sca
 element-type set, direct column null-coalescing reads/assignments, and from-end `System.Index` access
 including expression-valued simple stores, default stores across the verified scalar/reference
 element-type set, including expression-valued default stores, without old-element reads, verified
-scalar/reference element reads/stores, integral `uint`/`long`/`char` update forms, and
-null-coalescing reads/assignments.
+scalar/reference element reads/stores, int-backed enum reads/stores/generated methods, integral
+`uint`/`long`/`char` update forms, and null-coalescing reads/assignments.
 Row-projection null-coalescing
 reads/assignments have the same direct column proof, with range/slice allocation still rejected during
 analysis. Row-projection integral `uint`/`long`/`char` update forms are pinned with the same

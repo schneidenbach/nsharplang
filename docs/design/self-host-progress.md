@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA int-backed enum columns are admitted
+
+SoA column type validation now accepts int-backed N# enums and still rejects string enums. The direct
+IL backend bakes forward-declared enum element types before generating SoA array fields and wrapper
+methods, avoiding invalid `Array.Resize<T>` tokens over uncreated `EnumBuilder` instances. Runtime
+and IL-shape evidence now covers enum row/direct column stores, reads, `new`, `wrap`, and `copyRow`
+without row construction, hidden element copies beyond `copyRow`, boxing, delegate construction, or
+virtual dispatch.
+
 ## 2026-06-14 — SoA integral updates cover non-int verified types
 
 SoA row projection, direct column indexing, and direct from-end column indexing now have IL-shape

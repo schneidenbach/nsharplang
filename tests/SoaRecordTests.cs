@@ -155,6 +155,47 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaRecordWithFlag_AllowsIntEnumColumnType()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            enum NodeKind {
+                Unknown,
+                Identifier
+            }
+
+            soa record NodeTable {
+                kind: NodeKind
+            }
+            """);
+
+        Assert.False(
+            result.HasErrors,
+            $"Expected no errors but got: {string.Join(", ", result.Errors.Select(e => $"{e.DiagnosticId}:{e.Message}"))}");
+    }
+
+    [Fact]
+    public void Analyzer_SoaRecordWithFlag_RejectsStringEnumColumnType()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            enum NodeKind: string {
+                Identifier = "identifier"
+            }
+
+            soa record NodeTable {
+                kind: NodeKind
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.FeatureNotImplemented);
+        Assert.Contains("SoA column type 'NodeKind' is not supported in this lowering", error.Message);
+        Assert.Contains("int-backed enum columns", error.Suggestion);
+    }
+
+    [Fact]
     public void Analyzer_SoaRecordWithFlag_RejectsUnsupportedColumnType()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
@@ -167,7 +208,7 @@ public class SoaRecordTests : ILCompilerTestBase
 
         var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.FeatureNotImplemented);
         Assert.Contains("SoA column type 'object' is not supported in this lowering", error.Message);
-        Assert.Contains("Use int, uint, long, bool, char, string, or string?", error.Suggestion);
+        Assert.Contains("Use int, uint, long, bool, char, string, string?, or int-backed enum columns", error.Suggestion);
     }
 
     [Fact]
@@ -185,6 +226,7 @@ public class SoaRecordTests : ILCompilerTestBase
 
         var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.FeatureNotImplemented);
         Assert.Contains("SoA column type 'object' is not supported in this lowering", error.Message);
+        Assert.Contains("Use int, uint, long, bool, char, string, string?, or int-backed enum columns", error.Suggestion);
         Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.TypeNotFound);
     }
 
@@ -201,7 +243,7 @@ public class SoaRecordTests : ILCompilerTestBase
 
         var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.FeatureNotImplemented);
         Assert.Contains("SoA column type 'int[]' is not supported in this lowering", error.Message);
-        Assert.Contains("Use int, uint, long, bool, char, string, or string?", error.Suggestion);
+        Assert.Contains("Use int, uint, long, bool, char, string, string?, or int-backed enum columns", error.Suggestion);
     }
 
     [Fact]
@@ -217,7 +259,7 @@ public class SoaRecordTests : ILCompilerTestBase
 
         var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.FeatureNotImplemented);
         Assert.Contains("SoA column type 'int?' is not supported in this lowering", error.Message);
-        Assert.Contains("Use int, uint, long, bool, char, string, or string?", error.Suggestion);
+        Assert.Contains("Use int, uint, long, bool, char, string, string?, or int-backed enum columns", error.Suggestion);
     }
 
     [Fact]
@@ -237,7 +279,7 @@ public class SoaRecordTests : ILCompilerTestBase
 
         var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.FeatureNotImplemented);
         Assert.Contains("SoA column type 'ChildTable' is not supported in this lowering", error.Message);
-        Assert.Contains("Use int, uint, long, bool, char, string, or string?", error.Suggestion);
+        Assert.Contains("Use int, uint, long, bool, char, string, string?, or int-backed enum columns", error.Suggestion);
     }
 
     [Fact]

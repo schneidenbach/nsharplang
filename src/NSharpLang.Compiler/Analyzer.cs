@@ -1254,8 +1254,8 @@ public class Analyzer : IDisposable
                 $"SoA column type '{resolvedColumnType}' is not supported in this lowering",
                 line,
                 columnPosition,
-                "Use int, uint, long, bool, char, string, or string? columns until this table migration " +
-                "verifies another element shape",
+                "Use int, uint, long, bool, char, string, string?, or int-backed enum columns until this table " +
+                "migration verifies another element shape",
                 length);
         }
     }
@@ -1301,6 +1301,12 @@ public class Analyzer : IDisposable
 
         if (resolved is NullableTypeInfo nullable)
             return ResolveTypeAlias(nullable.InnerType) == BuiltInTypes.String;
+
+        if (resolved is EnumTypeInfo enumType)
+            return enumType.Declaration.Type == EnumType.Int;
+
+        if (resolved is ReflectionTypeInfo reflectionType && reflectionType.Type.IsEnum)
+            return Enum.GetUnderlyingType(reflectionType.Type) == typeof(int);
 
         return resolved == BuiltInTypes.Int
             || resolved == BuiltInTypes.UInt

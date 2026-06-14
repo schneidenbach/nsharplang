@@ -60,7 +60,7 @@ public partial class ILCompiler
         var columnElementTypes = new Dictionary<string, Type>(StringComparer.Ordinal);
         foreach (var column in soaRecord.Columns)
         {
-            var elementType = ResolveType(column.Type);
+            var elementType = ResolveSoaColumnElementType(column.Type);
             var field = typeBuilder.DefineField(column.Name, elementType.MakeArrayType(), FieldAttributes.Public);
             _fields[GetFieldKey(typeBuilder, column.Name)] = field;
             columnFields[column.Name] = field;
@@ -87,6 +87,30 @@ public partial class ILCompiler
         DefineSoaAddMethod(info);
         DefineSoaClearMethod(info);
         DefineSoaCopyRowMethod(info);
+    }
+
+    private Type ResolveSoaColumnElementType(TypeReference typeReference)
+    {
+        var elementType = ResolveType(typeReference);
+        if (elementType is not EnumBuilder enumBuilder)
+        {
+            return elementType;
+        }
+
+        foreach (var entry in _enumTypes.ToArray())
+        {
+            if (!ReferenceEquals(entry.Value, enumBuilder))
+            {
+                continue;
+            }
+
+            var bakedType = enumBuilder.CreateType();
+            _enumTypes[entry.Key] = bakedType;
+            _typeKeys[bakedType] = entry.Key;
+            return bakedType;
+        }
+
+        return enumBuilder.CreateType();
     }
 
     private void DefineSoaCapacityConstructor(SoaRecordRuntimeInfo info)

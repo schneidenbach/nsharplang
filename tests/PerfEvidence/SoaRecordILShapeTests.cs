@@ -2306,6 +2306,107 @@ public class SoaRecordILShapeTests
         });
     }
 
+    [Fact]
+    public void EnumColumn_UsesColumnArrayLoadStoreAndGeneratedMethodsWithoutRowAllocation()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                kind: NodeKind
+                count: int
+            }
+
+            enum NodeKind {
+                Unknown,
+                Identifier,
+                Literal
+            }
+
+            func set(nodes: NodeTable, row: int) {
+                nodes[row].kind = NodeKind.Identifier
+                nodes.kind[row] = NodeKind.Literal
+                nodes[row].count = 3
+            }
+
+            func read(nodes: NodeTable, row: int): int {
+                total := nodes[row].kind == NodeKind.Literal ? 10 : 0
+                total += nodes.kind[row] == NodeKind.Literal ? 100 : 0
+                total += nodes[row].count
+                return total
+            }
+
+            func main(): int {
+                nodes := new NodeTable(1)
+                row := nodes.add()
+                set(nodes, row)
+                nodes.copyRow(row, 1)
+                view := NodeTable.wrap(nodes.kind, nodes.count, nodes.length)
+                return read(view, 1) + view.length * 1000 + view.capacity * 10000
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var tableType = assembly.GetType("NodeTable");
+            Assert.NotNull(tableType);
+
+            var constructor = tableType!.GetConstructor(new[] { typeof(int) });
+            var wrap = tableType.GetMethod("wrap", BindingFlags.Public | BindingFlags.Static);
+            var copyRow = tableType.GetMethod("copyRow", BindingFlags.Public | BindingFlags.Instance);
+            var kindField = tableType.GetField("kind", BindingFlags.Public | BindingFlags.Instance);
+            var set = ILShapeInspector.GetProgramMethod(assembly, "set");
+            var read = ILShapeInspector.GetProgramMethod(assembly, "read");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+            Assert.NotNull(constructor);
+            Assert.NotNull(wrap);
+            Assert.NotNull(copyRow);
+            Assert.NotNull(kindField);
+
+            Assert.True(kindField!.FieldType.IsArray);
+            Assert.True(kindField.FieldType.GetElementType()?.IsEnum);
+            Assert.Equal(42113, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoAllocationOrDispatch(set);
+            Assert.True(
+                ILShapeInspector.CountOpcode(set, OpCodes.Ldfld) >= 3,
+                "Enum SoA stores should load backing column fields directly.");
+            Assert.Equal(0, CountArrayElementLoads(set));
+            Assert.Equal(3, CountArrayElementStores(set));
+
+            AssertNoAllocationOrDispatch(read);
+            Assert.True(
+                ILShapeInspector.CountOpcode(read, OpCodes.Ldfld) >= 3,
+                "Enum SoA reads should load backing column fields directly.");
+            Assert.Equal(3, CountArrayElementLoads(read));
+            Assert.Equal(0, CountArrayElementStores(read));
+
+            ILShapeInspector.AssertNoBoxing(constructor!);
+            Assert.Equal(1, ILShapeInspector.CountOpcode(constructor!, OpCodes.Newobj)); // capacity guard exception
+            Assert.Equal(2, ILShapeInspector.CountOpcode(constructor!, OpCodes.Newarr));
+            Assert.Equal(0, CountArrayElementLoads(constructor!));
+            Assert.Equal(0, CountArrayElementStores(constructor!));
+
+            ILShapeInspector.AssertNoBoxing(wrap!);
+            Assert.Equal(3, ILShapeInspector.CountOpcode(wrap!, OpCodes.Newobj)); // null/length/mismatch guard exceptions
+            Assert.Equal(0, ILShapeInspector.CountOpcode(wrap!, OpCodes.Newarr));
+            Assert.Equal(0, CountArrayElementLoads(wrap!));
+            Assert.Equal(0, CountArrayElementStores(wrap!));
+            Assert.Equal(4, ILShapeInspector.CountOpcode(wrap!, OpCodes.Stfld));
+
+            ILShapeInspector.AssertNoBoxing(copyRow!);
+            Assert.Equal(4, ILShapeInspector.CountOpcode(copyRow!, OpCodes.Newobj)); // source/target/range/overflow guard exceptions
+            Assert.Equal(0, ILShapeInspector.CountOpcode(copyRow!, OpCodes.Newarr));
+            Assert.Equal(0, ILShapeInspector.CountDelegateConstructions(copyRow!));
+            Assert.Equal(0, ILShapeInspector.CountOpcode(copyRow!, OpCodes.Callvirt));
+            Assert.Equal(1, ILShapeInspector.CountOpcode(copyRow!, OpCodes.Call)); // ensureCapacity
+            Assert.Equal(2, CountArrayElementLoads(copyRow!));
+            Assert.Equal(2, CountArrayElementStores(copyRow!));
+
+            return 0;
+        });
+    }
+
     private static void AssertNoAllocationOrDispatch(MethodInfo method)
     {
         ILShapeInspector.AssertNoBoxing(method);
