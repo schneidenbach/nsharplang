@@ -1095,6 +1095,76 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void CopyRowVerifiedColumnTypes_UsesColumnElementCopiesWithoutRowAllocation()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                kind: int
+                flags: uint
+                start: long
+                active: bool
+                marker: char
+                name: string
+                optionalName: string?
+                count: int
+            }
+
+            func main(): int {
+                nodes := new NodeTable(1)
+                row := nodes.add()
+                nodes[row].kind = 3
+                nodes[row].flags = (uint)7
+                nodes[row].start = 19L
+                nodes[row].active = true
+                nodes[row].marker = 'A'
+                nodes[row].name = "name"
+                nodes[row].optionalName = null
+                nodes[row].count = 11
+
+                nodes.copyRow(row, 1)
+
+                total := nodes[1].kind
+                total += (int)nodes[1].flags
+                total += (int)nodes[1].start
+                total += (nodes[1].active ? 100 : 0)
+                total += (int)nodes[1].marker
+                total += nodes[1].count
+                total += nodes[1].name.Length
+                total += (nodes[1].optionalName == null ? 1000 : 0)
+                return total
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var tableType = assembly.GetType("NodeTable");
+            Assert.NotNull(tableType);
+
+            var copyRow = tableType!.GetMethod("copyRow", BindingFlags.Public | BindingFlags.Instance);
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+            Assert.NotNull(copyRow);
+
+            Assert.Equal(1209, Assert.IsType<int>(main.Invoke(null, null)));
+
+            ILShapeInspector.AssertNoBoxing(copyRow!);
+            Assert.Equal(4, ILShapeInspector.CountOpcode(copyRow!, OpCodes.Newobj)); // source/target/range/overflow guard exceptions
+            Assert.Equal(0, ILShapeInspector.CountOpcode(copyRow!, OpCodes.Newarr));
+            Assert.Equal(0, ILShapeInspector.CountDelegateConstructions(copyRow!));
+            Assert.Equal(0, ILShapeInspector.CountOpcode(copyRow!, OpCodes.Callvirt));
+            Assert.Equal(1, ILShapeInspector.CountOpcode(copyRow!, OpCodes.Call)); // ensureCapacity
+            Assert.Equal(8, CountArrayElementLoads(copyRow!));
+            Assert.Equal(8, CountArrayElementStores(copyRow!));
+            Assert.True(
+                ILShapeInspector.CountOpcode(copyRow!, OpCodes.Ldfld) >= 17,
+                "copyRow should load each column array plus the length field directly.");
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void AddAndEnsureCapacity_UseLengthCapacityAndArrayResizeWithoutRowAllocation()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

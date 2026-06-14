@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA copyRow has verified element-type IL-shape proof
+
+Generated `copyRow` now has mixed column-type opcode evidence. Copying a row over `int`, `uint`,
+`long`, `bool`, `char`, `string`, and `string?` columns performs exactly one backing-array element
+load and store per column, preserves the copied values at runtime, and still avoids row construction,
+heap array allocation, boxing, delegate construction, and virtual dispatch. The only call in the
+method body remains the required `ensureCapacity` call before writing the target row.
+
 ## 2026-06-14 — SoA default store expressions cover verified element types
 
 Expression-valued default stores now have mixed element-type opcode evidence for all accepted SoA

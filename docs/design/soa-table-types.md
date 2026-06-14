@@ -301,12 +301,12 @@ element-type set, including expression-valued default stores, without old-elemen
 scalar/reference element reads/stores, and null-coalescing reads/assignments.
 Row-projection null-coalescing
 reads/assignments have the same direct column proof, with range/slice allocation still rejected during
-analysis. The
-generated `copyRow` method has the same direct column-element shape and no row object construction,
-inline array allocation, boxing, delegate construction, or virtual dispatch, while still calling
-`ensureCapacity` for explicit growth. `wrap` stores incoming column references without allocating arrays
-or copying elements; `add`, `ensureCapacity`, and `clear` keep the same column-array shape without row
-allocation or virtual dispatch.
+analysis. The generated `copyRow` method has the same direct column-element shape across the
+verified scalar/reference element-type set and no row object construction, inline array allocation,
+boxing, delegate construction, or virtual dispatch, while still calling `ensureCapacity` for explicit
+growth. `wrap` stores incoming column references without allocating arrays or copying elements; `add`,
+`ensureCapacity`, and `clear` keep the same column-array shape without row allocation or virtual
+dispatch.
 
 The first migration fixture uses the real overload-candidate compact table shape under the
 experimental flag. It wraps the existing candidate columns as `OverloadCandidateTable`, preserves the
