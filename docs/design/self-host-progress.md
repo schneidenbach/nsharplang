@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — Nullable SoA expected types still require table capacity
+
+Target-typed `new()` now looks through nullable SoA expected types before validating table
+construction. `NodeTable?` locals, returns, call arguments, and hard casts now report the same
+missing-capacity diagnostic as `NodeTable`, so nullable wrappers cannot hide an invalid table with
+null backing columns from analysis.
+
 ## 2026-06-14 — Checked wrappers preserve SoA target construction diagnostics
 
 `checked(...)` and `unchecked(...)` now preserve the surrounding expected type while analyzing their

@@ -12475,7 +12475,7 @@ public class Analyzer : IDisposable
             }
         }
 
-        var soaConstructionType = ResolveTypeAlias(type) as SoaRecordTypeInfo;
+        var soaConstructionType = ResolveTypeAlias(GetNonNullableType(type)) as SoaRecordTypeInfo;
         var constructorArgumentTypes = new List<TypeInfo>(newExpr.ConstructorArguments.Count);
         for (var i = 0; i < newExpr.ConstructorArguments.Count; i++)
         {
