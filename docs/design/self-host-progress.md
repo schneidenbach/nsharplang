@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA row-column null-coalescing IL shape is pinned
+
+Accepted row-column null-coalescing operations now have method-level opcode evidence. Both
+`table[row].text ?? fallback` and `table[row].text ??= fallback` are pinned to direct column field
+loads plus backing-array element traffic, with no row construction, heap array allocation, boxing,
+delegate construction, or virtual dispatch.
+
 ## 2026-06-14 — SoA row pseudo-types are blocked in type expressions
 
 `NodeTable.Row` diagnostics are now pinned for `typeof(NodeTable.Row)` and

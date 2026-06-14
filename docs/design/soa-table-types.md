@@ -270,7 +270,8 @@ IL-shape tests pin the current wrapper proof: row projection over an existing ta
 column field loads and array element loads/stores with no row allocation, boxing, delegate
 construction, heap array allocation, or virtual dispatch; explicit direct column element operations
 (`table.column[row]`) have the same column-array proof for stores, compound stores, increments, reads,
-and from-end `System.Index` access, with range/slice allocation still rejected during analysis. The
+row-column null-coalescing reads/assignments, and from-end `System.Index` access, with range/slice
+allocation still rejected during analysis. The
 generated `copyRow` method has the same direct column-element shape and no row object construction,
 inline array allocation, boxing, delegate construction, or virtual dispatch, while still calling
 `ensureCapacity` for explicit growth. `wrap` stores incoming column references without allocating arrays
