@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — Built-in index diagnostics cover SoA column access
+
+Direct SoA column element access now inherits analyzer-side built-in array index validation, so
+`table.column["0"]` fails with a source diagnostic before IL lowering. Array slice writes such as
+`table.column[0..1] = values` now also fail during analysis instead of reaching the direct IL backend's
+unsupported range-assignment path. Valid `int`, `System.Index`/`^n`, and read-only range indexing for
+ordinary arrays remain unchanged; the SoA design note now calls out direct column slice reads as a
+remaining hidden-allocation case to settle before production table routing.
+
 ## 2026-06-14 — SoA column names are validated before wrapper emission
 
 Experimental SoA declarations now reject duplicate column names and column names that collide with

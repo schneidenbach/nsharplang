@@ -153,8 +153,14 @@ Row-column access supports direct reads, simple stores, expression-valued stores
 null-coalescing reads and assignment, compound assignment, and increment/decrement over the verified
 column element types. These accepted operations lower to the backing column arrays without row-object
 materialization. Direct column-element access through `table.column[row]` is also permitted for explicit
-systems kernels, but replacing wrapper column arrays or mutating `length`/`capacity` directly is not:
-shape changes must go through construction, `wrap`, `add`, `clear`, `ensureCapacity`, or `copyRow`.
+systems kernels when the index shape is one the built-in array path supports. Replacing wrapper column
+arrays, mutating `length`/`capacity` directly, or assigning to column slices is not allowed: shape changes
+must go through construction, `wrap`, `add`, `clear`, `ensureCapacity`, or `copyRow`.
+
+Direct column range reads (`table.column[start..end]`) still use the ordinary array slice semantics and
+therefore allocate a sliced array. They remain unsuitable for hot compiler table kernels until the SoA
+surface either rejects them with the hidden-allocation diagnostic or gains an allocation-free span/view
+lowering with pinned IL-shape evidence.
 
 ## Diagnostics
 
@@ -178,6 +184,8 @@ The compiler must produce direct diagnostics for common misuse:
 - non-nullable row-column null coalescing: "The left side of '??' has type 'X', which can't be null";
 - non-int or range row indexes: "SoA table indexes must be int row ids";
 - direct table member mutation: "SoA table member 'X' cannot be assigned directly";
+- non-int direct column element indexes: "Array indexes must be int, System.Index, or System.Range";
+- direct column slice mutation: "Array slices cannot be assigned";
 - hidden allocation request: "this operation would allocate row objects; use column access instead".
 
 These diagnostics must point at the row access or column declaration, not at generated lowering code.

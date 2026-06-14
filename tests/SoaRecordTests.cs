@@ -1304,6 +1304,47 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaTableColumnElementIndexMustBeInt()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable) {
+                nodes.kind["0"] = 1
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains("Array indexes must be int, System.Index, or System.Range", error.Message);
+        Assert.Contains("'string'", error.Message);
+        Assert.Contains("^n", error.Suggestion);
+    }
+
+    [Fact]
+    public void Analyzer_SoaTableColumnSliceCannotBeAssigned()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable) {
+                nodes.kind[0..1] = [1]
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("Array slices cannot be assigned", error.Message);
+        Assert.Contains("Assign individual elements", error.Suggestion);
+    }
+
+    [Fact]
     public void Analyzer_SoaRowViewCannotBeUsedAsRelationalPatternValue()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

@@ -5568,7 +5568,7 @@ public class Analyzer : IDisposable
             or UnaryOperator.PostIncrement or UnaryOperator.PostDecrement;
         Dictionary<Expression, TypeInfo>? targetExpressionTypes = null;
         TypeInfo operandType;
-        if (isIncrementOrDecrement && IsMemberAccessWriteTarget(unary.Operand))
+        if (isIncrementOrDecrement && IsWriteTargetNeedingExpressionTypes(unary.Operand))
         {
             var previousAssignmentTargetExpressionTypes = _assignmentTargetExpressionTypes;
             targetExpressionTypes = new Dictionary<Expression, TypeInfo>(ReferenceEqualityComparer.Instance);
@@ -5594,6 +5594,12 @@ public class Analyzer : IDisposable
 
         if (isIncrementOrDecrement
             && ReportSoaTableMemberMutationIfNeeded(unary.Operand, targetExpressionTypes, "incremented or decremented directly"))
+        {
+            return BuiltInTypes.Unknown;
+        }
+
+        if (isIncrementOrDecrement
+            && ReportUnsupportedBuiltInIndexedMutationIfNeeded(unary.Operand, targetExpressionTypes, "incremented or decremented"))
         {
             return BuiltInTypes.Unknown;
         }
@@ -5808,9 +5814,43 @@ public class Analyzer : IDisposable
             return BuiltInTypes.Unknown;
         }
 
+        if (!ValidateBuiltInIndexAccess(index, receiverType, indexType, isRangeAccess))
+        {
+            return BuiltInTypes.Unknown;
+        }
+
         var elementType = ResolveIndexElementType(receiverType, indexType, isRangeAccess);
 
         return index.IsNullConditional ? MakeNullableResult(elementType) : elementType;
+    }
+
+    private bool ValidateBuiltInIndexAccess(
+        IndexAccessExpression index,
+        TypeInfo receiverType,
+        TypeInfo indexType,
+        bool isRangeAccess)
+    {
+        var resolvedReceiverType = ResolveTypeAlias(receiverType);
+        var isArrayReceiver = resolvedReceiverType is ArrayTypeInfo
+            || resolvedReceiverType is ReflectionTypeInfo { Type.IsArray: true };
+        var isStringReceiver = IsStringType(resolvedReceiverType);
+
+        if (!isArrayReceiver && !isStringReceiver)
+            return true;
+
+        if (isRangeAccess)
+            return true;
+
+        var resolvedIndexType = ResolveTypeAlias(indexType);
+        if (BuiltInTypes.IsUnknown(resolvedIndexType)
+            || resolvedIndexType == BuiltInTypes.Int
+            || IsIndexLikeType(resolvedIndexType))
+        {
+            return true;
+        }
+
+        ReportInvalidBuiltInIndex(index.Index, resolvedIndexType, isStringReceiver ? "String" : "Array");
+        return false;
     }
 
     private bool IsValidSoaRowIndex(TypeInfo indexType, bool isRangeAccess)
@@ -5832,6 +5872,18 @@ public class Analyzer : IDisposable
             line,
             column,
             "Use an int row index and read or write a column with table[index].column.",
+            length);
+    }
+
+    private void ReportInvalidBuiltInIndex(Expression expression, TypeInfo indexType, string receiverDescription)
+    {
+        var (line, column, length) = GetExpressionDiagnosticSpan(expression);
+        Error(
+            ErrorCode.TypeMismatch,
+            $"{receiverDescription} indexes must be int, System.Index, or System.Range, but this index has type '{indexType}'",
+            line,
+            column,
+            "Use an int element index, '^n' for from-end access, or a '..' range for slicing.",
             length);
     }
 
@@ -5896,6 +5948,10 @@ public class Analyzer : IDisposable
     private static bool IsRangeLikeType(TypeInfo type)
         => type is ReflectionTypeInfo { Type.FullName: "System.Range" }
            || type is SimpleTypeInfo { Name: "Range" or "System.Range" };
+
+    private static bool IsIndexLikeType(TypeInfo type)
+        => type is ReflectionTypeInfo { Type.FullName: "System.Index" }
+           || type is SimpleTypeInfo { Name: "Index" or "System.Index" };
 
     private TypeInfo GetRangeType()
         => LookupType("System.Range") ?? new ReflectionTypeInfo(typeof(Range));
@@ -10801,9 +10857,9 @@ public class Analyzer : IDisposable
             // Resolve the target without the bare-event guard so we can give a tailored
             // "use on/off" message instead of the generic one.
             _allowEventReference = true;
-            if (IsMemberAccessWriteTarget(assignment.Target))
+            if (IsWriteTargetNeedingExpressionTypes(assignment.Target))
             {
-                // Collect the target chain's sub-expression types for the NL322 classifier below.
+                // Collect the target chain's sub-expression types for write-target classifiers below.
                 targetExpressionTypes = new Dictionary<Expression, TypeInfo>(ReferenceEqualityComparer.Instance);
                 _assignmentTargetExpressionTypes = targetExpressionTypes;
             }
@@ -10832,6 +10888,20 @@ public class Analyzer : IDisposable
         }
 
         if (ReportSoaTableMemberMutationIfNeeded(assignment.Target, targetExpressionTypes, "assigned directly"))
+        {
+            var previousExpectedTypeForInvalidTarget = _currentExpectedType;
+            _currentExpectedType = targetType;
+            var invalidValueType = AnalyzeExpression(assignment.Value);
+            _currentExpectedType = previousExpectedTypeForInvalidTarget;
+            if (invalidValueType is SoaRowTypeInfo)
+            {
+                ReportSoaRowEscape(assignment.Value, "assigned");
+            }
+
+            return BuiltInTypes.Unknown;
+        }
+
+        if (ReportUnsupportedBuiltInIndexedMutationIfNeeded(assignment.Target, targetExpressionTypes, "assigned"))
         {
             var previousExpectedTypeForInvalidTarget = _currentExpectedType;
             _currentExpectedType = targetType;
@@ -11119,6 +11189,16 @@ public class Analyzer : IDisposable
         _ => false
     };
 
+    private static bool IsIndexAccessWriteTarget(Expression expression) => expression switch
+    {
+        IndexAccessExpression => true,
+        ParenthesizedExpression parenthesized => IsIndexAccessWriteTarget(parenthesized.Inner),
+        _ => false
+    };
+
+    private static bool IsWriteTargetNeedingExpressionTypes(Expression expression)
+        => IsMemberAccessWriteTarget(expression) || IsIndexAccessWriteTarget(expression);
+
     // Sub-expression types of the assignment/unary-write TARGET currently being analyzed (reference-keyed;
     // populated at the AnalyzeExpression tail, consumed by write-target classifiers).
     private Dictionary<Expression, TypeInfo>? _assignmentTargetExpressionTypes;
@@ -11148,6 +11228,66 @@ public class Analyzer : IDisposable
 
         ReportSoaTableMemberMutation(member, action, isColumn);
         return true;
+    }
+
+    private bool ReportUnsupportedBuiltInIndexedMutationIfNeeded(
+        Expression target,
+        Dictionary<Expression, TypeInfo>? expressionTypes,
+        string action)
+    {
+        if (target is ParenthesizedExpression parenthesized)
+            return ReportUnsupportedBuiltInIndexedMutationIfNeeded(parenthesized.Inner, expressionTypes, action);
+
+        if (target is not IndexAccessExpression indexAccess
+            || expressionTypes == null
+            || !expressionTypes.TryGetValue(indexAccess.Object, out var receiverType))
+        {
+            return false;
+        }
+
+        var resolvedReceiverType = ResolveTypeAlias(GetNonNullableType(receiverType));
+        if (IsStringType(resolvedReceiverType))
+        {
+            ReportUnsupportedStringIndexedMutation(indexAccess, action);
+            return true;
+        }
+
+        var isArrayReceiver = resolvedReceiverType is ArrayTypeInfo
+            || resolvedReceiverType is ReflectionTypeInfo { Type.IsArray: true };
+        if (!isArrayReceiver)
+            return false;
+
+        var isRangeAccess = indexAccess.Index is RangeExpression
+            || (expressionTypes.TryGetValue(indexAccess.Index, out var indexType) && IsRangeLikeType(indexType));
+        if (!isRangeAccess)
+            return false;
+
+        ReportUnsupportedArraySliceMutation(indexAccess, action);
+        return true;
+    }
+
+    private void ReportUnsupportedArraySliceMutation(IndexAccessExpression indexAccess, string action)
+    {
+        var (line, column, length) = GetExpressionDiagnosticSpan(indexAccess);
+        Error(
+            ErrorCode.InvalidSyntax,
+            $"Array slices cannot be {action}",
+            line,
+            column,
+            "Assign individual elements, or construct a replacement array value explicitly.",
+            length);
+    }
+
+    private void ReportUnsupportedStringIndexedMutation(IndexAccessExpression indexAccess, string action)
+    {
+        var (line, column, length) = GetExpressionDiagnosticSpan(indexAccess);
+        Error(
+            ErrorCode.InvalidSyntax,
+            $"String characters and slices cannot be {action}",
+            line,
+            column,
+            "Create a new string value instead; strings are immutable.",
+            length);
     }
 
     private void ReportSoaTableMemberMutation(MemberAccessExpression member, string action, bool isColumn)

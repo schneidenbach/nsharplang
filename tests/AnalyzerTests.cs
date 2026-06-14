@@ -1166,6 +1166,52 @@ func Main() {
     }
 
     [Fact]
+    public void ArrayIndexAccess_WithStringIndex_ReportsTypeMismatch()
+    {
+        var result = Analyze("""
+            func Main(): int {
+                values := [1, 2, 3]
+                return values["0"]
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains("Array indexes must be int, System.Index, or System.Range", error.Message);
+        Assert.Contains("'string'", error.Message);
+        Assert.Contains("^n", error.Suggestion);
+    }
+
+    [Fact]
+    public void ArrayRangeIndexedAssignment_ReportsBeforeEmission()
+    {
+        var result = Analyze("""
+            func Main() {
+                values := [1, 2, 3]
+                values[0..1] = [4]
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("Array slices cannot be assigned", error.Message);
+        Assert.Contains("Assign individual elements", error.Suggestion);
+    }
+
+    [Fact]
+    public void StringIndexedAssignment_ReportsImmutableString()
+    {
+        var result = Analyze("""
+            func Main() {
+                text := "hello"
+                text[0] = 'H'
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("String characters and slices cannot be assigned", error.Message);
+        Assert.Contains("strings are immutable", error.Suggestion);
+    }
+
+    [Fact]
     public void StringRangeIndexAccess_ReturnsStringType()
     {
         AssertNoErrors(@"
