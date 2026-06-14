@@ -1230,6 +1230,91 @@ public class SoaRecordILShapeTests
         });
     }
 
+    [Fact]
+    public void VerifiedDirectColumnTypes_UseColumnArrayLoadStoreWithoutRowAllocation()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                kind: int
+                flags: uint
+                start: long
+                active: bool
+                marker: char
+                name: string
+                optionalName: string?
+                count: int
+            }
+
+            func setAll(nodes: NodeTable, row: int, name: string, optionalName: string?) {
+                nodes.kind[row] = 3
+                nodes.flags[row] = (uint)7
+                nodes.start[row] = 19L
+                nodes.active[row] = true
+                nodes.marker[row] = 'A'
+                nodes.name[row] = name
+                nodes.optionalName[row] = optionalName
+                nodes.count[row] = 11
+            }
+
+            func readScalars(nodes: NodeTable, row: int): int {
+                total := nodes.kind[row]
+                total += (int)nodes.flags[row]
+                total += (int)nodes.start[row]
+                total += (nodes.active[row] ? 100 : 0)
+                total += (int)nodes.marker[row]
+                total += nodes.count[row]
+                return total
+            }
+
+            func readName(nodes: NodeTable, row: int): string {
+                return nodes.name[row]
+            }
+
+            func readOptional(nodes: NodeTable, row: int): string? {
+                return nodes.optionalName[row]
+            }
+
+            func main(): int {
+                nodes := new NodeTable(1)
+                row := nodes.add()
+                setAll(nodes, row, "abcd", null)
+                total := readScalars(nodes, row)
+                total += readName(nodes, row).Length
+                total += (readOptional(nodes, row) == null ? 1000 : 0)
+                return total
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var setAll = ILShapeInspector.GetProgramMethod(assembly, "setAll");
+            var readScalars = ILShapeInspector.GetProgramMethod(assembly, "readScalars");
+            var readName = ILShapeInspector.GetProgramMethod(assembly, "readName");
+            var readOptional = ILShapeInspector.GetProgramMethod(assembly, "readOptional");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(1209, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoAllocationOrDispatch(setAll);
+            AssertNoAllocationOrDispatch(readScalars);
+            AssertNoAllocationOrDispatch(readName);
+            AssertNoAllocationOrDispatch(readOptional);
+
+            Assert.Equal(8, CountArrayElementStores(setAll));
+            Assert.Equal(0, CountArrayElementLoads(setAll));
+            Assert.Equal(6, CountArrayElementLoads(readScalars));
+            Assert.Equal(0, CountArrayElementStores(readScalars));
+            Assert.Equal(1, CountArrayElementLoads(readName));
+            Assert.Equal(1, CountArrayElementLoads(readOptional));
+            Assert.Equal(0, CountArrayElementStores(readName));
+            Assert.Equal(0, CountArrayElementStores(readOptional));
+
+            return 0;
+        });
+    }
+
     private static void AssertNoAllocationOrDispatch(MethodInfo method)
     {
         ILShapeInspector.AssertNoBoxing(method);

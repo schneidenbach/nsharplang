@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — Direct SoA verified column types have IL-shape proof
+
+Direct `table.column[row]` access now has the same mixed element-type opcode proof as row
+projection. `int`, `uint`, `long`, `bool`, `char`, `string`, and `string?` columns round-trip through
+direct column loads/stores with no row construction, heap array allocation, boxing, delegate
+construction, or virtual dispatch.
+
 ## 2026-06-14 — Direct SoA from-end decrements have IL-shape proof
 
 Direct backing-column `System.Index` decrement now has opcode evidence alongside increment. Postfix

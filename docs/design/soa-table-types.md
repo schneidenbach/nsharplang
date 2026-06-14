@@ -291,7 +291,8 @@ IL-shape tests pin the current wrapper proof: row projection over an existing ta
 column field loads and array element loads/stores with no row allocation, boxing, delegate
 construction, heap array allocation, or virtual dispatch; explicit direct column element operations
 (`table.column[row]`) have the same column-array proof for stores, expression-valued stores, default
-stores, compound stores, prefix/postfix increments, reads, direct column null-coalescing
+stores, compound stores, prefix/postfix increments, reads across the verified scalar/reference
+element-type set, direct column null-coalescing
 reads/assignments, and from-end `System.Index` access including expression-valued simple stores,
 default stores, and null-coalescing reads/assignments.
 Row-projection null-coalescing
