@@ -11,6 +11,12 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA prefix row-column increment/decrement has IL-shape proof
+
+The SoA IL-shape evidence now covers prefix row-column increment and decrement expressions. `++table[row].column`
+and `--table[row].column` return the updated value, store through the backing column array, and stay free of row
+objects, boxing, array allocation, delegate construction, and virtual dispatch.
+
 ## 2026-06-14 — Query-position parser leaves product dogfood
 
 The `CliQueryParsing.nl` query-position probe cluster now lives entirely in the parity corpus:
