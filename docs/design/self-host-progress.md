@@ -11,6 +11,12 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — Typo-suggestion pressure probe leaves product dogfood
+
+`TypoSuggestionIndicesInto` and its Levenshtein/scoring helper closure moved to the parity corpus
+with `TypoSuggestionChecksumInto`. Production keeps the current C# `SmartSuggester` path because the
+N# dynamic-programming candidate passed parity but missed the normal speed gate.
+
 ## 2026-06-14 — Path-matching pressure probe leaves product dogfood
 
 `CodeIntelligencePathMatches`, `CodeIntelligencePathMatchFlagsInto`, and the private slash-normalized
