@@ -11,6 +11,12 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA row views reject assignment targets directly
+
+Assigning to a row view such as `table[row] = value` now reports the SoA row-view diagnostic at the
+target instead of falling through to ordinary assignment mismatch handling. Row projection remains
+usable only through column access (`table[row].column`) so no row value can be stored or materialized.
+
 ## 2026-06-14 — SoA static negative row indexes fail before emission
 
 SoA row projection now rejects statically negative row ids during analysis for both `table[-1].column`

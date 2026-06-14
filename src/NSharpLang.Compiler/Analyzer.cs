@@ -11336,6 +11336,21 @@ public class Analyzer : IDisposable
             _suppressNullabilityFlowType = previousSuppressNullabilityFlowType;
         }
 
+        if (targetType is SoaRowTypeInfo)
+        {
+            ReportSoaRowEscape(assignment.Target, "assigned");
+            var previousExpectedTypeForInvalidTarget = _currentExpectedType;
+            _currentExpectedType = targetType;
+            var invalidValueType = AnalyzeExpression(assignment.Value);
+            _currentExpectedType = previousExpectedTypeForInvalidTarget;
+            if (invalidValueType is SoaRowTypeInfo)
+            {
+                ReportSoaRowEscape(assignment.Value, "assigned");
+            }
+
+            return BuiltInTypes.Unknown;
+        }
+
         // `event += handler` / `-=` / `=` silently compiled to direct backing-field access before,
         // then threw FieldAccessException at runtime. N# never assigns events — subscribe with
         // `on`, unsubscribe with `off`. (A `+=` on a real Func/Action field is NOT an event and

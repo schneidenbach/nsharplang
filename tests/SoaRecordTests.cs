@@ -1715,6 +1715,26 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaRowViewCannotBeAssignmentTarget()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable) {
+                nodes[0] = 1
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("SoA row views cannot be assigned", error.Message);
+        Assert.Contains("table[index].column", error.Suggestion);
+    }
+
+    [Fact]
     public void Analyzer_SoaRowViewCannotEscapeThroughObjectInitializer()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
