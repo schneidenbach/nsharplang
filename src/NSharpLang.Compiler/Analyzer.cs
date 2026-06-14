@@ -13215,8 +13215,33 @@ public class Analyzer : IDisposable
                 ReportSoaRowEscapeIfNeeded(property.IndexExpression, indexType, "used as a with initializer index");
             }
 
-            var valueType = AnalyzeExpression(property.Value);
+            TypeInfo? memberType = null;
+            if (property.Name != null && property.IndexExpression == null)
+            {
+                var (nameLine, nameColumn) = property.NameLine > 0
+                    ? (property.NameLine, property.NameColumn)
+                    : (property.Value.Line, property.Value.Column);
+
+                if (TryResolveObjectInitializerMemberType(targetType, unionCaseName: null, property.Name, nameLine, nameColumn, out var resolvedMemberType))
+                {
+                    memberType = resolvedMemberType;
+                }
+            }
+
+            var valueType = memberType != null
+                ? AnalyzeExpressionWithExpectedType(property.Value, memberType)
+                : AnalyzeExpression(property.Value);
             ReportSoaRowEscapeIfNeeded(property.Value, valueType, "stored in a with expression");
+            if (memberType != null && !IsAssignable(memberType, valueType))
+            {
+                var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetExpressionDiagnosticSpan(property.Value);
+                Error(
+                    ErrorCode.TypeMismatch,
+                    $"'{property.Name}' is typed as '{memberType}', but the value is '{valueType}'",
+                    diagnosticLine,
+                    diagnosticColumn,
+                    length: diagnosticLength);
+            }
         }
 
         return targetIsSoaRow ? BuiltInTypes.Unknown : targetType;
