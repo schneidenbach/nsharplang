@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA default row-column stores have IL-shape proof
+
+The SoA IL-shape evidence now covers `nodes[row].column = default` for both scalar and nullable
+reference columns. The pinned helper stores directly into the backing column arrays, does not read
+the old element value, and stays free of row objects, boxing, array allocation, delegate construction,
+and virtual dispatch.
+
 ## 2026-06-14 — Product dogfood coverage excludes parity-only stubs
 
 `CompilerDogfoodProjectTests` now reads product compiler-service files without their parity-corpus
