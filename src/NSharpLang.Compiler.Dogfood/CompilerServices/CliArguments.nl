@@ -505,16 +505,6 @@ func CliLintFileArgIndicesCore(
     return resultCount
 }
 
-func CliLintIsProjectOptionValue(
-    args: string[],
-    projectValueIndices: int[],
-    projectValueCount: int,
-    value: string): bool {
-    arguments := new CliArgumentTable { Args: args }
-    projectValues := new CliProjectOptionValueIndexTable { Indices: projectValueIndices }
-    return CliLintIsProjectOptionValueCore(ref arguments, ref projectValues, projectValueCount, value)
-}
-
 func CliLintIsProjectOptionValueCore(
     args: &CliArgumentTable,
     projectValueIndices: &CliProjectOptionValueIndexTable,

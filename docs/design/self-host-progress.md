@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — CLI lint project-value wrapper leaves product dogfood
+
+`CliArguments.nl` no longer emits the raw-array `CliLintIsProjectOptionValue` wrapper. The live
+`CliLintFileArgIndicesInto` product route still records `--project` value indices once and calls the
+table-shaped `CliLintIsProjectOptionValueCore` helper directly, while the CLI adapter and benchmark
+surface remain unchanged.
+
 ## 2026-06-14 — SoA row-column assignment expressions preserve assigned values
 
 The SoA IL-shape evidence now covers row-column assignment expressions whose assigned value is consumed

@@ -3027,7 +3027,7 @@ class B
             ("charEqInt", new object[] { 'A', 65 }), ("charEqInt", new object[] { 'A', 66 }));
     }
 
-    // MILESTONE: CliArguments.nl (4125 lines, 83 funcs) compiles end-to-end with no C# AST. Enabling features:
+    // MILESTONE: CliArguments.nl compiles end-to-end with no C# AST. Enabling features:
     // string.IndexOf(char) (1-arg) + string.IndexOf(string, StringComparison) with the StringComparison enum, and
     // char/int promotion (`arg[i] * (i + 1)`). Reads the actual file.
     [Fact]
