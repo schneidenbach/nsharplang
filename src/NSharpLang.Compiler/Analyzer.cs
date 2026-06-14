@@ -1580,7 +1580,7 @@ public class Analyzer : IDisposable
         // Expression-bodied property: validate expression type matches property type
         if (prop.ExpressionBody != null)
         {
-            var exprType = AnalyzeExpression(prop.ExpressionBody);
+            var exprType = AnalyzeExpressionWithExpectedType(prop.ExpressionBody, propType);
             ReportSoaRowEscapeIfNeeded(prop.ExpressionBody, exprType, "returned");
             if (!IsAssignable(propType, exprType))
             {
