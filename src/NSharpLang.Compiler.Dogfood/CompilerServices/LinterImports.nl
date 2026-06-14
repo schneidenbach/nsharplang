@@ -119,11 +119,6 @@ func LinterUnusedKnownNamespaceImportIndicesCore(
     return resultCount
 }
 
-func LinterImportsClearAllUsedFlags(usedNamespaceFlags: int[], effectiveKnownCount: int): int {
-    scratch := new LinterNamespaceScratchTable { UsedFlags: usedNamespaceFlags, TouchedRanks: usedNamespaceFlags }
-    return LinterImportsClearAllUsedFlagsCore(ref scratch, effectiveKnownCount)
-}
-
 func LinterImportsClearAllUsedFlagsCore(scratch: &LinterNamespaceScratchTable, effectiveKnownCount: int): int {
     count := effectiveKnownCount
     if count >= scratch.UsedFlags.Length {

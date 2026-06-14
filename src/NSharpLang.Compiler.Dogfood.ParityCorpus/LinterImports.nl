@@ -1,8 +1,13 @@
-// PARITY CORPUS (Arc M1): checksum oracles extracted from
+// PARITY CORPUS (Arc M1): checksum oracles and helper wrappers extracted from
 // src/NSharpLang.Compiler.Dogfood/CompilerServices/LinterImports.nl. These functions exist solely as
 // parity-test surfaces (tests + benchmarks bind them by NAME and compile them TOGETHER with
 // their product file — most delegate to sibling kernels that stay in the product). They are
 // NOT part of the shipped dogfood assembly.
+
+func LinterImportsClearAllUsedFlags(usedNamespaceFlags: int[], effectiveKnownCount: int): int {
+    scratch := new LinterNamespaceScratchTable { UsedFlags: usedNamespaceFlags, TouchedRanks: usedNamespaceFlags }
+    return LinterImportsClearAllUsedFlagsCore(ref scratch, effectiveKnownCount)
+}
 
 func LinterUnusedKnownNamespaceImportChecksumInto(
     importNamespaceRanks: int[],

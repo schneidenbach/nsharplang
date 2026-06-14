@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — Linter parity wrapper leaves product dogfood
+
+`LinterImports.nl` no longer emits the raw-array `LinterImportsClearAllUsedFlags` helper. The shipped
+unused-import kernel still exercises discarded non-void sibling calls through the table-shaped
+`LinterImportsClearAllUsedFlagsCore` cleanup path, while the raw-array wrapper now lives in the parity
+corpus beside the checksum oracle and is pinned absent from product coverage.
+
 ## 2026-06-14 — CLI lint project-value wrapper leaves product dogfood
 
 `CliArguments.nl` no longer emits the raw-array `CliLintIsProjectOptionValue` wrapper. The live
@@ -4690,7 +4697,7 @@ Two small, independent gap-fills, each flipping a real dogfood file:
    is generalized: a bare call statement now emits the call and, if the result is non-void, discards it with
    `pop` (a void call emits nothing extra) — exactly what the C# ILCompiler emits (`EmitExpressionStatement`,
    ILCompiler.cs:12500). This flips **`LinterImports.nl`**, which is otherwise pure int/int[]/control-flow but
-   calls a flag-clearing helper `LinterImportsClearAllUsedFlags(...)` as a statement for its side effect,
+   calls a flag-clearing helper `LinterImportsClearAllUsedFlagsCore(...)` as a statement for its side effect,
    ignoring the returned count. (The earlier void-only restriction was tighter than N# / the C# path require.)
 
 Parity-gated: `ColumnarCodegen_Parity_CharArithmetic` (incl. the negative `'A' - 'z'` = -57 case that would

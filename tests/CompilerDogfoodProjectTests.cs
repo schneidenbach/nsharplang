@@ -7806,9 +7806,9 @@ class B
 
     // MILESTONE: LinterImports.nl compiles end-to-end with no C# AST. It is pure int / int[] / control-flow,
     // and its one previously-blocking form was a bare sibling-call STATEMENT discarding an int result
-    // (`LinterImportsClearAllUsedFlags(...)` for its side effect) — now emitted as call + pop. The functions
+    // (`LinterImportsClearAllUsedFlagsCore(...)` for its side effect) — now emitted as call + pop. The functions
     // mutate `usedNamespaceFlags` but restore it (clearing every touched rank), so the array shared between the
-    // columnar and C# invocations is benign. Reads the actual file.
+    // columnar and C# invocations is benign. Reads the actual file plus parity-only checksum/wrapper helpers.
     [Fact]
     public void ColumnarCodegen_CompilesRealDogfoodFile_LinterImports()
     {
@@ -7827,6 +7827,7 @@ class B
             ("LinterUnusedKnownNamespaceImportChecksumInto", FreshArgs()),
             // overflow of touchedNamespaceRanks (size 0) -> the early-return-(-1) path with the discarded clear call.
             ("LinterUnusedKnownNamespaceImportIndicesInto", new object[] { new[] { 1, 2 }, 2, new[] { 1, 2 }, 2, new int[0], 0, 2, new int[3], new int[0], new int[3] }),
+            // Parity-corpus raw-array wrapper; the shipped product source keeps only the table-shaped core.
             ("LinterImportsClearAllUsedFlags", new object[] { new int[] { 0, 1, 1, 1 }, 3 }),
             ("LinterImportsMinInt", new object[] { 4, 9 }), ("LinterImportsMinInt", new object[] { 9, 4 }));
     }
@@ -7977,6 +7978,16 @@ class B
             Assert.True(ok, $"{name} parity corpus should still compile outside product coverage.");
             Assert.NotEmpty(methodNames!);
         }
+
+        var linterProduct = ReadDogfoodProductFile("LinterImports.nl");
+        var (linterOk, _, _, linterProductMethods) = RouteColumnarProgram(linterProduct);
+        Assert.True(linterOk, "LinterImports.nl product source should still compile without parity wrappers.");
+        Assert.DoesNotContain("LinterImportsClearAllUsedFlags", linterProductMethods!);
+
+        var linterWithParity = ReadDogfoodFileWithParityCorpus("LinterImports.nl");
+        var (linterParityOk, _, _, linterParityMethods) = RouteColumnarProgram(linterWithParity);
+        Assert.True(linterParityOk, "LinterImports.nl parity corpus should still compile with the extracted wrapper.");
+        Assert.Contains("LinterImportsClearAllUsedFlags", linterParityMethods!);
     }
 
     // PRODUCT CORPUS COVERAGE (ratcheting): how many shipped dogfood compiler-service files, excluding extracted
