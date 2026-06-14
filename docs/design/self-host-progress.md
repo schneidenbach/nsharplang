@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA null-coalescing row-column assignment expressions preserve values
+
+The SoA IL-shape evidence now covers `value := table[row].column ??= fallback` in both null and
+already-set cases. The expression returns the stored/current column value while keeping direct
+column-array traffic and avoiding row objects, boxing, hidden array allocation, delegates, and
+virtual dispatch.
+
 ## 2026-06-14 — SoA prefix row-column increment/decrement has IL-shape proof
 
 The SoA IL-shape evidence now covers prefix row-column increment and decrement expressions. `++table[row].column`

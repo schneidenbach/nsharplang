@@ -265,6 +265,65 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void RowColumnNullCoalesceAssignExpression_ReturnsCurrentOrAssignedValue()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                text: string
+            }
+
+            func adoptMissing(nodes: NodeTable, row: int): string {
+                value := nodes[row].text ??= "fallback"
+                return value
+            }
+
+            func keepExisting(nodes: NodeTable, row: int): string {
+                nodes[row].text = "ready"
+                value := nodes[row].text ??= "fallback"
+                return value
+            }
+
+            func main(): string {
+                nodes := new NodeTable(2)
+                first := nodes.add()
+                second := nodes.add()
+                return adoptMissing(nodes, first) + ":" + keepExisting(nodes, second)
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var adoptMissing = ILShapeInspector.GetProgramMethod(assembly, "adoptMissing");
+            var keepExisting = ILShapeInspector.GetProgramMethod(assembly, "keepExisting");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal("fallback:ready", Assert.IsType<string>(main.Invoke(null, null)));
+
+            AssertNoAllocationOrDispatch(adoptMissing);
+            Assert.True(
+                ILShapeInspector.CountOpcode(adoptMissing, OpCodes.Ldfld) >= 1,
+                "Row-column null-coalescing assignment expressions should load the column field directly.");
+            Assert.True(
+                CountArrayElementLoads(adoptMissing) >= 1,
+                "Row-column null-coalescing assignment expressions should read the current column value.");
+            Assert.Equal(1, CountArrayElementStores(adoptMissing));
+
+            AssertNoAllocationOrDispatch(keepExisting);
+            Assert.True(
+                ILShapeInspector.CountOpcode(keepExisting, OpCodes.Ldfld) >= 2,
+                "Row-column null-coalescing assignment expressions should keep direct column field access after an existing store.");
+            Assert.True(
+                CountArrayElementLoads(keepExisting) >= 1,
+                "Row-column null-coalescing assignment expressions should read an existing column value before deciding to store.");
+            Assert.Equal(2, CountArrayElementStores(keepExisting));
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void RowColumnDefaultAssignment_StoresDefaultWithoutReadingOldValue()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
