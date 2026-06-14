@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA row-view write forms stay out of emission
+
+Row views are now pinned as invalid write targets across plain assignment, compound assignment, and
+null-coalescing assignment. Increment/decrement over `table[row]` is also covered by the row-view
+unary diagnostic, preserving the rule that systems kernels can only mutate SoA data through scalar
+column slots such as `table[row].column` or `table.column[row]`.
+
 ## 2026-06-14 — SoA row views reject assignment targets directly
 
 Assigning to a row view such as `table[row] = value` now reports the SoA row-view diagnostic at the
