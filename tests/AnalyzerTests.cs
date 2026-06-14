@@ -1576,6 +1576,22 @@ func Main() {
     }
 
     [Fact]
+    public void NullCoalesceAssignment_NonNullableValueTarget_Invalid()
+    {
+        var result = Analyze(@"
+            func Main() {
+                x := 10
+                x ??= 5
+            }
+        ");
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains("left side of '??=' has type 'int'", error.Message);
+        Assert.Contains("can't be null", error.Message);
+        Assert.Contains("make the target nullable", error.Suggestion);
+    }
+
+    [Fact]
     public void NullableType_Valid()
     {
         AssertNoErrors(@"

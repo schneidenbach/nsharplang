@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — Null-coalescing assignment rejects non-nullable value targets before emission
+
+The analyzer now rejects `??=` when the assignment target cannot be null, including SoA row-column
+value targets such as `table[row].intColumn ??= fallback`. This closes the path where the IL backend
+could silently treat a non-nullable value column as already present instead of reporting a useful
+source diagnostic.
+
 ## 2026-06-14 — SoA default row-column assignment expressions preserve default values
 
 The SoA IL-shape evidence now covers `value := table[row].column = default` for scalar and nullable

@@ -10712,6 +10712,8 @@ public class Analyzer : IDisposable
             return BuiltInTypes.Unknown;
         }
 
+        CheckNullCoalesceAssignmentTarget(assignment, targetType);
+
         // NL322 (the CS1612 analog), paired with the EmitAddressableExpression chain fix (defect
         // #22): a member write whose receiver chain passes through a VALUE-typed hop must be rooted
         // in real storage — a local/param/`this` (or a bare field of one), a FIELD chain over one of
@@ -10765,6 +10767,35 @@ public class Analyzer : IDisposable
         MarkErrorTupleResultAvailableAfterAssignment(assignment.Target);
 
         return targetType;
+    }
+
+    private void CheckNullCoalesceAssignmentTarget(AssignmentExpression assignment, TypeInfo targetType)
+    {
+        if (assignment.Operator != AssignmentOperator.NullCoalesceAssign)
+        {
+            return;
+        }
+
+        var resolvedTarget = ResolveTypeAlias(targetType);
+        if (BuiltInTypes.IsUnknown(resolvedTarget)
+            || resolvedTarget is ExternalTypeInfo
+            || resolvedTarget is GenericTypeInfo
+            || resolvedTarget is NullableTypeInfo
+            || IsReferenceType(resolvedTarget)
+            || (resolvedTarget is ReflectionTypeInfo reflectionTarget
+                && Nullable.GetUnderlyingType(reflectionTarget.Type) != null))
+        {
+            return;
+        }
+
+        var (line, column, length) = GetExpressionDiagnosticSpan(assignment.Target);
+        Error(
+            ErrorCode.TypeMismatch,
+            $"The left side of '??=' has type '{targetType}', which can't be null",
+            line,
+            column,
+            "Use '=' for values that are always present, or make the target nullable before using '??='.",
+            length);
     }
 
     private TypeInfo AnalyzeOnSubscription(OnSubscriptionExpression on)
