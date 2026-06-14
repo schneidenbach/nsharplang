@@ -20093,7 +20093,42 @@ func main() {
         var repoRoot = FindRepoRoot();
         var source = File.ReadAllText(Path.Combine(repoRoot, "src", "NSharpLang.Compiler.Dogfood", "CompilerServices", fileName));
         var corpusPath = Path.Combine(repoRoot, "src", "NSharpLang.Compiler.Dogfood.ParityCorpus", fileName);
-        return File.Exists(corpusPath) ? source + "\n" + File.ReadAllText(corpusPath) : source;
+        return File.Exists(corpusPath)
+            ? MergeDogfoodSourceWithParityCorpus(source, File.ReadAllText(corpusPath))
+            : source;
+    }
+
+    private static string MergeDogfoodSourceWithParityCorpus(string source, string corpusSource)
+    {
+        var sourceLines = source.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n').ToList();
+        var corpusLines = corpusSource.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
+        var corpusImports = new List<string>();
+        var corpusBody = new List<string>();
+
+        foreach (var line in corpusLines)
+        {
+            if (line.StartsWith("import ", StringComparison.Ordinal))
+            {
+                corpusImports.Add(line);
+                continue;
+            }
+
+            corpusBody.Add(line);
+        }
+
+        var insertIndex = 0;
+        while (insertIndex < sourceLines.Count && sourceLines[insertIndex].StartsWith("import ", StringComparison.Ordinal))
+        {
+            insertIndex++;
+        }
+
+        var existingImports = sourceLines.Take(insertIndex).ToHashSet(StringComparer.Ordinal);
+        var importsToInsert = corpusImports
+            .Where(importLine => existingImports.Add(importLine))
+            .ToArray();
+
+        sourceLines.InsertRange(insertIndex, importsToInsert);
+        return string.Join('\n', sourceLines) + "\n" + string.Join('\n', corpusBody);
     }
 
     private static string FindRepoRoot()

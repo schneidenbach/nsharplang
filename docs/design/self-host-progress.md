@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — Diagnostic-cluster public-string probes leave product dogfood
+
+`DiagnosticClusterTraitsAndPatternsInto`, `DiagnosticClusterIdsInto`, and
+`DiagnosticClusterNextCommandsInto` plus their private public-string materialization helpers moved to
+the parity corpus beside their checksum oracles. Product dogfood still keeps the accepted trait and
+compact grouping/member routes the code-intelligence adapter calls, while the missed-speed
+message-pattern/id/next-command probes no longer ship in the product assembly.
+
 ## 2026-06-14 — Query-position batch probe leaves product dogfood
 
 `CliQueryPositionsInto`, its batch core, and the private position input table moved to the parity
