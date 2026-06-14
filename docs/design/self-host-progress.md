@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA add guards length overflow
+
+`table.add()` now rejects a wrapped table whose current `length` is already `int.MaxValue` before
+computing `length + 1` for growth and the new length store. Zero-column wrappers make this boundary
+reachable without huge backing arrays, and the generated method now reports `length for Table.add is
+too large` instead of flowing an overflowed negative capacity into `ensureCapacity`.
+
 ## 2026-06-14 — SoA copyRow guards target overflow
 
 `table.copyRow(from, to)` now rejects a dynamic `to == int.MaxValue` before computing `to + 1`

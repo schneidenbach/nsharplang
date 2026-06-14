@@ -208,7 +208,7 @@ public class SoaRecordILShapeTests
             Assert.NotNull(ensureCapacity);
 
             ILShapeInspector.AssertNoBoxing(add!);
-            Assert.Equal(0, ILShapeInspector.CountOpcode(add!, OpCodes.Newobj));
+            Assert.Equal(1, ILShapeInspector.CountOpcode(add!, OpCodes.Newobj)); // length guard exception
             Assert.Equal(0, ILShapeInspector.CountOpcode(add!, OpCodes.Newarr));
             Assert.Equal(0, ILShapeInspector.CountDelegateConstructions(add!));
             Assert.Equal(0, ILShapeInspector.CountOpcode(add!, OpCodes.Callvirt));

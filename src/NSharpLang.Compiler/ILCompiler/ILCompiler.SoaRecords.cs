@@ -345,10 +345,17 @@ public partial class ILCompiler
 
         var il = method.GetILGenerator();
         var oldLengthLocal = il.DeclareLocal(typeof(int));
+        var validLengthIncrementLabel = il.DefineLabel();
 
         il.Emit(OpCodes.Ldarg_0);
         il.Emit(OpCodes.Ldfld, info.LengthField);
         il.Emit(OpCodes.Stloc, oldLengthLocal);
+
+        il.Emit(OpCodes.Ldloc, oldLengthLocal);
+        il.Emit(OpCodes.Ldc_I4, int.MaxValue);
+        il.Emit(OpCodes.Bne_Un, validLengthIncrementLabel);
+        EmitSoaArgumentException(il, $"length for {info.Declaration.Name}.add is too large");
+        il.MarkLabel(validLengthIncrementLabel);
 
         il.Emit(OpCodes.Ldarg_0);
         il.Emit(OpCodes.Ldloc, oldLengthLocal);

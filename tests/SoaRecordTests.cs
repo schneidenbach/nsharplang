@@ -2558,6 +2558,26 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void ILCompiler_SoaRecordAddDynamicMaxLength_ReportsLengthMessage()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var source = """
+            soa record EmptyTable {
+            }
+
+            func addAt(length: int): int {
+                nodes := EmptyTable.wrap(length)
+                nodes.add()
+                return nodes.length
+            }
+            """;
+
+        var error = Assert.Throws<ArgumentException>(() => CompileAndInvoke(source, "addAt", int.MaxValue));
+        Assert.Equal("length for EmptyTable.add is too large", error.Message);
+    }
+
+    [Fact]
     public void ILCompiler_SoaRecordCopyRowDynamicNegativeRows_ReportRowMessages()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
