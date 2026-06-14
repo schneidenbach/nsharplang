@@ -533,6 +533,48 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void DirectColumnVariableFromEndIndex_UsesColumnArrayOffsetWithoutSliceAllocation()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                kind: int
+            }
+
+            func lastSlot(nodes: NodeTable): int {
+                idx := ^1
+                nodes.kind[idx] = 9
+                assigned := nodes.kind[idx] = nodes.kind[idx] + 4
+                return assigned * 10 + nodes.kind[idx]
+            }
+
+            func main(): int {
+                nodes := new NodeTable(1)
+                row := nodes.add()
+                return lastSlot(nodes) + row
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var lastSlot = ILShapeInspector.GetProgramMethod(assembly, "lastSlot");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(143, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoFromEndSliceAllocation(lastSlot);
+            Assert.True(
+                ILShapeInspector.CountOpcode(lastSlot, OpCodes.Ldfld) >= 4,
+                "Direct SoA variable from-end column access should load backing column fields directly.");
+            Assert.Equal(2, CountArrayElementLoads(lastSlot));
+            Assert.Equal(2, CountArrayElementStores(lastSlot));
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void DirectColumnFromEndAssignmentExpression_ReturnsAssignedValueWithoutSliceAllocation()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA variable from-end indexes split row and column semantics
+
+SoA row projection now has analyzer coverage for variable-held `System.Index` values such as
+`idx := ^1; table[idx].column`, which must fail before emission because row ids are explicit
+non-negative `int` values. Direct column element access still follows the built-in array contract:
+`idx := ^1; table.column[idx]` has IL-shape evidence for offset-based load/store traffic with no
+slice allocation, boxing, delegate construction, or virtual dispatch.
+
 ## 2026-06-14 — SoA enum comparisons have IL-shape proof
 
 Int-backed enum SoA columns now have opcode evidence for `==`, `!=`, `<`, `<=`, `>`, and `>=`

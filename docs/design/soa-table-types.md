@@ -190,14 +190,14 @@ permitted for explicit systems kernels when the index shape is one the built-in 
 Direct column elements support the same scalar update shapes as row projection: expression-valued
 stores and compound assignments return the stored value, prefix/postfix increments preserve their
 ordinary result semantics, and default stores write the backing column without reading the old value
-or materializing a row. These accepted direct-column update shapes also apply to `System.Index`
-from-end element access such as `table.column[^1]`, including expression-valued simple stores,
-default stores, prefix/postfix increment/decrement, null-coalescing reads, and null-coalescing assignments.
+or materializing a row. These accepted direct-column update shapes also apply to literal and
+variable-held `System.Index` from-end element access such as `table.column[^1]` and
+`table.column[idx]`, including expression-valued simple stores, default stores, prefix/postfix
+increment/decrement, null-coalescing reads, and null-coalescing assignments.
 The same nullability rule applies to both row projection and direct column elements: `??` and `??=`
 require a nullable/reference column element and non-nullable columns reject the operation during
-analysis. Direct-column from-end access uses those same update and nullability diagnostics, so
-unsupported `table.column[^1]` writes stop before IL lowering instead of falling into the array
-backend.
+analysis. Direct-column range slices remain rejected before IL lowering instead of falling into the
+allocating array-slice backend.
 Replacing wrapper column arrays, mutating `length`/`capacity` directly, or mutating column slices is
 not allowed: shape changes must go through construction, `wrap`, `add`, `clear`, `ensureCapacity`, or
 `copyRow`. Direct `length`/`capacity` simple assignment, compound assignment, and increment/decrement
