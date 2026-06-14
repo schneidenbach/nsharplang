@@ -92,6 +92,56 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void CopyRowAndClear_UseColumnArraysWithoutRowAllocation()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                kind: int
+                start: int
+            }
+
+            func exercise(nodes: NodeTable): int {
+                nodes.copyRow(0, 2)
+                nodes.clear()
+                return nodes.length
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var tableType = assembly.GetType("NodeTable");
+            Assert.NotNull(tableType);
+
+            var copyRow = tableType!.GetMethod("copyRow", BindingFlags.Public | BindingFlags.Instance);
+            var clear = tableType.GetMethod("clear", BindingFlags.Public | BindingFlags.Instance);
+            Assert.NotNull(copyRow);
+            Assert.NotNull(clear);
+
+            ILShapeInspector.AssertNoBoxing(copyRow!);
+            Assert.Equal(0, ILShapeInspector.CountOpcode(copyRow!, OpCodes.Newobj));
+            Assert.Equal(0, ILShapeInspector.CountOpcode(copyRow!, OpCodes.Newarr));
+            Assert.Equal(0, ILShapeInspector.CountDelegateConstructions(copyRow!));
+            Assert.Equal(0, ILShapeInspector.CountOpcode(copyRow!, OpCodes.Callvirt));
+            Assert.Equal(1, ILShapeInspector.CountOpcode(copyRow!, OpCodes.Call));
+            Assert.Equal(2, CountArrayElementLoads(copyRow!));
+            Assert.Equal(2, CountArrayElementStores(copyRow!));
+            Assert.True(
+                ILShapeInspector.CountOpcode(copyRow!, OpCodes.Ldfld) >= 5,
+                "copyRow should load each column array plus the length field directly.");
+
+            AssertNoAllocationOrDispatch(clear!);
+            Assert.Equal(0, CountArrayElementLoads(clear!));
+            Assert.Equal(0, CountArrayElementStores(clear!));
+            Assert.Equal(0, ILShapeInspector.CountOpcode(clear!, OpCodes.Ldfld));
+            Assert.Equal(1, ILShapeInspector.CountOpcode(clear!, OpCodes.Stfld));
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void RowColumnNullCoalesceAssign_UsesColumnArrayLoadStore()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA copyRow and clear IL shape is pinned
+
+The experimental SoA wrapper proof now inspects the generated `copyRow` and `clear` methods directly.
+`copyRow` is allowed only the direct `ensureCapacity` call before copying column-array elements; it must not
+allocate row objects, box, build delegates, or dispatch virtually. `clear` is pinned as the minimal
+`length = 0` field store with no column traffic. This tightens the emitter-port evidence for table operations,
+not just row projection.
+
 ## 2026-06-14 — Formatter safety-scan rejected probe leaves product dogfood
 
 `FormatterSafetyHasError`, `FormatterSafetyErrorIndicesInto`, and their small table/core helpers
