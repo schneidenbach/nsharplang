@@ -8627,6 +8627,23 @@ public class Analyzer : IDisposable
     {
         switch (functionType.SyntheticName)
         {
+            case "wrap":
+            {
+                var lengthParameterIndex = functionType.ParameterNames?.FindIndex(parameterName => parameterName == "length") ?? -1;
+                if (lengthParameterIndex >= 0)
+                {
+                    ValidateSyntheticNonNegativeIntArgument(
+                        functionName,
+                        call,
+                        argTypes,
+                        parameterIndexByArgument,
+                        lengthParameterIndex,
+                        "SoA table wrap length must not be negative",
+                        "Use zero or a valid row count no greater than the column lengths.");
+                }
+                break;
+            }
+
             case "ensureCapacity":
                 ValidateSyntheticNonNegativeIntArgument(
                     functionName,

@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA wrap names and negative lengths validate before emission
+
+`Table.wrap` now participates in the same generated-signature validation as table operations:
+column names plus `length` bind semantically for named arguments, and negative literal lengths report
+`SoA table wrap length must not be negative` during analysis. Runtime validation still owns null
+columns, mismatched column lengths, and dynamic length bounds.
+
 ## 2026-06-14 — SoA ensureCapacity uses a source-spellable parameter name
 
 The generated SoA `ensureCapacity` signature now exposes `capacity` as its parameter name in both

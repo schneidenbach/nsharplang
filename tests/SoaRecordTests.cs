@@ -2080,6 +2080,68 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaTableWrapRejectsNegativeLengthLiteral()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad() {
+                kinds := new int[](2)
+                nodes := NodeTable.wrap(kinds, -1)
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains("SoA table wrap length must not be negative", error.Message);
+        Assert.Contains("wrap expects a non-negative int argument", error.Suggestion);
+    }
+
+    [Fact]
+    public void Analyzer_SoaTableWrapRejectsNegativeNamedLengthLiteral()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad() {
+                kinds := new int[](2)
+                nodes := NodeTable.wrap(length: -1, kind: kinds)
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains("SoA table wrap length must not be negative", error.Message);
+        Assert.Contains("wrap expects a non-negative int argument", error.Suggestion);
+    }
+
+    [Fact]
+    public void Analyzer_SoaTableWrapNamedArgumentTypeUsesParameterBinding()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad() {
+                nodes := NodeTable.wrap(length: 1, kind: 0)
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains("Argument 'kind' to 'wrap' is 'int'", error.Message);
+        Assert.Contains("expects 'int[]'", error.Message);
+    }
+
+    [Fact]
     public void ILCompiler_SoaRecordNewAddAndRowProjection_LowersToColumns()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
@@ -2238,6 +2300,32 @@ public class SoaRecordTests : ILCompilerTestBase
                 kinds[0] = 3
                 starts[0] = 4
                 nodes := NodeTable.wrap(kinds, starts, 1)
+                nodes[0].kind = 8
+                nodes[0].start += 5
+                return kinds[0] + starts[0] * 10 + nodes.capacity * 100 + nodes.length * 1000
+            }
+            """;
+
+        Assert.Equal(1298, Assert.IsType<int>(CompileAndInvoke(source)));
+    }
+
+    [Fact]
+    public void ILCompiler_SoaRecordWrapBindsNamedArguments()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var source = """
+            soa record NodeTable {
+                kind: int
+                start: int
+            }
+
+            func main(): int {
+                kinds := new int[](2)
+                starts := new int[](2)
+                kinds[0] = 3
+                starts[0] = 4
+                nodes := NodeTable.wrap(length: 1, start: starts, kind: kinds)
                 nodes[0].kind = 8
                 nodes[0].start += 5
                 return kinds[0] + starts[0] * 10 + nodes.capacity * 100 + nodes.length * 1000

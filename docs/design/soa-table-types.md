@@ -63,7 +63,9 @@ nodes := NodeTable.wrap(kind, valueStart, valueLength, childStart, childCount, s
 
 `new` takes exactly one non-negative `int` capacity argument, allocates exactly one array per column,
 and initializes `length = 0`. `wrap` creates a view over caller-provided arrays, verifies matching
-lengths/capacity, and performs no element copy.
+lengths/capacity, and performs no element copy. `wrap` exposes generated parameter names for each
+column plus `length`, so named calls such as `NodeTable.wrap(length: n, kind: kinds)` bind
+semantically; negative literal `length` values are rejected during analysis.
 
 ## Lowering
 
@@ -181,7 +183,8 @@ The compiler must produce direct diagnostics for common misuse:
   `nameof` targets, event subscription handles, and null-conditional table/row projections);
 - mismatched `wrap` columns: "column lengths for NodeTable do not match";
 - null `wrap` columns: "columns for NodeTable.wrap cannot be null";
-- invalid `wrap` length: "length for NodeTable.wrap must be between 0 and column length";
+- invalid `wrap` length: "SoA table wrap length must not be negative" for negative literals, or
+  "length for NodeTable.wrap must be between 0 and column length" for dynamic runtime bounds;
 - invalid `new` capacity: "SoA table capacity must be int" or "SoA table capacity must not be negative";
 - invalid generated operation calls: "`add`, `clear`, `ensureCapacity`, and `copyRow` must be called with
   their declared argument counts, names, and types, and literal `ensureCapacity`/`copyRow` capacity
