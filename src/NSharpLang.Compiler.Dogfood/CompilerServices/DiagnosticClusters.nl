@@ -692,16 +692,6 @@ func IsDiagnosticClusterGroupBeforeCore(
     return locations.Columns[leftRoot] < locations.Columns[rightRoot]
 }
 
-func IsDiagnosticClusterRootBefore(
-    left: int,
-    right: int,
-    files: string[],
-    lines: int[],
-    columns: int[]): bool {
-    locations := new DiagnosticClusterLocationTable { Files: files, Lines: lines, Columns: columns }
-    return IsDiagnosticClusterRootBeforeCore(left, right, ref locations)
-}
-
 func IsDiagnosticClusterRootBeforeCore(
     left: int,
     right: int,

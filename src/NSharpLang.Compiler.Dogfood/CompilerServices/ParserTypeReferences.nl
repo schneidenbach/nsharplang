@@ -436,32 +436,3 @@ func ParseUnionTypeReferenceNodeCore(tokens: &ParserTokenTable, count: int, st: 
     spanEnd := nodes.SpanStarts[lastArm] + nodes.SpanLengths[lastArm]
     return EmitTypeReferenceNode(ref st, ref nodes, 4, -1, 0, childRunStart, childCount, spanStart, spanEnd - spanStart)
 }
-
-func ParseTypeReferenceNodesInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, start: int, outNodeKinds: int[], outNameStarts: int[], outNameLengths: int[], outChildStart: int[], outChildCount: int[], outChildIndices: int[], outSpanStarts: int[], outSpanLengths: int[], outResult: int[]): int {
-    tokens := new ParserTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
-    stack := new ParserArgumentStack { Values: new int[](count + 1) }
-    nodes := new ParserNodeTable { Kinds: outNodeKinds, ValueStarts: outNameStarts, ValueLengths: outNameLengths, ChildStart: outChildStart, ChildCount: outChildCount, SpanStarts: outSpanStarts, SpanLengths: outSpanLengths }
-    children := new ParserChildIndexTable { Indices: outChildIndices }
-    result := new ParserResultTable { Values: outResult }
-    return ParseTypeReferenceNodesCore(ref tokens, count, start, ref stack, ref nodes, ref children, ref result)
-}
-
-func ParseTypeReferenceNodesCore(
-    tokens: &ParserTokenTable,
-    count: int,
-    start: int,
-    argStack: &ParserArgumentStack,
-    nodes: &ParserNodeTable,
-    outChildIndices: &ParserChildIndexTable,
-    outResult: &ParserResultTable): int {
-    st := new ParserState { Pos: start, NodeCursor: 0, ChildCursor: 0, ArgStackTop: 0, SplitGreaterDepth: 0, OwedGreaterByteEnd: 0 }
-
-    root := ParseUnionTypeReferenceNodeCore(ref tokens, count, ref st, ref argStack, ref nodes, ref outChildIndices, 0)
-    if root < 0 {
-        return -1
-    }
-
-    outResult.Values[0] = root
-    outResult.Values[1] = st.Pos
-    return st.NodeCursor
-}

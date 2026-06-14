@@ -18,7 +18,7 @@ namespace NSharpLang.Tests;
 
 public class CompilerDogfoodProjectTests
 {
-    private const int MinimumProductDogfoodFileCountAfterParityExtraction = 28;
+    private const int MinimumProductDogfoodFileCountAfterParityExtraction = 27;
 
     // The production-routed parser token-compaction kernel
     // (LexerTokenKindScanner.nl: ParserTokenCompactionIndicesInto) filters newline tokens by the
@@ -7801,17 +7801,17 @@ class B
             ("CodeIntelligencePathMatchChecksumInto", new object[] { new[] { "a/x.nl", "b" }, new[] { "x.nl", "y" }, new int[2] }));
     }
 
-    // MILESTONE: LinterImports.nl compiles end-to-end with no C# AST. It is pure int / int[] / control-flow,
+    // REJECTED-PROBE PIN: LinterImports.nl no longer owns shipped product dogfood functions. It is pure int / int[] / control-flow,
     // and its one previously-blocking form was a bare sibling-call STATEMENT discarding an int result
     // (`LinterImportsClearAllUsedFlagsCore(...)` for its side effect) — now emitted as call + pop. The functions
     // mutate `usedNamespaceFlags` but restore it (clearing every touched rank), so the array shared between the
-    // columnar and C# invocations is benign. Reads the actual file plus parity-only checksum/wrapper helpers.
+    // columnar and C# invocations is benign.
     [Fact]
-    public void ColumnarCodegen_CompilesRealDogfoodFile_LinterImports()
+    public void ColumnarCodegen_CompilesParityCorpusFile_LinterImports()
     {
         var source = ReadDogfoodFileWithParityCorpus("LinterImports.nl");
         var (ok, _, _, methodNames) = RouteColumnarProgram(source);
-        Assert.True(ok, "Columnar backend declined the real LinterImports.nl (expected full support).");
+        Assert.True(ok, "Columnar backend declined the extracted LinterImports.nl parity corpus.");
         Assert.Contains("LinterUnusedKnownNamespaceImportIndicesInto", methodNames!); // contains the discarded-result call.
 
         // ranks 1 and 3 used (by a type + a member); rank 2 import is unused. Arrays sized knownCount+1.
@@ -7906,7 +7906,7 @@ class B
             "CliArguments.nl", "CliDocOrdering.nl", "CliQueryParsing.nl", "CliTreeDependencies.nl",
             "CompletionGrouping.nl", "CompletionReceivers.nl", "DiagnosticClusters.nl", "DiagnosticDeduplication.nl", "DocQuery.nl",
             "FormatterImportOrdering.nl", "IdentifierSpans.nl",
-            "LexerTokenKindScanner.nl", "LinterImports.nl", "OverloadCandidates.nl", "ParserDeclarations.nl",
+            "LexerTokenKindScanner.nl", "OverloadCandidates.nl", "ParserDeclarations.nl",
             "ParserExpressions.nl", "ParserFunctionSignatures.nl", "ParserStatements.nl", "ParserTypeReferences.nl",
             "ProjectSourceFilter.nl", "SemanticScopes.nl", "StructCopyAnalysis.nl",
             "TextEditOrdering.nl", "TypeLookup.nl",
@@ -7966,7 +7966,7 @@ class B
     [Fact]
     public void ColumnarCodegen_ParityOnlyFiles_AreAbsentFromProductCoverage()
     {
-        foreach (var name in new[] { "ErrorSuggestions.nl", "FormatterSafetyScan.nl", "PathMatching.nl", "SourceTextLines.nl" })
+        foreach (var name in new[] { "ErrorSuggestions.nl", "FormatterSafetyScan.nl", "LinterImports.nl", "PathMatching.nl", "SourceTextLines.nl" })
         {
             Assert.False(File.Exists(DogfoodProductFilePath(name)), $"{name} must live only in the parity corpus.");
 
@@ -7976,15 +7976,23 @@ class B
             Assert.NotEmpty(methodNames!);
         }
 
-        var linterProduct = ReadDogfoodProductFile("LinterImports.nl");
-        var (linterOk, _, _, linterProductMethods) = RouteColumnarProgram(linterProduct);
-        Assert.True(linterOk, "LinterImports.nl product source should still compile without parity wrappers.");
-        Assert.DoesNotContain("LinterImportsClearAllUsedFlags", linterProductMethods!);
-
-        var linterWithParity = ReadDogfoodFileWithParityCorpus("LinterImports.nl");
-        var (linterParityOk, _, _, linterParityMethods) = RouteColumnarProgram(linterWithParity);
-        Assert.True(linterParityOk, "LinterImports.nl parity corpus should still compile with the extracted wrapper.");
-        Assert.Contains("LinterImportsClearAllUsedFlags", linterParityMethods!);
+        foreach (var (fileName, functionName) in new[]
+        {
+            ("DiagnosticClusters.nl", "IsDiagnosticClusterRootBefore"),
+            ("DiagnosticDeduplication.nl", "SortDiagnosticDeduplicationIndices"),
+            ("LexerTokenKindScanner.nl", "ScanOperator"),
+            ("ParserExpressions.nl", "ParseExpressionNodesInto"),
+            ("ParserTypeReferences.nl", "ParseTypeReferenceNodesInto"),
+        })
+        {
+            var functionDeclaration = $"func {functionName}(";
+            Assert.False(
+                ReadDogfoodProductFile(fileName).Contains(functionDeclaration, StringComparison.Ordinal),
+                $"{functionName} must live only in the parity corpus for {fileName}.");
+            Assert.True(
+                ReadDogfoodFileWithParityCorpus(fileName).Contains(functionDeclaration, StringComparison.Ordinal),
+                $"{functionName} should still be available when {fileName} is merged with its parity corpus.");
+        }
 
         var semanticProduct = ReadDogfoodProductFile("SemanticScopes.nl");
         var (semanticOk, _, _, semanticProductMethods) = RouteColumnarProgram(semanticProduct);
@@ -8057,7 +8065,7 @@ class B
             "CliArguments.nl", "CliDocOrdering.nl", "CliQueryParsing.nl", "CliTreeDependencies.nl",
             "CompletionGrouping.nl", "CompletionReceivers.nl", "DiagnosticClusters.nl", "DiagnosticDeduplication.nl", "DocQuery.nl",
             "FormatterImportOrdering.nl", "IdentifierSpans.nl",
-            "LexerTokenKindScanner.nl", "LinterImports.nl", "OverloadCandidates.nl", "ParserDeclarations.nl",
+            "LexerTokenKindScanner.nl", "OverloadCandidates.nl", "ParserDeclarations.nl",
             "ParserTypeReferences.nl", "ProjectSourceFilter.nl", "SemanticScopes.nl",
             "StructCopyAnalysis.nl", "TextEditOrdering.nl", "TypeLookup.nl",
         };

@@ -11,6 +11,21 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — Unbound dogfood wrappers move to parity corpus
+
+The shipped dogfood compiler-service files no longer carry the last adapter-unbound flattened
+wrappers surfaced by the product-root audit:
+`IsDiagnosticClusterRootBefore`, `SortDiagnosticDeduplicationIndices`, `ScanOperator`,
+`ParseExpressionNodesInto`, and `ParseTypeReferenceNodesInto`. `LinterImports.nl` moved out of the
+shipped dogfood directory entirely because its unused-import kernel had no adapter-bound product
+route after the parity wrapper extraction.
+
+Those ABIs moved to `NSharpLang.Compiler.Dogfood.ParityCorpus`, where existing parser, lexer,
+linter, and diagnostic parity tests can still bind them by name. The remaining product files keep
+only wrapper-aware cores reached from actual adapter roots or cross-file parser routes. Product
+dogfood coverage is now 27 shipped files: 24 compile as single-file kernels and the three parser
+files compile through the multi-file merge.
+
 ## 2026-06-14 — SourceTextLines extracted from product dogfood
 
 `SourceTextLines.nl` moved out of `src/NSharpLang.Compiler.Dogfood/CompilerServices` and into the
@@ -216,10 +231,10 @@ raw wrappers now live in the parity corpus and are pinned absent from product co
 
 ## 2026-06-14 — Linter parity wrapper leaves product dogfood
 
-`LinterImports.nl` no longer emits the raw-array `LinterImportsClearAllUsedFlags` helper. The shipped
-unused-import kernel still exercises discarded non-void sibling calls through the table-shaped
-`LinterImportsClearAllUsedFlagsCore` cleanup path, while the raw-array wrapper now lives in the parity
-corpus beside the checksum oracle and is pinned absent from product coverage.
+`LinterImports.nl` no longer emits the raw-array `LinterImportsClearAllUsedFlags` helper. At this
+point the shipped unused-import kernel still exercised discarded non-void sibling calls through the
+table-shaped `LinterImportsClearAllUsedFlagsCore` cleanup path; the full file later moved to the
+parity corpus once the product-root audit confirmed it had no adapter-bound route.
 
 ## 2026-06-14 — CLI lint project-value wrapper leaves product dogfood
 
@@ -629,7 +644,8 @@ their table-shaped cores when those wrappers have no production, adapter, parity
 stable batch entries such as `CliTryParsePositionPartsInto`, `ProjectSourceFilterKeptIndicesInto`,
 `DiagnosticClusterCompactGroupsInto`, `DiagnosticDeduplicateInto`, and `TypoSuggestionIndicesInto`
 continue to own the host ABI, while real-file columnar coverage pins such as
-`SortDiagnosticDeduplicationIndices` and `IsDiagnosticClusterRootBefore` remain in place.
+`SortDiagnosticDeduplicationIndices` and `IsDiagnosticClusterRootBefore` now live in the parity corpus
+beside the product cores they exercise.
 
 This keeps backend compiler-service dogfood code centered on table-wrapped product routes instead of
 old scalar and sort-helper compatibility conveniences.
@@ -667,7 +683,8 @@ The stable host ABIs remain unchanged: `TokenizeKinds`, `TokenizeKindsInto`,
 The type-reference and statement parser kernels no longer emit raw-array compatibility helpers for internal
 recursive-descent steps. `ConsumeGreaterForTypeNode`, `ParseUnionTypeReferenceNode`, and
 `ParseBlockStatementNode` were unused flattened wrappers around table-based cores; the stable host entries
-remain `ParseTypeReferenceNodesInto` and `ParseStatementNodesInto`.
+kept `ParseStatementNodesInto`, while `ParseTypeReferenceNodesInto` later moved to the parity corpus once
+production routes reached `ParseTypeReferenceNodesCore` through parser signatures and expressions.
 
 The real cross-file parser dependency now stays on `ParseUnionTypeReferenceNodeCore`, which carries named
 token, node, argument-stack, and child-index tables instead of rebuilding those views from raw columns.
@@ -995,9 +1012,9 @@ only.
 
 `ParserExpressions.nl` now routes its pattern, primary, postfix, call-argument, unary, binary,
 ternary, assignment, lambda, and expression-entry recursion through shared parser token,
-argument-stack, child-index, expression-node, and result wrappers. The public
-`ParseExpressionNodesInto` ABI remains flattened, while `ParseExpressionNodesCore` carries the
-wrapper-aware implementation.
+argument-stack, child-index, expression-node, and result wrappers. The parity-corpus
+`ParseExpressionNodesInto` ABI remains flattened for tests, while `ParseExpressionNodesCore` carries
+the wrapper-aware product implementation.
 
 Expression parsing now composes type-reference parsing through `ParseExpressionTypeReferenceNode`,
 which views the shared expression node columns as a type node table and calls
@@ -1309,9 +1326,9 @@ tables. Remaining table work moves out of parser kernels and into symbol/type/di
 
 `ParserExpressions.nl` now owns a normal `ParserExpressionNodeTable` wrapper for the shared
 expression/statement node table, and `ParserStatements.nl` threads that same wrapper through its
-mutually-recursive statement helpers. The public `ParseExpressionNodesInto` and `ParseStatementNodesInto`
-entry points still expose the flattened column ABI, and type-reference subtrees still bridge through
-the existing flattened type-reference entry.
+mutually-recursive statement helpers. `ParseStatementNodesInto` keeps the product flattened column ABI,
+while `ParseExpressionNodesInto` later moved to the parity corpus. Type-reference subtrees now bridge
+through the table-aware type-reference core.
 
 This keeps the host and multi-file dogfood adapter contracts stable while removing another large run
 of raw parallel-array parameters from the recursive parser core. The remaining parser table work is
@@ -1321,8 +1338,8 @@ the declaration-specific tables.
 
 The parser node-table migration has started with the type-reference kernel. `ParserTypeReferences.nl`
 now has a normal `ParserNodeTable` struct that groups the node kind/value/child/span columns for the
-recursive core, while `ParseTypeReferenceNodesInto` and the cross-file `ParseUnionTypeReferenceNode`
-entry still accept the existing flattened array ABI.
+recursive core. `ParseTypeReferenceNodesInto` initially kept the flattened array ABI for parity tests
+and later moved to the parity corpus; product parser code now reaches the table-aware core directly.
 
 This is intentionally not the experimental `soa record` surface yet. It proves the production
 columnar backend can thread a by-ref table wrapper with array fields through recursive parser code

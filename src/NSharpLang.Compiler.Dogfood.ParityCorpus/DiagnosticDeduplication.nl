@@ -4,6 +4,16 @@
 // their product file — most delegate to sibling kernels that stay in the product). They are
 // NOT part of the shipped dogfood assembly.
 
+func SortDiagnosticDeduplicationIndices(
+    resultIndices: int[],
+    count: int,
+    fileRanks: int[],
+    lineNumbers: int[],
+    columns: int[]): void {
+    keys := new ReferenceDeduplicationKeyTable { FileIds: fileRanks, LineNumbers: lineNumbers, Columns: columns }
+    SortDiagnosticDeduplicationIndicesCore(resultIndices, count, ref keys)
+}
+
 func DiagnosticDeduplicateCompactChecksumInto(
     codeIds: int[],
     fileRanks: int[],

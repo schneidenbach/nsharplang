@@ -50,6 +50,16 @@ func DiagnosticClusterCommandCount(locations: &DiagnosticClusterLocationTable, o
     return count
 }
 
+func IsDiagnosticClusterRootBefore(
+    left: int,
+    right: int,
+    files: string[],
+    lines: int[],
+    columns: int[]): bool {
+    locations := new DiagnosticClusterLocationTable { Files: files, Lines: lines, Columns: columns }
+    return IsDiagnosticClusterRootBeforeCore(left, right, ref locations)
+}
+
 func DiagnosticClusterTraitsAndPatternsInto(
     codes: string[],
     messages: string[],

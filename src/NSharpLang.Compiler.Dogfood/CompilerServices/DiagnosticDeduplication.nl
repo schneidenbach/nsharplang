@@ -333,16 +333,6 @@ func ReferenceDeduplicationKeysEqualCore(
         && keys.Columns[left] == keys.Columns[right]
 }
 
-func SortDiagnosticDeduplicationIndices(
-    resultIndices: int[],
-    count: int,
-    fileRanks: int[],
-    lineNumbers: int[],
-    columns: int[]): void {
-    keys := new ReferenceDeduplicationKeyTable { FileIds: fileRanks, LineNumbers: lineNumbers, Columns: columns }
-    SortDiagnosticDeduplicationIndicesCore(resultIndices, count, ref keys)
-}
-
 func SortDiagnosticDeduplicationIndicesCore(
     resultIndices: int[],
     count: int,

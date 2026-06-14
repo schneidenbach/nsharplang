@@ -12,6 +12,82 @@ struct LexerCommentTable {
     IsMultiLine: int[]
 }
 
+func ScanOperator(source: string, position: int, length: int): int {
+    ch := source[position]
+    if position + 1 >= length {
+        return position + 1
+    }
+
+    next := source[position + 1]
+    if ch == ':' && (next == '=' || next == ':') {
+        return position + 2
+    }
+
+    if ch == '=' && (next == '=' || next == '>') {
+        return position + 2
+    }
+
+    if ch == '!' && next == '=' {
+        return position + 2
+    }
+
+    if ch == '<' && (next == '=' || next == '<') {
+        return position + 2
+    }
+
+    if ch == '>' && (next == '=' || next == '>') {
+        return position + 2
+    }
+
+    if ch == '&' && next == '&' {
+        return position + 2
+    }
+
+    if ch == '|' && next == '|' {
+        return position + 2
+    }
+
+    if ch == '+' && (next == '+' || next == '=') {
+        return position + 2
+    }
+
+    if ch == '-' && (next == '-' || next == '=') {
+        return position + 2
+    }
+
+    if ch == '*' && next == '=' {
+        return position + 2
+    }
+
+    if ch == '/' && next == '=' {
+        return position + 2
+    }
+
+    if ch == '?' {
+        if next == '.' || next == '[' {
+            return position + 2
+        }
+
+        if next == '?' {
+            if position + 2 < length && source[position + 2] == '=' {
+                return position + 3
+            }
+
+            return position + 2
+        }
+    }
+
+    if ch == '.' && next == '.' {
+        if position + 2 < length && source[position + 2] == '.' {
+            return position + 3
+        }
+
+        return position + 2
+    }
+
+    return position + 1
+}
+
 func TokenizeKinds(source: string): int[] {
     tokens := new LexerTokenKindTable { Kinds: new int[](source.Length + 1) }
     count := TokenizeKindsCore(source, ref tokens)
