@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — Fix-edit flattening probe leaves product dogfood
+
+`CliFixEditFlattenIndicesInto`, its table core, and the private flatten table wrappers moved to the
+parity corpus beside `CliFixEditFlattenChecksumInto`. The shipped `nlc fix` path still uses the C#
+`SelectMany(...).ToList()` edit materialization because the N# pressure kernel missed the 5x route
+gate, so the benchmark-only flatten probe no longer ships in the product dogfood assembly.
+
 ## 2026-06-14 — Build-option summary probe leaves product dogfood
 
 `CliBuildOptionSummaryInto`, its table core, and the private option-kind classifier now live in the
