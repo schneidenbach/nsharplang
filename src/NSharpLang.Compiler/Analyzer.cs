@@ -5884,12 +5884,23 @@ public class Analyzer : IDisposable
             ReportInvalidSoaRowIndex(index.Index, indexType, isRangeAccess);
             return BuiltInTypes.Unknown;
         }
+        if (receiverType is SoaRecordTypeInfo
+            && ReportNegativeSoaRowIndexIfNeeded(index.Index, indexType, "table row"))
+        {
+            return BuiltInTypes.Unknown;
+        }
 
         if (isRangeAccess
             && _assignmentTargetExpressionTypes == null
             && IsSoaColumnMemberAccess(index.Object))
         {
             ReportSoaColumnSliceHiddenAllocation(index);
+            return BuiltInTypes.Unknown;
+        }
+        if (!isRangeAccess
+            && IsSoaColumnMemberAccess(index.Object)
+            && ReportNegativeSoaRowIndexIfNeeded(index.Index, indexType, "column row"))
+        {
             return BuiltInTypes.Unknown;
         }
 
@@ -5939,6 +5950,24 @@ public class Analyzer : IDisposable
 
         var resolvedIndexType = ResolveTypeAlias(indexType);
         return BuiltInTypes.IsUnknown(resolvedIndexType) || resolvedIndexType == BuiltInTypes.Int;
+    }
+
+    private bool ReportNegativeSoaRowIndexIfNeeded(Expression expression, TypeInfo indexType, string targetDescription)
+    {
+        if (ResolveTypeAlias(indexType) != BuiltInTypes.Int || !IsConstantNegative(expression))
+        {
+            return false;
+        }
+
+        var (line, column, length) = GetExpressionDiagnosticSpan(expression);
+        Error(
+            ErrorCode.TypeMismatch,
+            $"SoA {targetDescription} indexes must not be negative",
+            line,
+            column,
+            "Use zero or a valid non-negative row id.",
+            length);
+        return true;
     }
 
     private void ReportInvalidSoaRowIndex(Expression expression, TypeInfo indexType, bool isRangeAccess)

@@ -1306,6 +1306,26 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaTableRowIndexCannotBeNegativeLiteral()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable): int {
+                return nodes[-1].kind
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains("SoA table row indexes must not be negative", error.Message);
+        Assert.Contains("non-negative row id", error.Suggestion);
+    }
+
+    [Fact]
     public void Analyzer_SoaTableColumnElementIndexMustBeInt()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
@@ -1324,6 +1344,26 @@ public class SoaRecordTests : ILCompilerTestBase
         Assert.Contains("Array indexes must be int, System.Index, or System.Range", error.Message);
         Assert.Contains("'string'", error.Message);
         Assert.Contains("^n", error.Suggestion);
+    }
+
+    [Fact]
+    public void Analyzer_SoaTableColumnElementIndexCannotBeNegativeLiteral()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable) {
+                nodes.kind[-1] = 1
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains("SoA column row indexes must not be negative", error.Message);
+        Assert.Contains("non-negative row id", error.Suggestion);
     }
 
     [Fact]

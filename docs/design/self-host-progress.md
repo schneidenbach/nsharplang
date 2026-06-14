@@ -11,6 +11,12 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA static negative row indexes fail before emission
+
+SoA row projection now rejects statically negative row ids during analysis for both `table[-1].column`
+and direct `table.column[-1]` element access. Dynamic row ids still use the existing emitted array
+bounds behavior, but known-bad row ids no longer reach IL lowering as raw negative array indexes.
+
 ## 2026-06-14 — Compound assignment validates the operator result before emission
 
 Compound assignment now type-checks as a real read/operate/write operation instead of accepting any
