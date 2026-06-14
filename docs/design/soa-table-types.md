@@ -199,7 +199,9 @@ forms all reject during analysis.
 Direct column range reads (`table.column[start..end]`) are rejected because ordinary array slice
 semantics allocate a sliced array. They can be admitted only after an allocation-free span/view lowering
 has pinned IL-shape evidence. That rejection also applies when the range uses `System.Index`
-from-end bounds, such as `table.column[1..^1]`.
+from-end bounds, such as `table.column[1..^1]`. Slice update forms, including simple assignment,
+compound assignment, null-coalescing assignment, increment, and decrement, all reject during analysis
+for both ordinary and from-end ranges.
 
 ## Diagnostics
 

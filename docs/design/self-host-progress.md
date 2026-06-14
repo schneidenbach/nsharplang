@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA slice mutation diagnostics cover from-end ranges
+
+Column slice update diagnostics now cover decrement and the `System.Index` range variants of
+compound assignment, null-coalescing assignment, increment, and decrement. Unsupported
+`table.column[1..^1]` update forms stop during analysis with the slice diagnostics instead of
+reaching array-slice emission.
+
 ## 2026-06-14 — SoA length/capacity mutation diagnostics are pinned
 
 Generated table metadata members now have a complete direct-mutation regression matrix. `length` and

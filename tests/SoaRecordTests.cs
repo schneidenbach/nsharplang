@@ -2886,6 +2886,26 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaTableColumnFromEndRangeSliceCannotBeCompoundAssigned()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable) {
+                nodes.kind[1..^1] += [1]
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("Array slices cannot be assigned", error.Message);
+        Assert.Contains("Assign individual elements", error.Suggestion);
+    }
+
+    [Fact]
     public void Analyzer_SoaTableColumnSliceCannotBeCompoundAssigned()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
@@ -2926,6 +2946,26 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaTableColumnFromEndRangeSliceCannotBeNullCoalescingAssigned()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable) {
+                nodes.kind[1..^1] ??= [1]
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("Array slices cannot be assigned", error.Message);
+        Assert.Contains("Assign individual elements", error.Suggestion);
+    }
+
+    [Fact]
     public void Analyzer_SoaTableColumnSliceCannotBeIncremented()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
@@ -2937,6 +2977,66 @@ public class SoaRecordTests : ILCompilerTestBase
 
             func bad(nodes: NodeTable) {
                 nodes.kind[0..1]++
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("Array slices cannot be incremented or decremented", error.Message);
+        Assert.Contains("Assign individual elements", error.Suggestion);
+    }
+
+    [Fact]
+    public void Analyzer_SoaTableColumnSliceCannotBeDecremented()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable) {
+                nodes.kind[0..1]--
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("Array slices cannot be incremented or decremented", error.Message);
+        Assert.Contains("Assign individual elements", error.Suggestion);
+    }
+
+    [Fact]
+    public void Analyzer_SoaTableColumnFromEndRangeSliceCannotBeIncremented()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable) {
+                nodes.kind[1..^1]++
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("Array slices cannot be incremented or decremented", error.Message);
+        Assert.Contains("Assign individual elements", error.Suggestion);
+    }
+
+    [Fact]
+    public void Analyzer_SoaTableColumnFromEndRangeSliceCannotBeDecremented()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable) {
+                nodes.kind[1..^1]--
             }
             """);
 
@@ -3396,6 +3496,26 @@ public class SoaRecordTests : ILCompilerTestBase
 
             func bad(nodes: NodeTable) {
                 nodes.kind++
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("SoA table member 'kind' cannot be incremented or decremented directly", error.Message);
+        Assert.Contains("table[index].column", error.Suggestion);
+    }
+
+    [Fact]
+    public void Analyzer_SoaTableColumnArrayCannotBeDecrementedDirectly()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable) {
+                nodes.kind--
             }
             """);
 
