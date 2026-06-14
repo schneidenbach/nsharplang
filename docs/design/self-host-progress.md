@@ -24,9 +24,9 @@ stays complete without reintroducing a shipped product resource.
 
 Target-typed `new()` is now pinned as an analyzer error for SoA table wrappers in typed locals,
 returns, call arguments, fields, object initializer members, assignments, array literals, and array
-initializers. Even with an expected `NodeTable` type, construction must spell a non-negative capacity
-with `new NodeTable(capacity)` or use `NodeTable.wrap(...)`; zero-argument target-typed construction
-does not reach IL lowering.
+initializers, and tuple literal elements. Even with an expected `NodeTable` type, construction must
+spell a non-negative capacity with `new NodeTable(capacity)` or use `NodeTable.wrap(...)`;
+zero-argument target-typed construction does not reach IL lowering.
 
 ## 2026-06-14 — SoA row pseudo-types stay internal
 
@@ -47,8 +47,8 @@ path.
 Target-typed `default` is now rejected for experimental SoA table wrappers during analysis. A default
 CLR value would bypass `new Table(capacity)`/`Table.wrap(...)` and leave backing column arrays null, so
 typed locals, returns, call arguments, fields, object initializer members, assignments, array
-literals, and array initializers now report a direct SoA construction diagnostic before IL lowering
-can emit an invalid wrapper value.
+literals, array initializers, and tuple literal elements now report a direct SoA construction
+diagnostic before IL lowering can emit an invalid wrapper value.
 
 ## 2026-06-14 — SoA unsupported-declaration gates stop column-type cascades
 

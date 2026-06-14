@@ -12246,14 +12246,51 @@ public class Analyzer : IDisposable
     {
         var elements = new List<(string? Name, TypeInfo Type)>(tuple.Elements.Count);
 
-        foreach (var element in tuple.Elements)
+        for (var i = 0; i < tuple.Elements.Count; i++)
         {
+            var element = tuple.Elements[i];
+            var expectedElementType = GetExpectedTupleElementType(tuple, i);
+            var previousExpectedType = _currentExpectedType;
+            if (expectedElementType != null)
+            {
+                _currentExpectedType = expectedElementType;
+            }
+
             var elementType = AnalyzeExpression(element.Value);
+            _currentExpectedType = previousExpectedType;
             ReportSoaRowEscapeIfNeeded(element.Value, elementType, "stored in a tuple");
             elements.Add((element.Name, elementType));
         }
 
         return new TupleTypeInfo(elements);
+    }
+
+    private TypeInfo? GetExpectedTupleElementType(TupleExpression tuple, int elementIndex)
+    {
+        if (_currentExpectedType == null)
+        {
+            return null;
+        }
+
+        if (ResolveTypeAlias(_currentExpectedType) is not TupleTypeInfo expectedTuple
+            || elementIndex >= expectedTuple.Elements.Count)
+        {
+            return null;
+        }
+
+        var element = tuple.Elements[elementIndex];
+        if (element.Name != null)
+        {
+            foreach (var expectedElement in expectedTuple.Elements)
+            {
+                if (expectedElement.Name == element.Name)
+                {
+                    return expectedElement.Type;
+                }
+            }
+        }
+
+        return expectedTuple.Elements[elementIndex].Type;
     }
 
     private TypeInfo? GetExpectedArrayElementType(TypeInfo? expectedType)
