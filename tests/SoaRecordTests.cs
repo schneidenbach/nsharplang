@@ -1488,6 +1488,75 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void ILCompiler_SoaRecordWrapNullColumn_ReportsNullColumnMessage()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var source = """
+            soa record NodeTable {
+                kind: int
+                start: int
+            }
+
+            func main(): int {
+                kinds: int[] = null
+                starts := new int[](2)
+                nodes := NodeTable.wrap(kinds, starts, 1)
+                return nodes.length
+            }
+            """;
+
+        var error = Assert.Throws<ArgumentException>(() => CompileAndInvoke(source));
+        Assert.Equal("columns for NodeTable.wrap cannot be null", error.Message);
+    }
+
+    [Fact]
+    public void ILCompiler_SoaRecordWrapNegativeLength_ReportsLengthMessage()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var source = """
+            soa record NodeTable {
+                kind: int
+                start: int
+            }
+
+            func main(): int {
+                kinds := new int[](2)
+                starts := new int[](2)
+                nodes := NodeTable.wrap(kinds, starts, -1)
+                return nodes.length
+            }
+            """;
+
+        var error = Assert.Throws<ArgumentException>(() => CompileAndInvoke(source));
+        Assert.Equal("length for NodeTable.wrap must be between 0 and column length", error.Message);
+    }
+
+    [Fact]
+    public void ILCompiler_SoaRecordWrapLengthBeyondCapacity_ReportsLengthMessage()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var source = """
+            soa record NodeTable {
+                kind: int
+                start: int
+            }
+
+            func main(): int {
+                kinds := new int[](2)
+                starts := new int[](2)
+                nodes := NodeTable.wrap(kinds, starts, 3)
+                return nodes.length
+            }
+            """;
+
+        var error = Assert.Throws<ArgumentException>(() => CompileAndInvoke(source));
+        Assert.Equal("length for NodeTable.wrap must be between 0 and column length", error.Message);
+    }
+
+    [Fact]
     public void ILCompiler_SoaRecordCopyRowAndClear_UpdateLengthWithoutRowObjects()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

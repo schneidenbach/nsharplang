@@ -163,6 +163,8 @@ The compiler must produce direct diagnostics for common misuse:
   initializers, invalid member/index receivers, index values, pattern values, `with` targets/values,
   and event subscription handles);
 - mismatched `wrap` columns: "column lengths for NodeTable do not match";
+- null `wrap` columns: "columns for NodeTable.wrap cannot be null";
+- invalid `wrap` length: "length for NodeTable.wrap must be between 0 and column length";
 - unsupported element type: "SoA column type X is not supported in this lowering";
 - hidden allocation request: "this operation would allocate row objects; use column access instead".
 

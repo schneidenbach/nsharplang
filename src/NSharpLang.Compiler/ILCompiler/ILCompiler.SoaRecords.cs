@@ -166,7 +166,8 @@ public partial class ILCompiler
         var il = method.GetILGenerator();
         var resultLocal = il.DeclareLocal(info.Builder);
         var capacityLocal = il.DeclareLocal(typeof(int));
-        var failLabel = il.DefineLabel();
+        var invalidLengthLabel = il.DefineLabel();
+        var nullColumnLabel = il.DefineLabel();
         var mismatchLabel = il.DefineLabel();
         var afterCapacityLabel = il.DefineLabel();
 
@@ -176,7 +177,7 @@ public partial class ILCompiler
         var lengthArg = info.Declaration.Columns.Count;
         il.Emit(OpCodes.Ldarg, lengthArg);
         il.Emit(OpCodes.Ldc_I4_0);
-        il.Emit(OpCodes.Blt, failLabel);
+        il.Emit(OpCodes.Blt, invalidLengthLabel);
 
         if (info.Declaration.Columns.Count == 0)
         {
@@ -186,7 +187,7 @@ public partial class ILCompiler
         else
         {
             il.Emit(OpCodes.Ldarg_0);
-            il.Emit(OpCodes.Brfalse, failLabel);
+            il.Emit(OpCodes.Brfalse, nullColumnLabel);
             il.Emit(OpCodes.Ldarg_0);
             il.Emit(OpCodes.Ldlen);
             il.Emit(OpCodes.Conv_I4);
@@ -195,7 +196,7 @@ public partial class ILCompiler
             for (var i = 1; i < info.Declaration.Columns.Count; i++)
             {
                 il.Emit(OpCodes.Ldarg, i);
-                il.Emit(OpCodes.Brfalse, failLabel);
+                il.Emit(OpCodes.Brfalse, nullColumnLabel);
                 il.Emit(OpCodes.Ldarg, i);
                 il.Emit(OpCodes.Ldlen);
                 il.Emit(OpCodes.Conv_I4);
@@ -207,7 +208,7 @@ public partial class ILCompiler
         il.Emit(OpCodes.Ldarg, lengthArg);
         il.Emit(OpCodes.Ldloc, capacityLocal);
         il.Emit(OpCodes.Ble, afterCapacityLabel);
-        il.Emit(OpCodes.Br, failLabel);
+        il.Emit(OpCodes.Br, invalidLengthLabel);
         il.MarkLabel(afterCapacityLabel);
 
         for (var i = 0; i < info.Declaration.Columns.Count; i++)
@@ -231,8 +232,13 @@ public partial class ILCompiler
 
         var argumentExceptionConstructor = typeof(ArgumentException).GetConstructor(new[] { typeof(string) })!;
 
-        il.MarkLabel(failLabel);
-        il.Emit(OpCodes.Ldstr, $"Invalid columns passed to {info.Declaration.Name}.wrap");
+        il.MarkLabel(nullColumnLabel);
+        il.Emit(OpCodes.Ldstr, $"columns for {info.Declaration.Name}.wrap cannot be null");
+        il.Emit(OpCodes.Newobj, argumentExceptionConstructor);
+        il.Emit(OpCodes.Throw);
+
+        il.MarkLabel(invalidLengthLabel);
+        il.Emit(OpCodes.Ldstr, $"length for {info.Declaration.Name}.wrap must be between 0 and column length");
         il.Emit(OpCodes.Newobj, argumentExceptionConstructor);
         il.Emit(OpCodes.Throw);
 

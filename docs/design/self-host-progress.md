@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA wrap validation reports null and length failures directly
+
+The generated experimental `Table.wrap(columns..., length)` method now separates all validation
+branches. Null column arrays report `columns for TableName.wrap cannot be null`, active lengths below
+zero or beyond column capacity report `length for TableName.wrap must be between 0 and column length`,
+and mismatched column lengths keep the existing table-specific mismatch diagnostic.
+
 ## 2026-06-14 — SoA verified column types have runtime and IL proof
 
 The experimental SoA wrapper proof now exercises every currently accepted column element kind:
