@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA wrap length mismatch reports a direct table diagnostic
+
+The generated experimental `Table.wrap(columns..., length)` method now distinguishes mismatched
+column-array lengths from other invalid arguments. Mismatched arrays throw
+`column lengths for TableName do not match`, matching the SoA design requirement while preserving the
+zero-copy reference-store lowering for valid wraps.
+
 ## 2026-06-14 — SoA unsupported column diagnostics are enforced
 
 The experimental `soa record` analyzer now rejects column element types outside the verified wrapper

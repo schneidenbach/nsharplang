@@ -1419,6 +1419,29 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void ILCompiler_SoaRecordWrapMismatchedColumns_ReportsColumnLengthMessage()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var source = """
+            soa record NodeTable {
+                kind: int
+                start: int
+            }
+
+            func main(): int {
+                kinds := new int[](2)
+                starts := new int[](3)
+                nodes := NodeTable.wrap(kinds, starts, 1)
+                return nodes.length
+            }
+            """;
+
+        var error = Assert.Throws<ArgumentException>(() => CompileAndInvoke(source));
+        Assert.Equal("column lengths for NodeTable do not match", error.Message);
+    }
+
+    [Fact]
     public void ILCompiler_SoaRecordCopyRowAndClear_UpdateLengthWithoutRowObjects()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

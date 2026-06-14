@@ -167,6 +167,7 @@ public partial class ILCompiler
         var resultLocal = il.DeclareLocal(info.Builder);
         var capacityLocal = il.DeclareLocal(typeof(int));
         var failLabel = il.DefineLabel();
+        var mismatchLabel = il.DefineLabel();
         var afterCapacityLabel = il.DefineLabel();
 
         il.Emit(OpCodes.Ldloca_S, resultLocal);
@@ -199,7 +200,7 @@ public partial class ILCompiler
                 il.Emit(OpCodes.Ldlen);
                 il.Emit(OpCodes.Conv_I4);
                 il.Emit(OpCodes.Ldloc, capacityLocal);
-                il.Emit(OpCodes.Bne_Un, failLabel);
+                il.Emit(OpCodes.Bne_Un, mismatchLabel);
             }
         }
 
@@ -228,9 +229,16 @@ public partial class ILCompiler
         il.Emit(OpCodes.Ldloc, resultLocal);
         il.Emit(OpCodes.Ret);
 
+        var argumentExceptionConstructor = typeof(ArgumentException).GetConstructor(new[] { typeof(string) })!;
+
         il.MarkLabel(failLabel);
         il.Emit(OpCodes.Ldstr, $"Invalid columns passed to {info.Declaration.Name}.wrap");
-        il.Emit(OpCodes.Newobj, typeof(ArgumentException).GetConstructor(new[] { typeof(string) })!);
+        il.Emit(OpCodes.Newobj, argumentExceptionConstructor);
+        il.Emit(OpCodes.Throw);
+
+        il.MarkLabel(mismatchLabel);
+        il.Emit(OpCodes.Ldstr, $"column lengths for {info.Declaration.Name} do not match");
+        il.Emit(OpCodes.Newobj, argumentExceptionConstructor);
         il.Emit(OpCodes.Throw);
     }
 
