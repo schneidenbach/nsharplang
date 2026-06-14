@@ -272,6 +272,47 @@ func test() {
     }
 
     [Fact]
+    public void Analyzer_BaseExpression_RecordsBaseType()
+    {
+        var source = @"
+class Base {
+    func value(): int {
+        return 1
+    }
+}
+
+class Derived: Base {
+    constructor(): base() {
+    }
+
+    func selfAsBase(): Base {
+        return base
+    }
+
+    func baseValue(): int {
+        return base.value()
+    }
+}";
+
+        var result = Analyze(source);
+
+        Assert.False(result.HasErrors,
+            result.Errors.Count > 0
+                ? $"Expected no errors but got: {string.Join(", ", result.Errors.Select(e => e.Message))}"
+                : "");
+
+        var bareBaseColumn = FindColumn(source, 13, "base");
+        var bareBaseType = result.SemanticModel.LookupTypeAtPosition(13, bareBaseColumn);
+        Assert.NotNull(bareBaseType);
+        Assert.Equal("Base", bareBaseType!.ToString());
+
+        var receiverBaseColumn = FindColumn(source, 17, "base");
+        var receiverBaseType = result.SemanticModel.LookupTypeAtPosition(17, receiverBaseColumn);
+        Assert.NotNull(receiverBaseType);
+        Assert.Equal("Base", receiverBaseType!.ToString());
+    }
+
+    [Fact]
     public void Analyzer_ClassFields_RecordedInSemanticModelTypeMembers()
     {
         var source = @"

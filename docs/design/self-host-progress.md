@@ -11,6 +11,12 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — Analyzer records `base` expressions as their base type
+
+Bare `base` expressions and `base.member` receivers now get the same semantic type the IL backend already
+uses when emitting them: the declared base class when one exists, otherwise `object` for the implicit CLR base.
+This keeps semantic-model queries from reporting `unknown` for a parser/compiler-supported expression form.
+
 ## 2026-06-14 — Analyzer records `sizeof` as an `int` expression
 
 `sizeof(T)` now participates in semantic analysis instead of falling through to `unknown`. The analyzer

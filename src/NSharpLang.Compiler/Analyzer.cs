@@ -4466,6 +4466,7 @@ public class Analyzer : IDisposable
             AwaitExpression await => AnalyzeAwaitExpression(await),
             ThrowExpression throwExpr => AnalyzeThrowExpression(throwExpr),
             ThisExpression => GetCurrentTypeScope() ?? BuiltInTypes.Unknown,
+            BaseExpression => AnalyzeBaseExpression(),
             MatchExpression match => AnalyzeMatchExpression(match),
             TypeOfExpression typeofExpr => AnalyzeTypeofExpression(typeofExpr),
             NameofExpression nameofExpr => AnalyzeNameofExpression(nameofExpr),
@@ -13401,6 +13402,16 @@ public class Analyzer : IDisposable
                 return type;
         }
         return null;
+    }
+
+    private TypeInfo AnalyzeBaseExpression()
+    {
+        var currentType = GetCurrentTypeScope();
+        return currentType switch
+        {
+            ClassTypeInfo classType when classType.Declaration.BaseClass != null => ResolveType(classType.Declaration.BaseClass),
+            _ => currentType != null ? BuiltInTypes.Object : BuiltInTypes.Unknown
+        };
     }
 
     // Convention-based visibility checking
