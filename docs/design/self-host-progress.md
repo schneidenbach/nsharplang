@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA row projection and copy-row IL shape is pinned
+
+The experimental SoA wrapper tests now inspect emitted opcodes for row-column helper code and the
+generated `copyRow` method. Both proofs require direct field plus array element traffic and reject row
+object construction, inline array allocation, boxing, delegate construction, and virtual dispatch in the
+accepted row/table operation paths, while preserving the explicit `ensureCapacity` call inside `copyRow`.
+
 ## 2026-06-14 — Synthetic function signatures validate generated SoA calls
 
 Declaration-less function signatures now enforce argument count and assignability during analysis instead

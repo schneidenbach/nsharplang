@@ -1,5 +1,7 @@
 using System;
 using System.Linq;
+using System.Reflection;
+using System.Reflection.Emit;
 using NSharpLang.Compiler;
 using NSharpLang.Compiler.Ast;
 using Xunit;
@@ -1904,6 +1906,50 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void ILCompiler_SoaRecordRowProjection_UsesColumnElementILShape()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var source = """
+            soa record NodeTable {
+                kind: int
+                start: int
+            }
+
+            func rowOps(nodes: NodeTable, row: int): int {
+                nodes[row].kind = 10
+                nodes[row].start = nodes[row].kind + 2
+                nodes[row].kind += nodes[row].start
+                return nodes[row].kind + nodes[row].start
+            }
+
+            func main(): int {
+                nodes := new NodeTable(1)
+                row := nodes.add()
+                return rowOps(nodes, row)
+            }
+            """;
+
+        var opCodes = CompileAndInspect(source, assembly =>
+        {
+            var rowOps = assembly.GetType("Program")!.GetMethod(
+                "rowOps",
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(rowOps);
+            return GetMethodOpCodes(rowOps!);
+        });
+
+        Assert.Contains(OpCodes.Ldfld, opCodes);
+        Assert.Contains(opCodes, IsArrayElementLoad);
+        Assert.Contains(opCodes, IsArrayElementStore);
+        Assert.DoesNotContain(OpCodes.Newobj, opCodes);
+        Assert.DoesNotContain(OpCodes.Newarr, opCodes);
+        Assert.DoesNotContain(OpCodes.Box, opCodes);
+        Assert.DoesNotContain(OpCodes.Ldftn, opCodes);
+        Assert.DoesNotContain(OpCodes.Callvirt, opCodes);
+    }
+
+    [Fact]
     public void ILCompiler_SoaRecordVerifiedColumnTypes_LoadStoreRoundTrip()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
@@ -2094,6 +2140,47 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void ILCompiler_SoaRecordCopyRow_UsesColumnElementILShape()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var source = """
+            soa record NodeTable {
+                kind: int
+                start: int
+            }
+
+            func main(): int {
+                nodes := new NodeTable(1)
+                row := nodes.add()
+                nodes[row].kind = 5
+                nodes[row].start = 7
+                nodes.copyRow(0, 1)
+                return nodes[1].kind + nodes[1].start
+            }
+            """;
+
+        var opCodes = CompileAndInspect(source, assembly =>
+        {
+            var copyRow = assembly.GetType("NodeTable")!.GetMethod(
+                "copyRow",
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+            Assert.NotNull(copyRow);
+            return GetMethodOpCodes(copyRow!);
+        });
+
+        Assert.Contains(OpCodes.Ldfld, opCodes);
+        Assert.Contains(opCodes, IsArrayElementLoad);
+        Assert.Contains(opCodes, IsArrayElementStore);
+        Assert.Contains(OpCodes.Call, opCodes); // ensureCapacity
+        Assert.DoesNotContain(OpCodes.Newobj, opCodes);
+        Assert.DoesNotContain(OpCodes.Newarr, opCodes);
+        Assert.DoesNotContain(OpCodes.Box, opCodes);
+        Assert.DoesNotContain(OpCodes.Ldftn, opCodes);
+        Assert.DoesNotContain(OpCodes.Callvirt, opCodes);
+    }
+
+    [Fact]
     public void ILCompiler_SoaRecordNullCoalesceAssignOnRowColumn_StoresOnlyWhenNull()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
@@ -2236,6 +2323,31 @@ public class SoaRecordTests : ILCompilerTestBase
             IsNullConditional: false,
             Line: 1,
             Column: 1);
+
+    private static bool IsArrayElementLoad(OpCode opCode)
+        => opCode == OpCodes.Ldelem
+           || opCode == OpCodes.Ldelem_I
+           || opCode == OpCodes.Ldelem_I1
+           || opCode == OpCodes.Ldelem_I2
+           || opCode == OpCodes.Ldelem_I4
+           || opCode == OpCodes.Ldelem_I8
+           || opCode == OpCodes.Ldelem_R4
+           || opCode == OpCodes.Ldelem_R8
+           || opCode == OpCodes.Ldelem_Ref
+           || opCode == OpCodes.Ldelem_U1
+           || opCode == OpCodes.Ldelem_U2
+           || opCode == OpCodes.Ldelem_U4;
+
+    private static bool IsArrayElementStore(OpCode opCode)
+        => opCode == OpCodes.Stelem
+           || opCode == OpCodes.Stelem_I
+           || opCode == OpCodes.Stelem_I1
+           || opCode == OpCodes.Stelem_I2
+           || opCode == OpCodes.Stelem_I4
+           || opCode == OpCodes.Stelem_I8
+           || opCode == OpCodes.Stelem_R4
+           || opCode == OpCodes.Stelem_R8
+           || opCode == OpCodes.Stelem_Ref;
 
     private static IDisposable SetEnvironmentVariable(string name, string? value)
     {
