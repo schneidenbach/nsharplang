@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — Synthetic function signatures validate generated SoA calls
+
+Declaration-less function signatures now enforce argument count and assignability during analysis instead
+of only flowing expected types into arguments. This closes generated SoA operation calls such as
+`table.add(1)`, `table.ensureCapacity("4")`, and `table.copyRow(0)` before they reach IL emission, while
+leaving valid `add`, `clear`, `ensureCapacity(int)`, and `copyRow(int, int)` calls unchanged.
+
 ## 2026-06-14 — SoA capacity constructors validate before wrapper lowering
 
 Experimental SoA construction now validates the only supported wrapper constructor shape during

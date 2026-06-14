@@ -1798,6 +1798,85 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaTableAddRejectsArguments()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable) {
+                row := nodes.add(1)
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.WrongArgumentCount);
+        Assert.Contains("'add' takes 0 argument(s), but you passed 1", error.Message);
+        Assert.Contains("argument count", error.Suggestion);
+    }
+
+    [Fact]
+    public void Analyzer_SoaTableEnsureCapacityRequiresInt()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable) {
+                nodes.ensureCapacity("4")
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains("Argument 1 to 'ensureCapacity' is 'string'", error.Message);
+        Assert.Contains("expects 'int'", error.Message);
+    }
+
+    [Fact]
+    public void Analyzer_SoaTableCopyRowRequiresTwoArguments()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable) {
+                nodes.copyRow(0)
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.WrongArgumentCount);
+        Assert.Contains("'copyRow' takes 2 argument(s), but you passed 1", error.Message);
+    }
+
+    [Fact]
+    public void Analyzer_SoaTableCopyRowRequiresIntArguments()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable) {
+                nodes.copyRow(0, "1")
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains("Argument 2 to 'copyRow' is 'string'", error.Message);
+        Assert.Contains("expects 'int'", error.Message);
+    }
+
+    [Fact]
     public void ILCompiler_SoaRecordNewAddAndRowProjection_LowersToColumns()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

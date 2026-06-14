@@ -8379,6 +8379,10 @@ public class Analyzer : IDisposable
                     return ApplyNSharpGenericBindings(returnType, genericBindingsForReturn);
                 }
             }
+            else if (funcType.ParameterTypes != null)
+            {
+                ValidateSyntheticFunctionCall(funcType, call, argTypes);
+            }
             return funcType.ReturnType ?? BuiltInTypes.Void;
         }
 
@@ -8445,6 +8449,49 @@ public class Analyzer : IDisposable
         }
 
         return BuiltInTypes.Unknown;
+    }
+
+    private void ValidateSyntheticFunctionCall(FunctionTypeInfo functionType, CallExpression call, IReadOnlyList<TypeInfo> argTypes)
+    {
+        if (functionType.ParameterTypes == null)
+            return;
+
+        var functionName = GetCallTargetName(call) ?? "function";
+        var expectedCount = functionType.ParameterTypes.Count;
+        if (argTypes.Count != expectedCount)
+        {
+            var (line, column, length) = GetCallDiagnosticSpan(call, functionName);
+            Error(
+                ErrorCode.WrongArgumentCount,
+                $"'{functionName}' takes {expectedCount} argument(s), but you passed {argTypes.Count}",
+                line,
+                column,
+                "Check the argument count against the function signature.",
+                length);
+            return;
+        }
+
+        for (var i = 0; i < expectedCount; i++)
+        {
+            var expectedType = ResolveTypeAlias(functionType.ParameterTypes[i]);
+            var argType = ResolveTypeAlias(argTypes[i]);
+            if (BuiltInTypes.IsUnknown(expectedType)
+                || BuiltInTypes.IsUnknown(argType)
+                || argType is SoaRowTypeInfo
+                || IsAssignable(expectedType, argType))
+            {
+                continue;
+            }
+
+            var (line, column, length) = GetExpressionDiagnosticSpan(call.Arguments[i].Value);
+            Error(
+                ErrorCode.TypeMismatch,
+                $"Argument {i + 1} to '{functionName}' is '{argType}', but this parameter expects '{expectedType}'",
+                line,
+                column,
+                "Pass a value with the expected type, or update the function signature.",
+                length);
+        }
     }
 
     private TypeInfo AnalyzeCallCallee(Expression callee)
