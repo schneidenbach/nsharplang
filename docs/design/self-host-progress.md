@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA negative-zero literals stay valid
+
+Analyzer-known negative checks now use parsed integer magnitude instead of raw literal text. SoA row
+indexes and table capacities still reject real negative literals before emission, while zero-shaped
+literals such as `-0x0` and `-00` remain valid zero values and do not fall into the negative-diagnostic
+path.
+
 ## 2026-06-14 — SoA table defaults fail before emission
 
 Target-typed `default` is now rejected for experimental SoA table wrappers during analysis. A default

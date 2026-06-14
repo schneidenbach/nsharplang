@@ -1504,6 +1504,28 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaTableNegativeZeroIndexesAreAllowed()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable): int {
+                nodes[-0x0].kind = 1
+                nodes.kind[-00] = 2
+                return nodes[0].kind
+            }
+            """);
+
+        Assert.False(
+            result.HasErrors,
+            $"Expected no errors but got: {string.Join(", ", result.Errors.Select(e => $"{e.DiagnosticId}:{e.Message}"))}");
+    }
+
+    [Fact]
     public void Analyzer_SoaTableColumnSliceCannotBeAssigned()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
@@ -2179,6 +2201,27 @@ public class SoaRecordTests : ILCompilerTestBase
         var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
         Assert.Contains("SoA table capacity must not be negative", error.Message);
         Assert.Contains("zero or a positive capacity", error.Suggestion);
+    }
+
+    [Fact]
+    public void Analyzer_SoaTableCapacityConstructorAllowsNegativeZeroLiteral()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(): int {
+                nodes := new NodeTable(-0x0)
+                return nodes.capacity
+            }
+            """);
+
+        Assert.False(
+            result.HasErrors,
+            $"Expected no errors but got: {string.Join(", ", result.Errors.Select(e => $"{e.DiagnosticId}:{e.Message}"))}");
     }
 
     [Fact]

@@ -12806,7 +12806,9 @@ public class Analyzer : IDisposable
         {
             Operator: UnaryOperator.Negate,
             Operand: IntLiteralExpression literal
-        } && literal.Value != "0";
+        }
+            && NumericLiteralFacts.TryParseUnsignedIntegerMagnitude(literal.Value, out var magnitude)
+            && magnitude != 0;
     }
 
     /// <summary>
