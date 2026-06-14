@@ -4448,6 +4448,81 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaRecordEnumRowColumnCompoundAssignment_IsRejected()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            enum NodeKind {
+                Unknown,
+                Identifier
+            }
+
+            soa record NodeTable {
+                kind: NodeKind
+            }
+
+            func bad(nodes: NodeTable, row: int) {
+                nodes[row].kind += NodeKind.Identifier
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains("'+' operator doesn't work with 'NodeKind' and 'NodeKind'", error.Message);
+        Assert.Contains("numeric values", error.Message);
+    }
+
+    [Fact]
+    public void Analyzer_SoaRecordEnumDirectColumnCompoundAssignment_IsRejected()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            enum NodeKind {
+                Unknown,
+                Identifier
+            }
+
+            soa record NodeTable {
+                kind: NodeKind
+            }
+
+            func bad(nodes: NodeTable, row: int) {
+                nodes.kind[row] += NodeKind.Identifier
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains("'+' operator doesn't work with 'NodeKind' and 'NodeKind'", error.Message);
+        Assert.Contains("numeric values", error.Message);
+    }
+
+    [Fact]
+    public void Analyzer_SoaRecordEnumFromEndDirectColumnCompoundAssignment_IsRejected()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            enum NodeKind {
+                Unknown,
+                Identifier
+            }
+
+            soa record NodeTable {
+                kind: NodeKind
+            }
+
+            func bad(nodes: NodeTable) {
+                nodes.kind[^1] += NodeKind.Identifier
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains("'+' operator doesn't work with 'NodeKind' and 'NodeKind'", error.Message);
+        Assert.Contains("numeric values", error.Message);
+    }
+
+    [Fact]
     public void ILCompiler_SoaRecordGeneratedOperationsBindNamedArguments()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

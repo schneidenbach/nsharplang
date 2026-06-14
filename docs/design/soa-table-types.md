@@ -179,10 +179,12 @@ Row-column access supports direct reads, simple stores, expression-valued stores
 null-coalescing reads and assignment, compound assignment, and increment/decrement for integral
 column element types. These accepted operations lower to the backing column arrays without row-object
 materialization; non-integral columns such as `string` still support reads/stores/null coalescing but
-reject `++`/`--` during analysis. Compound assignment must type-check through the underlying operator
-and produce a result assignable back to the column, so boolean columns reject `+=`, `-=`, `*=`, and `/=`
-before lowering. Direct column-element access through `table.column[row]` follows the same update
-typing rules and is also
+reject `++`/`--` during analysis. Int-backed enum columns support the enum language's prefix/postfix
+increment and decrement forms, but arithmetic compound assignment is not part of the enum column
+proof. Compound assignment must type-check through the underlying operator and produce a result
+assignable back to the column, so boolean and enum columns reject `+=`, `-=`, `*=`, and `/=` before
+lowering. Direct column-element access through `table.column[row]` follows the same update typing
+rules and is also
 permitted for explicit systems kernels when the index shape is one the built-in array path supports.
 Direct column elements support the same scalar update shapes as row projection: expression-valued
 stores and compound assignments return the stored value, prefix/postfix increments preserve their
@@ -243,7 +245,8 @@ The compiler must produce direct diagnostics for common misuse:
   target rows too large to extend throw "target row for NodeTable.copyRow is too large";
 - unsupported element type, including arrays, nullable non-string columns, string-enum columns, and
   nested SoA-table columns: "SoA column type X is not supported in this lowering";
-- unsupported row/direct column compound assignment: "The '+' operator doesn't work with 'X' and 'Y'";
+- unsupported row/direct column compound assignment, including enum arithmetic compound assignment:
+  "The '+' operator doesn't work with 'X' and 'Y'";
 - non-integral row/direct column increment/decrement: "The '++' operator doesn't work with 'X'";
 - non-nullable row/direct column null coalescing: "The left side of '??' has type 'X', which can't be null";
 - non-int, `System.Index`, or range row indexes: "SoA table indexes must be int row ids";

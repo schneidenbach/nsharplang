@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA enum compound assignments stop before emission
+
+Int-backed enum SoA columns now have analyzer pins for unsupported arithmetic compound assignment
+across row projection, direct column indexing, and direct from-end column indexing. Enum columns stay
+eligible for reads, stores, defaults, and prefix/postfix updates, but `+=` over enum values reports
+the source arithmetic diagnostic instead of reaching SoA assignment lowering.
+
 ## 2026-06-14 — SoA enum default stores avoid old reads
 
 Int-backed enum SoA columns now have opcode evidence for expression-valued default stores across row
