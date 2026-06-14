@@ -182,7 +182,8 @@ The compiler must produce direct diagnostics for common misuse:
 - invalid `wrap` length: "length for NodeTable.wrap must be between 0 and column length";
 - invalid `new` capacity: "SoA table capacity must be int" or "SoA table capacity must not be negative";
 - invalid generated operation calls: "`add`, `clear`, `ensureCapacity`, and `copyRow` must be called with
-  their declared argument counts and types";
+  their declared argument counts and types, and literal `ensureCapacity`/`copyRow` capacity or row
+  arguments must be non-negative";
 - unsupported element type: "SoA column type X is not supported in this lowering";
 - non-nullable row-column null coalescing: "The left side of '??' has type 'X', which can't be null";
 - non-int or range row indexes: "SoA table indexes must be int row ids";

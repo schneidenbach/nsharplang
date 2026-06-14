@@ -6735,10 +6735,10 @@ public class Analyzer : IDisposable
                 return memberName switch
                 {
                     "length" or "capacity" => BuiltInTypes.Int,
-                    "add" => CreateSoaIntrinsicFunction(BuiltInTypes.Int),
-                    "clear" => CreateSoaIntrinsicFunction(BuiltInTypes.Void),
-                    "ensureCapacity" => CreateSoaIntrinsicFunction(BuiltInTypes.Void, BuiltInTypes.Int),
-                    "copyRow" => CreateSoaIntrinsicFunction(BuiltInTypes.Void, BuiltInTypes.Int, BuiltInTypes.Int),
+                    "add" => CreateSoaIntrinsicFunction("add", BuiltInTypes.Int),
+                    "clear" => CreateSoaIntrinsicFunction("clear", BuiltInTypes.Void),
+                    "ensureCapacity" => CreateSoaIntrinsicFunction("ensureCapacity", BuiltInTypes.Void, BuiltInTypes.Int),
+                    "copyRow" => CreateSoaIntrinsicFunction("copyRow", BuiltInTypes.Void, BuiltInTypes.Int, BuiltInTypes.Int),
                     _ => BuiltInTypes.Unknown
                 };
             }
@@ -6751,6 +6751,7 @@ public class Analyzer : IDisposable
                     .ToList();
                 return new FunctionTypeInfo(null)
                 {
+                    SyntheticName = "wrap",
                     ParameterTypes = parameterTypes,
                     ReturnType = soaRecordType
                 };
@@ -7008,10 +7009,11 @@ public class Analyzer : IDisposable
     private static SoaColumnDeclaration? TryGetSoaColumn(SoaRecordDeclaration declaration, string name)
         => declaration.Columns.FirstOrDefault(column => column.Name == name);
 
-    private static FunctionTypeInfo CreateSoaIntrinsicFunction(TypeInfo returnType, params TypeInfo[] parameterTypes)
+    private static FunctionTypeInfo CreateSoaIntrinsicFunction(string syntheticName, TypeInfo returnType, params TypeInfo[] parameterTypes)
     {
         return new FunctionTypeInfo(null)
         {
+            SyntheticName = syntheticName,
             ParameterTypes = parameterTypes.ToList(),
             ReturnType = returnType
         };
@@ -8456,7 +8458,7 @@ public class Analyzer : IDisposable
         if (functionType.ParameterTypes == null)
             return;
 
-        var functionName = GetCallTargetName(call) ?? "function";
+        var functionName = functionType.SyntheticName ?? GetCallTargetName(call) ?? "function";
         var expectedCount = functionType.ParameterTypes.Count;
         if (argTypes.Count != expectedCount)
         {
@@ -8492,6 +8494,73 @@ public class Analyzer : IDisposable
                 "Pass a value with the expected type, or update the function signature.",
                 length);
         }
+
+        ValidateSoaSyntheticFunctionCall(functionType, functionName, call, argTypes);
+    }
+
+    private void ValidateSoaSyntheticFunctionCall(
+        FunctionTypeInfo functionType,
+        string functionName,
+        CallExpression call,
+        IReadOnlyList<TypeInfo> argTypes)
+    {
+        switch (functionType.SyntheticName)
+        {
+            case "ensureCapacity":
+                ValidateSyntheticNonNegativeIntArgument(
+                    functionName,
+                    call,
+                    argTypes,
+                    argumentIndex: 0,
+                    "SoA table capacity must not be negative",
+                    "Use zero or a positive capacity; the table can grow later with add or ensureCapacity.");
+                break;
+
+            case "copyRow":
+                ValidateSyntheticNonNegativeIntArgument(
+                    functionName,
+                    call,
+                    argTypes,
+                    argumentIndex: 0,
+                    "SoA table source row id must not be negative",
+                    "Use zero or a valid non-negative source row id.");
+                ValidateSyntheticNonNegativeIntArgument(
+                    functionName,
+                    call,
+                    argTypes,
+                    argumentIndex: 1,
+                    "SoA table target row id must not be negative",
+                    "Use zero or a valid non-negative target row id.");
+                break;
+        }
+    }
+
+    private void ValidateSyntheticNonNegativeIntArgument(
+        string functionName,
+        CallExpression call,
+        IReadOnlyList<TypeInfo> argTypes,
+        int argumentIndex,
+        string message,
+        string suggestion)
+    {
+        if (argumentIndex >= call.Arguments.Count || argumentIndex >= argTypes.Count)
+            return;
+
+        var argType = ResolveTypeAlias(argTypes[argumentIndex]);
+        if (BuiltInTypes.IsUnknown(argType) || argType is SoaRowTypeInfo || argType != BuiltInTypes.Int)
+            return;
+
+        if (!IsConstantNegative(call.Arguments[argumentIndex].Value))
+            return;
+
+        var (line, column, length) = GetExpressionDiagnosticSpan(call.Arguments[argumentIndex].Value);
+        Error(
+            ErrorCode.TypeMismatch,
+            message,
+            line,
+            column,
+            $"{functionName} expects a non-negative int argument here. {suggestion}",
+            length);
     }
 
     private TypeInfo AnalyzeCallCallee(Expression callee)
@@ -18192,6 +18261,7 @@ public record TupleTypeInfo(List<(string? Name, TypeInfo Type)> Elements) : Type
 
 public record FunctionTypeInfo(FunctionDeclaration? Declaration) : TypeInfo
 {
+    public string? SyntheticName { get; set; }
     public List<TypeInfo>? ParameterTypes { get; set; }
     public List<Ast.ParameterModifier>? ParameterModifiers { get; set; }
     public TypeInfo? ReturnType { get; set; }

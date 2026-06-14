@@ -1840,6 +1840,26 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaTableEnsureCapacityRejectsNegativeLiteral()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable) {
+                nodes.ensureCapacity(-1)
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains("SoA table capacity must not be negative", error.Message);
+        Assert.Contains("ensureCapacity expects a non-negative int argument", error.Suggestion);
+    }
+
+    [Fact]
     public void Analyzer_SoaTableCopyRowRequiresTwoArguments()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
@@ -1876,6 +1896,46 @@ public class SoaRecordTests : ILCompilerTestBase
         var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
         Assert.Contains("Argument 2 to 'copyRow' is 'string'", error.Message);
         Assert.Contains("expects 'int'", error.Message);
+    }
+
+    [Fact]
+    public void Analyzer_SoaTableCopyRowRejectsNegativeSourceLiteral()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable) {
+                nodes.copyRow(-1, 0)
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains("SoA table source row id must not be negative", error.Message);
+        Assert.Contains("copyRow expects a non-negative int argument", error.Suggestion);
+    }
+
+    [Fact]
+    public void Analyzer_SoaTableCopyRowRejectsNegativeTargetLiteral()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable) {
+                nodes.copyRow(0, -1)
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains("SoA table target row id must not be negative", error.Message);
+        Assert.Contains("copyRow expects a non-negative int argument", error.Suggestion);
     }
 
     [Fact]

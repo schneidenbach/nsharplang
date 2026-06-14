@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA generated operations reject negative literals
+
+Generated SoA table operations now carry synthetic operation identity through semantic analysis, so
+`ensureCapacity(-1)`, `copyRow(-1, to)`, and `copyRow(from, -1)` report source diagnostics before
+generated wrapper lowering. The validation is scoped to concrete `int` arguments and preserves the
+existing primary diagnostics for wrong counts, wrong types, unknown values, and row-view escapes.
+
 ## 2026-06-14 — SoA row projection and copy-row IL shape is pinned
 
 The experimental SoA wrapper tests now inspect emitted opcodes for row-column helper code and the
