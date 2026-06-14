@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA generated operations validate dynamic negative bounds
+
+Generated SoA wrapper methods now reject dynamic negative values before they reach CLR array allocation
+or indexing paths: `new Table(capacity)`, `table.ensureCapacity(capacity)`, and `table.copyRow(from, to)`
+throw SoA-specific `ArgumentException` messages when runtime values are negative. Literal negatives
+remain analyzer diagnostics, so known-bad calls still fail before emission.
+
 ## 2026-06-14 — SoA wrap rejects statically null columns
 
 `Table.wrap` now reports analyzer diagnostics for column arguments that are literally `null` or

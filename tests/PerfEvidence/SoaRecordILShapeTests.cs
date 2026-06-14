@@ -82,7 +82,7 @@ public class SoaRecordILShapeTests
             Assert.NotNull(constructor);
 
             ILShapeInspector.AssertNoBoxing(constructor!);
-            Assert.Equal(0, ILShapeInspector.CountOpcode(constructor!, OpCodes.Newobj));
+            Assert.Equal(1, ILShapeInspector.CountOpcode(constructor!, OpCodes.Newobj)); // capacity guard exception
             Assert.Equal(2, ILShapeInspector.CountOpcode(constructor!, OpCodes.Newarr));
             Assert.Equal(0, ILShapeInspector.CountOpcode(constructor!, OpCodes.Call));
             Assert.Equal(0, ILShapeInspector.CountOpcode(constructor!, OpCodes.Callvirt));
@@ -158,7 +158,7 @@ public class SoaRecordILShapeTests
             Assert.NotNull(clear);
 
             ILShapeInspector.AssertNoBoxing(copyRow!);
-            Assert.Equal(0, ILShapeInspector.CountOpcode(copyRow!, OpCodes.Newobj));
+            Assert.Equal(2, ILShapeInspector.CountOpcode(copyRow!, OpCodes.Newobj)); // source/target guard exceptions
             Assert.Equal(0, ILShapeInspector.CountOpcode(copyRow!, OpCodes.Newarr));
             Assert.Equal(0, ILShapeInspector.CountDelegateConstructions(copyRow!));
             Assert.Equal(0, ILShapeInspector.CountOpcode(copyRow!, OpCodes.Callvirt));
@@ -219,7 +219,7 @@ public class SoaRecordILShapeTests
             Assert.Equal(0, CountArrayElementStores(add!));
 
             ILShapeInspector.AssertNoBoxing(ensureCapacity!);
-            Assert.Equal(0, ILShapeInspector.CountOpcode(ensureCapacity!, OpCodes.Newobj));
+            Assert.Equal(1, ILShapeInspector.CountOpcode(ensureCapacity!, OpCodes.Newobj)); // capacity guard exception
             Assert.Equal(0, ILShapeInspector.CountOpcode(ensureCapacity!, OpCodes.Newarr));
             Assert.Equal(0, ILShapeInspector.CountDelegateConstructions(ensureCapacity!));
             Assert.Equal(0, ILShapeInspector.CountOpcode(ensureCapacity!, OpCodes.Callvirt));

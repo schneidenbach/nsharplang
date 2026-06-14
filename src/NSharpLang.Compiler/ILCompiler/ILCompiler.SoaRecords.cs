@@ -99,6 +99,14 @@ public partial class ILCompiler
         _constructors[GetConstructorKey(info.Builder)] = constructor;
 
         var il = constructor.GetILGenerator();
+        var validCapacityLabel = il.DefineLabel();
+
+        il.Emit(OpCodes.Ldarg_1);
+        il.Emit(OpCodes.Ldc_I4_0);
+        il.Emit(OpCodes.Bge, validCapacityLabel);
+        EmitSoaArgumentException(il, $"capacity for {info.Declaration.Name} must be non-negative");
+        il.MarkLabel(validCapacityLabel);
+
         foreach (var column in info.Declaration.Columns)
         {
             var elementType = info.ColumnElementTypes[column.Name];
@@ -230,22 +238,14 @@ public partial class ILCompiler
         il.Emit(OpCodes.Ldloc, resultLocal);
         il.Emit(OpCodes.Ret);
 
-        var argumentExceptionConstructor = typeof(ArgumentException).GetConstructor(new[] { typeof(string) })!;
-
         il.MarkLabel(nullColumnLabel);
-        il.Emit(OpCodes.Ldstr, $"columns for {info.Declaration.Name}.wrap cannot be null");
-        il.Emit(OpCodes.Newobj, argumentExceptionConstructor);
-        il.Emit(OpCodes.Throw);
+        EmitSoaArgumentException(il, $"columns for {info.Declaration.Name}.wrap cannot be null");
 
         il.MarkLabel(invalidLengthLabel);
-        il.Emit(OpCodes.Ldstr, $"length for {info.Declaration.Name}.wrap must be between 0 and column length");
-        il.Emit(OpCodes.Newobj, argumentExceptionConstructor);
-        il.Emit(OpCodes.Throw);
+        EmitSoaArgumentException(il, $"length for {info.Declaration.Name}.wrap must be between 0 and column length");
 
         il.MarkLabel(mismatchLabel);
-        il.Emit(OpCodes.Ldstr, $"column lengths for {info.Declaration.Name} do not match");
-        il.Emit(OpCodes.Newobj, argumentExceptionConstructor);
-        il.Emit(OpCodes.Throw);
+        EmitSoaArgumentException(il, $"column lengths for {info.Declaration.Name} do not match");
     }
 
     private void DefineSoaEnsureCapacityMethod(SoaRecordRuntimeInfo info)
@@ -277,9 +277,16 @@ public partial class ILCompiler
 
         var il = method.GetILGenerator();
         var doneLabel = il.DefineLabel();
+        var validCapacityLabel = il.DefineLabel();
         var afterRequiredLabel = il.DefineLabel();
         var afterMinimumLabel = il.DefineLabel();
         var newCapacityLocal = il.DeclareLocal(typeof(int));
+
+        il.Emit(OpCodes.Ldarg_1);
+        il.Emit(OpCodes.Ldc_I4_0);
+        il.Emit(OpCodes.Bge, validCapacityLabel);
+        EmitSoaArgumentException(il, $"capacity for {info.Declaration.Name}.ensureCapacity must be non-negative");
+        il.MarkLabel(validCapacityLabel);
 
         il.Emit(OpCodes.Ldarg_1);
         il.Emit(OpCodes.Ldarg_0);
@@ -404,7 +411,21 @@ public partial class ILCompiler
 
         var il = method.GetILGenerator();
         var requiredLocal = il.DeclareLocal(typeof(int));
+        var validSourceLabel = il.DefineLabel();
+        var validTargetLabel = il.DefineLabel();
         var keepLengthLabel = il.DefineLabel();
+
+        il.Emit(OpCodes.Ldarg_1);
+        il.Emit(OpCodes.Ldc_I4_0);
+        il.Emit(OpCodes.Bge, validSourceLabel);
+        EmitSoaArgumentException(il, $"source row for {info.Declaration.Name}.copyRow must be non-negative");
+        il.MarkLabel(validSourceLabel);
+
+        il.Emit(OpCodes.Ldarg_2);
+        il.Emit(OpCodes.Ldc_I4_0);
+        il.Emit(OpCodes.Bge, validTargetLabel);
+        EmitSoaArgumentException(il, $"target row for {info.Declaration.Name}.copyRow must be non-negative");
+        il.MarkLabel(validTargetLabel);
 
         il.Emit(OpCodes.Ldarg_2);
         il.Emit(OpCodes.Ldc_I4_1);
@@ -440,6 +461,14 @@ public partial class ILCompiler
 
         il.MarkLabel(keepLengthLabel);
         il.Emit(OpCodes.Ret);
+    }
+
+    private static void EmitSoaArgumentException(ILGenerator il, string message)
+    {
+        var argumentExceptionConstructor = typeof(ArgumentException).GetConstructor(new[] { typeof(string) })!;
+        il.Emit(OpCodes.Ldstr, message);
+        il.Emit(OpCodes.Newobj, argumentExceptionConstructor);
+        il.Emit(OpCodes.Throw);
     }
 
     private bool TryGetSoaRecordInfo(Type type, out SoaRecordRuntimeInfo info)

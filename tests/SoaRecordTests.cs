@@ -2278,6 +2278,26 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void ILCompiler_SoaRecordCapacityConstructorBindsNamedArgument()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var source = """
+            soa record NodeTable {
+                kind: int
+                start: int
+            }
+
+            func main(): int {
+                nodes := new NodeTable(capacity: 2)
+                return nodes.capacity
+            }
+            """;
+
+        Assert.Equal(2, Assert.IsType<int>(CompileAndInvoke(source)));
+    }
+
+    [Fact]
     public void ILCompiler_SoaRecordRowProjection_UsesColumnElementILShape()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
@@ -2489,6 +2509,89 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void ILCompiler_SoaRecordCapacityConstructorDynamicNegative_ReportsCapacityMessage()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var source = """
+            soa record NodeTable {
+                kind: int
+            }
+
+            func capacity(): int {
+                return 0 - 1
+            }
+
+            func main(): int {
+                nodes := new NodeTable(capacity())
+                return nodes.capacity
+            }
+            """;
+
+        var error = Assert.Throws<ArgumentException>(() => CompileAndInvoke(source));
+        Assert.Equal("capacity for NodeTable must be non-negative", error.Message);
+    }
+
+    [Fact]
+    public void ILCompiler_SoaRecordEnsureCapacityDynamicNegative_ReportsCapacityMessage()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var source = """
+            soa record NodeTable {
+                kind: int
+            }
+
+            func capacity(): int {
+                return 0 - 1
+            }
+
+            func main(): int {
+                nodes := new NodeTable(1)
+                nodes.ensureCapacity(capacity())
+                return nodes.capacity
+            }
+            """;
+
+        var error = Assert.Throws<ArgumentException>(() => CompileAndInvoke(source));
+        Assert.Equal("capacity for NodeTable.ensureCapacity must be non-negative", error.Message);
+    }
+
+    [Fact]
+    public void ILCompiler_SoaRecordCopyRowDynamicNegativeRows_ReportRowMessages()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var source = """
+            soa record NodeTable {
+                kind: int
+            }
+
+            func copyFrom(from: int): int {
+                nodes := new NodeTable(1)
+                row := nodes.add()
+                nodes[row].kind = 7
+                nodes.copyRow(from, 0)
+                return nodes.length
+            }
+
+            func copyTo(to: int): int {
+                nodes := new NodeTable(1)
+                row := nodes.add()
+                nodes[row].kind = 7
+                nodes.copyRow(0, to)
+                return nodes.length
+            }
+            """;
+
+        var sourceError = Assert.Throws<ArgumentException>(() => CompileAndInvoke(source, "copyFrom", -1));
+        Assert.Equal("source row for NodeTable.copyRow must be non-negative", sourceError.Message);
+
+        var targetError = Assert.Throws<ArgumentException>(() => CompileAndInvoke(source, "copyTo", -1));
+        Assert.Equal("target row for NodeTable.copyRow must be non-negative", targetError.Message);
+    }
+
+    [Fact]
     public void ILCompiler_SoaRecordWrapLengthBeyondCapacity_ReportsLengthMessage()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
@@ -2571,7 +2674,7 @@ public class SoaRecordTests : ILCompilerTestBase
         Assert.Contains(opCodes, IsArrayElementLoad);
         Assert.Contains(opCodes, IsArrayElementStore);
         Assert.Contains(OpCodes.Call, opCodes); // ensureCapacity
-        Assert.DoesNotContain(OpCodes.Newobj, opCodes);
+        Assert.Equal(2, opCodes.Count(opCode => opCode == OpCodes.Newobj)); // source/target guard exceptions
         Assert.DoesNotContain(OpCodes.Newarr, opCodes);
         Assert.DoesNotContain(OpCodes.Box, opCodes);
         Assert.DoesNotContain(OpCodes.Ldftn, opCodes);
