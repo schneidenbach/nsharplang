@@ -43,6 +43,14 @@ the IL backend sees them. `table?[index].column`, `table[index]?.column`, and `t
 direct SoA diagnostics with column-access guidance instead of drifting into the generic null-conditional
 member/index emitter, which only owns ordinary CLR reference/member shapes.
 
+## 2026-06-14 — SoA row-view escape ratchets cover pattern, with-index, and block-lambda edges
+
+The SoA row-view escape suite now pins three previously unratcheted analyzer paths: row views returned
+from block-bodied lambdas, row views used as literal-pattern values at the analyzer AST boundary, and
+row views used as `with` initializer indexes at that same boundary. All three report the SoA-specific
+diagnostic with the standard `table[index].column` guidance instead of falling through to generic
+typing or backend behavior.
+
 ## 2026-06-14 — Nameof targets are checked before emission
 
 The analyzer now enforces the same `nameof` target shape the direct IL backend can emit: identifiers and

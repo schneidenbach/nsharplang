@@ -160,7 +160,7 @@ The compiler must produce direct diagnostics for common misuse:
   switch subjects, operator operands, casts, `is` tests, `must` unwraps, awaits, ternary results, and match
   results, bare expression statements, control conditions, match subjects/guards, foreach collections,
   range bounds, spread expressions, `alloc`, allocation lengths, checked/unchecked expressions, field
-  initializers, invalid member/index receivers, index values, pattern values, `with` targets/values,
+  initializers, invalid member/index receivers, index values, pattern values, `with` targets/indexes/values,
   `nameof` targets, event subscription handles, and null-conditional table/row projections);
 - mismatched `wrap` columns: "column lengths for NodeTable do not match";
 - null `wrap` columns: "columns for NodeTable.wrap cannot be null";

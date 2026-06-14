@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 using NSharpLang.Compiler;
+using NSharpLang.Compiler.Ast;
 using Xunit;
 
 namespace NSharpLang.Tests;
@@ -271,6 +272,27 @@ public class SoaRecordTests : ILCompilerTestBase
 
             func bad(nodes: NodeTable): int {
                 leak := () => nodes[0]
+                return 0
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("SoA row views cannot be returned", error.Message);
+        Assert.Contains("table[index].column", error.Suggestion);
+    }
+
+    [Fact]
+    public void Analyzer_SoaRowViewCannotEscapeThroughBlockBodiedLambda()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable): int {
+                let leak: Func<object> = () => { return nodes[0] }
                 return 0
             }
             """);
@@ -1230,6 +1252,39 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaRowViewCannotBeUsedAsLiteralPatternValue()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var source = """
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable): int {
+                return match 5 {
+                    0 => 1,
+                    _ => 0
+                }
+            }
+            """;
+        var unit = ParseForAnalysis(source);
+        var function = Assert.IsType<FunctionDeclaration>(unit.Declarations[1]);
+        var returnStatement = Assert.IsType<ReturnStatement>(function.Body!.Statements[0]);
+        var match = Assert.IsType<MatchExpression>(returnStatement.Value);
+        match.Cases[0] = match.Cases[0] with
+        {
+            Pattern = new LiteralPattern(CreateSoaRowView("nodes"), Line: 7, Column: 17)
+        };
+
+        var result = Analyze(unit, source);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("SoA row views cannot be used as a pattern value", error.Message);
+        Assert.Contains("table[index].column", error.Suggestion);
+    }
+
+    [Fact]
     public void Analyzer_SoaRowViewCannotBeUsedAsWithTarget()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
@@ -1246,6 +1301,44 @@ public class SoaRecordTests : ILCompilerTestBase
 
         var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
         Assert.Contains("SoA row views cannot be used as a with target", error.Message);
+        Assert.Contains("table[index].column", error.Suggestion);
+    }
+
+    [Fact]
+    public void Analyzer_SoaRowViewCannotBeUsedAsWithInitializerIndex()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var source = """
+            soa record NodeTable {
+                kind: int
+            }
+
+            record Holder {
+                Value: int
+            }
+
+            func bad(nodes: NodeTable) {
+                original := new Holder { Value: 1 }
+                updated := original with { Value: 1 }
+            }
+            """;
+        var unit = ParseForAnalysis(source);
+        var function = Assert.IsType<FunctionDeclaration>(unit.Declarations[2]);
+        var updated = Assert.IsType<VariableDeclarationStatement>(function.Body!.Statements[1]);
+        var with = Assert.IsType<WithExpression>(updated.Initializer);
+        with.Properties.Clear();
+        with.Properties.Add(new PropertyInitializer(
+            null,
+            CreateSoaRowView("nodes"),
+            new IntLiteralExpression("1", Line: 11, Column: 42),
+            NameLine: 11,
+            NameColumn: 42));
+
+        var result = Analyze(unit, source);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("SoA row views cannot be used as a with initializer index", error.Message);
         Assert.Contains("table[index].column", error.Suggestion);
     }
 
@@ -1652,18 +1745,33 @@ public class SoaRecordTests : ILCompilerTestBase
         Assert.Equal(11112, Assert.IsType<int>(CompileAndInvoke(source)));
     }
 
-    private static AnalysisResult Analyze(string source)
+    private static CompilationUnit ParseForAnalysis(string source)
     {
         var lexer = new Lexer(source, "test.nl");
         var tokens = lexer.Tokenize();
         var parser = new Parser(tokens, "test.nl", source);
         var parseResult = parser.ParseCompilationUnit();
         Assert.True(parseResult.Success, string.Join(Environment.NewLine, parseResult.Errors.Select(error => error.Message)));
+        return parseResult.CompilationUnit!;
+    }
 
+    private static AnalysisResult Analyze(string source)
+        => Analyze(ParseForAnalysis(source), source);
+
+    private static AnalysisResult Analyze(CompilationUnit unit, string source)
+    {
         var analyzer = new Analyzer();
         analyzer.LoadSystemAssemblies();
-        return analyzer.Analyze(parseResult.CompilationUnit!, "test.nl", null, source);
+        return analyzer.Analyze(unit, "test.nl", null, source);
     }
+
+    private static IndexAccessExpression CreateSoaRowView(string tableName)
+        => new(
+            new IdentifierExpression(tableName, Line: 1, Column: 1),
+            new IntLiteralExpression("0", Line: 1, Column: 1),
+            IsNullConditional: false,
+            Line: 1,
+            Column: 1);
 
     private static IDisposable SetEnvironmentVariable(string name, string? value)
     {
