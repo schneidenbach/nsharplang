@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — Format-discovery path filtering stops shipping as dogfood product surface
+
+The remaining `CliShouldFormatDiscoveredPath` test/parity island now lives wholly in the parity corpus:
+the path table, scalar predicate, batch flag core, and segment comparison helpers moved out of product
+`CliArguments.nl`. The parity tests still compile the path-filter oracle with the product kernels, but
+the shipped dogfood assembly no longer exposes format-discovery helpers with no CLI or adapter caller.
+
 ## 2026-06-14 — Parity-only CLI and overload cores leave the shipped dogfood surface
 
 `CliTestOptionSummaryCore` now lives in the parity corpus beside its checksum oracle instead of the
