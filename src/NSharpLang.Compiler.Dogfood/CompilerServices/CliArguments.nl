@@ -127,20 +127,6 @@ struct CliCountResultTable {
     Counts: int[]
 }
 
-struct CliTestFilterPartTable {
-    Parts: string[]
-}
-
-struct CliTestNameTable {
-    PrimaryNames: string[]
-    SecondaryNames: string[]
-    TertiaryNames: string[]
-}
-
-struct CliTertiaryNameTable {
-    Names: string[]
-}
-
 struct CliPathTable {
     Paths: string[]
 }
@@ -3072,93 +3058,6 @@ func CliTestOutcomeSummaryCore(
     resultCounts[2] = skipped
     resultCounts[3] = nonOk
     return count
-}
-
-func CliTestFilterMatchIndicesInto(
-    filterParts: string[],
-    primaryNames: string[],
-    secondaryNames: string[],
-    tertiaryNames: string[],
-    count: int,
-    resultIndices: int[]): int {
-    parts := new CliTestFilterPartTable { Parts: filterParts }
-    names := new CliTestNameTable {
-        PrimaryNames: primaryNames,
-        SecondaryNames: secondaryNames,
-        TertiaryNames: tertiaryNames
-    }
-    results := new CliIndexResultTable { Indices: resultIndices }
-    return CliTestFilterMatchIndicesCore(ref parts, ref names, count, ref results)
-}
-
-func CliTestFilterMatchIndicesCore(
-    parts: &CliTestFilterPartTable,
-    names: &CliTestNameTable,
-    count: int,
-    results: &CliIndexResultTable): int {
-    filterParts := parts.Parts
-    primaryNames := names.PrimaryNames
-    secondaryNames := names.SecondaryNames
-    tertiaryNames := names.TertiaryNames
-    resultIndices := results.Indices
-    tertiaryNameTable := new CliTertiaryNameTable { Names: tertiaryNames }
-    if count < 0
-        || count > primaryNames.Length
-        || count > secondaryNames.Length
-        || count > resultIndices.Length {
-        return -1
-    }
-
-    if tertiaryNames.Length != 0 && count > tertiaryNames.Length {
-        return -1
-    }
-
-    matchedCount := 0
-    i := 0
-    while i < count {
-        if CliTestFilterMatchesAnyNameCore(ref parts, primaryNames[i], secondaryNames[i], ref tertiaryNameTable, i) {
-            resultIndices[matchedCount] = i
-            matchedCount = matchedCount + 1
-        }
-
-        i = i + 1
-    }
-
-    return matchedCount
-}
-
-func CliTestFilterMatchesAnyNameCore(
-    parts: &CliTestFilterPartTable,
-    primaryName: string,
-    secondaryName: string,
-    tertiaryNameTable: &CliTertiaryNameTable,
-    index: int): bool {
-    filterParts := parts.Parts
-    tertiaryNames := tertiaryNameTable.Names
-    partIndex := 0
-    while partIndex < filterParts.Length {
-        part := filterParts[partIndex]
-        if part.Length > 0 {
-            if CliTestFilterContainsPart(primaryName, part)
-                || CliTestFilterContainsPart(secondaryName, part) {
-                return true
-            }
-
-            if tertiaryNames.Length > index
-                && tertiaryNames[index].Length > 0
-                && CliTestFilterContainsPart(tertiaryNames[index], part) {
-                return true
-            }
-        }
-
-        partIndex = partIndex + 1
-    }
-
-    return false
-}
-
-func CliTestFilterContainsPart(text: string, part: string): bool {
-    return text.IndexOf(part, StringComparison.OrdinalIgnoreCase) >= 0
 }
 
 func CliShouldFormatDiscoveredPath(relativePath: string): int {

@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-13 — Unrouted CLI test-filter benchmark probe retired
+
+`CliArguments.nl` no longer carries the `CliTestFilterMatchIndicesInto` benchmark probe or its private
+test-name/filter helper tables. The probe had parity evidence and zero-allocation dry-run results, but
+the documented benchmark topped out around 2x and explicitly missed the 5x production routing gate, so
+it was never adapter-bound or used by `nlc test --filter`.
+
+The historical benchmark finding remains documented in `compiler-dogfood-rewrite.md`; the live dogfood
+source now keeps only CLI kernels that are routed, coverage-pinned, or still active transition targets.
+
 ## 2026-06-13 — Compiler-service kernels drop unused flattened helper exports
 
 The query-position parser, project-source filter, diagnostic clustering, diagnostic/reference
