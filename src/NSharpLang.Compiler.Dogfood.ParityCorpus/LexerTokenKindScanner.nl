@@ -4,6 +4,14 @@
 // their product file — most delegate to sibling kernels that stay in the product). They are
 // NOT part of the shipped dogfood assembly.
 
+struct LexerCommentTable {
+    Lines: int[]
+    Columns: int[]
+    Starts: int[]
+    Lengths: int[]
+    IsMultiLine: int[]
+}
+
 func TokenizeKinds(source: string): int[] {
     tokens := new LexerTokenKindTable { Kinds: new int[](source.Length + 1) }
     count := TokenizeKindsCore(source, ref tokens)
@@ -164,6 +172,229 @@ func TokenizeMetadataInto(source: string, kinds: int[], starts: int[], valueLeng
 func CommentsInto(source: string, lines: int[], columns: int[], starts: int[], lengths: int[], isMultiLine: int[]): int {
     comments := new LexerCommentTable { Lines: lines, Columns: columns, Starts: starts, Lengths: lengths, IsMultiLine: isMultiLine }
     return CommentsCore(source, ref comments)
+}
+
+// Collect comment trivia exactly as the C# production lexer does (Lexer.Tokenize fills Lexer.Comments
+// from the Comment/MultiLineComment/XmlDocComment tokens it excludes from the stream). For each comment
+// this records line, column, start offset, length, and isMultiLine (1 = block /* */, 0 = line // or
+// doc ///). The comment text C# stores is the full span including delimiters for line/doc comments and
+// "/*" + inner + "*/" for block comments -- both equal (end - start), so `length` here = end - start.
+// The loop mirrors TokenizeMetadataCore's token dispatch (consuming strings/raw strings/char/lifetime/
+// number/identifier/operator runs as units) so a `//` or `/*` INSIDE a literal is never misread as a
+// comment, and so line/column tracking through multi-line raw strings stays exact.
+func CommentsCore(source: string, comments: &LexerCommentTable): int {
+    position := 0
+    length := source.Length
+    count := 0
+    line := 1
+    column := 1
+
+    while position < length {
+        ch := source[position]
+
+        if IsWhitespaceExceptNewline(ch) {
+            position = position + 1
+            column = column + 1
+            continue
+        }
+
+        if ch == '\n' {
+            position = position + 1
+            line = line + 1
+            column = 1
+            continue
+        }
+
+        if ch == '\r' {
+            position = position + 1
+            if position < length && source[position] == '\n' {
+                position = position + 1
+            }
+
+            line = line + 1
+            column = 1
+            continue
+        }
+
+        start := position
+        tokenLine := line
+        tokenColumn := column
+
+        if ch == '#' {
+            position = position + 1
+            column = column + 1
+            while position < length && source[position] != '\n' && source[position] != '\r' {
+                position = position + 1
+                column = column + 1
+            }
+
+            continue
+        }
+
+        if ch == '/' && position + 1 < length {
+            next := source[position + 1]
+            if next == '/' {
+                position = position + 2
+                column = column + 2
+                while position < length && source[position] != '\n' && source[position] != '\r' {
+                    position = position + 1
+                    column = column + 1
+                }
+
+                comments.Lines[count] = tokenLine
+                comments.Columns[count] = tokenColumn
+                comments.Starts[count] = start
+                comments.Lengths[count] = position - start
+                comments.IsMultiLine[count] = 0
+                count = count + 1
+                continue
+            }
+
+            if next == '*' {
+                position = position + 2
+                column = column + 2
+                while position < length {
+                    if source[position] == '*' && position + 1 < length && source[position + 1] == '/' {
+                        position = position + 2
+                        column = column + 2
+                        break
+                    }
+
+                    if source[position] == '\r' {
+                        position = position + 1
+                        if position < length && source[position] == '\n' {
+                            position = position + 1
+                        }
+                        line = line + 1
+                        column = 1
+                        continue
+                    }
+
+                    if source[position] == '\n' {
+                        position = position + 1
+                        line = line + 1
+                        column = 1
+                        continue
+                    }
+
+                    position = position + 1
+                    column = column + 1
+                }
+
+                comments.Lines[count] = tokenLine
+                comments.Columns[count] = tokenColumn
+                comments.Starts[count] = start
+                comments.Lengths[count] = position - start
+                comments.IsMultiLine[count] = 1
+                count = count + 1
+                continue
+            }
+        }
+
+        if ch == '$' && position + 1 < length && source[position + 1] == '"' {
+            if position + 3 < length && source[position + 2] == '"' && source[position + 3] == '"' {
+                nextPosition := ScanRawString(source, position + 4, length)
+                while position < nextPosition {
+                    if source[position] == '\r' {
+                        position = position + 1
+                        if position < nextPosition && source[position] == '\n' {
+                            position = position + 1
+                        }
+                        line = line + 1
+                        column = 1
+                        continue
+                    }
+
+                    if source[position] == '\n' {
+                        position = position + 1
+                        line = line + 1
+                        column = 1
+                        continue
+                    }
+
+                    position = position + 1
+                    column = column + 1
+                }
+            } else {
+                nextPosition := ScanString(source, position + 1, length, true)
+                column = column + (nextPosition - start)
+                position = nextPosition
+            }
+
+            continue
+        }
+
+        if ch == '"' {
+            if position + 2 < length && source[position + 1] == '"' && source[position + 2] == '"' {
+                nextPosition := ScanRawString(source, position + 3, length)
+                while position < nextPosition {
+                    if source[position] == '\r' {
+                        position = position + 1
+                        if position < nextPosition && source[position] == '\n' {
+                            position = position + 1
+                        }
+                        line = line + 1
+                        column = 1
+                        continue
+                    }
+
+                    if source[position] == '\n' {
+                        position = position + 1
+                        line = line + 1
+                        column = 1
+                        continue
+                    }
+
+                    position = position + 1
+                    column = column + 1
+                }
+            } else {
+                nextPosition := ScanString(source, position, length, false)
+                column = column + (nextPosition - start)
+                position = nextPosition
+            }
+
+            continue
+        }
+
+        if ch == '\'' && IsLifetimeStartAt(source, position, length) {
+            nextPosition := ScanLifetime(source, position, length)
+            column = column + (nextPosition - start)
+            position = nextPosition
+            continue
+        }
+
+        if ch == '\'' {
+            nextPosition := ScanCharLiteral(source, position, length)
+            column = column + (nextPosition - start)
+            position = nextPosition
+            continue
+        }
+
+        if IsDigit(ch) {
+            nextPosition := ScanNumberInfo(source, position, length) >> 2
+            column = column + (nextPosition - start)
+            position = nextPosition
+            continue
+        }
+
+        if IsIdentifierStart(ch) {
+            position = position + 1
+            while position < length && IsIdentifierPart(source[position]) {
+                position = position + 1
+            }
+
+            column = column + (position - start)
+            continue
+        }
+
+        operatorInfo := OperatorInfo(source, position, length)
+        operatorWidth := operatorInfo & 3
+        position = position + operatorWidth
+        column = column + operatorWidth
+    }
+
+    return count
 }
 
 func CopyKindsCore(source: &LexerTokenKindTable, count: int): int[] {
