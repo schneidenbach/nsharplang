@@ -57,6 +57,44 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void NewCapacityConstructor_AllocatesOneArrayPerColumnWithoutRowObjects()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                kind: int
+                start: int
+            }
+
+            func make(): int {
+                nodes := new NodeTable(4)
+                return nodes.length + nodes.capacity
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var tableType = assembly.GetType("NodeTable");
+            Assert.NotNull(tableType);
+
+            var constructor = tableType!.GetConstructor(new[] { typeof(int) });
+            Assert.NotNull(constructor);
+
+            ILShapeInspector.AssertNoBoxing(constructor!);
+            Assert.Equal(0, ILShapeInspector.CountOpcode(constructor!, OpCodes.Newobj));
+            Assert.Equal(2, ILShapeInspector.CountOpcode(constructor!, OpCodes.Newarr));
+            Assert.Equal(0, ILShapeInspector.CountOpcode(constructor!, OpCodes.Call));
+            Assert.Equal(0, ILShapeInspector.CountOpcode(constructor!, OpCodes.Callvirt));
+            Assert.Equal(0, CountArrayElementLoads(constructor!));
+            Assert.Equal(0, CountArrayElementStores(constructor!));
+            Assert.Equal(4, ILShapeInspector.CountOpcode(constructor!, OpCodes.Stfld));
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void Wrap_StoresColumnReferencesWithoutElementCopies()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

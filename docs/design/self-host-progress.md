@@ -11,6 +11,12 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA constructor IL shape is pinned
+
+The experimental `new Table(capacity)` lowering now has direct IL-shape evidence: the constructor
+allocates exactly one CLR array per declared column, initializes `length` and `capacity` fields
+directly, and performs no row-object allocation, boxing, element traffic, or dispatch.
+
 ## 2026-06-14 — SoA row allocation requests report hidden allocation directly
 
 `alloc (table[index])` now reports the design-level hidden-allocation diagnostic instead of the
