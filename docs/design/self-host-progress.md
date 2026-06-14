@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA default store expressions cover verified element types
+
+Expression-valued default stores now have mixed element-type opcode evidence for all accepted SoA
+element kinds. Direct `table.column[row] = default`, direct from-end `table.column[^1] = default`,
+and row-projection `table[row].column = default` expressions over `int`, `uint`, `long`, `bool`,
+`char`, `string`, and `string?` return the assigned default values and store them in the backing
+arrays without reading old elements. The inspected methods remain free of row construction, heap
+array allocation, boxing, delegate construction, and virtual dispatch; from-end access also remains
+free of range-slice allocation.
+
 ## 2026-06-14 — SoA row verified type default stores avoid old reads
 
 Row-projection default stores now have mixed element-type opcode evidence. `table[row].column = default`

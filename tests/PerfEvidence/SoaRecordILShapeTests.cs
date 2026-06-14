@@ -257,6 +257,87 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void DirectColumnVerifiedTypeDefaultStoreExpressions_ReturnDefaultWithoutOldElementRead()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                kind: int
+                flags: uint
+                start: long
+                active: bool
+                marker: char
+                name: string
+                optionalName: string?
+                count: int
+            }
+
+            func clearAllAsExpression(nodes: NodeTable, row: int): int {
+                kindDefault := nodes.kind[row] = default
+                flagsDefault := nodes.flags[row] = default
+                startDefault := nodes.start[row] = default
+                activeDefault := nodes.active[row] = default
+                markerDefault := nodes.marker[row] = default
+                nameDefault := nodes.name[row] = default
+                optionalNameDefault := nodes.optionalName[row] = default
+                countDefault := nodes.count[row] = default
+
+                total := kindDefault
+                total += (int)flagsDefault
+                total += (int)startDefault
+                total += (activeDefault ? 100 : 0)
+                total += (int)markerDefault
+                total += countDefault
+                total += (nameDefault == null ? 1000 : 0)
+                total += (optionalNameDefault == null ? 10000 : 0)
+                return total
+            }
+
+            func main(): int {
+                nodes := new NodeTable(1)
+                row := nodes.add()
+                nodes.kind[row] = 3
+                nodes.flags[row] = (uint)7
+                nodes.start[row] = 19L
+                nodes.active[row] = true
+                nodes.marker[row] = 'A'
+                nodes.name[row] = "name"
+                nodes.optionalName[row] = "optional"
+                nodes.count[row] = 11
+
+                expressionTotal := clearAllAsExpression(nodes, row)
+                storedTotal := nodes.kind[row]
+                storedTotal += (int)nodes.flags[row]
+                storedTotal += (int)nodes.start[row]
+                storedTotal += (nodes.active[row] ? 100 : 0)
+                storedTotal += (int)nodes.marker[row]
+                storedTotal += nodes.count[row]
+                storedTotal += (nodes.name[row] == null ? 1000 : 0)
+                storedTotal += (nodes.optionalName[row] == null ? 10000 : 0)
+                return expressionTotal + storedTotal
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var clearAllAsExpression = ILShapeInspector.GetProgramMethod(assembly, "clearAllAsExpression");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(22000, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoAllocationOrDispatch(clearAllAsExpression);
+            Assert.True(
+                ILShapeInspector.CountOpcode(clearAllAsExpression, OpCodes.Ldfld) >= 8,
+                "Direct column default assignment expressions should load backing column fields directly.");
+            Assert.Equal(0, CountArrayElementLoads(clearAllAsExpression));
+            Assert.Equal(8, CountArrayElementStores(clearAllAsExpression));
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void DirectColumnAssignmentExpression_ReturnsAssignedValueWithoutRowAllocation()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
@@ -811,6 +892,86 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void DirectColumnFromEndVerifiedTypeDefaultStoreExpressions_ReturnDefaultWithoutOldElementRead()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                kind: int
+                flags: uint
+                start: long
+                active: bool
+                marker: char
+                name: string
+                optionalName: string?
+                count: int
+            }
+
+            func clearLastAsExpression(nodes: NodeTable): int {
+                kindDefault := nodes.kind[^1] = default
+                flagsDefault := nodes.flags[^1] = default
+                startDefault := nodes.start[^1] = default
+                activeDefault := nodes.active[^1] = default
+                markerDefault := nodes.marker[^1] = default
+                nameDefault := nodes.name[^1] = default
+                optionalNameDefault := nodes.optionalName[^1] = default
+                countDefault := nodes.count[^1] = default
+
+                total := kindDefault
+                total += (int)flagsDefault
+                total += (int)startDefault
+                total += (activeDefault ? 100 : 0)
+                total += (int)markerDefault
+                total += countDefault
+                total += (nameDefault == null ? 1000 : 0)
+                total += (optionalNameDefault == null ? 10000 : 0)
+                return total
+            }
+
+            func main(): int {
+                nodes := new NodeTable(2)
+                nodes.kind[^1] = 3
+                nodes.flags[^1] = (uint)7
+                nodes.start[^1] = 19L
+                nodes.active[^1] = true
+                nodes.marker[^1] = 'A'
+                nodes.name[^1] = "name"
+                nodes.optionalName[^1] = "optional"
+                nodes.count[^1] = 11
+
+                expressionTotal := clearLastAsExpression(nodes)
+                storedTotal := nodes.kind[^1]
+                storedTotal += (int)nodes.flags[^1]
+                storedTotal += (int)nodes.start[^1]
+                storedTotal += (nodes.active[^1] ? 100 : 0)
+                storedTotal += (int)nodes.marker[^1]
+                storedTotal += nodes.count[^1]
+                storedTotal += (nodes.name[^1] == null ? 1000 : 0)
+                storedTotal += (nodes.optionalName[^1] == null ? 10000 : 0)
+                return expressionTotal + storedTotal
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var clearLastAsExpression = ILShapeInspector.GetProgramMethod(assembly, "clearLastAsExpression");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(22000, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoFromEndSliceAllocation(clearLastAsExpression);
+            Assert.True(
+                ILShapeInspector.CountOpcode(clearLastAsExpression, OpCodes.Ldfld) >= 8,
+                "Direct SoA from-end default assignment expressions should load backing column fields directly.");
+            Assert.Equal(0, CountArrayElementLoads(clearLastAsExpression));
+            Assert.Equal(8, CountArrayElementStores(clearLastAsExpression));
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void NewCapacityConstructor_AllocatesOneArrayPerColumnWithoutRowObjects()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
@@ -1283,6 +1444,87 @@ public class SoaRecordILShapeTests
                 "Row-column default stores should load backing column fields directly.");
             Assert.Equal(0, CountArrayElementLoads(clearAll));
             Assert.Equal(8, CountArrayElementStores(clearAll));
+
+            return 0;
+        });
+    }
+
+    [Fact]
+    public void RowColumnVerifiedTypeDefaultStoreExpressions_ReturnDefaultWithoutOldElementRead()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                kind: int
+                flags: uint
+                start: long
+                active: bool
+                marker: char
+                name: string
+                optionalName: string?
+                count: int
+            }
+
+            func clearAllAsExpression(nodes: NodeTable, row: int): int {
+                kindDefault := nodes[row].kind = default
+                flagsDefault := nodes[row].flags = default
+                startDefault := nodes[row].start = default
+                activeDefault := nodes[row].active = default
+                markerDefault := nodes[row].marker = default
+                nameDefault := nodes[row].name = default
+                optionalNameDefault := nodes[row].optionalName = default
+                countDefault := nodes[row].count = default
+
+                total := kindDefault
+                total += (int)flagsDefault
+                total += (int)startDefault
+                total += (activeDefault ? 100 : 0)
+                total += (int)markerDefault
+                total += countDefault
+                total += (nameDefault == null ? 1000 : 0)
+                total += (optionalNameDefault == null ? 10000 : 0)
+                return total
+            }
+
+            func main(): int {
+                nodes := new NodeTable(1)
+                row := nodes.add()
+                nodes[row].kind = 3
+                nodes[row].flags = (uint)7
+                nodes[row].start = 19L
+                nodes[row].active = true
+                nodes[row].marker = 'A'
+                nodes[row].name = "name"
+                nodes[row].optionalName = "optional"
+                nodes[row].count = 11
+
+                expressionTotal := clearAllAsExpression(nodes, row)
+                storedTotal := nodes[row].kind
+                storedTotal += (int)nodes[row].flags
+                storedTotal += (int)nodes[row].start
+                storedTotal += (nodes[row].active ? 100 : 0)
+                storedTotal += (int)nodes[row].marker
+                storedTotal += nodes[row].count
+                storedTotal += (nodes[row].name == null ? 1000 : 0)
+                storedTotal += (nodes[row].optionalName == null ? 10000 : 0)
+                return expressionTotal + storedTotal
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var clearAllAsExpression = ILShapeInspector.GetProgramMethod(assembly, "clearAllAsExpression");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(22000, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoAllocationOrDispatch(clearAllAsExpression);
+            Assert.True(
+                ILShapeInspector.CountOpcode(clearAllAsExpression, OpCodes.Ldfld) >= 8,
+                "Row-column default assignment expressions should load backing column fields directly.");
+            Assert.Equal(0, CountArrayElementLoads(clearAllAsExpression));
+            Assert.Equal(8, CountArrayElementStores(clearAllAsExpression));
 
             return 0;
         });
