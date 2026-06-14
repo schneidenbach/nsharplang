@@ -186,7 +186,9 @@ from-end element access such as `table.column[^1]`, including default stores, nu
 and null-coalescing assignments.
 The same nullability rule applies to both row projection and direct column elements: `??` and `??=`
 require a nullable/reference column element and non-nullable columns reject the operation during
-analysis.
+analysis. Direct-column from-end access uses those same update and nullability diagnostics, so
+unsupported `table.column[^1]` writes stop before IL lowering instead of falling into the array
+backend.
 Replacing wrapper column arrays, mutating `length`/`capacity` directly, or mutating column slices is
 not allowed: shape changes must go through construction, `wrap`, `add`, `clear`, `ensureCapacity`, or
 `copyRow`.

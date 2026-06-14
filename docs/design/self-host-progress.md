@@ -11,6 +11,12 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — Direct SoA from-end unsupported operations stop in analysis
+
+Direct backing-column `System.Index` elements now have regression pins for the same unsupported
+operations as ordinary direct column elements. Non-nullable `??`/`??=`, boolean compound assignment,
+and non-integral increment/decrement all report source diagnostics before IL lowering.
+
 ## 2026-06-14 — Direct SoA from-end default stores avoid old reads
 
 Direct backing-column `System.Index` default stores now have opcode evidence matching ordinary

@@ -3976,6 +3976,26 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaRecordBoolFromEndDirectColumnCompoundAssignment_IsRejected()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                active: bool
+            }
+
+            func bad(nodes: NodeTable) {
+                nodes.active[^1] += true
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains("'+' operator doesn't work with 'bool' and 'bool'", error.Message);
+        Assert.Contains("numeric values", error.Message);
+    }
+
+    [Fact]
     public void ILCompiler_SoaRecordGeneratedOperationsBindNamedArguments()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
@@ -4790,6 +4810,48 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaRecordNullCoalesceAssignOnNonNullableFromEndDirectColumnElement_IsRejected()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable) {
+                nodes.kind[^1] ??= 5
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains("left side of '??=' has type 'int'", error.Message);
+        Assert.Contains("can't be null", error.Message);
+        Assert.Contains("make the target nullable", error.Suggestion);
+    }
+
+    [Fact]
+    public void Analyzer_SoaRecordNullCoalesceOnNonNullableFromEndDirectColumnElement_IsRejected()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable): int {
+                return nodes.kind[^1] ?? 5
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains("left side of '??' has type 'int'", error.Message);
+        Assert.Contains("can't be null", error.Message);
+        Assert.Contains("make the left side nullable", error.Suggestion);
+    }
+
+    [Fact]
     public void Analyzer_SoaRecordNonIntegralRowColumnIncrement_IsRejected()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
@@ -4821,6 +4883,26 @@ public class SoaRecordTests : ILCompilerTestBase
 
             func bad(nodes: NodeTable, row: int) {
                 nodes.text[row]++
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains("'++' operator doesn't work with 'string'", error.Message);
+        Assert.Contains("integral numeric value", error.Message);
+    }
+
+    [Fact]
+    public void Analyzer_SoaRecordNonIntegralFromEndDirectColumnIncrement_IsRejected()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                text: string
+            }
+
+            func bad(nodes: NodeTable) {
+                nodes.text[^1]++
             }
             """);
 
