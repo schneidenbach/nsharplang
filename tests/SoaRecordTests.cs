@@ -3825,6 +3825,26 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaTableWrapRejectsDefaultColumnLiteral()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad() {
+                nodes := NodeTable.wrap(default, 0)
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains("SoA table wrap column 'kind' cannot be null", error.Message);
+        Assert.Contains("backing 'kind' column array", error.Suggestion);
+    }
+
+    [Fact]
     public void Analyzer_SoaTableWrapRejectsNullNamedColumnLiteral()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

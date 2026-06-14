@@ -11,6 +11,12 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA wrap rejects positional default columns
+
+`Table.wrap(default, length)` now has regression coverage beside positional `null` and named
+`default` column arguments. A target-typed `default` array would still be a null backing column, so
+the analyzer keeps it out of wrapper lowering with the SoA wrap-column diagnostic.
+
 ## 2026-06-14 — Direct SoA from-end column updates have IL-shape proof
 
 Direct backing-column `System.Index` updates now have opcode evidence beyond simple read/store.
