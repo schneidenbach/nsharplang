@@ -3915,6 +3915,26 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaRecordBoolDirectColumnCompoundAssignment_IsRejected()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                active: bool
+            }
+
+            func bad(nodes: NodeTable, row: int) {
+                nodes.active[row] += true
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains("'+' operator doesn't work with 'bool' and 'bool'", error.Message);
+        Assert.Contains("numeric values", error.Message);
+    }
+
+    [Fact]
     public void ILCompiler_SoaRecordGeneratedOperationsBindNamedArguments()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
@@ -4740,6 +4760,26 @@ public class SoaRecordTests : ILCompilerTestBase
 
             func bad(nodes: NodeTable, row: int) {
                 nodes[row].text++
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains("'++' operator doesn't work with 'string'", error.Message);
+        Assert.Contains("integral numeric value", error.Message);
+    }
+
+    [Fact]
+    public void Analyzer_SoaRecordNonIntegralDirectColumnIncrement_IsRejected()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                text: string
+            }
+
+            func bad(nodes: NodeTable, row: int) {
+                nodes.text[row]++
             }
             """);
 

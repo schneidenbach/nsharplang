@@ -11,6 +11,12 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — Direct SoA column unsupported updates stop in analysis
+
+Direct column element mutation now has analyzer pins for the same unsupported value cases as row
+projection. Boolean `table.column[row] += value` and non-integral `table.column[row]++` report source
+diagnostics during analysis, keeping unsupported direct systems-kernel updates out of IL lowering.
+
 ## 2026-06-14 — Direct SoA column expression updates have IL-shape proof
 
 Direct column element updates now match the row-projection expression coverage. Consumed compound

@@ -173,7 +173,8 @@ column element types. These accepted operations lower to the backing column arra
 materialization; non-integral columns such as `string` still support reads/stores/null coalescing but
 reject `++`/`--` during analysis. Compound assignment must type-check through the underlying operator
 and produce a result assignable back to the column, so boolean columns reject `+=`, `-=`, `*=`, and `/=`
-before lowering. Direct column-element access through `table.column[row]` is also
+before lowering. Direct column-element access through `table.column[row]` follows the same update
+typing rules and is also
 permitted for explicit systems kernels when the index shape is one the built-in array path supports.
 Direct column elements support the same scalar update shapes as row projection: expression-valued
 stores and compound assignments return the stored value, prefix/postfix increments preserve their
@@ -225,8 +226,8 @@ The compiler must produce direct diagnostics for common misuse:
   `length` throw "source row for NodeTable.copyRow must be less than length";
   target rows too large to extend throw "target row for NodeTable.copyRow is too large";
 - unsupported element type: "SoA column type X is not supported in this lowering";
-- unsupported row-column compound assignment: "The '+' operator doesn't work with 'X' and 'Y'";
-- non-integral row-column increment/decrement: "The '++' operator doesn't work with 'X'";
+- unsupported row/direct column compound assignment: "The '+' operator doesn't work with 'X' and 'Y'";
+- non-integral row/direct column increment/decrement: "The '++' operator doesn't work with 'X'";
 - non-nullable row/direct column null coalescing: "The left side of '??' has type 'X', which can't be null";
 - non-int or range row indexes: "SoA table indexes must be int row ids";
 - statically negative row indexes: "SoA table row indexes must not be negative" or
