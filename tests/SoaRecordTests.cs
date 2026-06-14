@@ -329,6 +329,46 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaRowViewCannotBeThrown()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable) {
+                throw nodes[0]
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("SoA row views cannot be thrown", error.Message);
+        Assert.Contains("table[index].column", error.Suggestion);
+    }
+
+    [Fact]
+    public void Analyzer_SoaRowViewCannotBeThrownFromExpression()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable, ok: bool): int {
+                return ok ? 1 : throw nodes[0]
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("SoA row views cannot be thrown", error.Message);
+        Assert.Contains("table[index].column", error.Suggestion);
+    }
+
+    [Fact]
     public void Analyzer_SoaRowViewCannotEscapeThroughAssignment()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

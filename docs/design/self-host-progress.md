@@ -11,6 +11,12 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA row-view escape diagnostics cover thrown values
+
+SoA row views now report the SoA-specific escape diagnostic when they are used as thrown values in both
+`throw value` statements and `throw value` expressions. Throw expressions also analyze their operand now,
+so row-view misuse cannot hide behind `condition ? value : throw row`.
+
 ## 2026-06-14 — SoA row-view escape diagnostics cover expression-body returns
 
 SoA row views now report the SoA-specific return diagnostic across expression-bodied functions, local

@@ -2281,7 +2281,8 @@ public class Analyzer : IDisposable
                 }
                 break;
             case ThrowStatement throwStmt:
-                AnalyzeExpression(throwStmt.Expression);
+                var thrownType = AnalyzeExpression(throwStmt.Expression);
+                ReportSoaRowEscapeIfNeeded(throwStmt.Expression, thrownType, "thrown");
                 break;
             case TryStatement tryStmt:
                 AnalyzeTryStatement(tryStmt);
@@ -4426,7 +4427,7 @@ public class Analyzer : IDisposable
             CastExpression cast => ResolveType(cast.TargetType),
             IsExpression isExpr => AnalyzeIsExpression(isExpr),
             AwaitExpression await => AnalyzeAwaitExpression(await),
-            ThrowExpression => BuiltInTypes.Never,
+            ThrowExpression throwExpr => AnalyzeThrowExpression(throwExpr),
             ThisExpression => GetCurrentTypeScope() ?? BuiltInTypes.Unknown,
             MatchExpression match => AnalyzeMatchExpression(match),
             TypeOfExpression typeofExpr => AnalyzeTypeofExpression(typeofExpr),
@@ -11686,6 +11687,13 @@ public class Analyzer : IDisposable
         var exprType = AnalyzeExpression(await.Expression);
         // TODO: Unwrap Task<T> to get T
         return BuiltInTypes.Unknown;
+    }
+
+    private TypeInfo AnalyzeThrowExpression(ThrowExpression throwExpr)
+    {
+        var thrownType = AnalyzeExpression(throwExpr.Expression);
+        ReportSoaRowEscapeIfNeeded(throwExpr.Expression, thrownType, "thrown");
+        return BuiltInTypes.Never;
     }
 
     private TypeInfo AnalyzeTypeofExpression(TypeOfExpression typeofExpr)
