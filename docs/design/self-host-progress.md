@@ -11,6 +11,12 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — Direct SoA from-end column updates have IL-shape proof
+
+Direct backing-column `System.Index` updates now have opcode evidence beyond simple read/store.
+`table.column[^1] += value`, postfix increment, and prefix increment all stay on the backing column
+array with no slice allocation, row construction, boxing, delegate construction, or virtual dispatch.
+
 ## 2026-06-14 — SoA row projection rejects from-end indexes
 
 SoA table row projection now has a regression pin for `table[^1].column`. Direct column arrays can use

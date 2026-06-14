@@ -181,7 +181,8 @@ permitted for explicit systems kernels when the index shape is one the built-in 
 Direct column elements support the same scalar update shapes as row projection: expression-valued
 stores and compound assignments return the stored value, prefix/postfix increments preserve their
 ordinary result semantics, and default stores write the backing column without reading the old value
-or materializing a row.
+or materializing a row. These accepted direct-column update shapes also apply to `System.Index`
+from-end element access such as `table.column[^1]`.
 The same nullability rule applies to both row projection and direct column elements: `??` and `??=`
 require a nullable/reference column element and non-nullable columns reject the operation during
 analysis.

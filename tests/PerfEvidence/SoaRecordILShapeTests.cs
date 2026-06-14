@@ -322,6 +322,57 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void DirectColumnFromEndIndexUpdates_UseColumnArrayOffsetWithoutSliceAllocation()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                kind: int
+            }
+
+            func updateLast(nodes: NodeTable): int {
+                nodes.kind[^1] = 10
+                assigned := nodes.kind[^1] += 5
+                old := nodes.kind[^1]++
+                pre := ++nodes.kind[^1]
+                return assigned * 1000 + old * 100 + pre * 10 + nodes.kind[^1]
+            }
+
+            func main(): int {
+                nodes := new NodeTable(2)
+                return updateLast(nodes)
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var updateLast = ILShapeInspector.GetProgramMethod(assembly, "updateLast");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(16687, Assert.IsType<int>(main.Invoke(null, null)));
+
+            ILShapeInspector.AssertNoBoxing(updateLast);
+            Assert.Equal(0, ILShapeInspector.CountOpcode(updateLast, OpCodes.Newarr));
+            Assert.Equal(0, ILShapeInspector.CountDelegateConstructions(updateLast));
+            Assert.Equal(0, ILShapeInspector.CountOpcode(updateLast, OpCodes.Callvirt));
+            Assert.Equal(0, ILShapeInspector.CountCallsTo(
+                updateLast,
+                typeof(System.Runtime.CompilerServices.RuntimeHelpers),
+                nameof(System.Runtime.CompilerServices.RuntimeHelpers.GetSubArray)));
+            Assert.True(
+                ILShapeInspector.CountOpcode(updateLast, OpCodes.Ldfld) >= 5,
+                "Direct SoA from-end column updates should still read the backing column field.");
+            Assert.True(
+                CountArrayElementLoads(updateLast) >= 5,
+                "Direct SoA from-end column updates should read current and returned values from the backing array.");
+            Assert.Equal(4, CountArrayElementStores(updateLast));
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void NewCapacityConstructor_AllocatesOneArrayPerColumnWithoutRowObjects()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
