@@ -1651,6 +1651,48 @@ func Main() {
     }
 
     [Fact]
+    public void CompoundAssignment_BoolOperand_Error()
+    {
+        var result = AnalyzeWithSource(@"
+            func Main() {
+                value := true
+                value += true
+            }
+        ");
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains("'+' operator doesn't work with 'bool' and 'bool'", error.Message);
+        Assert.Contains("numeric values", error.Message);
+    }
+
+    [Fact]
+    public void CompoundAssignment_DecimalOperand_NoErrors()
+    {
+        AssertNoErrors(@"
+            func Main() {
+                value := 10m
+                value += 2.5m
+            }
+        ");
+    }
+
+    [Fact]
+    public void CompoundAssignment_PromotedSmallIntegerResult_Error()
+    {
+        var result = AnalyzeWithSource(@"
+            func Main() {
+                left: byte = 1 as byte
+                right: byte = 2 as byte
+                left += right
+            }
+        ");
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains("'+=' assignment produces 'int'", error.Message);
+        Assert.Contains("can't be stored in 'byte'", error.Message);
+    }
+
+    [Fact]
     public void NullCoalesceAssignment_NonNullableValueTarget_Invalid()
     {
         var result = Analyze(@"

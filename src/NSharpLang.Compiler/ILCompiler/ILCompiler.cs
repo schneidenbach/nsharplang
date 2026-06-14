@@ -15993,6 +15993,20 @@ public partial class ILCompiler
             return;
         }
 
+        if (TryGetCompoundAssignmentBinaryOperator(op, out var binaryOperator)
+            && ResolveBinaryOperatorMethod(binaryOperator, operandType, operandType) is { } operatorMethod)
+        {
+            _currentIL.Emit(OpCodes.Call, operatorMethod);
+            return;
+        }
+
+        var opcodeOperandType = NormalizeOverflowCheckedType(operandType);
+        if (!CanEmitRawCompoundAssignmentOpcode(opcodeOperandType))
+        {
+            throw new InvalidOperationException(
+                $"Compound assignment operator {op} is not supported for {operandType.FullName ?? operandType.Name}");
+        }
+
         switch (op)
         {
             case AssignmentOperator.AddAssign:
@@ -16005,11 +16019,48 @@ public partial class ILCompiler
                 _currentIL.Emit(OpCodes.Mul);
                 break;
             case AssignmentOperator.DivideAssign:
-                _currentIL.Emit(OpCodes.Div);
+                _currentIL.Emit(UsesUnsignedNumericOpcode(opcodeOperandType) ? OpCodes.Div_Un : OpCodes.Div);
                 break;
             default:
                 throw new NotImplementedException($"Assignment operator {op} not yet implemented in IL compiler");
         }
+    }
+
+    private static bool TryGetCompoundAssignmentBinaryOperator(AssignmentOperator op, out BinaryOperator binaryOperator)
+    {
+        switch (op)
+        {
+            case AssignmentOperator.AddAssign:
+                binaryOperator = BinaryOperator.Add;
+                return true;
+            case AssignmentOperator.SubtractAssign:
+                binaryOperator = BinaryOperator.Subtract;
+                return true;
+            case AssignmentOperator.MultiplyAssign:
+                binaryOperator = BinaryOperator.Multiply;
+                return true;
+            case AssignmentOperator.DivideAssign:
+                binaryOperator = BinaryOperator.Divide;
+                return true;
+            default:
+                binaryOperator = default;
+                return false;
+        }
+    }
+
+    private static bool CanEmitRawCompoundAssignmentOpcode(Type operandType)
+    {
+        return operandType == typeof(byte)
+            || operandType == typeof(sbyte)
+            || operandType == typeof(short)
+            || operandType == typeof(ushort)
+            || operandType == typeof(int)
+            || operandType == typeof(uint)
+            || operandType == typeof(long)
+            || operandType == typeof(ulong)
+            || operandType == typeof(char)
+            || operandType == typeof(float)
+            || operandType == typeof(double);
     }
 
     private void EmitNullCoalesce(BinaryExpression binary)

@@ -472,6 +472,23 @@ func testCompoundAssignment(): int {
     }
 
     [Fact]
+    public void ILCompiler_DecimalCompoundAssignment_UsesDecimalOperators()
+    {
+        var source = """
+            func main(): decimal {
+                value := 10m
+                value += 2.5m
+                value *= 2m
+                value -= 5m
+                value /= 4m
+                return value
+            }
+            """;
+
+        Assert.Equal(5m, Assert.IsType<decimal>(CompileAndInvoke(source)));
+    }
+
+    [Fact]
     public void ILCompiler_SavesAssemblyToDisk()
     {
         var outputPath = Path.Combine(Path.GetTempPath(), "ILCompilerTest_" + Guid.NewGuid() + ".dll");

@@ -2373,6 +2373,26 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaRecordBoolRowColumnCompoundAssignment_IsRejected()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                active: bool
+            }
+
+            func bad(nodes: NodeTable, row: int) {
+                nodes[row].active += true
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains("'+' operator doesn't work with 'bool' and 'bool'", error.Message);
+        Assert.Contains("numeric values", error.Message);
+    }
+
+    [Fact]
     public void ILCompiler_SoaRecordGeneratedOperationsBindNamedArguments()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

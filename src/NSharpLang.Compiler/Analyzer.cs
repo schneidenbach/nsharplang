@@ -2902,6 +2902,17 @@ public class Analyzer : IDisposable
         _ => op.ToString()
     };
 
+    private static string GetAssignmentOperatorText(AssignmentOperator op) => op switch
+    {
+        AssignmentOperator.Assign => "=",
+        AssignmentOperator.AddAssign => "+=",
+        AssignmentOperator.SubtractAssign => "-=",
+        AssignmentOperator.MultiplyAssign => "*=",
+        AssignmentOperator.DivideAssign => "/=",
+        AssignmentOperator.NullCoalesceAssign => "??=",
+        _ => op.ToString()
+    };
+
     private (int Line, int Column, int Length) GetBinaryOperatorDiagnosticSpan(BinaryExpression expression)
         => (expression.Line, expression.Column, Math.Max(1, GetBinaryOperatorText(expression.Operator).Length));
 
@@ -11362,7 +11373,8 @@ public class Analyzer : IDisposable
         // Check for readonly field assignment outside constructor
         CheckReadonlyFieldAssignment(assignment.Target, assignment.Line, assignment.Column);
 
-        if (!IsAssignable(targetType, valueType))
+        var valueAssignable = IsAssignable(targetType, valueType);
+        if (!valueAssignable)
         {
             var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetExpressionDiagnosticSpan(assignment.Value);
             var sourceSnippet = _sourceLines != null && diagnosticLine > 0 && diagnosticLine <= _sourceLines.Length
@@ -11388,11 +11400,113 @@ public class Analyzer : IDisposable
                     diagnosticLine, diagnosticColumn, length: diagnosticLength);
             }
         }
+        else if (ReportInvalidCompoundAssignmentIfNeeded(assignment, targetType, valueType))
+        {
+            return BuiltInTypes.Unknown;
+        }
 
         UpdateNullStateAfterAssignment(assignment.Target, assignment.Value, targetType, valueType);
         MarkErrorTupleResultAvailableAfterAssignment(assignment.Target);
 
         return targetType;
+    }
+
+    private bool ReportInvalidCompoundAssignmentIfNeeded(
+        AssignmentExpression assignment,
+        TypeInfo targetType,
+        TypeInfo valueType)
+    {
+        if (!TryGetCompoundAssignmentBinaryOperator(assignment.Operator, out var binaryOperator))
+        {
+            return false;
+        }
+
+        if (BuiltInTypes.IsUnknown(targetType) || BuiltInTypes.IsUnknown(valueType))
+        {
+            return false;
+        }
+
+        if ((assignment.Operator is AssignmentOperator.AddAssign or AssignmentOperator.SubtractAssign)
+            && IsDelegateLikeAssignmentType(targetType))
+        {
+            return false;
+        }
+
+        var operatorExpression = new BinaryExpression(
+            assignment.Target,
+            binaryOperator,
+            assignment.Value,
+            assignment.Line,
+            assignment.Column);
+        var resultType = AnalyzeCompoundAssignmentOperatorResult(binaryOperator, targetType, valueType, operatorExpression);
+        if (BuiltInTypes.IsUnknown(resultType))
+        {
+            return true;
+        }
+
+        if (IsAssignable(targetType, resultType))
+        {
+            return false;
+        }
+
+        var opText = GetAssignmentOperatorText(assignment.Operator);
+        Error(
+            ErrorCode.TypeMismatch,
+            $"The '{opText}' assignment produces '{resultType}', which can't be stored in '{targetType}'",
+            assignment.Line,
+            assignment.Column,
+            "Use an explicit assignment with a conversion, or choose operands whose operator result is assignable to the target.",
+            Math.Max(1, opText.Length));
+        return true;
+    }
+
+    private TypeInfo AnalyzeCompoundAssignmentOperatorResult(
+        BinaryOperator binaryOperator,
+        TypeInfo targetType,
+        TypeInfo valueType,
+        BinaryExpression operatorExpression)
+    {
+        return binaryOperator switch
+        {
+            BinaryOperator.Add or BinaryOperator.Subtract or BinaryOperator.Multiply or BinaryOperator.Divide
+                => AnalyzeArithmeticOp(targetType, valueType, operatorExpression),
+            _ => BuiltInTypes.Unknown
+        };
+    }
+
+    private static bool TryGetCompoundAssignmentBinaryOperator(AssignmentOperator assignmentOperator, out BinaryOperator binaryOperator)
+    {
+        switch (assignmentOperator)
+        {
+            case AssignmentOperator.AddAssign:
+                binaryOperator = BinaryOperator.Add;
+                return true;
+            case AssignmentOperator.SubtractAssign:
+                binaryOperator = BinaryOperator.Subtract;
+                return true;
+            case AssignmentOperator.MultiplyAssign:
+                binaryOperator = BinaryOperator.Multiply;
+                return true;
+            case AssignmentOperator.DivideAssign:
+                binaryOperator = BinaryOperator.Divide;
+                return true;
+            default:
+                binaryOperator = default;
+                return false;
+        }
+    }
+
+    private bool IsDelegateLikeAssignmentType(TypeInfo type)
+    {
+        var resolved = ResolveTypeAlias(type);
+        return resolved switch
+        {
+            GenericTypeInfo { Name: "Func" or "Action" } => true,
+            ReflectionTypeInfo reflection => IsDelegateType(reflection.Type) || IsRuntimeDelegateType(reflection.Type),
+            ObliviousTypeInfo oblivious => IsDelegateLikeAssignmentType(oblivious.InnerType),
+            NullableTypeInfo nullable => IsDelegateLikeAssignmentType(nullable.InnerType),
+            _ => false
+        };
     }
 
     private void CheckNullCoalesceAssignmentTarget(AssignmentExpression assignment, TypeInfo targetType)

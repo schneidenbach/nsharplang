@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — Compound assignment validates the operator result before emission
+
+Compound assignment now type-checks as a real read/operate/write operation instead of accepting any
+right-hand side assignable to the target. The analyzer validates the underlying `+`, `-`, `*`, or `/`
+operator and requires its result to be assignable back to the target, so unsupported cases such as
+`boolValue += true`, `byteValue += otherByte`, and `table[row].boolColumn += true` report source
+diagnostics before IL emission instead of relying on backend failures or silent narrowing. The C# IL
+backend now also routes compound decimal and user-defined operator cases through the existing static
+operator resolver before falling back to primitive opcodes.
+
 ## 2026-06-14 — SoA column slice write diagnostics cover every write form
 
 Direct SoA column range slices remain blocked as hidden array-allocation shapes. The analyzer coverage now
