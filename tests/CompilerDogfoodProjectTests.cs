@@ -7986,11 +7986,11 @@ class B
         Assert.True(missing.Length == 0, $"checksum functions missing from the merged emit: {string.Join(", ", missing)}");
     }
 
-    // CORPUS COVERAGE (ratcheting): how many REAL dogfood compiler-service files the standalone columnar
-    // backend can compile end-to-end with no C# AST. Each named file below must compile (a regression that breaks
-    // one fails here), each emitting a loadable assembly with at least one function. The total compiling count
-    // is asserted >= the named floor, so future features only RAISE coverage. As more files compile, add them to
-    // the list. (Deep per-function parity on a real file lives in
+    // CORPUS COVERAGE (ratcheting): how many REAL dogfood compiler-service files, plus their extracted
+    // parity-corpus twins when present, the standalone columnar backend can compile end-to-end with no C# AST.
+    // Each named file below must compile (a regression that breaks one fails here), each emitting a loadable
+    // assembly with at least one function. The total compiling count is asserted >= the named floor, so future
+    // features only RAISE coverage. As more files compile, add them to the list. (Deep per-function parity lives in
     // ColumnarCodegen_CompilesRealDogfoodFile_FormatterSafetyScan; this test proves COMPILATION breadth.)
     [Fact]
     public void ColumnarCodegen_CompilesRealDogfoodCorpus_Coverage()
@@ -8010,7 +8010,7 @@ class B
 
         foreach (var name in expectedCompiling)
         {
-            var (ok, assembly, _, methodNames) = RouteColumnarProgram(File.ReadAllText(Path.Combine(dir, name)));
+            var (ok, assembly, _, methodNames) = RouteColumnarProgram(ReadDogfoodFileWithParityCorpus(name));
             Assert.True(ok, $"Expected the columnar backend to compile dogfood file {name}, but it declined.");
             Assert.NotEmpty(methodNames!);
             using var loadScope = CollectibleAssemblyScope.Load(assembly!); // the emitted IL is a loadable assembly.
@@ -8018,7 +8018,7 @@ class B
         }
 
         var totalCompiling = Directory.EnumerateFiles(dir, "*.nl")
-            .Count(f => RouteColumnarProgram(File.ReadAllText(f)).Ok);
+            .Count(f => RouteColumnarProgram(ReadDogfoodFileWithParityCorpus(Path.GetFileName(f))).Ok);
         Assert.True(totalCompiling >= expectedCompiling.Length,
             $"Corpus coverage regressed: {totalCompiling} files compile, expected >= {expectedCompiling.Length}.");
     }

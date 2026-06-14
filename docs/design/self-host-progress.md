@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — Path-matching pressure probe leaves product dogfood
+
+`CodeIntelligencePathMatches`, `CodeIntelligencePathMatchFlagsInto`, and the private slash-normalized
+case-fold helpers moved to the parity corpus with `CodeIntelligencePathMatchChecksumInto`. The probe
+remains compiled for parity and real-file columnar coverage, but production path matching stays on the
+current C# helper because the N# char-loop candidate missed the normal speed gate.
+
 ## 2026-06-14 — Diagnostic-cluster public-string probes leave product dogfood
 
 `DiagnosticClusterTraitsAndPatternsInto`, `DiagnosticClusterIdsInto`, and
