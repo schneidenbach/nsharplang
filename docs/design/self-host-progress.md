@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — Analyzer overload-signature parity probe leaves product dogfood
+
+The overload-signature distinctness probe in `AnalyzerExhaustiveness.nl` has moved to the parity corpus
+with its checksum batch oracle. Product dogfood still exposes the analyzer exhaustiveness kernels the
+C# adapter calls for missing members and union cases, but no longer ships the rank-buffer/table helpers
+used only by overload-signature parity tests.
+
 ## 2026-06-14 — Format-discovery path filtering stops shipping as dogfood product surface
 
 The remaining `CliShouldFormatDiscoveredPath` test/parity island now lives wholly in the parity corpus:

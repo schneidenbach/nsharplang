@@ -81,6 +81,89 @@ func AnalyzerUnionMissingCaseChecksumInto(
     return checksum
 }
 
+struct AnalyzerSignatureRankBuffer {
+    Ranks: int[]
+}
+
+struct AnalyzerOverloadSignatureTable {
+    Ranks: int[]
+    Offsets: int[]
+    Lengths: int[]
+}
+
+// Overload parameter-signature distinctness, compact-rank form.
+//
+// Each function declaration's parameter list is projected by the caller into a row of stable
+// parameter-type ranks (one int per parameter; distinct .NET/N# type signatures map to distinct
+// ranks). The candidate row lives at candidateRanks[0..candidateLength). Existing overload rows are
+// packed contiguously into existingRanks with per-row start offsets in existingOffsets and per-row
+// lengths in existingLengths (existingCount rows total).
+//
+// Returns 1 when the candidate signature is distinct from every existing row (a new overload),
+// 0 when some existing row has the same arity and identical rank sequence (a duplicate), and -1 on
+// a malformed request. This replaces the C# GetParameterTypeSignature string build + string `!=`
+// comparison with a single integer-rank scan over caller-owned buffers.
+func AnalyzerOverloadSignatureDistinct(
+    candidateRanks: int[],
+    candidateLength: int,
+    existingRanks: int[],
+    existingOffsets: int[],
+    existingLengths: int[],
+    existingCount: int): int {
+    candidate := new AnalyzerSignatureRankBuffer { Ranks: candidateRanks }
+    existing := new AnalyzerOverloadSignatureTable { Ranks: existingRanks, Offsets: existingOffsets, Lengths: existingLengths }
+    return AnalyzerOverloadSignatureDistinctCore(ref candidate, 0, candidateLength, ref existing, existingCount)
+}
+
+func AnalyzerOverloadSignatureDistinctCore(
+    candidate: &AnalyzerSignatureRankBuffer,
+    candidateOffset: int,
+    candidateLength: int,
+    existing: &AnalyzerOverloadSignatureTable,
+    existingCount: int): int {
+    if candidateOffset < 0 ||
+        candidateLength < 0 ||
+        candidateLength > candidate.Ranks.Length ||
+        candidateOffset > candidate.Ranks.Length - candidateLength ||
+        existingCount < 0 ||
+        existingCount > existing.Offsets.Length ||
+        existingCount > existing.Lengths.Length {
+        return -1
+    }
+
+    row := 0
+    while row < existingCount {
+        existingLength := existing.Lengths[row]
+        if existingLength == candidateLength {
+            offset := existing.Offsets[row]
+            // Subtraction-form bounds check (offset/length already non-negative) avoids
+            // int overflow on offset + length for adversarial existing-row descriptors.
+            if offset < 0 || existingLength > existing.Ranks.Length || offset > existing.Ranks.Length - existingLength {
+                return -1
+            }
+
+            matches := true
+            i := 0
+            while i < existingLength {
+                if existing.Ranks[offset + i] != candidate.Ranks[candidateOffset + i] {
+                    matches = false
+                    i = existingLength
+                } else {
+                    i = i + 1
+                }
+            }
+
+            if matches {
+                return 0
+            }
+        }
+
+        row = row + 1
+    }
+
+    return 1
+}
+
 // Batched distinctness checksum used for benchmark/parity. Each candidate row is projected like the
 // single-shot kernel above (ranks in candidateRanks, per-candidate start in candidateOffsets, length
 // in candidateLengths). For each candidate the kernel scans the same packed existing-overload table
