@@ -8026,6 +8026,8 @@ class B
         Assert.DoesNotContain("TokenizeKindsInto", lexerProductMethods!);
         Assert.DoesNotContain("TokenizeMetadataInto", lexerProductMethods!);
         Assert.DoesNotContain("CommentsInto", lexerProductMethods!);
+        Assert.DoesNotContain("TokenizeCount", lexerProductMethods!);
+        Assert.DoesNotContain("CopyKindsCore", lexerProductMethods!);
 
         var lexerWithParity = ReadDogfoodFileWithParityCorpus("LexerTokenKindScanner.nl");
         var (lexerParityOk, _, _, lexerParityMethods) = RouteColumnarProgram(lexerWithParity);
@@ -8034,6 +8036,8 @@ class B
         Assert.Contains("TokenizeKindsInto", lexerParityMethods!);
         Assert.Contains("TokenizeMetadataInto", lexerParityMethods!);
         Assert.Contains("CommentsInto", lexerParityMethods!);
+        Assert.Contains("TokenizeCount", lexerParityMethods!);
+        Assert.Contains("CopyKindsCore", lexerParityMethods!);
     }
 
     // PRODUCT CORPUS COVERAGE (ratcheting): how many shipped dogfood compiler-service files, excluding extracted

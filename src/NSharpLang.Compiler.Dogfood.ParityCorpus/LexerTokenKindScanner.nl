@@ -25,6 +25,124 @@ func CommentsInto(source: string, lines: int[], columns: int[], starts: int[], l
     return CommentsCore(source, ref comments)
 }
 
+func CopyKindsCore(source: &LexerTokenKindTable, count: int): int[] {
+    result := new int[](count)
+    target := new LexerTokenKindTable { Kinds: result }
+    i := 0
+    while i < count {
+        target.Kinds[i] = source.Kinds[i]
+        i = i + 1
+    }
+
+    return result
+}
+
+func TokenizeCount(source: string): int {
+    position := 0
+    count := 0
+    length := source.Length
+
+    while position < length {
+        ch := source[position]
+
+        if IsWhitespaceExceptNewline(ch) {
+            position = position + 1
+            continue
+        }
+
+        if ch == '\n' {
+            count = count + 1
+            position = position + 1
+            continue
+        }
+
+        if ch == '\r' {
+            count = count + 1
+            position = position + 1
+            if position < length && source[position] == '\n' {
+                position = position + 1
+            }
+            continue
+        }
+
+        if ch == '/' && position + 1 < length {
+            next := source[position + 1]
+            if next == '/' {
+                position = position + 2
+                while position < length && source[position] != '\n' && source[position] != '\r' {
+                    position = position + 1
+                }
+                continue
+            }
+
+            if next == '*' {
+                position = position + 2
+                while position < length {
+                    if source[position] == '*' && position + 1 < length && source[position + 1] == '/' {
+                        position = position + 2
+                        break
+                    }
+
+                    position = position + 1
+                }
+                continue
+            }
+        }
+
+        if ch == '$' && position + 1 < length && source[position + 1] == '"' {
+            count = count + 1
+            if position + 3 < length && source[position + 2] == '"' && source[position + 3] == '"' {
+                position = ScanRawString(source, position + 4, length)
+            } else {
+                position = ScanString(source, position + 1, length, true)
+            }
+            continue
+        }
+
+        if ch == '"' {
+            count = count + 1
+            if position + 2 < length && source[position + 1] == '"' && source[position + 2] == '"' {
+                position = ScanRawString(source, position + 3, length)
+            } else {
+                position = ScanString(source, position, length, false)
+            }
+            continue
+        }
+
+        if ch == '\'' && IsLifetimeStartAt(source, position, length) {
+            count = count + 1
+            position = ScanLifetime(source, position, length)
+            continue
+        }
+
+        if ch == '\'' {
+            count = count + 1
+            position = ScanCharLiteral(source, position, length)
+            continue
+        }
+
+        if IsDigit(ch) {
+            count = count + 1
+            position = ScanNumberInfo(source, position, length) >> 2
+            continue
+        }
+
+        if IsIdentifierStart(ch) {
+            count = count + 1
+            position = position + 1
+            while position < length && IsIdentifierPart(source[position]) {
+                position = position + 1
+            }
+            continue
+        }
+
+        count = count + 1
+        position = ScanOperator(source, position, length)
+    }
+
+    return count + 1
+}
+
 func ParserTokenCompactionChecksumInto(tokenKinds: int[], resultIndices: int[]): int {
     length := tokenKinds.Length
     if resultIndices.Length < length {
