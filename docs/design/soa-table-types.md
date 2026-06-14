@@ -73,7 +73,7 @@ the same way as `new Table()`, including when the expected table type comes from
 return, expression-bodied function/local function, call argument, default parameter value, field,
 expression-bodied property, object initializer member, `with` expression member, assignment target,
 array literal element, array initializer element, collection literal element, tuple literal element,
-typed ternary/match result arm, or hard-cast target.
+typed ternary/match result arm, hard-cast target, or checked/unchecked expression wrapper.
 Parameter declarations cannot use any SoA table as an optional-parameter default, including `null`
 or `new Table(capacity)`, because defaults are metadata constants while table wrappers require
 runtime-owned columns or caller-provided wrapped columns.

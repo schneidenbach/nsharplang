@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — Checked wrappers preserve SoA target construction diagnostics
+
+`checked(...)` and `unchecked(...)` now preserve the surrounding expected type while analyzing their
+inner expression. SoA table `checked(default)`/`unchecked(default)` report the table default
+diagnostic instead of losing target context, and `checked(new())`/`unchecked(new())` report the
+missing-capacity constructor diagnostic before lowering.
+
 ## 2026-06-14 — SoA hard casts carry target-typed construction context
 
 Hard casts now provide their target type to target-typed `default` and `new()` operands during

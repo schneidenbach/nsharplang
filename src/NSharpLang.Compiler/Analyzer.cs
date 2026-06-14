@@ -13190,7 +13190,7 @@ public class Analyzer : IDisposable
     private TypeInfo AnalyzeCheckedExpression(CheckedExpression checkedExpr)
     {
         // Analyze the inner expression - type is preserved
-        var innerType = AnalyzeExpression(checkedExpr.Expression);
+        var innerType = AnalyzeExpressionWithExpectedType(checkedExpr.Expression, _currentExpectedType);
         if (ReportSoaRowEscapeIfNeeded(checkedExpr.Expression, innerType, "used in a checked expression"))
         {
             return BuiltInTypes.Unknown;
@@ -13202,7 +13202,7 @@ public class Analyzer : IDisposable
     private TypeInfo AnalyzeUncheckedExpression(UncheckedExpression uncheckedExpr)
     {
         // Analyze the inner expression - type is preserved
-        var innerType = AnalyzeExpression(uncheckedExpr.Expression);
+        var innerType = AnalyzeExpressionWithExpectedType(uncheckedExpr.Expression, _currentExpectedType);
         if (ReportSoaRowEscapeIfNeeded(uncheckedExpr.Expression, innerType, "used in an unchecked expression"))
         {
             return BuiltInTypes.Unknown;
