@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA column slice write diagnostics cover every write form
+
+Direct SoA column range slices remain blocked as hidden array-allocation shapes. The analyzer coverage now
+pins assignment, compound assignment, null-coalescing assignment, and increment/decrement over
+`table.column[start..end]` as pre-emission diagnostics. Direct column-array mutation is also pinned for
+`table.column++`, so systems kernels must stay on scalar `table.column[row]` access or generated table
+operations until an allocation-free view lowering has IL-shape evidence.
+
 ## 2026-06-14 — Increment/decrement rejects non-integral operands before emission
 
 The analyzer now validates `++`/`--` as real write operations instead of treating them as side-effecting

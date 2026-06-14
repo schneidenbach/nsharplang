@@ -161,9 +161,9 @@ column element types. These accepted operations lower to the backing column arra
 materialization; non-integral columns such as `string` still support reads/stores/null coalescing but
 reject `++`/`--` during analysis. Direct column-element access through `table.column[row]` is also
 permitted for explicit systems kernels when the index shape is one the built-in array path supports.
-Replacing wrapper column arrays, mutating `length`/`capacity` directly, or assigning to column slices
-is not allowed: shape changes must go through construction, `wrap`, `add`, `clear`, `ensureCapacity`,
-or `copyRow`.
+Replacing wrapper column arrays, mutating `length`/`capacity` directly, or mutating column slices is
+not allowed: shape changes must go through construction, `wrap`, `add`, `clear`, `ensureCapacity`, or
+`copyRow`.
 
 Direct column range reads (`table.column[start..end]`) are rejected because ordinary array slice
 semantics allocate a sliced array. They can be admitted only after an allocation-free span/view lowering
@@ -204,7 +204,8 @@ The compiler must produce direct diagnostics for common misuse:
 - non-int or range row indexes: "SoA table indexes must be int row ids";
 - direct table member mutation: "SoA table member 'X' cannot be assigned directly";
 - non-int direct column element indexes: "Array indexes must be int, System.Index, or System.Range";
-- direct column slice mutation: "Array slices cannot be assigned";
+- direct column slice mutation: "Array slices cannot be assigned" or
+  "Array slices cannot be incremented or decremented";
 - direct column slice reads: "SoA column range slices allocate arrays";
 - hidden allocation request: "this operation would allocate row objects; use column access instead".
 
