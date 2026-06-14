@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA row-view escape diagnostics cover expression-body returns
+
+SoA row views now report the SoA-specific return diagnostic across expression-bodied functions, local
+functions, properties, typed delegate lambdas, and inferred zero-parameter lambdas. That closes the return
+edge for every expression-body form, so a bare row view cannot become a function value or property result
+while the runtime still has no public row object model.
+
+Focused SoA coverage pins each expression-body path to the same actionable `table[index].column` guidance
+used by explicit `return` statements.
+
 ## 2026-06-14 — SoA row-view escape diagnostics cover initializer and constructor boundaries
 
 SoA row views now report the SoA-specific escape diagnostic when they appear in array literals,

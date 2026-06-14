@@ -758,6 +758,7 @@ public class Analyzer : IDisposable
         {
             // Expression-bodied method: check expression type matches return type
             var exprType = AnalyzeExpression(func.ExpressionBody);
+            ReportSoaRowEscapeIfNeeded(func.ExpressionBody, exprType, "returned");
             if (functionReturnType == BuiltInTypes.Void && exprType != BuiltInTypes.Void)
             {
                 AddExpressionBodyReturnError(func, exprType);
@@ -1481,6 +1482,7 @@ public class Analyzer : IDisposable
         if (prop.ExpressionBody != null)
         {
             var exprType = AnalyzeExpression(prop.ExpressionBody);
+            ReportSoaRowEscapeIfNeeded(prop.ExpressionBody, exprType, "returned");
             if (!IsAssignable(propType, exprType))
             {
                 var (diagnosticLine, diagnosticColumn, diagnosticLength) =
@@ -3029,6 +3031,7 @@ public class Analyzer : IDisposable
         else if (func.ExpressionBody != null)
         {
             var exprType = AnalyzeExpression(func.ExpressionBody);
+            ReportSoaRowEscapeIfNeeded(func.ExpressionBody, exprType, "returned");
             // Verify expression type matches return type
             if (returnType != BuiltInTypes.Void && !IsAssignable(returnType, exprType))
             {
@@ -10954,6 +10957,7 @@ public class Analyzer : IDisposable
         if (lambda.ExpressionBody != null)
         {
             returnType = AnalyzeExpressionWithExpectedType(lambda.ExpressionBody, expectedSignature?.ReturnType);
+            ReportSoaRowEscapeIfNeeded(lambda.ExpressionBody, returnType, "returned");
         }
         else if (lambda.BlockBody != null)
         {
