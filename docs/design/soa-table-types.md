@@ -577,11 +577,12 @@ ownership lands.
    scans, interface/enum/struct/class/record, constructor-chain, and union parser bodies through
    declaration token-stream and result-slot wrappers while preserving the flattened adapter ABI; its
    package/import, top-level modifier/name/kind/index/contextual-test scans, top-level function
-   preamble validation, matching-close-brace utility, token kind/start index lookup, property-accessor
-   layout parser, interface declaration, enum declaration, struct/class/record declaration,
+   preamble validation, top-level program declaration routing, matching-close-brace utility,
+   token kind/start index lookup, property-accessor layout parser, interface declaration, enum declaration, struct/class/record declaration,
    checked constructor-info parsing, constructor-chain body-index reporting, and union declaration cores keep token columns
    wrapper-shaped internally, so `ParserDeclarations.nl` no longer has raw token aliases inside its
-   product declaration parser cores.
+   product declaration parser cores; the top-level product router also keeps function, nominal, and
+   struct-like output columns behind named tables while preserving the flattened adapter ABI.
 7. Only after those gates pass, start replacing C# emitter/analyzer internals that still require untyped
    parallel-array plumbing.
 

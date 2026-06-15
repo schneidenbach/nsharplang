@@ -11,6 +11,19 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Top-level declaration router composes through wrapper cores
+
+`ParserDeclarations.nl` now keeps the product-routed top-level program declaration router on named
+N# tables for function outputs, nominal outputs, struct-like outputs, and result slots. The public
+flattened `TopLevelColumnar*DeclarationIndicesInto` ABIs remain available for the current adapter
+and parser parity tests, while `TopLevelColumnarProgramDeclarationIndicesCore` now composes the
+wrapper-aware function, nominal, and struct-like declaration cores directly instead of re-entering
+their flattened shims. Focused evidence:
+`./scripts/dev.sh Parser_TopLevelDeclarationKinds_MatchProductionParser`,
+`./scripts/dev.sh ColumnarCodegen_MultiFile_EligibleClusterCompiles`,
+`./scripts/dev.sh ColumnarCodegen_CompilesRealDogfoodCorpus_Coverage`, and
+`./scripts/dev.sh ColumnarCodegen_MultiFile_RealParserCluster`.
+
 ## 2026-06-15 — Function signature-info wrapper reuses SoA parser rowsets
 
 `ParserFunctionSignatures.nl` now routes `ParseFunctionSignatureInfoInto` through a wrapper-aware

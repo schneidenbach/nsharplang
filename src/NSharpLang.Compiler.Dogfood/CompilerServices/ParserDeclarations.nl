@@ -41,6 +41,34 @@ struct TopLevelDeclarationIndexTable {
     Indices: int[]
 }
 
+struct TopLevelStructLikeDeclarationTable {
+    Indices: int[]
+    ReferenceFlags: int[]
+    RecordFlags: int[]
+}
+
+struct TopLevelColumnarFunctionDeclarationTable {
+    Indices: int[]
+    AsyncFlags: int[]
+}
+
+struct TopLevelColumnarNominalDeclarationTable {
+    EnumIndices: int[]
+    UnionIndices: int[]
+    InterfaceIndices: int[]
+}
+
+struct TopLevelColumnarProgramDeclarationTable {
+    FuncIndices: int[]
+    FuncAsyncFlags: int[]
+    EnumIndices: int[]
+    UnionIndices: int[]
+    InterfaceIndices: int[]
+    StructIndices: int[]
+    StructReferenceFlags: int[]
+    StructRecordFlags: int[]
+}
+
 struct TopLevelDeclarationNameTable {
     Kinds: int[]
     NameStarts: int[]
@@ -491,102 +519,103 @@ func TopLevelDeclarationIndicesInto(tokenKinds: int[], count: int, targetKind: i
 
 func TopLevelStructLikeDeclarationIndicesInto(tokenKinds: int[], count: int, outIndices: int[], outReferenceFlags: int[], outRecordFlags: int[]): int {
     tokens := new ParserDeclarationKindStream { Kinds: tokenKinds }
-    outCount := TopLevelStructLikeDeclarationIndicesAppend(ref tokens, count, 9, 1, 0, 0, outIndices, outReferenceFlags, outRecordFlags, 0)
+    output := new TopLevelStructLikeDeclarationTable { Indices: outIndices, ReferenceFlags: outReferenceFlags, RecordFlags: outRecordFlags }
+    return TopLevelStructLikeDeclarationIndicesCore(ref tokens, count, ref output)
+}
+
+func TopLevelStructLikeDeclarationIndicesCore(tokens: &ParserDeclarationKindStream, count: int, output: &TopLevelStructLikeDeclarationTable): int {
+    outCount := TopLevelStructLikeDeclarationIndicesAppend(ref tokens, count, 9, 1, 0, 0, ref output, 0)
     if outCount < 0 {
         return -1
     }
 
-    outCount = TopLevelStructLikeDeclarationIndicesAppend(ref tokens, count, 13, 0, 1, 1, outIndices, outReferenceFlags, outRecordFlags, outCount)
+    outCount = TopLevelStructLikeDeclarationIndicesAppend(ref tokens, count, 13, 0, 1, 1, ref output, outCount)
     if outCount < 0 {
         return -1
     }
 
-    return TopLevelStructLikeDeclarationIndicesAppend(ref tokens, count, 8, 1, 1, 0, outIndices, outReferenceFlags, outRecordFlags, outCount)
+    return TopLevelStructLikeDeclarationIndicesAppend(ref tokens, count, 8, 1, 1, 0, ref output, outCount)
 }
 
 func TopLevelColumnarNominalDeclarationIndicesInto(tokenKinds: int[], count: int, outEnumIndices: int[], outUnionIndices: int[], outInterfaceIndices: int[], outResult: int[]): int {
-    if count < 0 || count > tokenKinds.Length || outResult.Length < 3 {
+    tokens := new ParserDeclarationKindStream { Kinds: tokenKinds }
+    outputs := new TopLevelColumnarNominalDeclarationTable { EnumIndices: outEnumIndices, UnionIndices: outUnionIndices, InterfaceIndices: outInterfaceIndices }
+    result := new ParserDeclarationResultTable { Values: outResult }
+    return TopLevelColumnarNominalDeclarationIndicesCore(ref tokens, count, ref outputs, ref result)
+}
+
+func TopLevelColumnarNominalDeclarationIndicesCore(tokens: &ParserDeclarationKindStream, count: int, outputs: &TopLevelColumnarNominalDeclarationTable, result: &ParserDeclarationResultTable): int {
+    if count < 0 || count > tokens.Kinds.Length || result.Values.Length < 3 {
         return -1
     }
 
-    tokens := new ParserDeclarationKindStream { Kinds: tokenKinds }
-    enumTable := new TopLevelDeclarationIndexTable { Indices: outEnumIndices }
+    enumTable := new TopLevelDeclarationIndexTable { Indices: outputs.EnumIndices }
     enumCount := TopLevelDeclarationIndicesCore(ref tokens, count, 14, 0, ref enumTable)
     if enumCount < 0 {
         return -1
     }
 
-    unionTable := new TopLevelDeclarationIndexTable { Indices: outUnionIndices }
+    unionTable := new TopLevelDeclarationIndexTable { Indices: outputs.UnionIndices }
     unionCount := TopLevelDeclarationIndicesCore(ref tokens, count, 12, 0, ref unionTable)
     if unionCount < 0 {
         return -1
     }
 
-    interfaceTable := new TopLevelDeclarationIndexTable { Indices: outInterfaceIndices }
+    interfaceTable := new TopLevelDeclarationIndexTable { Indices: outputs.InterfaceIndices }
     interfaceCount := TopLevelDeclarationIndicesCore(ref tokens, count, 10, 0, ref interfaceTable)
     if interfaceCount < 0 {
         return -1
     }
 
-    outResult[0] = enumCount
-    outResult[1] = unionCount
-    outResult[2] = interfaceCount
+    result.Values[0] = enumCount
+    result.Values[1] = unionCount
+    result.Values[2] = interfaceCount
     return enumCount + unionCount + interfaceCount
 }
 
 func TopLevelColumnarProgramDeclarationIndicesInto(source: string, rawTokenKinds: int[], rawTokenStarts: int[], rawTokenValueLengths: int[], rawCount: int, compactTokenKinds: int[], compactCount: int, outFuncIndices: int[], outFuncAsyncFlags: int[], outEnumIndices: int[], outUnionIndices: int[], outInterfaceIndices: int[], outStructIndices: int[], outStructReferenceFlags: int[], outStructRecordFlags: int[], outResult: int[]): int {
-    if outResult.Length < 6 {
+    rawTokens := new ParserDeclarationTokenTable { Kinds: rawTokenKinds, Starts: rawTokenStarts, ValueLengths: rawTokenValueLengths }
+    compactTokens := new ParserDeclarationKindStream { Kinds: compactTokenKinds }
+    outputs := new TopLevelColumnarProgramDeclarationTable { FuncIndices: outFuncIndices, FuncAsyncFlags: outFuncAsyncFlags, EnumIndices: outEnumIndices, UnionIndices: outUnionIndices, InterfaceIndices: outInterfaceIndices, StructIndices: outStructIndices, StructReferenceFlags: outStructReferenceFlags, StructRecordFlags: outStructRecordFlags }
+    result := new ParserDeclarationResultTable { Values: outResult }
+    return TopLevelColumnarProgramDeclarationIndicesCore(source, ref rawTokens, rawCount, ref compactTokens, compactCount, ref outputs, ref result)
+}
+
+func TopLevelColumnarProgramDeclarationIndicesCore(source: string, rawTokens: &ParserDeclarationTokenTable, rawCount: int, compactTokens: &ParserDeclarationKindStream, compactCount: int, outputs: &TopLevelColumnarProgramDeclarationTable, result: &ParserDeclarationResultTable): int {
+    if result.Values.Length < 6 {
         return -1
     }
 
-    functionResult := new int[](2)
-    functionCount := TopLevelColumnarFunctionDeclarationIndicesInto(
-        source,
-        rawTokenKinds,
-        rawTokenStarts,
-        rawTokenValueLengths,
-        rawCount,
-        compactTokenKinds,
-        compactCount,
-        outFuncIndices,
-        outFuncAsyncFlags,
-        functionResult)
+    functionOutputs := new TopLevelColumnarFunctionDeclarationTable { Indices: outputs.FuncIndices, AsyncFlags: outputs.FuncAsyncFlags }
+    functionResult := new ParserDeclarationResultTable { Values: new int[](2) }
+    functionCount := TopLevelColumnarFunctionDeclarationIndicesCore(source, ref rawTokens, rawCount, ref compactTokens, compactCount, ref functionOutputs, ref functionResult)
     if functionCount <= 0 {
         return -1
     }
 
-    nominalResult := new int[](3)
-    nominalCount := TopLevelColumnarNominalDeclarationIndicesInto(
-        compactTokenKinds,
-        compactCount,
-        outEnumIndices,
-        outUnionIndices,
-        outInterfaceIndices,
-        nominalResult)
+    nominalOutputs := new TopLevelColumnarNominalDeclarationTable { EnumIndices: outputs.EnumIndices, UnionIndices: outputs.UnionIndices, InterfaceIndices: outputs.InterfaceIndices }
+    nominalResult := new ParserDeclarationResultTable { Values: new int[](3) }
+    nominalCount := TopLevelColumnarNominalDeclarationIndicesCore(ref compactTokens, compactCount, ref nominalOutputs, ref nominalResult)
     if nominalCount < 0 {
         return -1
     }
 
-    structCount := TopLevelStructLikeDeclarationIndicesInto(
-        compactTokenKinds,
-        compactCount,
-        outStructIndices,
-        outStructReferenceFlags,
-        outStructRecordFlags)
+    structOutputs := new TopLevelStructLikeDeclarationTable { Indices: outputs.StructIndices, ReferenceFlags: outputs.StructReferenceFlags, RecordFlags: outputs.StructRecordFlags }
+    structCount := TopLevelStructLikeDeclarationIndicesCore(ref compactTokens, compactCount, ref structOutputs)
     if structCount < 0 {
         return -1
     }
 
-    outResult[0] = functionResult[0]
-    outResult[1] = functionCount
-    outResult[2] = nominalResult[0]
-    outResult[3] = nominalResult[1]
-    outResult[4] = nominalResult[2]
-    outResult[5] = structCount
+    result.Values[0] = functionResult.Values[0]
+    result.Values[1] = functionCount
+    result.Values[2] = nominalResult.Values[0]
+    result.Values[3] = nominalResult.Values[1]
+    result.Values[4] = nominalResult.Values[2]
+    result.Values[5] = structCount
     return functionCount + nominalCount + structCount
 }
 
-func TopLevelStructLikeDeclarationIndicesAppend(tokens: &ParserDeclarationKindStream, count: int, targetKind: int, suppressWhereClause: int, isReference: int, isRecord: int, outIndices: int[], outReferenceFlags: int[], outRecordFlags: int[], startCount: int): int {
+func TopLevelStructLikeDeclarationIndicesAppend(tokens: &ParserDeclarationKindStream, count: int, targetKind: int, suppressWhereClause: int, isReference: int, isRecord: int, output: &TopLevelStructLikeDeclarationTable, startCount: int): int {
     braceDepth := 0
     bracketDepth := 0
     parenDepth := 0
@@ -623,13 +652,13 @@ func TopLevelStructLikeDeclarationIndicesAppend(tokens: &ParserDeclarationKindSt
             if kind == 53 {
                 inWhereClause = true
             } else if kind == targetKind && (suppressWhereClause == 0 || !inWhereClause) {
-                if outCount >= outIndices.Length || outCount >= outReferenceFlags.Length || outCount >= outRecordFlags.Length {
+                if outCount >= output.Indices.Length || outCount >= output.ReferenceFlags.Length || outCount >= output.RecordFlags.Length {
                     return -1
                 }
 
-                outIndices[outCount] = i
-                outReferenceFlags[outCount] = isReference
-                outRecordFlags[outCount] = isRecord
+                output.Indices[outCount] = i
+                output.ReferenceFlags[outCount] = isReference
+                output.RecordFlags[outCount] = isRecord
                 outCount = outCount + 1
             }
         }
@@ -641,18 +670,24 @@ func TopLevelStructLikeDeclarationIndicesAppend(tokens: &ParserDeclarationKindSt
 }
 
 func TopLevelColumnarFunctionDeclarationIndicesInto(source: string, rawTokenKinds: int[], rawTokenStarts: int[], rawTokenValueLengths: int[], rawCount: int, compactTokenKinds: int[], compactCount: int, outFuncIndices: int[], outAsyncFlags: int[], outResult: int[]): int {
-    if rawCount < 0 || compactCount < 0 || rawCount > rawTokenKinds.Length || rawCount > rawTokenStarts.Length || rawCount > rawTokenValueLengths.Length || compactCount > compactTokenKinds.Length || outResult.Length < 2 {
+    rawTokens := new ParserDeclarationTokenTable { Kinds: rawTokenKinds, Starts: rawTokenStarts, ValueLengths: rawTokenValueLengths }
+    compactTokens := new ParserDeclarationKindStream { Kinds: compactTokenKinds }
+    outputs := new TopLevelColumnarFunctionDeclarationTable { Indices: outFuncIndices, AsyncFlags: outAsyncFlags }
+    result := new ParserDeclarationResultTable { Values: outResult }
+    return TopLevelColumnarFunctionDeclarationIndicesCore(source, ref rawTokens, rawCount, ref compactTokens, compactCount, ref outputs, ref result)
+}
+
+func TopLevelColumnarFunctionDeclarationIndicesCore(source: string, rawTokens: &ParserDeclarationTokenTable, rawCount: int, compactTokens: &ParserDeclarationKindStream, compactCount: int, outputs: &TopLevelColumnarFunctionDeclarationTable, result: &ParserDeclarationResultTable): int {
+    if rawCount < 0 || compactCount < 0 || rawCount > rawTokens.Kinds.Length || rawCount > rawTokens.Starts.Length || rawCount > rawTokens.ValueLengths.Length || compactCount > compactTokens.Kinds.Length || result.Values.Length < 2 {
         return -1
     }
 
-    rawTokens := new ParserDeclarationTokenTable { Kinds: rawTokenKinds, Starts: rawTokenStarts, ValueLengths: rawTokenValueLengths }
     if TopLevelContextualTestDeclarationExistsCore(source, ref rawTokens, rawCount) != 0 {
         return -1
     }
 
-    declKinds := new int[](rawCount + 1)
-    decls := new TopLevelDeclarationKindTable { Kinds: declKinds }
-    rawKindStream := new ParserDeclarationKindStream { Kinds: rawTokenKinds }
+    decls := new TopLevelDeclarationKindTable { Kinds: new int[](rawCount + 1) }
+    rawKindStream := new ParserDeclarationKindStream { Kinds: rawTokens.Kinds }
     declCount := TopLevelDeclarationKindsCore(ref rawKindStream, rawCount, ref decls)
     if declCount <= 0 {
         return -1
@@ -660,7 +695,7 @@ func TopLevelColumnarFunctionDeclarationIndicesInto(source: string, rawTokenKind
 
     i := 0
     while i < declCount {
-        kind := declKinds[i]
+        kind := decls.Kinds[i]
         if kind != 7 && kind != 14 && kind != 9 && kind != 13 && kind != 12 && kind != 8 && kind != 10 {
             return -1
         }
@@ -668,34 +703,32 @@ func TopLevelColumnarFunctionDeclarationIndicesInto(source: string, rawTokenKind
         i = i + 1
     }
 
-    modFlags := new int[](rawCount + 1)
-    modifiers := new TopLevelDeclarationModifierTable { Kinds: new int[](rawCount + 1), Modifiers: modFlags }
+    modifiers := new TopLevelDeclarationModifierTable { Kinds: new int[](rawCount + 1), Modifiers: new int[](rawCount + 1) }
     modifierCount := TopLevelDeclarationModifiersCore(ref rawKindStream, rawCount, ref modifiers)
     if modifierCount != declCount {
         return -1
     }
 
-    compactKindStream := new ParserDeclarationKindStream { Kinds: compactTokenKinds }
-    indices := new TopLevelDeclarationIndexTable { Indices: outFuncIndices }
-    funcCount := TopLevelDeclarationIndicesCore(ref compactKindStream, compactCount, 7, 0, ref indices)
-    if funcCount <= 0 || funcCount > outAsyncFlags.Length {
+    indices := new TopLevelDeclarationIndexTable { Indices: outputs.Indices }
+    funcCount := TopLevelDeclarationIndicesCore(ref compactTokens, compactCount, 7, 0, ref indices)
+    if funcCount <= 0 || funcCount > outputs.AsyncFlags.Length {
         return -1
     }
 
     asyncCount := 0
     i = 0
     while i < declCount {
-        if declKinds[i] == 7 {
-            if asyncCount >= outAsyncFlags.Length {
+        if decls.Kinds[i] == 7 {
+            if asyncCount >= outputs.AsyncFlags.Length {
                 return -1
             }
 
             asyncFlag := 0
-            if (modFlags[i] & 2048) != 0 {
+            if (modifiers.Modifiers[i] & 2048) != 0 {
                 asyncFlag = 1
             }
 
-            outAsyncFlags[asyncCount] = asyncFlag
+            outputs.AsyncFlags[asyncCount] = asyncFlag
             asyncCount = asyncCount + 1
         }
 
@@ -706,12 +739,12 @@ func TopLevelColumnarFunctionDeclarationIndicesInto(source: string, rawTokenKind
         return -1
     }
 
-    if TopLevelFunctionPreamblesAreValidCore(ref compactKindStream, compactCount, ref indices, funcCount) == 0 {
+    if TopLevelFunctionPreamblesAreValidCore(ref compactTokens, compactCount, ref indices, funcCount) == 0 {
         return -1
     }
 
-    outResult[0] = declCount
-    outResult[1] = funcCount
+    result.Values[0] = declCount
+    result.Values[1] = funcCount
     return funcCount
 }
 
