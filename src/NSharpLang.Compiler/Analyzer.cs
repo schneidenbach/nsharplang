@@ -14007,9 +14007,23 @@ public class Analyzer : IDisposable
                     return (call, "generic method call");
                 }
 
-                if (call.Arguments.Count != 0)
+                if (call.Arguments.Any(argument => argument.Modifier != ArgumentModifier.None))
                 {
-                    return (call, "method call with arguments");
+                    return (call, "ref/out method argument");
+                }
+
+                if (call.Arguments.Any(argument => argument.Name != null))
+                {
+                    return (call, "named method argument");
+                }
+
+                foreach (var argument in call.Arguments)
+                {
+                    var unsupported = FindUnsupportedExpressionTreeExpression(argument.Value, parameterNames);
+                    if (unsupported != null)
+                    {
+                        return unsupported;
+                    }
                 }
 
                 return FindUnsupportedExpressionTreeExpression(memberCall.Object, parameterNames);

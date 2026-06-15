@@ -6961,7 +6961,7 @@ func Main() {
     }
 
     [Fact]
-    public void QueryableLinq_ExpressionTreeLambdaCallWithArguments_ReportsFeatureNotImplemented()
+    public void QueryableLinq_ExpressionTreeLambdaNamedCallArgument_ReportsFeatureNotImplemented()
     {
         var result = AnalyzeWithSource(@"
             import System.Linq
@@ -6969,12 +6969,12 @@ func Main() {
             func Main() {
                 source := [1, 2, 3]
                 query := source.AsQueryable()
-                filtered := query.Where(x => x.ToString(""D"") == ""2"")
+                filtered := query.Where(x => x.ToString(format: ""D"") == ""2"")
             }
         ");
 
         var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.FeatureNotImplemented);
-        Assert.Contains("method call with arguments", error.Message);
+        Assert.Contains("named method argument", error.Message);
     }
 
     [Fact]

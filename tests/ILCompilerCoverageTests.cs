@@ -3632,6 +3632,24 @@ func main(): string {
     }
 
     [Fact]
+    public void ILCompiler_CanExecuteQueryableExpressionTreeCallArguments()
+    {
+        var source = @"
+import System
+import System.Linq
+
+func main(): string {
+    source := [2, 3]
+    query: IQueryable<int> = Queryable.AsQueryable<int>(source)
+    texts: IQueryable<string> = Queryable.Select<int, string>(query, x => x.ToString(""D2""))
+    return String.Join("":"", texts)
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal("02:03", Assert.IsType<string>(result));
+    }
+
+    [Fact]
     public void ILCompiler_CanEmitAnonymousObjectExpressionTreeLambdas()
     {
         var source = @"

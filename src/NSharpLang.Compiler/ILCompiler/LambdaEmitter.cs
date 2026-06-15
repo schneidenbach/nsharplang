@@ -1471,18 +1471,19 @@ public partial class ILCompiler
         }
 
         if (call.Callee is not MemberAccessExpression memberAccess
-            || call.Arguments.Count != 0
+            || call.Arguments.Any(argument => argument.Name != null || argument.Modifier != ArgumentModifier.None)
             || (call.TypeArguments != null && call.TypeArguments.Count != 0))
         {
             throw new NotSupportedException($"Expression-tree call '{call.GetType().Name}' is not supported by the IL backend yet");
         }
 
         var receiverType = GetExpressionTreeNodeClrType(memberAccess.Object, parameterClrTypes);
+        var argumentTypes = GetExpressionTreeCallArgumentTypes(call, parameterClrTypes);
         var method = ResolveRuntimeMethod(
             receiverType,
             memberAccess.MemberName,
             BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance,
-            Type.EmptyTypes);
+            argumentTypes);
         if (method == null)
         {
             throw new NotSupportedException($"Expression-tree call '{memberAccess.MemberName}' on '{receiverType}' is not supported by the IL backend yet");
@@ -1490,8 +1491,21 @@ public partial class ILCompiler
 
         EmitExpressionTreeNode(memberAccess.Object, parameterLocals, parameterClrTypes, receiverType);
         EmitRuntimeMethodInfo(method);
-        _currentIL.Emit(OpCodes.Ldc_I4_0);
+        var parameters = method.GetParameters();
+        _currentIL.Emit(OpCodes.Ldc_I4, call.Arguments.Count);
         _currentIL.Emit(OpCodes.Newarr, typeof(System.Linq.Expressions.Expression));
+        for (int i = 0; i < call.Arguments.Count; i++)
+        {
+            _currentIL.Emit(OpCodes.Dup);
+            _currentIL.Emit(OpCodes.Ldc_I4, i);
+            EmitExpressionTreeNode(
+                call.Arguments[i].Value,
+                parameterLocals,
+                parameterClrTypes,
+                parameters[i].ParameterType);
+            _currentIL.Emit(OpCodes.Stelem_Ref);
+        }
+
         _currentIL.Emit(OpCodes.Call, ResolveExpressionCallMethod());
     }
 
@@ -1500,19 +1514,33 @@ public partial class ILCompiler
         IReadOnlyDictionary<string, Type> parameterClrTypes)
     {
         if (call.Callee is not MemberAccessExpression memberAccess
-            || call.Arguments.Count != 0
+            || call.Arguments.Any(argument => argument.Name != null || argument.Modifier != ArgumentModifier.None)
             || (call.TypeArguments != null && call.TypeArguments.Count != 0))
         {
             return GetExpressionType(call);
         }
 
         var receiverType = GetExpressionTreeNodeClrType(memberAccess.Object, parameterClrTypes);
+        var argumentTypes = GetExpressionTreeCallArgumentTypes(call, parameterClrTypes);
         var method = ResolveRuntimeMethod(
             receiverType,
             memberAccess.MemberName,
             BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance,
-            Type.EmptyTypes);
+            argumentTypes);
         return method?.ReturnType ?? GetExpressionType(call);
+    }
+
+    private Type[] GetExpressionTreeCallArgumentTypes(
+        CallExpression call,
+        IReadOnlyDictionary<string, Type> parameterClrTypes)
+    {
+        var argumentTypes = new Type[call.Arguments.Count];
+        for (int i = 0; i < call.Arguments.Count; i++)
+        {
+            argumentTypes[i] = GetExpressionTreeNodeClrType(call.Arguments[i].Value, parameterClrTypes);
+        }
+
+        return argumentTypes;
     }
 
     private static bool IsExpressionTreeConstantLiteral(Expression expression)

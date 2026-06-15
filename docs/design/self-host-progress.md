@@ -11,12 +11,20 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Expression-tree positional call arguments lower
+
+Expression-tree method-call lowering now supports exact positional instance-call arguments. The IL
+builder resolves the runtime overload using the argument CLR types, emits one expression node per
+argument into the `Expression[]`, and keeps named/ref/generic call shapes rejected during analysis
+until they have an explicit binding contract. `Queryable.Select(x => x.ToString("D2"))` now executes
+through the expression-tree path.
+
 ## 2026-06-15 — Expression-tree unsupported bodies fail before lowering
 
 Expression-tree lambda analysis now mirrors the IL builder's supported body subset. Captured/static
-identifiers, argument-taking calls, generic calls, unsupported operators such as `%`, and other
-unlowered expression forms report `NL323` during semantic analysis instead of reaching expression-tree
-IL emission and throwing. The accepted queryable subset from the previous slice remains executable.
+identifiers, named/ref/generic calls, unsupported operators such as `%`, and other unlowered
+expression forms report `NL323` during semantic analysis instead of reaching expression-tree IL
+emission and throwing. The accepted queryable subset from the previous slice remains executable.
 
 ## 2026-06-15 — Queryable expression-tree lambdas align with lowering
 
