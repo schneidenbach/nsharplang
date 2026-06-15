@@ -4869,12 +4869,13 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Theory]
-    [InlineData("nodes[row].flags")]
-    [InlineData("nodes.flags[row]")]
-    [InlineData("nodes.flags[^1]")]
-    [InlineData("(nodes.flags)[row]")]
-    [InlineData("(nodes.flags)[^1]")]
-    public void Analyzer_SoaRecordUintUnaryNegationAssignment_IsRejected(string target)
+    [InlineData("", "nodes[row].flags")]
+    [InlineData("", "nodes.flags[row]")]
+    [InlineData("", "nodes.flags[^1]")]
+    [InlineData("", "(nodes.flags)[row]")]
+    [InlineData("", "(nodes.flags)[^1]")]
+    [InlineData("idx := ^1;", "(nodes.flags)[idx]")]
+    public void Analyzer_SoaRecordUintUnaryNegationAssignment_IsRejected(string declaration, string target)
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
 
@@ -4884,6 +4885,7 @@ public class SoaRecordTests : ILCompilerTestBase
             }
 
             func bad(nodes: NodeTable, row: int) {
+                {{declaration}}
                 {{target}} = -{{target}}
             }
             """);
@@ -4894,12 +4896,13 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Theory]
-    [InlineData("nodes[row].kind")]
-    [InlineData("nodes.kind[row]")]
-    [InlineData("nodes.kind[^1]")]
-    [InlineData("(nodes.kind)[row]")]
-    [InlineData("(nodes.kind)[^1]")]
-    public void Analyzer_SoaRecordNonBoolColumnLogicalNot_IsRejected(string target)
+    [InlineData("", "nodes[row].kind")]
+    [InlineData("", "nodes.kind[row]")]
+    [InlineData("", "nodes.kind[^1]")]
+    [InlineData("", "(nodes.kind)[row]")]
+    [InlineData("", "(nodes.kind)[^1]")]
+    [InlineData("idx := ^1;", "(nodes.kind)[idx]")]
+    public void Analyzer_SoaRecordNonBoolColumnLogicalNot_IsRejected(string declaration, string target)
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
 
@@ -4909,6 +4912,7 @@ public class SoaRecordTests : ILCompilerTestBase
             }
 
             func bad(nodes: NodeTable, row: int): bool {
+                {{declaration}}
                 return !{{target}}
             }
             """);
@@ -4919,17 +4923,20 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Theory]
-    [InlineData("nodes[row].kind", "&&")]
-    [InlineData("nodes.kind[row]", "&&")]
-    [InlineData("nodes.kind[^1]", "&&")]
-    [InlineData("(nodes.kind)[row]", "&&")]
-    [InlineData("(nodes.kind)[^1]", "&&")]
-    [InlineData("nodes[row].kind", "||")]
-    [InlineData("nodes.kind[row]", "||")]
-    [InlineData("nodes.kind[^1]", "||")]
-    [InlineData("(nodes.kind)[row]", "||")]
-    [InlineData("(nodes.kind)[^1]", "||")]
+    [InlineData("", "nodes[row].kind", "&&")]
+    [InlineData("", "nodes.kind[row]", "&&")]
+    [InlineData("", "nodes.kind[^1]", "&&")]
+    [InlineData("", "(nodes.kind)[row]", "&&")]
+    [InlineData("", "(nodes.kind)[^1]", "&&")]
+    [InlineData("idx := ^1;", "(nodes.kind)[idx]", "&&")]
+    [InlineData("", "nodes[row].kind", "||")]
+    [InlineData("", "nodes.kind[row]", "||")]
+    [InlineData("", "nodes.kind[^1]", "||")]
+    [InlineData("", "(nodes.kind)[row]", "||")]
+    [InlineData("", "(nodes.kind)[^1]", "||")]
+    [InlineData("idx := ^1;", "(nodes.kind)[idx]", "||")]
     public void Analyzer_SoaRecordNonBoolColumnLogicalExpressions_AreRejected(
+        string declaration,
         string target,
         string logicalOperator)
     {
@@ -4941,6 +4948,7 @@ public class SoaRecordTests : ILCompilerTestBase
             }
 
             func bad(nodes: NodeTable, row: int): bool {
+                {{declaration}}
                 return {{target}} {{logicalOperator}} true
             }
             """);
@@ -4951,27 +4959,32 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Theory]
-    [InlineData("nodes[row].marker", "{target} + 1")]
-    [InlineData("nodes[row].marker", "{target} & 1")]
-    [InlineData("nodes[row].marker", "{target} << 1")]
-    [InlineData("nodes[row].marker", "~{target}")]
-    [InlineData("nodes.marker[row]", "{target} + 1")]
-    [InlineData("nodes.marker[row]", "{target} & 1")]
-    [InlineData("nodes.marker[row]", "{target} << 1")]
-    [InlineData("nodes.marker[row]", "~{target}")]
-    [InlineData("nodes.marker[^1]", "{target} + 1")]
-    [InlineData("nodes.marker[^1]", "{target} & 1")]
-    [InlineData("nodes.marker[^1]", "{target} << 1")]
-    [InlineData("nodes.marker[^1]", "~{target}")]
-    [InlineData("(nodes.marker)[row]", "{target} + 1")]
-    [InlineData("(nodes.marker)[row]", "{target} & 1")]
-    [InlineData("(nodes.marker)[row]", "{target} << 1")]
-    [InlineData("(nodes.marker)[row]", "~{target}")]
-    [InlineData("(nodes.marker)[^1]", "{target} + 1")]
-    [InlineData("(nodes.marker)[^1]", "{target} & 1")]
-    [InlineData("(nodes.marker)[^1]", "{target} << 1")]
-    [InlineData("(nodes.marker)[^1]", "~{target}")]
+    [InlineData("", "nodes[row].marker", "{target} + 1")]
+    [InlineData("", "nodes[row].marker", "{target} & 1")]
+    [InlineData("", "nodes[row].marker", "{target} << 1")]
+    [InlineData("", "nodes[row].marker", "~{target}")]
+    [InlineData("", "nodes.marker[row]", "{target} + 1")]
+    [InlineData("", "nodes.marker[row]", "{target} & 1")]
+    [InlineData("", "nodes.marker[row]", "{target} << 1")]
+    [InlineData("", "nodes.marker[row]", "~{target}")]
+    [InlineData("", "nodes.marker[^1]", "{target} + 1")]
+    [InlineData("", "nodes.marker[^1]", "{target} & 1")]
+    [InlineData("", "nodes.marker[^1]", "{target} << 1")]
+    [InlineData("", "nodes.marker[^1]", "~{target}")]
+    [InlineData("", "(nodes.marker)[row]", "{target} + 1")]
+    [InlineData("", "(nodes.marker)[row]", "{target} & 1")]
+    [InlineData("", "(nodes.marker)[row]", "{target} << 1")]
+    [InlineData("", "(nodes.marker)[row]", "~{target}")]
+    [InlineData("", "(nodes.marker)[^1]", "{target} + 1")]
+    [InlineData("", "(nodes.marker)[^1]", "{target} & 1")]
+    [InlineData("", "(nodes.marker)[^1]", "{target} << 1")]
+    [InlineData("", "(nodes.marker)[^1]", "~{target}")]
+    [InlineData("idx := ^1;", "(nodes.marker)[idx]", "{target} + 1")]
+    [InlineData("idx := ^1;", "(nodes.marker)[idx]", "{target} & 1")]
+    [InlineData("idx := ^1;", "(nodes.marker)[idx]", "{target} << 1")]
+    [InlineData("idx := ^1;", "(nodes.marker)[idx]", "~{target}")]
     public void Analyzer_SoaRecordCharPromotedExpressionAssignment_IsRejected(
+        string declaration,
         string target,
         string expressionTemplate)
     {
@@ -4984,6 +4997,7 @@ public class SoaRecordTests : ILCompilerTestBase
             }
 
             func bad(nodes: NodeTable, row: int) {
+                {{declaration}}
                 {{target}} = {{expression}}
             }
             """);
@@ -4994,27 +5008,32 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Theory]
-    [InlineData("nodes[row].marker", "+=", "+")]
-    [InlineData("nodes[row].marker", "-=", "-")]
-    [InlineData("nodes[row].marker", "*=", "*")]
-    [InlineData("nodes[row].marker", "/=", "/")]
-    [InlineData("nodes.marker[row]", "+=", "+")]
-    [InlineData("nodes.marker[row]", "-=", "-")]
-    [InlineData("nodes.marker[row]", "*=", "*")]
-    [InlineData("nodes.marker[row]", "/=", "/")]
-    [InlineData("nodes.marker[^1]", "+=", "+")]
-    [InlineData("nodes.marker[^1]", "-=", "-")]
-    [InlineData("nodes.marker[^1]", "*=", "*")]
-    [InlineData("nodes.marker[^1]", "/=", "/")]
-    [InlineData("(nodes.marker)[row]", "+=", "+")]
-    [InlineData("(nodes.marker)[row]", "-=", "-")]
-    [InlineData("(nodes.marker)[row]", "*=", "*")]
-    [InlineData("(nodes.marker)[row]", "/=", "/")]
-    [InlineData("(nodes.marker)[^1]", "+=", "+")]
-    [InlineData("(nodes.marker)[^1]", "-=", "-")]
-    [InlineData("(nodes.marker)[^1]", "*=", "*")]
-    [InlineData("(nodes.marker)[^1]", "/=", "/")]
+    [InlineData("", "nodes[row].marker", "+=", "+")]
+    [InlineData("", "nodes[row].marker", "-=", "-")]
+    [InlineData("", "nodes[row].marker", "*=", "*")]
+    [InlineData("", "nodes[row].marker", "/=", "/")]
+    [InlineData("", "nodes.marker[row]", "+=", "+")]
+    [InlineData("", "nodes.marker[row]", "-=", "-")]
+    [InlineData("", "nodes.marker[row]", "*=", "*")]
+    [InlineData("", "nodes.marker[row]", "/=", "/")]
+    [InlineData("", "nodes.marker[^1]", "+=", "+")]
+    [InlineData("", "nodes.marker[^1]", "-=", "-")]
+    [InlineData("", "nodes.marker[^1]", "*=", "*")]
+    [InlineData("", "nodes.marker[^1]", "/=", "/")]
+    [InlineData("", "(nodes.marker)[row]", "+=", "+")]
+    [InlineData("", "(nodes.marker)[row]", "-=", "-")]
+    [InlineData("", "(nodes.marker)[row]", "*=", "*")]
+    [InlineData("", "(nodes.marker)[row]", "/=", "/")]
+    [InlineData("", "(nodes.marker)[^1]", "+=", "+")]
+    [InlineData("", "(nodes.marker)[^1]", "-=", "-")]
+    [InlineData("", "(nodes.marker)[^1]", "*=", "*")]
+    [InlineData("", "(nodes.marker)[^1]", "/=", "/")]
+    [InlineData("idx := ^1;", "(nodes.marker)[idx]", "+=", "+")]
+    [InlineData("idx := ^1;", "(nodes.marker)[idx]", "-=", "-")]
+    [InlineData("idx := ^1;", "(nodes.marker)[idx]", "*=", "*")]
+    [InlineData("idx := ^1;", "(nodes.marker)[idx]", "/=", "/")]
     public void Analyzer_SoaRecordCharArithmeticCompoundAssignments_AreRejected(
+        string declaration,
         string target,
         string assignmentOperator,
         string binaryOperator)
@@ -5027,6 +5046,7 @@ public class SoaRecordTests : ILCompilerTestBase
             }
 
             func bad(nodes: NodeTable, row: int) {
+                {{declaration}}
                 {{target}} {{assignmentOperator}} 'a'
             }
             """);

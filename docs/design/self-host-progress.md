@@ -18,7 +18,8 @@ or non-boolean value cases that must not reach SoA lowering. `(nodes.flags)[row]
 reports the `long`-to-`uint` assignment mismatch, `(nodes.kind)[^1] && true` and
 `!(nodes.kind)[row]` report boolean operand diagnostics, and `(nodes.marker)[row] += 'a'` plus
 promoted expressions like `(nodes.marker)[^1] = (nodes.marker)[^1] + 1` report the `int`-to-`char`
-store mismatch during analysis.
+store mismatch during analysis. The same diagnostic pins now include variable-held `System.Index`
+receivers such as `idx := ^1; (nodes.marker)[idx] += 'a'`.
 
 ## 2026-06-15 — Parenthesized SoA unsupported compound stores stop in analysis
 
