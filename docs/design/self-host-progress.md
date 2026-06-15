@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — SoA row collection-literal escapes are pinned
+
+Target-typed collection expressions now have an analyzer regression pin for SoA row views. A row
+projection inside `let values: List<object> = [nodes[0]]` reports the row-view escape diagnostic
+while the collection literal is still being type-checked, so collection materialization cannot become
+a hidden row-object allocation path. Focused evidence: `dotnet test tests/Tests.csproj --filter
+"FullyQualifiedName~SoaRecordTests.Analyzer_SoaRowViewCannotEscapeIntoCollectionLiteral"` (1 test).
+
 ## 2026-06-15 — SoA generated-member null-coalescing writes are pinned
 
 Direct `??=` writes to generated SoA table members now have analyzer pins for both backing column

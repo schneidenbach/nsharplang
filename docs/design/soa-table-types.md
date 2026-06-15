@@ -306,7 +306,8 @@ Benchmark gate:
 records. The slice emits a sealed value-type wrapper with one public array field per column plus
 `length` and `capacity`, supports `new Table(capacity)`, zero-copy `Table.wrap(columns..., length)`,
 column access, row projection, `add`, `clear`, `ensureCapacity`, and `copyRow`, and keeps row views
-from escaping through locals, returns, call arguments, assignments, and object initializers. While
+from escaping through locals, returns, call arguments, assignments, object initializers, and
+target-typed collection expressions. While
 the flag is enabled, `MultiFileCompiler` deliberately falls
 back from the default columnar backend to the C# IL backend for programs containing SoA declarations;
 the columnar backend does not own this surface yet.
