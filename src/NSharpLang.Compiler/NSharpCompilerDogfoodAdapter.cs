@@ -205,8 +205,8 @@ internal static class NSharpCompilerDogfoodAdapter
     }
 
     // Collect every top-level `enum` declaration into a ColumnarEnumInput (name + member names + resolved underlying
-    // int values). Consumes enum indices from the nominal declaration rowset and parses each body via the checked
-    // ParseEnumDeclarationTextInfo kernel. Returns true (possibly an empty list) for a program with no enums, or
+    // int values). Consumes enum indices from the nominal declaration rowset and parses each body via the composed
+    // ParseColumnarEnumInfo kernel. Returns true (possibly an empty list) for a program with no enums, or
     // false to decline the whole program to the C# path on any unsupported enum shape.
     private static bool TryGetColumnarEnumInputs(
         Bindings bindings, string source, ColumnarTokenizedSource tokens, int[] enumIndices, int enumIndexCount,
@@ -224,18 +224,12 @@ internal static class NSharpCompilerDogfoodAdapter
             {
                 var enumIndex = enumIndices[enumSlot];
                 var cap = n + 1;
-                var outNameStarts = new int[cap];
-                var outNameLengths = new int[cap];
                 var outNameTexts = new string[cap];
-                var outValueStarts = new int[cap];
-                var outValueLengths = new int[cap];
-                var outHasValue = new int[cap];
                 var outMemberValues = new int[cap];
                 var outEnumNameTexts = new string[1];
                 var outResult = new int[2];
-                var memberCount = bindings.ParseEnumDeclarationTextInfo(
-                    source, ck, cs, cv, n, enumIndex, outNameStarts, outNameLengths, outNameTexts, outValueStarts, outValueLengths,
-                    outHasValue, outMemberValues, outEnumNameTexts, outResult);
+                var memberCount = bindings.ParseColumnarEnumInfo(
+                    source, ck, cs, cv, n, enumIndex, outNameTexts, outMemberValues, outEnumNameTexts, outResult);
                 if (memberCount < 0 || outResult[1] <= 0)
                     return false;
 
@@ -1927,9 +1921,9 @@ internal static class NSharpCompilerDogfoodAdapter
                 CreateDelegate<ParseInterfaceDeclarationSignatureInfoInto>(
                     programType,
                     "ParseInterfaceDeclarationSignatureInfoInto"),
-                CreateDelegate<ParseEnumDeclarationTextInfoInto>(
+                CreateDelegate<ParseColumnarEnumInfoInto>(
                     programType,
-                    "ParseEnumDeclarationTextInfoInto"),
+                    "ParseColumnarEnumInfoInto"),
                 CreateDelegate<ParseStructDeclarationInfoInto>(
                     programType,
                     "ParseStructDeclarationInfoInto"),
@@ -2074,12 +2068,10 @@ internal static class NSharpCompilerDogfoodAdapter
         string[] outMethodNameTexts, string[] outMethodReturnTexts,
         int[] outMethodParamCounts, int[] outMethodBodyFlags,
         string[] outMethodParamNameTexts, string[] outMethodParamTypeTexts, int[] outResult);
-    private delegate int ParseEnumDeclarationTextInfoInto(
+    private delegate int ParseColumnarEnumInfoInto(
         string source,
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int enumIndex,
-        int[] outNameStarts, int[] outNameLengths, string[] outNameTexts,
-        int[] outValueStarts, int[] outValueLengths, int[] outHasValue, int[] outMemberValues,
-        string[] outEnumNameTexts, int[] outResult);
+        string[] outNameTexts, int[] outMemberValues, string[] outEnumNameTexts, int[] outResult);
     private delegate int ParseStructDeclarationInfoInto(
         string source,
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int structIndex,
@@ -2126,7 +2118,7 @@ internal static class NSharpCompilerDogfoodAdapter
         ParseColumnarFunctionInfoInto ParseColumnarFunctionInfo,
         ParseColumnarPropertyInfoInto ParseColumnarPropertyInfo,
         ParseInterfaceDeclarationSignatureInfoInto ParseInterfaceDeclarationSignatureInfo,
-        ParseEnumDeclarationTextInfoInto ParseEnumDeclarationTextInfo,
+        ParseColumnarEnumInfoInto ParseColumnarEnumInfo,
         ParseStructDeclarationInfoInto ParseStructDeclarationInfo,
         ParseUnionDeclarationInfoInto ParseUnionDeclarationInfo,
         ParseColumnarConstructorInfoInto ParseColumnarConstructorInfo);

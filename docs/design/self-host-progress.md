@@ -11,6 +11,22 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Enum production rowset drops span columns
+
+`ParserColumnarEnums.nl` now exports `ParseColumnarEnumInfoInto`, the product-routed enum parser
+wrapper. It keeps member-name spans, explicit-value spans, and `hasValue` flags as N# scratch data
+while exposing only enum/member name text and resolved member values to the C# transition
+materializer.
+
+`NSharpCompilerDogfoodAdapter.TryGetColumnarEnumInputs` no longer binds
+`ParseEnumDeclarationTextInfoInto` or allocates unused enum span/value-literal columns in C#. The
+span/text-info ABIs remain emitted for direct parser parity tests, while production consumes the
+reduced rowset. Focused evidence: `./scripts/dev.sh Parser_TopLevelDeclarationKinds_MatchProductionParser`,
+`./scripts/dev.sh ColumnarCodegen_Enum_DeclarationAndMemberAccess`,
+`./scripts/dev.sh ColumnarCodegen_Parity_EnumIntCastAndExplicitValues`,
+`./scripts/dev.sh ColumnarCodegen_CompilesRealDogfoodCorpus_Coverage`, and
+`./scripts/dev.sh ColumnarCodegen_MultiFile_EligibleClusterCompiles`.
+
 ## 2026-06-15 — Property parser composition moves into N#
 
 `ParserColumnarProperties.nl` now exports `ParseColumnarPropertyInfoInto`, the product-routed

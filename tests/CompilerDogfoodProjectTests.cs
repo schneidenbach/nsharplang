@@ -111,6 +111,10 @@ public class CompilerDogfoodProjectTests
                     "ParseEnumDeclarationTextInfoInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit ParseEnumDeclarationTextInfoInto.");
+            var parseColumnarEnumInfo = programType.GetMethod(
+                    "ParseColumnarEnumInfoInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit ParseColumnarEnumInfoInto.");
             var parseUnionDeclaration = programType.GetMethod(
                     "ParseUnionDeclarationInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -376,6 +380,7 @@ class Derived: Base, IFace {
                 parseEnumDeclaration,
                 parseEnumDeclarationInfo,
                 parseEnumDeclarationTextInfo,
+                parseColumnarEnumInfo,
                 "explicit and implicit values");
             AssertEnumDeclarationInfo(
                 "enum E { A = 2147483647, B, C }",
@@ -386,12 +391,14 @@ class Derived: Base, IFace {
                 parseEnumDeclaration,
                 parseEnumDeclarationInfo,
                 parseEnumDeclarationTextInfo,
+                parseColumnarEnumInfo,
                 "unchecked next-value wrap");
             AssertEnumDeclarationInfoDeclines(
                 "enum E { A = 0x10 }",
                 tokenizeWithIndentation,
                 parseEnumDeclarationInfo,
                 parseEnumDeclarationTextInfo,
+                parseColumnarEnumInfo,
                 "non-decimal explicit value");
             AssertUnionDeclarationInfo(
                 """
@@ -1191,6 +1198,7 @@ class B
         MethodInfo parseEnumDeclaration,
         MethodInfo parseEnumDeclarationInfo,
         MethodInfo parseEnumDeclarationTextInfo,
+        MethodInfo parseColumnarEnumInfo,
         string label)
     {
         Assert.Equal(expectedMemberNames.Length, expectedMemberValues.Length);
@@ -1249,15 +1257,38 @@ class B
                 enumNameTexts,
                 textResult
             }) ?? -2);
+        var columnarNameTexts = new string[cap];
+        var columnarMemberValues = new int[cap];
+        var columnarEnumNameTexts = new string[1];
+        var columnarResult = new int[2];
+        var columnarMemberCount = (int)(parseColumnarEnumInfo.Invoke(
+            null,
+            new object[]
+            {
+                compactedSource,
+                kinds,
+                starts,
+                tokenValueLengths,
+                count,
+                enumIndex,
+                columnarNameTexts,
+                columnarMemberValues,
+                columnarEnumNameTexts,
+                columnarResult
+            }) ?? -2);
 
         Assert.Equal(expectedMemberNames.Length, spanCount);
         Assert.Equal(spanCount, infoMemberCount);
         Assert.Equal(spanCount, textMemberCount);
+        Assert.Equal(spanCount, columnarMemberCount);
         Assert.Equal(spanResult[0], infoResult[0]);
         Assert.Equal(spanResult[1], infoResult[1]);
         Assert.Equal(infoResult[0], textResult[0]);
         Assert.Equal(infoResult[1], textResult[1]);
+        Assert.Equal(textResult[0], columnarResult[0]);
+        Assert.Equal(textResult[1], columnarResult[1]);
         Assert.Equal(expectedEnumName, enumNameTexts[0]);
+        Assert.Equal(enumNameTexts[0], columnarEnumNameTexts[0]);
         for (var i = 0; i < expectedMemberNames.Length; i++)
         {
             Assert.Equal(spanNameStarts[i], nameStarts[i]);
@@ -1272,7 +1303,9 @@ class B
             Assert.Equal(memberValueLengths[i], textValueLengths[i]);
             Assert.Equal(memberValues[i], textMemberValues[i]);
             Assert.Equal(expectedMemberNames[i], nameTexts[i]);
+            Assert.Equal(nameTexts[i], columnarNameTexts[i]);
             Assert.Equal(expectedMemberValues[i], memberValues[i]);
+            Assert.Equal(memberValues[i], columnarMemberValues[i]);
         }
     }
 
@@ -1281,6 +1314,7 @@ class B
         MethodInfo tokenizeWithIndentation,
         MethodInfo parseEnumDeclarationInfo,
         MethodInfo parseEnumDeclarationTextInfo,
+        MethodInfo parseColumnarEnumInfo,
         string label)
     {
         var (count, kinds, starts, valueLengths, compactedSource) = TokenizeSourceViaKernel(source, tokenizeWithIndentation);
@@ -1326,8 +1360,24 @@ class B
                 new string[1],
                 new int[2]
             }) ?? -2);
+        var columnarActual = (int)(parseColumnarEnumInfo.Invoke(
+            null,
+            new object[]
+            {
+                compactedSource,
+                kinds,
+                starts,
+                valueLengths,
+                count,
+                enumIndex,
+                new string[cap],
+                new int[cap],
+                new string[1],
+                new int[2]
+            }) ?? -2);
         Assert.Equal(-1, infoActual);
         Assert.Equal(-1, textActual);
+        Assert.Equal(-1, columnarActual);
     }
 
     private static void AssertInterfaceDeclarationInfo(
@@ -10619,7 +10669,7 @@ func outer(x: int): int {
             "CliArguments.nl", "CliDocOrdering.nl", "CliQueryParsing.nl", "CliTreeDependencies.nl",
             "CompletionGrouping.nl", "CompletionReceivers.nl", "DiagnosticClusters.nl", "DiagnosticDeduplication.nl", "DocQuery.nl",
             "FormatterImportOrdering.nl", "IdentifierSpans.nl",
-            "LexerTokenKindScanner.nl", "OverloadCandidates.nl", "ParserColumnarConstructors.nl", "ParserColumnarFunctions.nl", "ParserColumnarProperties.nl", "ParserDeclarations.nl",
+            "LexerTokenKindScanner.nl", "OverloadCandidates.nl", "ParserColumnarConstructors.nl", "ParserColumnarEnums.nl", "ParserColumnarFunctions.nl", "ParserColumnarProperties.nl", "ParserDeclarations.nl",
             "ParserConstructorSignatures.nl", "ParserExpressions.nl", "ParserFunctionSignatures.nl", "ParserInterfaceSignatures.nl", "ParserLocalFunctions.nl", "ParserStatements.nl", "ParserTypeReferences.nl",
             "ProjectSourceFilter.nl", "StructCopyAnalysis.nl",
             "TextEditOrdering.nl", "TypeLookup.nl",
@@ -10636,6 +10686,7 @@ func outer(x: int): int {
         Assert.Contains("ParseFunctionSignatureInfoInto", methodNames!); // ParserFunctionSignatures -> ParserTypeReferences
         Assert.Contains("ParseColumnarFunctionInfoInto", methodNames!); // composed signature + body + local-function routing
         Assert.Contains("ParseColumnarConstructorInfoInto", methodNames!); // composed constructor signature + body routing
+        Assert.Contains("ParseColumnarEnumInfoInto", methodNames!); // composed enum text/value routing
         Assert.Contains("ParseColumnarPropertyInfoInto", methodNames!); // composed property accessor + body routing
         Assert.Contains("ParseConstructorSignatureInfoInto", methodNames!); // ParserConstructorSignatures -> declarations/signatures/types
         Assert.Contains("ParseInterfaceDeclarationSignatureInfoInto", methodNames!); // ParserInterfaceSignatures -> declarations/signatures/types
