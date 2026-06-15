@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA signed numeric unary negation has IL-shape proof
+
+`int` and `long` SoA columns now have opcode evidence for unary `-` stores across row projection,
+direct column indexing, and direct from-end column indexing. The accepted signed negation cases read
+and write backing column arrays directly through the `neg` opcode, while `uint` unary negation stays
+rejected before emission because the language promotes `-uint` to `long`, which is not assignable
+back to a `uint` column.
+
 ## 2026-06-14 — SoA numeric scalar compound assignments have IL-shape proof
 
 `int`, `uint`, and `long` SoA columns now have opcode evidence for supported arithmetic compound

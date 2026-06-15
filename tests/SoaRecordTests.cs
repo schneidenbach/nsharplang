@@ -4545,6 +4545,29 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Theory]
+    [InlineData("nodes[row].flags")]
+    [InlineData("nodes.flags[row]")]
+    [InlineData("nodes.flags[^1]")]
+    public void Analyzer_SoaRecordUintUnaryNegationAssignment_IsRejected(string target)
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze($$"""
+            soa record NodeTable {
+                flags: uint
+            }
+
+            func bad(nodes: NodeTable, row: int) {
+                {{target}} = -{{target}}
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Equal("long", error.ActualType);
+        Assert.Equal("uint", error.ExpectedType);
+    }
+
+    [Theory]
     [InlineData("nodes[row].active", "-=", "-")]
     [InlineData("nodes[row].active", "*=", "*")]
     [InlineData("nodes[row].active", "/=", "/")]

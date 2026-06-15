@@ -3121,6 +3121,68 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void NumericScalarColumnUnaryNegation_UsesColumnArrayLoadStoreWithoutRowOrSliceAllocation()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                kind: int
+                mask: long
+            }
+
+            func update(nodes: NodeTable, row: int): int {
+                directRow := row + 1
+
+                nodes[row].kind = 7
+                rowInt := nodes[row].kind = -nodes[row].kind
+                nodes[row].mask = 11L
+                rowLong := nodes[row].mask = -nodes[row].mask
+
+                nodes.kind[directRow] = 13
+                directInt := nodes.kind[directRow] = -nodes.kind[directRow]
+                nodes.mask[directRow] = 17L
+                directLong := nodes.mask[directRow] = -nodes.mask[directRow]
+
+                nodes.kind[^1] = 19
+                fromEndInt := nodes.kind[^1] = -nodes.kind[^1]
+                nodes.mask[^1] = 23L
+                fromEndLong := nodes.mask[^1] = -nodes.mask[^1]
+
+                return rowInt + (int)rowLong + directInt + (int)directLong + fromEndInt + (int)fromEndLong
+            }
+
+            func main(): int {
+                nodes := new NodeTable(3)
+                row := nodes.add()
+                nodes.add()
+                nodes.add()
+                return update(nodes, row)
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var update = ILShapeInspector.GetProgramMethod(assembly, "update");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(-90, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoFromEndSliceAllocation(update);
+            Assert.True(
+                ILShapeInspector.CountOpcode(update, OpCodes.Ldfld) >= 12,
+                "Signed numeric SoA unary negation stores should load backing column fields directly.");
+            Assert.Equal(6, CountArrayElementLoads(update));
+            Assert.Equal(12, CountArrayElementStores(update));
+            Assert.True(
+                ILShapeInspector.CountOpcode(update, OpCodes.Neg) >= 6,
+                "Signed numeric SoA unary negation should use the direct NEG opcode.");
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void NumericScalarColumnShiftExpressions_UseColumnArrayLoadStoreWithoutRowOrSliceAllocation()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
