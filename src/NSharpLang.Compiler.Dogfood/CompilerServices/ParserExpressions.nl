@@ -1041,20 +1041,17 @@ func ParseCallArgumentNode(tokens: &ParserTokenTable, count: int, st: &ParserSta
 // in the value span); otherwise the operand is a postfix expression. (Prefix `+` is invalid in N# and is
 // refused via the postfix/primary fall-through. Postfix ++/-- and `must` are deferred.)
 func ParseUnaryExpressionNode(tokens: &ParserTokenTable, count: int, st: &ParserState, argStack: &ParserArgumentStack, nodes: &ParserExpressionNodeTable, children: &ParserChildIndexTable, depth: int): int {
-    tokenKinds := tokens.Kinds
-    tokenStarts := tokens.Starts
-    tokenValueLengths := tokens.ValueLengths
     if depth > 200 {
         return -1
     }
 
     pos := st.Pos
     if pos < count {
-        k := tokenKinds[pos]
+        k := tokens.Kinds[pos]
         // `must <operand>` (Must 20) -- the prefix null-assert (MustExpression kind 45, ONE child;
         // the operand recurses at THIS unary level so `must must x` chains like the production parser).
         if k == 20 {
-            mustStart := tokenStarts[pos]
+            mustStart := tokens.Starts[pos]
             st.Pos = pos + 1
             mustOperand := ParseUnaryExpressionNode(ref tokens, count, ref st, ref argStack, ref nodes, ref children, depth + 1)
             if mustOperand < 0 {
@@ -1069,7 +1066,7 @@ func ParseUnaryExpressionNode(tokens: &ParserTokenTable, count: int, st: &Parser
         // operand recurses at THIS unary level, mirroring the production's prefix-unary production
         // at Parser.cs ParseUnaryExpression so `await await x` chains).
         if k == 69 {
-            awaitStart := tokenStarts[pos]
+            awaitStart := tokens.Starts[pos]
             st.Pos = pos + 1
             awaitOperand := ParseUnaryExpressionNode(ref tokens, count, ref st, ref argStack, ref nodes, ref children, depth + 1)
             if awaitOperand < 0 {
@@ -1081,8 +1078,8 @@ func ParseUnaryExpressionNode(tokens: &ParserTokenTable, count: int, st: &Parser
             return EmitExpressionNode(ref st, ref nodes, 53, -1, 0, awaitChildRun, 1, awaitStart, awaitSpanEnd - awaitStart)
         }
         if k == 106 || k == 89 || k == 110 || k == 113 || k == 114 || k == 109 {
-            opStart := tokenStarts[pos]
-            opLength := tokenValueLengths[pos]
+            opStart := tokens.Starts[pos]
+            opLength := tokens.ValueLengths[pos]
             st.Pos = pos + 1
             operand := ParseUnaryExpressionNode(ref tokens, count, ref st, ref argStack, ref nodes, ref children, depth + 1)
             if operand < 0 {
