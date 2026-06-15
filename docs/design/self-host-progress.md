@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — SoA row type references stay rejected in declared-type positions
+
+The synthetic `Table.Row` type now has analyzer coverage across the remaining declared-type
+positions that can otherwise bypass row-view expression diagnostics: generic constraints, class
+bases, class/struct/record/interface interface lists, function type references, and type patterns.
+All report `SoA row type 'NodeTable.Row' is not part of this lowering` before emission and avoid
+falling back to `TypeNotFound`, preserving the v1 rule that rows exist only as projection syntax.
+
 ## 2026-06-15 — Parenthesized SoA row-view edge escapes stay diagnosed
 
 Parenthesized SoA row views now have analyzer coverage for the remaining edge contexts that route

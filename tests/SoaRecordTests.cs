@@ -2619,6 +2619,101 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaRowTypeCannotBeUsedInDeclaredTypePositions()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var cases = new[]
+        {
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad<T>(value: T): int where T : NodeTable.Row {
+                return 0
+            }
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            class Holder : NodeTable.Row {
+            }
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            class Base {
+            }
+
+            class Holder : Base, NodeTable.Row {
+            }
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            struct Holder : NodeTable.Row {
+                value: int
+            }
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            record Holder : NodeTable.Row {
+                value: int
+            }
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            interface IRow : NodeTable.Row {
+            }
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            type RowConsumer = Func<NodeTable.Row, int>
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(value: object): int {
+                if value is NodeTable.Row {
+                    return 1
+                }
+
+                return 0
+            }
+            """
+        };
+
+        foreach (var source in cases)
+        {
+            var result = Analyze(source);
+            var error = Assert.Single(
+                result.Errors,
+                e => e.Code == ErrorCode.InvalidSyntax
+                    && e.Message.Contains("SoA row type 'NodeTable.Row' is not part of this lowering"));
+            Assert.Contains("table and an int row index", error.Suggestion);
+            Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.TypeNotFound);
+        }
+    }
+
+    [Fact]
     public void Analyzer_SoaRowViewCannotEscapeThroughExpressionBodiedFunction()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
