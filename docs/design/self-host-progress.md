@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Parenthesized SoA default stores preserve typed results
+
+Parenthesized SoA default stores now have IL-shape coverage across row-column projections, direct
+backing-column elements, literal `^1` from-end elements, and variable-held `System.Index` elements.
+Statement-context stores write defaults without reading the old array element, and expression-valued
+stores infer the target element type rather than falling back to `object`, so their returned defaults
+remain usable in typed arithmetic/null checks. Focused evidence: `dotnet test
+tests/Tests.csproj --no-restore --filter
+"FullyQualifiedName~ParenthesizedDefaultStores_DoNotReadOldElement"`.
+
 ## 2026-06-15 — Parenthesized variable SoA column ranges stop in analysis
 
 Direct backing-column range slice diagnostics now cover the combined parenthesized-column plus

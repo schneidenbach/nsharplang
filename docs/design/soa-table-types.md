@@ -185,6 +185,9 @@ expressions, plain concatenation expression stores, and null coalescing.
 Parenthesized assignment and unary update targets such as `((table[row]).column) = value`,
 `(((table[row]).column) += value)`, `((table[row]).column) ??= value`, and
 `++((table[row]).column)` follow the same direct row-column lowering as the unparenthesized forms.
+Parenthesized default stores over row projections and backing-column elements, including
+`System.Index` from-end elements, also keep target-typed assignment-expression results and avoid
+reading the previous element value.
 Both string column shapes have direct string equality/inequality
 evidence, while `string?` columns additionally have direct null equality/inequality evidence. Both
 string column shapes reject `-=`, `*=`, `/=`, `++`, and `--` during analysis. Bool columns support

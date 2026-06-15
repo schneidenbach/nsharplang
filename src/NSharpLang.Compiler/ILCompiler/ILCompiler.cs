@@ -19623,12 +19623,13 @@ public partial class ILCompiler
 
     private Type GetAssignmentExpressionType(AssignmentExpression assignment)
     {
-        if (assignment.Target is IdentifierExpression { Name: "_" })
+        var target = UnwrapParenthesized(assignment.Target);
+        if (target is IdentifierExpression { Name: "_" })
         {
             return GetExpressionType(assignment.Value);
         }
 
-        return assignment.Target switch
+        return target switch
         {
             IdentifierExpression identifier => GetIdentifierType(identifier),
             MemberAccessExpression memberAccess => GetMemberAccessType(memberAccess),

@@ -187,6 +187,98 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void ParenthesizedDefaultStores_DoNotReadOldElement()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                kind: int
+                text: string?
+            }
+
+            func clearParenthesized(nodes: NodeTable, row: int) {
+                ((nodes[row]).kind) = default;
+                ((nodes[row]).text) = default;
+                ((nodes.kind)[row]) = default;
+                ((nodes.text)[row]) = default;
+                ((nodes.kind)[^1]) = default;
+                ((nodes.text)[^1]) = default;
+                idx := ^1;
+                ((nodes.kind)[idx]) = default;
+                ((nodes.text)[idx]) = default;
+            }
+
+            func clearParenthesizedAsExpression(nodes: NodeTable, row: int): int {
+                idx := ^1;
+                rowKind := ((nodes[row]).kind) = default;
+                rowText := ((nodes[row]).text) = default;
+                directKind := ((nodes.kind)[row]) = default;
+                directText := ((nodes.text)[row]) = default;
+                literalKind := ((nodes.kind)[^1]) = default;
+                literalText := ((nodes.text)[^1]) = default;
+                variableKind := ((nodes.kind)[idx]) = default;
+                variableText := ((nodes.text)[idx]) = default;
+                total := rowKind + directKind + literalKind + variableKind
+                total += (rowText == null ? 10 : 0)
+                total += (directText == null ? 100 : 0)
+                total += (literalText == null ? 1000 : 0)
+                total += (variableText == null ? 10000 : 0)
+                return total
+            }
+
+            func main(): int {
+                nodes := new NodeTable(2)
+                first := nodes.add()
+                second := nodes.add()
+                nodes.kind[first] = 9
+                nodes.text[first] = "first"
+                nodes.kind[second] = 7
+                nodes.text[second] = "second"
+                clearParenthesized(nodes, first)
+                firstScore := nodes.kind[first] + (nodes.text[first] == null ? 100 : 0)
+                firstScore += nodes.kind[second] + (nodes.text[second] == null ? 1000 : 0)
+
+                nodes.kind[first] = 8
+                nodes.text[first] = "again"
+                nodes.kind[second] = 6
+                nodes.text[second] = "again"
+                expressionScore := clearParenthesizedAsExpression(nodes, first)
+                afterScore := nodes.kind[first] + (nodes.text[first] == null ? 100 : 0)
+                afterScore += nodes.kind[second] + (nodes.text[second] == null ? 1000 : 0)
+                return firstScore + expressionScore + afterScore
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var clearParenthesized = ILShapeInspector.GetProgramMethod(assembly, "clearParenthesized");
+            var clearParenthesizedAsExpression = ILShapeInspector.GetProgramMethod(
+                assembly,
+                "clearParenthesizedAsExpression");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(13310, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoFromEndSliceAllocation(clearParenthesized);
+            Assert.True(
+                ILShapeInspector.CountOpcode(clearParenthesized, OpCodes.Ldfld) >= 8,
+                "Parenthesized SoA default stores should load backing column fields directly.");
+            Assert.Equal(0, CountArrayElementLoads(clearParenthesized));
+            Assert.Equal(8, CountArrayElementStores(clearParenthesized));
+
+            AssertNoFromEndSliceAllocation(clearParenthesizedAsExpression);
+            Assert.True(
+                ILShapeInspector.CountOpcode(clearParenthesizedAsExpression, OpCodes.Ldfld) >= 8,
+                "Parenthesized SoA default store expressions should load backing column fields directly.");
+            Assert.Equal(0, CountArrayElementLoads(clearParenthesizedAsExpression));
+            Assert.Equal(8, CountArrayElementStores(clearParenthesizedAsExpression));
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void DirectColumnVerifiedTypeDefaultStores_DoNotReadOldElement()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
