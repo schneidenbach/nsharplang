@@ -582,61 +582,58 @@ func ParseEnumDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValueL
 }
 
 func ParseEnumDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int, enumIndex: int, members: &EnumMemberTable, result: &ParserDeclarationResultTable): int {
-    tokenKinds := tokens.Kinds
-    tokenStarts := tokens.Starts
-    tokenValueLengths := tokens.ValueLengths
     pos := enumIndex
-    if pos >= count || tokenKinds[pos] != 14 {
+    if pos >= count || tokens.Kinds[pos] != 14 {
         return -1
     }
     pos = pos + 1
 
-    if pos >= count || tokenKinds[pos] != 0 {
+    if pos >= count || tokens.Kinds[pos] != 0 {
         return -1
     }
-    result.Values[0] = tokenStarts[pos]
-    result.Values[1] = tokenValueLengths[pos]
+    result.Values[0] = tokens.Starts[pos]
+    result.Values[1] = tokens.ValueLengths[pos]
     pos = pos + 1
 
-    if pos >= count || tokenKinds[pos] != 129 {
+    if pos >= count || tokens.Kinds[pos] != 129 {
         return -1
     }
     pos = pos + 1
 
     memberCount := 0
-    while pos < count && tokenKinds[pos] != 130 {
-        if tokenKinds[pos] != 0 {
+    while pos < count && tokens.Kinds[pos] != 130 {
+        if tokens.Kinds[pos] != 0 {
             return -1
         }
-        members.NameStarts[memberCount] = tokenStarts[pos]
-        members.NameLengths[memberCount] = tokenValueLengths[pos]
+        members.NameStarts[memberCount] = tokens.Starts[pos]
+        members.NameLengths[memberCount] = tokens.ValueLengths[pos]
         members.HasValue[memberCount] = 0
         members.ValueStarts[memberCount] = -1
         members.ValueLengths[memberCount] = 0
         pos = pos + 1
 
-        if pos < count && tokenKinds[pos] == 93 {
+        if pos < count && tokens.Kinds[pos] == 93 {
             pos = pos + 1
-            if pos >= count || tokenKinds[pos] != 1 {
+            if pos >= count || tokens.Kinds[pos] != 1 {
                 return -1
             }
             members.HasValue[memberCount] = 1
-            members.ValueStarts[memberCount] = tokenStarts[pos]
-            members.ValueLengths[memberCount] = tokenValueLengths[pos]
+            members.ValueStarts[memberCount] = tokens.Starts[pos]
+            members.ValueLengths[memberCount] = tokens.ValueLengths[pos]
             pos = pos + 1
         }
 
         memberCount = memberCount + 1
 
-        if pos < count && tokenKinds[pos] != 130 {
-            if tokenKinds[pos] != 134 {
+        if pos < count && tokens.Kinds[pos] != 130 {
+            if tokens.Kinds[pos] != 134 {
                 return -1
             }
             pos = pos + 1
         }
     }
 
-    if pos >= count || tokenKinds[pos] != 130 {
+    if pos >= count || tokens.Kinds[pos] != 130 {
         return -1
     }
     return memberCount
