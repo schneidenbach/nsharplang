@@ -11,6 +11,21 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Struct parser core wraps scratch rowsets
+
+`ParserColumnarStructs.nl` now keeps compact token columns, hidden field/type/init/type-parameter/base
+span scratch columns, member/index output columns, text output columns, and result slots behind named
+N# table structs in `ParseColumnarStructInfoCore`. The public `ParseColumnarStructInfoInto` ABI stays
+flattened for the current adapter and parity tests, while the product struct/class/record parser
+wrapper no longer allocates and passes anonymous scratch arrays internally. Focused evidence:
+`./scripts/dev.sh Parser_TopLevelDeclarationKinds_MatchProductionParser`,
+`./scripts/dev.sh ColumnarCodegen_Parity_StructFieldsAndObjectInit`,
+`./scripts/dev.sh ColumnarCodegen_Parity_ClassObjectInitAndMethods`,
+`./scripts/dev.sh ColumnarCodegen_Parity_RecordFieldsAndObjectInit`,
+`./scripts/dev.sh ColumnarCodegen_Parity_GenericClass_CtorFieldMethodProperty`,
+`./scripts/dev.sh ColumnarCodegen_CompilesRealDogfoodCorpus_Coverage`, and
+`./scripts/dev.sh ColumnarCodegen_MultiFile_EligibleClusterCompiles`.
+
 ## 2026-06-15 — Nominal parser cores wrap scratch rowsets
 
 `ParserColumnarEnums.nl`, `ParserColumnarUnions.nl`, and `ParserColumnarInterfaces.nl` now keep their
