@@ -2940,6 +2940,34 @@ public class SoaRecordTests : ILCompilerTestBase
         Assert.Contains("table[index].column", error.Suggestion);
     }
 
+    [Theory]
+    [InlineData("idx := ^1", "nodes[idx].kind = 1", "System.Index")]
+    [InlineData("range := 0..1", "value := nodes[range].kind", "range")]
+    [InlineData("range := 0..1", "nodes[range].kind = 1", "range")]
+    public void Analyzer_SoaTableVariableNonIntRowIndexesAreRejected(
+        string declaration,
+        string statement,
+        string expectedTypeDescription)
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze($$"""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable) {
+                {{declaration}}
+                {{statement}}
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains("SoA table indexes must be int row ids", error.Message);
+        Assert.Contains(expectedTypeDescription, error.Message);
+        Assert.Contains("table[index].column", error.Suggestion);
+    }
+
     [Fact]
     public void Analyzer_SoaTableRowIndexCannotBeNegativeLiteral()
     {

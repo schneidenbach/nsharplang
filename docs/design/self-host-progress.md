@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Variable-held SoA row indexes reject non-int forms
+
+SoA row projections now have analyzer pins for variable-held non-int row indexes beyond the existing
+literal proofs. `idx := ^1; nodes[idx].kind = value`, `range := 0..1; nodes[range].kind`, and
+`nodes[range].kind = value` all stop with the row-id diagnostic before lowering; direct
+backing-column indexing remains the only valid `System.Index`/`System.Range` surface. Focused
+evidence: `dotnet test tests/Tests.csproj --no-restore --filter
+"FullyQualifiedName~Analyzer_SoaTableVariableNonIntRowIndexesAreRejected"` (3 tests).
+
 ## 2026-06-15 — Variable-held SoA column range mutations stop in analysis
 
 Direct backing-column range slices now have analyzer pins for variable-held `System.Range` values

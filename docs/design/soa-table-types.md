@@ -278,7 +278,8 @@ The compiler must produce direct diagnostics for common misuse:
 - non-integral row/direct column increment/decrement: "The '++' operator doesn't work with 'X'";
 - non-nullable row/direct column null coalescing, including enum columns:
   "The left side of '??' has type 'X', which can't be null";
-- non-int, `System.Index`, or range row indexes: "SoA table indexes must be int row ids";
+- non-int, `System.Index`, or range row indexes, including variable-held `System.Index`/`System.Range`
+  values: "SoA table indexes must be int row ids";
 - statically negative row indexes on row/direct-column reads or writes:
   "SoA table row indexes must not be negative" or "SoA column row indexes must not be negative";
 - direct table member mutation: "SoA table member 'X' cannot be assigned directly" for simple,
@@ -339,9 +340,10 @@ the verified scalar/reference
 element-type set, direct column null-coalescing reads/assignments, and from-end `System.Index` access
 including parenthesized literal and variable-held from-end direct-column element lvalues,
 expression-valued simple stores, default stores across the verified scalar/reference element-type set,
-including expression-valued default stores, without old-element reads, variable-held direct-column
-range mutation diagnostics, variable-held from-end null-coalescing reads/assignments, verified
-scalar/reference element reads/stores, bool bitwise expression stores, int-backed enum
+including expression-valued default stores, without old-element reads, variable-held row-index
+diagnostics, variable-held direct-column range mutation diagnostics, variable-held from-end
+null-coalescing reads/assignments, verified scalar/reference element reads/stores, bool bitwise
+expression stores, int-backed enum
 reads/stores/default stores/generated methods, string/string? concatenating compound assignments,
 string/string? concatenation expression stores, string/string? equality/inequality expressions,
 nullable-string null equality/inequality expressions, bool equality/inequality plus logical-not and
