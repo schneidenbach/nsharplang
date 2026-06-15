@@ -1013,16 +1013,13 @@ func ParsePostfixExpressionNode(tokens: &ParserTokenTable, count: int, st: &Pars
 }
 
 func ParseCallArgumentNode(tokens: &ParserTokenTable, count: int, st: &ParserState, argStack: &ParserArgumentStack, nodes: &ParserExpressionNodeTable, children: &ParserChildIndexTable, depth: int): int {
-    tokenKinds := tokens.Kinds
-    tokenStarts := tokens.Starts
-    tokenValueLengths := tokens.ValueLengths
     if depth > 200 {
         return -1
     }
 
-    if st.Pos < count && (tokenKinds[st.Pos] == 78 || tokenKinds[st.Pos] == 79) {
-        modifierStart := tokenStarts[st.Pos]
-        modifierLength := tokenValueLengths[st.Pos]
+    if st.Pos < count && (tokens.Kinds[st.Pos] == 78 || tokens.Kinds[st.Pos] == 79) {
+        modifierStart := tokens.Starts[st.Pos]
+        modifierLength := tokens.ValueLengths[st.Pos]
         st.Pos = st.Pos + 1
         value := ParseLambdaOrAssignmentExpressionNode(ref tokens, count, ref st, ref argStack, ref nodes, ref children, depth + 1)
         if value < 0 {

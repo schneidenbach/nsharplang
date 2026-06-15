@@ -541,8 +541,8 @@ ownership lands.
    `ParserExpressions.nl` now does the same for its expression-entry recursion and composes
    type-reference parsing through a wrapper-aware expression node/table bridge; its generic-call
    lookahead, small `or`/`and`/`not` pattern helpers, relational-pattern core, primary expression
-   core, and postfix expression core have also started keeping token columns and child-stack ids
-   wrapper-shaped internally. The larger call-argument, unary, binary, ternary, assignment, and
+   core, postfix expression core, and call-argument core have also started keeping token columns and
+   child-stack ids wrapper-shaped internally. The larger unary, binary, ternary, assignment, and
    lambda expression cores remain as separate alias-cleanup slices.
    `ParserDeclarations.nl` now also routes package/header scans, top-level declaration
    scans, interface/enum/struct/class/record, constructor-chain, and union parser bodies through

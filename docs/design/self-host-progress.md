@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Call-argument parser keeps token tables shaped
+
+`ParseCallArgumentNode` now reads `ref`/`out` modifier token columns through `ParserTokenTable`
+instead of unpacking raw token arrays. The unary, binary, ternary, assignment, and lambda expression
+cores remain as separate parser cleanup slices. Focused evidence:
+`./scripts/dev.sh Parser_Expression_MatchesProductionParser` and
+`./scripts/dev.sh ColumnarCodegen_MultiFile_RealParserCluster`.
+
 ## 2026-06-15 — Postfix expression parser keeps tables shaped
 
 `ParsePostfixExpressionNode` now reads member, index, generic-call, call, `with`, and postfix-unary
