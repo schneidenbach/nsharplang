@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Parenthesized SoA column-member updates preserve result semantics
+
+Compound assignment and prefix/postfix updates now have IL-shape coverage when the backing column
+member is the parenthesized index receiver. `(nodes.kind)[row] += value`,
+`(nodes.kind)[^1]++`, `++(nodes.kind)[^1]`, and variable-held `(nodes.kind)[idx]--` preserve
+ordinary assignment and update results while staying on backing field plus array element lowering
+with no slice allocation, boxing, delegate construction, or virtual dispatch. Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter
+"FullyQualifiedName~ParenthesizedColumnMemberUpdateOperands_UseColumnArrayOffsetWithoutSliceAllocation"`.
+
 ## 2026-06-15 — Parenthesized SoA column-member defaults avoid old reads
 
 Default stores now have IL-shape coverage when the backing column member is the parenthesized index

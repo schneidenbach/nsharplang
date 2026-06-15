@@ -805,6 +805,100 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void ParenthesizedColumnMemberUpdateOperands_UseColumnArrayOffsetWithoutSliceAllocation()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                kind: int
+            }
+
+            func rowOps(nodes: NodeTable, row: int): int {
+                (nodes.kind)[row] = 10;
+                stored := (nodes.kind)[row] += 2;
+                oldUp := (nodes.kind)[row]++;
+                newUp := ++(nodes.kind)[row];
+                oldDown := (nodes.kind)[row]--;
+                newDown := --(nodes.kind)[row];
+                total := stored * 100000 + oldUp * 10000 + newUp * 1000
+                total += oldDown * 100 + newDown * 10 + (nodes.kind)[row]
+                return total
+            }
+
+            func literalOps(nodes: NodeTable): int {
+                (nodes.kind)[^1] = 10;
+                stored := (nodes.kind)[^1] += 2;
+                oldUp := (nodes.kind)[^1]++;
+                newUp := ++(nodes.kind)[^1];
+                oldDown := (nodes.kind)[^1]--;
+                newDown := --(nodes.kind)[^1];
+                total := stored * 100000 + oldUp * 10000 + newUp * 1000
+                total += oldDown * 100 + newDown * 10 + (nodes.kind)[^1]
+                return total
+            }
+
+            func variableOps(nodes: NodeTable): int {
+                idx := ^1;
+                (nodes.kind)[idx] = 10;
+                stored := (nodes.kind)[idx] += 2;
+                oldUp := (nodes.kind)[idx]++;
+                newUp := ++(nodes.kind)[idx];
+                oldDown := (nodes.kind)[idx]--;
+                newDown := --(nodes.kind)[idx];
+                total := stored * 100000 + oldUp * 10000 + newUp * 1000
+                total += oldDown * 100 + newDown * 10 + (nodes.kind)[idx]
+                return total
+            }
+
+            func main(): int {
+                nodes := new NodeTable(1)
+                row := nodes.add()
+                return rowOps(nodes, row) + literalOps(nodes) + variableOps(nodes)
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var rowOps = ILShapeInspector.GetProgramMethod(assembly, "rowOps");
+            var literalOps = ILShapeInspector.GetProgramMethod(assembly, "literalOps");
+            var variableOps = ILShapeInspector.GetProgramMethod(assembly, "variableOps");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(4006596, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoAllocationOrDispatch(rowOps);
+            Assert.True(
+                ILShapeInspector.CountOpcode(rowOps, OpCodes.Ldfld) >= 6,
+                "Parenthesized SoA column-member receiver updates should load backing column fields directly.");
+            Assert.True(
+                CountArrayElementLoads(rowOps) >= 6,
+                "Parenthesized SoA column-member receiver updates should read current values from backing arrays.");
+            Assert.Equal(6, CountArrayElementStores(rowOps));
+
+            AssertNoFromEndSliceAllocation(literalOps);
+            Assert.True(
+                ILShapeInspector.CountOpcode(literalOps, OpCodes.Ldfld) >= 6,
+                "Parenthesized SoA column-member receiver from-end updates should load backing column fields directly.");
+            Assert.True(
+                CountArrayElementLoads(literalOps) >= 6,
+                "Parenthesized SoA column-member receiver from-end updates should read current values from backing arrays.");
+            Assert.Equal(6, CountArrayElementStores(literalOps));
+
+            AssertNoFromEndSliceAllocation(variableOps);
+            Assert.True(
+                ILShapeInspector.CountOpcode(variableOps, OpCodes.Ldfld) >= 6,
+                "Parenthesized SoA column-member receiver variable from-end updates should load backing column fields directly.");
+            Assert.True(
+                CountArrayElementLoads(variableOps) >= 6,
+                "Parenthesized SoA column-member receiver variable from-end updates should read current values from backing arrays.");
+            Assert.Equal(6, CountArrayElementStores(variableOps));
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void DirectColumnFromEndAssignmentExpression_ReturnsAssignedValueWithoutSliceAllocation()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
