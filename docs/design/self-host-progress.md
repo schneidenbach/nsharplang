@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — CLI dogfood adapter drops its availability probe
+
+`NSharpCliDogfoodAdapter` no longer exposes `IsAvailable`, completing the removal of live
+adapter-level availability side channels. CLI tests now prove dogfood presence through the concrete
+`Try*` routes that production uses, and command-wrapper tests call the specific adapter helper before
+asserting public fallback behavior. Focused evidence: `dotnet test tests/Tests.csproj --filter
+"FullyQualifiedName~CliCommandTests"` (79 tests).
+
 ## 2026-06-15 — Code-intelligence and performance adapters drop availability probes
 
 The code-intelligence and performance dogfood adapters no longer expose `IsAvailable`. Their tests

@@ -199,25 +199,33 @@ func Main() {
     [Fact]
     public void TreeCommand_FormatTargetFrameworks_UsesDogfoodStableDistinct()
     {
-        Assert.True(NSharpCliDogfoodAdapter.IsAvailable);
+        var frameworks = new[]
+        {
+            "net10.0",
+            "NET10.0",
+            "net9.0",
+            "net8.0",
+            "NET9.0"
+        };
 
+        Assert.True(NSharpCliDogfoodAdapter.TryDeduplicateStable(
+            frameworks,
+            StringComparer.OrdinalIgnoreCase,
+            out var dogfoodFrameworks));
+        Assert.Equal(new[] { "net10.0", "net9.0", "net8.0" }, dogfoodFrameworks);
         Assert.Equal("unknown", TreeCommand.FormatTargetFrameworks(Array.Empty<string>()));
-        Assert.Equal(
-            "net10.0,net9.0,net8.0",
-            TreeCommand.FormatTargetFrameworks(new[]
-            {
-                "net10.0",
-                "NET10.0",
-                "net9.0",
-                "net8.0",
-                "NET9.0"
-            }));
+        Assert.Equal("net10.0,net9.0,net8.0", TreeCommand.FormatTargetFrameworks(frameworks));
     }
 
     [Fact]
     public void Program_CleanStaleGeneratedFiles_UsesDogfoodStableDistinctDirectories()
     {
-        Assert.True(NSharpCliDogfoodAdapter.IsAvailable);
+        var duplicateDirs = new[] { "obj/Debug/net10.0/nsharp", "obj/Debug/net10.0/nsharp" };
+        Assert.True(NSharpCliDogfoodAdapter.TryDeduplicateStable(
+            duplicateDirs,
+            StringComparer.Ordinal,
+            out var distinctDirs));
+        Assert.Equal(new[] { "obj/Debug/net10.0/nsharp" }, distinctDirs);
 
         var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-stale-generated-{Guid.NewGuid():N}");
         var generatedDir = Path.Combine(tempDir, "obj", "Debug", "net10.0", "nsharp");
@@ -266,7 +274,6 @@ func Main() {
             .OrderByDescending(dir => dir.Length)
             .ToArray();
 
-        Assert.True(NSharpCliDogfoodAdapter.IsAvailable);
         Assert.True(NSharpCliDogfoodAdapter.TryOrderCleanArtifactDirectories(directories, out var actual));
         Assert.Equal(expected, actual);
     }
@@ -284,8 +291,6 @@ func Main() {
             new Reference { Project = "../Shared/project.yml" },
             new Reference { Nuget = "System.Text.Json", Version = "10.0.0" }
         };
-
-        Assert.True(NSharpCliDogfoodAdapter.IsAvailable);
 
         Assert.True(NSharpCliDogfoodAdapter.TryFilterUpdateNuGetDependencies(
             dependencies,
@@ -921,7 +926,6 @@ func Main() {
                 new("symbols", Id: "alpha")
             };
 
-            Assert.True(NSharpCliDogfoodAdapter.IsAvailable);
             Assert.True(NSharpCliDogfoodAdapter.TryFindDuplicateBatchRequestIds(requests, out var duplicateIds));
             Assert.Equal(new[] { "alpha", "zeta" }, duplicateIds);
 
@@ -941,7 +945,11 @@ func Main() {
     [Fact]
     public void UpdateCommand_DogfoodAdapter_SelectsTargetPackage()
     {
-        Assert.True(NSharpCliDogfoodAdapter.IsAvailable);
+        Assert.True(NSharpCliDogfoodAdapter.TryGetFirstPositionalArg(
+            new[] { "--dry-run", "Newtonsoft.Json" },
+            Array.Empty<string>(),
+            out var dogfoodTarget));
+        Assert.Equal("Newtonsoft.Json", dogfoodTarget);
         Assert.Equal("Newtonsoft.Json", UpdateCommand.GetTargetPackage(new[] { "--dry-run", "Newtonsoft.Json" }));
         Assert.Equal("Serilog", UpdateCommand.GetTargetPackage(new[] { "--dry-run", "-v", "Serilog" }));
         Assert.Null(UpdateCommand.GetTargetPackage(new[] { "--dry-run" }));
@@ -950,7 +958,11 @@ func Main() {
     [Fact]
     public void AddCommand_DogfoodAdapter_SelectsPackageOperand()
     {
-        Assert.True(NSharpCliDogfoodAdapter.IsAvailable);
+        Assert.True(NSharpCliDogfoodAdapter.TryGetFirstPositionalArg(
+            new[] { "--version", "13.0.3", "--framework", "Newtonsoft.Json" },
+            new[] { "--version", "--path" },
+            out var dogfoodPackage));
+        Assert.Equal("Newtonsoft.Json", dogfoodPackage);
         Assert.Equal(
             "Newtonsoft.Json",
             AddCommand.GetPackageOperand(new[] { "--version", "13.0.3", "--framework", "Newtonsoft.Json" }));
@@ -963,7 +975,11 @@ func Main() {
     [Fact]
     public void RemoveCommand_DogfoodAdapter_SelectsPackageOperand()
     {
-        Assert.True(NSharpCliDogfoodAdapter.IsAvailable);
+        Assert.True(NSharpCliDogfoodAdapter.TryGetFirstPositionalArg(
+            new[] { "--dry-run", "Serilog" },
+            Array.Empty<string>(),
+            out var dogfoodPackage));
+        Assert.Equal("Serilog", dogfoodPackage);
         Assert.Equal("Newtonsoft.Json", RemoveCommand.GetPackageOperand(new[] { "Newtonsoft.Json" }));
         Assert.Equal("Serilog", RemoveCommand.GetPackageOperand(new[] { "--dry-run", "Serilog" }));
         Assert.Null(RemoveCommand.GetPackageOperand(new[] { "--dry-run" }));
@@ -972,8 +988,6 @@ func Main() {
     [Fact]
     public void ExportCommand_DogfoodAdapter_SelectsInputOperandAfterOrderedOptionStripping()
     {
-        Assert.True(NSharpCliDogfoodAdapter.IsAvailable);
-
         Assert.True(NSharpCliDogfoodAdapter.TryGetExportCSharpInputOperand(
             new[] { "Program.nl", "--output", "Program.cs" },
             out var sourceFirst));
@@ -998,8 +1012,6 @@ func Main() {
     [Fact]
     public void RunCommand_DogfoodAdapter_SelectsSourceOperandAfterBackendStripping()
     {
-        Assert.True(NSharpCliDogfoodAdapter.IsAvailable);
-
         Assert.True(NSharpCliDogfoodAdapter.TryGetRunSourceOperand(
             Array.Empty<string>(),
             out var empty));
@@ -1033,8 +1045,6 @@ func Main() {
     [Fact]
     public void PublishCommand_DogfoodAdapter_NormalizesDefaultOptionsAndFallbackValidation()
     {
-        Assert.True(NSharpCliDogfoodAdapter.IsAvailable);
-
         Assert.True(NSharpCliDogfoodAdapter.TryGetPublishArgumentSummary(
             Array.Empty<string>(),
             out var defaultSummary));
@@ -1100,7 +1110,6 @@ func Main() {
             new Reference { Framework = "Microsoft.WindowsDesktop.App" }
         };
 
-        Assert.True(NSharpCliDogfoodAdapter.IsAvailable);
         Assert.True(NSharpCliDogfoodAdapter.TryFilterReferencesByType(
             references,
             ReferenceType.NuGet,
@@ -1139,7 +1148,6 @@ func Main() {
             "../models/models.csproj"
         };
 
-        Assert.True(NSharpCliDogfoodAdapter.IsAvailable);
         Assert.True(NSharpCliDogfoodAdapter.TryDeduplicateExportReferences(
             projectReferences,
             StringComparer.OrdinalIgnoreCase,
@@ -1185,13 +1193,17 @@ func Main() {
             "../models/models.csproj"
         };
 
-        Assert.True(NSharpCliDogfoodAdapter.IsAvailable);
+        Assert.True(NSharpCliDogfoodAdapter.TryDeduplicateStable(
+            projectReferences,
+            StringComparer.OrdinalIgnoreCase,
+            out var dogfoodReferences));
         Assert.Equal(new[]
         {
             "../Shared/Shared.csproj",
             "../Models/Models.csproj",
             "../Utilities/Utilities.csproj"
-        }, RestoreCommand.DeduplicateProjectReferences(projectReferences));
+        }, dogfoodReferences);
+        Assert.Equal(dogfoodReferences, RestoreCommand.DeduplicateProjectReferences(projectReferences));
     }
 
     [Fact]
@@ -1262,7 +1274,6 @@ dependencies:
             NewError("aot error", ErrorSeverity.Error)
         };
 
-        Assert.True(NSharpCliDogfoodAdapter.IsAvailable);
         Assert.True(NSharpCliDogfoodAdapter.TryFilterCompilerErrorsBySeverity(
             errors,
             ErrorSeverity.Error,
@@ -1295,7 +1306,6 @@ dependencies:
             NewSymbol("CurrentUser")
         };
 
-        Assert.True(NSharpCliDogfoodAdapter.IsAvailable);
         Assert.True(NSharpCliDogfoodAdapter.TryFilterSymbolsByNamePattern(
             symbols,
             "user",
@@ -1354,7 +1364,6 @@ dependencies:
             NewFix("review null access", FixSafety.ReviewNeeded)
         };
 
-        Assert.True(NSharpCliDogfoodAdapter.IsAvailable);
         Assert.True(NSharpCliDogfoodAdapter.TryFilterFixesBySafety(
             fixes,
             includeReviewNeeded: false,
@@ -1388,7 +1397,6 @@ dependencies:
             NewEntry("review null access", "reviewNeeded")
         };
 
-        Assert.True(NSharpCliDogfoodAdapter.IsAvailable);
         Assert.True(NSharpCliDogfoodAdapter.TrySelectSkippedFixEntries(
             entries,
             includeReviewNeeded: false,
@@ -1421,7 +1429,6 @@ dependencies:
             NewEntry("src/A.nl", "NL005", "second a")
         };
 
-        Assert.True(NSharpCliDogfoodAdapter.IsAvailable);
         Assert.True(NSharpCliDogfoodAdapter.TryGroupAppliedFixEntriesByFile(entries, out var grouping));
 
         var actual = new List<(string File, string Code, string Title)>();
@@ -1458,7 +1465,6 @@ dependencies:
             NewDependency("Custom.Package", "custom")
         };
 
-        Assert.True(NSharpCliDogfoodAdapter.IsAvailable);
         Assert.True(NSharpCliDogfoodAdapter.TrySelectTidyPossiblyUnusedDependencies(
             dependencies,
             static dependency => dependency.Status,
@@ -1536,7 +1542,6 @@ dependencies:
             "Unused.Package"
         };
 
-        Assert.True(NSharpCliDogfoodAdapter.IsAvailable);
         Assert.True(NSharpCliDogfoodAdapter.TryFilterTidyRemovalLines(
             lines,
             packageNames,
@@ -1587,7 +1592,6 @@ dependencies:
             .ThenBy(symbol => symbol.Name, StringComparer.Ordinal)
             .ToList();
 
-        Assert.True(NSharpCliDogfoodAdapter.IsAvailable);
         Assert.True(NSharpCliDogfoodAdapter.TryOrderDocSymbolsForGeneration(symbols, out var actual));
         Assert.Equal(expected, actual);
 
@@ -1615,7 +1619,6 @@ dependencies:
             .ThenBy(member => member.Name, StringComparer.Ordinal)
             .ToList();
 
-        Assert.True(NSharpCliDogfoodAdapter.IsAvailable);
         Assert.True(NSharpCliDogfoodAdapter.TryOrderDocMembersForGeneration(members, out var actual));
         Assert.Equal(expected, actual);
 
@@ -1635,7 +1638,6 @@ dependencies:
             "Property-HTTPClient2-API.Client.nl"
         };
 
-        Assert.True(NSharpCliDogfoodAdapter.IsAvailable);
         Assert.True(NSharpCliDogfoodAdapter.TryCreateDocSlugs(rawSlugs, out var actual));
         Assert.Equal(rawSlugs.Select(CreateExpectedDocSlug).ToArray(), actual);
 

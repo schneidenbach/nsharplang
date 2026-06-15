@@ -51,8 +51,6 @@ internal static class NSharpCliDogfoodAdapter
 
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings);
 
-    internal static bool IsAvailable => s_bindings.Value != null;
-
     internal static bool TryGetBuildOperandSummary(string[] args, out int count, out int firstOperandIndex)
     {
         count = 0;
