@@ -489,6 +489,75 @@ func TopLevelDeclarationIndicesInto(tokenKinds: int[], count: int, targetKind: i
     return TopLevelDeclarationIndicesCore(ref tokens, count, targetKind, suppressWhereClause, ref indices)
 }
 
+func TopLevelStructLikeDeclarationIndicesInto(tokenKinds: int[], count: int, outIndices: int[], outReferenceFlags: int[], outRecordFlags: int[]): int {
+    tokens := new ParserDeclarationKindStream { Kinds: tokenKinds }
+    outCount := TopLevelStructLikeDeclarationIndicesAppend(ref tokens, count, 9, 1, 0, 0, outIndices, outReferenceFlags, outRecordFlags, 0)
+    if outCount < 0 {
+        return -1
+    }
+
+    outCount = TopLevelStructLikeDeclarationIndicesAppend(ref tokens, count, 13, 0, 1, 1, outIndices, outReferenceFlags, outRecordFlags, outCount)
+    if outCount < 0 {
+        return -1
+    }
+
+    return TopLevelStructLikeDeclarationIndicesAppend(ref tokens, count, 8, 1, 1, 0, outIndices, outReferenceFlags, outRecordFlags, outCount)
+}
+
+func TopLevelStructLikeDeclarationIndicesAppend(tokens: &ParserDeclarationKindStream, count: int, targetKind: int, suppressWhereClause: int, isReference: int, isRecord: int, outIndices: int[], outReferenceFlags: int[], outRecordFlags: int[], startCount: int): int {
+    braceDepth := 0
+    bracketDepth := 0
+    parenDepth := 0
+    outCount := startCount
+    inWhereClause := false
+
+    i := 0
+    while i < count {
+        kind := tokens.Kinds[i]
+
+        if kind == 129 {
+            braceDepth = braceDepth + 1
+            inWhereClause = false
+        } else if kind == 130 {
+            braceDepth = braceDepth - 1
+            if braceDepth < 0 {
+                braceDepth = 0
+            }
+        } else if kind == 131 {
+            bracketDepth = bracketDepth + 1
+        } else if kind == 132 {
+            bracketDepth = bracketDepth - 1
+            if bracketDepth < 0 {
+                bracketDepth = 0
+            }
+        } else if kind == 127 {
+            parenDepth = parenDepth + 1
+        } else if kind == 128 {
+            parenDepth = parenDepth - 1
+            if parenDepth < 0 {
+                parenDepth = 0
+            }
+        } else if braceDepth == 0 && bracketDepth == 0 && parenDepth == 0 {
+            if kind == 53 {
+                inWhereClause = true
+            } else if kind == targetKind && (suppressWhereClause == 0 || !inWhereClause) {
+                if outCount >= outIndices.Length || outCount >= outReferenceFlags.Length || outCount >= outRecordFlags.Length {
+                    return -1
+                }
+
+                outIndices[outCount] = i
+                outReferenceFlags[outCount] = isReference
+                outRecordFlags[outCount] = isRecord
+                outCount = outCount + 1
+            }
+        }
+
+        i = i + 1
+    }
+
+    return outCount
+}
+
 func TopLevelDeclarationIndicesCore(tokens: &ParserDeclarationKindStream, count: int, targetKind: int, suppressWhereClause: int, indices: &TopLevelDeclarationIndexTable): int {
     braceDepth := 0
     bracketDepth := 0

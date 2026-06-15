@@ -316,26 +316,19 @@ internal static class NSharpCompilerDogfoodAdapter
 
             // Collect value-type structs (keyword 9, IsReference=false) AND reference-type records (keyword 13) and
             // classes (keyword 8), both IsReference=true — all three share the identical decl kernel + body syntax.
-            // Records carry IsRecord=true: the oracle emits records SEALED, so a record can never be a BASE type
-            // (and record inheritance itself is unmodelled) — the emitter declines those shapes by this flag.
-            var decls = new System.Collections.Generic.List<(int Index, bool IsReference, bool IsRecord)>();
-            var structIndices = new int[n + 1];
-            var structIndexCount = bindings.TopLevelDeclarationIndices(ck, n, 9, 1, structIndices);
-            if (structIndexCount < 0)
+            // The N# helper preserves the existing adapter order (structs, then records, then classes) and suppresses
+            // generic-constraint `class`/`struct` keywords before C# materializes the CLR-facing inputs.
+            var declIndices = new int[n + 1];
+            var declReferenceFlags = new int[n + 1];
+            var declRecordFlags = new int[n + 1];
+            var declCount = bindings.TopLevelStructLikeDeclarationIndices(ck, n, declIndices, declReferenceFlags, declRecordFlags);
+            if (declCount < 0)
                 return false;
-            for (var i = 0; i < structIndexCount; i++) decls.Add((structIndices[i], false, false));
-            var recordIndices = new int[n + 1];
-            var recordIndexCount = bindings.TopLevelDeclarationIndices(ck, n, 13, 0, recordIndices);
-            if (recordIndexCount < 0)
-                return false;
-            for (var i = 0; i < recordIndexCount; i++) decls.Add((recordIndices[i], true, true));
-            var classIndices = new int[n + 1];
-            var classIndexCount = bindings.TopLevelDeclarationIndices(ck, n, 8, 1, classIndices);
-            if (classIndexCount < 0)
-                return false;
-            for (var i = 0; i < classIndexCount; i++) decls.Add((classIndices[i], true, false));
-            foreach (var (structIndex, isReference, isRecord) in decls)
+            for (var declSlot = 0; declSlot < declCount; declSlot++)
             {
+                var structIndex = declIndices[declSlot];
+                var isReference = declReferenceFlags[declSlot] == 1;
+                var isRecord = declRecordFlags[declSlot] == 1;
                 var cap = n + 1;
                 var outFieldNameStarts = new int[cap];
                 var outFieldNameLengths = new int[cap];
@@ -2044,6 +2037,9 @@ internal static class NSharpCompilerDogfoodAdapter
                 CreateDelegate<TopLevelDeclarationIndicesInto>(
                     programType,
                     "TopLevelDeclarationIndicesInto"),
+                CreateDelegate<TopLevelStructLikeDeclarationIndicesInto>(
+                    programType,
+                    "TopLevelStructLikeDeclarationIndicesInto"),
                 CreateDelegate<TopLevelFunctionPreamblesAreValidInto>(
                     programType,
                     "TopLevelFunctionPreamblesAreValidInto"),
@@ -2201,6 +2197,8 @@ internal static class NSharpCompilerDogfoodAdapter
         string source, int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count);
     private delegate int TopLevelDeclarationIndicesInto(
         int[] tokenKinds, int count, int targetKind, int suppressWhereClause, int[] outIndices);
+    private delegate int TopLevelStructLikeDeclarationIndicesInto(
+        int[] tokenKinds, int count, int[] outIndices, int[] outReferenceFlags, int[] outRecordFlags);
     private delegate int TopLevelFunctionPreamblesAreValidInto(
         int[] tokenKinds, int count, int[] funcIndices, int funcCount);
     private delegate int TokenIndexByKindStartInto(
@@ -2295,6 +2293,7 @@ internal static class NSharpCompilerDogfoodAdapter
         TopLevelDeclarationKindsInto TopLevelDeclarationKinds,
         TopLevelContextualTestDeclarationExistsInto TopLevelContextualTestDeclarationExists,
         TopLevelDeclarationIndicesInto TopLevelDeclarationIndices,
+        TopLevelStructLikeDeclarationIndicesInto TopLevelStructLikeDeclarationIndices,
         TopLevelFunctionPreamblesAreValidInto TopLevelFunctionPreamblesAreValid,
         TokenIndexByKindStartInto TokenIndexByKindStart,
         ParsePropertyAccessorTypeInfoInto ParsePropertyAccessorTypeInfo,

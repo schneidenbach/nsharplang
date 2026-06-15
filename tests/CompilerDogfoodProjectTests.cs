@@ -79,6 +79,10 @@ public class CompilerDogfoodProjectTests
                     "TopLevelDeclarationIndicesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit TopLevelDeclarationIndicesInto.");
+            var topLevelStructLikeDeclIndices = programType.GetMethod(
+                    "TopLevelStructLikeDeclarationIndicesInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit TopLevelStructLikeDeclarationIndicesInto.");
             var topLevelFunctionPreambles = programType.GetMethod(
                     "TopLevelFunctionPreamblesAreValidInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -217,6 +221,14 @@ record Person {
             AssertTopLevelDeclarationIndices(controlledCorpus, (int)TokenType.Interface, false, 1, tokenizeWithIndentation, topLevelDeclIndices, "top-level interface only");
             AssertTopLevelDeclarationIndices(controlledCorpus, (int)TokenType.Record, false, 1, tokenizeWithIndentation, topLevelDeclIndices, "top-level record only");
             AssertTopLevelDeclarationIndices(controlledCorpus, (int)TokenType.Enum, false, 1, tokenizeWithIndentation, topLevelDeclIndices, "top-level enum only");
+            AssertTopLevelStructLikeDeclarationIndices(
+                controlledCorpus,
+                new[] { (int)TokenType.Struct, (int)TokenType.Record, (int)TokenType.Class },
+                new[] { 0, 1, 1 },
+                new[] { 0, 1, 0 },
+                tokenizeWithIndentation,
+                topLevelStructLikeDeclIndices,
+                "controlled struct-like declarations");
             AssertInterfaceDeclarationInfo(
                 """
 interface IReadable: IBase, IOther {
@@ -352,6 +364,22 @@ func refOnly<T>(v: T): T where T: class {
                 tokenizeWithIndentation,
                 topLevelDeclIndices,
                 "generic constraint class keyword");
+            AssertTopLevelStructLikeDeclarationIndices(
+                """
+func boxVal<T>(v: T): T where T: struct {
+    return v
+}
+
+func refOnly<T>(v: T): T where T: class {
+    return v
+}
+""",
+                Array.Empty<int>(),
+                Array.Empty<int>(),
+                Array.Empty<int>(),
+                tokenizeWithIndentation,
+                topLevelStructLikeDeclIndices,
+                "generic constraint struct-like keywords");
             AssertTopLevelFunctionPreambles(
                 """
 import System.Text
@@ -1563,6 +1591,46 @@ class B
             var index = indices[i];
             Assert.True(index >= 0 && index < count, $"Declaration index out of range for {label}: {index}.");
             Assert.Equal(targetKind, kinds[index]);
+        }
+    }
+
+    private static void AssertTopLevelStructLikeDeclarationIndices(
+        string source,
+        int[] expectedKinds,
+        int[] expectedReferenceFlags,
+        int[] expectedRecordFlags,
+        MethodInfo tokenizeWithIndentation,
+        MethodInfo topLevelStructLikeDeclIndices,
+        string label)
+    {
+        Assert.Equal(expectedKinds.Length, expectedReferenceFlags.Length);
+        Assert.Equal(expectedKinds.Length, expectedRecordFlags.Length);
+
+        var capacity = 3 * (source.Length + 1) + 8;
+        var kinds = new int[capacity];
+        var starts = new int[capacity];
+        var valueLengths = new int[capacity];
+        var lines = new int[capacity];
+        var columns = new int[capacity];
+        var count = (int)(tokenizeWithIndentation.Invoke(
+            null,
+            new object[] { source, kinds, starts, valueLengths, lines, columns }) ?? -1);
+        var indices = new int[count + 1];
+        var referenceFlags = new int[count + 1];
+        var recordFlags = new int[count + 1];
+
+        var actualCount = (int)(topLevelStructLikeDeclIndices.Invoke(
+            null,
+            new object[] { kinds, count, indices, referenceFlags, recordFlags }) ?? -1);
+
+        Assert.Equal(expectedKinds.Length, actualCount);
+        for (var i = 0; i < actualCount; i++)
+        {
+            var index = indices[i];
+            Assert.True(index >= 0 && index < count, $"Struct-like declaration index out of range for {label}: {index}.");
+            Assert.Equal(expectedKinds[i], kinds[index]);
+            Assert.Equal(expectedReferenceFlags[i], referenceFlags[i]);
+            Assert.Equal(expectedRecordFlags[i], recordFlags[i]);
         }
     }
 

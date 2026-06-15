@@ -11,6 +11,25 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Struct-like declaration selection moves into N#
+
+`ParserDeclarations.nl` now exports `TopLevelStructLikeDeclarationIndicesInto`, a product-routed
+helper that returns the struct/class/record declaration indices plus `IsReference` and `IsRecord`
+flag columns used by the columnar struct input collector. It preserves the adapter's existing
+ordering contract (structs, then records, then classes) and applies the same top-level
+`where T: class` / `where T: struct` suppression before C# sees the rows.
+
+`NSharpCompilerDogfoodAdapter.TryGetColumnarStructInputs` no longer performs three separate
+top-level declaration index calls or assembles a C# tuple list for struct-like declarations. It now
+consumes the N# rowset and only materializes the CLR-facing `ColumnarStructInput` containers.
+Focused evidence: `./scripts/dev.sh Parser_TopLevelDeclarationKinds_MatchProductionParser`,
+`./scripts/dev.sh ColumnarCodegen_Parity_Struct`,
+`./scripts/dev.sh ColumnarCodegen_Parity_Class`,
+`./scripts/dev.sh ColumnarCodegen_Parity_Record`,
+`./scripts/dev.sh ColumnarCodegen_Parity_GenericClass`,
+`./scripts/dev.sh ColumnarCodegen_Parity_StaticFields`, and
+`./scripts/dev.sh ColumnarCodegen_MultiFile_EligibleClusterCompiles`.
+
 ## 2026-06-15 — Struct/class/record declaration name text moves into N#
 
 `ParserDeclarations.nl` extends `ParseStructDeclarationInfoInto` so the product-routed
