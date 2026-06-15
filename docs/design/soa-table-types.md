@@ -538,9 +538,12 @@ ownership lands.
    and result wrappers, with the block-statement, statement-dispatcher, and simple-statement cores
    keeping token columns and child-stack ids wrapper-shaped internally. Only flattened compatibility
    shims remain at expression/host boundaries.
-   `ParserExpressions.nl` now does the same for its pattern, expression-precedence, call, lambda, and
-   expression-entry recursion, and composes type-reference parsing through a wrapper-aware expression
-   node/table bridge. `ParserDeclarations.nl` now also routes package/header scans, top-level declaration
+   `ParserExpressions.nl` now does the same for its expression-entry recursion and composes
+   type-reference parsing through a wrapper-aware expression node/table bridge; its generic-call
+   lookahead and small `or`/`and`/`not` pattern helpers have also started keeping token columns
+   wrapper-shaped internally. The larger relational, primary, postfix, call-argument, unary, binary,
+   ternary, assignment, and lambda expression cores remain as separate alias-cleanup slices.
+   `ParserDeclarations.nl` now also routes package/header scans, top-level declaration
    scans, interface/enum/struct/class/record, constructor-chain, and union parser bodies through
    declaration token-stream and result-slot wrappers while preserving the flattened adapter ABI.
 7. Only after those gates pass, start replacing C# emitter/analyzer internals that still require untyped

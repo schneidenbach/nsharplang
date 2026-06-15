@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Expression small pattern helpers keep token tables shaped
+
+`IsGenericCallTypeArgs`, `ParseOrPatternNode`, `ParseAndPatternNode`, and `ParseNotPatternNode`
+now read token kinds/starts through `ParserTokenTable` instead of unpacking raw token arrays. The
+larger relational, primary, postfix, call-argument, unary, binary, ternary, assignment, and lambda
+expression cores remain as separate parser cleanup slices. Focused evidence:
+`./scripts/dev.sh Parser_Expression_MatchesProductionParser` and
+`./scripts/dev.sh ColumnarCodegen_MultiFile_RealParserCluster`.
+
 ## 2026-06-15 — Simple statement parser keeps tables shaped
 
 `ParseSimpleStatementNode` now reads return/throw/deconstruction/local-declaration token spans

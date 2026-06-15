@@ -178,11 +178,10 @@ func IsExpressionStartKind(kind: int): bool {
 // type-argument list — exactly the C# parser's rule, so the kernel commits to a generic call precisely where
 // the production parser does.
 func IsGenericCallTypeArgs(tokens: &ParserTokenTable, count: int, lessPos: int): bool {
-    tokenKinds := tokens.Kinds
     i := lessPos + 1
     depth := 1
     while i < count {
-        k := tokenKinds[i]
+        k := tokens.Kinds[i]
         if k == 0 || k == 124 || k == 134 || k == 131 || k == 132 {
             i = i + 1
         } else if k == 100 {
@@ -192,13 +191,13 @@ func IsGenericCallTypeArgs(tokens: &ParserTokenTable, count: int, lessPos: int):
             depth = depth - 1
             i = i + 1
             if depth == 0 {
-                return i < count && tokenKinds[i] == 127
+                return i < count && tokens.Kinds[i] == 127
             }
         } else if k == 112 {
             depth = depth - 2
             i = i + 1
             if depth == 0 {
-                return i < count && tokenKinds[i] == 127
+                return i < count && tokens.Kinds[i] == 127
             }
             if depth < 0 {
                 return false
@@ -220,12 +219,11 @@ func ParseMatchPatternNode(tokens: &ParserTokenTable, count: int, st: &ParserSta
 
 // `<and-pattern> ( or <and-pattern> )*` -> left-associative OrPattern (kind 34). `or` is token 56.
 func ParseOrPatternNode(tokens: &ParserTokenTable, count: int, st: &ParserState, argStack: &ParserArgumentStack, nodes: &ParserExpressionNodeTable, children: &ParserChildIndexTable, depth: int): int {
-    tokenKinds := tokens.Kinds
     left := ParseAndPatternNode(ref tokens, count, ref st, ref argStack, ref nodes, ref children, depth)
     if left < 0 {
         return -1
     }
-    while st.Pos < count && tokenKinds[st.Pos] == 56 {
+    while st.Pos < count && tokens.Kinds[st.Pos] == 56 {
         st.Pos = st.Pos + 1
         right := ParseAndPatternNode(ref tokens, count, ref st, ref argStack, ref nodes, ref children, depth)
         if right < 0 {
@@ -243,12 +241,11 @@ func ParseOrPatternNode(tokens: &ParserTokenTable, count: int, st: &ParserState,
 
 // `<not-pattern> ( and <not-pattern> )*` -> left-associative AndPattern (kind 33). `and` is token 55.
 func ParseAndPatternNode(tokens: &ParserTokenTable, count: int, st: &ParserState, argStack: &ParserArgumentStack, nodes: &ParserExpressionNodeTable, children: &ParserChildIndexTable, depth: int): int {
-    tokenKinds := tokens.Kinds
     left := ParseNotPatternNode(ref tokens, count, ref st, ref argStack, ref nodes, ref children, depth)
     if left < 0 {
         return -1
     }
-    while st.Pos < count && tokenKinds[st.Pos] == 55 {
+    while st.Pos < count && tokens.Kinds[st.Pos] == 55 {
         st.Pos = st.Pos + 1
         right := ParseNotPatternNode(ref tokens, count, ref st, ref argStack, ref nodes, ref children, depth)
         if right < 0 {
@@ -266,13 +263,11 @@ func ParseAndPatternNode(tokens: &ParserTokenTable, count: int, st: &ParserState
 
 // `not <not-pattern>` -> NotPattern (kind 35, 1 child); else a relational-or-primary pattern. `not` is token 57.
 func ParseNotPatternNode(tokens: &ParserTokenTable, count: int, st: &ParserState, argStack: &ParserArgumentStack, nodes: &ParserExpressionNodeTable, children: &ParserChildIndexTable, depth: int): int {
-    tokenKinds := tokens.Kinds
-    tokenStarts := tokens.Starts
     if depth > 200 {
         return -1
     }
-    if st.Pos < count && tokenKinds[st.Pos] == 57 {
-        notStart := tokenStarts[st.Pos]
+    if st.Pos < count && tokens.Kinds[st.Pos] == 57 {
+        notStart := tokens.Starts[st.Pos]
         st.Pos = st.Pos + 1
         inner := ParseNotPatternNode(ref tokens, count, ref st, ref argStack, ref nodes, ref children, depth + 1)
         if inner < 0 {
