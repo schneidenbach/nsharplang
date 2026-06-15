@@ -1589,6 +1589,122 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_ParenthesizedSoaRowViewCannotEscapeFromControlAndAllocationContexts()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var cases = new[]
+        {
+            (Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable) {
+                    while (nodes[0]) {
+                        break
+                    }
+                }
+                """,
+                Message: "SoA row views cannot be used as a 'while' condition"),
+            (Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable) {
+                    for i := 0; (nodes[0]); i++ {
+                    }
+                }
+                """,
+                Message: "SoA row views cannot be used as a 'for' condition"),
+            (Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable): int {
+                    return (nodes[0]) ? 1 : 0
+                }
+                """,
+                Message: "SoA row views cannot be used as a ternary condition"),
+            (Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable): int {
+                    return match (nodes[0]) {
+                        _ => 0
+                    }
+                }
+                """,
+                Message: "SoA row views cannot be used as a match value"),
+            (Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable, ok: bool): int {
+                    return match ok {
+                        true when (nodes[0]) => 1,
+                        _ => 0
+                    }
+                }
+                """,
+                Message: "SoA row views cannot be used as a match guard"),
+            (Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable) {
+                    value := (nodes[0])..1
+                }
+                """,
+                Message: "SoA row views cannot be used as a range bound"),
+            (Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable) {
+                    values := [...(nodes[0])]
+                }
+                """,
+                Message: "SoA row views cannot be spread"),
+            (Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable) {
+                    values := new int[(nodes[0])]
+                }
+                """,
+                Message: "SoA row views cannot be used as an array length"),
+            (Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable) {
+                    span := stackalloc int[(nodes[0])]
+                }
+                """,
+                Message: "SoA row views cannot be used as a stackalloc length")
+        };
+
+        foreach (var testCase in cases)
+        {
+            var result = Analyze(testCase.Source);
+            var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+            Assert.Contains(testCase.Message, error.Message);
+            Assert.Contains("table[index].column", error.Suggestion);
+        }
+    }
+
+    [Fact]
     public void Analyzer_SoaRowViewCannotEscapeIntoCallArgument()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

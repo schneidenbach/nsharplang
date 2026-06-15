@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Parenthesized SoA row-view control escapes stay diagnosed
+
+Parenthesized SoA row views now have analyzer coverage for control and allocation-adjacent value
+contexts: `while (nodes[0])`, `for ...; (nodes[0]); ...`, `(nodes[0]) ? ...`,
+`match (nodes[0])`, match guards, `(nodes[0])..1`, spread expressions, and array or stackalloc
+lengths all fail before IL emission. This keeps row projections syntax-only even when control flow
+or allocation syntax tries to consume them as values.
+
 ## 2026-06-15 — Parenthesized SoA row-view type/result escapes stay diagnosed
 
 Parenthesized SoA row views now have analyzer coverage for casts, type tests, `must`, `await`,
