@@ -73,7 +73,8 @@ the same way as `new Table()`, including when the expected table type comes from
 return, expression-bodied function/local function, call argument, default parameter value, field,
 expression-bodied property, object initializer member, `with` expression member, assignment target,
 array literal element, array initializer element, collection literal element, tuple literal element,
-typed ternary/match result arm, hard-cast target, or checked/unchecked expression wrapper.
+typed ternary/match result arm, hard-cast target, checked/unchecked expression wrapper, or
+parenthesized wrapper.
 The same construction rule applies when the expected type is nullable (`Table?`): `new()` still lacks
 the required backing-column capacity and must not become a nullable wrapper around an invalid table.
 Parameter declarations cannot use any SoA table as an optional-parameter default, including `null`

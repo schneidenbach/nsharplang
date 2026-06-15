@@ -1342,6 +1342,110 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaTableParenthesizedTargetTypedDefaultAndNewPreserveExpectedType()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var cases = new[]
+        {
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(): int {
+                    nodes: NodeTable = (default)
+                    return nodes.length
+                }
+                """,
+                Code: ErrorCode.InvalidSyntax,
+                Message: "SoA table 'NodeTable' cannot be default-initialized",
+                Suggestion: "NodeTable.wrap"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(): NodeTable {
+                    return (default)
+                }
+                """,
+                Code: ErrorCode.InvalidSyntax,
+                Message: "SoA table 'NodeTable' cannot be default-initialized",
+                Suggestion: "NodeTable.wrap"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func consume(nodes: NodeTable) {
+                }
+
+                func bad() {
+                    consume((default))
+                }
+                """,
+                Code: ErrorCode.InvalidSyntax,
+                Message: "SoA table 'NodeTable' cannot be default-initialized",
+                Suggestion: "NodeTable.wrap"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(): int {
+                    nodes: NodeTable = (new())
+                    return nodes.length
+                }
+                """,
+                Code: ErrorCode.NoMatchingOverload,
+                Message: "SoA table 'NodeTable' construction expects exactly one int capacity argument",
+                Suggestion: "new NodeTable(capacity)"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(): NodeTable {
+                    return (new())
+                }
+                """,
+                Code: ErrorCode.NoMatchingOverload,
+                Message: "SoA table 'NodeTable' construction expects exactly one int capacity argument",
+                Suggestion: "new NodeTable(capacity)"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func consume(nodes: NodeTable) {
+                }
+
+                func bad() {
+                    consume((new()))
+                }
+                """,
+                Code: ErrorCode.NoMatchingOverload,
+                Message: "SoA table 'NodeTable' construction expects exactly one int capacity argument",
+                Suggestion: "new NodeTable(capacity)")
+        };
+
+        foreach (var (source, code, message, suggestion) in cases)
+        {
+            var result = Analyze(source);
+            var error = Assert.Single(result.Errors, e => e.Code == code && e.Message.Contains(message));
+            Assert.Contains(suggestion, error.Suggestion);
+            Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.CannotInferType);
+        }
+    }
+
+    [Fact]
     public void Analyzer_SoaRowViewCannotEscapeIntoLocal()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
