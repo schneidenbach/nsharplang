@@ -2037,6 +2037,56 @@ func Main() {
         Assert.Contains("remove `readonly`", error.Suggestion);
     }
 
+    [Theory]
+    [InlineData("State.Value = 2", "Value")]
+    [InlineData("Value = 2", "Value")]
+    public void StaticReadonlyField_SetOutsideDeclaration_Error(string statement, string fieldName)
+    {
+        var result = AnalyzeWithSource($$"""
+            class State {
+                static readonly Value: int = 1
+
+                static func Mutate() {
+                    {{statement}}
+                }
+            }
+        """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.ReadonlyAssignment);
+        Assert.Contains($"Field '{fieldName}' is static readonly", error.Message);
+        Assert.Contains("field initializer", error.Suggestion);
+    }
+
+    [Theory]
+    [InlineData("bump(ref State.Value)", "ref")]
+    [InlineData("reset(out State.Value)", "out")]
+    [InlineData("bump(ref Value)", "ref")]
+    public void StaticReadonlyField_RefOutArgument_Error(string statement, string modifier)
+    {
+        var result = AnalyzeWithSource($$"""
+            func bump(ref value: int) {
+                value += 1
+            }
+
+            func reset(out value: int) {
+                value = 0
+            }
+
+            class State {
+                static readonly Value: int = 1
+
+                static func Mutate() {
+                    {{statement}}
+                }
+            }
+        """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.ReadonlyAssignment);
+        Assert.Contains("static readonly", error.Message);
+        Assert.Contains($"can't be used as a {modifier} argument", error.Message);
+        Assert.Contains("declaration", error.Suggestion);
+    }
+
     [Fact]
     public void ReadonlyField_WithInitializer_Valid()
     {

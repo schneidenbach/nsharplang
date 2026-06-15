@@ -8766,7 +8766,7 @@ public class Analyzer : IDisposable
         {
             return true;
         }
-        if (ReportReadonlyFieldRefOutArgumentIfNeeded(argument.Value, modifier))
+        if (ReportReadonlyFieldRefOutArgumentIfNeeded(argument.Value, modifier, expressionTypes))
         {
             return true;
         }
@@ -8873,15 +8873,7 @@ public class Analyzer : IDisposable
         if (!expressionTypes.TryGetValue(member.Object, out var ownerType))
             return null;
 
-        var owner = ResolveTypeAlias(ownerType);
-        if (owner is GenericTypeInfo generic)
-            owner = LookupType(generic.Name) ?? owner;
-        if (owner is SimpleTypeInfo or GenericTypeInfo or ArrayTypeInfo)
-        {
-            var clrOwner = TryConvertTypeInfoToClrType(owner);
-            if (clrOwner != null)
-                owner = new ReflectionTypeInfo(clrOwner);
-        }
+        var owner = NormalizeMemberOwnerType(ownerType);
 
         List<Declaration>? members = owner switch
         {
@@ -11921,7 +11913,7 @@ public class Analyzer : IDisposable
         }
 
         // Check for readonly field assignment outside constructor
-        CheckReadonlyFieldAssignment(assignment.Target, assignment.Line, assignment.Column);
+        CheckReadonlyFieldAssignment(assignment.Target, assignment.Line, assignment.Column, targetExpressionTypes);
 
         var valueAssignable = IsAssignable(targetType, valueType);
         if (!valueAssignable)
@@ -12562,64 +12554,195 @@ public class Analyzer : IDisposable
         return null;
     }
 
-    private void CheckReadonlyFieldAssignment(Expression target, int line, int column)
+    private void CheckReadonlyFieldAssignment(
+        Expression target,
+        int line,
+        int column,
+        Dictionary<Expression, TypeInfo>? expressionTypes)
     {
-        // Only check if we're not in a constructor
-        if (_inConstructor)
+        if (!TryGetReadonlyFieldTarget(target, expressionTypes, out var readonlyTarget))
+        {
             return;
+        }
 
-        if (TryGetCurrentReadonlyFieldTarget(target, out var fieldName))
+        if (readonlyTarget.IsStatic)
         {
             var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetAssignmentTargetNameDiagnosticSpan(target, line, column);
             Error(
                 ErrorCode.ReadonlyAssignment,
-                $"Field '{fieldName}' is readonly — it can only be assigned in a constructor",
+                $"Field '{readonlyTarget.Name}' is static readonly — it can only be initialized at its declaration",
                 diagnosticLine,
                 diagnosticColumn,
-                "Move this assignment into a constructor, or remove `readonly` if the field needs to change later.",
+                "Move this value into the field initializer, or remove `readonly` if the static field needs to change later.",
                 diagnosticLength);
+            return;
         }
+
+        // Instance readonly fields may be assigned by their owning constructor.
+        if (_inConstructor)
+            return;
+
+        var (instanceLine, instanceColumn, instanceLength) = GetAssignmentTargetNameDiagnosticSpan(target, line, column);
+        Error(
+            ErrorCode.ReadonlyAssignment,
+            $"Field '{readonlyTarget.Name}' is readonly — it can only be assigned in a constructor",
+            instanceLine,
+            instanceColumn,
+            "Move this assignment into a constructor, or remove `readonly` if the field needs to change later.",
+            instanceLength);
     }
 
-    private bool ReportReadonlyFieldRefOutArgumentIfNeeded(Expression target, string modifier)
+    private bool ReportReadonlyFieldRefOutArgumentIfNeeded(
+        Expression target,
+        string modifier,
+        Dictionary<Expression, TypeInfo>? expressionTypes)
     {
-        if (_inConstructor || !TryGetCurrentReadonlyFieldTarget(target, out var fieldName))
+        if (!TryGetReadonlyFieldTarget(target, expressionTypes, out var readonlyTarget))
+        {
+            return false;
+        }
+
+        if (!readonlyTarget.IsStatic && _inConstructor)
         {
             return false;
         }
 
         var (line, column, length) = GetAssignmentTargetNameDiagnosticSpan(target, target.Line, target.Column);
+        var fieldKind = readonlyTarget.IsStatic ? "static readonly" : "readonly";
+        var suggestion = readonlyTarget.IsStatic
+            ? "Static readonly fields can only be initialized at their declaration; copy the value to a mutable local or remove `readonly`."
+            : "Assign readonly fields inside a constructor, or remove `readonly` if this field must be passed by reference.";
         Error(
             ErrorCode.ReadonlyAssignment,
-            $"Field '{fieldName}' is readonly — it can't be used as a {modifier} argument outside a constructor",
+            $"Field '{readonlyTarget.Name}' is {fieldKind} — it can't be used as a {modifier} argument",
             line,
             column,
-            "Assign readonly fields inside a constructor, or remove `readonly` if this field must be passed by reference.",
+            suggestion,
             length);
         return true;
     }
 
-    private bool TryGetCurrentReadonlyFieldTarget(Expression target, out string fieldName)
+    private readonly record struct ReadonlyFieldTarget(string Name, bool IsStatic);
+
+    private bool TryGetReadonlyFieldTarget(
+        Expression target,
+        Dictionary<Expression, TypeInfo>? expressionTypes,
+        out ReadonlyFieldTarget readonlyTarget)
     {
         if (target is ParenthesizedExpression parenthesized)
-            return TryGetCurrentReadonlyFieldTarget(parenthesized.Inner, out fieldName);
+            return TryGetReadonlyFieldTarget(parenthesized.Inner, expressionTypes, out readonlyTarget);
 
-        fieldName = target switch
+        if (target is MemberAccessExpression memberAccess
+            && TryGetStaticReadonlyFieldTarget(memberAccess, expressionTypes, out readonlyTarget))
         {
-            MemberAccessExpression { Object: ThisExpression } memberAccess => memberAccess.MemberName,
+            return true;
+        }
+
+        var fieldName = target switch
+        {
+            MemberAccessExpression { Object: ThisExpression } thisMemberAccess => thisMemberAccess.MemberName,
             IdentifierExpression ident => ident.Name,
             _ => string.Empty
         };
 
         if (fieldName.Length == 0 || _currentClass == null)
         {
-            fieldName = string.Empty;
+            readonlyTarget = default;
             return false;
         }
 
         var targetFieldName = fieldName;
-        return _currentClass.Members.OfType<FieldDeclaration>()
-            .Any(field => field.Name == targetFieldName && field.Modifiers.HasFlag(Modifiers.Readonly));
+        var field = _currentClass.Members.OfType<FieldDeclaration>()
+            .FirstOrDefault(field => field.Name == targetFieldName && field.Modifiers.HasFlag(Modifiers.Readonly));
+        if (field == null)
+        {
+            readonlyTarget = default;
+            return false;
+        }
+
+        readonlyTarget = new ReadonlyFieldTarget(field.Name, field.Modifiers.HasFlag(Modifiers.Static));
+        return true;
+    }
+
+    private bool TryGetStaticReadonlyFieldTarget(
+        MemberAccessExpression target,
+        Dictionary<Expression, TypeInfo>? expressionTypes,
+        out ReadonlyFieldTarget readonlyTarget)
+    {
+        readonlyTarget = default;
+        if (!IsStaticMemberAccessTarget(target.Object) || expressionTypes == null)
+        {
+            return false;
+        }
+
+        if (!expressionTypes.TryGetValue(target.Object, out var ownerType))
+        {
+            return false;
+        }
+
+        var owner = NormalizeMemberOwnerType(ownerType);
+        List<Declaration>? members = owner switch
+        {
+            ClassTypeInfo classType => classType.Declaration.Members,
+            StructTypeInfo structType => structType.Declaration.Members,
+            RecordTypeInfo recordType => recordType.Declaration.Members,
+            _ => null,
+        };
+
+        if (members != null)
+        {
+            var field = members.OfType<FieldDeclaration>()
+                .FirstOrDefault(field =>
+                    field.Name == target.MemberName
+                    && field.Modifiers.HasFlag(Modifiers.Static)
+                    && field.Modifiers.HasFlag(Modifiers.Readonly));
+            if (field == null)
+            {
+                return false;
+            }
+
+            readonlyTarget = new ReadonlyFieldTarget(field.Name, IsStatic: true);
+            return true;
+        }
+
+        if (owner is ReflectionTypeInfo reflected && reflected.Type is not System.Reflection.Emit.TypeBuilder
+            && !reflected.Type.IsGenericTypeDefinition)
+        {
+            try
+            {
+                var field = reflected.Type.GetField(
+                    target.MemberName,
+                    System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+                if (field is not { IsInitOnly: true } and not { IsLiteral: true })
+                {
+                    return false;
+                }
+
+                readonlyTarget = new ReadonlyFieldTarget(field.Name, IsStatic: true);
+                return true;
+            }
+            catch (NotSupportedException)
+            {
+                return false;
+            }
+        }
+
+        return false;
+    }
+
+    private TypeInfo NormalizeMemberOwnerType(TypeInfo owner)
+    {
+        owner = ResolveTypeAlias(owner);
+        if (owner is GenericTypeInfo generic)
+            owner = LookupType(generic.Name) ?? owner;
+        if (owner is SimpleTypeInfo or GenericTypeInfo or ArrayTypeInfo)
+        {
+            var clrOwner = TryConvertTypeInfoToClrType(owner);
+            if (clrOwner != null)
+                owner = new ReflectionTypeInfo(clrOwner);
+        }
+
+        return owner;
     }
 
     private (int Line, int Column, int Length) GetAssignmentTargetNameDiagnosticSpan(Expression target, int fallbackLine, int fallbackColumn)

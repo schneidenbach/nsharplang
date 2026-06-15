@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Static readonly fields reject byref and assignment writes
+
+Static readonly fields now reject mutation paths before lowering. Qualified and in-type accesses
+such as `State.Value = 2`, `Value = 2`, `bump(ref State.Value)`, and `reset(out State.Value)` report
+the readonly-field diagnostic instead of reaching static-field stores or `ldsflda` emission. Field
+initializers remain the supported initialization path for static readonly storage.
+
 ## 2026-06-15 — Readonly fields reject ref/out mutation paths
 
 Readonly instance fields now keep their assignment protection when passed to byref calls. The
