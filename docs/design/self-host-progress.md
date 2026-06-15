@@ -11,6 +11,23 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Union field type text moves into N#
+
+`ParserDeclarations.nl` now exports `ParseUnionDeclarationInfoInto`, a product-routed wrapper over
+the existing union declaration parser. It keeps the original flattened case/field span ABI, adds a
+`string[]` field-type text column filled by `ParserDeclarationCanonicalTypeText`, and preserves the
+current safe-decline rule for unsupported composed field types before product emission sees the
+union.
+
+`NSharpCompilerDogfoodAdapter.TryGetColumnarUnionInputs` no longer binds the span-only
+`ParseUnionDeclarationInto` delegate or materializes union field type strings from source spans in
+C#. The old span parser remains emitted for parity tests only; production union input collection now
+uses the info wrapper and only materializes CLR-facing union/case/field containers. Focused
+evidence: `./scripts/dev.sh Parser_TopLevelDeclarationKinds_MatchProductionParser`,
+`./scripts/dev.sh ColumnarCodegen_Parity_UnionConstructAndMatch`,
+`./scripts/dev.sh ColumnarCodegen_Parity_GenericUnions`, and
+`./scripts/dev.sh ColumnarCodegen_MultiFile_EligibleClusterCompiles`.
+
 ## 2026-06-15 — Type-reference canonicalization moves into N#
 
 `ParserTypeReferences.nl` now exports `TypeReferenceCanonicalTextInto` and

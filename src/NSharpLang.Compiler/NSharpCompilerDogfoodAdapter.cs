@@ -492,7 +492,8 @@ internal static class NSharpCompilerDogfoodAdapter
     // names + per-case name + per-case field names + per-case field TYPE canonical strings). Consumes the shared
     // token bundle, finds each union keyword (TopLevelUnionIndices), and parses its body via the
     // ParseUnionDeclaration kernel — which flattens fields across cases, with outCaseFieldCounts re-segmenting them
-    // per case. Returns true (possibly an empty list) for a program with no unions. Returns FALSE — declining the
+    // per case. ParseUnionDeclarationInfo also returns field type text so C# does not own union field type
+    // canonicalization. Returns true (possibly an empty list) for a program with no unions. Returns FALSE — declining the
     // whole program to C# — on any parse failure (a bare case without a `{ }` body, a composed field type, an empty
     // union). The emitter further gates each field type to a supported CLR type (or one of the union's own type
     // parameters) and models the slice scope (reference-type cases).
@@ -523,12 +524,13 @@ internal static class NSharpCompilerDogfoodAdapter
                 var outFieldNameLengths = new int[cap];
                 var outFieldTypeStarts = new int[cap];
                 var outFieldTypeLengths = new int[cap];
+                var outFieldTypeTexts = new string[cap];
                 var outTypeParamStarts = new int[cap];
                 var outTypeParamLengths = new int[cap];
                 var outResult = new int[4];
-                var caseCount = bindings.ParseUnionDeclaration(
-                    ck, cs, cv, n, unionIndex, outCaseNameStarts, outCaseNameLengths, outCaseFieldCounts,
-                    outFieldNameStarts, outFieldNameLengths, outFieldTypeStarts, outFieldTypeLengths,
+                var caseCount = bindings.ParseUnionDeclarationInfo(
+                    source, ck, cs, cv, n, unionIndex, outCaseNameStarts, outCaseNameLengths, outCaseFieldCounts,
+                    outFieldNameStarts, outFieldNameLengths, outFieldTypeStarts, outFieldTypeLengths, outFieldTypeTexts,
                     outTypeParamStarts, outTypeParamLengths, outResult);
                 if (caseCount <= 0 || outResult[1] <= 0)
                     return false;
@@ -556,7 +558,10 @@ internal static class NSharpCompilerDogfoodAdapter
                     for (var f = 0; f < fc; f++)
                     {
                         names[f] = source.Substring(outFieldNameStarts[fieldCursor], outFieldNameLengths[fieldCursor]);
-                        types[f] = source.Substring(outFieldTypeStarts[fieldCursor], outFieldTypeLengths[fieldCursor]);
+                        var fieldType = outFieldTypeTexts[fieldCursor];
+                        if (string.IsNullOrEmpty(fieldType))
+                            return false;
+                        types[f] = fieldType;
                         fieldCursor++;
                     }
                     caseFieldNames[c] = names;
@@ -1985,9 +1990,9 @@ internal static class NSharpCompilerDogfoodAdapter
                 CreateDelegate<ParseStructDeclarationInfoInto>(
                     programType,
                     "ParseStructDeclarationInfoInto"),
-                CreateDelegate<ParseUnionDeclarationInto>(
+                CreateDelegate<ParseUnionDeclarationInfoInto>(
                     programType,
-                    "ParseUnionDeclarationInto"),
+                    "ParseUnionDeclarationInfoInto"),
                 CreateDelegate<ParseConstructorInfoInto>(
                     programType,
                     "ParseConstructorInfoInto"));
@@ -2152,10 +2157,12 @@ internal static class NSharpCompilerDogfoodAdapter
         int[] outMethodFuncIndices, int[] outMethodStaticFlags, int[] outCtorIndices, int[] outPropIndices, int[] outPropStaticFlags,
         int[] outTypeParamStarts, int[] outTypeParamLengths,
         int[] outBaseNameStarts, int[] outBaseNameLengths, int[] outResult);
-    private delegate int ParseUnionDeclarationInto(
+    private delegate int ParseUnionDeclarationInfoInto(
+        string source,
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int unionIndex,
         int[] outCaseNameStarts, int[] outCaseNameLengths, int[] outCaseFieldCounts,
         int[] outFieldNameStarts, int[] outFieldNameLengths, int[] outFieldTypeStarts, int[] outFieldTypeLengths,
+        string[] outFieldTypeTexts,
         int[] outTypeParamStarts, int[] outTypeParamLengths, int[] outResult);
     private delegate int ParseConstructorInfoInto(
         string source,
@@ -2195,7 +2202,7 @@ internal static class NSharpCompilerDogfoodAdapter
         ParseInterfaceDeclarationInto ParseInterfaceDeclaration,
         ParseEnumDeclarationInfoInto ParseEnumDeclarationInfo,
         ParseStructDeclarationInfoInto ParseStructDeclarationInfo,
-        ParseUnionDeclarationInto ParseUnionDeclaration,
+        ParseUnionDeclarationInfoInto ParseUnionDeclarationInfo,
         ParseConstructorInfoInto ParseConstructorInfo);
 
     private sealed class ParserTokenCompactionScratch

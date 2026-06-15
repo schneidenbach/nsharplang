@@ -91,6 +91,14 @@ public class CompilerDogfoodProjectTests
                     "ParseEnumDeclarationInfoInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit ParseEnumDeclarationInfoInto.");
+            var parseUnionDeclaration = programType.GetMethod(
+                    "ParseUnionDeclarationInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit ParseUnionDeclarationInto.");
+            var parseUnionDeclarationInfo = programType.GetMethod(
+                    "ParseUnionDeclarationInfoInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit ParseUnionDeclarationInfoInto.");
             var canonicalTypeText = programType.GetMethod(
                     "ParserDeclarationCanonicalTypeText",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -204,6 +212,30 @@ record Person {
                 tokenizeWithIndentation,
                 parseEnumDeclarationInfo,
                 "non-decimal explicit value");
+            AssertUnionDeclarationInfo(
+                """
+union Result<T> {
+    Success { value: T, code: int }
+    Failure { message: string }
+    None { }
+}
+""",
+                "Result",
+                new[] { "T" },
+                new[] { "Success", "Failure", "None" },
+                new[] { 2, 1, 0 },
+                new[] { new[] { "value", "code" }, new[] { "message" }, Array.Empty<string>() },
+                new[] { new[] { "T", "int" }, new[] { "string" }, Array.Empty<string>() },
+                tokenizeWithIndentation,
+                parseUnionDeclaration,
+                parseUnionDeclarationInfo,
+                "generic union field type texts");
+            AssertUnionDeclarationInfoDeclines(
+                "union Bad { A { items: List<int> } }",
+                tokenizeWithIndentation,
+                parseUnionDeclaration,
+                parseUnionDeclarationInfo,
+                "deferred generic union field type");
             AssertCanonicalTypeText("int", "int", canonicalTypeText, "simple type");
             AssertCanonicalTypeText("Dictionary<string, int>", "Dictionary<string,int>", canonicalTypeText, "generic comma spacing");
             AssertCanonicalTypeText("List < int > []", "List<int>[]", canonicalTypeText, "generic spaced suffix");
@@ -799,6 +831,192 @@ class B
                 new int[2]
             }) ?? -2);
         Assert.Equal(-1, actual);
+    }
+
+    private static void AssertUnionDeclarationInfo(
+        string source,
+        string expectedUnionName,
+        string[] expectedTypeParams,
+        string[] expectedCaseNames,
+        int[] expectedCaseFieldCounts,
+        string[][] expectedFieldNames,
+        string[][] expectedFieldTypes,
+        MethodInfo tokenizeWithIndentation,
+        MethodInfo parseUnionDeclaration,
+        MethodInfo parseUnionDeclarationInfo,
+        string label)
+    {
+        Assert.Equal(expectedCaseNames.Length, expectedCaseFieldCounts.Length);
+        Assert.Equal(expectedCaseNames.Length, expectedFieldNames.Length);
+        Assert.Equal(expectedCaseNames.Length, expectedFieldTypes.Length);
+        var expectedTotalFields = expectedCaseFieldCounts.Sum();
+        Assert.Equal(expectedTotalFields, expectedFieldNames.Sum(fields => fields.Length));
+        Assert.Equal(expectedTotalFields, expectedFieldTypes.Sum(fields => fields.Length));
+
+        var (count, kinds, starts, valueLengths, compactedSource) = TokenizeSourceViaKernel(source, tokenizeWithIndentation);
+        var unionIndex = FirstTokenIndex(kinds, count, (int)TokenType.Union);
+        Assert.True(unionIndex >= 0, $"Could not locate union token for {label}.");
+
+        var cap = count + 1;
+        var spanCaseNameStarts = new int[cap];
+        var spanCaseNameLengths = new int[cap];
+        var spanCaseFieldCounts = new int[cap];
+        var spanFieldNameStarts = new int[cap];
+        var spanFieldNameLengths = new int[cap];
+        var spanFieldTypeStarts = new int[cap];
+        var spanFieldTypeLengths = new int[cap];
+        var spanTypeParamStarts = new int[cap];
+        var spanTypeParamLengths = new int[cap];
+        var spanResult = new int[4];
+        var spanCaseCount = (int)(parseUnionDeclaration.Invoke(
+            null,
+            new object[]
+            {
+                kinds,
+                starts,
+                valueLengths,
+                count,
+                unionIndex,
+                spanCaseNameStarts,
+                spanCaseNameLengths,
+                spanCaseFieldCounts,
+                spanFieldNameStarts,
+                spanFieldNameLengths,
+                spanFieldTypeStarts,
+                spanFieldTypeLengths,
+                spanTypeParamStarts,
+                spanTypeParamLengths,
+                spanResult
+            }) ?? -2);
+
+        var caseNameStarts = new int[cap];
+        var caseNameLengths = new int[cap];
+        var caseFieldCounts = new int[cap];
+        var fieldNameStarts = new int[cap];
+        var fieldNameLengths = new int[cap];
+        var fieldTypeStarts = new int[cap];
+        var fieldTypeLengths = new int[cap];
+        var fieldTypeTexts = new string[cap];
+        var typeParamStarts = new int[cap];
+        var typeParamLengths = new int[cap];
+        var result = new int[4];
+        var caseCount = (int)(parseUnionDeclarationInfo.Invoke(
+            null,
+            new object[]
+            {
+                compactedSource,
+                kinds,
+                starts,
+                valueLengths,
+                count,
+                unionIndex,
+                caseNameStarts,
+                caseNameLengths,
+                caseFieldCounts,
+                fieldNameStarts,
+                fieldNameLengths,
+                fieldTypeStarts,
+                fieldTypeLengths,
+                fieldTypeTexts,
+                typeParamStarts,
+                typeParamLengths,
+                result
+            }) ?? -2);
+
+        Assert.Equal(expectedCaseNames.Length, spanCaseCount);
+        Assert.Equal(spanCaseCount, caseCount);
+        Assert.Equal(spanResult[0], result[0]);
+        Assert.Equal(spanResult[1], result[1]);
+        Assert.Equal(spanResult[2], result[2]);
+        Assert.Equal(expectedUnionName, compactedSource.Substring(result[0], result[1]));
+        Assert.Equal(expectedTypeParams.Length, result[2]);
+        for (var i = 0; i < expectedTypeParams.Length; i++)
+        {
+            Assert.Equal(spanTypeParamStarts[i], typeParamStarts[i]);
+            Assert.Equal(spanTypeParamLengths[i], typeParamLengths[i]);
+            Assert.Equal(expectedTypeParams[i], compactedSource.Substring(typeParamStarts[i], typeParamLengths[i]));
+        }
+
+        var fieldIndex = 0;
+        for (var c = 0; c < expectedCaseNames.Length; c++)
+        {
+            Assert.Equal(spanCaseNameStarts[c], caseNameStarts[c]);
+            Assert.Equal(spanCaseNameLengths[c], caseNameLengths[c]);
+            Assert.Equal(spanCaseFieldCounts[c], caseFieldCounts[c]);
+            Assert.Equal(expectedCaseNames[c], compactedSource.Substring(caseNameStarts[c], caseNameLengths[c]));
+            Assert.Equal(expectedCaseFieldCounts[c], caseFieldCounts[c]);
+
+            for (var f = 0; f < expectedCaseFieldCounts[c]; f++)
+            {
+                Assert.Equal(spanFieldNameStarts[fieldIndex], fieldNameStarts[fieldIndex]);
+                Assert.Equal(spanFieldNameLengths[fieldIndex], fieldNameLengths[fieldIndex]);
+                Assert.Equal(spanFieldTypeStarts[fieldIndex], fieldTypeStarts[fieldIndex]);
+                Assert.Equal(spanFieldTypeLengths[fieldIndex], fieldTypeLengths[fieldIndex]);
+                Assert.Equal(expectedFieldNames[c][f], compactedSource.Substring(fieldNameStarts[fieldIndex], fieldNameLengths[fieldIndex]));
+                Assert.Equal(expectedFieldTypes[c][f], compactedSource.Substring(fieldTypeStarts[fieldIndex], fieldTypeLengths[fieldIndex]));
+                Assert.Equal(expectedFieldTypes[c][f], fieldTypeTexts[fieldIndex]);
+                fieldIndex++;
+            }
+        }
+        Assert.Equal(expectedTotalFields, fieldIndex);
+    }
+
+    private static void AssertUnionDeclarationInfoDeclines(
+        string source,
+        MethodInfo tokenizeWithIndentation,
+        MethodInfo parseUnionDeclaration,
+        MethodInfo parseUnionDeclarationInfo,
+        string label)
+    {
+        var (count, kinds, starts, valueLengths, compactedSource) = TokenizeSourceViaKernel(source, tokenizeWithIndentation);
+        var unionIndex = FirstTokenIndex(kinds, count, (int)TokenType.Union);
+        Assert.True(unionIndex >= 0, $"Could not locate union token for {label}.");
+
+        var cap = count + 1;
+        var spanActual = (int)(parseUnionDeclaration.Invoke(
+            null,
+            new object[]
+            {
+                kinds,
+                starts,
+                valueLengths,
+                count,
+                unionIndex,
+                new int[cap],
+                new int[cap],
+                new int[cap],
+                new int[cap],
+                new int[cap],
+                new int[cap],
+                new int[cap],
+                new int[cap],
+                new int[cap],
+                new int[4]
+            }) ?? -2);
+        var actual = (int)(parseUnionDeclarationInfo.Invoke(
+            null,
+            new object[]
+            {
+                compactedSource,
+                kinds,
+                starts,
+                valueLengths,
+                count,
+                unionIndex,
+                new int[cap],
+                new int[cap],
+                new int[cap],
+                new int[cap],
+                new int[cap],
+                new int[cap],
+                new int[cap],
+                new string[cap],
+                new int[cap],
+                new int[cap],
+                new int[4]
+            }) ?? -2);
+        Assert.Equal(-1, spanActual);
+        Assert.Equal(spanActual, actual);
     }
 
     private static void AssertCanonicalTypeText(

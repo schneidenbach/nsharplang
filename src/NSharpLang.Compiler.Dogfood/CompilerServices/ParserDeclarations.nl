@@ -1695,6 +1695,36 @@ func ParseUnionDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValue
     return ParseUnionDeclarationCore(ref tokens, count, unionIndex, ref decl, ref result)
 }
 
+func ParseUnionDeclarationInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, unionIndex: int, outCaseNameStarts: int[], outCaseNameLengths: int[], outCaseFieldCounts: int[], outFieldNameStarts: int[], outFieldNameLengths: int[], outFieldTypeStarts: int[], outFieldTypeLengths: int[], outFieldTypeTexts: string[], outTypeParamStarts: int[], outTypeParamLengths: int[], outResult: int[]): int {
+    tokens := new ParserDeclarationTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
+    decl := new UnionDeclarationTable { CaseNameStarts: outCaseNameStarts, CaseNameLengths: outCaseNameLengths, CaseFieldCounts: outCaseFieldCounts, FieldNameStarts: outFieldNameStarts, FieldNameLengths: outFieldNameLengths, FieldTypeStarts: outFieldTypeStarts, FieldTypeLengths: outFieldTypeLengths, TypeParamStarts: outTypeParamStarts, TypeParamLengths: outTypeParamLengths }
+    result := new ParserDeclarationResultTable { Values: outResult }
+    caseCount := ParseUnionDeclarationCore(ref tokens, count, unionIndex, ref decl, ref result)
+    if caseCount < 0 {
+        return -1
+    }
+
+    fieldCount := 0
+    i := 0
+    while i < caseCount {
+        fieldCount = fieldCount + decl.CaseFieldCounts[i]
+        i = i + 1
+    }
+
+    i = 0
+    while i < fieldCount {
+        text := ParserDeclarationCanonicalTypeText(source, decl.FieldTypeStarts[i], decl.FieldTypeLengths[i])
+        if text == "" {
+            return -1
+        }
+
+        outFieldTypeTexts[i] = text
+        i = i + 1
+    }
+
+    return caseCount
+}
+
 func ParseUnionDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int, unionIndex: int, decl: &UnionDeclarationTable, result: &ParserDeclarationResultTable): int {
     pos := unionIndex
     if pos >= count || tokens.Kinds[pos] != 12 {
