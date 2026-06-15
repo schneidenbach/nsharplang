@@ -1446,6 +1446,322 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaTableParenthesizedTargetTypedDefaultAndNewStayDiagnosedInStorageAndResultContexts()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var defaultCases = new[]
+        {
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable = (default)) {
+            }
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            class Holder {
+                nodes: NodeTable = (default)
+            }
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            class Holder {
+                Nodes: NodeTable => (default)
+            }
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            class Holder {
+                Nodes: NodeTable
+            }
+
+            func bad(): Holder {
+                return new Holder { Nodes: (default) }
+            }
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            record Holder {
+                Nodes: NodeTable
+            }
+
+            func bad(): int {
+                original := new Holder { Nodes: new NodeTable(1) }
+                updated := original with { Nodes: (default) }
+                return updated.Nodes.length
+            }
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(): int {
+                nodes := new NodeTable(1)
+                nodes = (default)
+                return nodes.length
+            }
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(): int {
+                tables: NodeTable[] = [(default)]
+                return tables.Length
+            }
+            """,
+            """
+            import System.Collections.Generic
+
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(): int {
+                let tables: List<NodeTable> = [(default)]
+                return tables.Count
+            }
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(): int {
+                tables := new NodeTable[] { (default) }
+                return tables.Length
+            }
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(): int {
+                let values: (nodes: NodeTable, count: int) = (nodes: (default), count: 1)
+                return 0
+            }
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(): int {
+                let values: (NodeTable, int) = ((default), 1)
+                return 0
+            }
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(ok: bool): int {
+                let nodes: NodeTable = ok ? (default) : new NodeTable(1)
+                return 0
+            }
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(ok: bool): int {
+                let nodes: NodeTable = match ok {
+                    true => (default),
+                    false => new NodeTable(1)
+                }
+                return 0
+            }
+            """
+        };
+
+        foreach (var source in defaultCases)
+        {
+            var result = Analyze(source);
+            var error = Assert.Single(
+                result.Errors,
+                e => e.Code == ErrorCode.InvalidSyntax
+                    && e.Message.Contains("SoA table 'NodeTable' cannot be default-initialized"));
+            Assert.Contains("NodeTable.wrap", error.Suggestion);
+            Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.CannotInferType);
+        }
+
+        var newCases = new[]
+        {
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable = (new())) {
+            }
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            class Holder {
+                nodes: NodeTable = (new())
+            }
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            class Holder {
+                Nodes: NodeTable => (new())
+            }
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            class Holder {
+                Nodes: NodeTable
+            }
+
+            func bad(): Holder {
+                return new Holder { Nodes: (new()) }
+            }
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            record Holder {
+                Nodes: NodeTable
+            }
+
+            func bad(): int {
+                original := new Holder { Nodes: new NodeTable(1) }
+                updated := original with { Nodes: (new()) }
+                return updated.Nodes.length
+            }
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(): int {
+                nodes := new NodeTable(1)
+                nodes = (new())
+                return nodes.length
+            }
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(): int {
+                tables: NodeTable[] = [(new())]
+                return tables.Length
+            }
+            """,
+            """
+            import System.Collections.Generic
+
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(): int {
+                let tables: List<NodeTable> = [(new())]
+                return tables.Count
+            }
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(): int {
+                tables := new NodeTable[] { (new()) }
+                return tables.Length
+            }
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(): int {
+                let values: (nodes: NodeTable, count: int) = (nodes: (new()), count: 1)
+                return 0
+            }
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(): int {
+                let values: (NodeTable, int) = ((new()), 1)
+                return 0
+            }
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(ok: bool): int {
+                let nodes: NodeTable = ok ? (new()) : new NodeTable(1)
+                return 0
+            }
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(ok: bool): int {
+                let nodes: NodeTable = match ok {
+                    true => (new()),
+                    false => new NodeTable(1)
+                }
+                return 0
+            }
+            """
+        };
+
+        foreach (var source in newCases)
+        {
+            var result = Analyze(source);
+            var error = Assert.Single(
+                result.Errors,
+                e => e.Code == ErrorCode.NoMatchingOverload
+                    && e.Message.Contains("SoA table 'NodeTable' construction expects exactly one int capacity argument"));
+            Assert.Contains("new NodeTable(capacity)", error.Suggestion);
+            Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.CannotInferType);
+        }
+    }
+
+    [Fact]
     public void Analyzer_SoaRowViewCannotEscapeIntoLocal()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

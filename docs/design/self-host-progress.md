@@ -14,7 +14,10 @@ language/runtime/compiler limitation found plus the principled change made to re
 ## 2026-06-15 — Parenthesized SoA table construction diagnostics stay target-typed
 
 Target-typed SoA table `default` and zero-argument `new()` diagnostics now have parenthesized
-coverage in locals, returns, and call arguments. `(default)` still reports that the table cannot be
+coverage across storage and result contexts. Locals, returns, call arguments, default parameter
+values, fields, expression-bodied properties, object/with initializer values, assignments,
+array/collection/initializer elements, tuple elements, and typed ternary/match arms all preserve the
+expected `NodeTable` type through parentheses. `(default)` still reports that the table cannot be
 default-initialized, `(new())` still reports the missing capacity argument, and neither form falls
 back to a generic cannot-infer diagnostic before emission.
 
