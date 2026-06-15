@@ -12770,6 +12770,18 @@ public class Analyzer : IDisposable
         }
 
         var owner = NormalizeMemberOwnerType(ownerType);
+        if (TryFindReadonlyStaticField(owner, target.MemberName, out var fieldName))
+        {
+            readonlyTarget = new ReadonlyFieldTarget(fieldName, IsStatic: true, IsCurrentInstance: false);
+            return true;
+        }
+
+        return false;
+    }
+
+    private bool TryFindReadonlyStaticField(TypeInfo owner, string fieldName, out string resolvedFieldName)
+    {
+        resolvedFieldName = string.Empty;
         List<Declaration>? members = owner switch
         {
             ClassTypeInfo classType => classType.Declaration.Members,
@@ -12780,18 +12792,33 @@ public class Analyzer : IDisposable
 
         if (members != null)
         {
-            var field = members.OfType<FieldDeclaration>()
-                .FirstOrDefault(field =>
-                    field.Name == target.MemberName
-                    && field.Modifiers.HasFlag(Modifiers.Static)
-                    && field.Modifiers.HasFlag(Modifiers.Readonly));
-            if (field == null)
+            foreach (var member in members)
             {
-                return false;
-            }
+                if (member is FieldDeclaration field && field.Name == fieldName)
+                {
+                    if (!field.Modifiers.HasFlag(Modifiers.Static) || !field.Modifiers.HasFlag(Modifiers.Readonly))
+                    {
+                        return false;
+                    }
 
-            readonlyTarget = new ReadonlyFieldTarget(field.Name, IsStatic: true, IsCurrentInstance: false);
-            return true;
+                    resolvedFieldName = field.Name;
+                    return true;
+                }
+
+                if (member is PropertyDeclaration property && property.Name == fieldName)
+                {
+                    return false;
+                }
+            }
+        }
+
+        if (owner is ClassTypeInfo { Declaration.BaseClass: not null } classTypeWithBase)
+        {
+            var baseType = ResolveType(classTypeWithBase.Declaration.BaseClass);
+            if (TryFindReadonlyStaticField(baseType, fieldName, out resolvedFieldName))
+            {
+                return true;
+            }
         }
 
         if (owner is ReflectionTypeInfo reflected && reflected.Type is not System.Reflection.Emit.TypeBuilder
@@ -12800,17 +12827,23 @@ public class Analyzer : IDisposable
             try
             {
                 var field = reflected.Type.GetField(
-                    target.MemberName,
-                    System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
-                if (field is not { IsInitOnly: true } and not { IsLiteral: true })
+                    fieldName,
+                    System.Reflection.BindingFlags.Public
+                    | System.Reflection.BindingFlags.Static
+                    | System.Reflection.BindingFlags.FlattenHierarchy);
+                if (field is not ({ IsInitOnly: true } or { IsLiteral: true }))
                 {
                     return false;
                 }
 
-                readonlyTarget = new ReadonlyFieldTarget(field.Name, IsStatic: true, IsCurrentInstance: false);
+                resolvedFieldName = field.Name;
                 return true;
             }
             catch (NotSupportedException)
+            {
+                return false;
+            }
+            catch (AmbiguousMatchException)
             {
                 return false;
             }

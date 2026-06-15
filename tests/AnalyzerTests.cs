@@ -2295,6 +2295,78 @@ func Main() {
         Assert.Contains("declaration", error.Suggestion);
     }
 
+    [Fact]
+    public void StaticReadonlyField_InheritedAssignment_Error()
+    {
+        var result = AnalyzeWithSource("""
+            class Base {
+                static readonly Value: int = 1
+            }
+
+            class Derived : Base {
+                static func Mutate() {
+                    Derived.Value = 2
+                }
+            }
+        """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.ReadonlyAssignment);
+        Assert.Contains("Field 'Value' is static readonly", error.Message);
+        Assert.Contains("field initializer", error.Suggestion);
+    }
+
+    [Theory]
+    [InlineData("bump(ref Derived.Value)", "ref")]
+    [InlineData("reset(out Derived.Value)", "out")]
+    public void StaticReadonlyField_InheritedRefOutArgument_Error(string statement, string modifier)
+    {
+        var result = AnalyzeWithSource($$"""
+            func bump(ref value: int) {
+                value += 1
+            }
+
+            func reset(out value: int) {
+                value = 0
+            }
+
+            class Base {
+                static readonly Value: int = 1
+            }
+
+            class Derived : Base {
+                static func Mutate() {
+                    {{statement}}
+                }
+            }
+        """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.ReadonlyAssignment);
+        Assert.Contains("static readonly", error.Message);
+        Assert.Contains($"can't be used as a {modifier} argument", error.Message);
+        Assert.Contains("declaration", error.Suggestion);
+    }
+
+    [Fact]
+    public void StaticReadonlyField_InheritedIncrement_Error()
+    {
+        var result = AnalyzeWithSource("""
+            class Base {
+                static readonly Value: int = 1
+            }
+
+            class Derived : Base {
+                static func Mutate() {
+                    Derived.Value++
+                }
+            }
+        """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.ReadonlyAssignment);
+        Assert.Contains("static readonly", error.Message);
+        Assert.Contains("'++'", error.Message);
+        Assert.Contains("declaration", error.Suggestion);
+    }
+
     [Theory]
     [InlineData("State.Value = 2", "Value")]
     [InlineData("Value = 2", "Value")]

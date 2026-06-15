@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Inherited static readonly fields reject derived writes
+
+Static readonly diagnostics now follow base-class static fields reached through a derived type name.
+Writes such as `Derived.Value = 2`, `bump(ref Derived.Value)`, and `Derived.Value++` report the
+readonly diagnostic before static-field store or address emission, while member shadowing by the
+derived type remains respected.
+
 ## 2026-06-15 — Inherited readonly fields reject derived writes
 
 Readonly diagnostics now follow inherited instance fields for bare and `this.` write targets. A
