@@ -4591,6 +4591,34 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Theory]
+    [InlineData("nodes[row].kind", "&&")]
+    [InlineData("nodes.kind[row]", "&&")]
+    [InlineData("nodes.kind[^1]", "&&")]
+    [InlineData("nodes[row].kind", "||")]
+    [InlineData("nodes.kind[row]", "||")]
+    [InlineData("nodes.kind[^1]", "||")]
+    public void Analyzer_SoaRecordNonBoolColumnLogicalExpressions_AreRejected(
+        string target,
+        string logicalOperator)
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze($$"""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable, row: int): bool {
+                return {{target}} {{logicalOperator}} true
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains($"Both sides of '{logicalOperator}' must be booleans", error.Message);
+        Assert.Contains("left side is 'int'", error.Message);
+    }
+
+    [Theory]
     [InlineData("nodes[row].active", "-=", "-")]
     [InlineData("nodes[row].active", "*=", "*")]
     [InlineData("nodes[row].active", "/=", "/")]

@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA bool logical expressions have IL-shape proof
+
+Boolean SoA columns now have opcode evidence for short-circuiting `&&` and `||` expression-valued
+stores across row projection, direct column indexing, and direct from-end column indexing. The accepted
+logical expressions read and write backing column arrays directly and lower through branch-based
+short-circuit IL with no row construction, slice allocation, boxing, delegate construction, or virtual
+dispatch. Non-bool column elements are pinned as analyzer errors for logical expressions before
+lowering.
+
 ## 2026-06-14 — SoA bool logical-not has IL-shape proof
 
 Boolean SoA columns now have opcode evidence for logical `!` stores across row projection, direct

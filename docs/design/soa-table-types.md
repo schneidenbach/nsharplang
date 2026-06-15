@@ -182,8 +182,9 @@ materialization; `string` and `string?` columns support reads/stores, concatenat
 expressions, and null coalescing. Both string column shapes have direct string equality/inequality
 evidence, while `string?` columns additionally have direct null equality/inequality evidence. Both
 string column shapes reject `-=`, `*=`, `/=`, `++`, and `--` during analysis. Bool columns support
-same-bool equality/inequality, logical-not, and bitwise expressions but still reject arithmetic
-compound assignment before lowering; non-bool column elements reject logical-not during analysis.
+same-bool equality/inequality, logical-not, logical `&&`/`||` expressions, and bitwise expressions but
+still reject arithmetic compound assignment before lowering; non-bool column elements reject logical
+operators during analysis.
 Numeric scalar columns support equality/inequality and relational comparisons,
 including unsigned comparisons for `uint`, plus arithmetic expression stores, arithmetic compound
 assignments, signed `int`/`long` unary negation, same-type bitwise expressions, and unary bitwise-not.
@@ -322,7 +323,8 @@ element-type set, including expression-valued default stores, without old-elemen
 scalar/reference element reads/stores, bool bitwise expression stores, int-backed enum
 reads/stores/default stores/generated methods, string/string? concatenating compound assignments,
 string/string? equality/inequality expressions, nullable-string null equality/inequality expressions,
-bool equality/inequality and logical-not expressions, numeric scalar comparison expressions, char comparison
+bool equality/inequality plus logical-not and short-circuit logical expressions, numeric scalar
+comparison expressions, char comparison
 expressions, numeric scalar arithmetic expression stores, numeric scalar arithmetic compound
 assignments, signed numeric scalar unary negation stores, numeric scalar bitwise expression stores,
 numeric scalar unary bitwise-not stores, numeric scalar shift expression stores, same-enum comparison

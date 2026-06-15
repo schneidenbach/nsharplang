@@ -2738,6 +2738,79 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void BoolColumnLogicalExpressions_UseColumnArrayLoadStoreAndShortCircuitBranchesWithoutRowOrSliceAllocation()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                active: bool
+                ready: bool
+            }
+
+            func update(nodes: NodeTable, row: int): int {
+                directRow := row + 1
+
+                nodes[row].active = true
+                nodes[row].ready = true
+                rowAnd := nodes[row].active = nodes[row].active && nodes[row].ready
+                nodes[row].ready = false
+                rowOr := nodes[row].ready = nodes[row].active || nodes[row].ready
+
+                nodes.active[directRow] = true
+                nodes.ready[directRow] = false
+                directAnd := nodes.active[directRow] = nodes.active[directRow] && nodes.ready[directRow]
+                nodes.ready[directRow] = true
+                directOr := nodes.ready[directRow] = nodes.active[directRow] || nodes.ready[directRow]
+
+                nodes.active[^1] = false
+                nodes.ready[^1] = true
+                fromEndAnd := nodes.active[^1] = nodes.active[^1] && nodes.ready[^1]
+                fromEndOr := nodes.ready[^1] = nodes.active[^1] || nodes.ready[^1]
+
+                total := rowAnd ? 100000 : 0
+                total += rowOr ? 10000 : 0
+                total += directAnd ? 1000 : 0
+                total += directOr ? 100 : 0
+                total += fromEndAnd ? 10 : 0
+                total += fromEndOr ? 1 : 0
+                return total
+            }
+
+            func main(): int {
+                nodes := new NodeTable(3)
+                row := nodes.add()
+                nodes.add()
+                nodes.add()
+                return update(nodes, row)
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var update = ILShapeInspector.GetProgramMethod(assembly, "update");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(110101, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoFromEndSliceAllocation(update);
+            Assert.True(
+                ILShapeInspector.CountOpcode(update, OpCodes.Ldfld) >= 20,
+                "Bool SoA logical expressions should load backing column fields directly.");
+            Assert.Equal(12, CountArrayElementLoads(update));
+            Assert.Equal(14, CountArrayElementStores(update));
+            Assert.True(
+                CountOpcodes(update, OpCodes.Brfalse, OpCodes.Brfalse_S) >= 6,
+                "Bool SoA logical-and should lower through short-circuit false branches.");
+            Assert.True(
+                CountOpcodes(update, OpCodes.Brtrue, OpCodes.Brtrue_S) >= 6,
+                "Bool SoA logical-or should lower through short-circuit true branches.");
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void BoolColumnEquality_UsesColumnArrayLoadsAndComparisonOpcodesWithoutRowOrSliceAllocation()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
