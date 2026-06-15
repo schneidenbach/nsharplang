@@ -1374,6 +1374,10 @@ class B
                     "ParseFunctionSignatureInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit ParseFunctionSignatureInto.");
+            var whereOwnerIndices = programType.GetMethod(
+                    "FunctionSignatureWhereOwnerIndicesInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit FunctionSignatureWhereOwnerIndicesInto.");
 
             string[] functions =
             {
@@ -1400,6 +1404,20 @@ class B
             };
             foreach (var fn in functions)
                 AssertFunctionSignatureLikeProduction(fn, tokenize, parseSig);
+
+            AssertFunctionSignatureWhereOwnerIndices(
+                "func cw2<T, U>(a: T, b: U): T where T: class, new() where U: T { }",
+                new[] { 0, 0, 1 },
+                tokenize,
+                parseSig,
+                whereOwnerIndices,
+                "multiple where owner rows");
+            AssertFunctionSignatureWhereOwnerDeclines(
+                "func bad<T>(x: T): T where U: class { }",
+                tokenize,
+                parseSig,
+                whereOwnerIndices,
+                "unknown where owner");
 
             // Malformed signatures must REFUSE cleanly (-1), never silently mis-parse. A default value with
             // unbalanced brackets would otherwise let the depth tracking consume past the parameter list's
@@ -1499,6 +1517,110 @@ class B
 
         Assert.True(paramCount == -1, $"Kernel should refuse malformed signature '{funcSource}' with -1, got {paramCount}.");
     }
+
+    private static void AssertFunctionSignatureWhereOwnerIndices(
+        string funcSource,
+        int[] expectedOwnerIndices,
+        MethodInfo tokenize,
+        MethodInfo parseSig,
+        MethodInfo whereOwnerIndices,
+        string label)
+    {
+        var parsed = ParseFunctionSignatureForTest(funcSource, tokenize, parseSig);
+        Assert.Equal(expectedOwnerIndices.Length, parsed.Result[7]);
+        var owners = new int[parsed.Count + 1];
+        var actualCount = (int)(whereOwnerIndices.Invoke(
+            null,
+            new object[]
+            {
+                parsed.Source,
+                parsed.TypeParamStarts,
+                parsed.TypeParamLengths,
+                parsed.Result[5],
+                parsed.WhereNameStarts,
+                parsed.WhereNameLengths,
+                parsed.Result[7],
+                owners
+            }) ?? -2);
+
+        Assert.Equal(expectedOwnerIndices.Length, actualCount);
+        Assert.Equal(expectedOwnerIndices, owners.Take(actualCount).ToArray());
+    }
+
+    private static void AssertFunctionSignatureWhereOwnerDeclines(
+        string funcSource,
+        MethodInfo tokenize,
+        MethodInfo parseSig,
+        MethodInfo whereOwnerIndices,
+        string label)
+    {
+        var parsed = ParseFunctionSignatureForTest(funcSource, tokenize, parseSig);
+        Assert.True(parsed.Result[7] > 0, $"Expected where rows for {label}.");
+        var owners = new int[parsed.Count + 1];
+        var actualCount = (int)(whereOwnerIndices.Invoke(
+            null,
+            new object[]
+            {
+                parsed.Source,
+                parsed.TypeParamStarts,
+                parsed.TypeParamLengths,
+                parsed.Result[5],
+                parsed.WhereNameStarts,
+                parsed.WhereNameLengths,
+                parsed.Result[7],
+                owners
+            }) ?? -2);
+
+        Assert.Equal(-1, actualCount);
+    }
+
+    private static FunctionSignatureParseResult ParseFunctionSignatureForTest(
+        string funcSource,
+        MethodInfo tokenize,
+        MethodInfo parseSig)
+    {
+        var (count, kinds, starts, valueLengths, source) = TokenizeSourceViaKernel(funcSource, tokenize);
+        var funcIndex = FirstTopLevelFuncIndex(kinds, count);
+        Assert.True(funcIndex >= 0, $"Could not locate `func` keyword for '{funcSource}'.");
+
+        var cap = count + 1;
+        var typeParamStarts = new int[cap];
+        var typeParamLengths = new int[cap];
+        var whereNameStarts = new int[cap];
+        var whereNameLengths = new int[cap];
+        var whereItemCodes = new int[cap];
+        var result = new int[8];
+        var paramCount = (int)(parseSig.Invoke(
+            null,
+            new object[]
+            {
+                kinds, starts, valueLengths, count, funcIndex,
+                new int[cap], new int[cap], new int[cap], new int[cap], new int[cap], new int[cap], new int[cap], new int[cap],
+                new int[cap], new int[cap], new int[cap], typeParamStarts, typeParamLengths,
+                whereNameStarts, whereNameLengths, whereItemCodes, result,
+            }) ?? -2);
+
+        Assert.True(paramCount >= 0, $"Kernel should parse signature '{funcSource}', got {paramCount}.");
+        return new FunctionSignatureParseResult(
+            source,
+            count,
+            typeParamStarts,
+            typeParamLengths,
+            whereNameStarts,
+            whereNameLengths,
+            whereItemCodes,
+            result);
+    }
+
+    private sealed record FunctionSignatureParseResult(
+        string Source,
+        int Count,
+        int[] TypeParamStarts,
+        int[] TypeParamLengths,
+        int[] WhereNameStarts,
+        int[] WhereNameLengths,
+        int[] WhereItemCodes,
+        int[] Result);
 
     private static (int Verified, int Skipped) VerifyDogfoodFileFunctionSignatures(
         string source, string file, MethodInfo tokenize, MethodInfo parseSig)

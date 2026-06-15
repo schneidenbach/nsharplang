@@ -56,6 +56,59 @@ func ParseFunctionSignatureInto(tokenKinds: int[], tokenStarts: int[], tokenValu
     return ParseFunctionSignatureCore(ref tokens, count, funcIndex, ref typeStack, ref nodes, ref children, ref parameters, ref typeParams, ref whereItems, ref result)
 }
 
+func FunctionSignatureWhereOwnerIndicesInto(source: string, typeParamStarts: int[], typeParamLengths: int[], typeParamCount: int, whereNameStarts: int[], whereNameLengths: int[], whereItemCount: int, outOwnerIndices: int[]): int {
+    if typeParamCount < 0 || whereItemCount < 0 || whereItemCount > outOwnerIndices.Length {
+        return -1
+    }
+
+    w := 0
+    while w < whereItemCount {
+        ownerIndex := FunctionSignatureTypeParameterIndexOf(source, typeParamStarts, typeParamLengths, typeParamCount, whereNameStarts[w], whereNameLengths[w])
+        if ownerIndex < 0 {
+            return -1
+        }
+
+        outOwnerIndices[w] = ownerIndex
+        w = w + 1
+    }
+
+    return whereItemCount
+}
+
+func FunctionSignatureTypeParameterIndexOf(source: string, typeParamStarts: int[], typeParamLengths: int[], typeParamCount: int, nameStart: int, nameLength: int): int {
+    i := 0
+    while i < typeParamCount {
+        if FunctionSignatureSourceSpansEqual(source, typeParamStarts[i], typeParamLengths[i], nameStart, nameLength) {
+            return i
+        }
+
+        i = i + 1
+    }
+
+    return -1
+}
+
+func FunctionSignatureSourceSpansEqual(source: string, leftStart: int, leftLength: int, rightStart: int, rightLength: int): bool {
+    if leftStart < 0 || rightStart < 0 || leftLength != rightLength {
+        return false
+    }
+
+    if leftStart + leftLength > source.Length || rightStart + rightLength > source.Length {
+        return false
+    }
+
+    i := 0
+    while i < leftLength {
+        if source[leftStart + i] != source[rightStart + i] {
+            return false
+        }
+
+        i = i + 1
+    }
+
+    return true
+}
+
 struct ParserFunctionParameterTable {
     NameStarts: int[]
     NameLengths: int[]

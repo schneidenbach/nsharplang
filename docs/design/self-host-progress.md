@@ -11,6 +11,21 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Generic constraint owner lookup moves into N#
+
+`ParserFunctionSignatures.nl` now exports `FunctionSignatureWhereOwnerIndicesInto`, a span-based
+helper that resolves each `where` constraint row's owner name to the matching generic type-parameter
+index without materializing strings. Unknown owners return `-1`, preserving the adapter's safe
+decline behavior for malformed constraints.
+
+`NSharpCompilerDogfoodAdapter.TryParseColumnarFunctionAt` no longer builds an owner substring or
+uses `Array.IndexOf` over materialized type-parameter names while grouping constraints. It receives
+the owner index column from dogfood and keeps the remaining host-side work to CLR-facing constraint
+container materialization and semantic combination checks. Focused evidence:
+`./scripts/dev.sh Parser_FunctionSignature_MatchesProductionParser`,
+`./scripts/dev.sh ColumnarCodegen_Parity_GenericConstraints`, and
+`./scripts/dev.sh ColumnarCodegen_MultiFile_EligibleClusterCompiles`.
+
 ## 2026-06-15 — Struct field type canonicalization moves into N#
 
 `ParserDeclarations.nl` now exports `ParseStructDeclarationInfoInto`, a product-routed wrapper over

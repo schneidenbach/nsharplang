@@ -592,6 +592,7 @@ internal static class NSharpCompilerDogfoodAdapter
         var sWhereNameStarts = new int[cap];
         var sWhereNameLengths = new int[cap];
         var sWhereItemCodes = new int[cap];
+        var sWhereOwnerIndices = new int[cap];
         var paramCount = bindings.ParseFunctionSignature(
             ck, cs, cv, n, funcIndex, sk, sns, snl, scs, scc, sci, sss, ssl,
             pNameStart, pNameLen, pTypeRoot, sTypeParamStarts, sTypeParamLengths,
@@ -652,11 +653,15 @@ internal static class NSharpCompilerDogfoodAdapter
                 return false;
             typeParamSpecials = new int[typeParamNames.Length];
             var constraintLists = new List<string>[typeParamNames.Length];
+            var ownerIndexCount = bindings.FunctionSignatureWhereOwnerIndices(
+                source, sTypeParamStarts, sTypeParamLengths, typeParamNames.Length,
+                sWhereNameStarts, sWhereNameLengths, whereItemCount, sWhereOwnerIndices);
+            if (ownerIndexCount != whereItemCount)
+                return false;
             for (var w = 0; w < whereItemCount; w++)
             {
-                var owner = source.Substring(sWhereNameStarts[w], sWhereNameLengths[w]);
-                var ownerIndex = System.Array.IndexOf(typeParamNames, owner);
-                if (ownerIndex < 0)
+                var ownerIndex = sWhereOwnerIndices[w];
+                if ((uint)ownerIndex >= (uint)typeParamNames.Length)
                     return false;
                 var code = sWhereItemCodes[w];
                 if (code >= 0)
@@ -2021,6 +2026,9 @@ internal static class NSharpCompilerDogfoodAdapter
                 CreateDelegate<ParseFunctionSignatureInto>(
                     programType,
                     "ParseFunctionSignatureInto"),
+                CreateDelegate<FunctionSignatureWhereOwnerIndicesInto>(
+                    programType,
+                    "FunctionSignatureWhereOwnerIndicesInto"),
                 CreateDelegate<ParseStatementNodesInto>(
                     programType,
                     "ParseStatementNodesInto"),
@@ -2168,6 +2176,10 @@ internal static class NSharpCompilerDogfoodAdapter
         int[] outParamNameStarts, int[] outParamNameLengths, int[] outParamTypeRoots,
         int[] outTypeParamStarts, int[] outTypeParamLengths,
         int[] outWhereNameStarts, int[] outWhereNameLengths, int[] outWhereItemCodes, int[] outResult);
+    private delegate int FunctionSignatureWhereOwnerIndicesInto(
+        string source,
+        int[] typeParamStarts, int[] typeParamLengths, int typeParamCount,
+        int[] whereNameStarts, int[] whereNameLengths, int whereItemCount, int[] outOwnerIndices);
     private delegate int ParseStatementNodesInto(
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int start,
         int[] outNodeKinds, int[] outValueStarts, int[] outValueLengths, int[] outChildStart, int[] outChildCount,
@@ -2224,6 +2236,7 @@ internal static class NSharpCompilerDogfoodAdapter
         NamespaceImportSpansInto NamespaceImportSpans,
         PackageNameSpanInto PackageNameSpan,
         ParseFunctionSignatureInto ParseFunctionSignature,
+        FunctionSignatureWhereOwnerIndicesInto FunctionSignatureWhereOwnerIndices,
         ParseStatementNodesInto ParseStatementNodes,
         ParseInterfaceDeclarationInto ParseInterfaceDeclaration,
         ParseEnumDeclarationInfoInto ParseEnumDeclarationInfo,
