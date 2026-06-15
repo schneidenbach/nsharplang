@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Composed SoA row type references stay rejected
+
+SoA row-type diagnostics now have explicit coverage when `Table.Row` is nested inside composed type
+references. Nullable aliases, tuple aliases, anonymous union aliases, `Func` return positions, and
+nested generic/array annotations all report `SoA row type 'NodeTable.Row' is not part of this
+lowering` during analysis, with no `TypeNotFound` fallback and no chance for a row-shaped type to
+reach emission.
+
 ## 2026-06-15 — Checked SoA direct columns keep column diagnostics
 
 Direct SoA column recognition now treats `checked(...)` and `unchecked(...)` around a column member

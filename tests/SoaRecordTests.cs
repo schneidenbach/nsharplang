@@ -2997,6 +2997,66 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaRowTypeCannotBeHiddenInsideComposedTypeReferences()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var cases = new[]
+        {
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            type MaybeRow = NodeTable.Row?
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            type RowTuple = (row: NodeTable.Row, count: int)
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            type RowChoice = NodeTable.Row | int
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            type RowFactory = Func<int, NodeTable.Row>
+            """,
+            """
+            import System.Collections.Generic
+
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(rowsByName: Dictionary<string, NodeTable.Row[]>): int {
+                return 0
+            }
+            """
+        };
+
+        foreach (var source in cases)
+        {
+            var result = Analyze(source);
+            var error = Assert.Single(
+                result.Errors,
+                e => e.Code == ErrorCode.InvalidSyntax
+                    && e.Message.Contains("SoA row type 'NodeTable.Row' is not part of this lowering"));
+            Assert.Contains("table and an int row index", error.Suggestion);
+            Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.TypeNotFound);
+        }
+    }
+
+    [Fact]
     public void Analyzer_SoaRowTypeCannotBeUsedInTypeofExpression()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
