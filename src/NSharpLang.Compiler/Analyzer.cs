@@ -12051,6 +12051,14 @@ public class Analyzer : IDisposable
         }
 
         var resolvedReceiverType = ResolveTypeAlias(GetNonNullableType(receiverType));
+        var isRangeAccess = indexAccess.Index is RangeExpression
+            || (expressionTypes.TryGetValue(indexAccess.Index, out var indexType) && IsRangeLikeType(indexType));
+        if (isRangeAccess && IsSoaColumnMemberAccess(indexAccess.Object))
+        {
+            ReportSoaColumnSliceHiddenAllocation(indexAccess);
+            return true;
+        }
+
         if (IsStringType(resolvedReceiverType))
         {
             ReportUnsupportedStringIndexedMutation(indexAccess, action);
@@ -12062,8 +12070,6 @@ public class Analyzer : IDisposable
         if (!isArrayReceiver)
             return false;
 
-        var isRangeAccess = indexAccess.Index is RangeExpression
-            || (expressionTypes.TryGetValue(indexAccess.Index, out var indexType) && IsRangeLikeType(indexType));
         if (!isRangeAccess)
             return false;
 

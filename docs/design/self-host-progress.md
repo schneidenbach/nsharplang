@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — SoA column slice mutations use the SoA hidden-allocation diagnostic
+
+Direct SoA column range slices now report the same hidden-allocation diagnostic whether the slice is
+read or used as a write target. Assignment, compound assignment, null-coalescing assignment,
+increment, and decrement over `table.column[start..end]` or `table.column[1..^1]` now stop during
+analysis with "SoA column range slices allocate arrays" instead of falling through to the generic
+array-slice mutation wording. Focused evidence: `dotnet test tests/Tests.csproj --filter
+"FullyQualifiedName~SoaRecordTests.Analyzer_SoaTableColumn"` (20 tests) and
+`./scripts/dev.sh SoaRecord` (416 tests).
+
 ## 2026-06-14 — Systems benchmark gate removes cross-launch bimodality
 
 The Systems BenchmarkDotNet gate default is back to one launch while keeping the same 12-row

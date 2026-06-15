@@ -2992,8 +2992,8 @@ public class SoaRecordTests : ILCompilerTestBase
             """);
 
         var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
-        Assert.Contains("Array slices cannot be assigned", error.Message);
-        Assert.Contains("Assign individual elements", error.Suggestion);
+        Assert.Contains("SoA column range slices allocate arrays", error.Message);
+        Assert.Contains("table.column[row]", error.Suggestion);
     }
 
     [Fact]
@@ -3012,8 +3012,8 @@ public class SoaRecordTests : ILCompilerTestBase
             """);
 
         var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
-        Assert.Contains("Array slices cannot be assigned", error.Message);
-        Assert.Contains("Assign individual elements", error.Suggestion);
+        Assert.Contains("SoA column range slices allocate arrays", error.Message);
+        Assert.Contains("allocation-free view lowering", error.Suggestion);
     }
 
     [Fact]
@@ -3032,8 +3032,8 @@ public class SoaRecordTests : ILCompilerTestBase
             """);
 
         var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
-        Assert.Contains("Array slices cannot be assigned", error.Message);
-        Assert.Contains("Assign individual elements", error.Suggestion);
+        Assert.Contains("SoA column range slices allocate arrays", error.Message);
+        Assert.Contains("allocation-free view lowering", error.Suggestion);
     }
 
     [Fact]
@@ -3052,8 +3052,8 @@ public class SoaRecordTests : ILCompilerTestBase
             """);
 
         var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
-        Assert.Contains("Array slices cannot be assigned", error.Message);
-        Assert.Contains("Assign individual elements", error.Suggestion);
+        Assert.Contains("SoA column range slices allocate arrays", error.Message);
+        Assert.Contains("table.column[row]", error.Suggestion);
     }
 
     [Fact]
@@ -3072,8 +3072,8 @@ public class SoaRecordTests : ILCompilerTestBase
             """);
 
         var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
-        Assert.Contains("Array slices cannot be assigned", error.Message);
-        Assert.Contains("Assign individual elements", error.Suggestion);
+        Assert.Contains("SoA column range slices allocate arrays", error.Message);
+        Assert.Contains("table.column[row]", error.Suggestion);
     }
 
     [Fact]
@@ -3092,8 +3092,8 @@ public class SoaRecordTests : ILCompilerTestBase
             """);
 
         var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
-        Assert.Contains("Array slices cannot be assigned", error.Message);
-        Assert.Contains("Assign individual elements", error.Suggestion);
+        Assert.Contains("SoA column range slices allocate arrays", error.Message);
+        Assert.Contains("allocation-free view lowering", error.Suggestion);
     }
 
     [Fact]
@@ -3112,8 +3112,8 @@ public class SoaRecordTests : ILCompilerTestBase
             """);
 
         var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
-        Assert.Contains("Array slices cannot be incremented or decremented", error.Message);
-        Assert.Contains("Assign individual elements", error.Suggestion);
+        Assert.Contains("SoA column range slices allocate arrays", error.Message);
+        Assert.Contains("table.column[row]", error.Suggestion);
     }
 
     [Fact]
@@ -3132,8 +3132,8 @@ public class SoaRecordTests : ILCompilerTestBase
             """);
 
         var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
-        Assert.Contains("Array slices cannot be incremented or decremented", error.Message);
-        Assert.Contains("Assign individual elements", error.Suggestion);
+        Assert.Contains("SoA column range slices allocate arrays", error.Message);
+        Assert.Contains("table.column[row]", error.Suggestion);
     }
 
     [Fact]
@@ -3152,8 +3152,8 @@ public class SoaRecordTests : ILCompilerTestBase
             """);
 
         var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
-        Assert.Contains("Array slices cannot be incremented or decremented", error.Message);
-        Assert.Contains("Assign individual elements", error.Suggestion);
+        Assert.Contains("SoA column range slices allocate arrays", error.Message);
+        Assert.Contains("allocation-free view lowering", error.Suggestion);
     }
 
     [Fact]
@@ -3172,8 +3172,8 @@ public class SoaRecordTests : ILCompilerTestBase
             """);
 
         var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
-        Assert.Contains("Array slices cannot be incremented or decremented", error.Message);
-        Assert.Contains("Assign individual elements", error.Suggestion);
+        Assert.Contains("SoA column range slices allocate arrays", error.Message);
+        Assert.Contains("allocation-free view lowering", error.Suggestion);
     }
 
     [Fact]

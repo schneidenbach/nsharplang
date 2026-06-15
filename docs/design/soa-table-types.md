@@ -275,9 +275,7 @@ The compiler must produce direct diagnostics for common misuse:
 - direct table member mutation: "SoA table member 'X' cannot be assigned directly" for simple and
   compound assignment, or "SoA table member 'X' cannot be incremented or decremented directly";
 - non-int direct column element indexes: "Array indexes must be int, System.Index, or System.Range";
-- direct column slice mutation: "Array slices cannot be assigned" or
-  "Array slices cannot be incremented or decremented";
-- direct column slice reads: "SoA column range slices allocate arrays";
+- direct column slice reads and mutations: "SoA column range slices allocate arrays";
 - hidden allocation request: "this operation would allocate row objects; use column access instead".
 
 These diagnostics must point at the row access or column declaration, not at generated lowering code.
