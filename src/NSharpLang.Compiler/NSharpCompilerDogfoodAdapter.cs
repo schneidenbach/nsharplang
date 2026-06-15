@@ -643,68 +643,78 @@ internal static class NSharpCompilerDogfoodAdapter
         input = null!;
         var cap = n + 1;
 
-        var sk = new int[cap]; var sns = new int[cap]; var snl = new int[cap]; var scs = new int[cap];
-        var scc = new int[cap]; var sci = new int[cap]; var sss = new int[cap]; var ssl = new int[cap];
-        var pNameStart = new int[cap]; var pNameLen = new int[cap]; var pTypeRoot = new int[cap];
-        var pNameTexts = new string[cap];
-        var sres = new int[8];
-        var sTypeParamStarts = new int[cap];
-        var sTypeParamLengths = new int[cap];
-        var sTypeParamTexts = new string[cap];
-        var sWhereNameStarts = new int[cap];
-        var sWhereNameLengths = new int[cap];
-        var sWhereNameTexts = new string[cap];
-        var sWhereItemCodes = new int[cap];
-        var sWhereOwnerIndices = new int[cap];
         var sFunctionNameTexts = new string[1];
-        var paramCount = bindings.ParseFunctionSignatureTextInfo(
-            source, ck, cs, cv, n, funcIndex, sk, sns, snl, scs, scc, sci, sss, ssl,
-            pNameStart, pNameLen, pNameTexts, pTypeRoot, sTypeParamStarts, sTypeParamLengths, sTypeParamTexts,
-            sWhereNameStarts, sWhereNameLengths, sWhereNameTexts, sWhereItemCodes, sFunctionNameTexts, sres);
-        if (paramCount < 0 || sres[3] < 0)
+        var sReturnTypeTexts = new string[1];
+        var pNameTexts = new string[cap];
+        var pTypeTexts = new string[cap];
+        var pTupleNameCounts = new int[cap];
+        var pTupleNameTexts = new string[cap];
+        var sReturnTupleNameTexts = new string[cap];
+        var sTypeParamTexts = new string[cap];
+        var sTypeParamSpecials = new int[cap];
+        var sTypeParamConstraintCounts = new int[cap];
+        var sTypeParamConstraintTypeTexts = new string[cap];
+        var sres = new int[6];
+        var paramCount = bindings.ParseFunctionSignatureInfo(
+            source, ck, cs, cv, n, funcIndex, sFunctionNameTexts, sReturnTypeTexts,
+            pNameTexts, pTypeTexts, pTupleNameCounts, pTupleNameTexts, sReturnTupleNameTexts,
+            sTypeParamTexts, sTypeParamSpecials, sTypeParamConstraintCounts, sTypeParamConstraintTypeTexts, sres);
+        if (paramCount < 0)
             return false;
 
         var fname = sFunctionNameTexts[0];
         if (string.IsNullOrEmpty(fname))
             return false;
-        // sres[1] is the return-type tree root, or -1 when the function OMITS its return type (`func f(...) {`,
-        // implicit void — the kernel sets returnRoot = -1, a valid signature, not a parse error). Canonicalize to
-        // "void" in that case (the emitter's pass 1 maps "void" -> typeof(void)), matching the columnar
-        // type-inference parity harness. Without this,
-        // SemanticScopes' implicit-void procedures (SortIdsByStart, ClearTouched) declined the whole file at parse.
-        var returnCanonical = sres[1] >= 0
-            ? bindings.TypeReferenceCanonicalText(source, sk, sns, snl, scs, scc, sci, sres[1])
-            : "void";
+        var returnCanonical = sReturnTypeTexts[0];
+        if (string.IsNullOrEmpty(returnCanonical))
+            return false;
+
         var paramNames = new string[paramCount];
         var paramCanonicals = new string[paramCount];
         string[]?[]? paramTupleNames = null;
+        var flatParamTupleNameIndex = 0;
         for (var p = 0; p < paramCount; p++)
         {
             var paramName = pNameTexts[p];
-            if (string.IsNullOrEmpty(paramName))
+            var paramType = pTypeTexts[p];
+            if (string.IsNullOrEmpty(paramName) || string.IsNullOrEmpty(paramType))
                 return false;
             paramNames[p] = paramName;
-            paramCanonicals[p] = bindings.TypeReferenceCanonicalText(source, sk, sns, snl, scs, scc, sci, pTypeRoot[p]);
-            if (!TryGetTypeReferenceTupleElementNames(bindings, source, sk, sns, snl, scs, scc, sci, pTypeRoot[p], out var paramElementNames))
+            paramCanonicals[p] = paramType;
+            var tupleNameCount = pTupleNameCounts[p];
+            if (tupleNameCount < 0 || flatParamTupleNameIndex + tupleNameCount > pTupleNameTexts.Length)
                 return false;
-            if (paramElementNames is { })
-                (paramTupleNames ??= new string[paramCount][])[p] = paramElementNames;
+            if (tupleNameCount > 0)
+            {
+                var tupleNames = new string[tupleNameCount];
+                Array.Copy(pTupleNameTexts, flatParamTupleNameIndex, tupleNames, 0, tupleNameCount);
+                (paramTupleNames ??= new string[paramCount][])[p] = tupleNames;
+            }
+            flatParamTupleNameIndex += tupleNameCount;
         }
-        string[]? returnTupleNames = null;
-        if (sres[1] >= 0 && !TryGetTypeReferenceTupleElementNames(bindings, source, sk, sns, snl, scs, scc, sci, sres[1], out returnTupleNames))
-            return false;
 
-        // Generic TYPE PARAMETERS (`func Identity<T>(...)`): sres[5] names parsed by the kernel. The token at
-        // sres[6] (immediately after the signature, PAST any `where` clauses) must be the body `{` — anything
-        // else is an unmodelled trailer (an `=>` expression body) and declines to the C# path.
-        var bodyBrace = sres[6];
+        string[]? returnTupleNames = null;
+        var returnTupleNameCount = sres[0];
+        if (returnTupleNameCount < 0 || returnTupleNameCount > sReturnTupleNameTexts.Length)
+            return false;
+        if (returnTupleNameCount > 0)
+        {
+            returnTupleNames = new string[returnTupleNameCount];
+            Array.Copy(sReturnTupleNameTexts, returnTupleNames, returnTupleNameCount);
+        }
+
+        // Generic TYPE PARAMETERS (`func Identity<T>(...)`) and constraints are materialized by the N# wrapper.
+        // The wrapper also validates that the parsed signature is followed by the function body `{`, not an
+        // unmodelled trailer such as an expression body.
+        var bodyBrace = sres[1];
         if (bodyBrace >= n || ck[bodyBrace] != 129)
             return false;
         var typeParamNames = System.Array.Empty<string>();
-        if (sres[5] > 0)
+        var typeParamCount = sres[2];
+        if (typeParamCount > 0)
         {
-            typeParamNames = new string[sres[5]];
-            for (var t = 0; t < sres[5]; t++)
+            typeParamNames = new string[typeParamCount];
+            for (var t = 0; t < typeParamCount; t++)
             {
                 var typeParamName = sTypeParamTexts[t];
                 if (string.IsNullOrEmpty(typeParamName))
@@ -713,51 +723,35 @@ internal static class NSharpCompilerDogfoodAdapter
             }
         }
 
-        // Generic CONSTRAINTS (`where T: Base, new()` — D-17b): the kernel reports flat rows (owner-name span +
-        // code); group them by declared type-parameter position. Constraints CANNOT be silently dropped (the
-        // pipeline enforces NL208 at call sites, so ignoring them would over-accept constraint-violating
-        // programs) — every row either lands on its parameter or the whole function declines: an owner naming
-        // no declared type parameter declines, and the combos the production parser ERRORS on (`class` with
-        // `struct`, `struct` with `new()`) decline so the C# path surfaces its diagnostics. Special flags
-        // mirror SpecialConstraintKind (Class=1, Struct=2, New=4).
-        var whereItemCount = sres[7];
+        // Generic CONSTRAINTS (`where T: Base, new()` — D-17b): the N# wrapper groups rows by declared type
+        // parameter, canonicalizes type constraints, and rejects unknown owners or invalid special-constraint
+        // combinations before this C# transition layer sees the data.
+        var whereItemCount = sres[5];
         int[]? typeParamSpecials = null;
         string[][]? typeParamTypeConstraints = null;
         if (whereItemCount > 0)
         {
             if (typeParamNames.Length == 0)
                 return false;
-            typeParamSpecials = new int[typeParamNames.Length];
-            var constraintLists = new List<string>[typeParamNames.Length];
-            var ownerIndexCount = bindings.FunctionSignatureWhereOwnerIndices(
-                source, sTypeParamStarts, sTypeParamLengths, typeParamNames.Length,
-                sWhereNameStarts, sWhereNameLengths, whereItemCount, sWhereOwnerIndices);
-            if (ownerIndexCount != whereItemCount)
-                return false;
-            for (var w = 0; w < whereItemCount; w++)
-            {
-                var ownerIndex = sWhereOwnerIndices[w];
-                if ((uint)ownerIndex >= (uint)typeParamNames.Length)
-                    return false;
-                var code = sWhereItemCodes[w];
-                if (code >= 0)
-                    (constraintLists[ownerIndex] ??= new List<string>()).Add(
-                        bindings.TypeReferenceCanonicalText(source, sk, sns, snl, scs, scc, sci, code));
-                else if (code == -2)
-                    typeParamSpecials[ownerIndex] |= 1;
-                else if (code == -3)
-                    typeParamSpecials[ownerIndex] |= 2;
-                else if (code == -4)
-                    typeParamSpecials[ownerIndex] |= 4;
-                else
-                    return false;
-            }
+            typeParamSpecials = new int[typeParamCount];
             typeParamTypeConstraints = new string[typeParamNames.Length][];
+            var flatTypeConstraintIndex = 0;
             for (var t = 0; t < typeParamNames.Length; t++)
             {
-                if ((typeParamSpecials[t] & 3) == 3 || (typeParamSpecials[t] & 6) == 6)
+                typeParamSpecials[t] = sTypeParamSpecials[t];
+                var constraintCount = sTypeParamConstraintCounts[t];
+                if (constraintCount < 0 || flatTypeConstraintIndex + constraintCount > sTypeParamConstraintTypeTexts.Length)
                     return false;
-                typeParamTypeConstraints[t] = constraintLists[t]?.ToArray() ?? System.Array.Empty<string>();
+                var constraints = new string[constraintCount];
+                for (var c = 0; c < constraintCount; c++)
+                {
+                    var constraint = sTypeParamConstraintTypeTexts[flatTypeConstraintIndex + c];
+                    if (string.IsNullOrEmpty(constraint))
+                        return false;
+                    constraints[c] = constraint;
+                }
+                typeParamTypeConstraints[t] = constraints;
+                flatTypeConstraintIndex += constraintCount;
             }
         }
 
@@ -934,27 +928,6 @@ internal static class NSharpCompilerDogfoodAdapter
         }
 
         input = new Columnar.ColumnarPropertyInput(propName, propType, getter, setter, isStatic);
-        return true;
-    }
-
-    private static bool TryGetTypeReferenceTupleElementNames(
-        Bindings bindings, string source,
-        int[] kinds, int[] valueStarts, int[] valueLengths, int[] childStart, int[] childCount, int[] childIndices,
-        int root, out string[]? names)
-    {
-        names = null;
-        if (root < 0)
-            return true;
-
-        var buffer = new string[Math.Max(1, childCount[root])];
-        var count = bindings.TypeReferenceTupleElementNames(source, kinds, valueStarts, valueLengths, childStart, childCount, childIndices, root, buffer);
-        if (count < 0)
-            return false;
-        if (count == 0)
-            return true;
-
-        names = new string[count];
-        Array.Copy(buffer, names, count);
         return true;
     }
 
@@ -2023,18 +1996,9 @@ internal static class NSharpCompilerDogfoodAdapter
                 CreateDelegate<PackageNameSpanInto>(
                     programType,
                     "PackageNameSpanInto"),
-                CreateDelegate<ParseFunctionSignatureTextInfoInto>(
+                CreateDelegate<ParseFunctionSignatureInfoInto>(
                     programType,
-                    "ParseFunctionSignatureTextInfoInto"),
-                CreateDelegate<TypeReferenceCanonicalTextInto>(
-                    programType,
-                    "TypeReferenceCanonicalTextInto"),
-                CreateDelegate<TypeReferenceTupleElementNamesInto>(
-                    programType,
-                    "TypeReferenceTupleElementNamesInto"),
-                CreateDelegate<FunctionSignatureWhereOwnerIndicesInto>(
-                    programType,
-                    "FunctionSignatureWhereOwnerIndicesInto"),
+                    "ParseFunctionSignatureInfoInto"),
                 CreateDelegate<ParseStatementNodesInto>(
                     programType,
                     "ParseStatementNodesInto"),
@@ -2178,27 +2142,13 @@ internal static class NSharpCompilerDogfoodAdapter
         int[] outNsStarts, int[] outNsLengths, int[] outAliasStarts, int[] outAliasLengths);
     private delegate int PackageNameSpanInto(
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int[] outResult);
-    private delegate int ParseFunctionSignatureTextInfoInto(
+    private delegate int ParseFunctionSignatureInfoInto(
         string source,
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int funcIndex,
-        int[] outNodeKinds, int[] outNameStarts, int[] outNameLengths, int[] outChildStart, int[] outChildCount,
-        int[] outChildIndices, int[] outSpanStarts, int[] outSpanLengths,
-        int[] outParamNameStarts, int[] outParamNameLengths, string[] outParamNameTexts, int[] outParamTypeRoots,
-        int[] outTypeParamStarts, int[] outTypeParamLengths, string[] outTypeParamTexts,
-        int[] outWhereNameStarts, int[] outWhereNameLengths, string[] outWhereNameTexts,
-        int[] outWhereItemCodes, string[] outFunctionNameTexts, int[] outResult);
-    private delegate string TypeReferenceCanonicalTextInto(
-        string source,
-        int[] nodeKinds, int[] valueStarts, int[] valueLengths, int[] childStart, int[] childCount,
-        int[] childIndices, int root);
-    private delegate int TypeReferenceTupleElementNamesInto(
-        string source,
-        int[] nodeKinds, int[] valueStarts, int[] valueLengths, int[] childStart, int[] childCount,
-        int[] childIndices, int root, string[] outNames);
-    private delegate int FunctionSignatureWhereOwnerIndicesInto(
-        string source,
-        int[] typeParamStarts, int[] typeParamLengths, int typeParamCount,
-        int[] whereNameStarts, int[] whereNameLengths, int whereItemCount, int[] outOwnerIndices);
+        string[] outFunctionNameTexts, string[] outReturnTypeTexts,
+        string[] outParamNameTexts, string[] outParamTypeTexts, int[] outParamTupleNameCounts, string[] outParamTupleNameTexts,
+        string[] outReturnTupleNameTexts, string[] outTypeParamTexts, int[] outTypeParamSpecials,
+        int[] outTypeParamConstraintCounts, string[] outTypeParamConstraintTypeTexts, int[] outResult);
     private delegate int ParseStatementNodesInto(
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int start,
         int[] outNodeKinds, int[] outValueStarts, int[] outValueLengths, int[] outChildStart, int[] outChildCount,
@@ -2265,10 +2215,7 @@ internal static class NSharpCompilerDogfoodAdapter
         TopLevelDeclarationNameSpansInto TopLevelDeclarationNameSpans,
         NamespaceImportSpansInto NamespaceImportSpans,
         PackageNameSpanInto PackageNameSpan,
-        ParseFunctionSignatureTextInfoInto ParseFunctionSignatureTextInfo,
-        TypeReferenceCanonicalTextInto TypeReferenceCanonicalText,
-        TypeReferenceTupleElementNamesInto TypeReferenceTupleElementNames,
-        FunctionSignatureWhereOwnerIndicesInto FunctionSignatureWhereOwnerIndices,
+        ParseFunctionSignatureInfoInto ParseFunctionSignatureInfo,
         ParseStatementNodesInto ParseStatementNodes,
         ParseInterfaceDeclarationSignatureInfoInto ParseInterfaceDeclarationSignatureInfo,
         ParseEnumDeclarationTextInfoInto ParseEnumDeclarationTextInfo,

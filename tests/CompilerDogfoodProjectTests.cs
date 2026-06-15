@@ -2596,6 +2596,10 @@ class B
                     "ParseFunctionSignatureTextInfoInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit ParseFunctionSignatureTextInfoInto.");
+            var parseSigInfo = programType.GetMethod(
+                    "ParseFunctionSignatureInfoInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit ParseFunctionSignatureInfoInto.");
             var whereOwnerIndices = programType.GetMethod(
                     "FunctionSignatureWhereOwnerIndicesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -2637,6 +2641,29 @@ class B
                 parseSig,
                 parseSigText,
                 "generic function text info");
+
+            AssertFunctionSignatureInfo(
+                "func shaped<T, U>(pair: (left: int, right: string), item: T): (ok: bool, value: T) where T: class, new() where U: List<T> { return (ok: true, value: item) }",
+                "shaped",
+                "(bool,T)",
+                new[] { "pair", "item" },
+                new[] { "(int,string)", "T" },
+                new[] { 2, 0 },
+                new[] { "left", "right" },
+                new[] { "ok", "value" },
+                new[] { "T", "U" },
+                new[] { 5, 0 },
+                new[] { 0, 1 },
+                new[] { "List<T>" },
+                3,
+                tokenize,
+                parseSigInfo,
+                "function signature info");
+            AssertFunctionSignatureInfoDeclines(
+                "func bad<T>(x: T): T where U: class { return x }",
+                tokenize,
+                parseSigInfo,
+                "unknown constraint owner");
 
             AssertFunctionSignatureWhereOwnerIndices(
                 "func cw2<T, U>(a: T, b: U): T where T: class, new() where U: T { }",
@@ -2837,6 +2864,103 @@ class B
         Assert.Equal(expectedParamNames, textParamNameTexts.Take(textParamCount).ToArray());
         Assert.Equal(expectedTypeParamNames, textTypeParamTexts.Take(textResult[5]).ToArray());
         Assert.Equal(expectedWhereNames, textWhereNameTexts.Take(textResult[7]).ToArray());
+    }
+
+    private static void AssertFunctionSignatureInfo(
+        string funcSource,
+        string expectedFunctionName,
+        string expectedReturnType,
+        string[] expectedParamNames,
+        string[] expectedParamTypes,
+        int[] expectedParamTupleNameCounts,
+        string[] expectedFlatParamTupleNames,
+        string[] expectedReturnTupleNames,
+        string[] expectedTypeParamNames,
+        int[] expectedTypeParamSpecials,
+        int[] expectedTypeParamConstraintCounts,
+        string[] expectedFlatTypeParamConstraintTypes,
+        int expectedWhereItemCount,
+        MethodInfo tokenize,
+        MethodInfo parseSigInfo,
+        string label)
+    {
+        Assert.Equal(expectedParamNames.Length, expectedParamTypes.Length);
+        Assert.Equal(expectedParamNames.Length, expectedParamTupleNameCounts.Length);
+        Assert.Equal(expectedTypeParamNames.Length, expectedTypeParamSpecials.Length);
+        Assert.Equal(expectedTypeParamNames.Length, expectedTypeParamConstraintCounts.Length);
+
+        var (count, kinds, starts, valueLengths, source) = TokenizeSourceViaKernel(funcSource, tokenize);
+        var funcIndex = FirstTopLevelFuncIndex(kinds, count);
+        Assert.True(funcIndex >= 0, $"Could not locate `func` keyword for '{label}'.");
+
+        var cap = count + 1;
+        var functionNameTexts = new string[1];
+        var returnTypeTexts = new string[1];
+        var paramNameTexts = new string[cap];
+        var paramTypeTexts = new string[cap];
+        var paramTupleNameCounts = new int[cap];
+        var paramTupleNameTexts = new string[cap];
+        var returnTupleNameTexts = new string[cap];
+        var typeParamTexts = new string[cap];
+        var typeParamSpecials = new int[cap];
+        var typeParamConstraintCounts = new int[cap];
+        var typeParamConstraintTypeTexts = new string[cap];
+        var result = new int[6];
+
+        var actualParamCount = (int)(parseSigInfo.Invoke(
+            null,
+            new object[]
+            {
+                source, kinds, starts, valueLengths, count, funcIndex,
+                functionNameTexts, returnTypeTexts,
+                paramNameTexts, paramTypeTexts, paramTupleNameCounts, paramTupleNameTexts,
+                returnTupleNameTexts, typeParamTexts, typeParamSpecials,
+                typeParamConstraintCounts, typeParamConstraintTypeTexts, result,
+            }) ?? -2);
+
+        Assert.Equal(expectedParamNames.Length, actualParamCount);
+        Assert.Equal(expectedFunctionName, functionNameTexts[0]);
+        Assert.Equal(expectedReturnType, returnTypeTexts[0]);
+        Assert.Equal(expectedParamNames, paramNameTexts.Take(actualParamCount).ToArray());
+        Assert.Equal(expectedParamTypes, paramTypeTexts.Take(actualParamCount).ToArray());
+        Assert.Equal(expectedParamTupleNameCounts, paramTupleNameCounts.Take(actualParamCount).ToArray());
+        Assert.Equal(expectedFlatParamTupleNames.Length, result[4]);
+        Assert.Equal(expectedFlatParamTupleNames, paramTupleNameTexts.Take(result[4]).ToArray());
+        Assert.Equal(expectedReturnTupleNames.Length, result[0]);
+        Assert.Equal(expectedReturnTupleNames, returnTupleNameTexts.Take(result[0]).ToArray());
+        Assert.True(result[1] >= 0 && result[1] < count && kinds[result[1]] == (int)TokenType.LeftBrace, $"Expected body brace for '{label}'.");
+        Assert.Equal(expectedTypeParamNames.Length, result[2]);
+        Assert.Equal(expectedTypeParamNames, typeParamTexts.Take(result[2]).ToArray());
+        Assert.Equal(expectedTypeParamSpecials, typeParamSpecials.Take(result[2]).ToArray());
+        Assert.Equal(expectedTypeParamConstraintCounts, typeParamConstraintCounts.Take(result[2]).ToArray());
+        Assert.Equal(expectedFlatTypeParamConstraintTypes.Length, result[3]);
+        Assert.Equal(expectedFlatTypeParamConstraintTypes, typeParamConstraintTypeTexts.Take(result[3]).ToArray());
+        Assert.Equal(expectedWhereItemCount, result[5]);
+    }
+
+    private static void AssertFunctionSignatureInfoDeclines(
+        string funcSource,
+        MethodInfo tokenize,
+        MethodInfo parseSigInfo,
+        string label)
+    {
+        var (count, kinds, starts, valueLengths, source) = TokenizeSourceViaKernel(funcSource, tokenize);
+        var funcIndex = FirstTopLevelFuncIndex(kinds, count);
+        Assert.True(funcIndex >= 0, $"Could not locate `func` keyword for '{label}'.");
+
+        var cap = count + 1;
+        var actualParamCount = (int)(parseSigInfo.Invoke(
+            null,
+            new object[]
+            {
+                source, kinds, starts, valueLengths, count, funcIndex,
+                new string[1], new string[1],
+                new string[cap], new string[cap], new int[cap], new string[cap],
+                new string[cap], new string[cap], new int[cap],
+                new int[cap], new string[cap], new int[6],
+            }) ?? -2);
+
+        Assert.Equal(-1, actualParamCount);
     }
 
     private static void AssertFunctionSignatureRefused(string funcSource, MethodInfo tokenize, MethodInfo parseSig)
@@ -10081,6 +10205,7 @@ class B
         var (ok, _, _, methodNames) = RouteColumnarMultiFile(new[] { types, sigs });
         Assert.True(ok, "Columnar backend declined the merged ParserTypeReferences + ParserFunctionSignatures.");
         Assert.Contains("ParseFunctionSignatureInto", methodNames!);
+        Assert.Contains("ParseFunctionSignatureInfoInto", methodNames!);
         Assert.Contains("ParseUnionTypeReferenceNodeCore", methodNames!); // the cross-file callee, from the other file.
 
         // `func f(x: int)`: Func Id ( Id : Id ) -> exercises ParseUnionTypeReferenceNodeCore on the param type "int".
@@ -10132,6 +10257,7 @@ class B
         // Files eligible ONLY via cross-file resolution must contribute their public functions —
         // i.e. the merge actually emitted them (single-file each declines; see ColumnarCodegen_MultiFile_*).
         Assert.Contains("ParseFunctionSignatureInto", methodNames!); // ParserFunctionSignatures -> ParserTypeReferences
+        Assert.Contains("ParseFunctionSignatureInfoInto", methodNames!); // ParserFunctionSignatures -> ParserTypeReferences
         Assert.Contains("ParseConstructorSignatureInfoInto", methodNames!); // ParserConstructorSignatures -> declarations/signatures/types
         Assert.Contains("ParseInterfaceDeclarationSignatureInfoInto", methodNames!); // ParserInterfaceSignatures -> declarations/signatures/types
         Assert.Contains("DirectLocalFunctionTokenIndicesInto", methodNames!); // ParserLocalFunctions -> declarations/statements

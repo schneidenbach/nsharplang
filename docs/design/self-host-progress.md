@@ -11,6 +11,29 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Regular function signature materialization moves into N#
+
+`ParserFunctionSignatures.nl` now exports `ParseFunctionSignatureInfoInto`, a product-routed wrapper
+over function-signature parsing, canonical type text, tuple element-name extraction, and generic
+constraint owner grouping. It returns function name, canonical return/parameter types, flat tuple-name
+rows, type-parameter names, special-constraint flags, grouped type-constraint rows, and the validated
+body-brace token in one call.
+
+`NSharpCompilerDogfoodAdapter.TryParseColumnarFunctionAt` no longer binds
+`ParseFunctionSignatureTextInfoInto`, `TypeReferenceCanonicalTextInto`,
+`TypeReferenceTupleElementNamesInto`, or `FunctionSignatureWhereOwnerIndicesInto` for production
+function parsing. It consumes the N# signature-info rowset and only materializes
+`ColumnarFunctionInput`. The lower-level parser/type ABIs remain emitted for direct parser parity tests
+and for N# product wrappers that compose them. Focused evidence:
+`./scripts/dev.sh Parser_FunctionSignature_MatchesProductionParser`,
+`./scripts/dev.sh ColumnarCodegen_Parity_LocalFunctions`,
+`./scripts/dev.sh ColumnarCodegen_Parity_NamedTuples`,
+`./scripts/dev.sh ColumnarCodegen_Parity_GenericFunctions`,
+`./scripts/dev.sh ColumnarCodegen_Parity_GenericConstraints`,
+`./scripts/dev.sh ColumnarCodegen_CompilesRealDogfoodCorpus_Coverage`,
+`./scripts/dev.sh ColumnarCodegen_MultiFile_RealParserCluster`, and
+`./scripts/dev.sh ColumnarCodegen_MultiFile_EligibleClusterCompiles`.
+
 ## 2026-06-15 — Local-function discovery rowset moves into N#
 
 `ParserLocalFunctions.nl` now exports `DirectLocalFunctionTokenIndicesInto`, a product-routed wrapper
@@ -198,15 +221,16 @@ text-info wrapper and only materializes CLR-facing `ColumnarEnumInput` container
 
 ## 2026-06-15 — Function signature name text moves into N#
 
-`ParserFunctionSignatures.nl` now exports `ParseFunctionSignatureTextInfoInto`, a product-routed
+`ParserFunctionSignatures.nl` now exports `ParseFunctionSignatureTextInfoInto`, an intermediate
 wrapper over the existing signature parser. It preserves the old span/type-node ABI while adding
 materialized function, parameter, type-parameter, and `where` owner name text columns on the N# side
-of the delegate boundary.
+of the delegate boundary. The later `ParseFunctionSignatureInfoInto` wrapper supersedes it for
+production regular-function routing.
 
 `NSharpCompilerDogfoodAdapter` no longer binds `ParseFunctionSignatureInto` for production or
 slices function/parameter/type-parameter names from source spans in C#. Top-level functions,
-constructors, and interface method signatures consume the N# text columns, while the old span-only
-ABI remains emitted for parser parity tests. Focused evidence:
+constructors, and interface method signatures initially consumed the N# text columns, while the old
+span-only ABI remains emitted for parser parity tests. Focused evidence:
 `./scripts/dev.sh Parser_FunctionSignature_MatchesProductionParser`,
 `./scripts/dev.sh ColumnarCodegen_Parity_GenericConstraints`,
 `./scripts/dev.sh ColumnarCodegen_Parity_ClassConstructor`,
