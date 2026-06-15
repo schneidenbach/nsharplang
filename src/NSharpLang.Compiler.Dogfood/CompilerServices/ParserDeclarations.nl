@@ -1148,8 +1148,9 @@ func ParseEnumDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int, 
 // `static name: Type [= <literal>]` is recorded with outFieldStaticFlags[f] = 1 and — when an initializer is
 // present — outFieldInitKinds[f] = the literal's token kind (IntLiteral 1 / FloatLiteral 2 / CharLiteral 3 /
 // StringLiteral 4 / true 44 / false 45; an optional leading `-` (89) is admitted before a NUMERIC literal and is
-// included in the recorded span) with outFieldInitStarts/Lengths[f] covering the full initializer text; no
-// initializer leaves outFieldInitKinds[f] = -1. A STATIC PROPERTY `static name: Type { ... }` is recorded into
+// included in the recorded span) with outFieldInitStarts/Lengths[f] covering the full initializer text and
+// ParseStructDeclarationInfoInto also returning that text in outFieldInitTexts[f]; no initializer leaves
+// outFieldInitKinds[f] = -1. A STATIC PROPERTY `static name: Type { ... }` is recorded into
 // outPropIndices (the NAME token index, exactly like an instance property) with outPropStaticFlags[p] = 1; an
 // instance property gets flag 0. A GENERAL initializer expression (`= new T(...)`, `= a + b`), an initializer on
 // an INSTANCE field, and `static constructor` are not yet modelled and return -1 — the host declines the whole
@@ -1161,12 +1162,12 @@ func ParseStructDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValu
     return ParseStructDeclarationCore(ref tokens, count, structIndex, ref decl, ref result)
 }
 
-func ParseStructDeclarationInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, structIndex: int, outFieldNameStarts: int[], outFieldNameLengths: int[], outFieldTypeStarts: int[], outFieldTypeLengths: int[], outFieldTypeTexts: string[], outFieldStaticFlags: int[], outFieldInitKinds: int[], outFieldInitStarts: int[], outFieldInitLengths: int[], outMethodFuncIndices: int[], outMethodStaticFlags: int[], outCtorIndices: int[], outPropIndices: int[], outPropStaticFlags: int[], outTypeParamStarts: int[], outTypeParamLengths: int[], outBaseNameStarts: int[], outBaseNameLengths: int[], outResult: int[]): int {
+func ParseStructDeclarationInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, structIndex: int, outFieldNameStarts: int[], outFieldNameLengths: int[], outFieldTypeStarts: int[], outFieldTypeLengths: int[], outFieldTypeTexts: string[], outFieldStaticFlags: int[], outFieldInitKinds: int[], outFieldInitStarts: int[], outFieldInitLengths: int[], outFieldInitTexts: string[], outMethodFuncIndices: int[], outMethodStaticFlags: int[], outCtorIndices: int[], outPropIndices: int[], outPropStaticFlags: int[], outTypeParamStarts: int[], outTypeParamLengths: int[], outBaseNameStarts: int[], outBaseNameLengths: int[], outResult: int[]): int {
     tokens := new ParserDeclarationTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
     decl := new StructDeclarationTable { FieldNameStarts: outFieldNameStarts, FieldNameLengths: outFieldNameLengths, FieldTypeStarts: outFieldTypeStarts, FieldTypeLengths: outFieldTypeLengths, FieldStaticFlags: outFieldStaticFlags, FieldInitKinds: outFieldInitKinds, FieldInitStarts: outFieldInitStarts, FieldInitLengths: outFieldInitLengths, MethodFuncIndices: outMethodFuncIndices, MethodStaticFlags: outMethodStaticFlags, CtorIndices: outCtorIndices, PropIndices: outPropIndices, PropStaticFlags: outPropStaticFlags, TypeParamStarts: outTypeParamStarts, TypeParamLengths: outTypeParamLengths, BaseNameStarts: outBaseNameStarts, BaseNameLengths: outBaseNameLengths }
     result := new ParserDeclarationResultTable { Values: outResult }
     fieldCount := ParseStructDeclarationCore(ref tokens, count, structIndex, ref decl, ref result)
-    if fieldCount < 0 || fieldCount > outFieldTypeTexts.Length {
+    if fieldCount < 0 || fieldCount > outFieldTypeTexts.Length || fieldCount > outFieldInitTexts.Length {
         return -1
     }
 
@@ -1178,6 +1179,15 @@ func ParseStructDeclarationInfoInto(source: string, tokenKinds: int[], tokenStar
         }
 
         outFieldTypeTexts[i] = text
+        if decl.FieldInitKinds[i] >= 0 {
+            initText := source.Substring(decl.FieldInitStarts[i], decl.FieldInitLengths[i])
+            if initText.Length == 0 {
+                return -1
+            }
+
+            outFieldInitTexts[i] = initText
+        }
+
         i = i + 1
     }
 

@@ -290,11 +290,11 @@ internal static class NSharpCompilerDogfoodAdapter
         }
     }
 
-    // Collect every top-level fields-only `struct` declaration into a ColumnarStructInput (name + field names + field
-    // TYPE canonical strings). Consumes the shared token bundle, finds each struct keyword (TopLevelStructIndices),
-    // and parses its body via the ParseStructDeclarationInfo kernel. Returns true (possibly an empty list) for a program
-    // with no structs. Returns FALSE — declining the whole program to C# — on any parse failure (a primary-ctor
-    // struct, a method, a field initializer, a composed field type, an empty struct).
+    // Collect every top-level struct/class/record declaration into a ColumnarStructInput (name + field names + field
+    // TYPE canonical strings + optional static-field initializer text). Consumes the shared token bundle, finds each
+    // declaration keyword, and parses its body via the ParseStructDeclarationInfo kernel. Returns true (possibly an
+    // empty list) for a program with no supported declarations. Returns FALSE — declining the whole program to C# —
+    // on any parse failure (a primary-ctor struct, unsupported member shape, composed base type, etc.).
     private static bool TryGetColumnarStructInputs(
         Bindings bindings, string source, ColumnarTokenizedSource tokens,
         out System.Collections.Generic.List<Columnar.ColumnarStructInput> structs)
@@ -339,6 +339,7 @@ internal static class NSharpCompilerDogfoodAdapter
                 var outFieldInitKinds = new int[cap];
                 var outFieldInitStarts = new int[cap];
                 var outFieldInitLengths = new int[cap];
+                var outFieldInitTexts = new string[cap];
                 var outMethodFuncIndices = new int[cap];
                 var outMethodStaticFlags = new int[cap];
                 var outCtorIndices = new int[cap];
@@ -352,7 +353,7 @@ internal static class NSharpCompilerDogfoodAdapter
                 var fieldCount = bindings.ParseStructDeclarationInfo(
                     source, ck, cs, cv, n, structIndex, outFieldNameStarts, outFieldNameLengths, outFieldTypeStarts,
                     outFieldTypeLengths, outFieldTypeTexts, outFieldStaticFlags, outFieldInitKinds, outFieldInitStarts, outFieldInitLengths,
-                    outMethodFuncIndices, outMethodStaticFlags, outCtorIndices, outPropIndices, outPropStaticFlags,
+                    outFieldInitTexts, outMethodFuncIndices, outMethodStaticFlags, outCtorIndices, outPropIndices, outPropStaticFlags,
                     outTypeParamStarts, outTypeParamLengths, outBaseNameStarts, outBaseNameLengths, outResult);
                 // The kernel returns -1 on a parse failure; 0 is a legitimate FIELDLESS type. A zero-field
                 // REFERENCE type (a pure-behavior class — e.g. an inheritance base with only methods) is modelled;
@@ -398,9 +399,13 @@ internal static class NSharpCompilerDogfoodAdapter
                     fieldTypes[f] = fieldType;
                     fieldStatics[f] = outFieldStaticFlags[f] == 1;
                     fieldInitKinds[f] = outFieldInitKinds[f];
-                    fieldInitTexts[f] = outFieldInitKinds[f] >= 0
-                        ? source.Substring(outFieldInitStarts[f], outFieldInitLengths[f])
-                        : null;
+                    if (outFieldInitKinds[f] >= 0)
+                    {
+                        var fieldInitText = outFieldInitTexts[f];
+                        if (string.IsNullOrEmpty(fieldInitText))
+                            return false;
+                        fieldInitTexts[f] = fieldInitText;
+                    }
                 }
 
                 // Each method (its `func` token index recorded by the kernel) is parsed with the SAME signature +
@@ -2160,7 +2165,7 @@ internal static class NSharpCompilerDogfoodAdapter
         string source,
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int structIndex,
         int[] outFieldNameStarts, int[] outFieldNameLengths, int[] outFieldTypeStarts, int[] outFieldTypeLengths,
-        string[] outFieldTypeTexts, int[] outFieldStaticFlags, int[] outFieldInitKinds, int[] outFieldInitStarts, int[] outFieldInitLengths,
+        string[] outFieldTypeTexts, int[] outFieldStaticFlags, int[] outFieldInitKinds, int[] outFieldInitStarts, int[] outFieldInitLengths, string[] outFieldInitTexts,
         int[] outMethodFuncIndices, int[] outMethodStaticFlags, int[] outCtorIndices, int[] outPropIndices, int[] outPropStaticFlags,
         int[] outTypeParamStarts, int[] outTypeParamLengths,
         int[] outBaseNameStarts, int[] outBaseNameLengths, int[] outResult);

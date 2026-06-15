@@ -11,6 +11,19 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Static field initializer text moves into N#
+
+`ParserDeclarations.nl` extends `ParseStructDeclarationInfoInto` so the same product-routed
+declaration wrapper that returns canonical field type text also returns literal static-field
+initializer text in `outFieldInitTexts`. The parser still records initializer kind and span columns,
+but the text materialization now happens on the N# side of the boundary.
+
+`NSharpCompilerDogfoodAdapter.TryGetColumnarStructInputs` no longer slices field initializer text
+from source spans in C#; it consumes the N# text column and only materializes the CLR-facing
+`ColumnarStructInput`. Focused evidence:
+`./scripts/dev.sh ColumnarCodegen_Parity_StaticFields` and
+`./scripts/dev.sh ColumnarCodegen_MultiFile_EligibleClusterCompiles`.
+
 ## 2026-06-15 — Constructor chain argument text moves into N#
 
 `ParserDeclarations.nl` now exports `ParseConstructorTextInfoInto`, a product-routed wrapper over
