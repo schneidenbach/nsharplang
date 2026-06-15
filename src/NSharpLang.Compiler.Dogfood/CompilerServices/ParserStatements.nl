@@ -89,10 +89,6 @@ func ParseBlockStatementNodeCore(tokens: &ParserTokenTable, count: int, st: &Par
 
 // Dispatch + parse a single statement at st.Pos. Returns the emitted statement node id, or -1.
 func ParseStatementCoreNode(tokens: &ParserTokenTable, count: int, st: &ParserState, argStack: &ParserArgumentStack, nodes: &ParserExpressionNodeTable, children: &ParserChildIndexTable, depth: int): int {
-    tokenKinds := tokens.Kinds
-    tokenStarts := tokens.Starts
-    tokenValueLengths := tokens.ValueLengths
-    argStackValues := argStack.Values
     if depth > 200 {
         return -1
     }
@@ -102,7 +98,7 @@ func ParseStatementCoreNode(tokens: &ParserTokenTable, count: int, st: &ParserSt
         return -1
     }
 
-    kind := tokenKinds[start]
+    kind := tokens.Kinds[start]
 
     if kind == 129 {
         return ParseBlockStatementNodeCore(ref tokens, count, ref st, ref argStack, ref nodes, ref children, depth)
@@ -119,9 +115,9 @@ func ParseStatementCoreNode(tokens: &ParserTokenTable, count: int, st: &ParserSt
     // token (the emitter's BCL exception whitelist needs no more). Zero catches are valid WITH a finally
     // (`try {} finally {}`); a try with neither refuses. All bodies must be `{ }` BLOCKS.
     if kind == 38 {
-        tryStart := tokenStarts[start]
+        tryStart := tokens.Starts[start]
         st.Pos = start + 1
-        if st.Pos >= count || tokenKinds[st.Pos] != 129 {
+        if st.Pos >= count || tokens.Kinds[st.Pos] != 129 {
             return -1
         }
         tryBlock := ParseBlockStatementNodeCore(ref tokens, count, ref st, ref argStack, ref nodes, ref children, depth + 1)
@@ -129,60 +125,60 @@ func ParseStatementCoreNode(tokens: &ParserTokenTable, count: int, st: &ParserSt
             return -1
         }
         tryArgBase := st.ArgStackTop
-        argStackValues[st.ArgStackTop] = tryBlock
+        argStack.Values[st.ArgStackTop] = tryBlock
         st.ArgStackTop = st.ArgStackTop + 1
-        while st.Pos < count && tokenKinds[st.Pos] == 39 {
-            catchStart := tokenStarts[st.Pos]
+        while st.Pos < count && tokens.Kinds[st.Pos] == 39 {
+            catchStart := tokens.Starts[st.Pos]
             st.Pos = st.Pos + 1
             typeStart := 0 - 1
             typeLen := 0
             nameStart := 0 - 1
             nameLen := 0
-            if st.Pos < count && tokenKinds[st.Pos] == 127 {
+            if st.Pos < count && tokens.Kinds[st.Pos] == 127 {
                 st.Pos = st.Pos + 1
-                if st.Pos + 1 < count && tokenKinds[st.Pos] == 0 && tokenKinds[st.Pos + 1] == 122 {
-                    nameStart = tokenStarts[st.Pos]
-                    nameLen = tokenValueLengths[st.Pos]
+                if st.Pos + 1 < count && tokens.Kinds[st.Pos] == 0 && tokens.Kinds[st.Pos + 1] == 122 {
+                    nameStart = tokens.Starts[st.Pos]
+                    nameLen = tokens.ValueLengths[st.Pos]
                     st.Pos = st.Pos + 2
-                    if st.Pos >= count || tokenKinds[st.Pos] != 0 {
+                    if st.Pos >= count || tokens.Kinds[st.Pos] != 0 {
                         st.ArgStackTop = tryArgBase
                         return -1
                     }
-                    typeStart = tokenStarts[st.Pos]
-                    typeLen = tokenValueLengths[st.Pos]
+                    typeStart = tokens.Starts[st.Pos]
+                    typeLen = tokens.ValueLengths[st.Pos]
                     st.Pos = st.Pos + 1
                 } else {
-                    if st.Pos >= count || tokenKinds[st.Pos] != 0 {
+                    if st.Pos >= count || tokens.Kinds[st.Pos] != 0 {
                         st.ArgStackTop = tryArgBase
                         return -1
                     }
-                    typeStart = tokenStarts[st.Pos]
-                    typeLen = tokenValueLengths[st.Pos]
+                    typeStart = tokens.Starts[st.Pos]
+                    typeLen = tokens.ValueLengths[st.Pos]
                     st.Pos = st.Pos + 1
-                    if st.Pos < count && tokenKinds[st.Pos] == 0 {
-                        nameStart = tokenStarts[st.Pos]
-                        nameLen = tokenValueLengths[st.Pos]
+                    if st.Pos < count && tokens.Kinds[st.Pos] == 0 {
+                        nameStart = tokens.Starts[st.Pos]
+                        nameLen = tokens.ValueLengths[st.Pos]
                         st.Pos = st.Pos + 1
                     }
                 }
-                if st.Pos >= count || tokenKinds[st.Pos] != 128 {
+                if st.Pos >= count || tokens.Kinds[st.Pos] != 128 {
                     st.ArgStackTop = tryArgBase
                     return -1
                 }
                 st.Pos = st.Pos + 1
-            } else if st.Pos + 1 < count && tokenKinds[st.Pos] == 0 && tokenKinds[st.Pos + 1] == 122 {
-                nameStart = tokenStarts[st.Pos]
-                nameLen = tokenValueLengths[st.Pos]
+            } else if st.Pos + 1 < count && tokens.Kinds[st.Pos] == 0 && tokens.Kinds[st.Pos + 1] == 122 {
+                nameStart = tokens.Starts[st.Pos]
+                nameLen = tokens.ValueLengths[st.Pos]
                 st.Pos = st.Pos + 2
-                if st.Pos >= count || tokenKinds[st.Pos] != 0 {
+                if st.Pos >= count || tokens.Kinds[st.Pos] != 0 {
                     st.ArgStackTop = tryArgBase
                     return -1
                 }
-                typeStart = tokenStarts[st.Pos]
-                typeLen = tokenValueLengths[st.Pos]
+                typeStart = tokens.Starts[st.Pos]
+                typeLen = tokens.ValueLengths[st.Pos]
                 st.Pos = st.Pos + 1
             }
-            if st.Pos >= count || tokenKinds[st.Pos] != 129 {
+            if st.Pos >= count || tokens.Kinds[st.Pos] != 129 {
                 st.ArgStackTop = tryArgBase
                 return -1
             }
@@ -206,12 +202,12 @@ func ParseStatementCoreNode(tokens: &ParserTokenTable, count: int, st: &ParserSt
             }
             AppendExpressionChild(ref st, ref children, catchBody)
             clause := EmitExpressionNode(ref st, ref nodes, 50, typeStart, typeLen, clauseChildRun, clauseChildCount, catchStart, catchEnd - catchStart)
-            argStackValues[st.ArgStackTop] = clause
+            argStack.Values[st.ArgStackTop] = clause
             st.ArgStackTop = st.ArgStackTop + 1
         }
-        if st.Pos < count && tokenKinds[st.Pos] == 40 {
+        if st.Pos < count && tokens.Kinds[st.Pos] == 40 {
             st.Pos = st.Pos + 1
-            if st.Pos >= count || tokenKinds[st.Pos] != 129 {
+            if st.Pos >= count || tokens.Kinds[st.Pos] != 129 {
                 st.ArgStackTop = tryArgBase
                 return -1
             }
@@ -220,7 +216,7 @@ func ParseStatementCoreNode(tokens: &ParserTokenTable, count: int, st: &ParserSt
                 st.ArgStackTop = tryArgBase
                 return -1
             }
-            argStackValues[st.ArgStackTop] = finallyBlock
+            argStack.Values[st.ArgStackTop] = finallyBlock
             st.ArgStackTop = st.ArgStackTop + 1
         }
         childTotal := st.ArgStackTop - tryArgBase
@@ -228,12 +224,12 @@ func ParseStatementCoreNode(tokens: &ParserTokenTable, count: int, st: &ParserSt
             st.ArgStackTop = tryArgBase
             return -1
         }
-        lastClause := argStackValues[st.ArgStackTop - 1]
+        lastClause := argStack.Values[st.ArgStackTop - 1]
         tryEnd := nodes.SpanStarts[lastClause] + nodes.SpanLengths[lastClause]
         tryChildRun := st.ChildCursor
         a := tryArgBase
         while a < st.ArgStackTop {
-            AppendExpressionChild(ref st, ref children, argStackValues[a])
+            AppendExpressionChild(ref st, ref children, argStack.Values[a])
             a = a + 1
         }
         st.ArgStackTop = tryArgBase
@@ -244,13 +240,13 @@ func ParseStatementCoreNode(tokens: &ParserTokenTable, count: int, st: &ParserSt
     // as a full expression; the body must be a `{ }` block. `using` (16) stays deferred — the columnar
     // type surface has no IDisposable values to model.
     if kind == 80 {
-        lockStart := tokenStarts[start]
+        lockStart := tokens.Starts[start]
         st.Pos = start + 1
         lockee := ParseAssignmentExpressionNode(ref tokens, count, ref st, ref argStack, ref nodes, ref children, 0)
         if lockee < 0 {
             return -1
         }
-        if st.Pos >= count || tokenKinds[st.Pos] != 129 {
+        if st.Pos >= count || tokens.Kinds[st.Pos] != 129 {
             return -1
         }
         lockBody := ParseBlockStatementNodeCore(ref tokens, count, ref st, ref argStack, ref nodes, ref children, depth + 1)
@@ -265,7 +261,7 @@ func ParseStatementCoreNode(tokens: &ParserTokenTable, count: int, st: &ParserSt
     }
 
     if kind == 27 {
-        whileStart := tokenStarts[start]
+        whileStart := tokens.Starts[start]
         st.Pos = start + 1
         condition := ParseAssignmentExpressionNode(ref tokens, count, ref st, ref argStack, ref nodes, ref children, 0)
         if condition < 0 {
@@ -285,7 +281,7 @@ func ParseStatementCoreNode(tokens: &ParserTokenTable, count: int, st: &ParserSt
     }
 
     if kind == 25 {
-        forStart := tokenStarts[start]
+        forStart := tokens.Starts[start]
         st.Pos = start + 1
 
         // C-style `for <init>; <cond>; <incr> { body }`. init/incr are simple statements (a `:=` declaration or
@@ -297,7 +293,7 @@ func ParseStatementCoreNode(tokens: &ParserTokenTable, count: int, st: &ParserSt
             return -1
         }
 
-        if st.Pos >= count || tokenKinds[st.Pos] != 133 {
+        if st.Pos >= count || tokens.Kinds[st.Pos] != 133 {
             return -1
         }
         st.Pos = st.Pos + 1
@@ -307,7 +303,7 @@ func ParseStatementCoreNode(tokens: &ParserTokenTable, count: int, st: &ParserSt
             return -1
         }
 
-        if st.Pos >= count || tokenKinds[st.Pos] != 133 {
+        if st.Pos >= count || tokens.Kinds[st.Pos] != 133 {
             return -1
         }
         st.Pos = st.Pos + 1
@@ -332,20 +328,20 @@ func ParseStatementCoreNode(tokens: &ParserTokenTable, count: int, st: &ParserSt
     }
 
     if kind == 26 {
-        foreachStart := tokenStarts[start]
+        foreachStart := tokens.Starts[start]
         st.Pos = start + 1
 
         // `foreach <var> in <collection> { body }` (the no-paren, Go-style form). The loop variable name is an
         // identifier stored in the node's value span; children are [collection, body] -> ForeachStatement kind 29.
         // A parenthesised `foreach (x in y)` or a missing var/`in`/body refuses with -1 -> declines to the C# parser.
-        if st.Pos >= count || tokenKinds[st.Pos] != 0 {
+        if st.Pos >= count || tokens.Kinds[st.Pos] != 0 {
             return -1
         }
-        foreachVarStart := tokenStarts[st.Pos]
-        foreachVarLength := tokenValueLengths[st.Pos]
+        foreachVarStart := tokens.Starts[st.Pos]
+        foreachVarLength := tokens.ValueLengths[st.Pos]
         st.Pos = st.Pos + 1
 
-        if st.Pos >= count || tokenKinds[st.Pos] != 28 {
+        if st.Pos >= count || tokens.Kinds[st.Pos] != 28 {
             return -1
         }
         st.Pos = st.Pos + 1
@@ -368,7 +364,7 @@ func ParseStatementCoreNode(tokens: &ParserTokenTable, count: int, st: &ParserSt
     }
 
     if kind == 23 {
-        ifStart := tokenStarts[start]
+        ifStart := tokens.Starts[start]
         st.Pos = start + 1
         condition := ParseAssignmentExpressionNode(ref tokens, count, ref st, ref argStack, ref nodes, ref children, 0)
         if condition < 0 {
@@ -382,7 +378,7 @@ func ParseStatementCoreNode(tokens: &ParserTokenTable, count: int, st: &ParserSt
 
         endSpan := nodes.SpanStarts[thenNode] + nodes.SpanLengths[thenNode]
         elseNode := -1
-        if st.Pos < count && tokenKinds[st.Pos] == 24 {
+        if st.Pos < count && tokens.Kinds[st.Pos] == 24 {
             st.Pos = st.Pos + 1
             elseNode = ParseStatementCoreNode(ref tokens, count, ref st, ref argStack, ref nodes, ref children, depth + 1)
             if elseNode < 0 {

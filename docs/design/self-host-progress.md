@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Statement dispatcher keeps tables shaped
+
+`ParseStatementCoreNode` now reads control-flow token spans through `ParserTokenTable` and keeps
+try/catch/finally child ids behind `ParserArgumentStack` instead of unpacking the token and stack
+columns. The simple-statement core remains the next statement-parser alias cleanup. Focused evidence:
+`./scripts/dev.sh Parser_Statement_MatchesProductionParser` and
+`./scripts/dev.sh ColumnarCodegen_MultiFile_RealParserCluster`.
+
 ## 2026-06-15 — Block statement parser keeps tables shaped
 
 `ParseBlockStatementNodeCore` now reads block delimiters through `ParserTokenTable` and keeps the

@@ -535,8 +535,10 @@ ownership lands.
    `ParserTokenTable` in its internal core, and groups parameter, type-parameter, `where`
    constraint, and result columns behind named tables in its internal core. `ParserStatements.nl`
    now routes statement recursion through the same token, argument-stack, child-index, expression-node,
-   and result wrappers, with the block-statement core keeping token columns and child-stack ids
-   wrapper-shaped internally. Only flattened compatibility shims remain at expression/host boundaries.
+   and result wrappers, with the block-statement and statement-dispatcher cores keeping token columns
+   and child-stack ids wrapper-shaped internally. The simple-statement core is the remaining
+   statement-parser alias cleanup, and only flattened compatibility shims remain at expression/host
+   boundaries.
    `ParserExpressions.nl` now does the same for its pattern, expression-precedence, call, lambda, and
    expression-entry recursion, and composes type-reference parsing through a wrapper-aware expression
    node/table bridge. `ParserDeclarations.nl` now also routes package/header scans, top-level declaration
