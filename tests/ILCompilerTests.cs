@@ -6951,6 +6951,27 @@ func main(values: List<int>): string {
     }
 
     [Fact]
+    public void ILCompiler_CanExecuteListPatternsOnIReadOnlyList()
+    {
+        var source = @"
+import System.Collections.Generic
+
+func main(values: IReadOnlyList<int>): string {
+    return match values {
+        [] => ""empty"",
+        [first, .. middle, last] => $""{first}:{middle.Length}:{last}"",
+        _ => ""other""
+    }
+}";
+
+        var empty = CompileAndInvoke(source, "main", new object[] { new List<int>() });
+        Assert.Equal("empty", Assert.IsType<string>(empty));
+
+        var slice = CompileAndInvoke(source, "main", new object[] { new List<int> { 5, 6, 7, 8 } });
+        Assert.Equal("5:2:8", Assert.IsType<string>(slice));
+    }
+
+    [Fact]
     public void ILCompiler_CanExecuteWithExpression()
     {
         var source = @"

@@ -3406,6 +3406,40 @@ func Main() {
     }
 
     [Fact]
+    public void ListPattern_IReadOnlyListPattern_Valid()
+    {
+        AssertNoErrors(@"
+            import System.Collections.Generic
+
+            func Main(values: IReadOnlyList<int>): int {
+                return match values {
+                    [first] => first,
+                    _ => 0
+                }
+            }
+        ");
+    }
+
+    [Fact]
+    public void ListPattern_IEnumerablePattern_ReportsPatternTypeMismatch()
+    {
+        var result = Analyze(@"
+            import System.Collections.Generic
+
+            func Main(values: IEnumerable<int>): int {
+                return match values {
+                    [first] => first,
+                    _ => 0
+                }
+            }
+        ");
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.PatternTypeMismatch);
+        Assert.Contains("arrays or indexable collections", error.Message);
+        Assert.Contains("IEnumerable<int>", error.Message);
+    }
+
+    [Fact]
     public void MatchExpression_IncompatibleCaseTypes_Error()
     {
         AssertHasError(@"

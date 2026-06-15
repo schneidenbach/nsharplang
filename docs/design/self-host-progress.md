@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — List patterns require indexable targets before lowering
+
+List-pattern analysis now matches the IL contract: arrays and indexable collection targets with a
+stable count/length and `int` indexer are accepted, while plain `IEnumerable<T>` reports
+`NL504` before the backend can reach its list-pattern unsupported-case throw. `IReadOnlyList<T>`
+is now covered as an accepted indexable interface shape and has an executable IL regression pin.
+
 ## 2026-06-15 — Queryable collection expressions fail before lowering
 
 Target-typed collection expressions now reject `IQueryable<T>` during semantic analysis with

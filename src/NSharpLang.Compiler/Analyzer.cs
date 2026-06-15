@@ -4958,32 +4958,13 @@ public class Analyzer : IDisposable
                 break;
 
             case ListPattern listPattern:
-                // List pattern matches arrays and IEnumerable<T> types
-                // Determine element type
-                TypeInfo? elementType = null;
-
-                if (valueType is ArrayTypeInfo arrayType)
-                {
-                    elementType = arrayType.ElementType;
-                }
-                else if (valueType is GenericTypeInfo genericType &&
-                         (genericType.Name == "IEnumerable" || genericType.Name == "List"))
-                {
-                    // Extract generic type parameter
-                    elementType = genericType.TypeArguments.Count > 0
-                        ? genericType.TypeArguments[0]
-                        : BuiltInTypes.Unknown;
-                }
-                else if (valueType is ReflectionTypeInfo reflType && reflType.Type.IsArray)
-                {
-                    elementType = new ReflectionTypeInfo(reflType.Type.GetElementType()!);
-                }
-                else
+                // List pattern lowering requires a stable Count/Length and int indexer.
+                if (!TryGetListPatternElementType(valueType, out var elementType))
                 {
                     var (diagnosticLine, diagnosticColumn, diagnosticLength) =
                         GetListPatternDiagnosticSpan(listPattern);
                     Error(ErrorCode.PatternTypeMismatch,
-                        $"A list pattern can only match arrays or collections, but this value is '{valueType}'",
+                        $"A list pattern can only match arrays or indexable collections, but this value is '{valueType}'",
                         diagnosticLine, diagnosticColumn, length: diagnosticLength);
                     elementType = BuiltInTypes.Unknown; // fallback to avoid cascading errors
                 }
@@ -5039,6 +5020,106 @@ public class Analyzer : IDisposable
                     DeclareSymbol(typePattern.BindingName, targetType, pattern.Line, pattern.Column);
                 }
                 break;
+        }
+    }
+
+    private bool TryGetListPatternElementType(TypeInfo valueType, out TypeInfo elementType)
+    {
+        valueType = ResolveTypeAlias(valueType);
+        elementType = BuiltInTypes.Unknown;
+
+        if (valueType is ArrayTypeInfo arrayType)
+        {
+            elementType = arrayType.ElementType;
+            return true;
+        }
+
+        if (valueType is GenericTypeInfo genericType && IsIndexableGenericListPatternType(genericType.Name))
+        {
+            elementType = genericType.TypeArguments.Count > 0
+                ? genericType.TypeArguments[0]
+                : BuiltInTypes.Unknown;
+            return true;
+        }
+
+        if (valueType is ReflectionTypeInfo reflectionType)
+        {
+            return TryGetReflectionListPatternElementType(reflectionType.Type, out elementType);
+        }
+
+        return false;
+    }
+
+    private static bool IsIndexableGenericListPatternType(string name)
+        => name is "List" or "IList" or "IReadOnlyList";
+
+    private static bool TryGetReflectionListPatternElementType(Type type, out TypeInfo elementType)
+    {
+        elementType = BuiltInTypes.Unknown;
+        if (type.IsArray)
+        {
+            var arrayElementType = type.GetElementType();
+            if (arrayElementType == null)
+            {
+                return false;
+            }
+
+            elementType = new ReflectionTypeInfo(arrayElementType);
+            return true;
+        }
+
+        const BindingFlags bindingFlags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
+        try
+        {
+            var shapeTypes = GetListPatternShapeTypes(type).ToArray();
+            var lengthProperty = shapeTypes
+                .Select(shapeType => shapeType.GetProperty("Count", bindingFlags)
+                    ?? shapeType.GetProperty("Length", bindingFlags))
+                .FirstOrDefault(property => property?.GetMethod != null && property.PropertyType == typeof(int));
+            if (lengthProperty?.GetMethod == null || lengthProperty.PropertyType != typeof(int))
+            {
+                return false;
+            }
+
+            var indexerProperty = shapeTypes
+                .SelectMany(shapeType => shapeType.GetProperties(bindingFlags))
+                .FirstOrDefault(property =>
+                {
+                    if (property.GetMethod == null)
+                    {
+                        return false;
+                    }
+
+                    var parameters = property.GetIndexParameters();
+                    return parameters.Length == 1 && parameters[0].ParameterType == typeof(int);
+                });
+
+            if (indexerProperty?.GetMethod == null)
+            {
+                return false;
+            }
+
+            elementType = new ReflectionTypeInfo(indexerProperty.PropertyType);
+            return true;
+        }
+        catch (NotSupportedException)
+        {
+            return false;
+        }
+    }
+
+    private static IEnumerable<Type> GetListPatternShapeTypes(Type type)
+    {
+        yield return type;
+
+        if (!type.IsInterface)
+        {
+            yield break;
+        }
+
+        foreach (var inheritedInterface in type.GetInterfaces())
+        {
+            yield return inheritedInterface;
         }
     }
 

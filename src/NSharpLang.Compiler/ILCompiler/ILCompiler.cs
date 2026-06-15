@@ -25120,14 +25120,18 @@ public partial class ILCompiler
         }
 
         var bindingFlags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
-        var lengthProperty = targetType.GetProperty("Count", bindingFlags)
-            ?? targetType.GetProperty("Length", bindingFlags);
+        var shapeTypes = GetListPatternShapeTypes(targetType).ToArray();
+        var lengthProperty = shapeTypes
+            .Select(type => type.GetProperty("Count", bindingFlags)
+                ?? type.GetProperty("Length", bindingFlags))
+            .FirstOrDefault(property => property?.GetMethod != null && property.PropertyType == typeof(int));
         if (lengthProperty?.GetMethod == null || lengthProperty.PropertyType != typeof(int))
         {
             return false;
         }
 
-        var indexerProperty = targetType.GetProperties(bindingFlags)
+        var indexerProperty = shapeTypes
+            .SelectMany(type => type.GetProperties(bindingFlags))
             .FirstOrDefault(property =>
             {
                 if (property.GetMethod == null)
@@ -25146,6 +25150,21 @@ public partial class ILCompiler
 
         shape = new ListPatternShape(indexerProperty.PropertyType, lengthProperty.GetMethod, indexerProperty.GetMethod);
         return true;
+    }
+
+    private static IEnumerable<Type> GetListPatternShapeTypes(Type targetType)
+    {
+        yield return targetType;
+
+        if (!targetType.IsInterface)
+        {
+            yield break;
+        }
+
+        foreach (var inheritedInterface in targetType.GetInterfaces())
+        {
+            yield return inheritedInterface;
+        }
     }
 
     private void EmitSequenceLengthLoad(LocalBuilder targetLocal, Type targetType, ListPatternShape shape)
