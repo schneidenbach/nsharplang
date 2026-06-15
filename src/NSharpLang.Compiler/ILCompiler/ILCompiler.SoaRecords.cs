@@ -584,6 +584,20 @@ public partial class ILCompiler
         return true;
     }
 
+    private bool TryEmitSoaRowColumnAddress(MemberAccessExpression memberAccess)
+    {
+        if (!TryResolveSoaRowColumnAccess(memberAccess, out var rowAccess, out _, out var columnField, out var elementType))
+        {
+            return false;
+        }
+
+        EmitExpression(rowAccess.Object);
+        _currentIL!.Emit(OpCodes.Ldfld, columnField);
+        EmitExpressionWithExpectedType(rowAccess.Index, typeof(int));
+        _currentIL.Emit(OpCodes.Ldelema, elementType);
+        return true;
+    }
+
     private bool TryEmitSoaRowColumnAssignment(AssignmentExpression assignment, MemberAccessExpression memberAccess, bool leaveValueOnStack)
     {
         if (!TryResolveSoaRowColumnAccess(memberAccess, out var rowAccess, out _, out var columnField, out var elementType))

@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — SoA row projections lower ref/out addresses
+
+Row-projection column cells can now be passed to `ref` and `out` parameters without falling into the
+generic member-address emitter. `ref nodes[row].kind` and `out nodes[row].start`, including through
+an alias-typed table receiver, lower to the backing column array plus `ldelema`, preserving the same
+zero-row-allocation model as direct column indexing.
+
 ## 2026-06-15 — SoA initializers reject collection/indexer shapes
 
 SoA table object initializers and `with` expressions now reject non-named initializer entries before

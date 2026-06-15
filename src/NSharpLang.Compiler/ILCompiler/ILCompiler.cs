@@ -9651,6 +9651,11 @@ public partial class ILCompiler
             throw new InvalidOperationException("No IL generator context");
         }
 
+        if (TryEmitSoaRowColumnAddress(memberAccess))
+        {
+            return;
+        }
+
         if (TryResolveStaticContainer(memberAccess.Object, out var staticType))
         {
             if (staticType is TypeBuilder staticTypeBuilder)
