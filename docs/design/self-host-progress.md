@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Parenthesized negative operands fail before lowering
+
+Analyzer-known negative constants now include unary minus applied to a transparently wrapped integer
+literal, such as `-(1)` and `unchecked(-(1))`. The same shared validation covers SoA table capacity,
+`wrap` length, `ensureCapacity`, `copyRow`, table/direct-column row indexes, and stackalloc lengths,
+so these invalid counts stop before runtime guards or IL lowering.
+
 ## 2026-06-15 — Casted negative counts fail before lowering
 
 Non-negative count validation now treats signed integer casts around negative literals as

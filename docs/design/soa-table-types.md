@@ -277,17 +277,20 @@ The compiler must produce direct diagnostics for common misuse:
   arguments, including parenthesized, checked/unchecked default, and typed array-cast null/default
   forms, or "columns for NodeTable.wrap cannot be null" for dynamic runtime values;
 - invalid `wrap` length: "SoA table wrap length must not be negative" for negative literals,
-  including parenthesized, checked/unchecked, and signed integer-cast forms, or
+  including parenthesized whole-expression or unary-operand, checked/unchecked, and signed
+  integer-cast forms, or
   "length for NodeTable.wrap must be between 0 and column length" for dynamic runtime bounds;
 - invalid `new` capacity: "SoA table capacity must be int" or "SoA table capacity must not be negative"
-  for analyzer-known literals, including parenthesized, checked/unchecked, and signed integer-cast forms, or
+  for analyzer-known literals, including parenthesized whole-expression or unary-operand,
+  checked/unchecked, and signed integer-cast forms, or
   "capacity for NodeTable must be non-negative" for dynamic runtime values;
 - invalid default construction: "SoA table 'NodeTable' cannot be default-initialized";
 - invalid target-typed zero-argument construction: "SoA table 'NodeTable' construction expects
   exactly one int capacity argument";
 - invalid generated operation calls: "`add`, `clear`, `ensureCapacity`, and `copyRow` must be called with
   their declared argument counts, names, and types, and literal `ensureCapacity`/`copyRow` capacity
-  or row arguments, including parenthesized, checked/unchecked, and signed integer-cast forms, must be non-negative";
+  or row arguments, including parenthesized whole-expression or unary-operand, checked/unchecked,
+  and signed integer-cast forms, must be non-negative";
   dynamic negative `ensureCapacity`/`copyRow` values throw
   "capacity/source row/target row for NodeTable.operation must be non-negative"; dynamic `add` length
   overflow throws "length for NodeTable.add is too large", and dynamic `copyRow` sources at or beyond
@@ -307,7 +310,8 @@ The compiler must produce direct diagnostics for common misuse:
   values: "SoA table indexes must be int row ids";
 - statically negative row indexes on row/direct-column reads or writes:
   "SoA table row indexes must not be negative" or "SoA column row indexes must not be negative",
-  including parenthesized, checked/unchecked, and signed integer-cast forms;
+  including parenthesized whole-expression or unary-operand, checked/unchecked, and signed
+  integer-cast forms;
 - direct table member mutation: "SoA table member 'X' cannot be assigned directly" for simple,
   compound, and null-coalescing assignment, or "SoA table member 'X' cannot be incremented or
   decremented directly", including parenthesized and checked/unchecked target-wrapper forms;

@@ -9716,6 +9716,17 @@ func Scratch(): int {
     }
 
     [Fact]
+    public void StackAlloc_ParenthesizedNegativeConstantOperand_Rejected()
+    {
+        var error = AssertHasErrorCode(@"
+func Scratch(): int {
+    scratch := stackalloc byte[unchecked(-(1))]
+    return scratch.Length
+}", ErrorCode.TypeMismatch);
+        Assert.Contains("must not be negative", error.Message);
+    }
+
+    [Fact]
     public void StackAlloc_LengthExpression_RecordedInSemanticModel()
     {
         // Tooling (hover, go-to-definition) needs the length subtree in the semantic model.

@@ -13244,10 +13244,34 @@ public class Analyzer : IDisposable
         return expression is UnaryExpression
         {
             Operator: UnaryOperator.Negate,
-            Operand: IntLiteralExpression literal
+            Operand: var operand
         }
-            && NumericLiteralFacts.TryParseUnsignedIntegerMagnitude(literal.Value, out var magnitude)
+            && TryGetUnsignedIntegerMagnitude(operand, out var magnitude)
             && magnitude != 0;
+    }
+
+    private static bool TryGetUnsignedIntegerMagnitude(Expression expression, out ulong magnitude)
+    {
+        while (true)
+        {
+            expression = UnwrapTransparentExpressionWrappers(expression);
+            if (expression is CastExpression cast && IsSignedIntegerCast(cast.TargetType))
+            {
+                expression = cast.Expression;
+                continue;
+            }
+
+            break;
+        }
+
+        if (expression is IntLiteralExpression literal
+            && NumericLiteralFacts.TryParseUnsignedIntegerMagnitude(literal.Value, out magnitude))
+        {
+            return true;
+        }
+
+        magnitude = 0;
+        return false;
     }
 
     private static bool IsSignedIntegerCast(TypeReference type)
