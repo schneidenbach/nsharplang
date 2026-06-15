@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — CliArguments applied-file grouping stays table-shaped internally
+
+`CliFixAppliedFileGroupsCore` now keeps its file-rank, rank-bucket, and applied-file group result
+columns behind the normal `Cli*Table` wrappers for the whole core instead of unpacking them into raw
+parallel-array locals. The flattened adapter entry point is unchanged; this is a systems-language
+table-wrapper cleanup inside accepted product N# code. Focused evidence:
+`./scripts/dev.sh CliArguments`.
+
 ## 2026-06-15 — Expression-tree index reads lower
 
 Expression-tree lambdas now accept non-null-conditional index reads and lower them either through

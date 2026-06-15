@@ -517,7 +517,8 @@ ownership lands.
    run/watch, publish, test, lint, and tidy argument clusters. It now also wraps symbol-name filter
    inputs/results plus build/export operand kind columns and linked-list scratch columns, and wraps
    `nlc fix` safety-rank, edit-count, edit-flattening, file-rank, rank-bucket, and applied-file group
-   result columns. Unified-diff hunk range inputs/results and clean-artifact directory ordering
+   result columns, with the applied-file grouping core keeping those columns behind wrappers internally.
+   Unified-diff hunk range inputs/results and clean-artifact directory ordering
    inputs/scratch/result columns are now table-wrapped as well. These slices preserve the flattened
    dogfood adapter ABI. The update-dependency, reference-type, stable-distinct, best-score, and
    summary-counter rank/flag/score columns now also route through named normal structs. The

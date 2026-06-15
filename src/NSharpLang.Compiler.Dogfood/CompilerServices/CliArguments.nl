@@ -1410,19 +1410,11 @@ func CliFixAppliedFileGroupsCore(
     uniqueFileRankCount: int,
     buckets: &CliFixRankBucketTable,
     results: &CliFixAppliedFileGroupResultTable): int {
-    fileRanks := fileRankTable.Ranks
-    countsByRank := buckets.CountsByRank
-    offsetsByRank := buckets.OffsetsByRank
-    writeOffsetsByRank := buckets.WriteOffsetsByRank
-    resultRanks := results.Ranks
-    resultStarts := results.Starts
-    resultCounts := results.Counts
-    resultIndices := results.Indices
     if uniqueFileRankCount < 0 {
         return -1
     }
 
-    if fileRanks.Length == 0 {
+    if fileRankTable.Ranks.Length == 0 {
         return 0
     }
 
@@ -1431,32 +1423,32 @@ func CliFixAppliedFileGroupsCore(
     }
 
     rankCapacity := uniqueFileRankCount + 1
-    if countsByRank.Length < rankCapacity
-        || offsetsByRank.Length < rankCapacity
-        || writeOffsetsByRank.Length < rankCapacity
-        || resultRanks.Length < uniqueFileRankCount
-        || resultStarts.Length < uniqueFileRankCount
-        || resultCounts.Length < uniqueFileRankCount
-        || resultIndices.Length < fileRanks.Length {
+    if buckets.CountsByRank.Length < rankCapacity
+        || buckets.OffsetsByRank.Length < rankCapacity
+        || buckets.WriteOffsetsByRank.Length < rankCapacity
+        || results.Ranks.Length < uniqueFileRankCount
+        || results.Starts.Length < uniqueFileRankCount
+        || results.Counts.Length < uniqueFileRankCount
+        || results.Indices.Length < fileRankTable.Ranks.Length {
         return -1
     }
 
     rank := 0
     while rank < rankCapacity {
-        countsByRank[rank] = 0
-        offsetsByRank[rank] = 0
-        writeOffsetsByRank[rank] = 0
+        buckets.CountsByRank[rank] = 0
+        buckets.OffsetsByRank[rank] = 0
+        buckets.WriteOffsetsByRank[rank] = 0
         rank = rank + 1
     }
 
     i := 0
-    while i < fileRanks.Length {
-        fileRank := fileRanks[i]
+    while i < fileRankTable.Ranks.Length {
+        fileRank := fileRankTable.Ranks[i]
         if fileRank <= 0 || fileRank > uniqueFileRankCount {
             return -1
         }
 
-        countsByRank[fileRank] = countsByRank[fileRank] + 1
+        buckets.CountsByRank[fileRank] = buckets.CountsByRank[fileRank] + 1
         i = i + 1
     }
 
@@ -1464,30 +1456,30 @@ func CliFixAppliedFileGroupsCore(
     rank = 1
     while rank <= uniqueFileRankCount {
         groupIndex := rank - 1
-        count := countsByRank[rank]
-        resultRanks[groupIndex] = rank
-        resultStarts[groupIndex] = offset
-        resultCounts[groupIndex] = count
-        offsetsByRank[rank] = offset
-        writeOffsetsByRank[rank] = offset
+        count := buckets.CountsByRank[rank]
+        results.Ranks[groupIndex] = rank
+        results.Starts[groupIndex] = offset
+        results.Counts[groupIndex] = count
+        buckets.OffsetsByRank[rank] = offset
+        buckets.WriteOffsetsByRank[rank] = offset
         offset = offset + count
         rank = rank + 1
     }
 
-    if offset > resultIndices.Length {
+    if offset > results.Indices.Length {
         return -1
     }
 
     i = 0
-    while i < fileRanks.Length {
-        fileRank := fileRanks[i]
-        writeIndex := writeOffsetsByRank[fileRank]
-        if writeIndex < 0 || writeIndex >= resultIndices.Length {
+    while i < fileRankTable.Ranks.Length {
+        fileRank := fileRankTable.Ranks[i]
+        writeIndex := buckets.WriteOffsetsByRank[fileRank]
+        if writeIndex < 0 || writeIndex >= results.Indices.Length {
             return -1
         }
 
-        resultIndices[writeIndex] = i
-        writeOffsetsByRank[fileRank] = writeIndex + 1
+        results.Indices[writeIndex] = i
+        buckets.WriteOffsetsByRank[fileRank] = writeIndex + 1
         i = i + 1
     }
 
