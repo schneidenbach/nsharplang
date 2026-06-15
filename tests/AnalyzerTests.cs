@@ -2113,6 +2113,93 @@ func Main() {
     }
 
     [Theory]
+    [InlineData("value++", "++")]
+    [InlineData("this.value--", "--")]
+    public void ReadonlyField_IncrementOutsideConstructor_Error(string statement, string op)
+    {
+        var result = AnalyzeWithSource($$"""
+            class Counter {
+                readonly value: int
+
+                constructor() {
+                    value = 1
+                }
+
+                func Mutate() {
+                    {{statement}}
+                }
+            }
+        """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.ReadonlyAssignment);
+        Assert.Contains("Field 'value' is readonly", error.Message);
+        Assert.Contains($"'{op}'", error.Message);
+        Assert.Contains("remove `readonly`", error.Suggestion);
+    }
+
+    [Fact]
+    public void ReadonlyField_IncrementCurrentInstanceInConstructor_Valid()
+    {
+        AssertNoErrors("""
+            class Counter {
+                readonly value: int
+
+                constructor() {
+                    value = 1
+                    value++
+                    this.value--
+                }
+            }
+        """);
+    }
+
+    [Theory]
+    [InlineData("other.value++", "++")]
+    [InlineData("other.value--", "--")]
+    public void ReadonlyField_QualifiedInstanceIncrement_Error(string statement, string op)
+    {
+        var result = AnalyzeWithSource($$"""
+            class Counter {
+                readonly value: int
+
+                constructor() {
+                    value = 1
+                }
+
+                func Mutate(other: Counter) {
+                    {{statement}}
+                }
+            }
+        """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.ReadonlyAssignment);
+        Assert.Contains("Field 'value' is readonly", error.Message);
+        Assert.Contains($"'{op}'", error.Message);
+        Assert.Contains("remove `readonly`", error.Suggestion);
+    }
+
+    [Theory]
+    [InlineData("State.Value++", "++")]
+    [InlineData("Value--", "--")]
+    public void StaticReadonlyField_Increment_Error(string statement, string op)
+    {
+        var result = AnalyzeWithSource($$"""
+            class State {
+                static readonly Value: int = 1
+
+                static func Mutate() {
+                    {{statement}}
+                }
+            }
+        """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.ReadonlyAssignment);
+        Assert.Contains("static readonly", error.Message);
+        Assert.Contains($"'{op}'", error.Message);
+        Assert.Contains("declaration", error.Suggestion);
+    }
+
+    [Theory]
     [InlineData("State.Value = 2", "Value")]
     [InlineData("Value = 2", "Value")]
     public void StaticReadonlyField_SetOutsideDeclaration_Error(string statement, string fieldName)

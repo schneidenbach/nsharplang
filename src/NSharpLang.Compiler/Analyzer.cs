@@ -5675,6 +5675,11 @@ public class Analyzer : IDisposable
             return BuiltInTypes.Unknown;
         }
 
+        if (isIncrementOrDecrement && ReportReadonlyFieldIncrementOrDecrementIfNeeded(unary, targetExpressionTypes))
+        {
+            return BuiltInTypes.Unknown;
+        }
+
         if (isIncrementOrDecrement && ReportInvalidIncrementOrDecrementTargetIfNeeded(unary))
         {
             return BuiltInTypes.Unknown;
@@ -12621,6 +12626,38 @@ public class Analyzer : IDisposable
         Error(
             ErrorCode.ReadonlyAssignment,
             $"Field '{readonlyTarget.Name}' is {fieldKind} — it can't be used as a {modifier} argument",
+            line,
+            column,
+            suggestion,
+            length);
+        return true;
+    }
+
+    private bool ReportReadonlyFieldIncrementOrDecrementIfNeeded(
+        UnaryExpression unary,
+        Dictionary<Expression, TypeInfo>? expressionTypes)
+    {
+        if (!TryGetReadonlyFieldTarget(unary.Operand, expressionTypes, out var readonlyTarget))
+        {
+            return false;
+        }
+
+        if (!readonlyTarget.IsStatic && _inConstructor && readonlyTarget.IsCurrentInstance)
+        {
+            return false;
+        }
+
+        var opText = GetUnaryOperatorSymbol(unary.Operator) ?? "operator";
+        var (line, column, length) = GetAssignmentTargetNameDiagnosticSpan(unary.Operand, unary.Line, unary.Column);
+        var fieldKind = readonlyTarget.IsStatic ? "static readonly" : "readonly";
+        var suggestion = readonlyTarget.IsStatic
+            ? "Static readonly fields can only be initialized at their declaration; copy the value to a mutable local or remove `readonly`."
+            : _inConstructor
+                ? "Assign the current instance field directly, or remove `readonly` if other instances must be mutated."
+                : "Move this mutation into a constructor assignment, or remove `readonly` if the field needs to change later.";
+        Error(
+            ErrorCode.ReadonlyAssignment,
+            $"Field '{readonlyTarget.Name}' is {fieldKind} — it can't be changed with '{opText}'",
             line,
             column,
             suggestion,

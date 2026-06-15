@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Readonly fields reject increment and decrement writes
+
+Readonly field diagnostics now cover unary mutation as well as assignment and byref calls. Instance,
+qualified-instance, and static readonly targets such as `value++`, `other.value--`, and
+`State.Value++` fail during analysis before the IL backend can emit field read-modify-write stores.
+Current-instance constructor mutation remains accepted for the existing readonly constructor model.
+
 ## 2026-06-15 — Qualified readonly instance fields reject mutation paths
 
 Readonly instance-field diagnostics now apply through qualified receivers as well as bare `this`
