@@ -20,6 +20,10 @@ struct CliDocSlugTable {
     ResultSlugs: string[]
 }
 
+struct CliDocSlugBufferTable {
+    Chars: char[]
+}
+
 struct CliDocSymbolKindFilterTable {
     KindIds: int[]
     TargetKindId: int
@@ -161,26 +165,31 @@ func CliDocSlugsCore(slugs: &CliDocSlugTable): int {
 }
 
 func CliDocSlugInto(raw: string, length: int, buffer: char[]): string {
+    slugBuffer := new CliDocSlugBufferTable { Chars: buffer }
+    return CliDocSlugCore(raw, length, ref slugBuffer)
+}
+
+func CliDocSlugCore(raw: string, length: int, buffer: &CliDocSlugBufferTable): string {
     i := 0
     slugLength := 0
     while i < length {
         ch := raw[i]
         code := (int)ch
         if code >= 65 && code <= 90 {
-            buffer[slugLength] = (char)(code + 32)
+            buffer.Chars[slugLength] = (char)(code + 32)
             slugLength = slugLength + 1
         } else if (code >= 97 && code <= 122) || (code >= 48 && code <= 57) {
-            buffer[slugLength] = ch
+            buffer.Chars[slugLength] = ch
             slugLength = slugLength + 1
         } else if code > 127 && Char.IsLetterOrDigit(ch) {
-            buffer[slugLength] = Char.ToLowerInvariant(ch)
+            buffer.Chars[slugLength] = Char.ToLowerInvariant(ch)
             slugLength = slugLength + 1
         }
 
         i = i + 1
     }
 
-    return new string(buffer, 0, slugLength)
+    return new string(buffer.Chars, 0, slugLength)
 }
 
 func SymbolKindFilterIndicesInto(kindIds: int[], targetKindId: int, resultIndices: int[]): int {

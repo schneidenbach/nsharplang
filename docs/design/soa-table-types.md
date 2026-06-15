@@ -503,10 +503,10 @@ ownership lands.
    compiler-service utility pass also wraps struct-copy field flags, anonymous-union parameter flags,
    and project source filter path/pattern/result tables. Formatter import ordering and text-edit
    ordering now wrap their sort-key/rank, bucket, and temp/result index scratch tables. CLI doc
-   ordering and linter import analysis now wrap doc-symbol ordering ranks/buckets, slug tables,
-   symbol-kind filter inputs, import namespace ranks, used namespace ranks, flag scratch, and result
-   indexes. `DocQuery.nl` now wraps documentation type-candidate columns plus member-order
-   rank/bucket/index tables, and `CliQueryParsing.nl` wraps CLI query position inputs/results,
+   ordering and linter import analysis now wrap doc-symbol ordering ranks/buckets, slug input/output
+   tables, slug character buffers, symbol-kind filter inputs, import namespace ranks, used namespace
+   ranks, flag scratch, and result indexes. `DocQuery.nl` now wraps documentation type-candidate
+   columns plus member-order rank/bucket/index tables, and `CliQueryParsing.nl` wraps CLI query position inputs/results,
    duplicate-id rank/count/result tables, packed result words, and integer parse result storage
    without using the experimental `soa record` surface. `LexerTokenKindScanner.nl` now wraps
    token-kind buffers, parser-compaction indexes, token metadata streams, indentation post-pass

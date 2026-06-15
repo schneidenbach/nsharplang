@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — CLI doc slug helper keeps buffer table-shaped
+
+`CliDocSlugInto` now adapts its caller-provided `char[]` buffer into `CliDocSlugBufferTable` and
+delegates the slug-normalization loop to `CliDocSlugCore`. This closes the remaining product
+compiler-service audit hit where an array-taking function owned loop logic directly instead of
+serving as a flattened adapter/test helper over a wrapper-aware core. The strict product scan for
+array-taking functions without `Core`/`TrustedCore` delegation now reports no matches.
+
 ## 2026-06-15 — Diagnostic deduplication rank shims route through table cores
 
 `ReferenceFileSummaryRanksInto` and `FirstDistinctRankIndicesInto` now build small rank/count/seen
