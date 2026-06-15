@@ -1705,6 +1705,100 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_ParenthesizedSoaRowViewCannotEscapeFromReceiverAndMetadataContexts()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var cases = new[]
+        {
+            (Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable) {
+                    (nodes[0])
+                }
+                """,
+                Message: "SoA row views cannot be discarded"),
+            (Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable) {
+                    value := (nodes[0]).ToString
+                }
+                """,
+                Message: "SoA row views cannot be used as a member receiver"),
+            (Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable) {
+                    value := (nodes[0])[0]
+                }
+                """,
+                Message: "SoA row views cannot be used as an index receiver"),
+            (Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable) {
+                    values := [1, 2]
+                    value := values[(nodes[0])]
+                }
+                """,
+                Message: "SoA row views cannot be used as an index value"),
+            (Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable) {
+                    value := (nodes[0])?.kind
+                }
+                """,
+                Message: "SoA row views cannot be used with null-conditional member access"),
+            (Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                record Holder {
+                    Value: object
+                }
+
+                func bad(nodes: NodeTable) {
+                    original := new Holder { Value: 1 }
+                    updated := original with { Value: (nodes[0]) }
+                }
+                """,
+                Message: "SoA row views cannot be stored in a with expression"),
+            (Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable): string {
+                    return nameof((nodes[0]))
+                }
+                """,
+                Message: "SoA row views cannot be used as a nameof target")
+        };
+
+        foreach (var testCase in cases)
+        {
+            var result = Analyze(testCase.Source);
+            var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+            Assert.Contains(testCase.Message, error.Message);
+            Assert.Contains("table[index].column", error.Suggestion);
+        }
+    }
+
+    [Fact]
     public void Analyzer_SoaRowViewCannotEscapeIntoCallArgument()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

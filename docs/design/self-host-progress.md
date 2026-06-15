@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Parenthesized SoA row-view receiver escapes stay diagnosed
+
+Parenthesized SoA row views now have analyzer coverage for receiver and metadata-adjacent value
+contexts. Bare `(nodes[0])`, `(nodes[0]).ToString`, `(nodes[0])[0]`,
+`values[(nodes[0])]`, `(nodes[0])?.kind`, `with { Value: (nodes[0]) }`, and
+`nameof((nodes[0]))` all report row-view diagnostics before IL emission. Parentheses therefore
+cannot turn row projections into discardable values, member/index receivers, null-conditional
+receivers, with-expression values, or metadata targets.
+
 ## 2026-06-15 — Parenthesized SoA row-view control escapes stay diagnosed
 
 Parenthesized SoA row views now have analyzer coverage for control and allocation-adjacent value
