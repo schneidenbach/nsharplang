@@ -11,6 +11,21 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Constructor chain argument text moves into N#
+
+`ParserDeclarations.nl` now exports `ParseConstructorTextInfoInto`, a product-routed wrapper over
+the checked constructor parser. It preserves the initializer kind, body-brace result, and argument
+kind/span columns while adding a `string[]` argument text column for `this(...)` / `base(...)`
+constructor chains.
+
+`NSharpCompilerDogfoodAdapter.TryParseColumnarConstructorAt` no longer binds
+`ParseConstructorInfoInto` for production or materializes constructor-chain argument text from
+source spans in C#. The span-only checked constructor ABI remains emitted for parser parity tests.
+Focused evidence: `./scripts/dev.sh Parser_TopLevelDeclarationKinds_MatchProductionParser`,
+`./scripts/dev.sh ColumnarCodegen_Parity_ClassConstructorChaining`,
+`./scripts/dev.sh ColumnarCodegen_Parity_ClassConstructor` (covers constructor, overload, and
+chaining tests by filter), and `./scripts/dev.sh ColumnarCodegen_MultiFile_EligibleClusterCompiles`.
+
 ## 2026-06-15 — Property accessor type text moves into N#
 
 `ParserDeclarations.nl` now exports `ParsePropertyAccessorTypeInfoInto`, a product-routed wrapper
