@@ -193,8 +193,8 @@ evidence, while `string?` columns additionally have direct null equality/inequal
 string column shapes reject `-=`, `*=`, `/=`, `++`, and `--` during analysis, including when the
 column member is the parenthesized index receiver. Bool columns support same-bool equality/inequality,
 logical-not, logical `&&`/`||` expressions, and bitwise expressions but still reject arithmetic
-compound assignment before lowering; non-bool column elements reject logical operators during
-analysis.
+compound assignment before lowering, including when the column member is the parenthesized index
+receiver; non-bool column elements reject logical operators during analysis.
 Numeric scalar columns support equality/inequality and relational comparisons,
 including unsigned comparisons for `uint`, plus arithmetic expression stores, arithmetic compound
 assignments, signed `int`/`long` unary negation, same-type bitwise expressions, and unary bitwise-not.
@@ -210,7 +210,8 @@ forms, same-enum bitwise expressions, and unary bitwise-not.
 Arithmetic compound assignment is not part of the enum column proof. Each compound assignment must
 type-check through the underlying operator and produce a result assignable back to the column, so
 boolean and enum columns reject `+=`, `-=`, `*=`, and `/=` before lowering, while string/string?
-columns reject every compound operator except concatenating `+=`. Direct column-element access through `table.column[row]`
+columns reject every compound operator except concatenating `+=`; the same rejection applies when the
+column member is the parenthesized index receiver. Direct column-element access through `table.column[row]`
 follows the same update typing rules and is also
 permitted for explicit systems kernels when the index shape is one the built-in array path supports.
 Direct column elements support the same scalar update shapes as row projection: expression-valued
@@ -285,7 +286,8 @@ The compiler must produce direct diagnostics for common misuse:
   nested SoA-table columns: "SoA column type X is not supported in this lowering";
 - unsupported row/direct column compound assignment, including char arithmetic compound assignment:
   "The '+=' assignment produces 'int', which can't be stored in 'char'", and enum arithmetic compound
-  assignment: "The '+' operator doesn't work with 'X' and 'Y'";
+  assignment, including parenthesized column-member receiver forms:
+  "The '+' operator doesn't work with 'X' and 'Y'";
 - non-integral row/direct column increment/decrement, including parenthesized column-member receiver
   forms: "The '++' operator doesn't work with 'X'";
 - non-nullable row/direct column null coalescing, including enum columns:

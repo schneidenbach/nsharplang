@@ -5085,6 +5085,73 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Theory]
+    [InlineData("", "(nodes.active)[row] += true", "+")]
+    [InlineData("", "(nodes.active)[row] -= true", "-")]
+    [InlineData("", "(nodes.active)[^1] += true", "+")]
+    [InlineData("", "(nodes.active)[^1] *= true", "*")]
+    [InlineData("idx := ^1;", "(nodes.active)[idx] += true", "+")]
+    [InlineData("idx := ^1;", "(nodes.active)[idx] /= true", "/")]
+    public void Analyzer_SoaRecordParenthesizedColumnMemberBoolCompoundAssignments_AreRejected(
+        string declaration,
+        string statement,
+        string binaryOperator)
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze($$"""
+            soa record NodeTable {
+                active: bool
+            }
+
+            func bad(nodes: NodeTable, row: int) {
+                {{declaration}}
+                {{statement}}
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains($"'{binaryOperator}' operator doesn't work with 'bool' and 'bool'", error.Message);
+        Assert.Contains("numeric values", error.Message);
+    }
+
+    [Theory]
+    [InlineData("", "(nodes.kind)[row] += NodeKind.Identifier", "+")]
+    [InlineData("", "(nodes.kind)[row] -= NodeKind.Identifier", "-")]
+    [InlineData("", "(nodes.kind)[^1] += NodeKind.Identifier", "+")]
+    [InlineData("", "(nodes.kind)[^1] *= NodeKind.Identifier", "*")]
+    [InlineData("idx := ^1;", "(nodes.kind)[idx] += NodeKind.Identifier", "+")]
+    [InlineData("idx := ^1;", "(nodes.kind)[idx] /= NodeKind.Identifier", "/")]
+    public void Analyzer_SoaRecordParenthesizedColumnMemberEnumCompoundAssignments_AreRejected(
+        string declaration,
+        string statement,
+        string binaryOperator)
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze($$"""
+            enum NodeKind {
+                Unknown,
+                Identifier
+            }
+
+            soa record NodeTable {
+                kind: NodeKind
+            }
+
+            func bad(nodes: NodeTable, row: int) {
+                {{declaration}}
+                {{statement}}
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains(
+            $"'{binaryOperator}' operator doesn't work with 'NodeKind' and 'NodeKind'",
+            error.Message);
+        Assert.Contains("numeric values", error.Message);
+    }
+
+    [Theory]
     [InlineData("nodes[row].text", "-=", "-")]
     [InlineData("nodes[row].text", "*=", "*")]
     [InlineData("nodes[row].text", "/=", "/")]
@@ -5148,6 +5215,44 @@ public class SoaRecordTests : ILCompilerTestBase
         var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
         Assert.Contains($"'{binaryOperator}' operator doesn't work", error.Message);
         Assert.Contains("string?", error.Message);
+        Assert.Contains("numeric values", error.Message);
+    }
+
+    [Theory]
+    [InlineData("string", "", "(nodes.text)[row] -= \"suffix\"", "-")]
+    [InlineData("string", "", "(nodes.text)[row] *= \"suffix\"", "*")]
+    [InlineData("string", "", "(nodes.text)[^1] -= \"suffix\"", "-")]
+    [InlineData("string", "", "(nodes.text)[^1] /= \"suffix\"", "/")]
+    [InlineData("string", "idx := ^1;", "(nodes.text)[idx] *= \"suffix\"", "*")]
+    [InlineData("string", "idx := ^1;", "(nodes.text)[idx] /= \"suffix\"", "/")]
+    [InlineData("string?", "", "(nodes.text)[row] -= \"suffix\"", "-")]
+    [InlineData("string?", "", "(nodes.text)[row] *= \"suffix\"", "*")]
+    [InlineData("string?", "", "(nodes.text)[^1] -= \"suffix\"", "-")]
+    [InlineData("string?", "", "(nodes.text)[^1] /= \"suffix\"", "/")]
+    [InlineData("string?", "idx := ^1;", "(nodes.text)[idx] *= \"suffix\"", "*")]
+    [InlineData("string?", "idx := ^1;", "(nodes.text)[idx] /= \"suffix\"", "/")]
+    public void Analyzer_SoaRecordParenthesizedColumnMemberStringCompoundAssignments_AreRejected(
+        string columnType,
+        string declaration,
+        string statement,
+        string binaryOperator)
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze($$"""
+            soa record NodeTable {
+                text: {{columnType}}
+            }
+
+            func bad(nodes: NodeTable, row: int) {
+                {{declaration}}
+                {{statement}}
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains($"'{binaryOperator}' operator doesn't work", error.Message);
+        Assert.Contains(columnType, error.Message);
         Assert.Contains("numeric values", error.Message);
     }
 

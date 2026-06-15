@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Parenthesized SoA unsupported compound stores stop in analysis
+
+Unsupported compound assignments now have analyzer coverage when the backing column member is the
+parenthesized index receiver. `(nodes.active)[row] += true`, `(nodes.kind)[^1] -= value`,
+variable-held `(nodes.kind)[idx] /= value`, and `(nodes.text)[idx] *= "suffix"` report the same
+bool, enum, string, and nullable-string type diagnostics as the unparenthesized direct-column forms
+before IL emission. Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter
+"FullyQualifiedName~Analyzer_SoaRecordParenthesizedColumnMemberBoolCompoundAssignments_AreRejected|FullyQualifiedName~Analyzer_SoaRecordParenthesizedColumnMemberEnumCompoundAssignments_AreRejected|FullyQualifiedName~Analyzer_SoaRecordParenthesizedColumnMemberStringCompoundAssignments_AreRejected"`.
+
 ## 2026-06-15 — Parenthesized SoA non-integral column updates stop in analysis
 
 Nullable string backing columns now have analyzer coverage for receiver-parenthesized direct-column
