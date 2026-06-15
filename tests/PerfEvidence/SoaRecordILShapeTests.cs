@@ -3199,6 +3199,96 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void NumericScalarColumnArithmeticExpressions_UseColumnArrayLoadStoreWithoutRowOrSliceAllocation()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                kind: int
+                flags: uint
+                mask: long
+            }
+
+            func update(nodes: NodeTable, row: int): int {
+                directRow := row + 1
+
+                nodes[row].kind = 10
+                rowInt := nodes[row].kind = nodes[row].kind + 5
+                nodes[row].flags = (uint)20
+                rowUInt := nodes[row].flags = nodes[row].flags / (uint)4
+                nodes[row].mask = 7L
+                rowLong := nodes[row].mask = nodes[row].mask * 3L
+
+                nodes.kind[directRow] = 20
+                directInt := nodes.kind[directRow] = nodes.kind[directRow] - 6
+                nodes.flags[directRow] = (uint)22
+                directUInt := nodes.flags[directRow] = nodes.flags[directRow] % (uint)5
+                nodes.mask[directRow] = 22L
+                directLong := nodes.mask[directRow] = nodes.mask[directRow] / 2L
+
+                nodes.kind[^1] = 23
+                fromEndInt := nodes.kind[^1] = nodes.kind[^1] % 7
+                nodes.flags[^1] = (uint)3
+                fromEndUInt := nodes.flags[^1] = nodes.flags[^1] * (uint)4
+                nodes.mask[^1] = 30L
+                fromEndLong := nodes.mask[^1] = nodes.mask[^1] - 8L
+
+                total := rowInt + (int)rowUInt + (int)rowLong
+                total += directInt + (int)directUInt + (int)directLong
+                total += fromEndInt + (int)fromEndUInt + (int)fromEndLong
+                return total
+            }
+
+            func main(): int {
+                nodes := new NodeTable(3)
+                row := nodes.add()
+                nodes.add()
+                nodes.add()
+                return update(nodes, row)
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var update = ILShapeInspector.GetProgramMethod(assembly, "update");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(104, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoFromEndSliceAllocation(update);
+            Assert.True(
+                ILShapeInspector.CountOpcode(update, OpCodes.Ldfld) >= 18,
+                "Numeric SoA arithmetic stores should load backing column fields directly.");
+            Assert.Equal(9, CountArrayElementLoads(update));
+            Assert.Equal(18, CountArrayElementStores(update));
+            Assert.True(
+                ILShapeInspector.CountOpcode(update, OpCodes.Add) >= 1,
+                "Numeric SoA addition should use the direct ADD opcode.");
+            Assert.True(
+                ILShapeInspector.CountOpcode(update, OpCodes.Sub) >= 2,
+                "Numeric SoA subtraction should use the direct SUB opcode.");
+            Assert.True(
+                ILShapeInspector.CountOpcode(update, OpCodes.Mul) >= 2,
+                "Numeric SoA multiplication should use the direct MUL opcode.");
+            Assert.True(
+                ILShapeInspector.CountOpcode(update, OpCodes.Div) >= 1,
+                "Signed int/long SoA division should use the direct DIV opcode.");
+            Assert.True(
+                ILShapeInspector.CountOpcode(update, OpCodes.Rem) >= 1,
+                "Signed int/long SoA remainder should use the direct REM opcode.");
+            Assert.True(
+                ILShapeInspector.CountOpcode(update, OpCodes.Div_Un) >= 1,
+                "Unsigned uint SoA division should use the direct DIV.UN opcode.");
+            Assert.True(
+                ILShapeInspector.CountOpcode(update, OpCodes.Rem_Un) >= 1,
+                "Unsigned uint SoA remainder should use the direct REM.UN opcode.");
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void StringColumnEquality_UsesColumnArrayLoadsAndStringOperatorsWithoutRowOrSliceAllocation()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA numeric scalar arithmetic expressions have IL-shape proof
+
+`int`, `uint`, and `long` SoA columns now have opcode evidence for arithmetic expression stores
+across row projection, direct column indexing, and direct from-end column indexing. The proof pins
+direct column-array loads/stores plus `add`, `sub`, `mul`, signed `div`/`rem`, and unsigned
+`div.un`/`rem.un`, with no row construction, slice allocation, boxing, delegate construction, or
+virtual dispatch.
+
 ## 2026-06-14 — SoA numeric scalar shifts have IL-shape proof
 
 `int`, `uint`, and `long` SoA columns now have opcode evidence for `<<` and `>>` expression stores
