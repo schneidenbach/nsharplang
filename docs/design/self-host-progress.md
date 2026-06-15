@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Parenthesized SoA row-view edge escapes stay diagnosed
+
+Parenthesized SoA row views now have analyzer coverage for the remaining edge contexts that route
+through specialized analyzer paths: async foreach collections, parenthesized-table null-conditional
+row projection, throw expressions, relational and literal pattern values, hidden `alloc` row-object
+requests, `on` event targets, `off` handles, and `with` initializer indexes. Event/off and
+initializer-index coverage uses AST-level mutations over valid parsed scaffolding where the surface
+grammar intentionally reserves parenthesized forms for other constructs.
+
 ## 2026-06-15 — Parenthesized SoA row-view storage and mutation escapes stay diagnosed
 
 Parenthesized SoA row views now have analyzer coverage for storage and mutation contexts that could

@@ -2184,6 +2184,186 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_ParenthesizedSoaRowViewCannotEscapeFromPatternEventAndAsyncContexts()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var cases = new[]
+        {
+            (Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable) {
+                    await foreach value in (nodes[0]) {
+                    }
+                }
+                """,
+                Message: "SoA row views cannot be used as an async foreach collection"),
+            (Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable) {
+                    row := (nodes)?[0]
+                }
+                """,
+                Message: "SoA row views cannot be used with null-conditional indexing"),
+            (Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable, ok: bool): int {
+                    return ok ? 1 : throw (nodes[0])
+                }
+                """,
+                Message: "SoA row views cannot be thrown"),
+            (Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable): int {
+                    return match 5 {
+                        < (nodes[0]) => 1,
+                        _ => 0
+                    }
+                }
+                """,
+                Message: "SoA row views cannot be used as a relational pattern value"),
+            (Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable) {
+                    value := alloc (nodes[0])
+                }
+                """,
+                Message: "this operation would allocate row objects; use column access instead")
+        };
+
+        foreach (var testCase in cases)
+        {
+            var result = Analyze(testCase.Source);
+            var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+            Assert.Contains(testCase.Message, error.Message);
+            Assert.Contains("table[index].column", error.Suggestion);
+        }
+
+        var patternSource = """
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable): int {
+                return match 5 {
+                    0 => 1,
+                    _ => 0
+                }
+            }
+            """;
+        var patternUnit = ParseForAnalysis(patternSource);
+        var patternFunction = Assert.IsType<FunctionDeclaration>(patternUnit.Declarations[1]);
+        var patternReturn = Assert.IsType<ReturnStatement>(patternFunction.Body!.Statements[0]);
+        var patternMatch = Assert.IsType<MatchExpression>(patternReturn.Value);
+        patternMatch.Cases[0] = patternMatch.Cases[0] with
+        {
+            Pattern = new LiteralPattern(
+                new ParenthesizedExpression(CreateSoaRowView("nodes"), Line: 7, Column: 17),
+                Line: 7,
+                Column: 17)
+        };
+
+        var patternResult = Analyze(patternUnit, patternSource);
+        var patternError = Assert.Single(patternResult.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("SoA row views cannot be used as a pattern value", patternError.Message);
+        Assert.Contains("table[index].column", patternError.Suggestion);
+
+        var onSource = """
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable) {
+                on nodes[0] (sender, args) => { }
+            }
+            """;
+        var onUnit = ParseForAnalysis(onSource);
+        var onFunction = Assert.IsType<FunctionDeclaration>(onUnit.Declarations[1]);
+        var onStatement = Assert.IsType<ExpressionStatement>(onFunction.Body!.Statements[0]);
+        var onExpression = Assert.IsType<OnSubscriptionExpression>(onStatement.Expression);
+        onFunction.Body.Statements[0] = onStatement with
+        {
+            Expression = onExpression with
+            {
+                Target = new ParenthesizedExpression(CreateSoaRowView("nodes"), Line: 6, Column: 16)
+            }
+        };
+
+        var onResult = Analyze(onUnit, onSource);
+        var onError = Assert.Single(onResult.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("SoA row views cannot be used as an event target", onError.Message);
+        Assert.Contains("table[index].column", onError.Suggestion);
+
+        var offSource = """
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable) {
+                off handle
+            }
+            """;
+        var offUnit = ParseForAnalysis(offSource);
+        var offFunction = Assert.IsType<FunctionDeclaration>(offUnit.Declarations[1]);
+        var offStatement = Assert.IsType<OffStatement>(offFunction.Body!.Statements[0]);
+        offFunction.Body.Statements[0] = offStatement with
+        {
+            Handle = new ParenthesizedExpression(CreateSoaRowView("nodes"), Line: 6, Column: 16)
+        };
+
+        var offResult = Analyze(offUnit, offSource);
+        var offError = Assert.Single(offResult.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("SoA row views cannot be used as an off handle", offError.Message);
+        Assert.Contains("table[index].column", offError.Suggestion);
+
+        var withSource = """
+            soa record NodeTable {
+                kind: int
+            }
+
+            record Holder {
+                Value: int
+            }
+
+            func bad(nodes: NodeTable) {
+                original := new Holder { Value: 1 }
+                updated := original with { Value: 1 }
+            }
+            """;
+        var withUnit = ParseForAnalysis(withSource);
+        var withFunction = Assert.IsType<FunctionDeclaration>(withUnit.Declarations[2]);
+        var updated = Assert.IsType<VariableDeclarationStatement>(withFunction.Body!.Statements[1]);
+        var with = Assert.IsType<WithExpression>(updated.Initializer);
+        with.Properties.Clear();
+        with.Properties.Add(new PropertyInitializer(
+            null,
+            new ParenthesizedExpression(CreateSoaRowView("nodes"), Line: 11, Column: 42),
+            new IntLiteralExpression("1", Line: 11, Column: 42),
+            NameLine: 11,
+            NameColumn: 42));
+
+        var withResult = Analyze(withUnit, withSource);
+        var withError = Assert.Single(withResult.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("SoA row views cannot be used as a with initializer index", withError.Message);
+        Assert.Contains("table[index].column", withError.Suggestion);
+    }
+
+    [Fact]
     public void Analyzer_SoaRowViewCannotEscapeIntoCallArgument()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
