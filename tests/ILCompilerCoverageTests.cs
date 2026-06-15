@@ -3707,6 +3707,25 @@ func main(): string {
     }
 
     [Fact]
+    public void ILCompiler_CanExecuteQueryableExpressionTreeSafeCast()
+    {
+        var source = @"
+import System
+import System.Linq
+
+func main(): string {
+    source := [""a"", """", ""bb""]
+    query: IQueryable<string> = Queryable.AsQueryable<string>(source)
+    filtered: IQueryable<string> = Queryable.Where<string>(query, x => (x as object) != null)
+    texts: IQueryable<string> = Queryable.Select<string, string>(filtered, x => x.ToString())
+    return String.Join("":"", texts)
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal("a::bb", Assert.IsType<string>(result));
+    }
+
+    [Fact]
     public void ILCompiler_CanExecuteQueryableExpressionTreeBitwiseOperators()
     {
         var source = @"

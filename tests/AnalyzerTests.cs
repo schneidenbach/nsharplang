@@ -6964,6 +6964,25 @@ func Main() {
     }
 
     [Fact]
+    public void QueryableLinq_ExpressionTreeLambdaSafeCast_IsSupported()
+    {
+        var result = AnalyzeWithSource(@"
+            import System.Linq
+
+            func Main() {
+                source := [""a"", ""b""]
+                query := source.AsQueryable()
+                filtered := query.Where(x => (x as object) != null)
+            }
+        ");
+
+        Assert.False(result.HasErrors,
+            result.Errors.Count > 0
+                ? $"Expected no errors but got: {string.Join(", ", result.Errors.Select(e => e.Message))}"
+                : "");
+    }
+
+    [Fact]
     public void QueryableLinq_ExpressionTreeLambdaBitwiseOperators_AreSupported()
     {
         var result = AnalyzeWithSource(@"

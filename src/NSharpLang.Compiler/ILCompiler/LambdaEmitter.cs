@@ -1396,6 +1396,16 @@ public partial class ILCompiler
                 _currentIL.Emit(OpCodes.Call, ResolveExpressionConvertMethod());
                 return;
 
+            case CastExpression { Kind: CastKind.Safe } cast:
+                EmitExpressionTreeNode(
+                    cast.Expression,
+                    parameterLocals,
+                    parameterClrTypes,
+                    GetExpressionTreeNodeClrType(cast.Expression, parameterClrTypes));
+                EmitRuntimeTypeOf(ResolveType(cast.TargetType, _currentGenericParameters));
+                _currentIL.Emit(OpCodes.Call, ResolveExpressionTypeAsMethod());
+                return;
+
             case CallExpression call:
                 EmitExpressionTreeCallNode(call, parameterLocals, parameterClrTypes);
                 return;
@@ -1756,6 +1766,12 @@ public partial class ILCompiler
             nameof(System.Linq.Expressions.Expression.Convert),
             new[] { typeof(System.Linq.Expressions.Expression), typeof(Type) })
         ?? throw new InvalidOperationException("Could not resolve Expression.Convert(Expression, Type)");
+
+    private static MethodInfo ResolveExpressionTypeAsMethod()
+        => typeof(System.Linq.Expressions.Expression).GetMethod(
+            nameof(System.Linq.Expressions.Expression.TypeAs),
+            new[] { typeof(System.Linq.Expressions.Expression), typeof(Type) })
+        ?? throw new InvalidOperationException("Could not resolve Expression.TypeAs(Expression, Type)");
 
     private static MethodInfo ResolveExpressionConstantMethod()
         => typeof(System.Linq.Expressions.Expression).GetMethod(

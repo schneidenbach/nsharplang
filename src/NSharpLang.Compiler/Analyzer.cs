@@ -14013,9 +14013,9 @@ public class Analyzer : IDisposable
                 return FindUnsupportedExpressionTreeExpression(unary.Operand, parameterNames);
 
             case CastExpression cast:
-                if (cast.Kind != CastKind.Hard)
+                if (cast.Kind is not (CastKind.Hard or CastKind.Safe))
                 {
-                    return (cast, "as-cast expression");
+                    return (cast, "cast expression");
                 }
 
                 return FindUnsupportedExpressionTreeExpression(cast.Expression, parameterNames);

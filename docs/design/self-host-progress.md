@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Expression-tree safe casts lower
+
+Expression-tree lambda lowering now accepts safe casts such as `x as object` and emits them through
+`Expression.TypeAs`. The analyzer's supported-body mirror now permits both hard and safe casts while
+still rejecting unlowered expression forms such as ternaries before emission. The executable
+queryable regression filters a string source through a safe-cast predicate end-to-end.
+
 ## 2026-06-15 — Expression-tree shift predicates lower
 
 Queryable expression-tree predicates now lower integer shift operators through
@@ -37,8 +44,8 @@ three bitwise nodes in one predicate and returns the expected filtered rows.
 ## 2026-06-15 — Expression-tree hard casts lower
 
 Expression-tree lambda lowering now accepts hard casts such as `(double)x` and emits them through
-`Expression.Convert`. The analyzer's supported-body mirror recurses through hard casts while keeping
-`as` casts rejected before emission until their expression-tree semantics are intentionally mapped.
+`Expression.Convert`. The analyzer's supported-body mirror recurses through hard casts; the later
+safe-cast slice maps `as` casts through `Expression.TypeAs`.
 `Queryable.Where<int>(..., x => (double)x > 1.5).Select(...)` now executes end-to-end.
 
 ## 2026-06-15 — Expression-tree unary negation lowers
