@@ -550,7 +550,8 @@ ownership lands.
    `ParserColumnarEnums.nl`, `ParserColumnarUnions.nl`, and `ParserColumnarInterfaces.nl` now wrap
    compact token columns, hidden declaration span scratch columns, text/count outputs, and result
    slots inside wrapper-aware nominal product cores while preserving their flattened adapter ABIs;
-   the enum product path now also composes the declaration and member-value cores directly.
+   the enum product path now also composes the declaration and member-value cores directly, and the
+   interface product path now composes the interface signature core directly.
    `ParserColumnarStructs.nl` now wraps compact token columns, hidden field/type/init/type-parameter/base
    span scratch columns, member/index outputs, text outputs, and result slots inside its wrapper-aware
    struct/class/record product core while preserving its flattened adapter ABI.
@@ -569,7 +570,8 @@ ownership lands.
    wrapper-aware type canonicalizer directly while preserving its flattened adapter ABI. `ParserInterfaceSignatures.nl`
    now routes interface signature materialization through named base-output and method-output tables,
    reuses one wrapper-shaped function-signature scratch rowset per interface parse, and composes the
-   wrapper-aware type canonicalizer directly while preserving its flattened adapter ABI. `ParserStatements.nl`
+   wrapper-aware interface declaration and type canonicalizer cores directly while preserving its
+   flattened adapter ABI. `ParserStatements.nl`
    now routes statement recursion through the same token, argument-stack, child-index, expression-node,
    and result wrappers, with the block-statement, statement-dispatcher, and simple-statement cores
    keeping token columns and child-stack ids wrapper-shaped internally. Only flattened compatibility

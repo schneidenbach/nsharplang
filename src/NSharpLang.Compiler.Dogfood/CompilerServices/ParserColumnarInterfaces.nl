@@ -38,11 +38,18 @@ func ParseColumnarInterfaceInfoInto(source: string, tokenKinds: int[], tokenStar
 }
 
 func ParseColumnarInterfaceInfoCore(source: string, tokens: &ColumnarInterfaceTokenTable, interfaceIndex: int, scratch: &ColumnarInterfaceBaseScratchTable, outputs: &ColumnarInterfaceOutputTable, result: &ColumnarInterfaceResultTable): int {
-    return ParseInterfaceDeclarationSignatureInfoInto(
-        source, tokens.Kinds, tokens.Starts, tokens.ValueLengths, tokens.Count, interfaceIndex,
-        outputs.MethodFuncIndices, scratch.BaseNameStarts, scratch.BaseNameLengths,
-        outputs.BaseNameTexts, outputs.InterfaceNameTexts,
-        outputs.MethodNameTexts, outputs.MethodReturnTexts, outputs.MethodParamCounts,
-        outputs.MethodBodyFlags, outputs.MethodParamNameTexts, outputs.MethodParamTypeTexts,
-        result.Values)
+    signatureTokens := new ParserTokenTable { Kinds: tokens.Kinds, Starts: tokens.Starts, ValueLengths: tokens.ValueLengths }
+    baseOutputs := new InterfaceSignatureBaseOutputTable { BaseNameStarts: scratch.BaseNameStarts, BaseNameLengths: scratch.BaseNameLengths, BaseNameTexts: outputs.BaseNameTexts, InterfaceNameTexts: outputs.InterfaceNameTexts }
+    methodOutputs := new InterfaceSignatureMethodOutputTable { FuncIndices: outputs.MethodFuncIndices, NameTexts: outputs.MethodNameTexts, ReturnTexts: outputs.MethodReturnTexts, ParamCounts: outputs.MethodParamCounts, BodyFlags: outputs.MethodBodyFlags, ParamNameTexts: outputs.MethodParamNameTexts, ParamTypeTexts: outputs.MethodParamTypeTexts }
+    typeStack := new ParserArgumentStack { Values: new int[](tokens.Count + 1) }
+    nodes := new ParserNodeTable { Kinds: new int[](tokens.Count + 1), ValueStarts: new int[](tokens.Count + 1), ValueLengths: new int[](tokens.Count + 1), ChildStart: new int[](tokens.Count + 1), ChildCount: new int[](tokens.Count + 1), SpanStarts: new int[](tokens.Count + 1), SpanLengths: new int[](tokens.Count + 1) }
+    children := new ParserChildIndexTable { Indices: new int[](tokens.Count + 1) }
+    canonicalNodes := new TypeReferenceCanonicalTable { Kinds: nodes.Kinds, ValueStarts: nodes.ValueStarts, ValueLengths: nodes.ValueLengths, ChildStart: nodes.ChildStart, ChildCount: nodes.ChildCount, ChildIndices: children.Indices }
+    tupleNodes := new InterfaceSignatureTupleNodeTable { Kinds: nodes.Kinds, ChildStart: nodes.ChildStart, ChildCount: nodes.ChildCount, ChildIndices: children.Indices }
+    parameters := new ParserFunctionParameterTable { NameStarts: new int[](tokens.Count + 1), NameLengths: new int[](tokens.Count + 1), TypeRoots: new int[](tokens.Count + 1) }
+    typeParams := new ParserFunctionTypeParameterTable { Starts: new int[](tokens.Count + 1), Lengths: new int[](tokens.Count + 1) }
+    whereItems := new ParserFunctionWhereTable { NameStarts: new int[](tokens.Count + 1), NameLengths: new int[](tokens.Count + 1), ItemCodes: new int[](tokens.Count + 1) }
+    signatureResult := new ParserResultTable { Values: new int[](8) }
+    interfaceResult := new ParserResultTable { Values: result.Values }
+    return ParseInterfaceDeclarationSignatureInfoCore(source, ref signatureTokens, tokens.Count, interfaceIndex, ref baseOutputs, ref methodOutputs, ref typeStack, ref nodes, ref children, ref canonicalNodes, ref tupleNodes, ref parameters, ref typeParams, ref whereItems, ref signatureResult, ref interfaceResult)
 }

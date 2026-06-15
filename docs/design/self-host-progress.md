@@ -11,6 +11,22 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Interface parser composes signature core directly
+
+`ParserColumnarInterfaces.nl` now routes product interface declaration/member signature parsing
+through `ParseInterfaceDeclarationSignatureInfoCore` with named base-output, method-output,
+type-node, tuple-check, parameter, constraint, and result wrappers instead of re-entering the
+flattened `ParseInterfaceDeclarationSignatureInfoInto` compatibility shim from inside N#.
+`ParserInterfaceSignatures.nl` also composes `ParseInterfaceDeclarationCore` directly and
+materializes interface/base texts without calling the flattened `ParseInterfaceDeclarationInfoInto`
+shim. With this slice, the `ParserColumnar*.nl` product wrappers no longer call the flattened
+function, constructor, or interface signature-info shims. Public flattened ABIs remain available for
+the current adapter and parser parity tests. Focused evidence:
+`./scripts/dev.sh ParserInterfaceSignatures`,
+`./scripts/dev.sh ColumnarCodegen_Parity_Interfaces`,
+`./scripts/dev.sh ColumnarCodegen_MultiFile_RealParserCluster`, and
+`./scripts/dev.sh ColumnarCodegen_CompilesRealDogfoodCorpus_Coverage`.
+
 ## 2026-06-15 — Function parser composes signature core directly
 
 `ParserColumnarFunctions.nl` now routes product function signature parsing through

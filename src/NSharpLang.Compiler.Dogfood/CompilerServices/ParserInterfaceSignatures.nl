@@ -48,9 +48,38 @@ func ParseInterfaceDeclarationSignatureInfoInto(source: string, tokenKinds: int[
 }
 
 func ParseInterfaceDeclarationSignatureInfoCore(source: string, tokens: &ParserTokenTable, count: int, interfaceIndex: int, baseOutputs: &InterfaceSignatureBaseOutputTable, methodOutputs: &InterfaceSignatureMethodOutputTable, typeStack: &ParserArgumentStack, nodes: &ParserNodeTable, children: &ParserChildIndexTable, canonicalNodes: &TypeReferenceCanonicalTable, tupleNodes: &InterfaceSignatureTupleNodeTable, parameters: &ParserFunctionParameterTable, typeParams: &ParserFunctionTypeParameterTable, whereItems: &ParserFunctionWhereTable, signatureResult: &ParserResultTable, result: &ParserResultTable): int {
-    methodCount := ParseInterfaceDeclarationInfoInto(source, tokens.Kinds, tokens.Starts, tokens.ValueLengths, count, interfaceIndex, methodOutputs.FuncIndices, baseOutputs.BaseNameStarts, baseOutputs.BaseNameLengths, baseOutputs.BaseNameTexts, baseOutputs.InterfaceNameTexts, result.Values)
+    if result.Values.Length < 4 {
+        return -1
+    }
+
+    declarationTokens := new ParserDeclarationTokenTable { Kinds: tokens.Kinds, Starts: tokens.Starts, ValueLengths: tokens.ValueLengths }
+    declaration := new InterfaceDeclarationTable { MethodFuncIndices: methodOutputs.FuncIndices, BaseNameStarts: baseOutputs.BaseNameStarts, BaseNameLengths: baseOutputs.BaseNameLengths }
+    declarationResult := new ParserDeclarationResultTable { Values: result.Values }
+    methodCount := ParseInterfaceDeclarationCore(ref declarationTokens, count, interfaceIndex, ref declaration, ref declarationResult)
     if methodCount < 0 {
         return -1
+    }
+
+    baseCount := result.Values[2]
+    if baseOutputs.InterfaceNameTexts.Length < 1 || baseCount > baseOutputs.BaseNameTexts.Length {
+        return -1
+    }
+
+    interfaceName := ParserDeclarationSpanText(source, result.Values[0], result.Values[1])
+    if interfaceName == "" {
+        return -1
+    }
+    baseOutputs.InterfaceNameTexts[0] = interfaceName
+
+    baseIndex := 0
+    while baseIndex < baseCount {
+        baseName := ParserDeclarationSpanText(source, declaration.BaseNameStarts[baseIndex], declaration.BaseNameLengths[baseIndex])
+        if baseName == "" {
+            return -1
+        }
+
+        baseOutputs.BaseNameTexts[baseIndex] = baseName
+        baseIndex = baseIndex + 1
     }
 
     if methodCount > methodOutputs.NameTexts.Length || methodCount > methodOutputs.ReturnTexts.Length || methodCount > methodOutputs.ParamCounts.Length || methodCount > methodOutputs.BodyFlags.Length {
