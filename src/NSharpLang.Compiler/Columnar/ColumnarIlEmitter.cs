@@ -4689,7 +4689,7 @@ internal sealed class ColumnarIlEmitter
             {        // element `a[i] = value`, OR a bare CALL statement (a void BCL call such as `Array.Fill(...)`,
                      // or a sibling/BCL call whose non-void result is discarded), OR a COMPOUND assignment
                      // (`+=` `-=` `*=` `/=` on a bare local/param — lowered to load/op/store below).
-                var expr = Child(idx, 0);
+                var expr = UnwrapParenthesizedNode(Child(idx, 0));
 
                 if (_nodes.Kind(expr) == 44) // a bare `n++` / `n--` statement — the stepped value is not kept.
                 {
@@ -4730,7 +4730,7 @@ internal sealed class ColumnarIlEmitter
                 // member/index targets, `%=` (unparsed) and `??=` (nullability slice) decline.
                 if (assignOp is "+=" or "-=" or "*=" or "/=")
                 {
-                    var compoundTarget = Child(expr, 0);
+                    var compoundTarget = UnwrapParenthesizedNode(Child(expr, 0));
                     // A COLLECTION indexer compound target (`d[k] += v` / `lst[i] += 1` — probe-pinned
                     // working oracle-side): receiver and index evaluate ONCE into temps (C#'s
                     // single-evaluation semantics), then get_Item, the op, set_Item.
@@ -4899,7 +4899,7 @@ internal sealed class ColumnarIlEmitter
                 }
                 if (assignOp != "=")
                     return false;
-                var target = Child(expr, 0);
+                var target = UnwrapParenthesizedNode(Child(expr, 0));
 
                 if (_nodes.Kind(target) == 10) // array element write: a[i] = value
                 {
@@ -10203,6 +10203,8 @@ internal sealed class ColumnarIlEmitter
 
     private bool EmitAddressOfByRefTarget(int targetNode, Type expectedElementType)
     {
+        targetNode = UnwrapParenthesizedNode(targetNode);
+
         if (_nodes.Kind(targetNode) == 6)
         {
             var name = Text(targetNode);
@@ -10307,15 +10309,15 @@ internal sealed class ColumnarIlEmitter
     private bool TryResolveMemberWriteChain(int node, out ColumnarMemberWriteChain chain)
     {
         chain = default;
-        // Collect kind-8 hops outermost-first down to the root, which must be a BARE name: indexer
-        // and call-result receivers are pipeline-REJECTED writes (NL322 — parity by rejection via
-        // the fallback) and never emit here.
+        // Collect kind-8 hops outermost-first down to the root, which must be a BARE name.
+        // Parentheses are transparent syntax for addressability; indexer and call-result receivers
+        // are pipeline-REJECTED writes (NL322 — parity by rejection via the fallback) and never emit here.
         var hopNodes = new List<int>();
-        var cursor = node;
+        var cursor = UnwrapParenthesizedNode(node);
         while (_nodes.Kind(cursor) == 8)
         {
             hopNodes.Add(cursor);
-            cursor = Child(cursor, 0);
+            cursor = UnwrapParenthesizedNode(Child(cursor, 0));
         }
         if (_nodes.Kind(cursor) != 6)
             return false;
@@ -10352,6 +10354,13 @@ internal sealed class ColumnarIlEmitter
         }
         chain = new ColumnarMemberWriteChain(rootLocal, rootParamOrdinal, rootType, hops, current);
         return true;
+    }
+
+    private int UnwrapParenthesizedNode(int node)
+    {
+        while (_nodes.Kind(node) == 7 && _nodes.ChildCount(node) == 1)
+            node = Child(node, 0);
+        return node;
     }
 
     private void EmitMemberWriteLocator(in ColumnarMemberWriteChain chain)

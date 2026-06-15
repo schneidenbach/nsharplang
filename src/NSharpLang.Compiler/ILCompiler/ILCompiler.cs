@@ -9479,6 +9479,10 @@ public partial class ILCompiler
 
         switch (expression)
         {
+            case ParenthesizedExpression parenthesized:
+                EmitAddressableExpression(parenthesized.Inner, expressionType);
+                return;
+
             // A value-type `this`/`base` receiver is reached here only for a struct member read or
             // write (the guards at the call sites use IsValueTypeLike). arg0 already holds the
             // managed pointer to the receiver, so load it as the address directly — spilling it into

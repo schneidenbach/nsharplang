@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Parenthesized addressable receivers store through
+
+The generic IL address builder now treats parentheses as transparent for nested value receivers
+before choosing the local/parameter/field/array-element address path. Parenthesized writes such as
+`(o.i).X = value`, `(o.i).X += value`, `(h.s).X = value`, and `(arr[0]).X = value` now mutate the
+real storage instead of a temporary copy. The columnar dogfood member-write chain mirrors the same
+rule, so accepted parenthesized field chains route through the product path instead of declining to
+the fallback.
+
 ## 2026-06-15 — CLI pressure probes get product-boundary pins
 
 The product/parity audit now explicitly guards the rejected `CliBuildOptionSummary*` and

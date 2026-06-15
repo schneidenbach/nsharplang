@@ -4780,6 +4780,28 @@ class B
         Assert.False(RouteColumnarProgram("record Box<T> {\n    v: T\n}\n\nfunc f(): int {\n    b := new Box<int> { v: 1 }\n    b.v = 5\n    return b.v\n}\n").Ok);
     }
 
+    [Fact]
+    public void ColumnarCodegen_Parity_ParenthesizedMemberWrites()
+    {
+        AssertColumnarProgramMatchesCSharp(
+            "struct Inner {\n    X: int\n}\n\n" +
+            "struct Outer {\n    i: Inner\n}\n\n" +
+            "func parenthesizedNestedStruct(): int {\n    o := new Outer { i: new Inner { X: 1 } }\n    if true {\n        (o.i).X = 5\n    }\n    return (o.i).X\n}\n",
+            ("parenthesizedNestedStruct", System.Array.Empty<object>()));
+
+        AssertColumnarProgramMatchesCSharp(
+            "struct S {\n    X: int\n}\n\n" +
+            "class Holder {\n    s: S\n    constructor(v: S) {\n        s = v\n    }\n}\n\n" +
+            "func parenthesizedStructOfClass(): int {\n    h := new Holder(new S { X: 1 })\n    if true {\n        (h.s).X = 6\n    }\n    return (h.s).X\n}\n",
+            ("parenthesizedStructOfClass", System.Array.Empty<object>()));
+
+        AssertColumnarProgramMatchesCSharp(
+            "struct Inner {\n    X: int\n}\n\n" +
+            "struct Outer {\n    i: Inner\n}\n\n" +
+            "func parenthesizedCompoundNested(): int {\n    o := new Outer { i: new Inner { X: 3 } }\n    if true {\n        (o.i).X += 4\n    }\n    return (o.i).X\n}\n",
+            ("parenthesizedCompoundNested", System.Array.Empty<object>()));
+    }
+
     // STRING INTERPOLATION (strings slice 4, the Arc-M1 rider): `$"a{n}b"` lexes as ONE kind-3
     // token (the `$` + holes inside the span — production parity); the columnar emitter splits it
     // via the shared ColumnarInterpolationSplitter (identifier-chain holes + optional `:format`

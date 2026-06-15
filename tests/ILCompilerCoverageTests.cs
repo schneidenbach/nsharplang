@@ -4272,6 +4272,55 @@ func main(): int {
         Assert.Equal(55555, Assert.IsType<int>(result));
     }
 
+    [Fact]
+    public void ILCompiler_ParenthesizedNestedValueReceiverMemberWrites_StoreThrough()
+    {
+        var source = @"
+struct Inner {
+    X: int
+}
+
+struct Outer {
+    i: Inner
+}
+
+class Holder {
+    s: Inner
+    constructor(v: Inner) {
+        s = v
+    }
+}
+
+func paramNested(p: Outer): int {
+    (p.i).X = 6;
+    return (p.i).X
+}
+
+func main(): int {
+    o := new Outer { i: new Inner { X: 1 } }
+    (o.i).X = 5;
+    a := (o.i).X
+
+    h := new Holder(new Inner { X: 1 })
+    (h.s).X = 6;
+    b := (h.s).X
+
+    c := paramNested(new Outer { i: new Inner { X: 1 } })
+
+    o2 := new Outer { i: new Inner { X: 3 } }
+    (o2.i).X += 4;
+    d := (o2.i).X
+
+    arr := new Inner[2];
+    (arr[0]).X = 8;
+    e := (arr[0]).X
+
+    return a + b * 10 + c * 100 + d * 1000 + e * 10000
+}";
+        var result = CompileAndInvoke(source);
+        Assert.Equal(87665, Assert.IsType<int>(result));
+    }
+
     // A NON-async lambda or local function declared inside an ASYNC method inherited the enclosing
     // _currentAsync* return context (saved but never CLEARED for non-async nested bodies): the
     // nested body took the async wrap path and `ret` a ValueTask<T> struct from a method whose CLR
