@@ -996,14 +996,18 @@ class B
 
         var caseNameStarts = new int[cap];
         var caseNameLengths = new int[cap];
+        var caseNameTexts = new string[cap];
         var caseFieldCounts = new int[cap];
         var fieldNameStarts = new int[cap];
         var fieldNameLengths = new int[cap];
+        var fieldNameTexts = new string[cap];
         var fieldTypeStarts = new int[cap];
         var fieldTypeLengths = new int[cap];
         var fieldTypeTexts = new string[cap];
         var typeParamStarts = new int[cap];
         var typeParamLengths = new int[cap];
+        var typeParamTexts = new string[cap];
+        var unionNameTexts = new string[1];
         var result = new int[4];
         var caseCount = (int)(parseUnionDeclarationInfo.Invoke(
             null,
@@ -1017,14 +1021,18 @@ class B
                 unionIndex,
                 caseNameStarts,
                 caseNameLengths,
+                caseNameTexts,
                 caseFieldCounts,
                 fieldNameStarts,
                 fieldNameLengths,
+                fieldNameTexts,
                 fieldTypeStarts,
                 fieldTypeLengths,
                 fieldTypeTexts,
                 typeParamStarts,
                 typeParamLengths,
+                typeParamTexts,
+                unionNameTexts,
                 result
             }) ?? -2);
 
@@ -1034,12 +1042,14 @@ class B
         Assert.Equal(spanResult[1], result[1]);
         Assert.Equal(spanResult[2], result[2]);
         Assert.Equal(expectedUnionName, compactedSource.Substring(result[0], result[1]));
+        Assert.Equal(expectedUnionName, unionNameTexts[0]);
         Assert.Equal(expectedTypeParams.Length, result[2]);
         for (var i = 0; i < expectedTypeParams.Length; i++)
         {
             Assert.Equal(spanTypeParamStarts[i], typeParamStarts[i]);
             Assert.Equal(spanTypeParamLengths[i], typeParamLengths[i]);
             Assert.Equal(expectedTypeParams[i], compactedSource.Substring(typeParamStarts[i], typeParamLengths[i]));
+            Assert.Equal(expectedTypeParams[i], typeParamTexts[i]);
         }
 
         var fieldIndex = 0;
@@ -1049,6 +1059,7 @@ class B
             Assert.Equal(spanCaseNameLengths[c], caseNameLengths[c]);
             Assert.Equal(spanCaseFieldCounts[c], caseFieldCounts[c]);
             Assert.Equal(expectedCaseNames[c], compactedSource.Substring(caseNameStarts[c], caseNameLengths[c]));
+            Assert.Equal(expectedCaseNames[c], caseNameTexts[c]);
             Assert.Equal(expectedCaseFieldCounts[c], caseFieldCounts[c]);
 
             for (var f = 0; f < expectedCaseFieldCounts[c]; f++)
@@ -1058,6 +1069,7 @@ class B
                 Assert.Equal(spanFieldTypeStarts[fieldIndex], fieldTypeStarts[fieldIndex]);
                 Assert.Equal(spanFieldTypeLengths[fieldIndex], fieldTypeLengths[fieldIndex]);
                 Assert.Equal(expectedFieldNames[c][f], compactedSource.Substring(fieldNameStarts[fieldIndex], fieldNameLengths[fieldIndex]));
+                Assert.Equal(expectedFieldNames[c][f], fieldNameTexts[fieldIndex]);
                 Assert.Equal(expectedFieldTypes[c][f], compactedSource.Substring(fieldTypeStarts[fieldIndex], fieldTypeLengths[fieldIndex]));
                 Assert.Equal(expectedFieldTypes[c][f], fieldTypeTexts[fieldIndex]);
                 fieldIndex++;
@@ -1110,14 +1122,18 @@ class B
                 unionIndex,
                 new int[cap],
                 new int[cap],
-                new int[cap],
-                new int[cap],
+                new string[cap],
                 new int[cap],
                 new int[cap],
                 new int[cap],
                 new string[cap],
                 new int[cap],
                 new int[cap],
+                new string[cap],
+                new int[cap],
+                new int[cap],
+                new string[cap],
+                new string[1],
                 new int[4]
             }) ?? -2);
         Assert.Equal(-1, spanActual);

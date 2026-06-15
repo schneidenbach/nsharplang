@@ -1804,7 +1804,7 @@ func ParseUnionDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValue
     return ParseUnionDeclarationCore(ref tokens, count, unionIndex, ref decl, ref result)
 }
 
-func ParseUnionDeclarationInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, unionIndex: int, outCaseNameStarts: int[], outCaseNameLengths: int[], outCaseFieldCounts: int[], outFieldNameStarts: int[], outFieldNameLengths: int[], outFieldTypeStarts: int[], outFieldTypeLengths: int[], outFieldTypeTexts: string[], outTypeParamStarts: int[], outTypeParamLengths: int[], outResult: int[]): int {
+func ParseUnionDeclarationInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, unionIndex: int, outCaseNameStarts: int[], outCaseNameLengths: int[], outCaseNameTexts: string[], outCaseFieldCounts: int[], outFieldNameStarts: int[], outFieldNameLengths: int[], outFieldNameTexts: string[], outFieldTypeStarts: int[], outFieldTypeLengths: int[], outFieldTypeTexts: string[], outTypeParamStarts: int[], outTypeParamLengths: int[], outTypeParamTexts: string[], outUnionNameTexts: string[], outResult: int[]): int {
     tokens := new ParserDeclarationTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
     decl := new UnionDeclarationTable { CaseNameStarts: outCaseNameStarts, CaseNameLengths: outCaseNameLengths, CaseFieldCounts: outCaseFieldCounts, FieldNameStarts: outFieldNameStarts, FieldNameLengths: outFieldNameLengths, FieldTypeStarts: outFieldTypeStarts, FieldTypeLengths: outFieldTypeLengths, TypeParamStarts: outTypeParamStarts, TypeParamLengths: outTypeParamLengths }
     result := new ParserDeclarationResultTable { Values: outResult }
@@ -1813,6 +1813,7 @@ func ParseUnionDeclarationInfoInto(source: string, tokenKinds: int[], tokenStart
         return -1
     }
 
+    typeParamCount := result.Values[2]
     fieldCount := 0
     i := 0
     while i < caseCount {
@@ -1820,14 +1821,52 @@ func ParseUnionDeclarationInfoInto(source: string, tokenKinds: int[], tokenStart
         i = i + 1
     }
 
+    if outUnionNameTexts.Length < 1 || caseCount > outCaseNameTexts.Length || fieldCount > outFieldNameTexts.Length || fieldCount > outFieldTypeTexts.Length || typeParamCount > outTypeParamTexts.Length {
+        return -1
+    }
+
+    unionName := ParserDeclarationSpanText(source, result.Values[0], result.Values[1])
+    if unionName == "" {
+        return -1
+    }
+    outUnionNameTexts[0] = unionName
+
     i = 0
-    while i < fieldCount {
-        text := ParserDeclarationCanonicalTypeText(source, decl.FieldTypeStarts[i], decl.FieldTypeLengths[i])
+    while i < typeParamCount {
+        text := ParserDeclarationSpanText(source, decl.TypeParamStarts[i], decl.TypeParamLengths[i])
         if text == "" {
             return -1
         }
 
-        outFieldTypeTexts[i] = text
+        outTypeParamTexts[i] = text
+        i = i + 1
+    }
+
+    i = 0
+    while i < caseCount {
+        text := ParserDeclarationSpanText(source, decl.CaseNameStarts[i], decl.CaseNameLengths[i])
+        if text == "" {
+            return -1
+        }
+
+        outCaseNameTexts[i] = text
+        i = i + 1
+    }
+
+    i = 0
+    while i < fieldCount {
+        fieldName := ParserDeclarationSpanText(source, decl.FieldNameStarts[i], decl.FieldNameLengths[i])
+        if fieldName == "" {
+            return -1
+        }
+
+        fieldType := ParserDeclarationCanonicalTypeText(source, decl.FieldTypeStarts[i], decl.FieldTypeLengths[i])
+        if fieldType == "" {
+            return -1
+        }
+
+        outFieldNameTexts[i] = fieldName
+        outFieldTypeTexts[i] = fieldType
         i = i + 1
     }
 

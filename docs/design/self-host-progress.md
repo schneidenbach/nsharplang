@@ -11,6 +11,21 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Union declaration name text moves into N#
+
+`ParserDeclarations.nl` extends `ParseUnionDeclarationInfoInto` so the product-routed union wrapper
+returns materialized union name, type-parameter name, case name, and field name text columns in
+addition to the existing canonical field type text column. The span-only
+`ParseUnionDeclarationInto` ABI remains emitted for parser parity tests.
+
+`NSharpCompilerDogfoodAdapter.TryGetColumnarUnionInputs` no longer slices union/type-parameter/case/
+field names from source spans in C#; it consumes the N# text columns and only materializes the
+CLR-facing `ColumnarUnionInput` shape. Focused evidence:
+`./scripts/dev.sh Parser_TopLevelDeclarationKinds_MatchProductionParser`,
+`./scripts/dev.sh ColumnarCodegen_Parity_Union`,
+`./scripts/dev.sh ColumnarCodegen_Parity_GenericUnions`, and
+`./scripts/dev.sh ColumnarCodegen_MultiFile_EligibleClusterCompiles`.
+
 ## 2026-06-15 — Property name text moves into N#
 
 `ParserDeclarations.nl` extends `ParsePropertyAccessorTypeInfoInto` so the existing product-routed
