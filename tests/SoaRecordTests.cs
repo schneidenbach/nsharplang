@@ -6476,6 +6476,98 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaTableGeneratedOperationSmallSignedCastNegativesAreRejected()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var cases = new[]
+        {
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable) {
+                    nodes.ensureCapacity((short)-1)
+                }
+                """,
+                Message: "SoA table capacity must not be negative",
+                Suggestion: "ensureCapacity expects a non-negative int argument"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable) {
+                    nodes.ensureCapacity(capacity: unchecked((sbyte)-1))
+                }
+                """,
+                Message: "SoA table capacity must not be negative",
+                Suggestion: "ensureCapacity expects a non-negative int argument"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable) {
+                    nodes.copyRow(from: checked((short)-1), to: 0)
+                }
+                """,
+                Message: "SoA table source row id must not be negative",
+                Suggestion: "copyRow expects a non-negative int argument"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable) {
+                    nodes.copyRow(0, to: (sbyte)-1)
+                }
+                """,
+                Message: "SoA table target row id must not be negative",
+                Suggestion: "copyRow expects a non-negative int argument"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad() {
+                    kinds := new int[](2)
+                    nodes := NodeTable.wrap(kinds, (short)-1)
+                }
+                """,
+                Message: "SoA table wrap length must not be negative",
+                Suggestion: "wrap expects a non-negative int argument"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad() {
+                    kinds := new int[](2)
+                    nodes := NodeTable.wrap(length: unchecked((sbyte)-1), kind: kinds)
+                }
+                """,
+                Message: "SoA table wrap length must not be negative",
+                Suggestion: "wrap expects a non-negative int argument")
+        };
+
+        foreach (var testCase in cases)
+        {
+            var result = Analyze(testCase.Source);
+            var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+            Assert.Contains(testCase.Message, error.Message);
+            Assert.Contains(testCase.Suggestion, error.Suggestion);
+        }
+    }
+
+    [Fact]
     public void Analyzer_SoaTableNegativeLiteralsWithParenthesizedOperandsAreRejected()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Generated SoA operation counts reject small signed cast negatives
+
+Generated SoA operation argument validation now reports the non-negative count diagnostics for
+negative literals cast to small signed integer types before implicit conversion to the generated
+`int` parameters. `ensureCapacity`, `copyRow`, and `wrap` now reject `(short)-1` and `(sbyte)-1`
+forms, including named arguments and checked/unchecked wrappers, during analysis instead of relying
+on a later runtime guard.
+
 ## 2026-06-15 — Newline-leading fluent chains stay in one expression
 
 The parser now treats leading `.` and `?.` tokens on a following line as postfix continuations

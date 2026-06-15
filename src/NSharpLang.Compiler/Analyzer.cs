@@ -9108,7 +9108,9 @@ public class Analyzer : IDisposable
             return;
 
         var argType = ResolveTypeAlias(argTypes[argumentIndex]);
-        if (BuiltInTypes.IsUnknown(argType) || argType is SoaRowTypeInfo || argType != BuiltInTypes.Int)
+        if (BuiltInTypes.IsUnknown(argType)
+            || argType is SoaRowTypeInfo
+            || !IsAssignable(BuiltInTypes.Int, argType))
             return;
 
         if (!IsConstantNegative(call.Arguments[argumentIndex].Value))
