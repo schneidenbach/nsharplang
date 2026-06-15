@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA char compound assignments stop before emission
+
+Char SoA columns now have analyzer pins for arithmetic compound assignment across row projection,
+direct column indexing, and direct from-end column indexing. The compound operator itself is valid
+and promotes to `int`, but the promoted result is not assignable back into the `char` column, so the
+compiler reports the assignment-result diagnostic during analysis and never reaches SoA IL lowering.
+
 ## 2026-06-14 — SoA char numeric promotions have IL-shape proof
 
 Char SoA columns now have opcode evidence for promoted numeric expressions across row projection,

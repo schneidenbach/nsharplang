@@ -4654,6 +4654,42 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Theory]
+    [InlineData("nodes[row].marker", "+=", "+")]
+    [InlineData("nodes[row].marker", "-=", "-")]
+    [InlineData("nodes[row].marker", "*=", "*")]
+    [InlineData("nodes[row].marker", "/=", "/")]
+    [InlineData("nodes.marker[row]", "+=", "+")]
+    [InlineData("nodes.marker[row]", "-=", "-")]
+    [InlineData("nodes.marker[row]", "*=", "*")]
+    [InlineData("nodes.marker[row]", "/=", "/")]
+    [InlineData("nodes.marker[^1]", "+=", "+")]
+    [InlineData("nodes.marker[^1]", "-=", "-")]
+    [InlineData("nodes.marker[^1]", "*=", "*")]
+    [InlineData("nodes.marker[^1]", "/=", "/")]
+    public void Analyzer_SoaRecordCharArithmeticCompoundAssignments_AreRejected(
+        string target,
+        string assignmentOperator,
+        string binaryOperator)
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze($$"""
+            soa record NodeTable {
+                marker: char
+            }
+
+            func bad(nodes: NodeTable, row: int) {
+                {{target}} {{assignmentOperator}} 'a'
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains($"The '{assignmentOperator}' assignment produces 'int'", error.Message);
+        Assert.Contains("can't be stored in 'char'", error.Message);
+        Assert.DoesNotContain($"'{binaryOperator}' operator doesn't work", error.Message);
+    }
+
+    [Theory]
     [InlineData("nodes[row].active", "-=", "-")]
     [InlineData("nodes[row].active", "*=", "*")]
     [InlineData("nodes[row].active", "/=", "/")]

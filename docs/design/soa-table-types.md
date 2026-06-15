@@ -192,8 +192,10 @@ assignments, signed `int`/`long` unary negation, same-type bitwise expressions, 
 before lowering. Numeric scalar columns also support shift expressions with direct signed and unsigned
 right-shift lowering. Char columns support equality/inequality, relational comparisons,
 increment/decrement update forms, and promoted numeric expressions that produce `int`; assigning those
-promoted results back into a `char` column is rejected before lowering. Int-backed enum columns
-support the enum language's comparison expressions, prefix/postfix increment and decrement
+promoted results back into a `char` column is rejected before lowering. Char arithmetic compound
+assignments reject for the same reason: the compound operator result promotes to `int`, which is not
+assignable to the `char` column. Int-backed enum columns support the enum language's comparison
+expressions, prefix/postfix increment and decrement
 forms, same-enum bitwise expressions, and unary bitwise-not.
 Arithmetic compound assignment is not part of the enum column proof. Each compound assignment must
 type-check through the underlying operator and produce a result assignable back to the column, so
@@ -260,8 +262,9 @@ The compiler must produce direct diagnostics for common misuse:
   target rows too large to extend throw "target row for NodeTable.copyRow is too large";
 - unsupported element type, including arrays, nullable non-string columns, string-enum columns, and
   nested SoA-table columns: "SoA column type X is not supported in this lowering";
-- unsupported row/direct column compound assignment, including enum arithmetic compound assignment:
-  "The '+' operator doesn't work with 'X' and 'Y'";
+- unsupported row/direct column compound assignment, including char arithmetic compound assignment:
+  "The '+=' assignment produces 'int', which can't be stored in 'char'", and enum arithmetic compound
+  assignment: "The '+' operator doesn't work with 'X' and 'Y'";
 - non-integral row/direct column increment/decrement: "The '++' operator doesn't work with 'X'";
 - non-nullable row/direct column null coalescing, including enum columns:
   "The left side of '??' has type 'X', which can't be null";
@@ -330,7 +333,7 @@ comparison expressions, char comparison
 expressions, numeric scalar arithmetic expression stores, numeric scalar arithmetic compound
 assignments, signed numeric scalar unary negation stores, numeric scalar bitwise expression stores,
 numeric scalar unary bitwise-not stores, numeric scalar shift expression stores, char numeric
-promotion expressions, same-enum comparison
+promotion expressions, char arithmetic compound-assignment diagnostics, same-enum comparison
 expressions, bitwise and unary bitwise-not expression stores, plus prefix/postfix update forms,
 integral `uint`/`long`/`char` update forms, and null-coalescing reads/assignments.
 Row-projection null-coalescing
