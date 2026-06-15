@@ -331,7 +331,7 @@ The compiler must produce direct diagnostics for common misuse:
   "SoA table row indexes must not be negative" or "SoA column row indexes must not be negative",
   including parenthesized whole-expression or unary-operand, checked/unchecked, signed
   integer-cast forms, and row-projection or direct-column `ref`/`out` argument addresses including
-  aliases;
+  aliases and parenthesized column-member receivers;
 - direct table member mutation: "SoA table member 'X' cannot be assigned directly" for simple,
   compound, and null-coalescing assignment, or "SoA table member 'X' cannot be incremented or
   decremented directly", including aliases to SoA tables plus parenthesized and checked/unchecked

@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — SoA parenthesized direct-column ref/out negative indexes reject early
+
+The SoA analyzer now has explicit pins for `ref`/`out` direct-column arguments whose column receiver
+is parenthesized and whose row index is statically negative, including checked wrappers and signed
+small-integer casts. These shapes report the SoA column row-index diagnostic before IL lowering
+instead of relying on the generic array address path.
+
 ## 2026-06-15 — SoA receiver-parenthesized direct-column ref/out pins
 
 The SoA IL-shape evidence now covers direct-column `ref`/`out` arguments when the column member
