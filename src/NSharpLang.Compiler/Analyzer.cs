@@ -5891,9 +5891,9 @@ public class Analyzer : IDisposable
         }
 
         ReportPossibleNullAccess(member.Object, objectType, member.Line, member.Column, "dereference", member.IsNullConditional);
-        var receiverType = GetNonNullableType(objectType);
+        var receiverType = ResolveTypeAlias(GetNonNullableType(objectType));
         if (receiverType is ByRefTypeInfo byRefReceiver)
-            receiverType = GetNonNullableType(byRefReceiver.InnerType);
+            receiverType = ResolveTypeAlias(GetNonNullableType(byRefReceiver.InnerType));
 
         if (receiverType is SoaRecordTypeInfo && member.IsNullConditional)
         {
@@ -5939,7 +5939,7 @@ public class Analyzer : IDisposable
         var objectType = AnalyzeExpression(index.Object);
         ReportPossibleNullAccess(index.Object, objectType, index.Line, index.Column, "index", index.IsNullConditional);
 
-        var receiverType = GetNonNullableType(objectType);
+        var receiverType = ResolveTypeAlias(GetNonNullableType(objectType));
         var previousExpectedIndexType = _currentExpectedType;
         if (ShouldUseIntExpectedTypeForIndex(receiverType))
         {

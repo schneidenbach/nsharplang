@@ -73,6 +73,9 @@ negative literals, including aliases to signed small integer types, rejected bef
 Aliases to a SoA table follow the same construction surface: `new Nodes(capacity)` and
 `Nodes.wrap(...)` resolve to the generated members of the underlying table when
 `type Nodes = NodeTable`.
+Alias-typed table values expose the same generated instance members (`length`, `capacity`, `add`,
+`clear`, `ensureCapacity`, `copyRow`), row projection, and direct column arrays as the underlying
+table, and invalid row/index/count arguments keep the SoA-specific diagnostics.
 Target-typed `default` is not a construction form for SoA tables because it would produce a CLR
 wrapper value with null backing column arrays; use
 `new Table(capacity)` or `Table.wrap(...)` instead. Target-typed `new()` without the required capacity

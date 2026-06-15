@@ -7893,6 +7893,110 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaTableAliasTypesGeneratedMembersAndRowProjection()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
+            func ok(nodes: Nodes): int {
+                nodes.ensureCapacity(2)
+                row := nodes.add()
+                nodes[row].kind = 4
+                nodes.kind[row] = nodes[row].kind + nodes.length + nodes.capacity
+                nodes.copyRow(row, row)
+                view := Nodes.wrap(kind: nodes.kind, length: nodes.length)
+                return view[row].kind
+            }
+            """);
+
+        Assert.False(
+            result.HasErrors,
+            $"Expected no errors but got: {string.Join(", ", result.Errors.Select(e => $"{e.DiagnosticId}:{e.Message}"))}");
+    }
+
+    [Fact]
+    public void Analyzer_SoaTableAliasGeneratedOperationsKeepSpecificDiagnostics()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var cases = new[]
+        {
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    nodes.ensureCapacity((short)-1)
+                }
+                """,
+                Message: "SoA table capacity must not be negative",
+                Suggestion: "ensureCapacity expects a non-negative int argument"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    nodes.copyRow(from: (sbyte)-1, to: 0)
+                }
+                """,
+                Message: "SoA table source row id must not be negative",
+                Suggestion: "copyRow expects a non-negative int argument"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes): int {
+                    return nodes[(short)0].kind
+                }
+                """,
+                Message: "SoA table indexes must be int row ids, but this index has type 'short'",
+                Suggestion: "Use an int row index and read or write a column with table[index].column"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    nodes.kind[(sbyte)-1] = 1
+                }
+                """,
+                Message: "SoA column row indexes must not be negative",
+                Suggestion: "Use zero or a valid non-negative row id")
+        };
+
+        foreach (var (source, message, suggestion) in cases)
+        {
+            var result = Analyze(source);
+            var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+            Assert.Contains(message, error.Message);
+            Assert.Contains(suggestion, error.Suggestion);
+            Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.TypeNotFound);
+            Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.UndefinedMember);
+        }
+    }
+
+    [Fact]
     public void ILCompiler_SoaRecordNewAddAndRowProjection_LowersToColumns()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

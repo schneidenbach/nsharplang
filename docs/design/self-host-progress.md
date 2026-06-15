@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — SoA table aliases preserve generated member semantics
+
+Alias-typed table values now have analyzer regression coverage for generated instance members and
+row/direct-column access. A parameter declared as `Nodes` exposes `length`, `capacity`, `add`,
+`ensureCapacity`, `copyRow`, row projection, and direct column arrays as the underlying `NodeTable`,
+and invalid alias-indexed operations keep the SoA-specific capacity, source-row, row-id, and
+direct-column diagnostics instead of unresolved-member fallbacks.
+
 ## 2026-06-15 — SoA alias wrap calls keep pre-emission diagnostics
 
 Static `wrap` calls reached through a table alias now have analyzer regression coverage for the same
