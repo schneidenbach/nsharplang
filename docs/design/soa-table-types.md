@@ -220,8 +220,8 @@ or materializing a row. Parenthesized direct-column element lvalues such as
 `++((table.column)[row])` use the same backing-array lowering. These accepted direct-column update
 shapes also hold when the column member is the parenthesized index receiver, such as
 `(table.column)[row]`, `(table.column)[^1]`, and `(table.column)[idx]`, including
-compound assignment, prefix/postfix update operands, and statement-context and expression-valued
-default stores without old-element reads.
+compound assignment, prefix/postfix update operands, null-coalescing reads/assignments, and
+statement-context and expression-valued default stores without old-element reads.
 The same direct-column update shapes also apply to literal and variable-held `System.Index` from-end
 element access such as `table.column[^1]` and `table.column[idx]`, including expression-valued simple
 stores, default stores without old-element reads, prefix/postfix increment/decrement,
@@ -352,8 +352,9 @@ including parenthesized literal and variable-held from-end direct-column element
 expression-valued simple stores, default stores across the verified scalar/reference element-type set,
 including expression-valued default stores, without old-element reads, variable-held from-end default
 stores without old-element reads, parenthesized column-member receiver compound/update operands,
-parenthesized column-member receiver default stores without old-element reads, variable-held
-row-index diagnostics, variable-held direct-column
+parenthesized column-member receiver null-coalescing reads/assignments, parenthesized column-member
+receiver default stores without old-element reads, variable-held row-index diagnostics,
+variable-held direct-column
 range mutation diagnostics including parenthesized column members, variable-held from-end
 null-coalescing reads/assignments, verified scalar/reference element reads/stores, bool bitwise
 expression stores, int-backed enum

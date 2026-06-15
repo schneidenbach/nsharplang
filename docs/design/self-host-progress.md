@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Parenthesized SoA column-member null coalescing stays direct
+
+Nullable/reference backing-column `??` and `??=` operations now have IL-shape coverage when the
+column member is the parenthesized index receiver. `(nodes.text)[row] ?? fallback`,
+`(nodes.text)[^1] ??= value`, and variable-held `(nodes.text)[idx] ??= value` read and store the
+backing arrays directly, preserve null-coalescing results, and avoid slice allocation, boxing,
+delegate construction, or virtual dispatch. Focused evidence: `dotnet test
+tests/Tests.csproj --no-restore --filter
+"FullyQualifiedName~ParenthesizedColumnMemberNullCoalescing_UsesColumnArrayOffsetWithoutSliceAllocation"`.
+
 ## 2026-06-15 — Parenthesized SoA column-member updates preserve result semantics
 
 Compound assignment and prefix/postfix updates now have IL-shape coverage when the backing column

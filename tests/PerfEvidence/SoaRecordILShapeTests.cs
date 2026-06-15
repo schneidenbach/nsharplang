@@ -899,6 +899,115 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void ParenthesizedColumnMemberNullCoalescing_UsesColumnArrayOffsetWithoutSliceAllocation()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                text: string
+            }
+
+            func rowOps(nodes: NodeTable, missingRow: int, existingRow: int): int {
+                missing := (nodes.text)[missingRow] ?? "m";
+                existing := (nodes.text)[existingRow] ?? "ignored";
+                assigned := (nodes.text)[missingRow] ??= "aaa";
+                current := (nodes.text)[missingRow] ??= "ignored";
+                score := (missing == "m" ? 1 : 0)
+                score += (existing == "rr" ? 10 : 0)
+                score += (assigned == "aaa" ? 100 : 0)
+                score += (current == "aaa" ? 1000 : 0)
+                score += ((nodes.text)[missingRow] == "aaa" ? 10000 : 0)
+                return score
+            }
+
+            func literalOps(nodes: NodeTable): int {
+                missing := (nodes.text)[^2] ?? "m";
+                existing := (nodes.text)[^1] ?? "ignored";
+                assigned := (nodes.text)[^2] ??= "aaa";
+                current := (nodes.text)[^2] ??= "ignored";
+                score := (missing == "m" ? 1 : 0)
+                score += (existing == "rr" ? 10 : 0)
+                score += (assigned == "aaa" ? 100 : 0)
+                score += (current == "aaa" ? 1000 : 0)
+                score += ((nodes.text)[^2] == "aaa" ? 10000 : 0)
+                return score
+            }
+
+            func variableOps(nodes: NodeTable): int {
+                missingIdx := ^2;
+                existingIdx := ^1;
+                missing := (nodes.text)[missingIdx] ?? "m";
+                existing := (nodes.text)[existingIdx] ?? "ignored";
+                assigned := (nodes.text)[missingIdx] ??= "aaa";
+                current := (nodes.text)[missingIdx] ??= "ignored";
+                score := (missing == "m" ? 1 : 0)
+                score += (existing == "rr" ? 10 : 0)
+                score += (assigned == "aaa" ? 100 : 0)
+                score += (current == "aaa" ? 1000 : 0)
+                score += ((nodes.text)[missingIdx] == "aaa" ? 10000 : 0)
+                return score
+            }
+
+            func main(): int {
+                rowNodes := new NodeTable(2)
+                missingRow := rowNodes.add()
+                existingRow := rowNodes.add()
+                rowNodes.text[existingRow] = "rr"
+
+                literalNodes := new NodeTable(2)
+                literalNodes.add()
+                literalNodes.add()
+                literalNodes.text[1] = "rr"
+
+                variableNodes := new NodeTable(2)
+                variableNodes.add()
+                variableNodes.add()
+                variableNodes.text[1] = "rr"
+
+                return rowOps(rowNodes, missingRow, existingRow) + literalOps(literalNodes) + variableOps(variableNodes)
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var rowOps = ILShapeInspector.GetProgramMethod(assembly, "rowOps");
+            var literalOps = ILShapeInspector.GetProgramMethod(assembly, "literalOps");
+            var variableOps = ILShapeInspector.GetProgramMethod(assembly, "variableOps");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(33333, Assert.IsType<int>(main.Invoke(null, null)));
+
+            ILShapeInspector.AssertNoBoxing(rowOps);
+            Assert.Equal(0, ILShapeInspector.CountOpcode(rowOps, OpCodes.Newobj));
+            Assert.Equal(0, ILShapeInspector.CountOpcode(rowOps, OpCodes.Newarr));
+            Assert.Equal(0, ILShapeInspector.CountDelegateConstructions(rowOps));
+            Assert.Equal(0, ILShapeInspector.CountOpcode(rowOps, OpCodes.Callvirt));
+            Assert.True(
+                ILShapeInspector.CountOpcode(rowOps, OpCodes.Ldfld) >= 5,
+                "Parenthesized SoA column-member receiver null-coalescing should load backing column fields directly.");
+            Assert.Equal(5, CountArrayElementLoads(rowOps));
+            Assert.Equal(2, CountArrayElementStores(rowOps));
+
+            AssertNoFromEndSliceAllocation(literalOps);
+            Assert.True(
+                ILShapeInspector.CountOpcode(literalOps, OpCodes.Ldfld) >= 5,
+                "Parenthesized SoA column-member receiver from-end null-coalescing should load backing column fields directly.");
+            Assert.Equal(5, CountArrayElementLoads(literalOps));
+            Assert.Equal(2, CountArrayElementStores(literalOps));
+
+            AssertNoFromEndSliceAllocation(variableOps);
+            Assert.True(
+                ILShapeInspector.CountOpcode(variableOps, OpCodes.Ldfld) >= 5,
+                "Parenthesized SoA column-member receiver variable from-end null-coalescing should load backing column fields directly.");
+            Assert.Equal(5, CountArrayElementLoads(variableOps));
+            Assert.Equal(2, CountArrayElementStores(variableOps));
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void DirectColumnFromEndAssignmentExpression_ReturnsAssignedValueWithoutSliceAllocation()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
