@@ -340,6 +340,10 @@ The compiler must produce direct diagnostics for common misuse:
 - direct column slice reads, mutations, and `ref`/`out` argument addresses, including aliases to SoA
   tables, parenthesized column-member receivers, and
   checked/unchecked mutation-target wrappers: "SoA column range slices allocate arrays";
+- top-level `checked(...)`/`unchecked(...)` wrappers around `ref`/`out` arguments are not
+  addressable lvalues, including when the wrapped expression is a SoA row projection or direct
+  column element; if the wrapped expression already reports a SoA-specific error, such as a range
+  slice, that diagnostic is preserved;
 - hidden allocation request: "this operation would allocate row objects; use column access instead".
 
 These diagnostics must point at the row access or column declaration, not at generated lowering code.

@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — SoA checked ref/out wrappers reject before emission
+
+Top-level `checked(...)` and `unchecked(...)` wrappers around `ref`/`out` arguments are now
+diagnosed as non-addressable before IL emission, including SoA row-projection and direct-column
+lvalues. If the wrapped expression already has a SoA-specific error, such as a direct-column range
+slice that would allocate, that more precise diagnostic is preserved instead of being replaced by
+the generic addressability message.
+
 ## 2026-06-15 — SoA parenthesized direct-column ref/out negative indexes reject early
 
 The SoA analyzer now has explicit pins for `ref`/`out` direct-column arguments whose column receiver

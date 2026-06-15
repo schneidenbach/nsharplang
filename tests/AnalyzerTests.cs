@@ -880,6 +880,29 @@ func Main() {
         Assert.Contains("variable, field, property, indexed element", error.Suggestion);
     }
 
+    [Theory]
+    [InlineData("update(ref checked(value), out copy)", "ref")]
+    [InlineData("update(ref value, out unchecked(copy))", "out")]
+    public void RefOutArgument_NonAssignableTarget_Error(string statement, string modifier)
+    {
+        var result = AnalyzeWithSource($$"""
+            func update(ref value: int, out copy: int) {
+                copy = value
+                value += 1
+            }
+
+            func Main() {
+                value := 1
+                copy := 0
+                {{statement}}
+            }
+        """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains($"'{modifier}' argument needs an assignable target", error.Message);
+        Assert.Contains($"as the {modifier} argument", error.Suggestion);
+    }
+
     [Fact]
     public void ClassDeclaration_Valid()
     {

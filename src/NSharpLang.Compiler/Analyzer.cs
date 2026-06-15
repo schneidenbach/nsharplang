@@ -8383,6 +8383,8 @@ public class Analyzer : IDisposable
                 : null;
             for (int i = 0; i < call.Arguments.Count; i++)
             {
+                var argument = call.Arguments[i];
+                var argumentErrorsBefore = _errors.Count;
                 TypeInfo? expectedType;
                 if (functionType.Declaration is { } declaration)
                 {
@@ -8404,7 +8406,8 @@ public class Analyzer : IDisposable
                         : null;
                 }
 
-                argTypes.Add(AnalyzeExpressionWithExpectedType(call.Arguments[i].Value, expectedType));
+                argTypes.Add(AnalyzeExpressionWithExpectedType(argument.Value, expectedType));
+                ReportInvalidRefOutArgumentTargetIfNeeded(argument, argumentErrorsBefore);
             }
         }
         else
@@ -8417,12 +8420,15 @@ public class Analyzer : IDisposable
                 or ReflectionMethodInfo;
             foreach (var arg in call.Arguments)
             {
+                var argumentErrorsBefore = _errors.Count;
                 if (isMethodGroup && arg.Value is LambdaExpression)
                 {
                     argTypes.Add(BuiltInTypes.Unknown);
+                    ReportInvalidRefOutArgumentTargetIfNeeded(arg, argumentErrorsBefore);
                     continue;
                 }
                 argTypes.Add(AnalyzeExpressionWithExpectedType(arg.Value, null, allowUnboundCallableReference: isMethodGroup));
+                ReportInvalidRefOutArgumentTargetIfNeeded(arg, argumentErrorsBefore);
             }
         }
 
@@ -8711,6 +8717,36 @@ public class Analyzer : IDisposable
 
         return BuiltInTypes.Unknown;
     }
+
+    private bool ReportInvalidRefOutArgumentTargetIfNeeded(Argument argument, int argumentErrorsBefore)
+    {
+        if (argument.Modifier is not (ArgumentModifier.Ref or ArgumentModifier.Out)
+            || _errors.Count != argumentErrorsBefore
+            || IsRefOutArgumentTarget(argument.Value))
+        {
+            return false;
+        }
+
+        var modifier = argument.Modifier == ArgumentModifier.Ref ? "ref" : "out";
+        var (line, column, length) = GetExpressionDiagnosticSpan(argument.Value);
+        Error(
+            ErrorCode.InvalidSyntax,
+            $"The '{modifier}' argument needs an assignable target",
+            line,
+            column,
+            $"Use a variable, field, property, or indexed element as the {modifier} argument.",
+            length);
+        return true;
+    }
+
+    private static bool IsRefOutArgumentTarget(Expression expression) => expression switch
+    {
+        IdentifierExpression => true,
+        MemberAccessExpression => true,
+        IndexAccessExpression => true,
+        ParenthesizedExpression parenthesized => IsRefOutArgumentTarget(parenthesized.Inner),
+        _ => false
+    };
 
     private TypeInfo? GetExpectedNSharpCallArgumentType(
         FunctionDeclaration declaration,

@@ -5605,6 +5605,44 @@ public class SoaRecordTests : ILCompilerTestBase
 
                 type Nodes = NodeTable
 
+                func bump(ref value: int) {
+                    value += 1
+                }
+
+                func bad(nodes: Nodes) {
+                    bump(ref checked(nodes.kind[0..1]))
+                }
+                """,
+                Code: ErrorCode.InvalidSyntax,
+                Message: "SoA column range slices allocate arrays",
+                Suggestion: "table.column[row]"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func reset(out value: int) {
+                    value = 0
+                }
+
+                func bad(nodes: Nodes) {
+                    reset(out unchecked((nodes.kind)[0..1]))
+                }
+                """,
+                Code: ErrorCode.InvalidSyntax,
+                Message: "SoA column range slices allocate arrays",
+                Suggestion: "table.column[row]"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
                 func reset(out value: int) {
                     value = 0
                 }
@@ -5739,6 +5777,75 @@ public class SoaRecordTests : ILCompilerTestBase
             var error = Assert.Single(result.Errors, e => e.Code == testCase.Code);
             Assert.Contains(testCase.Message, error.Message);
             Assert.Contains(testCase.Suggestion, error.Suggestion);
+        }
+    }
+
+    [Fact]
+    public void Analyzer_SoaRefOutCheckedAndUncheckedWholeArgumentsRejectBeforeEmission()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var cases = new[]
+        {
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bump(ref value: int) {
+                    value += 1
+                }
+
+                func bad(nodes: Nodes) {
+                    bump(ref checked(nodes.kind[0]))
+                }
+                """,
+                Modifier: "ref"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func reset(out value: int) {
+                    value = 0
+                }
+
+                func bad(nodes: Nodes) {
+                    reset(out unchecked((nodes[0]).kind))
+                }
+                """,
+                Modifier: "out"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bump(ref value: int) {
+                    value += 1
+                }
+
+                func bad(nodes: Nodes) {
+                    bump(ref checked((nodes.kind)[0]))
+                }
+                """,
+                Modifier: "ref")
+        };
+
+        foreach (var testCase in cases)
+        {
+            var result = Analyze(testCase.Source);
+            var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+            Assert.Contains($"'{testCase.Modifier}' argument needs an assignable target", error.Message);
+            Assert.Contains($"as the {testCase.Modifier} argument", error.Suggestion);
         }
     }
 
