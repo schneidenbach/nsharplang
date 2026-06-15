@@ -13229,7 +13229,17 @@ public class Analyzer : IDisposable
 
     private static bool IsConstantNegative(Expression expression)
     {
-        expression = UnwrapTransparentExpressionWrappers(expression);
+        while (true)
+        {
+            expression = UnwrapTransparentExpressionWrappers(expression);
+            if (expression is CastExpression cast && IsSignedIntegerCast(cast.TargetType))
+            {
+                expression = cast.Expression;
+                continue;
+            }
+
+            break;
+        }
 
         return expression is UnaryExpression
         {
@@ -13239,6 +13249,9 @@ public class Analyzer : IDisposable
             && NumericLiteralFacts.TryParseUnsignedIntegerMagnitude(literal.Value, out var magnitude)
             && magnitude != 0;
     }
+
+    private static bool IsSignedIntegerCast(TypeReference type)
+        => type is SimpleTypeReference { Name: "int" or "short" or "sbyte" };
 
     /// <summary>
     /// The static type of a union case construction (new Union.Case { ... }). For a

@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Casted negative counts fail before lowering
+
+Non-negative count validation now treats signed integer casts around negative literals as
+analyzer-known negatives. SoA table capacity, `wrap` length, `ensureCapacity`, `copyRow`, row indexes,
+direct-column indexes, and stackalloc lengths now reject forms such as `(int)-1` and
+`checked((int)-1)` before lowering instead of relying on runtime guards or backend behavior.
+
 ## 2026-06-15 — Casted SoA wrap null columns fail before emission
 
 SoA `wrap` column validation now recognizes typed array casts around literal `null` and `default`
