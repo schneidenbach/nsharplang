@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Invalid assignment targets fail before lowering
+
+Assignment analysis now rejects non-lvalue assignment targets directly instead of letting value
+expressions such as `checked(value) = next` or `(a + b) = next` reach the IL compiler's assignment
+fallback. SoA write diagnostics also normalize checked/unchecked wrappers around table members and
+column range targets before the generic assignment-target guard, so hidden direct table mutation and
+allocating column-slice mutation keep their SoA-specific diagnostics.
+
 ## 2026-06-15 — Composed SoA row type references stay rejected
 
 SoA row-type diagnostics now have explicit coverage when `Table.Row` is nested inside composed type

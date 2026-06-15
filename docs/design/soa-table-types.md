@@ -240,7 +240,8 @@ Replacing wrapper column arrays, mutating `length`/`capacity` directly, or mutat
 not allowed: shape changes must go through construction, `wrap`, `add`, `clear`, `ensureCapacity`, or
 `copyRow`. Direct `length`/`capacity` simple assignment, compound assignment, and increment/decrement
 forms all reject during analysis. The same rejection applies when the generated table member target
-is parenthesized, including column-array assignment/coalescing forms and prefix unary updates.
+is parenthesized or wrapped in `checked(...)`/`unchecked(...)`, including column-array
+assignment/coalescing forms and prefix unary updates.
 
 Direct column range reads (`table.column[start..end]`) are rejected because ordinary array slice
 semantics allocate a sliced array. They can be admitted only after an allocation-free span/view lowering
@@ -250,7 +251,7 @@ from-end bounds, such as `table.column[1..^1]`, and when the column member is pa
 as `range := 0..1; table.column[range]`, including the parenthesized column-member form
 `(table.column)[range]`. Slice update forms, including simple assignment, compound assignment,
 null-coalescing assignment, increment, and decrement, all reject during analysis for literal,
-variable-held, parenthesized-column, and from-end ranges.
+variable-held, parenthesized-column, checked/unchecked target-wrapper, and from-end ranges.
 
 ## Diagnostics
 
@@ -309,10 +310,10 @@ The compiler must produce direct diagnostics for common misuse:
   including parenthesized and checked/unchecked forms;
 - direct table member mutation: "SoA table member 'X' cannot be assigned directly" for simple,
   compound, and null-coalescing assignment, or "SoA table member 'X' cannot be incremented or
-  decremented directly";
+  decremented directly", including parenthesized and checked/unchecked target-wrapper forms;
 - non-int direct column element indexes: "Array indexes must be int, System.Index, or System.Range";
-- direct column slice reads and mutations, including parenthesized and checked/unchecked
-  column-member receivers: "SoA column range slices allocate arrays";
+- direct column slice reads and mutations, including parenthesized column-member receivers and
+  checked/unchecked mutation-target wrappers: "SoA column range slices allocate arrays";
 - hidden allocation request: "this operation would allocate row objects; use column access instead".
 
 These diagnostics must point at the row access or column declaration, not at generated lowering code.

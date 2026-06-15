@@ -862,6 +862,24 @@ func Main() {
         Assert.Contains("variable, field, property, or indexed element", error.Suggestion);
     }
 
+    [Theory]
+    [InlineData("(1 + 2) = 3", "=")]
+    [InlineData("checked(value) = 2", "=")]
+    [InlineData("unchecked(value) += 2", "+=")]
+    public void Assignment_NonAssignableTarget_Error(string statement, string op)
+    {
+        var result = AnalyzeWithSource($$"""
+            func Main() {
+                value := 1
+                {{statement}}
+            }
+        """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains($"'{op}' assignment needs an assignable target", error.Message);
+        Assert.Contains("variable, field, property, indexed element", error.Suggestion);
+    }
+
     [Fact]
     public void ClassDeclaration_Valid()
     {

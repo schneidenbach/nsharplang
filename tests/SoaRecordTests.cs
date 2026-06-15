@@ -5102,6 +5102,31 @@ public class SoaRecordTests : ILCompilerTestBase
         Assert.Contains("allocation-free view lowering", error.Suggestion);
     }
 
+    [Theory]
+    [InlineData("checked(nodes.kind[range]) = [1]")]
+    [InlineData("unchecked((nodes.kind[range])) += [1]")]
+    [InlineData("checked(nodes.kind[range])++")]
+    [InlineData("unchecked((nodes.kind[range]))--")]
+    public void Analyzer_SoaTableCheckedAndUncheckedColumnRangeValueMutationWouldAllocate(string statement)
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze($$"""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable) {
+                range := 0..1;
+                {{statement}}
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("SoA column range slices allocate arrays", error.Message);
+        Assert.Contains("allocation-free view lowering", error.Suggestion);
+    }
+
     [Fact]
     public void Analyzer_SoaRowViewCannotBeUsedAsRelationalPatternValue()
     {
@@ -5749,6 +5774,35 @@ public class SoaRecordTests : ILCompilerTestBase
     [InlineData("++((nodes.capacity))", "capacity", "incremented or decremented directly", "add, clear, ensureCapacity, or copyRow")]
     [InlineData("--((nodes.length))", "length", "incremented or decremented directly", "add, clear, ensureCapacity, or copyRow")]
     public void Analyzer_SoaTableParenthesizedDirectMemberMutationsAreRejected(
+        string statement,
+        string member,
+        string action,
+        string suggestion)
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze($$"""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable) {
+                {{statement}}
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains($"SoA table member '{member}' cannot be {action}", error.Message);
+        Assert.Contains(suggestion, error.Suggestion);
+    }
+
+    [Theory]
+    [InlineData("checked(nodes.kind) = new int[](1)", "kind", "assigned directly", "table[index].column")]
+    [InlineData("unchecked((nodes.kind)) += new int[](1)", "kind", "assigned directly", "table[index].column")]
+    [InlineData("checked(nodes.length) ??= 0", "length", "assigned directly", "add, clear, ensureCapacity, or copyRow")]
+    [InlineData("++checked(nodes.capacity)", "capacity", "incremented or decremented directly", "add, clear, ensureCapacity, or copyRow")]
+    [InlineData("--unchecked((nodes.length))", "length", "incremented or decremented directly", "add, clear, ensureCapacity, or copyRow")]
+    public void Analyzer_SoaTableCheckedAndUncheckedDirectMemberMutationsAreRejected(
         string statement,
         string member,
         string action,

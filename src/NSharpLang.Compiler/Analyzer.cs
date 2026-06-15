@@ -11652,6 +11652,17 @@ public class Analyzer : IDisposable
             return BuiltInTypes.Unknown;
         }
 
+        if (ReportInvalidAssignmentTargetIfNeeded(assignment))
+        {
+            var invalidValueType = AnalyzeExpression(assignment.Value);
+            if (invalidValueType is SoaRowTypeInfo)
+            {
+                ReportSoaRowEscape(assignment.Value, "assigned");
+            }
+
+            return BuiltInTypes.Unknown;
+        }
+
         CheckNullCoalesceAssignmentTarget(assignment, targetType);
 
         // NL322 (the CS1612 analog), paired with the EmitAddressableExpression chain fix (defect
@@ -12027,6 +12038,8 @@ public class Analyzer : IDisposable
     {
         MemberAccessExpression => true,
         ParenthesizedExpression parenthesized => IsMemberAccessWriteTarget(parenthesized.Inner),
+        CheckedExpression checkedExpression => IsMemberAccessWriteTarget(checkedExpression.Expression),
+        UncheckedExpression uncheckedExpression => IsMemberAccessWriteTarget(uncheckedExpression.Expression),
         _ => false
     };
 
@@ -12034,11 +12047,41 @@ public class Analyzer : IDisposable
     {
         IndexAccessExpression => true,
         ParenthesizedExpression parenthesized => IsIndexAccessWriteTarget(parenthesized.Inner),
+        CheckedExpression checkedExpression => IsIndexAccessWriteTarget(checkedExpression.Expression),
+        UncheckedExpression uncheckedExpression => IsIndexAccessWriteTarget(uncheckedExpression.Expression),
         _ => false
     };
 
     private static bool IsWriteTargetNeedingExpressionTypes(Expression expression)
         => IsMemberAccessWriteTarget(expression) || IsIndexAccessWriteTarget(expression);
+
+    private static bool IsAssignmentTarget(Expression expression) => expression switch
+    {
+        IdentifierExpression => true,
+        MemberAccessExpression => true,
+        IndexAccessExpression => true,
+        ParenthesizedExpression parenthesized => IsAssignmentTarget(parenthesized.Inner),
+        _ => false
+    };
+
+    private bool ReportInvalidAssignmentTargetIfNeeded(AssignmentExpression assignment)
+    {
+        if (IsAssignmentTarget(assignment.Target))
+        {
+            return false;
+        }
+
+        var opText = GetAssignmentOperatorText(assignment.Operator);
+        var (line, column, length) = GetExpressionDiagnosticSpan(assignment.Target);
+        Error(
+            ErrorCode.InvalidSyntax,
+            $"The '{opText}' assignment needs an assignable target",
+            line,
+            column,
+            "Use a variable, field, property, indexed element, or `_` discard as the left side.",
+            length);
+        return true;
+    }
 
     // Sub-expression types of the assignment/unary-write TARGET currently being analyzed (reference-keyed;
     // populated at the AnalyzeExpression tail, consumed by write-target classifiers).
@@ -12051,6 +12094,10 @@ public class Analyzer : IDisposable
     {
         if (target is ParenthesizedExpression parenthesized)
             return ReportSoaTableMemberMutationIfNeeded(parenthesized.Inner, expressionTypes, action);
+        if (target is CheckedExpression checkedExpression)
+            return ReportSoaTableMemberMutationIfNeeded(checkedExpression.Expression, expressionTypes, action);
+        if (target is UncheckedExpression uncheckedExpression)
+            return ReportSoaTableMemberMutationIfNeeded(uncheckedExpression.Expression, expressionTypes, action);
 
         if (target is not MemberAccessExpression member
             || expressionTypes == null
@@ -12078,6 +12125,10 @@ public class Analyzer : IDisposable
     {
         if (target is ParenthesizedExpression parenthesized)
             return ReportUnsupportedBuiltInIndexedMutationIfNeeded(parenthesized.Inner, expressionTypes, action);
+        if (target is CheckedExpression checkedExpression)
+            return ReportUnsupportedBuiltInIndexedMutationIfNeeded(checkedExpression.Expression, expressionTypes, action);
+        if (target is UncheckedExpression uncheckedExpression)
+            return ReportUnsupportedBuiltInIndexedMutationIfNeeded(uncheckedExpression.Expression, expressionTypes, action);
 
         if (target is not IndexAccessExpression indexAccess
             || expressionTypes == null
