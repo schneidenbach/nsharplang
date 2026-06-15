@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Code-intelligence and performance adapters drop availability probes
+
+The code-intelligence and performance dogfood adapters no longer expose `IsAvailable`. Their tests
+now prove the N# compiler-services assembly is present by invoking accepted `Try*` routes directly,
+matching the production fallback contract and removing another transition-only side channel.
+Focused evidence: `dotnet test tests/Tests.csproj --filter
+"FullyQualifiedName~FixApplicatorTests.DogfoodTextEditOrdering|FullyQualifiedName~CompilerDogfoodProjectTests.CodeIntelligenceDogfoodAdapter_|FullyQualifiedName~CompilerDogfoodProjectTests.PerformanceDogfoodAdapter_"`
+(6 tests).
+
 ## 2026-06-15 — Compiler dogfood adapter drops its availability probe
 
 The compiler dogfood adapter no longer exposes the test-only `IsAvailable` property. Product routing

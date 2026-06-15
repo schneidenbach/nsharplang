@@ -52,8 +52,6 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
     [ThreadStatic]
     private static TextEditOrderingScratch? t_textEditOrderingScratch;
 
-    internal static bool IsAvailable => s_bindings.Value != null;
-
     internal static bool TryGetBindingCandidateColumns(
         int column,
         (int StartColumn, int EndColumn)? span,

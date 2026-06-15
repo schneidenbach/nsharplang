@@ -14,11 +14,13 @@ public class FixApplicatorTests
     {
         // M13: the Compiler project (and its dogfood DLL) is referenced WITHOUT
         // SkipNSharpDogfoodCompilerServices, so the dogfood adapters must actually load and run in
-        // the test process — otherwise the parity test below would silently degrade to comparing
-        // the C# fallback against itself. Lock that the dogfood path is genuinely available.
+        // the test process; prove that through the dogfood route itself instead of a side-channel
+        // availability probe.
+        var edits = new[] { new TextEdit(1, 0, 1, 1, "x") };
         Assert.True(
-            NSharpCodeIntelligenceDogfoodAdapter.IsAvailable,
+            NSharpCodeIntelligenceDogfoodAdapter.TryOrderTextEdits(edits, out var ordered),
             "The N# dogfood compiler-services DLL must be loaded in the test run so dogfood paths are exercised.");
+        Assert.Equal(edits, ordered);
     }
 
     [Fact]

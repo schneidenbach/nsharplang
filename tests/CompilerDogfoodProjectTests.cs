@@ -9166,12 +9166,6 @@ func main() {
                 "NSharpLang.Compiler.CodeIntelligence.NSharpCodeIntelligenceDogfoodAdapter")
             ?? throw new InvalidOperationException("Dogfood code-intelligence adapter type was not emitted.");
 
-        var isAvailable = (bool)(adapterType.GetProperty(
-                "IsAvailable",
-                BindingFlags.Static | BindingFlags.NonPublic)
-            ?.GetValue(null) ?? false);
-        Assert.True(isAvailable, "The production test output must carry NSharpLang.Compiler.Dogfood.dll.");
-
         var tryExtractIdentifierName = adapterType.GetMethod(
                 "TryExtractIdentifierName",
                 BindingFlags.Static | BindingFlags.NonPublic)
@@ -9684,12 +9678,6 @@ func documented(): int {
                 "NSharpLang.Compiler.CodeIntelligence.NSharpCodeIntelligenceDogfoodAdapter")
             ?? throw new InvalidOperationException("Dogfood code-intelligence adapter type was not emitted.");
 
-        var isAvailable = (bool)(adapterType.GetProperty(
-                "IsAvailable",
-                BindingFlags.Static | BindingFlags.NonPublic)
-            ?.GetValue(null) ?? false);
-        Assert.True(isAvailable, "The production test output must carry NSharpLang.Compiler.Dogfood.dll.");
-
         var tryDeduplicateStableStrings = adapterType.GetMethod(
                 "TryDeduplicateStableStringsOrdinalIgnoreCase",
                 BindingFlags.Static | BindingFlags.NonPublic)
@@ -9717,12 +9705,6 @@ func documented(): int {
                 "NSharpLang.Compiler.CodeIntelligence.NSharpCodeIntelligenceDogfoodAdapter")
             ?? throw new InvalidOperationException("Dogfood code-intelligence adapter type was not emitted.");
 
-        var isAvailable = (bool)(adapterType.GetProperty(
-                "IsAvailable",
-                BindingFlags.Static | BindingFlags.NonPublic)
-            ?.GetValue(null) ?? false);
-        Assert.True(isAvailable, "The production test output must carry NSharpLang.Compiler.Dogfood.dll.");
-
         var tryDeduplicateStableTypes = adapterType.GetMethod(
                 "TryDeduplicateStableTypes",
                 BindingFlags.Static | BindingFlags.NonPublic)
@@ -9749,12 +9731,6 @@ func documented(): int {
         var adapterType = typeof(NSharpLang.Compiler.Performance.StructCopyAnalysis).Assembly.GetType(
                 "NSharpLang.Compiler.Performance.NSharpPerformanceDogfoodAdapter")
             ?? throw new InvalidOperationException("Performance dogfood adapter type was not emitted.");
-
-        var isAvailable = (bool)(adapterType.GetProperty(
-                "IsAvailable",
-                BindingFlags.Static | BindingFlags.NonPublic)
-            ?.GetValue(null) ?? false);
-        Assert.True(isAvailable, "The production test output must carry NSharpLang.Compiler.Dogfood.dll.");
 
         var tryAllInstanceFieldsAreInitOnly = adapterType.GetMethod(
                 "TryAllInstanceFieldsAreInitOnly",

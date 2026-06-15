@@ -17,8 +17,6 @@ internal static class NSharpPerformanceDogfoodAdapter
 
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings);
 
-    internal static bool IsAvailable => s_bindings.Value != null;
-
     internal static bool TryAllInstanceFieldsAreInitOnly(
         IReadOnlyList<StructCopyAnalysis.StructFieldDescriptor> fields,
         out bool allInitOnly)
