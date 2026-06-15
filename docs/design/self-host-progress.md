@@ -25,6 +25,12 @@ Aliases to unsupported SoA column shapes now have explicit analyzer regression c
 array columns, nullable non-string columns, and nested SoA-table columns resolve to the real element
 shape and report the SoA unsupported-column diagnostic before any IL emission path can see them.
 
+## 2026-06-15 — SoA row type diagnostics follow table aliases
+
+The row-type rejection now has explicit coverage when `Table.Row` is reached through an alias to the
+SoA table. `type Nodes = NodeTable` followed by `Nodes.Row` reports the SoA row-type diagnostic
+instead of falling through to unresolved dotted-type handling or any row-value materialization path.
+
 ## 2026-06-15 — SoA enum column aliases have IL-shape proof
 
 Aliases to int-backed enum column types are now pinned as part of the accepted SoA lowering surface.

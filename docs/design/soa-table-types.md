@@ -274,9 +274,10 @@ The compiler must produce direct diagnostics for common misuse:
   initializers, invalid member/index receivers, index values, pattern values, `with` targets/indexes/values,
   `nameof` targets, event subscription handles, and null-conditional table/row projections);
 - row type annotations/type expressions: "SoA row type 'NodeTable.Row' is not part of this lowering"
-  for parameter, return, local, generic constraint, base/interface, function-type, type-pattern,
-  hard-cast and safe-cast targets, composed nullable, tuple, anonymous-union, nested generic/array
-  references, other declared-type positions, `typeof`, and `sizeof`;
+  for direct table names and aliases to SoA tables in parameter, return, local, generic constraint,
+  base/interface, function-type, type-pattern, hard-cast and safe-cast targets, composed nullable,
+  tuple, anonymous-union, nested generic/array references, other declared-type positions, `typeof`,
+  and `sizeof`;
 - mismatched `wrap` columns: "column lengths for NodeTable do not match";
 - null `wrap` columns: "SoA table wrap column 'X' cannot be null" for literal null/default column
   arguments, including parenthesized, checked/unchecked default, and typed array-cast null/default
