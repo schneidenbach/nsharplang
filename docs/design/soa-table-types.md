@@ -530,16 +530,19 @@ ownership lands.
    test-filter name batches and format-discovery path/flag batches are table-wrapped too, leaving its
    array-taking functions as flattened adapter shims or scalar helper shims over wrapper-aware cores.
    `ParserLocalFunctions.nl` now wraps compact token columns, statement-node columns, and local-function
-   result columns behind named tables while preserving its flattened adapter ABI.
+   result columns behind named tables while preserving its flattened adapter ABI, and its product
+   local-function lookup now composes the declaration token-index core directly.
    `ParserColumnarProperties.nl` now wraps compact token columns, accessor text outputs,
    getter/setter statement-node rowsets, and property result slots inside its composed product core
-   while preserving its flattened adapter ABI.
+   while preserving its flattened adapter ABI; its getter/setter body wrappers now compose the
+   statement parser core directly.
    `ParserColumnarConstructors.nl` now wraps compact token columns, signature/chain output columns,
    statement-node body rows, and constructor result slots inside its composed product core while
-   preserving its flattened adapter ABI.
+   preserving its flattened adapter ABI; its body wrapper now composes the statement parser core directly.
    `ParserColumnarFunctions.nl` now wraps compact token columns, signature output columns,
    statement-node body rows, direct local-function result columns, and function result slots inside
-   its composed product core while preserving its flattened adapter ABI.
+   its composed product core while preserving its flattened adapter ABI; its body and local-function
+   discovery paths now compose the statement/local-function cores directly.
    `ParserColumnarEnums.nl`, `ParserColumnarUnions.nl`, and `ParserColumnarInterfaces.nl` now wrap
    compact token columns, hidden declaration span scratch columns, text/count outputs, and result
    slots inside wrapper-aware nominal product cores while preserving their flattened adapter ABIs.

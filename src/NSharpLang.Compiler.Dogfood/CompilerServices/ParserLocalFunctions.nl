@@ -45,6 +45,7 @@ func DirectLocalFunctionTokenIndicesCore(tokens: &LocalFunctionTokenTable, nodes
 
     resultCount := 0
     childIndex := 0
+    declarationTokens := new ParserDeclarationStartKindStream { Kinds: tokens.Kinds, Starts: tokens.Starts }
     while childIndex < childCount {
         stmtNode := nodes.ChildIndices[childRun + childIndex]
         if stmtNode < 0 || stmtNode >= nodes.Kinds.Length {
@@ -56,7 +57,7 @@ func DirectLocalFunctionTokenIndicesCore(tokens: &LocalFunctionTokenTable, nodes
                 return -1
             }
 
-            funcTokenIndex := TokenIndexByKindStartInto(tokens.Kinds, tokens.Starts, tokens.Count, 7, nodes.ValueStarts[stmtNode])
+            funcTokenIndex := TokenIndexByKindStartCore(ref declarationTokens, tokens.Count, 7, nodes.ValueStarts[stmtNode])
             if funcTokenIndex < 0 {
                 return -1
             }

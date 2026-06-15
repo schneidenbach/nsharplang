@@ -102,8 +102,10 @@ func ParseColumnarPropertyInfoCore(source: string, tokens: &ColumnarPropertyToke
 }
 
 func ParseColumnarPropertyBodyNodesInto(tokens: &ColumnarPropertyTokenTable, bodyBrace: int, body: &ColumnarPropertyBodyTable, result: &ColumnarPropertyResultTable): int {
-    return ParseStatementNodesInto(
-        tokens.Kinds, tokens.Starts, tokens.ValueLengths, tokens.Count, bodyBrace,
-        body.NodeKinds, body.ValueStarts, body.ValueLengths, body.ChildStart, body.ChildCount,
-        body.ChildIndices, body.SpanStarts, body.SpanLengths, result.Values)
+    statementTokens := new ParserTokenTable { Kinds: tokens.Kinds, Starts: tokens.Starts, ValueLengths: tokens.ValueLengths }
+    argStack := new ParserArgumentStack { Values: new int[](tokens.Count + 1) }
+    nodes := new ParserExpressionNodeTable { Kinds: body.NodeKinds, ValueStarts: body.ValueStarts, ValueLengths: body.ValueLengths, ChildStart: body.ChildStart, ChildCount: body.ChildCount, SpanStarts: body.SpanStarts, SpanLengths: body.SpanLengths }
+    children := new ParserChildIndexTable { Indices: body.ChildIndices }
+    statementResult := new ParserResultTable { Values: result.Values }
+    return ParseStatementNodesCore(ref statementTokens, tokens.Count, bodyBrace, ref argStack, ref nodes, ref children, ref statementResult)
 }

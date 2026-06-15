@@ -11,6 +11,23 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Columnar body parsers compose statement cores directly
+
+`ParserColumnarFunctions.nl`, `ParserColumnarConstructors.nl`, and
+`ParserColumnarProperties.nl` now route product body parsing through `ParseStatementNodesCore`
+with named token/node/child/result wrappers instead of re-entering the flattened
+`ParseStatementNodesInto` compatibility shim from inside N#. `ParserColumnarFunctions.nl` also calls
+`DirectLocalFunctionTokenIndicesCore` directly, and `ParserLocalFunctions.nl` resolves local function
+token indices through the wrapper-aware declaration token lookup core instead of the flattened
+`TokenIndexByKindStartInto` shim. Public flattened ABIs remain available for the current adapter and
+parser parity tests. Focused evidence:
+`./scripts/dev.sh Parser_Statement_MatchesProductionParser`,
+`./scripts/dev.sh ColumnarCodegen_Parity_LocalFunctions`,
+`./scripts/dev.sh ColumnarCodegen_Parity_ClassConstructor`,
+`./scripts/dev.sh ColumnarCodegen_Parity_ClassGetSetProperty`,
+`./scripts/dev.sh ColumnarCodegen_MultiFile_RealParserCluster`, and
+`./scripts/dev.sh ColumnarCodegen_CompilesRealDogfoodCorpus_Coverage`.
+
 ## 2026-06-15 — Parser constructor compaction drops full-array adapter binding
 
 `NSharpCompilerDogfoodAdapter.TryCompactParserTokens` now calls
