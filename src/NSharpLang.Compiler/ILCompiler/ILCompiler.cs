@@ -12286,7 +12286,9 @@ public partial class ILCompiler
             throw new InvalidOperationException("No IL generator context");
         }
 
-        if (assignment.Target is IdentifierExpression { Name: "_" })
+        var target = UnwrapParenthesized(assignment.Target);
+
+        if (target is IdentifierExpression { Name: "_" })
         {
             EmitExpression(assignment.Value);
             if (GetExpressionType(assignment.Value) != typeof(void))
@@ -12297,7 +12299,7 @@ public partial class ILCompiler
             return true;
         }
 
-        if (assignment.Target is IdentifierExpression ident
+        if (target is IdentifierExpression ident
             && assignment.Operator != AssignmentOperator.NullCoalesceAssign)
         {
             if (assignment.Operator == AssignmentOperator.Assign)
@@ -12322,13 +12324,13 @@ public partial class ILCompiler
             return true;
         }
 
-        if (assignment.Target is MemberAccessExpression memberAccess
+        if (target is MemberAccessExpression memberAccess
             && TryEmitSoaRowColumnAssignment(assignment, memberAccess, leaveValueOnStack: false))
         {
             return true;
         }
 
-        if (assignment.Target is IndexAccessExpression indexAccess
+        if (target is IndexAccessExpression indexAccess
             && assignment.Operator == AssignmentOperator.Assign
             && !indexAccess.IsNullConditional)
         {
@@ -12379,7 +12381,8 @@ public partial class ILCompiler
         }
 
         var delta = unary.Operator is UnaryOperator.PreIncrement or UnaryOperator.PostIncrement ? 1 : -1;
-        if (unary.Operand is IdentifierExpression ident)
+        var operand = UnwrapParenthesized(unary.Operand);
+        if (operand is IdentifierExpression ident)
         {
             EmitIdentifier(ident);
             EmitIncrementDelta(delta, GetIdentifierType(ident));
@@ -12388,7 +12391,7 @@ public partial class ILCompiler
         }
 
         var isPost = unary.Operator is UnaryOperator.PostIncrement or UnaryOperator.PostDecrement;
-        if (unary.Operand is MemberAccessExpression memberAccess
+        if (operand is MemberAccessExpression memberAccess
             && TryEmitSoaRowColumnIncrementOrDecrement(memberAccess, delta, isPost, leaveValueOnStack: false))
         {
             return true;
@@ -15288,8 +15291,9 @@ public partial class ILCompiler
 
         var delta = unary.Operator is UnaryOperator.PreIncrement or UnaryOperator.PostIncrement ? 1 : -1;
         var isPost = unary.Operator is UnaryOperator.PostIncrement or UnaryOperator.PostDecrement;
+        var operand = UnwrapParenthesized(unary.Operand);
 
-        if (unary.Operand is IdentifierExpression ident)
+        if (operand is IdentifierExpression ident)
         {
             EmitIdentifier(ident);
             if (isPost)
@@ -15310,13 +15314,13 @@ public partial class ILCompiler
             return;
         }
 
-        if (unary.Operand is MemberAccessExpression memberAccess)
+        if (operand is MemberAccessExpression memberAccess)
         {
             EmitMemberIncrementOrDecrement(memberAccess, delta, isPost);
             return;
         }
 
-        if (unary.Operand is IndexAccessExpression indexAccess)
+        if (operand is IndexAccessExpression indexAccess)
         {
             EmitIndexIncrementOrDecrement(indexAccess, delta, isPost);
             return;
@@ -16711,14 +16715,16 @@ public partial class ILCompiler
         if (_currentIL == null || _locals == null || _parameters == null)
             throw new InvalidOperationException("No IL generator context");
 
-        if (assignment.Target is IdentifierExpression { Name: "_" })
+        var target = UnwrapParenthesized(assignment.Target);
+
+        if (target is IdentifierExpression { Name: "_" })
         {
             EmitExpression(assignment.Value);
             return;
         }
 
         // Handle member access assignments (obj.Field = value)
-        if (assignment.Target is MemberAccessExpression memberAccess)
+        if (target is MemberAccessExpression memberAccess)
         {
             if (TryEmitSoaRowColumnAssignment(assignment, memberAccess, leaveValueOnStack))
             {
@@ -17036,7 +17042,7 @@ public partial class ILCompiler
         }
 
         // Handle indexed assignments (obj[index] = value)
-        if (assignment.Target is IndexAccessExpression indexAccess)
+        if (target is IndexAccessExpression indexAccess)
         {
             // Stack-buffer promotion: `buf[i] = v` / `buf[i] op= v` on a promoted local stores
             // through an interior byref with an explicit bounds check. The promoted result value
@@ -17148,7 +17154,7 @@ public partial class ILCompiler
         }
 
         // Handle simple identifier assignments
-        if (assignment.Target is not IdentifierExpression ident)
+        if (target is not IdentifierExpression ident)
         {
             throw new NotImplementedException("Only simple variable and member assignments are supported in IL compiler");
         }

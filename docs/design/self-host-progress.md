@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Parenthesized SoA row-column assignment targets keep direct IL
+
+The direct IL backend now unwraps parenthesized write targets before routing assignment and
+increment/decrement lowering. Parenthesized row-column targets such as `((nodes[row]).kind) = value`,
+`(((nodes[row]).kind) += value)`, and `((nodes[row]).text) ??= value` stay on the SoA row-column path,
+so they emit backing-column field loads plus array element loads/stores instead of falling through to
+generic member assignment or unsupported-target emission. Focused evidence: `dotnet test
+tests/Tests.csproj --filter
+"FullyQualifiedName~SoaRecordTests.ILCompiler_SoaRecordParenthesizedRowProjection_UsesColumnElementILShape|FullyQualifiedName~SoaRecordTests.ILCompiler_SoaRecordParenthesizedRowProjectionUpdateTargets_UseColumnElementILShape|FullyQualifiedName~SoaRecordTests.ILCompiler_SoaRecordParenthesizedRowProjectionNullCoalesceAssign_UsesColumnElementILShape"`.
+
 ## 2026-06-15 — Parenthesized SoA row-view escapes are pinned
 
 Bare SoA row views remain non-materializable even when wrapped in parentheses. The analyzer regression
