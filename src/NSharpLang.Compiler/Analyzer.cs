@@ -12579,16 +12579,22 @@ public class Analyzer : IDisposable
         }
 
         // Instance readonly fields may be assigned by their owning constructor.
-        if (_inConstructor)
+        if (_inConstructor && readonlyTarget.IsCurrentInstance)
             return;
 
         var (instanceLine, instanceColumn, instanceLength) = GetAssignmentTargetNameDiagnosticSpan(target, line, column);
+        var message = _inConstructor
+            ? $"Field '{readonlyTarget.Name}' is readonly — constructors can only assign readonly fields on the current instance"
+            : $"Field '{readonlyTarget.Name}' is readonly — it can only be assigned in a constructor";
+        var suggestion = _inConstructor
+            ? "Assign the current instance field directly, or remove `readonly` if other instances must be mutated."
+            : "Move this assignment into a constructor, or remove `readonly` if the field needs to change later.";
         Error(
             ErrorCode.ReadonlyAssignment,
-            $"Field '{readonlyTarget.Name}' is readonly — it can only be assigned in a constructor",
+            message,
             instanceLine,
             instanceColumn,
-            "Move this assignment into a constructor, or remove `readonly` if the field needs to change later.",
+            suggestion,
             instanceLength);
     }
 
@@ -12602,7 +12608,7 @@ public class Analyzer : IDisposable
             return false;
         }
 
-        if (!readonlyTarget.IsStatic && _inConstructor)
+        if (!readonlyTarget.IsStatic && _inConstructor && readonlyTarget.IsCurrentInstance)
         {
             return false;
         }
@@ -12622,7 +12628,7 @@ public class Analyzer : IDisposable
         return true;
     }
 
-    private readonly record struct ReadonlyFieldTarget(string Name, bool IsStatic);
+    private readonly record struct ReadonlyFieldTarget(string Name, bool IsStatic, bool IsCurrentInstance);
 
     private bool TryGetReadonlyFieldTarget(
         Expression target,
@@ -12634,6 +12640,12 @@ public class Analyzer : IDisposable
 
         if (target is MemberAccessExpression memberAccess
             && TryGetStaticReadonlyFieldTarget(memberAccess, expressionTypes, out readonlyTarget))
+        {
+            return true;
+        }
+
+        if (target is MemberAccessExpression instanceMemberAccess
+            && TryGetInstanceReadonlyFieldTarget(instanceMemberAccess, expressionTypes, out readonlyTarget))
         {
             return true;
         }
@@ -12660,7 +12672,10 @@ public class Analyzer : IDisposable
             return false;
         }
 
-        readonlyTarget = new ReadonlyFieldTarget(field.Name, field.Modifiers.HasFlag(Modifiers.Static));
+        readonlyTarget = new ReadonlyFieldTarget(
+            field.Name,
+            field.Modifiers.HasFlag(Modifiers.Static),
+            IsCurrentInstance: !field.Modifiers.HasFlag(Modifiers.Static));
         return true;
     }
 
@@ -12701,7 +12716,7 @@ public class Analyzer : IDisposable
                 return false;
             }
 
-            readonlyTarget = new ReadonlyFieldTarget(field.Name, IsStatic: true);
+            readonlyTarget = new ReadonlyFieldTarget(field.Name, IsStatic: true, IsCurrentInstance: false);
             return true;
         }
 
@@ -12718,7 +12733,96 @@ public class Analyzer : IDisposable
                     return false;
                 }
 
-                readonlyTarget = new ReadonlyFieldTarget(field.Name, IsStatic: true);
+                readonlyTarget = new ReadonlyFieldTarget(field.Name, IsStatic: true, IsCurrentInstance: false);
+                return true;
+            }
+            catch (NotSupportedException)
+            {
+                return false;
+            }
+        }
+
+        return false;
+    }
+
+    private bool TryGetInstanceReadonlyFieldTarget(
+        MemberAccessExpression target,
+        Dictionary<Expression, TypeInfo>? expressionTypes,
+        out ReadonlyFieldTarget readonlyTarget)
+    {
+        readonlyTarget = default;
+        if (target.Object is ThisExpression || IsStaticMemberAccessTarget(target.Object) || expressionTypes == null)
+        {
+            return false;
+        }
+
+        if (!expressionTypes.TryGetValue(target.Object, out var receiverType))
+        {
+            return false;
+        }
+
+        var receiver = ResolveTypeAlias(GetNonNullableType(receiverType));
+        if (receiver is ByRefTypeInfo byRefReceiver)
+            receiver = ResolveTypeAlias(GetNonNullableType(byRefReceiver.InnerType));
+        receiver = NormalizeMemberOwnerType(receiver);
+
+        if (!TryFindReadonlyInstanceField(receiver, target.MemberName, out var fieldName))
+        {
+            return false;
+        }
+
+        readonlyTarget = new ReadonlyFieldTarget(fieldName, IsStatic: false, IsCurrentInstance: false);
+        return true;
+    }
+
+    private bool TryFindReadonlyInstanceField(TypeInfo receiver, string fieldName, out string resolvedFieldName)
+    {
+        resolvedFieldName = string.Empty;
+        List<Declaration>? members = receiver switch
+        {
+            ClassTypeInfo classType => classType.Declaration.Members,
+            StructTypeInfo structType => structType.Declaration.Members,
+            RecordTypeInfo recordType => recordType.Declaration.Members,
+            _ => null,
+        };
+
+        if (members != null)
+        {
+            var field = members.OfType<FieldDeclaration>()
+                .FirstOrDefault(field =>
+                    field.Name == fieldName
+                    && !field.Modifiers.HasFlag(Modifiers.Static)
+                    && field.Modifiers.HasFlag(Modifiers.Readonly));
+            if (field != null)
+            {
+                resolvedFieldName = field.Name;
+                return true;
+            }
+        }
+
+        if (receiver is ClassTypeInfo { Declaration.BaseClass: not null } classTypeWithBase)
+        {
+            var baseType = ResolveType(classTypeWithBase.Declaration.BaseClass);
+            if (TryFindReadonlyInstanceField(baseType, fieldName, out resolvedFieldName))
+            {
+                return true;
+            }
+        }
+
+        if (receiver is ReflectionTypeInfo reflected && reflected.Type is not System.Reflection.Emit.TypeBuilder
+            && !reflected.Type.IsGenericTypeDefinition)
+        {
+            try
+            {
+                var field = reflected.Type.GetField(
+                    fieldName,
+                    System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+                if (field is not { IsInitOnly: true })
+                {
+                    return false;
+                }
+
+                resolvedFieldName = field.Name;
                 return true;
             }
             catch (NotSupportedException)

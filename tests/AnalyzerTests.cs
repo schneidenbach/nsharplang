@@ -2037,6 +2037,81 @@ func Main() {
         Assert.Contains("remove `readonly`", error.Suggestion);
     }
 
+    [Fact]
+    public void ReadonlyField_QualifiedInstanceAssignmentOutsideConstructor_Error()
+    {
+        var result = AnalyzeWithSource("""
+            class Counter {
+                readonly value: int
+
+                constructor() {
+                    value = 1
+                }
+
+                func Mutate(other: Counter) {
+                    other.value = 2
+                }
+            }
+        """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.ReadonlyAssignment);
+        Assert.Contains("Field 'value' is readonly", error.Message);
+        Assert.Contains("constructor", error.Message);
+        Assert.Contains("remove `readonly`", error.Suggestion);
+    }
+
+    [Fact]
+    public void ReadonlyField_QualifiedInstanceAssignmentInConstructor_Error()
+    {
+        var result = AnalyzeWithSource("""
+            class Counter {
+                readonly value: int
+
+                constructor(other: Counter) {
+                    value = 1
+                    other.value = 2
+                }
+            }
+        """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.ReadonlyAssignment);
+        Assert.Contains("current instance", error.Message);
+        Assert.Contains("current instance field directly", error.Suggestion);
+    }
+
+    [Theory]
+    [InlineData("bump(ref other.value)", "ref")]
+    [InlineData("reset(out other.value)", "out")]
+    public void ReadonlyField_QualifiedInstanceRefOutArgument_Error(string statement, string modifier)
+    {
+        var result = AnalyzeWithSource($$"""
+            func bump(ref value: int) {
+                value += 1
+            }
+
+            func reset(out value: int) {
+                value = 0
+            }
+
+            class Counter {
+                readonly value: int
+
+                constructor() {
+                    value = 1
+                }
+
+                func Mutate(other: Counter) {
+                    {{statement}}
+                }
+            }
+        """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.ReadonlyAssignment);
+        Assert.Contains("Field 'value' is readonly", error.Message);
+        Assert.Contains($"can't be used as a {modifier} argument", error.Message);
+        Assert.Contains("remove `readonly`", error.Suggestion);
+    }
+
     [Theory]
     [InlineData("State.Value = 2", "Value")]
     [InlineData("Value = 2", "Value")]

@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Qualified readonly instance fields reject mutation paths
+
+Readonly instance-field diagnostics now apply through qualified receivers as well as bare `this`
+storage. Assignments and byref calls such as `other.value = 2`, `bump(ref other.value)`, and
+`reset(out other.value)` fail in analysis before `stfld` or managed-address emission. Constructors
+remain limited to assigning readonly fields on the current instance, so `other.value = 2` is rejected
+even from inside another `Counter` constructor.
+
 ## 2026-06-15 — Static readonly fields reject byref and assignment writes
 
 Static readonly fields now reject mutation paths before lowering. Qualified and in-type accesses
