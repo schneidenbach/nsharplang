@@ -3224,6 +3224,24 @@ public class SoaRecordTests : ILCompilerTestBase
 
                 return 0
             }
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(value: object): object {
+                return (NodeTable.Row)value
+            }
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(value: object): object {
+                return value as NodeTable.Row
+            }
             """
         };
 
