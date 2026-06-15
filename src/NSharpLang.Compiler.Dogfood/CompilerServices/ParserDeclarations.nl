@@ -1149,110 +1149,107 @@ func ParseUnionDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValue
 }
 
 func ParseUnionDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int, unionIndex: int, decl: &UnionDeclarationTable, result: &ParserDeclarationResultTable): int {
-    tokenKinds := tokens.Kinds
-    tokenStarts := tokens.Starts
-    tokenValueLengths := tokens.ValueLengths
     pos := unionIndex
-    if pos >= count || tokenKinds[pos] != 12 {
+    if pos >= count || tokens.Kinds[pos] != 12 {
         return -1
     }
     pos = pos + 1
 
-    if pos >= count || tokenKinds[pos] != 0 {
+    if pos >= count || tokens.Kinds[pos] != 0 {
         return -1
     }
-    result.Values[0] = tokenStarts[pos]
-    result.Values[1] = tokenValueLengths[pos]
+    result.Values[0] = tokens.Starts[pos]
+    result.Values[1] = tokens.ValueLengths[pos]
     pos = pos + 1
 
     // Optional generic TYPE-PARAMETER list `<T, U>` after the union name — bare comma-separated
     // Identifiers only, the same shape as the struct/class declaration kernel. A declaration's list
     // cannot nest, so no `>>` splitting is needed.
     typeParamCount := 0
-    if pos < count && tokenKinds[pos] == 100 {
+    if pos < count && tokens.Kinds[pos] == 100 {
         pos = pos + 1
-        while pos < count && tokenKinds[pos] != 102 {
-            if tokenKinds[pos] != 0 {
+        while pos < count && tokens.Kinds[pos] != 102 {
+            if tokens.Kinds[pos] != 0 {
                 return -1
             }
-            decl.TypeParamStarts[typeParamCount] = tokenStarts[pos]
-            decl.TypeParamLengths[typeParamCount] = tokenValueLengths[pos]
+            decl.TypeParamStarts[typeParamCount] = tokens.Starts[pos]
+            decl.TypeParamLengths[typeParamCount] = tokens.ValueLengths[pos]
             typeParamCount = typeParamCount + 1
             pos = pos + 1
 
-            if pos < count && tokenKinds[pos] != 102 {
-                if tokenKinds[pos] != 134 {
+            if pos < count && tokens.Kinds[pos] != 102 {
+                if tokens.Kinds[pos] != 134 {
                     return -1
                 }
                 pos = pos + 1
                 // A consumed comma must be FOLLOWED by another parameter name — a trailing comma
                 // (`<T,>`) is a production-parser error (adversarial-review finding: the loop's
                 // `!= 102` condition would otherwise exit cleanly and ACCEPT what the pipeline rejects).
-                if pos >= count || tokenKinds[pos] != 0 {
+                if pos >= count || tokens.Kinds[pos] != 0 {
                     return -1
                 }
             }
         }
-        if pos >= count || tokenKinds[pos] != 102 || typeParamCount == 0 {
+        if pos >= count || tokens.Kinds[pos] != 102 || typeParamCount == 0 {
             return -1
         }
         pos = pos + 1
     }
     result.Values[2] = typeParamCount
 
-    if pos >= count || tokenKinds[pos] != 129 {
+    if pos >= count || tokens.Kinds[pos] != 129 {
         return -1
     }
     pos = pos + 1
 
     caseCount := 0
     totalFields := 0
-    while pos < count && tokenKinds[pos] != 130 {
-        if tokenKinds[pos] != 0 {
+    while pos < count && tokens.Kinds[pos] != 130 {
+        if tokens.Kinds[pos] != 0 {
             return -1
         }
-        decl.CaseNameStarts[caseCount] = tokenStarts[pos]
-        decl.CaseNameLengths[caseCount] = tokenValueLengths[pos]
+        decl.CaseNameStarts[caseCount] = tokens.Starts[pos]
+        decl.CaseNameLengths[caseCount] = tokens.ValueLengths[pos]
         pos = pos + 1
 
-        if pos >= count || tokenKinds[pos] != 129 {
+        if pos >= count || tokens.Kinds[pos] != 129 {
             return -1
         }
         pos = pos + 1
 
         caseFieldCount := 0
-        while pos < count && tokenKinds[pos] != 130 {
-            if tokenKinds[pos] != 0 {
+        while pos < count && tokens.Kinds[pos] != 130 {
+            if tokens.Kinds[pos] != 0 {
                 return -1
             }
-            decl.FieldNameStarts[totalFields] = tokenStarts[pos]
-            decl.FieldNameLengths[totalFields] = tokenValueLengths[pos]
+            decl.FieldNameStarts[totalFields] = tokens.Starts[pos]
+            decl.FieldNameLengths[totalFields] = tokens.ValueLengths[pos]
             pos = pos + 1
 
-            if pos >= count || tokenKinds[pos] != 122 {
+            if pos >= count || tokens.Kinds[pos] != 122 {
                 return -1
             }
             pos = pos + 1
 
-            if pos >= count || tokenKinds[pos] != 0 {
+            if pos >= count || tokens.Kinds[pos] != 0 {
                 return -1
             }
-            decl.FieldTypeStarts[totalFields] = tokenStarts[pos]
-            decl.FieldTypeLengths[totalFields] = tokenValueLengths[pos]
+            decl.FieldTypeStarts[totalFields] = tokens.Starts[pos]
+            decl.FieldTypeLengths[totalFields] = tokens.ValueLengths[pos]
             pos = pos + 1
 
             totalFields = totalFields + 1
             caseFieldCount = caseFieldCount + 1
 
-            if pos < count && tokenKinds[pos] != 130 {
-                if tokenKinds[pos] != 134 {
+            if pos < count && tokens.Kinds[pos] != 130 {
+                if tokens.Kinds[pos] != 134 {
                     return -1
                 }
                 pos = pos + 1
             }
         }
 
-        if pos >= count || tokenKinds[pos] != 130 {
+        if pos >= count || tokens.Kinds[pos] != 130 {
             return -1
         }
         pos = pos + 1
@@ -1261,7 +1258,7 @@ func ParseUnionDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int,
         caseCount = caseCount + 1
     }
 
-    if pos >= count || tokenKinds[pos] != 130 {
+    if pos >= count || tokens.Kinds[pos] != 130 {
         return -1
     }
     if caseCount == 0 {

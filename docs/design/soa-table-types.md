@@ -549,8 +549,9 @@ ownership lands.
    scans, interface/enum/struct/class/record, constructor-chain, and union parser bodies through
    declaration token-stream and result-slot wrappers while preserving the flattened adapter ABI; its
    package/import, top-level modifier/name/kind scan, interface declaration, enum declaration,
-   struct/class/record declaration, and constructor-chain cores keep token columns wrapper-shaped
-   internally, leaving the union declaration body as the final alias-cleanup slice.
+   struct/class/record declaration, constructor-chain, and union declaration cores keep token columns
+   wrapper-shaped internally, so `ParserDeclarations.nl` no longer has raw token aliases inside its
+   product declaration parser cores.
 7. Only after those gates pass, start replacing C# emitter/analyzer internals that still require untyped
    parallel-array plumbing.
 

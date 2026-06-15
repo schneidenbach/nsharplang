@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Union declaration parser keeps tables shaped
+
+`ParseUnionDeclarationCore` now reads union names, type parameters, case names, and case field spans
+through `ParserDeclarationTokenTable` instead of unpacking raw token arrays. With the header,
+interface, enum, struct/class/record, and constructor-chain cleanups, `ParserDeclarations.nl` no
+longer has raw token aliases inside its product declaration parser cores. Focused evidence:
+`./scripts/dev.sh ColumnarCodegen_MultiFile_EligibleClusterCompiles` and
+`./scripts/dev.sh ColumnarCodegen_MultiFile_RealParserCluster`.
+
 ## 2026-06-15 — Constructor-chain parser keeps tables shaped
 
 `ParseConstructorChainInfoCore` now reads constructor parameter-list scans, `this`/`base`
