@@ -468,9 +468,9 @@ internal static class NSharpCompilerDogfoodAdapter
 
     // Collect every top-level `union` declaration into a ColumnarUnionInput (name + optional generic type-parameter
     // names + per-case name + per-case field names + per-case field TYPE canonical strings). Consumes union indices
-    // from the nominal declaration rowset and parses each body via the
-    // ParseUnionDeclarationInfo kernel — which flattens fields across cases, with outCaseFieldCounts re-segmenting
-    // them per case, and returns name/type text so C# does not own union text materialization. Returns true
+    // from the nominal declaration rowset and parses each body via the ParseColumnarUnionInfo kernel — which
+    // flattens fields across cases, with outCaseFieldCounts re-segmenting them per case, and returns name/type text
+    // so C# does not own union text materialization. Returns true
     // (possibly an empty list) for a program with no unions. Returns FALSE — declining the
     // whole program to C# — on any parse failure (a bare case without a `{ }` body, a composed field type, an empty
     // union). The emitter further gates each field type to a supported CLR type (or one of the union's own type
@@ -491,25 +491,16 @@ internal static class NSharpCompilerDogfoodAdapter
             {
                 var unionIndex = unionIndices[unionSlot];
                 var cap = n + 1;
-                var outCaseNameStarts = new int[cap];
-                var outCaseNameLengths = new int[cap];
                 var outCaseNameTexts = new string[cap];
                 var outCaseFieldCounts = new int[cap];
-                var outFieldNameStarts = new int[cap];
-                var outFieldNameLengths = new int[cap];
                 var outFieldNameTexts = new string[cap];
-                var outFieldTypeStarts = new int[cap];
-                var outFieldTypeLengths = new int[cap];
                 var outFieldTypeTexts = new string[cap];
-                var outTypeParamStarts = new int[cap];
-                var outTypeParamLengths = new int[cap];
                 var outTypeParamTexts = new string[cap];
                 var outUnionNameTexts = new string[1];
                 var outResult = new int[4];
-                var caseCount = bindings.ParseUnionDeclarationInfo(
-                    source, ck, cs, cv, n, unionIndex, outCaseNameStarts, outCaseNameLengths, outCaseNameTexts, outCaseFieldCounts,
-                    outFieldNameStarts, outFieldNameLengths, outFieldNameTexts, outFieldTypeStarts, outFieldTypeLengths, outFieldTypeTexts,
-                    outTypeParamStarts, outTypeParamLengths, outTypeParamTexts, outUnionNameTexts, outResult);
+                var caseCount = bindings.ParseColumnarUnionInfo(
+                    source, ck, cs, cv, n, unionIndex, outCaseNameTexts, outCaseFieldCounts,
+                    outFieldNameTexts, outFieldTypeTexts, outTypeParamTexts, outUnionNameTexts, outResult);
                 if (caseCount <= 0 || outResult[1] <= 0)
                     return false;
 
@@ -1927,9 +1918,9 @@ internal static class NSharpCompilerDogfoodAdapter
                 CreateDelegate<ParseStructDeclarationInfoInto>(
                     programType,
                     "ParseStructDeclarationInfoInto"),
-                CreateDelegate<ParseUnionDeclarationInfoInto>(
+                CreateDelegate<ParseColumnarUnionInfoInto>(
                     programType,
-                    "ParseUnionDeclarationInfoInto"),
+                    "ParseColumnarUnionInfoInto"),
                 CreateDelegate<ParseColumnarConstructorInfoInto>(
                     programType,
                     "ParseColumnarConstructorInfoInto"));
@@ -2082,14 +2073,11 @@ internal static class NSharpCompilerDogfoodAdapter
         int[] outTypeParamStarts, int[] outTypeParamLengths, string[] outTypeParamTexts,
         int[] outBaseNameStarts, int[] outBaseNameLengths, string[] outBaseNameTexts,
         string[] outStructNameTexts, int[] outResult);
-    private delegate int ParseUnionDeclarationInfoInto(
+    private delegate int ParseColumnarUnionInfoInto(
         string source,
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int unionIndex,
-        int[] outCaseNameStarts, int[] outCaseNameLengths, string[] outCaseNameTexts, int[] outCaseFieldCounts,
-        int[] outFieldNameStarts, int[] outFieldNameLengths, string[] outFieldNameTexts,
-        int[] outFieldTypeStarts, int[] outFieldTypeLengths,
-        string[] outFieldTypeTexts,
-        int[] outTypeParamStarts, int[] outTypeParamLengths, string[] outTypeParamTexts,
+        string[] outCaseNameTexts, int[] outCaseFieldCounts,
+        string[] outFieldNameTexts, string[] outFieldTypeTexts, string[] outTypeParamTexts,
         string[] outUnionNameTexts, int[] outResult);
     private delegate int ParseColumnarConstructorInfoInto(
         string source,
@@ -2120,7 +2108,7 @@ internal static class NSharpCompilerDogfoodAdapter
         ParseInterfaceDeclarationSignatureInfoInto ParseInterfaceDeclarationSignatureInfo,
         ParseColumnarEnumInfoInto ParseColumnarEnumInfo,
         ParseStructDeclarationInfoInto ParseStructDeclarationInfo,
-        ParseUnionDeclarationInfoInto ParseUnionDeclarationInfo,
+        ParseColumnarUnionInfoInto ParseColumnarUnionInfo,
         ParseColumnarConstructorInfoInto ParseColumnarConstructorInfo);
 
     private sealed class ParserTokenCompactionScratch

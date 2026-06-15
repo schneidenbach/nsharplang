@@ -11,6 +11,22 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Union production rowset drops span columns
+
+`ParserColumnarUnions.nl` now exports `ParseColumnarUnionInfoInto`, the product-routed union parser
+wrapper. It keeps union/case/field/type-parameter span columns as N# scratch data and exposes only
+union name text, case name text, case field counts, field name/type text, and type-parameter text to
+the C# transition materializer.
+
+`NSharpCompilerDogfoodAdapter.TryGetColumnarUnionInputs` no longer binds
+`ParseUnionDeclarationInfoInto` or allocates unused union span columns in C#. The span/text-info ABI
+remains emitted for direct parser parity tests, while production consumes the reduced rowset.
+Focused evidence: `./scripts/dev.sh Parser_TopLevelDeclarationKinds_MatchProductionParser`,
+`./scripts/dev.sh ColumnarCodegen_Parity_UnionConstructAndMatch`,
+`./scripts/dev.sh ColumnarCodegen_Parity_GenericUnions`,
+`./scripts/dev.sh ColumnarCodegen_CompilesRealDogfoodCorpus_Coverage`, and
+`./scripts/dev.sh ColumnarCodegen_MultiFile_EligibleClusterCompiles`.
+
 ## 2026-06-15 — Enum production rowset drops span columns
 
 `ParserColumnarEnums.nl` now exports `ParseColumnarEnumInfoInto`, the product-routed enum parser

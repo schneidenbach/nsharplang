@@ -123,6 +123,10 @@ public class CompilerDogfoodProjectTests
                     "ParseUnionDeclarationInfoInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit ParseUnionDeclarationInfoInto.");
+            var parseColumnarUnionInfo = programType.GetMethod(
+                    "ParseColumnarUnionInfoInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit ParseColumnarUnionInfoInto.");
             var parseInterfaceDeclaration = programType.GetMethod(
                     "ParseInterfaceDeclarationInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -417,12 +421,14 @@ union Result<T> {
                 tokenizeWithIndentation,
                 parseUnionDeclaration,
                 parseUnionDeclarationInfo,
+                parseColumnarUnionInfo,
                 "generic union field type texts");
             AssertUnionDeclarationInfoDeclines(
                 "union Bad { A { items: List<int> } }",
                 tokenizeWithIndentation,
                 parseUnionDeclaration,
                 parseUnionDeclarationInfo,
+                parseColumnarUnionInfo,
                 "deferred generic union field type");
             AssertCanonicalTypeText("int", "int", canonicalTypeText, "simple type");
             AssertCanonicalTypeText("Dictionary<string, int>", "Dictionary<string,int>", canonicalTypeText, "generic comma spacing");
@@ -1757,6 +1763,7 @@ class B
         MethodInfo tokenizeWithIndentation,
         MethodInfo parseUnionDeclaration,
         MethodInfo parseUnionDeclarationInfo,
+        MethodInfo parseColumnarUnionInfo,
         string label)
     {
         Assert.Equal(expectedCaseNames.Length, expectedCaseFieldCounts.Length);
@@ -1843,14 +1850,44 @@ class B
                 unionNameTexts,
                 result
             }) ?? -2);
+        var columnarCaseNameTexts = new string[cap];
+        var columnarCaseFieldCounts = new int[cap];
+        var columnarFieldNameTexts = new string[cap];
+        var columnarFieldTypeTexts = new string[cap];
+        var columnarTypeParamTexts = new string[cap];
+        var columnarUnionNameTexts = new string[1];
+        var columnarResult = new int[4];
+        var columnarCaseCount = (int)(parseColumnarUnionInfo.Invoke(
+            null,
+            new object[]
+            {
+                compactedSource,
+                kinds,
+                starts,
+                valueLengths,
+                count,
+                unionIndex,
+                columnarCaseNameTexts,
+                columnarCaseFieldCounts,
+                columnarFieldNameTexts,
+                columnarFieldTypeTexts,
+                columnarTypeParamTexts,
+                columnarUnionNameTexts,
+                columnarResult
+            }) ?? -2);
 
         Assert.Equal(expectedCaseNames.Length, spanCaseCount);
         Assert.Equal(spanCaseCount, caseCount);
+        Assert.Equal(caseCount, columnarCaseCount);
         Assert.Equal(spanResult[0], result[0]);
         Assert.Equal(spanResult[1], result[1]);
         Assert.Equal(spanResult[2], result[2]);
+        Assert.Equal(result[0], columnarResult[0]);
+        Assert.Equal(result[1], columnarResult[1]);
+        Assert.Equal(result[2], columnarResult[2]);
         Assert.Equal(expectedUnionName, compactedSource.Substring(result[0], result[1]));
         Assert.Equal(expectedUnionName, unionNameTexts[0]);
+        Assert.Equal(unionNameTexts[0], columnarUnionNameTexts[0]);
         Assert.Equal(expectedTypeParams.Length, result[2]);
         for (var i = 0; i < expectedTypeParams.Length; i++)
         {
@@ -1858,6 +1895,7 @@ class B
             Assert.Equal(spanTypeParamLengths[i], typeParamLengths[i]);
             Assert.Equal(expectedTypeParams[i], compactedSource.Substring(typeParamStarts[i], typeParamLengths[i]));
             Assert.Equal(expectedTypeParams[i], typeParamTexts[i]);
+            Assert.Equal(typeParamTexts[i], columnarTypeParamTexts[i]);
         }
 
         var fieldIndex = 0;
@@ -1868,7 +1906,9 @@ class B
             Assert.Equal(spanCaseFieldCounts[c], caseFieldCounts[c]);
             Assert.Equal(expectedCaseNames[c], compactedSource.Substring(caseNameStarts[c], caseNameLengths[c]));
             Assert.Equal(expectedCaseNames[c], caseNameTexts[c]);
+            Assert.Equal(caseNameTexts[c], columnarCaseNameTexts[c]);
             Assert.Equal(expectedCaseFieldCounts[c], caseFieldCounts[c]);
+            Assert.Equal(caseFieldCounts[c], columnarCaseFieldCounts[c]);
 
             for (var f = 0; f < expectedCaseFieldCounts[c]; f++)
             {
@@ -1878,8 +1918,10 @@ class B
                 Assert.Equal(spanFieldTypeLengths[fieldIndex], fieldTypeLengths[fieldIndex]);
                 Assert.Equal(expectedFieldNames[c][f], compactedSource.Substring(fieldNameStarts[fieldIndex], fieldNameLengths[fieldIndex]));
                 Assert.Equal(expectedFieldNames[c][f], fieldNameTexts[fieldIndex]);
+                Assert.Equal(fieldNameTexts[fieldIndex], columnarFieldNameTexts[fieldIndex]);
                 Assert.Equal(expectedFieldTypes[c][f], compactedSource.Substring(fieldTypeStarts[fieldIndex], fieldTypeLengths[fieldIndex]));
                 Assert.Equal(expectedFieldTypes[c][f], fieldTypeTexts[fieldIndex]);
+                Assert.Equal(fieldTypeTexts[fieldIndex], columnarFieldTypeTexts[fieldIndex]);
                 fieldIndex++;
             }
         }
@@ -1891,6 +1933,7 @@ class B
         MethodInfo tokenizeWithIndentation,
         MethodInfo parseUnionDeclaration,
         MethodInfo parseUnionDeclarationInfo,
+        MethodInfo parseColumnarUnionInfo,
         string label)
     {
         var (count, kinds, starts, valueLengths, compactedSource) = TokenizeSourceViaKernel(source, tokenizeWithIndentation);
@@ -1944,8 +1987,27 @@ class B
                 new string[1],
                 new int[4]
             }) ?? -2);
+        var columnarActual = (int)(parseColumnarUnionInfo.Invoke(
+            null,
+            new object[]
+            {
+                compactedSource,
+                kinds,
+                starts,
+                valueLengths,
+                count,
+                unionIndex,
+                new string[cap],
+                new int[cap],
+                new string[cap],
+                new string[cap],
+                new string[cap],
+                new string[1],
+                new int[4]
+            }) ?? -2);
         Assert.Equal(-1, spanActual);
         Assert.Equal(spanActual, actual);
+        Assert.Equal(actual, columnarActual);
     }
 
     private static void AssertCanonicalTypeText(
@@ -10669,7 +10731,7 @@ func outer(x: int): int {
             "CliArguments.nl", "CliDocOrdering.nl", "CliQueryParsing.nl", "CliTreeDependencies.nl",
             "CompletionGrouping.nl", "CompletionReceivers.nl", "DiagnosticClusters.nl", "DiagnosticDeduplication.nl", "DocQuery.nl",
             "FormatterImportOrdering.nl", "IdentifierSpans.nl",
-            "LexerTokenKindScanner.nl", "OverloadCandidates.nl", "ParserColumnarConstructors.nl", "ParserColumnarEnums.nl", "ParserColumnarFunctions.nl", "ParserColumnarProperties.nl", "ParserDeclarations.nl",
+            "LexerTokenKindScanner.nl", "OverloadCandidates.nl", "ParserColumnarConstructors.nl", "ParserColumnarEnums.nl", "ParserColumnarFunctions.nl", "ParserColumnarProperties.nl", "ParserColumnarUnions.nl", "ParserDeclarations.nl",
             "ParserConstructorSignatures.nl", "ParserExpressions.nl", "ParserFunctionSignatures.nl", "ParserInterfaceSignatures.nl", "ParserLocalFunctions.nl", "ParserStatements.nl", "ParserTypeReferences.nl",
             "ProjectSourceFilter.nl", "StructCopyAnalysis.nl",
             "TextEditOrdering.nl", "TypeLookup.nl",
@@ -10688,6 +10750,7 @@ func outer(x: int): int {
         Assert.Contains("ParseColumnarConstructorInfoInto", methodNames!); // composed constructor signature + body routing
         Assert.Contains("ParseColumnarEnumInfoInto", methodNames!); // composed enum text/value routing
         Assert.Contains("ParseColumnarPropertyInfoInto", methodNames!); // composed property accessor + body routing
+        Assert.Contains("ParseColumnarUnionInfoInto", methodNames!); // composed union text/type routing
         Assert.Contains("ParseConstructorSignatureInfoInto", methodNames!); // ParserConstructorSignatures -> declarations/signatures/types
         Assert.Contains("ParseInterfaceDeclarationSignatureInfoInto", methodNames!); // ParserInterfaceSignatures -> declarations/signatures/types
         Assert.Contains("DirectLocalFunctionTokenIndicesInto", methodNames!); // ParserLocalFunctions -> declarations/statements
