@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Parenthesized SoA char promotions stay on direct columns
+
+Char numeric-promotion reads over receiver-parenthesized backing-column members now have IL-shape
+evidence for row, literal from-end, and variable-held `System.Index` forms. `(nodes.marker)[row] +
+1`, `(nodes.marker)[^1] << 1`, and `idx := ^1; ~(nodes.marker)[idx]` read backing column arrays
+directly and lower through arithmetic, bitwise, shift, division, remainder, and unary-not opcodes
+with no row construction, slice allocation, boxing, delegate construction, or virtual dispatch.
+
 ## 2026-06-15 — Parenthesized SoA integral updates cover verified non-int types
 
 Receiver-parenthesized backing-column update operands now have IL-shape evidence for the verified

@@ -1446,6 +1446,101 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void ParenthesizedColumnMemberCharNumericPromotions_UseColumnArrayLoadsAndOpcodes()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                marker: char
+            }
+
+            func rowOps(nodes: NodeTable, row: int): int {
+                (nodes.marker)[row] = 'A';
+                score := (nodes.marker)[row] + 1
+                score += (nodes.marker)[row] - 60
+                score += (nodes.marker)[row] & 15
+                score += (nodes.marker)[row] | 2
+                score += (nodes.marker)[row] ^ 1
+                score += (nodes.marker)[row] << 1
+                score += (nodes.marker)[row] >> 1
+                score += (nodes.marker)[row] * 2
+                score += ~(nodes.marker)[row]
+                score += (nodes.marker)[row] % 10
+                score += (nodes.marker)[row] / 2
+                return score
+            }
+
+            func literalOps(nodes: NodeTable): int {
+                (nodes.marker)[^1] = 'A';
+                score := (nodes.marker)[^1] + 1
+                score += (nodes.marker)[^1] - 60
+                score += (nodes.marker)[^1] & 15
+                score += (nodes.marker)[^1] | 2
+                score += (nodes.marker)[^1] ^ 1
+                score += (nodes.marker)[^1] << 1
+                score += (nodes.marker)[^1] >> 1
+                score += (nodes.marker)[^1] * 2
+                score += ~(nodes.marker)[^1]
+                score += (nodes.marker)[^1] % 10
+                score += (nodes.marker)[^1] / 2
+                return score
+            }
+
+            func variableOps(nodes: NodeTable): int {
+                idx := ^1;
+                (nodes.marker)[idx] = 'A';
+                score := (nodes.marker)[idx] + 1
+                score += (nodes.marker)[idx] - 60
+                score += (nodes.marker)[idx] & 15
+                score += (nodes.marker)[idx] | 2
+                score += (nodes.marker)[idx] ^ 1
+                score += (nodes.marker)[idx] << 1
+                score += (nodes.marker)[idx] >> 1
+                score += (nodes.marker)[idx] * 2
+                score += ~(nodes.marker)[idx]
+                score += (nodes.marker)[idx] % 10
+                score += (nodes.marker)[idx] / 2
+                return score
+            }
+
+            func main(): int {
+                rowNodes := new NodeTable(1)
+                row := rowNodes.add()
+
+                literalNodes := new NodeTable(1)
+                literalNodes.add()
+
+                variableNodes := new NodeTable(1)
+                variableNodes.add()
+
+                return rowOps(rowNodes, row) + literalOps(literalNodes) + variableOps(variableNodes)
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var rowOps = ILShapeInspector.GetProgramMethod(assembly, "rowOps");
+            var literalOps = ILShapeInspector.GetProgramMethod(assembly, "literalOps");
+            var variableOps = ILShapeInspector.GetProgramMethod(assembly, "variableOps");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(1398, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoAllocationOrDispatch(rowOps);
+            AssertParenthesizedCharPromotionColumnShape(rowOps, "row-index");
+
+            AssertNoFromEndSliceAllocation(literalOps);
+            AssertParenthesizedCharPromotionColumnShape(literalOps, "literal from-end");
+
+            AssertNoFromEndSliceAllocation(variableOps);
+            AssertParenthesizedCharPromotionColumnShape(variableOps, "variable from-end");
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void ParenthesizedColumnMemberEnumBitwiseExpressions_UseColumnArrayOffsetWithoutSliceAllocation()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
@@ -5715,6 +5810,49 @@ public class SoaRecordILShapeTests
         Assert.True(
             ILShapeInspector.CountOpcode(method, OpCodes.Not) >= 1,
             $"Parenthesized SoA enum unary bitwise-not should use the direct NOT opcode for {indexDescription} access.");
+    }
+
+    private static void AssertParenthesizedCharPromotionColumnShape(MethodInfo method, string indexDescription)
+    {
+        var fieldLoads = ILShapeInspector.CountOpcode(method, OpCodes.Ldfld);
+        Assert.True(
+            fieldLoads >= 12,
+            $"Parenthesized SoA char numeric promotions should load backing column fields directly for {indexDescription} access; saw {fieldLoads} field loads.");
+        Assert.Equal(11, CountArrayElementLoads(method));
+        Assert.Equal(1, CountArrayElementStores(method));
+        Assert.True(
+            ILShapeInspector.CountOpcode(method, OpCodes.Add) >= 1,
+            $"Parenthesized SoA char addition should use the direct ADD opcode for {indexDescription} access.");
+        Assert.True(
+            ILShapeInspector.CountOpcode(method, OpCodes.Sub) >= 1,
+            $"Parenthesized SoA char subtraction should use the direct SUB opcode for {indexDescription} access.");
+        Assert.True(
+            ILShapeInspector.CountOpcode(method, OpCodes.And) >= 1,
+            $"Parenthesized SoA char bitwise-and should use the direct AND opcode for {indexDescription} access.");
+        Assert.True(
+            ILShapeInspector.CountOpcode(method, OpCodes.Or) >= 1,
+            $"Parenthesized SoA char bitwise-or should use the direct OR opcode for {indexDescription} access.");
+        Assert.True(
+            ILShapeInspector.CountOpcode(method, OpCodes.Xor) >= 1,
+            $"Parenthesized SoA char bitwise-xor should use the direct XOR opcode for {indexDescription} access.");
+        Assert.True(
+            ILShapeInspector.CountOpcode(method, OpCodes.Shl) >= 1,
+            $"Parenthesized SoA char left shift should use the direct SHL opcode for {indexDescription} access.");
+        Assert.True(
+            ILShapeInspector.CountOpcode(method, OpCodes.Shr_Un) >= 1,
+            $"Parenthesized SoA char right shift should use the direct SHR.UN opcode for {indexDescription} access.");
+        Assert.True(
+            ILShapeInspector.CountOpcode(method, OpCodes.Mul) >= 1,
+            $"Parenthesized SoA char multiplication should use the direct MUL opcode for {indexDescription} access.");
+        Assert.True(
+            ILShapeInspector.CountOpcode(method, OpCodes.Not) >= 1,
+            $"Parenthesized SoA char unary bitwise-not should use the direct NOT opcode for {indexDescription} access.");
+        Assert.True(
+            ILShapeInspector.CountOpcode(method, OpCodes.Rem) >= 1,
+            $"Parenthesized SoA char remainder should use the direct REM opcode for {indexDescription} access.");
+        Assert.True(
+            ILShapeInspector.CountOpcode(method, OpCodes.Div) >= 1,
+            $"Parenthesized SoA char division should use the direct DIV opcode for {indexDescription} access.");
     }
 
     private static void AssertParenthesizedIntegralUpdateColumnShape(MethodInfo method, string indexDescription)

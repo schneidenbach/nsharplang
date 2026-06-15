@@ -370,7 +370,7 @@ receiver-parenthesized signed numeric negation and unary bitwise-not stores,
 receiver-parenthesized int-backed enum bitwise and unary bitwise-not stores,
 receiver-parenthesized string/string? concatenation stores, receiver-parenthesized string/string?
 equality and nullable-string null equality expressions, receiver-parenthesized bool/numeric/char/enum
-comparison expressions, verified
+comparison expressions, receiver-parenthesized char numeric-promotion expressions, verified
 scalar/reference element reads/stores, bool bitwise expression stores, int-backed enum
 reads/stores/default stores/generated methods, string/string? concatenating compound assignments,
 string/string? concatenation expression stores, string/string? equality/inequality expressions,
