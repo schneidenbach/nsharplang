@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Type-reference parser small cores keep token tables shaped
+
+`ConsumeGreaterForTypeNodeCore`, `ParsePostfixTypeReferenceNodeCore`, and
+`ParseUnionTypeReferenceNodeCore` now read token kind/start/length columns through
+`ParserTokenTable` instead of unpacking raw token arrays. The large base type-reference parser core is
+left as the next separate parser cleanup so the recursive parser diff stays reviewable. Focused
+evidence: `./scripts/dev.sh Parser_TypeReferenceTree_MatchesProductionParser` and
+`./scripts/dev.sh ColumnarCodegen_MultiFile_RealParserCluster`.
+
 ## 2026-06-15 — CliArguments summary counters stay table-shaped internally
 
 `CliTidyDependencyStatusSummaryCore` and `CliTestOutcomeSummaryCore` now keep their rank inputs and
