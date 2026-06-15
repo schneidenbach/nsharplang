@@ -10079,6 +10079,49 @@ func Main() {
     }
 
     [Fact]
+    public void AttributeArguments_SupportedConstantShapes_AreValid()
+    {
+        AssertNoErrors("""
+            import System
+
+            [System.AttributeUsage(System.AttributeTargets.Class | System.AttributeTargets.Struct)]
+            class MarkerAttribute: Attribute {
+            }
+
+            [System.Obsolete(nameof(Marked))]
+            class Marked {
+            }
+            """);
+    }
+
+    [Theory]
+    [InlineData("[System.Obsolete(BuildMessage())]", "call")]
+    [InlineData("[System.Obsolete(\"v\" + \"1\")]", "+")]
+    [InlineData("[System.Obsolete(!\"no\")]", "!")]
+    public void AttributeArguments_UnsupportedExpressions_ReportConstantRequired(
+        string attribute,
+        string expectedMessage)
+    {
+        var result = AnalyzeWithSource($$"""
+            import System
+
+            {{attribute}}
+            func Bad(): int {
+                return 0
+            }
+
+            func BuildMessage(): string {
+                return "bad"
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.ConstantRequired);
+        Assert.Contains(expectedMessage, error.Message);
+        Assert.Contains("compile-time constants", error.Message);
+        Assert.Contains("literal", error.Suggestion);
+    }
+
+    [Fact]
     public void AnonymousUnion_AllowsEitherArmAndCommonTargetAssignment()
     {
         AssertNoErrors(@"

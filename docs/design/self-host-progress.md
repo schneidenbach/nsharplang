@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Attribute argument constants fail before lowering
+
+Attribute arguments now get a semantic constant-shape check before IL emission. Supported metadata
+constants such as literals, `typeof`, `nameof`, enum/static constants, arrays, and bitwise enum flags
+remain valid, while unsupported calls and non-bitwise expressions report `NL207` instead of reaching
+the IL backend's attribute evaluator and throwing.
+
 ## 2026-06-15 — Generator return types fail before lowering
 
 Generator functions now validate their declared return shape during semantic analysis. Clearly

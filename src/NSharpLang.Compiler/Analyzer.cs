@@ -471,6 +471,8 @@ public class Analyzer : IDisposable
 
     private void AnalyzeDeclaration(Declaration decl)
     {
+        ValidateDeclarationAttributeArguments(decl);
+
         switch (decl)
         {
             case TestDeclaration test:
@@ -525,6 +527,448 @@ public class Analyzer : IDisposable
                 // Preprocessor directives don't need analysis - they're pass-through
                 break;
         }
+    }
+
+    private enum AttributeArgumentConstantKind
+    {
+        Null,
+        Bool,
+        Integer,
+        Floating,
+        Char,
+        String,
+        Type,
+        Enum,
+        Array,
+        UnknownStaticMember
+    }
+
+    private void ValidateDeclarationAttributeArguments(Declaration decl)
+    {
+        switch (decl)
+        {
+            case FunctionDeclaration func:
+                ValidateAttributeArguments(func.Attributes);
+                ValidateParameterAttributeArguments(func.Parameters);
+                break;
+            case ClassDeclaration classDecl:
+                ValidateAttributeArguments(classDecl.Attributes);
+                ValidateParameterAttributeArguments(classDecl.PrimaryConstructorParameters);
+                break;
+            case StructDeclaration structDecl:
+                ValidateAttributeArguments(structDecl.Attributes);
+                ValidateParameterAttributeArguments(structDecl.PrimaryConstructorParameters);
+                break;
+            case RecordDeclaration recordDecl:
+                ValidateAttributeArguments(recordDecl.Attributes);
+                ValidateParameterAttributeArguments(recordDecl.PrimaryConstructorParameters);
+                break;
+            case SoaRecordDeclaration soaRecordDecl:
+                ValidateAttributeArguments(soaRecordDecl.Attributes);
+                break;
+            case InterfaceDeclaration interfaceDecl:
+                ValidateAttributeArguments(interfaceDecl.Attributes);
+                break;
+            case UnionDeclaration unionDecl:
+                ValidateAttributeArguments(unionDecl.Attributes);
+                break;
+            case EnumDeclaration enumDecl:
+                ValidateAttributeArguments(enumDecl.Attributes);
+                break;
+            case FieldDeclaration field:
+                ValidateAttributeArguments(field.Attributes);
+                break;
+            case PropertyDeclaration prop:
+                ValidateAttributeArguments(prop.Attributes);
+                break;
+            case ConstructorDeclaration ctor:
+                ValidateAttributeArguments(ctor.Attributes);
+                ValidateParameterAttributeArguments(ctor.Parameters);
+                break;
+            case IndexerDeclaration indexer:
+                ValidateAttributeArguments(indexer.Attributes);
+                ValidateParameterAttributeArguments(indexer.Parameters);
+                break;
+        }
+    }
+
+    private void ValidateParameterAttributeArguments(IEnumerable<Parameter>? parameters)
+    {
+        if (parameters == null)
+        {
+            return;
+        }
+
+        foreach (var parameter in parameters)
+        {
+            ValidateAttributeArguments(parameter.Attributes);
+        }
+    }
+
+    private void ValidateAttributeArguments(IEnumerable<AttributeNode>? attributes)
+    {
+        if (attributes == null)
+        {
+            return;
+        }
+
+        foreach (var attribute in attributes)
+        {
+            foreach (var argument in attribute.Arguments)
+            {
+                var (_, valueExpression) = NormalizeAttributeArgument(argument);
+                TryValidateAttributeArgumentExpression(valueExpression, out _);
+            }
+        }
+    }
+
+    private static (string? Name, Expression Value) NormalizeAttributeArgument(Argument argument)
+    {
+        var argumentName = argument.Name;
+        var valueExpression = argument.Value;
+        if (argumentName == null
+            && valueExpression is AssignmentExpression assignment
+            && assignment.Target is IdentifierExpression identifier)
+        {
+            argumentName = identifier.Name;
+            valueExpression = assignment.Value;
+        }
+
+        return (argumentName, valueExpression);
+    }
+
+    private bool TryValidateAttributeArgumentExpression(
+        Expression expression,
+        out AttributeArgumentConstantKind kind)
+    {
+        switch (expression)
+        {
+            case IntLiteralExpression:
+                kind = AttributeArgumentConstantKind.Integer;
+                return true;
+            case FloatLiteralExpression:
+                kind = AttributeArgumentConstantKind.Floating;
+                return true;
+            case CharLiteralExpression:
+                kind = AttributeArgumentConstantKind.Char;
+                return true;
+            case StringLiteralExpression:
+                kind = AttributeArgumentConstantKind.String;
+                return true;
+            case BoolLiteralExpression:
+                kind = AttributeArgumentConstantKind.Bool;
+                return true;
+            case NullLiteralExpression:
+                kind = AttributeArgumentConstantKind.Null;
+                return true;
+            case TypeOfExpression:
+                kind = AttributeArgumentConstantKind.Type;
+                return true;
+            case NameofExpression nameofExpression:
+                if (IsSupportedNameofAttributeTarget(nameofExpression.Target))
+                {
+                    kind = AttributeArgumentConstantKind.String;
+                    return true;
+                }
+
+                ReportUnsupportedAttributeArgument(nameofExpression.Target, "nameof target");
+                kind = AttributeArgumentConstantKind.String;
+                return false;
+            case MemberAccessExpression memberAccess:
+                kind = ClassifyAttributeMemberAccess(memberAccess);
+                if (kind == AttributeArgumentConstantKind.UnknownStaticMember
+                    && !CanResolveAttributeStaticContainer(memberAccess.Object))
+                {
+                    ReportUnsupportedAttributeArgument(memberAccess, "member access");
+                    return false;
+                }
+
+                return true;
+            case ArrayLiteralExpression arrayLiteral:
+                return TryValidateAttributeArrayArgument(arrayLiteral, out kind);
+            case UnaryExpression unary:
+                return TryValidateAttributeUnaryArgument(unary, out kind);
+            case BinaryExpression binary:
+                return TryValidateAttributeBinaryArgument(binary, out kind);
+            default:
+                ReportUnsupportedAttributeArgument(expression, DescribeAttributeArgumentForDiagnostic(expression));
+                kind = AttributeArgumentConstantKind.UnknownStaticMember;
+                return false;
+        }
+    }
+
+    private bool TryValidateAttributeArrayArgument(
+        ArrayLiteralExpression arrayLiteral,
+        out AttributeArgumentConstantKind kind)
+    {
+        kind = AttributeArgumentConstantKind.Array;
+        AttributeArgumentConstantKind? elementKind = null;
+        var valid = true;
+        foreach (var element in arrayLiteral.Elements)
+        {
+            if (!TryValidateAttributeArgumentExpression(element, out var currentKind))
+            {
+                valid = false;
+                continue;
+            }
+
+            if (currentKind == AttributeArgumentConstantKind.Null)
+            {
+                continue;
+            }
+
+            elementKind ??= currentKind;
+            if (elementKind != currentKind)
+            {
+                ReportUnsupportedAttributeArgument(
+                    element,
+                    "mixed-type array element");
+                valid = false;
+            }
+        }
+
+        return valid;
+    }
+
+    private bool TryValidateAttributeUnaryArgument(
+        UnaryExpression unary,
+        out AttributeArgumentConstantKind kind)
+    {
+        if (!TryValidateAttributeArgumentExpression(unary.Operand, out var operandKind))
+        {
+            kind = operandKind;
+            return false;
+        }
+
+        if (unary.Operator == UnaryOperator.Negate
+            && operandKind is AttributeArgumentConstantKind.Integer or AttributeArgumentConstantKind.Floating)
+        {
+            kind = operandKind;
+            return true;
+        }
+
+        if (unary.Operator == UnaryOperator.Not && operandKind == AttributeArgumentConstantKind.Bool)
+        {
+            kind = AttributeArgumentConstantKind.Bool;
+            return true;
+        }
+
+        if (unary.Operator == UnaryOperator.BitwiseNot && operandKind == AttributeArgumentConstantKind.Integer)
+        {
+            kind = AttributeArgumentConstantKind.Integer;
+            return true;
+        }
+
+        ReportUnsupportedAttributeOperator(unary, GetUnaryOperatorText(unary.Operator));
+        kind = operandKind;
+        return false;
+    }
+
+    private bool TryValidateAttributeBinaryArgument(
+        BinaryExpression binary,
+        out AttributeArgumentConstantKind kind)
+    {
+        var leftValid = TryValidateAttributeArgumentExpression(binary.Left, out var leftKind);
+        var rightValid = TryValidateAttributeArgumentExpression(binary.Right, out var rightKind);
+        kind = leftKind;
+        if (!leftValid || !rightValid)
+        {
+            return false;
+        }
+
+        if (binary.Operator is not (BinaryOperator.BitwiseOr or BinaryOperator.BitwiseAnd or BinaryOperator.BitwiseXor))
+        {
+            ReportUnsupportedAttributeOperator(binary, GetBinaryOperatorText(binary.Operator));
+            return false;
+        }
+
+        if ((leftKind == AttributeArgumentConstantKind.Integer && rightKind == AttributeArgumentConstantKind.Integer)
+            || (leftKind == AttributeArgumentConstantKind.Enum && rightKind == AttributeArgumentConstantKind.Enum)
+            || leftKind == AttributeArgumentConstantKind.UnknownStaticMember
+            || rightKind == AttributeArgumentConstantKind.UnknownStaticMember)
+        {
+            kind = leftKind == AttributeArgumentConstantKind.Enum || rightKind == AttributeArgumentConstantKind.Enum
+                ? AttributeArgumentConstantKind.Enum
+                : AttributeArgumentConstantKind.Integer;
+            return true;
+        }
+
+        ReportUnsupportedAttributeOperator(binary, GetBinaryOperatorText(binary.Operator));
+        return false;
+    }
+
+    private bool CanResolveAttributeStaticContainer(Expression expression)
+    {
+        if (!TryGetQualifiedAttributeName(expression, out var name))
+        {
+            return false;
+        }
+
+        if (TryResolveBuiltInTypeKeyword(name) != null)
+        {
+            return true;
+        }
+
+        var resolvedType = ResolveTypeAlias(LookupType(name) ?? BuiltInTypes.Unknown);
+        if (!BuiltInTypes.IsUnknown(resolvedType))
+        {
+            return true;
+        }
+
+        return TryResolveExternalType(name) is ReflectionTypeInfo;
+    }
+
+    private AttributeArgumentConstantKind ClassifyAttributeMemberAccess(MemberAccessExpression memberAccess)
+    {
+        if (!TryGetQualifiedAttributeName(memberAccess.Object, out var containerName))
+        {
+            return AttributeArgumentConstantKind.UnknownStaticMember;
+        }
+
+        var resolvedType = ResolveTypeAlias(LookupType(containerName) ?? BuiltInTypes.Unknown);
+        if (resolvedType is EnumTypeInfo)
+        {
+            return AttributeArgumentConstantKind.Enum;
+        }
+
+        if (TryResolveBuiltInTypeKeyword(containerName) is { } builtInType)
+        {
+            return ClassifyAttributeRuntimeStaticMember(builtInType, memberAccess.MemberName);
+        }
+
+        if (TryResolveExternalType(containerName) is ReflectionTypeInfo reflectionType)
+        {
+            if (IsRuntimeEnumType(reflectionType.Type))
+            {
+                return AttributeArgumentConstantKind.Enum;
+            }
+
+            return ClassifyAttributeRuntimeStaticMember(reflectionType.Type, memberAccess.MemberName);
+        }
+
+        return AttributeArgumentConstantKind.UnknownStaticMember;
+    }
+
+    private static AttributeArgumentConstantKind ClassifyAttributeRuntimeStaticMember(Type type, string memberName)
+    {
+        const BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static;
+        var field = type.GetField(memberName, flags);
+        if (field != null)
+        {
+            return ClassifyAttributeRuntimeType(field.FieldType);
+        }
+
+        var property = type.GetProperty(memberName, flags);
+        if (property?.GetMethod != null)
+        {
+            return ClassifyAttributeRuntimeType(property.PropertyType);
+        }
+
+        return AttributeArgumentConstantKind.UnknownStaticMember;
+    }
+
+    private static AttributeArgumentConstantKind ClassifyAttributeRuntimeType(Type type)
+    {
+        if (type.IsArray)
+        {
+            return AttributeArgumentConstantKind.Array;
+        }
+
+        if (IsRuntimeEnumType(type))
+        {
+            return AttributeArgumentConstantKind.Enum;
+        }
+
+        return type.FullName switch
+        {
+            "System.Boolean" => AttributeArgumentConstantKind.Bool,
+            "System.Byte" or "System.SByte" or "System.Int16" or "System.UInt16"
+                or "System.Int32" or "System.UInt32" or "System.Int64" or "System.UInt64" => AttributeArgumentConstantKind.Integer,
+            "System.Single" or "System.Double" or "System.Decimal" => AttributeArgumentConstantKind.Floating,
+            "System.Char" => AttributeArgumentConstantKind.Char,
+            "System.String" => AttributeArgumentConstantKind.String,
+            "System.Type" => AttributeArgumentConstantKind.Type,
+            _ => AttributeArgumentConstantKind.UnknownStaticMember
+        };
+    }
+
+    private static bool IsRuntimeEnumType(Type type)
+        => type.IsEnum || type.BaseType?.FullName == "System.Enum";
+
+    private static bool IsSupportedNameofAttributeTarget(Expression target)
+        => target switch
+        {
+            IdentifierExpression => true,
+            MemberAccessExpression { IsNullConditional: false } memberAccess => IsSupportedNameofAttributeTarget(memberAccess.Object),
+            _ => false
+        };
+
+    private static bool TryGetQualifiedAttributeName(Expression expression, out string name)
+    {
+        switch (expression)
+        {
+            case IdentifierExpression identifier:
+                name = identifier.Name;
+                return true;
+            case MemberAccessExpression { IsNullConditional: false } memberAccess
+                when TryGetQualifiedAttributeName(memberAccess.Object, out var parentName):
+                name = $"{parentName}.{memberAccess.MemberName}";
+                return true;
+            default:
+                name = string.Empty;
+                return false;
+        }
+    }
+
+    private static string GetUnaryOperatorText(UnaryOperator op) => op switch
+    {
+        UnaryOperator.Negate => "-",
+        UnaryOperator.Not => "!",
+        UnaryOperator.BitwiseNot => "~",
+        UnaryOperator.PreIncrement => "++",
+        UnaryOperator.PreDecrement => "--",
+        UnaryOperator.PostIncrement => "++",
+        UnaryOperator.PostDecrement => "--",
+        UnaryOperator.IndexFromEnd => "^",
+        _ => op.ToString()
+    };
+
+    private void ReportUnsupportedAttributeArgument(Expression expression, string description)
+    {
+        var (line, column, length) = GetExpressionDiagnosticSpan(expression);
+        Error(
+            ErrorCode.ConstantRequired,
+            $"Attribute arguments must be compile-time constants; {description} is not supported here",
+            line,
+            column,
+            "Use a literal, typeof(...), nameof(...), enum/static constant, or an array of those constants.",
+            length);
+    }
+
+    private string DescribeAttributeArgumentForDiagnostic(Expression expression)
+    {
+        var description = DescribeExpressionForDiagnostic(expression);
+        return expression switch
+        {
+            IdentifierExpression => "identifier",
+            MemberAccessExpression => "member access",
+            _ when description.Contains(' ', StringComparison.Ordinal) => description,
+            _ => $"{char.ToLowerInvariant(description[0])}{description[1..]} expression"
+        };
+    }
+
+    private void ReportUnsupportedAttributeOperator(Expression expression, string operatorText)
+    {
+        var (line, column, length) = expression is BinaryExpression binary
+            ? GetBinaryOperatorDiagnosticSpan(binary)
+            : GetExpressionDiagnosticSpan(expression);
+        Error(
+            ErrorCode.ConstantRequired,
+            $"Attribute arguments must be compile-time constants; operator '{operatorText}' is not supported here",
+            line,
+            column,
+            "Use a literal, typeof(...), nameof(...), enum/static constant, or an array of those constants.",
+            length);
     }
 
     private void AnalyzeTestDeclaration(TestDeclaration test)
