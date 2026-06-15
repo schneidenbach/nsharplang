@@ -11,6 +11,20 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Property name text moves into N#
+
+`ParserDeclarations.nl` extends `ParsePropertyAccessorTypeInfoInto` so the existing product-routed
+property wrapper returns both the property name text and canonical property type text. The
+span-only `ParsePropertyAccessorInfoInto` ABI remains emitted for parser parity tests.
+
+`NSharpCompilerDogfoodAdapter.TryParseColumnarPropertyAt` no longer slices the property name from
+source spans in C#; getter/setter input names are derived from the N# text column. Focused evidence:
+`./scripts/dev.sh Parser_TopLevelDeclarationKinds_MatchProductionParser`,
+`./scripts/dev.sh ColumnarCodegen_Parity_ClassGet`,
+`./scripts/dev.sh ColumnarCodegen_Parity_StaticProperties`,
+`./scripts/dev.sh ColumnarCodegen_Parity_GenericClass_CtorFieldMethodProperty`, and
+`./scripts/dev.sh ColumnarCodegen_MultiFile_EligibleClusterCompiles`.
+
 ## 2026-06-15 — Enum declaration name text moves into N#
 
 `ParserDeclarations.nl` now exports `ParseEnumDeclarationTextInfoInto`, a product-routed wrapper

@@ -1167,10 +1167,11 @@ class B
             null,
             new object[] { compactedSource, kinds, starts, valueLengths, count, propIndex, spanResult }) ?? -2);
         var result = new int[6];
+        var nameTexts = new string[1];
         var typeTexts = new string[1];
         var actualKind = (int)(parsePropertyAccessorTypeInfo.Invoke(
             null,
-            new object[] { compactedSource, kinds, starts, valueLengths, count, propIndex, typeTexts, result }) ?? -2);
+            new object[] { compactedSource, kinds, starts, valueLengths, count, propIndex, nameTexts, typeTexts, result }) ?? -2);
         Assert.Equal(spanKind, actualKind);
         Assert.Equal(expectedAccessorKind, actualKind);
         if (expectedAccessorKind < 0)
@@ -1178,6 +1179,7 @@ class B
 
         Assert.Equal(spanResult, result);
         Assert.Equal(propertyName, compactedSource.Substring(result[0], result[1]));
+        Assert.Equal(propertyName, nameTexts[0]);
         Assert.Equal(expectedType, compactedSource.Substring(result[2], result[3]));
         Assert.Equal(expectedType, typeTexts[0]);
         Assert.True(result[4] >= 0 && result[4] < count, $"Get body brace missing for {label}.");

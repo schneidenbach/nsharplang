@@ -656,8 +656,8 @@ func ParsePropertyAccessorInfoInto(source: string, tokenKinds: int[], tokenStart
     return ParsePropertyAccessorInfoCore(source, ref tokens, count, propIndex, ref result)
 }
 
-func ParsePropertyAccessorTypeInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, propIndex: int, outTypeTexts: string[], outResult: int[]): int {
-    if outTypeTexts.Length < 1 {
+func ParsePropertyAccessorTypeInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, propIndex: int, outNameTexts: string[], outTypeTexts: string[], outResult: int[]): int {
+    if outNameTexts.Length < 1 || outTypeTexts.Length < 1 {
         return -1
     }
 
@@ -668,11 +668,17 @@ func ParsePropertyAccessorTypeInfoInto(source: string, tokenKinds: int[], tokenS
         return -1
     }
 
+    nameText := ParserDeclarationSpanText(source, result.Values[0], result.Values[1])
+    if nameText == "" {
+        return -1
+    }
+
     typeText := ParserDeclarationCanonicalTypeText(source, result.Values[2], result.Values[3])
     if typeText == "" {
         return -1
     }
 
+    outNameTexts[0] = nameText
     outTypeTexts[0] = typeText
     return accessorKind
 }
