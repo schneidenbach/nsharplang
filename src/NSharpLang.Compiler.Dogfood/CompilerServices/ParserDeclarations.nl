@@ -558,6 +558,82 @@ func TopLevelStructLikeDeclarationIndicesAppend(tokens: &ParserDeclarationKindSt
     return outCount
 }
 
+func TopLevelColumnarFunctionDeclarationIndicesInto(source: string, rawTokenKinds: int[], rawTokenStarts: int[], rawTokenValueLengths: int[], rawCount: int, compactTokenKinds: int[], compactCount: int, outFuncIndices: int[], outAsyncFlags: int[], outResult: int[]): int {
+    if rawCount < 0 || compactCount < 0 || rawCount > rawTokenKinds.Length || rawCount > rawTokenStarts.Length || rawCount > rawTokenValueLengths.Length || compactCount > compactTokenKinds.Length || outResult.Length < 2 {
+        return -1
+    }
+
+    rawTokens := new ParserDeclarationTokenTable { Kinds: rawTokenKinds, Starts: rawTokenStarts, ValueLengths: rawTokenValueLengths }
+    if TopLevelContextualTestDeclarationExistsCore(source, ref rawTokens, rawCount) != 0 {
+        return -1
+    }
+
+    declKinds := new int[](rawCount + 1)
+    decls := new TopLevelDeclarationKindTable { Kinds: declKinds }
+    rawKindStream := new ParserDeclarationKindStream { Kinds: rawTokenKinds }
+    declCount := TopLevelDeclarationKindsCore(ref rawKindStream, rawCount, ref decls)
+    if declCount <= 0 {
+        return -1
+    }
+
+    i := 0
+    while i < declCount {
+        kind := declKinds[i]
+        if kind != 7 && kind != 14 && kind != 9 && kind != 13 && kind != 12 && kind != 8 && kind != 10 {
+            return -1
+        }
+
+        i = i + 1
+    }
+
+    modKinds := new int[](rawCount + 1)
+    modFlags := new int[](rawCount + 1)
+    modifiers := new TopLevelDeclarationModifierTable { Kinds: modKinds, Modifiers: modFlags }
+    modifierCount := TopLevelDeclarationModifiersCore(ref rawKindStream, rawCount, ref modifiers)
+    if modifierCount != declCount {
+        return -1
+    }
+
+    compactKindStream := new ParserDeclarationKindStream { Kinds: compactTokenKinds }
+    indices := new TopLevelDeclarationIndexTable { Indices: outFuncIndices }
+    funcCount := TopLevelDeclarationIndicesCore(ref compactKindStream, compactCount, 7, 0, ref indices)
+    if funcCount <= 0 || funcCount > outAsyncFlags.Length {
+        return -1
+    }
+
+    asyncCount := 0
+    i = 0
+    while i < declCount {
+        if declKinds[i] == 7 {
+            if asyncCount >= outAsyncFlags.Length {
+                return -1
+            }
+
+            asyncFlag := 0
+            if (modFlags[i] & 2048) != 0 {
+                asyncFlag = 1
+            }
+
+            outAsyncFlags[asyncCount] = asyncFlag
+            asyncCount = asyncCount + 1
+        }
+
+        i = i + 1
+    }
+
+    if asyncCount != funcCount {
+        return -1
+    }
+
+    if TopLevelFunctionPreamblesAreValidCore(ref compactKindStream, compactCount, ref indices, funcCount) == 0 {
+        return -1
+    }
+
+    outResult[0] = declCount
+    outResult[1] = funcCount
+    return funcCount
+}
+
 func TopLevelDeclarationIndicesCore(tokens: &ParserDeclarationKindStream, count: int, targetKind: int, suppressWhereClause: int, indices: &TopLevelDeclarationIndexTable): int {
     braceDepth := 0
     bracketDepth := 0

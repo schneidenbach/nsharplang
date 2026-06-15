@@ -70,8 +70,7 @@ internal static class NSharpCompilerDogfoodAdapter
             int[] rawLines,
             int[] rawColumns,
             int rawCount,
-            int[] kinds, int[] starts, int[] valueLengths, int count,
-            int[] declarationKinds, int declarationCount)
+            int[] kinds, int[] starts, int[] valueLengths, int count)
         {
             RawKinds = rawKinds;
             RawStarts = rawStarts;
@@ -83,8 +82,6 @@ internal static class NSharpCompilerDogfoodAdapter
             Starts = starts;
             ValueLengths = valueLengths;
             Count = count;
-            DeclarationKinds = declarationKinds;
-            DeclarationCount = declarationCount;
         }
 
         internal int[] RawKinds { get; }
@@ -97,8 +94,6 @@ internal static class NSharpCompilerDogfoodAdapter
         internal int[] Starts { get; }
         internal int[] ValueLengths { get; }
         internal int Count { get; }
-        internal int[] DeclarationKinds { get; }
-        internal int DeclarationCount { get; }
     }
 
     private static bool TryTokenizeColumnarSource(Bindings bindings, string source, out ColumnarTokenizedSource tokens)
@@ -115,11 +110,6 @@ internal static class NSharpCompilerDogfoodAdapter
             var rawCount = bindings.TokenizeMetadataWithIndentation(
                 source, rawKinds, rawStarts, rawValueLengths, rawLines, rawColumns);
             if (rawCount < 0 || rawCount > capacity)
-                return false;
-
-            var declarationKinds = new int[rawCount + 1];
-            var declarationCount = bindings.TopLevelDeclarationKinds(rawKinds, rawCount, declarationKinds);
-            if (declarationCount < 0)
                 return false;
 
             var kinds = new int[rawCount];
@@ -143,8 +133,7 @@ internal static class NSharpCompilerDogfoodAdapter
 
             tokens = new ColumnarTokenizedSource(
                 rawKinds, rawStarts, rawValueLengths, rawLines, rawColumns, rawCount,
-                kinds, starts, valueLengths, count,
-                declarationKinds, declarationCount);
+                kinds, starts, valueLengths, count);
             return true;
         }
         catch
@@ -163,65 +152,30 @@ internal static class NSharpCompilerDogfoodAdapter
         inputs = new System.Collections.Generic.List<Columnar.ColumnarFunctionInput>();
         try
         {
-            var rawKinds = tokens.RawKinds;
-            var rawStarts = tokens.RawStarts;
-            var rawValueLengths = tokens.RawValueLengths;
-            var rawCount = tokens.RawCount;
-            if (bindings.TopLevelContextualTestDeclarationExists(source, rawKinds, rawStarts, rawValueLengths, rawCount) != 0)
-                return false;
-
-            var declKinds = tokens.DeclarationKinds;
-            var declCount = tokens.DeclarationCount;
-            if (declCount <= 0)
-                return false;
-            for (var d = 0; d < declCount; d++)
-            {
-                // 7 = func, 14 = enum, 9 = struct, 13 = record, 12 = union, 8 = class; any other top-level declaration
-                // kind is unsupported and declines the whole program. Enum/struct/record/class/union decls are
-                // collected separately (TryGetColumnarEnumInputs / TryGetColumnarStructInputs /
-                // TryGetColumnarUnionInputs); the func scan below only picks `func` tokens, so
-                // type decls are skipped here rather than mis-parsed as functions.
-                if (declKinds[d] != 7 && declKinds[d] != 14 && declKinds[d] != 9 && declKinds[d] != 13 && declKinds[d] != 12 && declKinds[d] != 8 && declKinds[d] != 10)
-                    return false;
-            }
-
-            // ASYNC modifiers (async-arc rung A; rung 0 was a blanket decline after the probe-found
-            // divergence where the modifier was silently DROPPED and columnar emitted an un-wrapped
-            // method surface). The kernel scans per-declaration modifier flags ((int)Modifiers;
-            // Async = 1 << 11). The i-th kind-7 declaration is the i-th top-level function index
-            // (both walk the token stream in order), so each function input carries its own flag.
-            var funcAsyncFlags = new System.Collections.Generic.List<bool>();
-            {
-                var asyncModKinds = new int[rawCount + 1];
-                var asyncModFlags = new int[rawCount + 1];
-                var asyncModCount = bindings.TopLevelDeclarationModifiers(rawKinds, rawCount, asyncModKinds, asyncModFlags);
-                if (asyncModCount != declCount)
-                    return false;
-                for (var d = 0; d < declCount; d++)
-                {
-                    if (declKinds[d] == 7)
-                        funcAsyncFlags.Add((asyncModFlags[d] & (1 << 11)) != 0);
-                }
-            }
-
             var ck = tokens.Kinds;
             var cs = tokens.Starts;
             var cv = tokens.ValueLengths;
             var n = tokens.Count;
 
             var funcIndices = new int[n + 1];
-            var funcIndexCount = bindings.TopLevelDeclarationIndices(ck, n, 7, 0, funcIndices);
-            if (funcIndexCount < 0)
-                return false;
-            if (funcIndexCount == 0)
-                return false;
-            if (funcIndexCount != funcAsyncFlags.Count)
-                return false; // the modifier scan and the func scan must agree on the function count.
-            if (bindings.TopLevelFunctionPreamblesAreValid(ck, n, funcIndices, funcIndexCount) == 0)
+            var funcAsyncFlags = new int[n + 1];
+            var funcResult = new int[2];
+            var funcIndexCount = bindings.TopLevelColumnarFunctionDeclarationIndices(
+                source,
+                tokens.RawKinds,
+                tokens.RawStarts,
+                tokens.RawValueLengths,
+                tokens.RawCount,
+                ck,
+                n,
+                funcIndices,
+                funcAsyncFlags,
+                funcResult);
+            if (funcIndexCount <= 0)
                 return false;
             for (var fi = 0; fi < funcIndexCount; fi++)
             {
-                if (!TryParseColumnarFunctionAt(bindings, ck, cs, cv, n, funcIndices[fi], source, out var input, isAsync: funcAsyncFlags[fi]))
+                if (!TryParseColumnarFunctionAt(bindings, ck, cs, cv, n, funcIndices[fi], source, out var input, isAsync: funcAsyncFlags[fi] == 1))
                     return false;
                 inputs.Add(input);
             }
@@ -2028,30 +1982,21 @@ internal static class NSharpCompilerDogfoodAdapter
                 CreateDelegate<TokenizeMetadataWithIndentationInto>(
                     programType,
                     "TokenizeMetadataWithIndentationInto"),
-                CreateDelegate<TopLevelDeclarationKindsInto>(
-                    programType,
-                    "TopLevelDeclarationKindsInto"),
-                CreateDelegate<TopLevelContextualTestDeclarationExistsInto>(
-                    programType,
-                    "TopLevelContextualTestDeclarationExistsInto"),
                 CreateDelegate<TopLevelDeclarationIndicesInto>(
                     programType,
                     "TopLevelDeclarationIndicesInto"),
+                CreateDelegate<TopLevelColumnarFunctionDeclarationIndicesInto>(
+                    programType,
+                    "TopLevelColumnarFunctionDeclarationIndicesInto"),
                 CreateDelegate<TopLevelStructLikeDeclarationIndicesInto>(
                     programType,
                     "TopLevelStructLikeDeclarationIndicesInto"),
-                CreateDelegate<TopLevelFunctionPreamblesAreValidInto>(
-                    programType,
-                    "TopLevelFunctionPreamblesAreValidInto"),
                 CreateDelegate<TokenIndexByKindStartInto>(
                     programType,
                     "TokenIndexByKindStartInto"),
                 CreateDelegate<ParsePropertyAccessorTypeInfoInto>(
                     programType,
                     "ParsePropertyAccessorTypeInfoInto"),
-                CreateDelegate<TopLevelDeclarationModifiersInto>(
-                    programType,
-                    "TopLevelDeclarationModifiersInto"),
                 CreateDelegate<TopLevelDeclarationNameSpansInto>(
                     programType,
                     "TopLevelDeclarationNameSpansInto"),
@@ -2192,21 +2137,20 @@ internal static class NSharpCompilerDogfoodAdapter
     // (TryGetColumnarFunctionInputs -> ColumnarIlEmitter), consuming the columnar node tables directly.
     private delegate int TokenizeMetadataWithIndentationInto(
         string source, int[] kinds, int[] starts, int[] valueLengths, int[] lines, int[] columns);
-    private delegate int TopLevelDeclarationKindsInto(int[] tokenKinds, int count, int[] outKinds);
-    private delegate int TopLevelContextualTestDeclarationExistsInto(
-        string source, int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count);
     private delegate int TopLevelDeclarationIndicesInto(
         int[] tokenKinds, int count, int targetKind, int suppressWhereClause, int[] outIndices);
+    private delegate int TopLevelColumnarFunctionDeclarationIndicesInto(
+        string source,
+        int[] rawTokenKinds, int[] rawTokenStarts, int[] rawTokenValueLengths, int rawCount,
+        int[] compactTokenKinds, int compactCount,
+        int[] outFuncIndices, int[] outAsyncFlags, int[] outResult);
     private delegate int TopLevelStructLikeDeclarationIndicesInto(
         int[] tokenKinds, int count, int[] outIndices, int[] outReferenceFlags, int[] outRecordFlags);
-    private delegate int TopLevelFunctionPreamblesAreValidInto(
-        int[] tokenKinds, int count, int[] funcIndices, int funcCount);
     private delegate int TokenIndexByKindStartInto(
         int[] tokenKinds, int[] tokenStarts, int count, int targetKind, int targetStart);
     private delegate int ParsePropertyAccessorTypeInfoInto(
         string source, int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths,
         int count, int propIndex, string[] outNameTexts, string[] outTypeTexts, int[] outResult);
-    private delegate int TopLevelDeclarationModifiersInto(int[] tokenKinds, int count, int[] outKinds, int[] outModifiers);
     private delegate int TopLevelDeclarationNameSpansInto(
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count,
         int[] outKinds, int[] outNameStarts, int[] outNameLengths);
@@ -2290,14 +2234,11 @@ internal static class NSharpCompilerDogfoodAdapter
         AnalyzerUnionMissingCaseIndicesInto AnalyzerUnionMissingCaseIndices,
         OverloadSelectBestCandidate OverloadSelectBestCandidate,
         TokenizeMetadataWithIndentationInto TokenizeMetadataWithIndentation,
-        TopLevelDeclarationKindsInto TopLevelDeclarationKinds,
-        TopLevelContextualTestDeclarationExistsInto TopLevelContextualTestDeclarationExists,
         TopLevelDeclarationIndicesInto TopLevelDeclarationIndices,
+        TopLevelColumnarFunctionDeclarationIndicesInto TopLevelColumnarFunctionDeclarationIndices,
         TopLevelStructLikeDeclarationIndicesInto TopLevelStructLikeDeclarationIndices,
-        TopLevelFunctionPreamblesAreValidInto TopLevelFunctionPreamblesAreValid,
         TokenIndexByKindStartInto TokenIndexByKindStart,
         ParsePropertyAccessorTypeInfoInto ParsePropertyAccessorTypeInfo,
-        TopLevelDeclarationModifiersInto TopLevelDeclarationModifiers,
         TopLevelDeclarationNameSpansInto TopLevelDeclarationNameSpans,
         NamespaceImportSpansInto NamespaceImportSpans,
         PackageNameSpanInto PackageNameSpan,

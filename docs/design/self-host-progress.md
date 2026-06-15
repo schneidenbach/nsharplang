@@ -11,6 +11,24 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Top-level function routing rowset moves into N#
+
+`ParserDeclarations.nl` now exports `TopLevelColumnarFunctionDeclarationIndicesInto`, a
+product-routed rowset that composes the contextual test/setup/teardown guard, allowed top-level
+declaration-kind gate, declaration modifier scan, compact function indices, async flag column, and
+function-preamble validation before C# sees the function list.
+
+`NSharpCompilerDogfoodAdapter.TryGetColumnarFunctionInputs` no longer performs C# top-level
+declaration kind validation, async flag list assembly, or separate function-index/preamble calls. It
+consumes the N# rowset and only materializes `ColumnarFunctionInput` containers; the shared token
+snapshot no longer precomputes declaration-kind rows for C#. The helper was kept inside the
+product-routed N# subset (`new int[](n)` scratch arrays, no parity-only expression forms) so
+`ParserDeclarations.nl` and the 26-file eligible product cluster still compile through the columnar
+backend. Focused evidence: `./scripts/dev.sh Parser_TopLevelDeclarationKinds_MatchProductionParser`,
+`./scripts/dev.sh ColumnarCodegen_Parity`,
+`./scripts/dev.sh ColumnarCodegen_CompilesRealDogfoodCorpus_Coverage`, and
+`./scripts/dev.sh ColumnarCodegen_MultiFile_EligibleClusterCompiles`.
+
 ## 2026-06-15 — Struct-like declaration selection moves into N#
 
 `ParserDeclarations.nl` now exports `TopLevelStructLikeDeclarationIndicesInto`, a product-routed

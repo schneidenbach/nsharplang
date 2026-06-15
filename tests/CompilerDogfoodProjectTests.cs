@@ -79,6 +79,10 @@ public class CompilerDogfoodProjectTests
                     "TopLevelDeclarationIndicesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit TopLevelDeclarationIndicesInto.");
+            var topLevelColumnarFunctionDeclIndices = programType.GetMethod(
+                    "TopLevelColumnarFunctionDeclarationIndicesInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit TopLevelColumnarFunctionDeclarationIndicesInto.");
             var topLevelStructLikeDeclIndices = programType.GetMethod(
                     "TopLevelStructLikeDeclarationIndicesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -216,6 +220,12 @@ record Person {
 
             AssertTopLevelDeclarationKindsLikeProduction(controlledCorpus, tokenizeWithIndentation, topLevelDecls, topLevelDeclNames, packageNameSpan, namespaceImportSpans, declModifiers);
             AssertTopLevelDeclarationIndices(controlledCorpus, (int)TokenType.Func, false, 1, tokenizeWithIndentation, topLevelDeclIndices, "top-level func only");
+            AssertTopLevelColumnarFunctionDeclarationIndices(
+                controlledCorpus,
+                new[] { 0 },
+                tokenizeWithIndentation,
+                topLevelColumnarFunctionDeclIndices,
+                "controlled top-level function rowset");
             AssertTopLevelDeclarationIndices(controlledCorpus, (int)TokenType.Class, true, 1, tokenizeWithIndentation, topLevelDeclIndices, "top-level class only");
             AssertTopLevelDeclarationIndices(controlledCorpus, (int)TokenType.Struct, true, 1, tokenizeWithIndentation, topLevelDeclIndices, "top-level struct only");
             AssertTopLevelDeclarationIndices(controlledCorpus, (int)TokenType.Interface, false, 1, tokenizeWithIndentation, topLevelDeclIndices, "top-level interface only");
@@ -394,6 +404,19 @@ static async func ok(): int {
                 topLevelDeclIndices,
                 topLevelFunctionPreambles,
                 "valid import/package/modifier preamble");
+            AssertTopLevelColumnarFunctionDeclarationIndices(
+                """
+import System.Text
+package Demo
+
+static async func ok(): int {
+    return 1
+}
+""",
+                new[] { 1 },
+                tokenizeWithIndentation,
+                topLevelColumnarFunctionDeclIndices,
+                "async top-level function rowset");
             AssertTopLevelFunctionPreambles(
                 """
 pub async func bad(): int {
@@ -405,6 +428,38 @@ pub async func bad(): int {
                 topLevelDeclIndices,
                 topLevelFunctionPreambles,
                 "unknown top-level prefix before async func");
+            AssertTopLevelColumnarFunctionDeclarationDeclines(
+                """
+pub async func bad(): int {
+    return 1
+}
+""",
+                tokenizeWithIndentation,
+                topLevelColumnarFunctionDeclIndices,
+                "unknown top-level prefix before async func rowset");
+            AssertTopLevelColumnarFunctionDeclarationDeclines(
+                """
+type Alias = int
+
+func f(): int {
+    return 1
+}
+""",
+                tokenizeWithIndentation,
+                topLevelColumnarFunctionDeclIndices,
+                "unsupported type alias top-level declaration");
+            AssertTopLevelColumnarFunctionDeclarationDeclines(
+                """
+setup {
+}
+
+func f(): int {
+    return 1
+}
+""",
+                tokenizeWithIndentation,
+                topLevelColumnarFunctionDeclIndices,
+                "contextual setup declaration");
             AssertTopLevelFunctionPreambles(
                 """
 Demo
@@ -1594,6 +1649,77 @@ class B
         }
     }
 
+    private static void AssertTopLevelColumnarFunctionDeclarationIndices(
+        string source,
+        int[] expectedAsyncFlags,
+        MethodInfo tokenizeWithIndentation,
+        MethodInfo topLevelColumnarFunctionDeclIndices,
+        string label)
+    {
+        var (rawCount, rawKinds, rawStarts, rawValueLengths, compactKinds, compactCount) =
+            TokenizeRawAndCompactSourceViaKernel(source, tokenizeWithIndentation);
+        var funcIndices = new int[compactCount + 1];
+        var asyncFlags = new int[compactCount + 1];
+        var result = new int[2];
+
+        var actualCount = (int)(topLevelColumnarFunctionDeclIndices.Invoke(
+            null,
+            new object[]
+            {
+                source,
+                rawKinds,
+                rawStarts,
+                rawValueLengths,
+                rawCount,
+                compactKinds,
+                compactCount,
+                funcIndices,
+                asyncFlags,
+                result
+            }) ?? -2);
+
+        Assert.Equal(expectedAsyncFlags.Length, actualCount);
+        Assert.Equal(expectedAsyncFlags.Length, result[1]);
+        for (var i = 0; i < actualCount; i++)
+        {
+            var index = funcIndices[i];
+            Assert.True(index >= 0 && index < compactCount, $"Function declaration index out of range for {label}: {index}.");
+            Assert.Equal((int)TokenType.Func, compactKinds[index]);
+            Assert.Equal(expectedAsyncFlags[i], asyncFlags[i]);
+        }
+    }
+
+    private static void AssertTopLevelColumnarFunctionDeclarationDeclines(
+        string source,
+        MethodInfo tokenizeWithIndentation,
+        MethodInfo topLevelColumnarFunctionDeclIndices,
+        string label)
+    {
+        var (rawCount, rawKinds, rawStarts, rawValueLengths, compactKinds, compactCount) =
+            TokenizeRawAndCompactSourceViaKernel(source, tokenizeWithIndentation);
+        var funcIndices = new int[compactCount + 1];
+        var asyncFlags = new int[compactCount + 1];
+        var result = new int[2];
+
+        var actualCount = (int)(topLevelColumnarFunctionDeclIndices.Invoke(
+            null,
+            new object[]
+            {
+                source,
+                rawKinds,
+                rawStarts,
+                rawValueLengths,
+                rawCount,
+                compactKinds,
+                compactCount,
+                funcIndices,
+                asyncFlags,
+                result
+            }) ?? -2);
+
+        Assert.Equal(-1, actualCount);
+    }
+
     private static void AssertTopLevelStructLikeDeclarationIndices(
         string source,
         int[] expectedKinds,
@@ -2314,6 +2440,33 @@ class B
         }
 
         return (n, ck, cs, cv, source);
+    }
+
+    private static (int RawCount, int[] RawKinds, int[] RawStarts, int[] RawValueLengths, int[] CompactKinds, int CompactCount)
+        TokenizeRawAndCompactSourceViaKernel(string source, MethodInfo tokenize)
+    {
+        var capacity = 3 * (source.Length + 1) + 8;
+        var rawKinds = new int[capacity];
+        var rawStarts = new int[capacity];
+        var rawValueLengths = new int[capacity];
+        var rawLines = new int[capacity];
+        var rawColumns = new int[capacity];
+        var rawCount = (int)(tokenize.Invoke(
+            null,
+            new object[] { source, rawKinds, rawStarts, rawValueLengths, rawLines, rawColumns }) ?? -1);
+
+        var compactKinds = new int[rawCount];
+        var compactCount = 0;
+        for (var i = 0; i < rawCount; i++)
+        {
+            if (rawKinds[i] == (int)TokenType.Newline)
+                continue;
+
+            compactKinds[compactCount] = rawKinds[i];
+            compactCount++;
+        }
+
+        return (rawCount, rawKinds, rawStarts, rawValueLengths, compactKinds, compactCount);
     }
 
     private static void AssertFunctionSignatureLikeProduction(string funcSource, MethodInfo tokenize, MethodInfo parseSig)
