@@ -233,9 +233,10 @@ semantics allocate a sliced array. They can be admitted only after an allocation
 has pinned IL-shape evidence. That rejection also applies when the range uses `System.Index`
 from-end bounds, such as `table.column[1..^1]`, and when the column member is parenthesized, such as
 `(table.column)[start..end]`. The same rejection applies to variable-held `System.Range` values such
-as `range := 0..1; table.column[range]`. Slice update forms, including simple assignment, compound
-assignment, null-coalescing assignment, increment, and decrement, all reject during analysis for
-literal, variable-held, and from-end ranges.
+as `range := 0..1; table.column[range]`, including the parenthesized column-member form
+`(table.column)[range]`. Slice update forms, including simple assignment, compound assignment,
+null-coalescing assignment, increment, and decrement, all reject during analysis for literal,
+variable-held, parenthesized-column, and from-end ranges.
 
 ## Diagnostics
 
@@ -343,8 +344,9 @@ including parenthesized literal and variable-held from-end direct-column element
 expression-valued simple stores, default stores across the verified scalar/reference element-type set,
 including expression-valued default stores, without old-element reads, variable-held from-end default
 stores without old-element reads, variable-held row-index diagnostics, variable-held direct-column
-range mutation diagnostics, variable-held from-end null-coalescing reads/assignments, verified
-scalar/reference element reads/stores, bool bitwise expression stores, int-backed enum
+range mutation diagnostics including parenthesized column members, variable-held from-end
+null-coalescing reads/assignments, verified scalar/reference element reads/stores, bool bitwise
+expression stores, int-backed enum
 reads/stores/default stores/generated methods, string/string? concatenating compound assignments,
 string/string? concatenation expression stores, string/string? equality/inequality expressions,
 nullable-string null equality/inequality expressions, bool equality/inequality plus logical-not and

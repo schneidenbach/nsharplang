@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Parenthesized variable SoA column ranges stop in analysis
+
+Direct backing-column range slice diagnostics now cover the combined parenthesized-column plus
+variable-held `System.Range` shape. `range := 0..1; slice := (nodes.kind)[range]` and the
+parenthesized mutation forms `=`, `+=`, `??=`, `++`, and `--` report the hidden-allocation diagnostic
+before emission, matching the unparenthesized variable-range and parenthesized literal-range pins.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter
+"FullyQualifiedName~Analyzer_SoaTableParenthesizedColumnRangeValue"` (6 tests).
+
 ## 2026-06-15 — Variable-held SoA from-end default stores avoid old reads
 
 Direct backing-column `System.Index` default stores now have an explicit variable-held proof beside
