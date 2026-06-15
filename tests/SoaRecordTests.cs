@@ -5077,6 +5077,52 @@ public class SoaRecordTests : ILCompilerTestBase
         Assert.Contains("table[index].column", error.Suggestion);
     }
 
+    [Theory]
+    [InlineData("", "bump(ref nodes[^1].kind)", "SoA table indexes must be int row ids", "System.Index", "table[index].column")]
+    [InlineData("", "reset(out nodes[0..1].kind)", "SoA table indexes must be int row ids", "range", "table[index].column")]
+    [InlineData("idx := ^1", "bump(ref nodes[idx].kind)", "SoA table indexes must be int row ids", "System.Index", "table[index].column")]
+    [InlineData("", "bump(ref nodes[(short)0].kind)", "SoA table indexes must be int row ids", "'short'", "table[index].column")]
+    [InlineData("", "reset(out nodes[-1].kind)", "SoA table row indexes must not be negative", null, "non-negative row id")]
+    public void Analyzer_SoaTableRefOutRowIndexesAreRejectedBeforeEmission(
+        string declaration,
+        string statement,
+        string expectedMessage,
+        string? expectedTypeDescription,
+        string expectedSuggestion)
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze($$"""
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
+            func bump(ref value: int) {
+                value += 1
+            }
+
+            func reset(out value: int) {
+                value = 0
+            }
+
+            func bad(nodes: Nodes) {
+                {{declaration}}
+                {{statement}}
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains(expectedMessage, error.Message);
+        if (expectedTypeDescription != null)
+        {
+            Assert.Contains(expectedTypeDescription, error.Message);
+        }
+
+        Assert.Contains(expectedSuggestion, error.Suggestion);
+    }
+
     [Fact]
     public void Analyzer_SoaTableRowIndexCannotBeNegativeLiteral()
     {

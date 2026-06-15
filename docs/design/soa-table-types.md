@@ -325,11 +325,12 @@ The compiler must produce direct diagnostics for common misuse:
 - non-nullable row/direct column null coalescing, including enum columns:
   "The left side of '??' has type 'X', which can't be null";
 - non-int, `System.Index`, or range row indexes, including variable-held `System.Index`/`System.Range`
-  values: "SoA table indexes must be int row ids";
+  values and `ref`/`out` row-projection argument addresses:
+  "SoA table indexes must be int row ids";
 - statically negative row indexes on row/direct-column reads or writes:
   "SoA table row indexes must not be negative" or "SoA column row indexes must not be negative",
-  including parenthesized whole-expression or unary-operand, checked/unchecked, and signed
-  integer-cast forms including aliases;
+  including parenthesized whole-expression or unary-operand, checked/unchecked, signed
+  integer-cast forms, and row-projection `ref`/`out` argument addresses including aliases;
 - direct table member mutation: "SoA table member 'X' cannot be assigned directly" for simple,
   compound, and null-coalescing assignment, or "SoA table member 'X' cannot be incremented or
   decremented directly", including aliases to SoA tables plus parenthesized and checked/unchecked
@@ -417,7 +418,8 @@ receiver-parenthesized signed numeric negation and unary bitwise-not stores,
 receiver-parenthesized int-backed enum bitwise and unary bitwise-not stores,
 receiver-parenthesized string/string? concatenation stores, receiver-parenthesized string/string?
 equality and nullable-string null equality expressions, receiver-parenthesized bool/numeric/char/enum
-comparison expressions, receiver-parenthesized char numeric-promotion expressions, verified
+comparison expressions, receiver-parenthesized char numeric-promotion expressions, row-projection
+`ref`/`out` row-index diagnostics, verified
 scalar/reference element reads/stores, bool bitwise expression stores, int-backed enum
 reads/stores/default stores/generated methods, string/string? concatenating compound assignments,
 string/string? concatenation expression stores, string/string? equality/inequality expressions,

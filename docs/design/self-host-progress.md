@@ -11,6 +11,12 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — SoA row ref/out indexes reject non-int row ids
+
+The new row-projection `ref`/`out` address path keeps the row-id contract intact. Alias-typed table
+receivers now have analyzer coverage for `ref nodes[^1].kind`, `out nodes[0..1].kind`, variable-held
+`System.Index` row ids, small-integer row ids, and negative row ids, all failing before IL emission.
+
 ## 2026-06-15 — Semantic-scope parity kernels stay out of product routes
 
 The dogfood rewrite notes now match the current code-intelligence route: semantic-scope lookup and
