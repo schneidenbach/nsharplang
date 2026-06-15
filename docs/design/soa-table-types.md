@@ -411,7 +411,8 @@ Row-projection null-coalescing
 reads/assignments have the same direct column proof, with range/slice allocation still rejected during
 analysis. Row-projection integral `uint`/`long`/`char` update forms are pinned with the same
 backing-column array proof. The generated `new`, `wrap`, `add`, `clear`, `ensureCapacity`, and
-`copyRow` methods are also pinned across the verified scalar/reference element-type set.
+`copyRow` methods are also pinned across the verified scalar/reference element-type set, including
+aliases to that set.
 Construction allocates exactly one array per column and stores column/metadata fields; `wrap` stores
 incoming column references without
 allocating arrays or copying elements; `add` updates only length metadata after calling

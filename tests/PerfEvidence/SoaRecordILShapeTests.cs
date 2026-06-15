@@ -4021,6 +4021,175 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void AliasedVerifiedColumnTypes_GeneratedMethodsUseColumnArraysWithoutElementCopies()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            type KindColumn = int
+            type FlagsColumn = uint
+            type StartColumn = long
+            type ActiveColumn = bool
+            type MarkerColumn = char
+            type NameColumn = string
+            type OptionalNameColumn = string?
+            type CountColumn = int
+
+            soa record NodeTable {
+                kind: KindColumn
+                flags: FlagsColumn
+                start: StartColumn
+                active: ActiveColumn
+                marker: MarkerColumn
+                name: NameColumn
+                optionalName: OptionalNameColumn
+                count: CountColumn
+            }
+
+            func setAll(nodes: NodeTable, row: int, name: NameColumn, optionalName: OptionalNameColumn) {
+                nodes[row].kind = 3
+                nodes[row].flags = (uint)7
+                nodes[row].start = 19L
+                nodes[row].active = true
+                nodes[row].marker = 'A'
+                nodes[row].name = name
+                nodes[row].optionalName = optionalName
+                nodes[row].count = 11
+            }
+
+            func readAll(nodes: NodeTable, row: int): int {
+                total := nodes[row].kind
+                total += (int)nodes[row].flags
+                total += (int)nodes[row].start
+                total += (nodes[row].active ? 100 : 0)
+                total += (int)nodes[row].marker
+                total += nodes[row].count
+                total += nodes[row].name.Length
+                optional := nodes[row].optionalName
+                total += (optional == null ? 1000 : optional.Length)
+                return total
+            }
+
+            func make(): int {
+                nodes := new NodeTable((short)4)
+                return nodes.length + nodes.capacity
+            }
+
+            func grow(): int {
+                nodes := new NodeTable(1)
+                row := nodes.add()
+                setAll(nodes, row, "abcd", null)
+                nodes.ensureCapacity((short)4)
+                return readAll(nodes, row) + nodes.length * 10000 + nodes.capacity * 100000
+            }
+
+            func view(kind: KindColumn[], flags: FlagsColumn[], start: StartColumn[], active: ActiveColumn[], marker: MarkerColumn[], name: NameColumn[], optionalName: OptionalNameColumn[], counts: CountColumn[]): int {
+                nodes := NodeTable.wrap(kind, flags, start, active, marker, name, optionalName, counts, (short)1)
+                nodes.copyRow(0, 1)
+                return readAll(nodes, 1) + nodes.length * 10000 + nodes.capacity * 100000
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var tableType = assembly.GetType("NodeTable");
+            Assert.NotNull(tableType);
+
+            var constructor = tableType!.GetConstructor(new[] { typeof(int) });
+            var wrap = tableType.GetMethod("wrap", BindingFlags.Public | BindingFlags.Static);
+            var add = tableType.GetMethod("add", BindingFlags.Public | BindingFlags.Instance);
+            var clear = tableType.GetMethod("clear", BindingFlags.Public | BindingFlags.Instance);
+            var ensureCapacity = tableType.GetMethod("ensureCapacity", BindingFlags.Public | BindingFlags.Instance);
+            var copyRow = tableType.GetMethod("copyRow", BindingFlags.Public | BindingFlags.Instance);
+            var make = ILShapeInspector.GetProgramMethod(assembly, "make");
+            var grow = ILShapeInspector.GetProgramMethod(assembly, "grow");
+            var view = ILShapeInspector.GetProgramMethod(assembly, "view");
+            Assert.NotNull(constructor);
+            Assert.NotNull(wrap);
+            Assert.NotNull(add);
+            Assert.NotNull(clear);
+            Assert.NotNull(ensureCapacity);
+            Assert.NotNull(copyRow);
+
+            Assert.Equal(typeof(int[]), tableType.GetField("kind")!.FieldType);
+            Assert.Equal(typeof(uint[]), tableType.GetField("flags")!.FieldType);
+            Assert.Equal(typeof(long[]), tableType.GetField("start")!.FieldType);
+            Assert.Equal(typeof(bool[]), tableType.GetField("active")!.FieldType);
+            Assert.Equal(typeof(char[]), tableType.GetField("marker")!.FieldType);
+            Assert.Equal(typeof(string[]), tableType.GetField("name")!.FieldType);
+            Assert.Equal(typeof(string[]), tableType.GetField("optionalName")!.FieldType);
+            Assert.Equal(typeof(int[]), tableType.GetField("count")!.FieldType);
+
+            Assert.Equal(4, Assert.IsType<int>(make.Invoke(null, null)));
+            Assert.Equal(411209, Assert.IsType<int>(grow.Invoke(null, null)));
+            Assert.Equal(
+                221209,
+                Assert.IsType<int>(view.Invoke(
+                    null,
+                    new object[]
+                    {
+                        new[] { 3, 0 },
+                        new uint[] { 7, 0 },
+                        new long[] { 19L, 0L },
+                        new[] { true, false },
+                        new[] { 'A', '\0' },
+                        new[] { "abcd", "" },
+                        new string?[] { null, null },
+                        new[] { 11, 0 }
+                    })));
+
+            ILShapeInspector.AssertNoBoxing(constructor!);
+            Assert.Equal(1, ILShapeInspector.CountOpcode(constructor!, OpCodes.Newobj)); // capacity guard exception
+            Assert.Equal(8, ILShapeInspector.CountOpcode(constructor!, OpCodes.Newarr));
+            Assert.Equal(0, ILShapeInspector.CountOpcode(constructor!, OpCodes.Call));
+            Assert.Equal(0, ILShapeInspector.CountOpcode(constructor!, OpCodes.Callvirt));
+            Assert.Equal(0, CountArrayElementLoads(constructor!));
+            Assert.Equal(0, CountArrayElementStores(constructor!));
+            Assert.Equal(10, ILShapeInspector.CountOpcode(constructor!, OpCodes.Stfld));
+
+            ILShapeInspector.AssertNoBoxing(wrap!);
+            Assert.Equal(3, ILShapeInspector.CountOpcode(wrap!, OpCodes.Newobj)); // null/length/mismatch guard exceptions
+            Assert.Equal(0, ILShapeInspector.CountOpcode(wrap!, OpCodes.Newarr));
+            Assert.Equal(0, ILShapeInspector.CountDelegateConstructions(wrap!));
+            Assert.Equal(0, ILShapeInspector.CountOpcode(wrap!, OpCodes.Callvirt));
+            Assert.Equal(0, CountArrayElementLoads(wrap!));
+            Assert.Equal(0, CountArrayElementStores(wrap!));
+            Assert.Equal(10, ILShapeInspector.CountOpcode(wrap!, OpCodes.Stfld));
+
+            ILShapeInspector.AssertNoBoxing(ensureCapacity!);
+            Assert.Equal(1, ILShapeInspector.CountOpcode(ensureCapacity!, OpCodes.Newobj)); // capacity guard exception
+            Assert.Equal(0, ILShapeInspector.CountOpcode(ensureCapacity!, OpCodes.Newarr));
+            Assert.Equal(0, ILShapeInspector.CountDelegateConstructions(ensureCapacity!));
+            Assert.Equal(0, ILShapeInspector.CountOpcode(ensureCapacity!, OpCodes.Callvirt));
+            Assert.Equal(8, ILShapeInspector.CountCallsTo(ensureCapacity!, typeof(Array), nameof(Array.Resize)));
+            Assert.Equal(8, ILShapeInspector.CountOpcode(ensureCapacity!, OpCodes.Ldflda));
+            Assert.Equal(1, ILShapeInspector.CountOpcode(ensureCapacity!, OpCodes.Stfld));
+            Assert.Equal(0, CountArrayElementLoads(ensureCapacity!));
+            Assert.Equal(0, CountArrayElementStores(ensureCapacity!));
+
+            ILShapeInspector.AssertNoBoxing(copyRow!);
+            Assert.Equal(4, ILShapeInspector.CountOpcode(copyRow!, OpCodes.Newobj)); // source/target/range/overflow guard exceptions
+            Assert.Equal(0, ILShapeInspector.CountOpcode(copyRow!, OpCodes.Newarr));
+            Assert.Equal(0, ILShapeInspector.CountDelegateConstructions(copyRow!));
+            Assert.Equal(0, ILShapeInspector.CountOpcode(copyRow!, OpCodes.Callvirt));
+            Assert.Equal(1, ILShapeInspector.CountOpcode(copyRow!, OpCodes.Call)); // ensureCapacity
+            Assert.Equal(8, CountArrayElementLoads(copyRow!));
+            Assert.Equal(8, CountArrayElementStores(copyRow!));
+            Assert.True(
+                ILShapeInspector.CountOpcode(copyRow!, OpCodes.Ldfld) >= 17,
+                "Aliased copyRow should load each column array plus the length field directly.");
+
+            AssertNoAllocationOrDispatch(clear!);
+            Assert.Equal(0, CountArrayElementLoads(clear!));
+            Assert.Equal(0, CountArrayElementStores(clear!));
+            Assert.Equal(0, ILShapeInspector.CountOpcode(clear!, OpCodes.Ldfld));
+            Assert.Equal(1, ILShapeInspector.CountOpcode(clear!, OpCodes.Stfld));
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void EnumColumn_UsesColumnArrayLoadStoreAndGeneratedMethodsWithoutRowAllocation()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

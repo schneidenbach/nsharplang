@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — SoA generated methods keep alias column shape
+
+Aliases to every verified scalar/reference SoA column shape now have generated-method IL-shape proof.
+`new`, `wrap`, `ensureCapacity`, and `copyRow` resolve alias element types to the same backing arrays
+as direct columns; `wrap` stores caller-owned alias-array parameters without element copies,
+`ensureCapacity` emits one `Array.Resize<T>` per column, and `copyRow` emits one element load/store
+pair per column with no row allocation, boxing, delegate construction, object-array traffic, or
+virtual dispatch.
+
 ## 2026-06-15 — SoA verified column aliases keep direct IL shape
 
 Aliases to every currently verified scalar/reference SoA column type are now pinned on the accepted
