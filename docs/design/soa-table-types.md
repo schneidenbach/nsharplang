@@ -67,15 +67,17 @@ widening as an ordinary `int` parameter, allocates exactly one array per column,
 lengths/capacity, and performs no element copy. `wrap` exposes generated parameter names for each
 column plus `length`, so named calls such as `NodeTable.wrap(length: n, kind: kinds)` bind
 semantically, including target-typed argument inference; negative literal `length` values are
-rejected during analysis. Target-typed `default` is not a construction form for SoA tables because it
-would produce a CLR wrapper value with null backing column arrays; use `new Table(capacity)` or
-`Table.wrap(...)` instead. Target-typed `new()` without the required capacity argument is rejected
-the same way as `new Table()`, including when the expected table type comes from a typed local,
-return, expression-bodied function/local function, call argument, default parameter value, field,
-expression-bodied property, object initializer member, `with` expression member, assignment target,
-array literal element, array initializer element, collection literal element, tuple literal element,
-typed ternary/match result arm, hard-cast target, checked/unchecked expression wrapper, or
-parenthesized wrapper.
+rejected during analysis. Generated `int` parameters on `wrap`, `ensureCapacity`, and `copyRow`
+accept the same implicit small-integer widening as ordinary calls, with analyzer-known small signed
+negative literals rejected before emission. Target-typed `default` is not a construction form for SoA
+tables because it would produce a CLR wrapper value with null backing column arrays; use
+`new Table(capacity)` or `Table.wrap(...)` instead. Target-typed `new()` without the required capacity
+argument is rejected the same way as `new Table()`, including when the expected table type comes from
+a typed local, return, expression-bodied function/local function, call argument, default parameter
+value, field, expression-bodied property, object initializer member, `with` expression member,
+assignment target, array literal element, array initializer element, collection literal element,
+tuple literal element, typed ternary/match result arm, hard-cast target, checked/unchecked expression
+wrapper, or parenthesized wrapper.
 The same construction rule applies when the expected type is nullable (`Table?`): `new()` still lacks
 the required backing-column capacity and must not become a nullable wrapper around an invalid table.
 Parameter declarations cannot use any SoA table as an optional-parameter default, including `null`

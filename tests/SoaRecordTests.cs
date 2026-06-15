@@ -7670,6 +7670,32 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void ILCompiler_SoaRecordGeneratedOperationsAcceptSmallIntegerArguments()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var source = """
+            soa record NodeTable {
+                kind: int
+                start: int
+            }
+
+            func main(): int {
+                kinds := new int[](2)
+                starts := new int[](2)
+                kinds[0] = 7
+                starts[0] = 8
+                nodes := NodeTable.wrap(kind: kinds, start: starts, length: (short)1)
+                nodes.ensureCapacity(capacity: (sbyte)3)
+                nodes.copyRow(from: (short)0, to: (sbyte)2)
+                return nodes.capacity * 1000 + nodes.length * 100 + nodes[2].kind * 10 + nodes[2].start
+            }
+            """;
+
+        Assert.Equal(4378, Assert.IsType<int>(CompileAndInvoke(source)));
+    }
+
+    [Fact]
     public void ILCompiler_SoaRecordCapacityConstructorBindsNamedArgument()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

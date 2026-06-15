@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Generated SoA operation int widening is IL-pinned
+
+The accepted side of generated SoA operation arguments now has explicit IL execution coverage:
+`wrap`, `ensureCapacity`, and `copyRow` all bind small signed integer arguments through their
+generated `int` parameters and preserve the expected table capacity, length, and copied row values.
+This pairs with the negative-literal analyzer pins so unsupported small signed count values fail
+before emission while supported widening remains a real product path.
+
 ## 2026-06-15 — SoA capacity construction follows int parameter widening
 
 SoA table capacity construction now matches the registered `int` constructor ABI instead of requiring
