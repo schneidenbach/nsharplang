@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Parenthesized SoA bool logical stores keep direct column IL
+
+Bool logical stores over receiver-parenthesized backing-column members now have IL-shape evidence for
+row, literal from-end, and variable-held `System.Index` forms. `(nodes.active)[row] =
+!(nodes.active)[row]`, `(nodes.ready)[^1] = (nodes.active)[^1] && (nodes.ready)[^1]`, and
+`idx := ^1; (nodes.active)[idx] = (nodes.active)[idx] || false` stay on backing column arrays, preserve
+expression-valued assignment results, and lower through direct comparison/short-circuit branch IL with
+no row construction, slice allocation, boxing, delegate construction, or virtual dispatch.
+
 ## 2026-06-15 — Parenthesized SoA promoted/logical failures stop in analysis
 
 Receiver-parenthesized backing-column elements now have analyzer coverage for the remaining promoted

@@ -363,8 +363,8 @@ parenthesized column-member receiver null-coalescing reads/assignments, parenthe
 receiver default stores without old-element reads, variable-held row-index diagnostics,
 variable-held direct-column
 range mutation diagnostics including parenthesized column members, variable-held from-end
-null-coalescing reads/assignments, verified scalar/reference element reads/stores, bool bitwise
-expression stores, int-backed enum
+null-coalescing reads/assignments, receiver-parenthesized bool logical expression stores, verified
+scalar/reference element reads/stores, bool bitwise expression stores, int-backed enum
 reads/stores/default stores/generated methods, string/string? concatenating compound assignments,
 string/string? concatenation expression stores, string/string? equality/inequality expressions,
 nullable-string null equality/inequality expressions, bool equality/inequality plus logical-not and

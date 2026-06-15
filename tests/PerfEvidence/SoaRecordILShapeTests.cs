@@ -1008,6 +1008,83 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void ParenthesizedColumnMemberBoolLogicalExpressions_UseColumnArrayOffsetWithoutSliceAllocation()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                active: bool
+                ready: bool
+            }
+
+            func rowOps(nodes: NodeTable, row: int): int {
+                (nodes.active)[row] = false;
+                (nodes.ready)[row] = true;
+                notValue := (nodes.active)[row] = !(nodes.active)[row];
+                andValue := (nodes.ready)[row] = (nodes.active)[row] && (nodes.ready)[row];
+                orValue := (nodes.active)[row] = (nodes.active)[row] || false;
+                total := notValue ? 100 : 0
+                total += andValue ? 10 : 0
+                total += orValue ? 1 : 0
+                return total
+            }
+
+            func literalOps(nodes: NodeTable): int {
+                (nodes.active)[^1] = false;
+                (nodes.ready)[^1] = true;
+                notValue := (nodes.active)[^1] = !(nodes.active)[^1];
+                andValue := (nodes.ready)[^1] = (nodes.active)[^1] && (nodes.ready)[^1];
+                orValue := (nodes.active)[^1] = (nodes.active)[^1] || false;
+                total := notValue ? 100 : 0
+                total += andValue ? 10 : 0
+                total += orValue ? 1 : 0
+                return total
+            }
+
+            func variableOps(nodes: NodeTable): int {
+                idx := ^1;
+                (nodes.active)[idx] = false;
+                (nodes.ready)[idx] = true;
+                notValue := (nodes.active)[idx] = !(nodes.active)[idx];
+                andValue := (nodes.ready)[idx] = (nodes.active)[idx] && (nodes.ready)[idx];
+                orValue := (nodes.active)[idx] = (nodes.active)[idx] || false;
+                total := notValue ? 100 : 0
+                total += andValue ? 10 : 0
+                total += orValue ? 1 : 0
+                return total
+            }
+
+            func main(): int {
+                nodes := new NodeTable(1)
+                row := nodes.add()
+                return rowOps(nodes, row) + literalOps(nodes) + variableOps(nodes)
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var rowOps = ILShapeInspector.GetProgramMethod(assembly, "rowOps");
+            var literalOps = ILShapeInspector.GetProgramMethod(assembly, "literalOps");
+            var variableOps = ILShapeInspector.GetProgramMethod(assembly, "variableOps");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(333, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoAllocationOrDispatch(rowOps);
+            AssertParenthesizedBoolLogicalColumnShape(rowOps, "row-index");
+
+            AssertNoFromEndSliceAllocation(literalOps);
+            AssertParenthesizedBoolLogicalColumnShape(literalOps, "literal from-end");
+
+            AssertNoFromEndSliceAllocation(variableOps);
+            AssertParenthesizedBoolLogicalColumnShape(variableOps, "variable from-end");
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void DirectColumnFromEndAssignmentExpression_ReturnsAssignedValueWithoutSliceAllocation()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
@@ -4658,6 +4735,26 @@ public class SoaRecordILShapeTests
 
             return 0;
         });
+    }
+
+    private static void AssertParenthesizedBoolLogicalColumnShape(MethodInfo method, string indexDescription)
+    {
+        Assert.True(
+            ILShapeInspector.CountOpcode(method, OpCodes.Ldfld) >= 9,
+            $"Parenthesized SoA bool logical stores should load backing column fields directly for {indexDescription} access.");
+        Assert.True(
+            CountArrayElementLoads(method) >= 4,
+            $"Parenthesized SoA bool logical stores should read current values from backing arrays for {indexDescription} access.");
+        Assert.Equal(5, CountArrayElementStores(method));
+        Assert.True(
+            ILShapeInspector.CountOpcode(method, OpCodes.Ceq) >= 1,
+            $"Parenthesized SoA bool logical-not should lower through direct comparison opcodes for {indexDescription} access.");
+        Assert.True(
+            CountOpcodes(method, OpCodes.Brfalse, OpCodes.Brfalse_S) >= 1,
+            $"Parenthesized SoA bool logical-and should lower through short-circuit false branches for {indexDescription} access.");
+        Assert.True(
+            CountOpcodes(method, OpCodes.Brtrue, OpCodes.Brtrue_S) >= 1,
+            $"Parenthesized SoA bool logical-or should lower through short-circuit true branches for {indexDescription} access.");
     }
 
     private static void AssertNoAllocationOrDispatch(MethodInfo method)
