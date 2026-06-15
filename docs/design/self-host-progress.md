@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Simple statement parser keeps tables shaped
+
+`ParseSimpleStatementNode` now reads return/throw/deconstruction/local-declaration token spans
+through `ParserTokenTable` and keeps deconstruction child ids behind `ParserArgumentStack`. With the
+block and dispatcher cleanups, `ParserStatements.nl` no longer has raw token/argument-stack aliases
+inside its product parser cores; only the flattened `ParseStatementNodesInto` adapter shim names raw
+arrays. Focused evidence: `./scripts/dev.sh Parser_Statement_MatchesProductionParser` and
+`./scripts/dev.sh ColumnarCodegen_MultiFile_RealParserCluster`.
+
 ## 2026-06-15 — Statement dispatcher keeps tables shaped
 
 `ParseStatementCoreNode` now reads control-flow token spans through `ParserTokenTable` and keeps

@@ -405,19 +405,15 @@ func ParseStatementCoreNode(tokens: &ParserTokenTable, count: int, st: &ParserSt
 
 // The non-control-flow statements: return / break / continue / `:=` declaration / expression statement.
 func ParseSimpleStatementNode(tokens: &ParserTokenTable, count: int, st: &ParserState, argStack: &ParserArgumentStack, nodes: &ParserExpressionNodeTable, children: &ParserChildIndexTable): int {
-    tokenKinds := tokens.Kinds
-    tokenStarts := tokens.Starts
-    tokenValueLengths := tokens.ValueLengths
-    argStackValues := argStack.Values
     start := st.Pos
-    kind := tokenKinds[start]
+    kind := tokens.Kinds[start]
 
     if kind == 29 {
-        returnStart := tokenStarts[start]
-        returnEnd := tokenStarts[start] + tokenValueLengths[start]
+        returnStart := tokens.Starts[start]
+        returnEnd := tokens.Starts[start] + tokens.ValueLengths[start]
         st.Pos = start + 1
 
-        if st.Pos < count && tokenKinds[st.Pos] != 130 && tokenKinds[st.Pos] != 135 && tokenKinds[st.Pos] != 136 {
+        if st.Pos < count && tokens.Kinds[st.Pos] != 130 && tokens.Kinds[st.Pos] != 135 && tokens.Kinds[st.Pos] != 136 {
             valueRoot := ParseAssignmentExpressionNode(ref tokens, count, ref st, ref argStack, ref nodes, ref children, 0)
             if valueRoot < 0 {
                 return -1
@@ -437,9 +433,9 @@ func ParseSimpleStatementNode(tokens: &ParserTokenTable, count: int, st: &Parser
     // ALWAYS EXITS: both AlwaysReturns mirrors (the emitter's and ColumnarDiagnosticsPass's) treat
     // kind 48 like Return -- added in the SAME slice (the pass's faithfulness is by construction).
     if kind == 37 {
-        throwStart := tokenStarts[start]
+        throwStart := tokens.Starts[start]
         st.Pos = start + 1
-        if st.Pos >= count || tokenKinds[st.Pos] == 130 || tokenKinds[st.Pos] == 135 || tokenKinds[st.Pos] == 136 {
+        if st.Pos >= count || tokens.Kinds[st.Pos] == 130 || tokens.Kinds[st.Pos] == 135 || tokens.Kinds[st.Pos] == 136 {
             return -1
         }
         throwValue := ParseAssignmentExpressionNode(ref tokens, count, ref st, ref argStack, ref nodes, ref children, 0)
@@ -454,41 +450,41 @@ func ParseSimpleStatementNode(tokens: &ParserTokenTable, count: int, st: &Parser
 
     if kind == 35 {
         st.Pos = start + 1
-        return EmitExpressionNode(ref st, ref nodes, 21, -1, 0, -1, 0, tokenStarts[start], tokenValueLengths[start])
+        return EmitExpressionNode(ref st, ref nodes, 21, -1, 0, -1, 0, tokens.Starts[start], tokens.ValueLengths[start])
     }
 
     if kind == 36 {
         st.Pos = start + 1
-        return EmitExpressionNode(ref st, ref nodes, 22, -1, 0, -1, 0, tokenStarts[start], tokenValueLengths[start])
+        return EmitExpressionNode(ref st, ref nodes, 22, -1, 0, -1, 0, tokens.Starts[start], tokens.ValueLengths[start])
     }
 
     // Tuple DECONSTRUCTION `n0, n1, ... := <tuple>` (>= 2 names): an identifier FOLLOWED BY a comma. Each target
     // is a bare identifier (or `_` discard) emitted as an Identifier node (kind 6); the value follows `:=`. The
     // node is TupleDeconstructionStatement kind 30, children = [name0, ..., nameN-1, value]. A malformed list
     // (a non-identifier target, a missing `:=` or value) refuses with -1 -> declines to the C# parser.
-    if kind == 0 && start + 1 < count && tokenKinds[start + 1] == 134 {
-        deconStart := tokenStarts[start]
+    if kind == 0 && start + 1 < count && tokens.Kinds[start + 1] == 134 {
+        deconStart := tokens.Starts[start]
         deconArgBase := st.ArgStackTop
 
-        firstName := EmitExpressionNode(ref st, ref nodes, 6, tokenStarts[start], tokenValueLengths[start], -1, 0, tokenStarts[start], tokenValueLengths[start])
-        argStackValues[st.ArgStackTop] = firstName
+        firstName := EmitExpressionNode(ref st, ref nodes, 6, tokens.Starts[start], tokens.ValueLengths[start], -1, 0, tokens.Starts[start], tokens.ValueLengths[start])
+        argStack.Values[st.ArgStackTop] = firstName
         st.ArgStackTop = st.ArgStackTop + 1
         st.Pos = start + 1
 
-        while st.Pos < count && tokenKinds[st.Pos] == 134 {
+        while st.Pos < count && tokens.Kinds[st.Pos] == 134 {
             st.Pos = st.Pos + 1
-            if st.Pos >= count || tokenKinds[st.Pos] != 0 {
+            if st.Pos >= count || tokens.Kinds[st.Pos] != 0 {
                 st.ArgStackTop = deconArgBase
                 return -1
             }
 
-            nextName := EmitExpressionNode(ref st, ref nodes, 6, tokenStarts[st.Pos], tokenValueLengths[st.Pos], -1, 0, tokenStarts[st.Pos], tokenValueLengths[st.Pos])
-            argStackValues[st.ArgStackTop] = nextName
+            nextName := EmitExpressionNode(ref st, ref nodes, 6, tokens.Starts[st.Pos], tokens.ValueLengths[st.Pos], -1, 0, tokens.Starts[st.Pos], tokens.ValueLengths[st.Pos])
+            argStack.Values[st.ArgStackTop] = nextName
             st.ArgStackTop = st.ArgStackTop + 1
             st.Pos = st.Pos + 1
         }
 
-        if st.Pos >= count || tokenKinds[st.Pos] != 121 {
+        if st.Pos >= count || tokens.Kinds[st.Pos] != 121 {
             st.ArgStackTop = deconArgBase
             return -1
         }
@@ -500,14 +496,14 @@ func ParseSimpleStatementNode(tokens: &ParserTokenTable, count: int, st: &Parser
             return -1
         }
 
-        argStackValues[st.ArgStackTop] = deconValue
+        argStack.Values[st.ArgStackTop] = deconValue
         st.ArgStackTop = st.ArgStackTop + 1
         deconValueEnd := nodes.SpanStarts[deconValue] + nodes.SpanLengths[deconValue]
         deconChildCount := st.ArgStackTop - deconArgBase
         deconChildRunStart := st.ChildCursor
         deconIdx := deconArgBase
         while deconIdx < st.ArgStackTop {
-            AppendExpressionChild(ref st, ref children, argStackValues[deconIdx])
+            AppendExpressionChild(ref st, ref children, argStack.Values[deconIdx])
             deconIdx = deconIdx + 1
         }
         st.ArgStackTop = deconArgBase
@@ -520,10 +516,10 @@ func ParseSimpleStatementNode(tokens: &ParserTokenTable, count: int, st: &Parser
     // contains no braces in modeled forms; a `{` inside a default value mis-anchors the skip and the
     // resulting parse fails downstream — a safe refusal), then balanced to its close.
     if kind == 7 {
-        localFuncSpanStart := tokenStarts[start]
-        localFuncSpanLength := tokenValueLengths[start]
+        localFuncSpanStart := tokens.Starts[start]
+        localFuncSpanLength := tokens.ValueLengths[start]
         funcScan := start + 1
-        while funcScan < count && tokenKinds[funcScan] != 129 {
+        while funcScan < count && tokens.Kinds[funcScan] != 129 {
             funcScan = funcScan + 1
         }
         if funcScan >= count {
@@ -532,9 +528,9 @@ func ParseSimpleStatementNode(tokens: &ParserTokenTable, count: int, st: &Parser
         localFuncDepth := 1
         funcScan = funcScan + 1
         while funcScan < count && localFuncDepth > 0 {
-            if tokenKinds[funcScan] == 129 {
+            if tokens.Kinds[funcScan] == 129 {
                 localFuncDepth = localFuncDepth + 1
-            } else if tokenKinds[funcScan] == 130 {
+            } else if tokens.Kinds[funcScan] == 130 {
                 localFuncDepth = localFuncDepth - 1
             }
             funcScan = funcScan + 1
@@ -543,7 +539,7 @@ func ParseSimpleStatementNode(tokens: &ParserTokenTable, count: int, st: &Parser
             return -1
         }
         st.Pos = funcScan
-        localFuncEnd := tokenStarts[funcScan - 1] + tokenValueLengths[funcScan - 1]
+        localFuncEnd := tokens.Starts[funcScan - 1] + tokens.ValueLengths[funcScan - 1]
         return EmitExpressionNode(ref st, ref nodes, 41, localFuncSpanStart, localFuncSpanLength, -1, 0, localFuncSpanStart, localFuncEnd - localFuncSpanStart)
     }
 
@@ -557,20 +553,20 @@ func ParseSimpleStatementNode(tokens: &ParserTokenTable, count: int, st: &Parser
     // no initializer never finds a depth-0 `=` and refuses; `let name := init` is unmodeled (-1).
     isTypedLocal := false
     typedNameIndex := start
-    if kind == 19 && start + 2 < count && tokenKinds[start + 1] == 0 && tokenKinds[start + 2] == 122 {
+    if kind == 19 && start + 2 < count && tokens.Kinds[start + 1] == 0 && tokens.Kinds[start + 2] == 122 {
         isTypedLocal = true
         typedNameIndex = start + 1
-    } else if kind == 0 && start + 1 < count && tokenKinds[start + 1] == 122 {
+    } else if kind == 0 && start + 1 < count && tokens.Kinds[start + 1] == 122 {
         isTypedLocal = true
     }
     if isTypedLocal {
-        typedNameStart := tokenStarts[typedNameIndex]
-        typedNameLength := tokenValueLengths[typedNameIndex]
+        typedNameStart := tokens.Starts[typedNameIndex]
+        typedNameLength := tokens.ValueLengths[typedNameIndex]
         typeFirst := typedNameIndex + 2
         // The BARE form's type span must not start with `(` -- the production grammar REJECTS a bare
         // tuple-typed local (`t: (int, int) = ...` is a parse error; only `let t: (...)` parses --
         // probe-pinned; accepting it was a routed over-accept). The `let` form is unaffected.
-        if kind == 0 && typeFirst < count && tokenKinds[typeFirst] == 127 {
+        if kind == 0 && typeFirst < count && tokens.Kinds[typeFirst] == 127 {
             return -1
         }
         scanPos := typeFirst
@@ -581,7 +577,7 @@ func ParseSimpleStatementNode(tokens: &ParserTokenTable, count: int, st: &Parser
             if scanPos >= count {
                 return -1
             }
-            k := tokenKinds[scanPos]
+            k := tokens.Kinds[scanPos]
             if k == 93 && angleDepth == 0 && groupDepth == 0 {
                 scanning = false
             } else {
@@ -605,8 +601,8 @@ func ParseSimpleStatementNode(tokens: &ParserTokenTable, count: int, st: &Parser
         if scanPos == typeFirst {
             return -1
         }
-        typeSpanStart := tokenStarts[typeFirst]
-        typeSpanEnd := tokenStarts[scanPos - 1] + tokenValueLengths[scanPos - 1]
+        typeSpanStart := tokens.Starts[typeFirst]
+        typeSpanEnd := tokens.Starts[scanPos - 1] + tokens.ValueLengths[scanPos - 1]
         st.Pos = scanPos + 1
         typedInit := ParseLambdaOrAssignmentExpressionNode(ref tokens, count, ref st, ref argStack, ref nodes, ref children, 0)
         if typedInit < 0 {
@@ -617,13 +613,13 @@ func ParseSimpleStatementNode(tokens: &ParserTokenTable, count: int, st: &Parser
         typedChildRunStart := st.ChildCursor
         AppendExpressionChild(ref st, ref children, typedNameNode)
         AppendExpressionChild(ref st, ref children, typedInit)
-        declStart := tokenStarts[start]
+        declStart := tokens.Starts[start]
         return EmitExpressionNode(ref st, ref nodes, 40, typeSpanStart, typeSpanEnd - typeSpanStart, typedChildRunStart, 2, declStart, typedInitEnd - declStart)
     }
 
-    if kind == 0 && start + 1 < count && tokenKinds[start + 1] == 121 {
-        nameStart := tokenStarts[start]
-        nameLength := tokenValueLengths[start]
+    if kind == 0 && start + 1 < count && tokens.Kinds[start + 1] == 121 {
+        nameStart := tokens.Starts[start]
+        nameLength := tokens.ValueLengths[start]
         st.Pos = start + 2
         // The `:=` initializer parses at the LAMBDA level (the full-expression entry) so `zero := () => 99`
         // yields a Lambda (kind 39) initializer; all non-lambda shapes fall through to assignment unchanged.
