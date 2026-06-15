@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Parenthesized SoA direct-column element targets are pinned
+
+Direct backing-column element lvalues now have IL-shape coverage when the whole element access is
+parenthesized. `((nodes.kind)[row]) = value`, `(((nodes.kind)[row]) += value)`,
+`((nodes.kind)[row])++`, and `++((nodes.kind)[row])` use the same field-load plus array
+element-load/store lowering as `nodes.kind[row]`, preserving assignment and prefix/postfix result
+semantics without hidden allocation or dispatch. Focused evidence: `dotnet test tests/Tests.csproj
+--filter
+"FullyQualifiedName~SoaRecordTests.ILCompiler_SoaRecordParenthesizedDirectColumnElementTargets_UseColumnElementILShape"`.
+
 ## 2026-06-15 — Parenthesized SoA row-column update operands are pinned
 
 Parenthesized SoA row-column operands for prefix/postfix `++` and `--` now have expression-valued and

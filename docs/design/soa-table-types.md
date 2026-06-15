@@ -212,10 +212,12 @@ permitted for explicit systems kernels when the index shape is one the built-in 
 Direct column elements support the same scalar update shapes as row projection: expression-valued
 stores and compound assignments return the stored value, prefix/postfix increments preserve their
 ordinary result semantics, and default stores write the backing column without reading the old value
-or materializing a row. These accepted direct-column update shapes also apply to literal and
-variable-held `System.Index` from-end element access such as `table.column[^1]` and
-`table.column[idx]`, including expression-valued simple stores, default stores, prefix/postfix
-increment/decrement, null-coalescing reads, and null-coalescing assignments.
+or materializing a row. Parenthesized direct-column element lvalues such as
+`((table.column)[row]) = value`, `(((table.column)[row]) += value)`, and
+`++((table.column)[row])` use the same backing-array lowering. These accepted direct-column update
+shapes also apply to literal and variable-held `System.Index` from-end element access such as
+`table.column[^1]` and `table.column[idx]`, including expression-valued simple stores, default
+stores, prefix/postfix increment/decrement, null-coalescing reads, and null-coalescing assignments.
 The same nullability rule applies to both row projection and direct column elements: `??` and `??=`
 require a nullable/reference column element and non-nullable columns reject the operation during
 analysis. Direct-column range slices remain rejected before IL lowering instead of falling into the
@@ -329,9 +331,10 @@ verified scalar/reference element-type set, expression-valued default stores wit
 reads, and parenthesized row-column assignment/update targets, including expression-valued compound
 assignment, null-coalescing assignment, and prefix/postfix update operands; explicit direct column
 element operations (`table.column[row]`) have the same
-column-array proof for stores, expression-valued stores, default stores across the verified
-scalar/reference element-type set, including expression-valued default stores, without old-element
-reads, compound stores, prefix/postfix increments, reads across the verified scalar/reference
+column-array proof for stores, expression-valued stores, parenthesized direct-column element lvalues,
+default stores across the verified scalar/reference element-type set, including expression-valued
+default stores, without old-element reads, compound stores, prefix/postfix increments, reads across
+the verified scalar/reference
 element-type set, direct column null-coalescing reads/assignments, and from-end `System.Index` access
 including expression-valued simple stores, default stores across the verified scalar/reference
 element-type set, including expression-valued default stores, without old-element reads, verified

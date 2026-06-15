@@ -5292,6 +5292,54 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void ILCompiler_SoaRecordParenthesizedDirectColumnElementTargets_UseColumnElementILShape()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var source = """
+            soa record NodeTable {
+                kind: int
+            }
+
+            func columnOps(nodes: NodeTable, row: int): int {
+                ((nodes.kind)[row]) = 10
+                stored := (((nodes.kind)[row]) += 2);
+                oldUp := ((nodes.kind)[row])++;
+                newUp := ++((nodes.kind)[row]);
+                oldDown := ((nodes.kind)[row])--;
+                newDown := --((nodes.kind)[row]);
+                return stored * 100000 + oldUp * 10000 + newUp * 1000 + oldDown * 100 + newDown * 10 + ((nodes.kind)[row])
+            }
+
+            func main(): int {
+                nodes := new NodeTable(1)
+                row := nodes.add()
+                return columnOps(nodes, row)
+            }
+            """;
+
+        Assert.Equal(1335532, Assert.IsType<int>(CompileAndInvoke(source)));
+
+        var opCodes = CompileAndInspect(source, assembly =>
+        {
+            var columnOps = assembly.GetType("Program")!.GetMethod(
+                "columnOps",
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(columnOps);
+            return GetMethodOpCodes(columnOps!);
+        });
+
+        Assert.Contains(OpCodes.Ldfld, opCodes);
+        Assert.Contains(opCodes, IsArrayElementLoad);
+        Assert.Contains(opCodes, IsArrayElementStore);
+        Assert.DoesNotContain(OpCodes.Newobj, opCodes);
+        Assert.DoesNotContain(OpCodes.Newarr, opCodes);
+        Assert.DoesNotContain(OpCodes.Box, opCodes);
+        Assert.DoesNotContain(OpCodes.Ldftn, opCodes);
+        Assert.DoesNotContain(OpCodes.Callvirt, opCodes);
+    }
+
+    [Fact]
     public void ILCompiler_SoaRecordVerifiedColumnTypes_LoadStoreRoundTrip()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
