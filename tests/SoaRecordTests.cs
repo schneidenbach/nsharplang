@@ -2061,6 +2061,129 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_ParenthesizedSoaRowViewCannotEscapeFromStorageAndMutationContexts()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var cases = new[]
+        {
+            (Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                class Holder {
+                    Nodes: NodeTable = new NodeTable(1)
+                    Row: object = (Nodes[0])
+                }
+                """,
+                Message: "SoA row views cannot be stored in a field"),
+            (Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                class Holder {
+                    Value: object
+                }
+
+                func bad(nodes: NodeTable): int {
+                    holder := new Holder()
+                    holder.Value = (nodes[0])
+                    return 0
+                }
+                """,
+                Message: "SoA row views cannot be assigned"),
+            (Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                class Bag {
+                    func this[index: int]: int {
+                        get {
+                            return 0
+                        }
+                        set {
+                        }
+                    }
+                }
+
+                func bad(nodes: NodeTable): int {
+                    bag := new Bag {
+                        [(nodes[0])] = 1
+                    }
+                    return 0
+                }
+                """,
+                Message: "SoA row views cannot be used as an initializer index"),
+            (Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                class Holder {
+                    Value: object
+                }
+
+                func bad(nodes: NodeTable): int {
+                    holder := new Holder { Value: (nodes[0]) }
+                    return 0
+                }
+                """,
+                Message: "SoA row views cannot be stored in an object initializer"),
+            (Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable) {
+                    value := unchecked((nodes[0]))
+                }
+                """,
+                Message: "SoA row views cannot be used in an unchecked expression"),
+            (Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable) {
+                    (nodes[0]) += 1
+                }
+                """,
+                Message: "SoA row views cannot be assigned"),
+            (Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable) {
+                    (nodes[0]) ??= null
+                }
+                """,
+                Message: "SoA row views cannot be assigned"),
+            (Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable) {
+                    (nodes[0])++
+                }
+                """,
+                Message: "SoA row views cannot be used as a unary operand")
+        };
+
+        foreach (var testCase in cases)
+        {
+            var result = Analyze(testCase.Source);
+            var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+            Assert.Contains(testCase.Message, error.Message);
+            Assert.Contains("table[index].column", error.Suggestion);
+        }
+    }
+
+    [Fact]
     public void Analyzer_SoaRowViewCannotEscapeIntoCallArgument()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

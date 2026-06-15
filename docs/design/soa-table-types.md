@@ -364,8 +364,9 @@ parenthesized column-member receiver null-coalescing reads/assignments, parenthe
 receiver default stores without old-element reads, variable-held row-index diagnostics,
 parenthesized row-view diagnostics for advanced escape, type-test, result, control, and allocation
 contexts plus receiver/null-conditional/with-value/`nameof`, literal/initializer, statement, and
-resource contexts, expression-bodied function/property/lambda contexts, variable-held direct-column
-range mutation diagnostics including parenthesized column members, variable-held from-end
+resource contexts, expression-bodied function/property/lambda contexts, storage and mutation
+contexts, variable-held direct-column range mutation diagnostics including parenthesized column
+members, variable-held from-end
 null-coalescing reads/assignments, receiver-parenthesized bool logical and bitwise expression stores,
 receiver-parenthesized numeric arithmetic/shift/bitwise expression stores,
 receiver-parenthesized signed numeric negation and unary bitwise-not stores,

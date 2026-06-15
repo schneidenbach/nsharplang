@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Parenthesized SoA row-view storage and mutation escapes stay diagnosed
+
+Parenthesized SoA row views now have analyzer coverage for storage and mutation contexts that could
+otherwise materialize row values. Field initializers, assignment right-hand sides, object initializer
+values, initializer indexes, `unchecked((nodes[0]))`, compound assignment targets,
+null-coalescing assignment targets, and update operands all report row-view diagnostics before IL
+emission.
+
 ## 2026-06-15 — Parenthesized SoA row-view expression-bodied escapes stay diagnosed
 
 Parenthesized SoA row views now have analyzer coverage for expression-bodied return contexts across
