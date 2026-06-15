@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Semantic-scope parity kernels stay out of product routes
+
+The dogfood rewrite notes now match the current code-intelligence route: semantic-scope lookup and
+visible-variable kernels remain parity-corpus evidence only after the public API bridge missed the
+production-shaped gate. `CompletionEngine` continues to call the C# `SemanticModel` APIs directly,
+while accepted binding lookup and candidate-column routes remain product-routed.
+
 ## 2026-06-15 — Direct SoA column ref/out address evidence pinned
 
 Direct column cells now have IL-shape evidence for `ref` and `out` arguments through alias-typed

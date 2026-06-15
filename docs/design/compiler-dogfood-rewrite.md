@@ -2074,10 +2074,8 @@ clustered diagnostic file-list ordering, `GetDiagnostics` lint shadow suppressio
 semantic reference result deduplication/order slices, plus strict binding candidate-column ordering,
 strict semantic binding lookup, and LSP
 editor word/span lookup for hover, definition, references, and rename entry points, nearest
-same-file declaration index construction and lookup in the source-context definition fallback, semantic scope index
-and depth construction, and scoped visible-variable
-selection in CLI/daemon identifier completion plus scoped receiver identifier lookup in CLI/daemon
-member-access completion plus reflected method overload grouping and grouped member-completion
+same-file declaration index construction and lookup in the source-context definition fallback,
+reflected method overload grouping and grouped member-completion
 output, plus batch duplicate-id validation in `nlc query batch` and generated doc symbol/member
 ordering and slug generation in `nlc doc`, plus dependency deduplication and ordering in `nlc tree`, plus text-edit
 application ordering in `nlc fix`, plus diagnostic severity filtering in `nlc query diagnostics`,
