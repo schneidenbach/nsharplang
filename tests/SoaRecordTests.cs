@@ -1507,6 +1507,88 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_ParenthesizedSoaRowViewCannotEscapeFromTypeAndResultContexts()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var cases = new[]
+        {
+            (Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable) {
+                    value := (nodes[0]) as object
+                }
+                """,
+                Message: "SoA row views cannot be cast"),
+            (Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable) {
+                    if (nodes[0]) is object {
+                    }
+                }
+                """,
+                Message: "SoA row views cannot be tested with 'is'"),
+            (Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable) {
+                    value := must (nodes[0])
+                }
+                """,
+                Message: "SoA row views cannot be unwrapped with 'must'"),
+            (Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable) {
+                    await (nodes[0])
+                }
+                """,
+                Message: "SoA row views cannot be awaited"),
+            (Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable, ok: bool) {
+                    value := ok ? (nodes[0]) : null
+                }
+                """,
+                Message: "SoA row views cannot be used as a ternary result"),
+            (Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable, ok: bool) {
+                    value := match ok {
+                        true => (nodes[0]),
+                        false => null
+                    }
+                }
+                """,
+                Message: "SoA row views cannot be used as a match result")
+        };
+
+        foreach (var testCase in cases)
+        {
+            var result = Analyze(testCase.Source);
+            var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+            Assert.Contains(testCase.Message, error.Message);
+            Assert.Contains("table[index].column", error.Suggestion);
+        }
+    }
+
+    [Fact]
     public void Analyzer_SoaRowViewCannotEscapeIntoCallArgument()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

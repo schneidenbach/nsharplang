@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Parenthesized SoA row-view type/result escapes stay diagnosed
+
+Parenthesized SoA row views now have analyzer coverage for casts, type tests, `must`, `await`,
+ternary results, and match results. `(nodes[0]) as object`, `(nodes[0]) is object`,
+`must (nodes[0])`, `await (nodes[0])`, `ok ? (nodes[0]) : null`, and match arms returning
+`(nodes[0])` all fail before IL emission with the row-view diagnostic, so parentheses cannot turn a
+row projection into a boxed or general value.
+
 ## 2026-06-15 — Parenthesized SoA row-view diagnostics cover advanced contexts
 
 Parenthesized SoA row views now have analyzer coverage beyond the core local/return/call/array
