@@ -151,9 +151,6 @@ func ConsumeGreaterForTypeNodeCore(tokens: &ParserTokenTable, count: int, st: &P
 // (possibly dotted) name, then optional `<...>` generic arguments. Returns the emitted node id, or -1 on
 // refusal/failure. Advances st.Pos past the consumed tokens.
 func ParseBaseTypeReferenceNodeCore(tokens: &ParserTokenTable, count: int, st: &ParserState, argStack: &ParserArgumentStack, nodes: &ParserNodeTable, outChildIndices: &ParserChildIndexTable, depth: int): int {
-    tokenKinds := tokens.Kinds
-    tokenStarts := tokens.Starts
-    tokenValueLengths := tokens.ValueLengths
     argStackValues := argStack.Values
     if depth > 64 {
         return -1
@@ -167,8 +164,8 @@ func ParseBaseTypeReferenceNodeCore(tokens: &ParserTokenTable, count: int, st: &
     // ByRef `&T` (Parser.cs:1830-1840): `&` prefixing a postfix type. The C# parser puts this in
     // ParseBaseTypeReference, so a byref can appear wherever a base type can (a union arm, a generic
     // argument). depth+1 bounds the (degenerate) `& & T` chain even though the C# parser does not cap it.
-    if tokenKinds[pos] == 107 {
-        ampStart := tokenStarts[pos]
+    if tokens.Kinds[pos] == 107 {
+        ampStart := tokens.Starts[pos]
         st.Pos = pos + 1
         inner := ParsePostfixTypeReferenceNodeCore(ref tokens, count, ref st, ref argStack, ref nodes, ref outChildIndices, depth + 1)
         if inner < 0 {
@@ -190,22 +187,22 @@ func ParseBaseTypeReferenceNodeCore(tokens: &ParserTokenTable, count: int, st: &
     // (kind 7, the element NAME in the name slot, ONE child = the element type). The tuple's children are then
     // either all kind-7 wrappers or all bare element types. Names are ERASED from canonicals (tuple identity is
     // positional -- .NET semantics); the host extracts them for the emitter's name->ItemN member mapping.
-    if tokenKinds[pos] == 127 {
-        tupleTypeStart := tokenStarts[pos]
+    if tokens.Kinds[pos] == 127 {
+        tupleTypeStart := tokens.Starts[pos]
         st.Pos = pos + 1
         tupleArgBase := st.ArgStackTop
 
         // namedForm: -1 undecided, 1 named, 0 positional -- decided by the FIRST element, enforced after.
         namedForm := 0 - 1
-        if st.Pos + 1 < count && tokenKinds[st.Pos] == 0 && tokenKinds[st.Pos + 1] == 122 {
+        if st.Pos + 1 < count && tokens.Kinds[st.Pos] == 0 && tokens.Kinds[st.Pos + 1] == 122 {
             namedForm = 1
         }
 
         firstElemNameStart := 0 - 1
         firstElemNameLength := 0
         if namedForm == 1 {
-            firstElemNameStart = tokenStarts[st.Pos]
-            firstElemNameLength = tokenValueLengths[st.Pos]
+            firstElemNameStart = tokens.Starts[st.Pos]
+            firstElemNameLength = tokens.ValueLengths[st.Pos]
             st.Pos = st.Pos + 2
         }
         firstElem := ParseUnionTypeReferenceNodeCore(ref tokens, count, ref st, ref argStack, ref nodes, ref outChildIndices, depth + 1)
@@ -224,22 +221,22 @@ func ParseBaseTypeReferenceNodeCore(tokens: &ParserTokenTable, count: int, st: &
         argStackValues[st.ArgStackTop] = firstElem
         st.ArgStackTop = st.ArgStackTop + 1
 
-        if st.Pos >= count || tokenKinds[st.Pos] != 134 {
+        if st.Pos >= count || tokens.Kinds[st.Pos] != 134 {
             st.ArgStackTop = tupleArgBase
             return -1
         }
 
-        while st.Pos < count && tokenKinds[st.Pos] == 134 {
+        while st.Pos < count && tokens.Kinds[st.Pos] == 134 {
             st.Pos = st.Pos + 1
             elemNameStart := 0 - 1
             elemNameLength := 0
-            if st.Pos + 1 < count && tokenKinds[st.Pos] == 0 && tokenKinds[st.Pos + 1] == 122 {
+            if st.Pos + 1 < count && tokens.Kinds[st.Pos] == 0 && tokens.Kinds[st.Pos + 1] == 122 {
                 if namedForm == 0 {
                     st.ArgStackTop = tupleArgBase
                     return -1
                 }
-                elemNameStart = tokenStarts[st.Pos]
-                elemNameLength = tokenValueLengths[st.Pos]
+                elemNameStart = tokens.Starts[st.Pos]
+                elemNameLength = tokens.ValueLengths[st.Pos]
                 st.Pos = st.Pos + 2
             } else if namedForm == 1 {
                 st.ArgStackTop = tupleArgBase
@@ -260,12 +257,12 @@ func ParseBaseTypeReferenceNodeCore(tokens: &ParserTokenTable, count: int, st: &
             st.ArgStackTop = st.ArgStackTop + 1
         }
 
-        if st.Pos >= count || tokenKinds[st.Pos] != 128 {
+        if st.Pos >= count || tokens.Kinds[st.Pos] != 128 {
             st.ArgStackTop = tupleArgBase
             return -1
         }
 
-        tupleRightParenEnd := tokenStarts[st.Pos] + tokenValueLengths[st.Pos]
+        tupleRightParenEnd := tokens.Starts[st.Pos] + tokens.ValueLengths[st.Pos]
         st.Pos = st.Pos + 1
         tupleChildCount := st.ArgStackTop - tupleArgBase
         tupleChildRunStart := st.ChildCursor
@@ -279,22 +276,22 @@ func ParseBaseTypeReferenceNodeCore(tokens: &ParserTokenTable, count: int, st: &
         return EmitTypeReferenceNode(ref st, ref nodes, 6, -1, 0, tupleChildRunStart, tupleChildCount, tupleTypeStart, tupleRightParenEnd - tupleTypeStart)
     }
 
-    if tokenKinds[pos] != 0 {
+    if tokens.Kinds[pos] != 0 {
         return -1
     }
 
-    nameStart := tokenStarts[pos]
-    nameEnd := tokenStarts[pos] + tokenValueLengths[pos]
+    nameStart := tokens.Starts[pos]
+    nameEnd := tokens.Starts[pos] + tokens.ValueLengths[pos]
     pos = pos + 1
 
-    while pos + 1 < count && tokenKinds[pos] == 124 && tokenKinds[pos + 1] == 0 {
-        nameEnd = tokenStarts[pos + 1] + tokenValueLengths[pos + 1]
+    while pos + 1 < count && tokens.Kinds[pos] == 124 && tokens.Kinds[pos + 1] == 0 {
+        nameEnd = tokens.Starts[pos + 1] + tokens.ValueLengths[pos + 1]
         pos = pos + 2
     }
 
     st.Pos = pos
 
-    if pos < count && tokenKinds[pos] == 100 {
+    if pos < count && tokens.Kinds[pos] == 100 {
         st.Pos = pos + 1
         argBase := st.ArgStackTop
 
@@ -306,7 +303,7 @@ func ParseBaseTypeReferenceNodeCore(tokens: &ParserTokenTable, count: int, st: &
         argStackValues[st.ArgStackTop] = firstArg
         st.ArgStackTop = st.ArgStackTop + 1
 
-        while st.Pos < count && tokenKinds[st.Pos] == 134 {
+        while st.Pos < count && tokens.Kinds[st.Pos] == 134 {
             st.Pos = st.Pos + 1
             nextArg := ParseUnionTypeReferenceNodeCore(ref tokens, count, ref st, ref argStack, ref nodes, ref outChildIndices, depth + 1)
             if nextArg < 0 {

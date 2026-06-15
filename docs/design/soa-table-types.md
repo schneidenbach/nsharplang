@@ -528,8 +528,8 @@ ownership lands.
    array-taking functions as flattened adapter shims or scalar helper shims over wrapper-aware cores.
    `ParserTypeReferences.nl` has started the parser token-stream
    cleanup by wrapping token metadata, recursive argument stacks, child-index outputs, and result
-   slots for the type-reference recursive cores; its greater-consumption, postfix, and union parser
-   cores now keep token columns behind `ParserTokenTable` internally. `ParserFunctionSignatures.nl`
+   slots for the type-reference recursive cores; its base, greater-consumption, postfix, and union
+   parser cores now keep token columns behind `ParserTokenTable` internally. `ParserFunctionSignatures.nl`
    now composes those parser wrappers from a flattened entry shim and groups parameter,
    type-parameter, `where`
    constraint, and result columns behind named tables in its internal core. `ParserStatements.nl`

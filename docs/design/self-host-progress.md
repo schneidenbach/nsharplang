@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Type-reference base parser keeps token table shaped
+
+`ParseBaseTypeReferenceNodeCore` now reads token kind/start/length columns through
+`ParserTokenTable`, matching the smaller type-reference parser cores. `ParserTypeReferences.nl` no
+longer unpacks token columns into raw aliases inside its recursive parser cores. Focused evidence:
+`./scripts/dev.sh Parser_TypeReferenceTree_MatchesProductionParser` and
+`./scripts/dev.sh ColumnarCodegen_MultiFile_RealParserCluster`.
+
 ## 2026-06-15 — Type-reference parser small cores keep token tables shaped
 
 `ConsumeGreaterForTypeNodeCore`, `ParsePostfixTypeReferenceNodeCore`, and
