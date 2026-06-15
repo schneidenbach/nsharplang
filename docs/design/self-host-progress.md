@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Struct declaration parser keeps tables shaped
+
+`ParseStructDeclarationCore` now reads struct/class/record names, type parameters, base lists,
+fields, properties, methods, and constructor body scans through `ParserDeclarationTokenTable` instead
+of unpacking raw token arrays. Constructor-chain and union declaration bodies remain as separate
+parser cleanup slices. Focused evidence:
+`./scripts/dev.sh ColumnarCodegen_MultiFile_EligibleClusterCompiles`.
+
 ## 2026-06-15 — Enum declaration parser keeps tables shaped
 
 `ParseEnumDeclarationCore` now reads enum names, member names, explicit integer values, and closing

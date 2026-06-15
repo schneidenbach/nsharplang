@@ -679,20 +679,17 @@ func ParseStructDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValu
 }
 
 func ParseStructDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int, structIndex: int, decl: &StructDeclarationTable, result: &ParserDeclarationResultTable): int {
-    tokenKinds := tokens.Kinds
-    tokenStarts := tokens.Starts
-    tokenValueLengths := tokens.ValueLengths
     pos := structIndex
-    if pos >= count || (tokenKinds[pos] != 9 && tokenKinds[pos] != 13 && tokenKinds[pos] != 8) {
+    if pos >= count || (tokens.Kinds[pos] != 9 && tokens.Kinds[pos] != 13 && tokens.Kinds[pos] != 8) {
         return -1
     }
     pos = pos + 1
 
-    if pos >= count || tokenKinds[pos] != 0 {
+    if pos >= count || tokens.Kinds[pos] != 0 {
         return -1
     }
-    result.Values[0] = tokenStarts[pos]
-    result.Values[1] = tokenValueLengths[pos]
+    result.Values[0] = tokens.Starts[pos]
+    result.Values[1] = tokens.ValueLengths[pos]
     pos = pos + 1
 
     // Optional generic TYPE-PARAMETER list `<T, U>` after the type name (Less 100, Identifier 0,
@@ -702,31 +699,31 @@ func ParseStructDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int
     // declines to the C# path). Name spans go to outTypeParamStarts/Lengths; the count to
     // outResult[7] (0 with no `<`).
     typeParamCount := 0
-    if pos < count && tokenKinds[pos] == 100 {
+    if pos < count && tokens.Kinds[pos] == 100 {
         pos = pos + 1
-        while pos < count && tokenKinds[pos] != 102 {
-            if tokenKinds[pos] != 0 {
+        while pos < count && tokens.Kinds[pos] != 102 {
+            if tokens.Kinds[pos] != 0 {
                 return -1
             }
-            decl.TypeParamStarts[typeParamCount] = tokenStarts[pos]
-            decl.TypeParamLengths[typeParamCount] = tokenValueLengths[pos]
+            decl.TypeParamStarts[typeParamCount] = tokens.Starts[pos]
+            decl.TypeParamLengths[typeParamCount] = tokens.ValueLengths[pos]
             typeParamCount = typeParamCount + 1
             pos = pos + 1
 
-            if pos < count && tokenKinds[pos] != 102 {
-                if tokenKinds[pos] != 134 {
+            if pos < count && tokens.Kinds[pos] != 102 {
+                if tokens.Kinds[pos] != 134 {
                     return -1
                 }
                 pos = pos + 1
                 // A consumed comma must be FOLLOWED by another parameter name — a trailing comma
                 // (`<T,>`) is a production-parser error (adversarial-review finding: the loop's
                 // `!= 102` condition would otherwise exit cleanly and ACCEPT what the pipeline rejects).
-                if pos >= count || tokenKinds[pos] != 0 {
+                if pos >= count || tokens.Kinds[pos] != 0 {
                     return -1
                 }
             }
         }
-        if pos >= count || tokenKinds[pos] != 102 || typeParamCount == 0 {
+        if pos >= count || tokens.Kinds[pos] != 102 || typeParamCount == 0 {
             return -1
         }
         pos = pos + 1
@@ -740,22 +737,22 @@ func ParseStructDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int
     result.Values[5] = 0
     result.Values[6] = 0
     baseNameCount := 0
-    if pos < count && tokenKinds[pos] == 122 {
+    if pos < count && tokens.Kinds[pos] == 122 {
         pos = pos + 1
         while true {
-            if pos >= count || tokenKinds[pos] != 0 {
+            if pos >= count || tokens.Kinds[pos] != 0 {
                 return -1
             }
-            decl.BaseNameStarts[baseNameCount] = tokenStarts[pos]
-            decl.BaseNameLengths[baseNameCount] = tokenValueLengths[pos]
+            decl.BaseNameStarts[baseNameCount] = tokens.Starts[pos]
+            decl.BaseNameLengths[baseNameCount] = tokens.ValueLengths[pos]
             if baseNameCount == 0 {
-                result.Values[5] = tokenStarts[pos]
-                result.Values[6] = tokenValueLengths[pos]
+                result.Values[5] = tokens.Starts[pos]
+                result.Values[6] = tokens.ValueLengths[pos]
             }
             baseNameCount = baseNameCount + 1
             pos = pos + 1
 
-            if pos < count && tokenKinds[pos] == 134 {
+            if pos < count && tokens.Kinds[pos] == 134 {
                 pos = pos + 1
                 continue
             }
@@ -764,7 +761,7 @@ func ParseStructDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int
     }
     result.Values[8] = baseNameCount
 
-    if pos >= count || tokenKinds[pos] != 129 {
+    if pos >= count || tokens.Kinds[pos] != 129 {
         return -1
     }
     pos = pos + 1
@@ -779,18 +776,18 @@ func ParseStructDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int
     fieldCount := 0
     propCount := 0
     fieldsDone := 0
-    while fieldsDone == 0 && pos < count && tokenKinds[pos] != 130 && tokenKinds[pos] != 7 {
-        if tokenKinds[pos] == 63 && pos + 1 < count && tokenKinds[pos + 1] == 7 {
+    while fieldsDone == 0 && pos < count && tokens.Kinds[pos] != 130 && tokens.Kinds[pos] != 7 {
+        if tokens.Kinds[pos] == 63 && pos + 1 < count && tokens.Kinds[pos + 1] == 7 {
             fieldsDone = 1
-        } else if tokenKinds[pos] == 63 {
+        } else if tokens.Kinds[pos] == 63 {
             // STATIC FIELD `static name: Type [= <literal>]` or STATIC PROPERTY `static name: Type { ... }` —
             // requires id `:` id; a `{` after the type is the property form (recorded into outPropIndices with
             // outPropStaticFlags = 1, accessor block skipped like an instance property); a non-literal
             // initializer is a general expression (unmodelled, -1).
-            if pos + 3 >= count || tokenKinds[pos + 1] != 0 || tokenKinds[pos + 2] != 122 || tokenKinds[pos + 3] != 0 {
+            if pos + 3 >= count || tokens.Kinds[pos + 1] != 0 || tokens.Kinds[pos + 2] != 122 || tokens.Kinds[pos + 3] != 0 {
                 return -1
             }
-            if pos + 4 < count && tokenKinds[pos + 4] == 129 {
+            if pos + 4 < count && tokens.Kinds[pos + 4] == 129 {
                 decl.PropIndices[propCount] = pos + 1
                 decl.PropStaticFlags[propCount] = 1
                 propCount = propCount + 1
@@ -799,9 +796,9 @@ func ParseStructDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int
                 sdepth := 0
                 sdone := 0
                 while pos < count && sdone == 0 {
-                    if tokenKinds[pos] == 129 {
+                    if tokens.Kinds[pos] == 129 {
                         sdepth = sdepth + 1
-                    } else if tokenKinds[pos] == 130 {
+                    } else if tokens.Kinds[pos] == 130 {
                         sdepth = sdepth - 1
                         if sdepth == 0 {
                             sdone = 1
@@ -814,43 +811,43 @@ func ParseStructDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int
                 }
                 continue
             }
-            decl.FieldNameStarts[fieldCount] = tokenStarts[pos + 1]
-            decl.FieldNameLengths[fieldCount] = tokenValueLengths[pos + 1]
-            decl.FieldTypeStarts[fieldCount] = tokenStarts[pos + 3]
-            decl.FieldTypeLengths[fieldCount] = tokenValueLengths[pos + 3]
+            decl.FieldNameStarts[fieldCount] = tokens.Starts[pos + 1]
+            decl.FieldNameLengths[fieldCount] = tokens.ValueLengths[pos + 1]
+            decl.FieldTypeStarts[fieldCount] = tokens.Starts[pos + 3]
+            decl.FieldTypeLengths[fieldCount] = tokens.ValueLengths[pos + 3]
             decl.FieldStaticFlags[fieldCount] = 1
             decl.FieldInitKinds[fieldCount] = -1
             decl.FieldInitStarts[fieldCount] = -1
             decl.FieldInitLengths[fieldCount] = 0
             pos = pos + 4
 
-            if pos < count && tokenKinds[pos] == 93 {
+            if pos < count && tokens.Kinds[pos] == 93 {
                 pos = pos + 1
                 initStart := pos
-                if pos < count && tokenKinds[pos] == 89 {
+                if pos < count && tokens.Kinds[pos] == 89 {
                     pos = pos + 1
-                    if pos >= count || (tokenKinds[pos] != 1 && tokenKinds[pos] != 2) {
+                    if pos >= count || (tokens.Kinds[pos] != 1 && tokens.Kinds[pos] != 2) {
                         return -1
                     }
                 } else {
                     if pos >= count {
                         return -1
                     }
-                    k := tokenKinds[pos]
+                    k := tokens.Kinds[pos]
                     if k != 1 && k != 2 && k != 3 && k != 4 && k != 44 && k != 45 {
                         return -1
                     }
                 }
-                decl.FieldInitKinds[fieldCount] = tokenKinds[pos]
-                decl.FieldInitStarts[fieldCount] = tokenStarts[initStart]
-                decl.FieldInitLengths[fieldCount] = tokenStarts[pos] + tokenValueLengths[pos] - tokenStarts[initStart]
+                decl.FieldInitKinds[fieldCount] = tokens.Kinds[pos]
+                decl.FieldInitStarts[fieldCount] = tokens.Starts[initStart]
+                decl.FieldInitLengths[fieldCount] = tokens.Starts[pos] + tokens.ValueLengths[pos] - tokens.Starts[initStart]
                 pos = pos + 1
             }
 
             fieldCount = fieldCount + 1
-        } else if tokenKinds[pos] == 0 && pos + 1 < count && tokenKinds[pos + 1] == 127 {
+        } else if tokens.Kinds[pos] == 0 && pos + 1 < count && tokens.Kinds[pos + 1] == 127 {
             fieldsDone = 1
-        } else if tokenKinds[pos] == 0 && pos + 3 < count && tokenKinds[pos + 1] == 122 && tokenKinds[pos + 2] == 0 && tokenKinds[pos + 3] == 129 {
+        } else if tokens.Kinds[pos] == 0 && pos + 3 < count && tokens.Kinds[pos + 1] == 122 && tokens.Kinds[pos + 2] == 0 && tokens.Kinds[pos + 3] == 129 {
             decl.PropIndices[propCount] = pos
             decl.PropStaticFlags[propCount] = 0
             propCount = propCount + 1
@@ -859,9 +856,9 @@ func ParseStructDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int
             pdepth := 0
             pdone := 0
             while pos < count && pdone == 0 {
-                if tokenKinds[pos] == 129 {
+                if tokens.Kinds[pos] == 129 {
                     pdepth = pdepth + 1
-                } else if tokenKinds[pos] == 130 {
+                } else if tokens.Kinds[pos] == 130 {
                     pdepth = pdepth - 1
                     if pdepth == 0 {
                         pdone = 1
@@ -873,23 +870,23 @@ func ParseStructDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int
                 return -1
             }
         } else {
-            if tokenKinds[pos] != 0 {
+            if tokens.Kinds[pos] != 0 {
                 return -1
             }
-            decl.FieldNameStarts[fieldCount] = tokenStarts[pos]
-            decl.FieldNameLengths[fieldCount] = tokenValueLengths[pos]
+            decl.FieldNameStarts[fieldCount] = tokens.Starts[pos]
+            decl.FieldNameLengths[fieldCount] = tokens.ValueLengths[pos]
             pos = pos + 1
 
-            if pos >= count || tokenKinds[pos] != 122 {
+            if pos >= count || tokens.Kinds[pos] != 122 {
                 return -1
             }
             pos = pos + 1
 
-            if pos >= count || tokenKinds[pos] != 0 {
+            if pos >= count || tokens.Kinds[pos] != 0 {
                 return -1
             }
-            fieldTypeStart := tokenStarts[pos]
-            fieldTypeEnd := tokenStarts[pos] + tokenValueLengths[pos]
+            fieldTypeStart := tokens.Starts[pos]
+            fieldTypeEnd := tokens.Starts[pos] + tokens.ValueLengths[pos]
             pos = pos + 1
 
             // Optional balanced generic suffix `<...>` after the type name (`Items: List<int>`,
@@ -901,12 +898,12 @@ func ParseStructDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int
             // identifiers (`List<i nt>`) are a production parse ERROR that the host's whitespace
             // strip would FUSE into a valid name (`int`) — reject them here (adversarial-review
             // finding, probe-confirmed over-acceptance).
-            if pos < count && tokenKinds[pos] == 100 {
+            if pos < count && tokens.Kinds[pos] == 100 {
                 gdepth := 0
                 gdone := 0
                 gprevIdent := 0
                 while pos < count && gdone == 0 {
-                    gk := tokenKinds[pos]
+                    gk := tokens.Kinds[pos]
                     if gk == 100 {
                         gdepth = gdepth + 1
                         gprevIdent = 0
@@ -935,7 +932,7 @@ func ParseStructDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int
                     if gdepth < 0 {
                         return -1
                     }
-                    fieldTypeEnd = tokenStarts[pos] + tokenValueLengths[pos]
+                    fieldTypeEnd = tokens.Starts[pos] + tokens.ValueLengths[pos]
                     pos = pos + 1
                 }
                 if gdone == 0 {
@@ -948,14 +945,14 @@ func ParseStructDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int
             // types and any malformed suffix.
             suffixDone := 0
             while suffixDone == 0 && pos < count {
-                if pos + 1 < count && tokenKinds[pos] == 131 && tokenKinds[pos + 1] == 132 {
-                    fieldTypeEnd = tokenStarts[pos + 1] + tokenValueLengths[pos + 1]
+                if pos + 1 < count && tokens.Kinds[pos] == 131 && tokens.Kinds[pos + 1] == 132 {
+                    fieldTypeEnd = tokens.Starts[pos + 1] + tokens.ValueLengths[pos + 1]
                     pos = pos + 2
-                } else if pos + 1 < count && tokenKinds[pos] == 119 && tokenKinds[pos + 1] == 132 {
-                    fieldTypeEnd = tokenStarts[pos + 1] + tokenValueLengths[pos + 1]
+                } else if pos + 1 < count && tokens.Kinds[pos] == 119 && tokens.Kinds[pos + 1] == 132 {
+                    fieldTypeEnd = tokens.Starts[pos + 1] + tokens.ValueLengths[pos + 1]
                     pos = pos + 2
-                } else if tokenKinds[pos] == 115 {
-                    fieldTypeEnd = tokenStarts[pos] + tokenValueLengths[pos]
+                } else if tokens.Kinds[pos] == 115 {
+                    fieldTypeEnd = tokens.Starts[pos] + tokens.ValueLengths[pos]
                     pos = pos + 1
                 } else {
                     suffixDone = 1
@@ -983,18 +980,18 @@ func ParseStructDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int
     // identifier's text is literally "constructor".
     methodCount := 0
     ctorCount := 0
-    while pos < count && tokenKinds[pos] != 130 {
-        if tokenKinds[pos] == 7 {
+    while pos < count && tokens.Kinds[pos] != 130 {
+        if tokens.Kinds[pos] == 7 {
             decl.MethodFuncIndices[methodCount] = pos
             decl.MethodStaticFlags[methodCount] = 0
             methodCount = methodCount + 1
             pos = pos + 1
-        } else if tokenKinds[pos] == 63 && pos + 1 < count && tokenKinds[pos + 1] == 7 {
+        } else if tokens.Kinds[pos] == 63 && pos + 1 < count && tokens.Kinds[pos + 1] == 7 {
             decl.MethodFuncIndices[methodCount] = pos + 1
             decl.MethodStaticFlags[methodCount] = 1
             methodCount = methodCount + 1
             pos = pos + 2
-        } else if tokenKinds[pos] == 0 && pos + 1 < count && tokenKinds[pos + 1] == 127 {
+        } else if tokens.Kinds[pos] == 0 && pos + 1 < count && tokens.Kinds[pos + 1] == 127 {
             decl.CtorIndices[ctorCount] = pos
             ctorCount = ctorCount + 1
             pos = pos + 1
@@ -1002,19 +999,19 @@ func ParseStructDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int
             return -1
         }
 
-        while pos < count && tokenKinds[pos] != 129 && tokenKinds[pos] != 130 {
+        while pos < count && tokens.Kinds[pos] != 129 && tokens.Kinds[pos] != 130 {
             pos = pos + 1
         }
-        if pos >= count || tokenKinds[pos] != 129 {
+        if pos >= count || tokens.Kinds[pos] != 129 {
             return -1
         }
 
         depth := 0
         bodyDone := 0
         while pos < count && bodyDone == 0 {
-            if tokenKinds[pos] == 129 {
+            if tokens.Kinds[pos] == 129 {
                 depth = depth + 1
-            } else if tokenKinds[pos] == 130 {
+            } else if tokens.Kinds[pos] == 130 {
                 depth = depth - 1
                 if depth == 0 {
                     bodyDone = 1
@@ -1027,7 +1024,7 @@ func ParseStructDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int
         }
     }
 
-    if pos >= count || tokenKinds[pos] != 130 {
+    if pos >= count || tokens.Kinds[pos] != 130 {
         return -1
     }
     // A FIELDLESS type is legal when it has at least one other member (a pure-behavior class — e.g. an
