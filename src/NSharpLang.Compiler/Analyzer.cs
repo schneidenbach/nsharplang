@@ -12950,6 +12950,12 @@ public class Analyzer : IDisposable
             ? (prop.NameLine, prop.NameColumn)
             : (prop.Value.Line, prop.Value.Column);
 
+        if (ReportSoaTableObjectInitializerIfNeeded(constructedType, prop.Name, nameLine, nameColumn))
+        {
+            AnalyzeExpression(prop.Value);
+            return;
+        }
+
         if (!TryResolveObjectInitializerMemberType(constructedType, unionCaseName, prop.Name, nameLine, nameColumn, out var memberType))
         {
             AnalyzeExpression(prop.Value);
@@ -13129,6 +13135,45 @@ public class Analyzer : IDisposable
 
         memberType = resolved;
         return true;
+    }
+
+    private bool ReportSoaTableObjectInitializerIfNeeded(
+        TypeInfo constructedType,
+        string memberName,
+        int nameLine,
+        int nameColumn)
+    {
+        if (ResolveTypeAlias(GetNonNullableType(constructedType)) is not SoaRecordTypeInfo soaRecordType)
+        {
+            return false;
+        }
+
+        var isColumn = TryGetSoaColumn(soaRecordType.Declaration, memberName) != null;
+        var isBookkeepingField = memberName is "length" or "capacity";
+        if (isColumn || isBookkeepingField)
+        {
+            ReportSoaTableMemberInitializer(memberName, nameLine, nameColumn, isColumn);
+        }
+        else if (ShouldReportUndefinedMember(soaRecordType, memberName, includeStaticMembers: false))
+        {
+            ReportUndefinedMember(soaRecordType, memberName, nameLine, nameColumn, includeStaticMembers: false);
+        }
+
+        return true;
+    }
+
+    private void ReportSoaTableMemberInitializer(string memberName, int line, int column, bool isColumn)
+    {
+        var suggestion = isColumn
+            ? "Write individual rows with table[index].column, or construct/wrap the table with the desired column arrays."
+            : "Use new Table(capacity), add, clear, ensureCapacity, or copyRow so length and capacity stay consistent with the columns.";
+        Error(
+            ErrorCode.InvalidSyntax,
+            $"SoA table member '{memberName}' cannot be initialized directly",
+            line,
+            column,
+            suggestion,
+            Math.Max(1, memberName.Length));
     }
 
     /// <summary>

@@ -6164,6 +6164,57 @@ public class SoaRecordTests : ILCompilerTestBase
         Assert.Contains("table[index].column", error.Suggestion);
     }
 
+    [Theory]
+    [InlineData("NodeTable", "", "kind", "new int[](1)", "kind", "table[index].column")]
+    [InlineData("NodeTable", "", "length", "1", "length", "add, clear, ensureCapacity, or copyRow")]
+    [InlineData("Nodes", "type Nodes = NodeTable", "capacity", "1", "capacity", "add, clear, ensureCapacity, or copyRow")]
+    public void Analyzer_SoaTableObjectInitializerCannotInitializeGeneratedMembers(
+        string tableTypeName,
+        string aliasDeclaration,
+        string initializerMember,
+        string initializerValue,
+        string expectedMember,
+        string expectedSuggestion)
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze($$"""
+            soa record NodeTable {
+                kind: int
+            }
+
+            {{aliasDeclaration}}
+
+            func bad(): {{tableTypeName}} {
+                return new {{tableTypeName}}(1) { {{initializerMember}}: {{initializerValue}} }
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains($"SoA table member '{expectedMember}' cannot be initialized directly", error.Message);
+        Assert.Contains(expectedSuggestion, error.Suggestion);
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.UndefinedMember);
+    }
+
+    [Fact]
+    public void Analyzer_SoaTableObjectInitializerReportsUnknownMembersBeforeEmission()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(): NodeTable {
+                return new NodeTable(1) { missing: 1 }
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.UndefinedMember);
+        Assert.Contains("Member 'missing' not found on type 'NodeTable'", error.Message);
+    }
+
     [Fact]
     public void Analyzer_SoaTableColumnArrayCannotBeAssignedDirectly()
     {

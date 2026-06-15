@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — SoA table object initializers reject generated fields
+
+SoA generated table fields now reject object-initializer writes before IL emission. `new NodeTable(1)
+{ kind: ... }`, `length`, and `capacity` initializers report SoA-specific direct-initialization
+diagnostics instead of slipping through the generic initializer path and mutating the generated
+metadata/column fields after construction; the same guard resolves table aliases before checking
+members. Unknown SoA table initializer members now report `UndefinedMember` before any backend sees
+the initializer.
+
 ## 2026-06-15 — SoA table aliases pin generated operation lowering
 
 Alias-typed table receivers now have direct IL-shape evidence for calling generated operations on

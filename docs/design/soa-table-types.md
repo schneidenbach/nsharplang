@@ -372,6 +372,9 @@ target-typed collection expressions. While
 the flag is enabled, `MultiFileCompiler` deliberately falls
 back from the default columnar backend to the C# IL backend for programs containing SoA declarations;
 the columnar backend does not own this surface yet.
+Object initializers over SoA tables are not a construction escape hatch: generated column fields,
+`length`, and `capacity` report SoA-specific direct-initialization diagnostics, including through
+table aliases, and unknown initializer members report before emission.
 
 The flag is for compiler table-migration gates only. Production builds without the flag still report
 `NL323 FeatureNotImplemented` for every `soa record`.
@@ -423,7 +426,8 @@ integral `uint`/`long`/`char` update forms, and null-coalescing reads/assignment
 Row-projection null-coalescing
 reads/assignments have the same direct column proof, with range/slice allocation still rejected during
 analysis. Row-projection integral `uint`/`long`/`char` update forms are pinned with the same
-backing-column array proof. The generated `new`, `wrap`, `add`, `clear`, `ensureCapacity`, and
+backing-column array proof. Direct generated-member object initializers are rejected during
+analysis, including when the constructed table type is an alias. The generated `new`, `wrap`, `add`, `clear`, `ensureCapacity`, and
 `copyRow` methods are also pinned across the verified scalar/reference element-type set, including
 aliases to that set. Calls to generated operations through an alias-typed table receiver are pinned
 too: `nodes.ensureCapacity(...)`, `nodes.add()`, `nodes.copyRow(...)`, and `nodes.clear()` where
