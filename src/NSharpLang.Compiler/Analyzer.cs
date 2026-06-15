@@ -11637,6 +11637,7 @@ public class Analyzer : IDisposable
         var resolved = ResolveTypeAlias(type);
         return resolved switch
         {
+            FunctionTypeInfo => true,
             GenericTypeInfo { Name: "Func" or "Action" } => true,
             ReflectionTypeInfo reflection => IsDelegateType(reflection.Type) || IsRuntimeDelegateType(reflection.Type),
             ObliviousTypeInfo oblivious => IsDelegateLikeAssignmentType(oblivious.InnerType),

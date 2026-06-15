@@ -741,12 +741,16 @@ internal static class ColumnarDogfoodParityProbe
     {
         try
         {
-            var assembly = TryLoadDogfoodAssembly();
-            var programType = assembly?.GetType("Program");
+            var scope = TryLoadDogfoodAssembly();
+            if (scope == null)
+                return null;
+
+            var programType = scope.Assembly.GetType("Program");
             if (programType == null)
                 return null;
 
             return new Bindings(
+                scope,
                 CreateDelegate<TokenizeMetadataWithIndentationInto>(programType, "TokenizeMetadataWithIndentationInto"),
                 CreateDelegate<TopLevelDeclarationKindsInto>(programType, "TopLevelDeclarationKindsInto"),
                 CreateDelegate<TopLevelDeclarationModifiersInto>(programType, "TopLevelDeclarationModifiersInto"),
@@ -760,19 +764,12 @@ internal static class ColumnarDogfoodParityProbe
         }
     }
 
-    private static Assembly? TryLoadDogfoodAssembly()
+    private static CollectibleAssemblyScope? TryLoadDogfoodAssembly()
     {
-        try
-        {
-            return Assembly.Load(new AssemblyName(DogfoodAssemblyName));
-        }
-        catch
-        {
-            var assemblyPath = Path.Combine(AppContext.BaseDirectory, $"{DogfoodAssemblyName}.dll");
-            return File.Exists(assemblyPath)
-                ? Assembly.LoadFrom(assemblyPath)
-                : null;
-        }
+        var assemblyPath = Path.Combine(AppContext.BaseDirectory, $"{DogfoodAssemblyName}.dll");
+        return File.Exists(assemblyPath)
+            ? CollectibleAssemblyScope.LoadFromFile(assemblyPath)
+            : null;
     }
 
     private static TDelegate CreateDelegate<TDelegate>(Type programType, string methodName)
@@ -834,6 +831,7 @@ internal static class ColumnarDogfoodParityProbe
         int[] outChildIndices, int[] outSpanStarts, int[] outSpanLengths, int[] outResult);
 
     private sealed record Bindings(
+        CollectibleAssemblyScope AssemblyScope,
         TokenizeMetadataWithIndentationInto TokenizeMetadataWithIndentation,
         TopLevelDeclarationKindsInto TopLevelDeclarationKinds,
         TopLevelDeclarationModifiersInto TopLevelDeclarationModifiers,
