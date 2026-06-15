@@ -2733,6 +2733,69 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void NullableStringColumnNullEquality_UsesColumnArrayLoadsAndNullBranchesWithoutRowOrSliceAllocation()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                optionalName: string?
+            }
+
+            func compare(nodes: NodeTable, row: int): int {
+                directRow := row + 1
+
+                rowScore := nodes[row].optionalName == null ? 100000 : 0
+                nodes[row].optionalName = "row"
+                rowScore += nodes[row].optionalName != null ? 10000 : 0
+
+                directScore := nodes.optionalName[directRow] == null ? 1000 : 0
+                nodes.optionalName[directRow] = "direct"
+                directScore += nodes.optionalName[directRow] != null ? 100 : 0
+
+                fromEndScore := nodes.optionalName[^1] == null ? 10 : 0
+                nodes.optionalName[^1] = "last"
+                fromEndScore += nodes.optionalName[^1] != null ? 1 : 0
+
+                return rowScore + directScore + fromEndScore
+            }
+
+            func main(): int {
+                nodes := new NodeTable(3)
+                row := nodes.add()
+                nodes.add()
+                nodes.add()
+                return compare(nodes, row)
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var compare = ILShapeInspector.GetProgramMethod(assembly, "compare");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(111111, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoFromEndSliceAllocation(compare);
+            Assert.True(
+                ILShapeInspector.CountOpcode(compare, OpCodes.Ldfld) >= 9,
+                "Nullable string SoA null equality should load backing column fields directly.");
+            Assert.Equal(6, CountArrayElementLoads(compare));
+            Assert.Equal(3, CountArrayElementStores(compare));
+            Assert.True(
+                ILShapeInspector.CountOpcode(compare, OpCodes.Brfalse) >= 3,
+                "Nullable string SoA equality should branch on null references directly.");
+            Assert.True(
+                ILShapeInspector.CountOpcode(compare, OpCodes.Brtrue) >= 3,
+                "Nullable string SoA inequality should branch on non-null references directly.");
+            Assert.Equal(0, ILShapeInspector.CountCallsTo(compare, typeof(string), "op_Equality"));
+            Assert.Equal(0, ILShapeInspector.CountCallsTo(compare, typeof(string), "op_Inequality"));
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void StringColumnCompoundAssignment_UsesColumnArrayLoadStoreAndStringConcat()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

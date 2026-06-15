@@ -178,13 +178,14 @@ not grow LINQ-like methods that obscure allocation or control flow.
 Row-column access supports direct reads, simple stores, expression-valued stores, default stores,
 null-coalescing reads and assignment, compound assignment, and increment/decrement for integral
 column element types. These accepted operations lower to the backing column arrays without row-object
-materialization; `string` columns still support reads/stores, concatenating `+=` expressions,
-equality/inequality expressions, and null coalescing but reject `-=`, `*=`, `/=`, `++`, and `--`
-during analysis. Bool columns support same-bool bitwise expressions but still reject arithmetic
-compound assignment before lowering. Int-backed enum columns support the enum language's comparison
-expressions, prefix/postfix increment and decrement forms, same-enum bitwise expressions, and unary
-bitwise-not. Arithmetic compound assignment is not part of the enum column
-proof. Each compound assignment must type-check through the underlying
+materialization; `string` columns still support reads/stores, concatenating `+=` expressions, and
+equality/inequality expressions, while `string?` columns additionally have direct null
+equality/inequality evidence. Both string column shapes support null coalescing but reject `-=`,
+`*=`, `/=`, `++`, and `--` during analysis. Bool columns support same-bool bitwise expressions but
+still reject arithmetic compound assignment before lowering. Int-backed enum columns support the
+enum language's comparison expressions, prefix/postfix increment and decrement forms, same-enum
+bitwise expressions, and unary bitwise-not. Arithmetic compound assignment is not part of the enum
+column proof. Each compound assignment must type-check through the underlying
 operator and produce a result assignable back to the column, so boolean and enum columns reject `+=`,
 `-=`, `*=`, and `/=` before lowering, while string columns reject every compound operator except
 concatenating `+=`. Direct column-element access through `table.column[row]`
@@ -313,9 +314,10 @@ including expression-valued simple stores, default stores across the verified sc
 element-type set, including expression-valued default stores, without old-element reads, verified
 scalar/reference element reads/stores, bool bitwise expression stores, int-backed enum
 reads/stores/default stores/generated methods, string concatenating compound assignments,
-equality/inequality expressions, same-enum comparison expressions, bitwise and unary bitwise-not
-expression stores, plus prefix/postfix update forms, integral `uint`/`long`/`char` update forms, and
-null-coalescing reads/assignments.
+string equality/inequality expressions, nullable-string null equality/inequality expressions,
+same-enum comparison expressions, bitwise and unary bitwise-not expression stores, plus
+prefix/postfix update forms, integral `uint`/`long`/`char` update forms, and null-coalescing
+reads/assignments.
 Row-projection null-coalescing
 reads/assignments have the same direct column proof, with range/slice allocation still rejected during
 analysis. Row-projection integral `uint`/`long`/`char` update forms are pinned with the same

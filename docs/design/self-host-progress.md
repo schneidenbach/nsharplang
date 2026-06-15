@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA nullable string null equality has IL-shape proof
+
+Nullable string SoA columns now have opcode evidence for `== null` and `!= null` expressions across
+row projection, direct column indexing, and direct from-end column indexing. The accepted null checks
+read backing column arrays directly and lower through reference null branches rather than string
+operator calls, with no row construction, slice allocation, boxing, delegate construction, or virtual
+dispatch.
+
 ## 2026-06-14 — SoA non-numeric compound operators stop before emission
 
 Bool, string, and int-backed enum SoA columns now have analyzer pins for the unsupported compound
