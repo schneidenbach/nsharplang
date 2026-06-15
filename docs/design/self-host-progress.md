@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Generator expression bodies fail before lowering
+
+Expression-bodied generator functions now reject during semantic analysis for top-level, async, and
+local `func*` forms. The analyzer still visits the expression body for nested diagnostics, but then
+reports that generators must use block bodies with `yield` so the IL backend never mixes expression
+returns with generator-list lowering.
+
 ## 2026-06-15 — Generator return values fail before IL lowering
 
 Generator functions now reject `return <value>` during semantic analysis for both `func*` and

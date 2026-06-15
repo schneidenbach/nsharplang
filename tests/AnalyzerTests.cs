@@ -688,6 +688,36 @@ func Main() {
         Assert.Contains("yield value", error.Suggestion);
     }
 
+    [Theory]
+    [InlineData("func* Numbers(): IEnumerable<int> => []")]
+    [InlineData("async func* Numbers(): IAsyncEnumerable<int> => []")]
+    public void GeneratorExpressionBody_ReportsInvalidSyntax(string declaration)
+    {
+        var result = AnalyzeWithSource("import System.Collections.Generic\n\n" + declaration);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("Generator functions must use a block body", error.Message);
+        Assert.Contains("yield value", error.Suggestion);
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+    }
+
+    [Fact]
+    public void LocalGeneratorExpressionBody_ReportsInvalidSyntax()
+    {
+        var result = AnalyzeWithSource("""
+            import System.Collections.Generic
+
+            func Main() {
+                func* Numbers(): IEnumerable<int> => []
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("Generator functions must use a block body", error.Message);
+        Assert.Contains("yield value", error.Suggestion);
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+    }
+
     [Fact]
     public void ExpressionBodiedFunctionWithoutReturnType_ReturnValue_Error()
     {

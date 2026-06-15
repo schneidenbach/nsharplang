@@ -761,14 +761,16 @@ public class Analyzer : IDisposable
         else if (func.ExpressionBody != null)
         {
             // Expression-bodied method: check expression type matches return type
-            var expectedExpressionType = functionReturnType != BuiltInTypes.Void ? functionReturnType : null;
+            var isGenerator = func.Modifiers.HasFlag(Modifiers.Generator);
+            var expectedExpressionType = !isGenerator && functionReturnType != BuiltInTypes.Void ? functionReturnType : null;
             var exprType = AnalyzeExpressionWithExpectedType(func.ExpressionBody, expectedExpressionType);
             ReportSoaRowEscapeIfNeeded(func.ExpressionBody, exprType, "returned");
-            if (functionReturnType == BuiltInTypes.Void && exprType != BuiltInTypes.Void)
+            var reportedGeneratorExpressionBody = ReportGeneratorExpressionBodyIfNeeded(func);
+            if (!reportedGeneratorExpressionBody && functionReturnType == BuiltInTypes.Void && exprType != BuiltInTypes.Void)
             {
                 AddExpressionBodyReturnError(func, exprType);
             }
-            else if (functionReturnType != BuiltInTypes.Void && !IsAssignable(functionReturnType, exprType))
+            else if (!reportedGeneratorExpressionBody && functionReturnType != BuiltInTypes.Void && !IsAssignable(functionReturnType, exprType))
             {
                 var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetExpressionDiagnosticSpan(func.ExpressionBody);
                 var sourceSnippet = _sourceLines != null && diagnosticLine > 0 && diagnosticLine <= _sourceLines.Length
@@ -801,6 +803,24 @@ public class Analyzer : IDisposable
         _currentFunctionReturnTypeWasOmitted = previousFunctionReturnTypeWasOmitted;
         _currentFunctionIsAsync = previousFunctionIsAsync;
         PopScope();
+    }
+
+    private bool ReportGeneratorExpressionBodyIfNeeded(FunctionDeclaration func)
+    {
+        if (!func.Modifiers.HasFlag(Modifiers.Generator) || func.ExpressionBody == null)
+        {
+            return false;
+        }
+
+        var (line, column, length) = GetExpressionDiagnosticSpan(func.ExpressionBody);
+        Error(
+            ErrorCode.InvalidSyntax,
+            "Generator functions must use a block body",
+            line,
+            column,
+            "Use `{ yield value }` to produce sequence values from a generator.",
+            length);
+        return true;
     }
 
     private void ValidateGeneratedRegexDeclaration(FunctionDeclaration func, TypeInfo functionReturnType)
@@ -3161,11 +3181,13 @@ public class Analyzer : IDisposable
         }
         else if (func.ExpressionBody != null)
         {
-            var expectedExpressionType = returnType != BuiltInTypes.Void ? returnType : null;
+            var isGenerator = func.Modifiers.HasFlag(Modifiers.Generator);
+            var expectedExpressionType = !isGenerator && returnType != BuiltInTypes.Void ? returnType : null;
             var exprType = AnalyzeExpressionWithExpectedType(func.ExpressionBody, expectedExpressionType);
             ReportSoaRowEscapeIfNeeded(func.ExpressionBody, exprType, "returned");
+            var reportedGeneratorExpressionBody = ReportGeneratorExpressionBodyIfNeeded(func);
             // Verify expression type matches return type
-            if (returnType != BuiltInTypes.Void && !IsAssignable(returnType, exprType))
+            if (!reportedGeneratorExpressionBody && returnType != BuiltInTypes.Void && !IsAssignable(returnType, exprType))
             {
                 var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetExpressionDiagnosticSpan(func.ExpressionBody);
                 Error(ErrorCode.TypeMismatch, $"Function '{func.Name}' should return '{returnType}' but the expression body gives '{exprType}'",
