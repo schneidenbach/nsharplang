@@ -176,6 +176,29 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaRecordWithFlag_AllowsAliasedIntEnumColumnType()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            enum NodeKind {
+                Unknown,
+                Identifier
+            }
+
+            type KindColumn = NodeKind
+
+            soa record NodeTable {
+                kind: KindColumn
+            }
+            """);
+
+        Assert.False(
+            result.HasErrors,
+            $"Expected no errors but got: {string.Join(", ", result.Errors.Select(e => $"{e.DiagnosticId}:{e.Message}"))}");
+    }
+
+    [Fact]
     public void Analyzer_SoaRecordWithFlag_RejectsStringEnumColumnType()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
@@ -193,6 +216,29 @@ public class SoaRecordTests : ILCompilerTestBase
         var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.FeatureNotImplemented);
         Assert.Contains("SoA column type 'NodeKind' is not supported in this lowering", error.Message);
         Assert.Contains("int-backed enum columns", error.Suggestion);
+    }
+
+    [Fact]
+    public void Analyzer_SoaRecordWithFlag_RejectsAliasedStringEnumColumnType()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            enum NodeKind: string {
+                Identifier = "identifier"
+            }
+
+            type KindColumn = NodeKind
+
+            soa record NodeTable {
+                kind: KindColumn
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.FeatureNotImplemented);
+        Assert.Contains("SoA column type 'NodeKind' is not supported in this lowering", error.Message);
+        Assert.Contains("int-backed enum columns", error.Suggestion);
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.TypeNotFound);
     }
 
     [Fact]

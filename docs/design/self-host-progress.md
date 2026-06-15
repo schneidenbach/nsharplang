@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — SoA enum column aliases have IL-shape proof
+
+Aliases to int-backed enum column types are now pinned as part of the accepted SoA lowering surface.
+The analyzer accepts `type KindColumn = NodeKind` when `NodeKind` is int-backed, rejects the same
+alias when the enum is string-backed, and the IL-shape evidence covers aliased enum columns through
+direct row/direct-column loads and stores plus generated `new`, `wrap`, and `copyRow` methods with
+no row allocation, boxing, delegate construction, object-array traffic, or virtual dispatch.
+
 ## 2026-06-15 — SoA negative row indexes resolve signed aliases
 
 The SoA analyzer now reports the precise negative row-index diagnostic before the generic row-id type

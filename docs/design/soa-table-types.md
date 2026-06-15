@@ -151,7 +151,7 @@ the direct-IL wrapper proof:
 
 - numeric scalars used by the compiler tables (`int`, `uint`, `long`, `bool`, `char`);
 - `string` and `string?` columns;
-- int-backed enum columns.
+- int-backed enum columns, including aliases to those enums.
 
 Future slices can admit user value types only after their column element load/store shape is
 IL-verified. String enums remain outside this lowering because they are string constants, not dense
