@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Expression-tree modulo predicates lower
+
+Queryable expression-tree predicates now lower `%` through `Expression.Modulo`, and the analyzer
+accepts modulo in the mirrored supported-body set. The regression pin executes
+`Queryable.Where<int>(..., x => x % 2 == 1).Select(...)` end-to-end; still-unsupported binary shapes
+such as shifts continue to report `NL323` before expression-tree IL emission.
+
 ## 2026-06-15 — Expression-tree positional call arguments lower
 
 Expression-tree method-call lowering now supports exact positional instance-call arguments. The IL
@@ -22,7 +29,7 @@ through the expression-tree path.
 ## 2026-06-15 — Expression-tree unsupported bodies fail before lowering
 
 Expression-tree lambda analysis now mirrors the IL builder's supported body subset. Captured/static
-identifiers, named/ref/generic calls, unsupported operators such as `%`, and other unlowered
+identifiers, named/ref/generic calls, unsupported operators such as `<<`, and other unlowered
 expression forms report `NL323` during semantic analysis instead of reaching expression-tree IL
 emission and throwing. The accepted queryable subset from the previous slice remains executable.
 

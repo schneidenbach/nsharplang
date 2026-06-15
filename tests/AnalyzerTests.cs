@@ -6986,12 +6986,12 @@ func Main() {
             func Main() {
                 source := [1, 2, 3]
                 query := source.AsQueryable()
-                filtered := query.Where(x => x % 2 == 0)
+                filtered := query.Where(x => x << 1 == 2)
             }
         ");
 
         var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.FeatureNotImplemented);
-        Assert.Contains("binary operator '%'", error.Message);
+        Assert.Contains("binary operator '<<'", error.Message);
     }
 
     [Fact]

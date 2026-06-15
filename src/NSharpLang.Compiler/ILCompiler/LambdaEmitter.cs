@@ -1558,6 +1558,7 @@ public partial class ILCompiler
             BinaryOperator.Subtract => nameof(System.Linq.Expressions.Expression.Subtract),
             BinaryOperator.Multiply => nameof(System.Linq.Expressions.Expression.Multiply),
             BinaryOperator.Divide => nameof(System.Linq.Expressions.Expression.Divide),
+            BinaryOperator.Modulo => nameof(System.Linq.Expressions.Expression.Modulo),
             BinaryOperator.Equal => nameof(System.Linq.Expressions.Expression.Equal),
             BinaryOperator.NotEqual => nameof(System.Linq.Expressions.Expression.NotEqual),
             BinaryOperator.Less => nameof(System.Linq.Expressions.Expression.LessThan),

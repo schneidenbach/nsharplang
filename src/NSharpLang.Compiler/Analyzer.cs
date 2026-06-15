@@ -14055,6 +14055,7 @@ public class Analyzer : IDisposable
             or BinaryOperator.Subtract
             or BinaryOperator.Multiply
             or BinaryOperator.Divide
+            or BinaryOperator.Modulo
             or BinaryOperator.Equal
             or BinaryOperator.NotEqual
             or BinaryOperator.Less
