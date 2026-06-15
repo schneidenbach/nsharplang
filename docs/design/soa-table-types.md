@@ -425,7 +425,11 @@ reads/assignments have the same direct column proof, with range/slice allocation
 analysis. Row-projection integral `uint`/`long`/`char` update forms are pinned with the same
 backing-column array proof. The generated `new`, `wrap`, `add`, `clear`, `ensureCapacity`, and
 `copyRow` methods are also pinned across the verified scalar/reference element-type set, including
-aliases to that set.
+aliases to that set. Calls to generated operations through an alias-typed table receiver are pinned
+too: `nodes.ensureCapacity(...)`, `nodes.add()`, `nodes.copyRow(...)`, and `nodes.clear()` where
+`nodes: Nodes` and `type Nodes = NodeTable` route through the underlying generated table methods
+without caller-side row allocation, boxing, delegate construction, array allocation, or virtual
+dispatch.
 Construction allocates exactly one array per column and stores column/metadata fields; `wrap` stores
 incoming column references without
 allocating arrays or copying elements; `add` updates only length metadata after calling

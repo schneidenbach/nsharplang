@@ -3933,6 +3933,71 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void AliasedSoaTableGeneratedOperations_UseUnderlyingTableShape()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                kind: int
+                start: int
+            }
+
+            type Nodes = NodeTable
+
+            func mutate(nodes: Nodes): int {
+                nodes.ensureCapacity(4)
+                row := nodes.add()
+                nodes[row].kind = 5
+                nodes[row].start = 7
+                nodes.copyRow(row, 2)
+                nodes.clear()
+                return nodes.length + nodes.capacity * 10 + nodes.kind[2] * 100 + nodes.start[2] * 1000
+            }
+
+            func main(): int {
+                nodes := new Nodes(1)
+                return mutate(nodes)
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var tableType = assembly.GetType("NodeTable");
+            var mutate = ILShapeInspector.GetProgramMethod(assembly, "mutate");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+            Assert.NotNull(tableType);
+
+            var ensureCapacity = tableType!.GetMethod("ensureCapacity", BindingFlags.Public | BindingFlags.Instance);
+            var copyRow = tableType.GetMethod("copyRow", BindingFlags.Public | BindingFlags.Instance);
+            var clear = tableType.GetMethod("clear", BindingFlags.Public | BindingFlags.Instance);
+            Assert.NotNull(ensureCapacity);
+            Assert.NotNull(copyRow);
+            Assert.NotNull(clear);
+
+            Assert.Equal(7540, Assert.IsType<int>(main.Invoke(null, null)));
+
+            ILShapeInspector.AssertNoBoxing(mutate);
+            Assert.Equal(0, ILShapeInspector.CountOpcode(mutate, OpCodes.Newarr));
+            Assert.Equal(0, ILShapeInspector.CountOpcode(mutate, OpCodes.Newobj));
+            Assert.Equal(0, ILShapeInspector.CountDelegateConstructions(mutate));
+            Assert.Equal(0, ILShapeInspector.CountOpcode(mutate, OpCodes.Callvirt));
+            Assert.Equal(4, ILShapeInspector.CountOpcode(mutate, OpCodes.Call));
+            Assert.Equal(2, CountArrayElementLoads(mutate));
+            Assert.Equal(2, CountArrayElementStores(mutate));
+            Assert.True(
+                ILShapeInspector.CountOpcode(mutate, OpCodes.Ldfld) >= 6,
+                "Alias-typed generated operations should keep direct table field access around the calls.");
+
+            Assert.Equal(2, ILShapeInspector.CountCallsTo(ensureCapacity!, typeof(Array), nameof(Array.Resize)));
+            Assert.Equal(1, ILShapeInspector.CountOpcode(copyRow!, OpCodes.Call)); // ensureCapacity
+            AssertNoAllocationOrDispatch(clear!);
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void AliasedVerifiedColumnTypes_UseColumnArrayLoadStoreWithoutRowAllocation()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — SoA table aliases pin generated operation lowering
+
+Alias-typed table receivers now have direct IL-shape evidence for calling generated operations on
+the accepted path. `type Nodes = NodeTable` followed by `nodes.ensureCapacity(...)`, `nodes.add()`,
+`nodes.copyRow(...)`, and `nodes.clear()` execute through the underlying table's generated methods
+while preserving direct backing-column loads/stores around the calls and avoiding row allocation,
+boxing, delegate construction, array allocation in the caller, or virtual dispatch.
+
 ## 2026-06-15 — SoA table aliases preserve rejection-only table paths
 
 Aliases to SoA table types now have analyzer regression coverage for rejection-only table paths
