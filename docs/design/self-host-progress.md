@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Parenthesized SoA row-view diagnostics cover advanced contexts
+
+Parenthesized SoA row views now have analyzer coverage beyond the core local/return/call/array
+escapes. `(nodes[0]) == null`, `if (nodes[0])`, `foreach value in (nodes[0])`,
+`checked((nodes[0]))`, `(nodes[0]) with { ... }`, and `(nodes[0]) = value` report row-view
+diagnostics before IL emission, preserving the rule that row views are syntax-only projections and
+cannot allocate, escape, or become general values.
+
 ## 2026-06-15 — Parenthesized SoA char promotions stay on direct columns
 
 Char numeric-promotion reads over receiver-parenthesized backing-column members now have IL-shape
