@@ -11,6 +11,26 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Top-level program declaration routing composes in N#
+
+`ParserDeclarations.nl` now exports `TopLevelColumnarProgramDeclarationIndicesInto`, a product-routed
+rowset that composes top-level function routing, async flags, nominal declaration indices, and
+struct/class/record declaration indices into one call. It preserves the existing function-first
+program gate and delegates to the lower-level parser rowsets kept for parity tests.
+
+`NSharpCompilerDogfoodAdapter.TryGetColumnarProgramInput` no longer binds
+`TopLevelColumnarFunctionDeclarationIndicesInto`, `TopLevelColumnarNominalDeclarationIndicesInto`, or
+`TopLevelStructLikeDeclarationIndicesInto` for production. It asks N# for the complete declaration
+routing table once, then passes those rows to the C# materializers that still build CLR-facing
+`ColumnarProgramInput` pieces. The C# nominal-index holder and helper were deleted. Focused evidence:
+`./scripts/dev.sh Parser_TopLevelDeclarationKinds_MatchProductionParser`,
+`./scripts/dev.sh ColumnarCodegen_Parity_EnumIntCastAndExplicitValues`,
+`./scripts/dev.sh ColumnarCodegen_Parity_Interfaces`,
+`./scripts/dev.sh ColumnarCodegen_Parity_GenericUnions`,
+`./scripts/dev.sh ColumnarCodegen_Parity_GenericClass_CtorFieldMethodProperty`,
+`./scripts/dev.sh ColumnarCodegen_CompilesRealDogfoodCorpus_Coverage`, and
+`./scripts/dev.sh ColumnarCodegen_MultiFile_EligibleClusterCompiles`.
+
 ## 2026-06-15 — Regular function signature materialization moves into N#
 
 `ParserFunctionSignatures.nl` now exports `ParseFunctionSignatureInfoInto`, a product-routed wrapper

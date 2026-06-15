@@ -534,6 +534,58 @@ func TopLevelColumnarNominalDeclarationIndicesInto(tokenKinds: int[], count: int
     return enumCount + unionCount + interfaceCount
 }
 
+func TopLevelColumnarProgramDeclarationIndicesInto(source: string, rawTokenKinds: int[], rawTokenStarts: int[], rawTokenValueLengths: int[], rawCount: int, compactTokenKinds: int[], compactCount: int, outFuncIndices: int[], outFuncAsyncFlags: int[], outEnumIndices: int[], outUnionIndices: int[], outInterfaceIndices: int[], outStructIndices: int[], outStructReferenceFlags: int[], outStructRecordFlags: int[], outResult: int[]): int {
+    if outResult.Length < 6 {
+        return -1
+    }
+
+    functionResult := new int[](2)
+    functionCount := TopLevelColumnarFunctionDeclarationIndicesInto(
+        source,
+        rawTokenKinds,
+        rawTokenStarts,
+        rawTokenValueLengths,
+        rawCount,
+        compactTokenKinds,
+        compactCount,
+        outFuncIndices,
+        outFuncAsyncFlags,
+        functionResult)
+    if functionCount <= 0 {
+        return -1
+    }
+
+    nominalResult := new int[](3)
+    nominalCount := TopLevelColumnarNominalDeclarationIndicesInto(
+        compactTokenKinds,
+        compactCount,
+        outEnumIndices,
+        outUnionIndices,
+        outInterfaceIndices,
+        nominalResult)
+    if nominalCount < 0 {
+        return -1
+    }
+
+    structCount := TopLevelStructLikeDeclarationIndicesInto(
+        compactTokenKinds,
+        compactCount,
+        outStructIndices,
+        outStructReferenceFlags,
+        outStructRecordFlags)
+    if structCount < 0 {
+        return -1
+    }
+
+    outResult[0] = functionResult[0]
+    outResult[1] = functionCount
+    outResult[2] = nominalResult[0]
+    outResult[3] = nominalResult[1]
+    outResult[4] = nominalResult[2]
+    outResult[5] = structCount
+    return functionCount + nominalCount + structCount
+}
+
 func TopLevelStructLikeDeclarationIndicesAppend(tokens: &ParserDeclarationKindStream, count: int, targetKind: int, suppressWhereClause: int, isReference: int, isRecord: int, outIndices: int[], outReferenceFlags: int[], outRecordFlags: int[], startCount: int): int {
     braceDepth := 0
     bracketDepth := 0

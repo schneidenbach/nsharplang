@@ -91,6 +91,10 @@ public class CompilerDogfoodProjectTests
                     "TopLevelStructLikeDeclarationIndicesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit TopLevelStructLikeDeclarationIndicesInto.");
+            var topLevelColumnarProgramDeclIndices = programType.GetMethod(
+                    "TopLevelColumnarProgramDeclarationIndicesInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit TopLevelColumnarProgramDeclarationIndicesInto.");
             var topLevelFunctionPreambles = programType.GetMethod(
                     "TopLevelFunctionPreamblesAreValidInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -265,6 +269,19 @@ record Person {
                 tokenizeWithIndentation,
                 topLevelStructLikeDeclIndices,
                 "controlled struct-like declarations");
+            AssertTopLevelColumnarProgramDeclarationIndices(
+                controlledCorpus,
+                expectedFuncCount: 1,
+                expectedAsyncFlags: new[] { 0 },
+                expectedEnumCount: 1,
+                expectedUnionCount: 1,
+                expectedInterfaceCount: 1,
+                expectedStructKinds: new[] { (int)TokenType.Struct, (int)TokenType.Record, (int)TokenType.Class },
+                expectedStructReferenceFlags: new[] { 0, 1, 1 },
+                expectedStructRecordFlags: new[] { 0, 1, 0 },
+                tokenizeWithIndentation,
+                topLevelColumnarProgramDeclIndices,
+                "controlled program declaration rowset");
             AssertInterfaceDeclarationInfo(
                 """
 interface IReadable: IBase, IOther {
@@ -2032,6 +2049,84 @@ class B
             Assert.Equal(expectedKinds[i], kinds[index]);
             Assert.Equal(expectedReferenceFlags[i], referenceFlags[i]);
             Assert.Equal(expectedRecordFlags[i], recordFlags[i]);
+        }
+    }
+
+    private static void AssertTopLevelColumnarProgramDeclarationIndices(
+        string source,
+        int expectedFuncCount,
+        int[] expectedAsyncFlags,
+        int expectedEnumCount,
+        int expectedUnionCount,
+        int expectedInterfaceCount,
+        int[] expectedStructKinds,
+        int[] expectedStructReferenceFlags,
+        int[] expectedStructRecordFlags,
+        MethodInfo tokenizeWithIndentation,
+        MethodInfo topLevelColumnarProgramDeclIndices,
+        string label)
+    {
+        Assert.Equal(expectedFuncCount, expectedAsyncFlags.Length);
+        Assert.Equal(expectedStructKinds.Length, expectedStructReferenceFlags.Length);
+        Assert.Equal(expectedStructKinds.Length, expectedStructRecordFlags.Length);
+
+        var (rawCount, rawKinds, rawStarts, rawValueLengths, compactKinds, compactCount) =
+            TokenizeRawAndCompactSourceViaKernel(source, tokenizeWithIndentation);
+        var funcIndices = new int[compactCount + 1];
+        var asyncFlags = new int[compactCount + 1];
+        var enumIndices = new int[compactCount + 1];
+        var unionIndices = new int[compactCount + 1];
+        var interfaceIndices = new int[compactCount + 1];
+        var structIndices = new int[compactCount + 1];
+        var structReferenceFlags = new int[compactCount + 1];
+        var structRecordFlags = new int[compactCount + 1];
+        var result = new int[6];
+
+        var actualTotal = (int)(topLevelColumnarProgramDeclIndices.Invoke(
+            null,
+            new object[]
+            {
+                source,
+                rawKinds,
+                rawStarts,
+                rawValueLengths,
+                rawCount,
+                compactKinds,
+                compactCount,
+                funcIndices,
+                asyncFlags,
+                enumIndices,
+                unionIndices,
+                interfaceIndices,
+                structIndices,
+                structReferenceFlags,
+                structRecordFlags,
+                result
+            }) ?? -2);
+
+        Assert.Equal(expectedFuncCount + expectedEnumCount + expectedUnionCount + expectedInterfaceCount + expectedStructKinds.Length, actualTotal);
+        Assert.Equal(expectedFuncCount, result[1]);
+        Assert.Equal(expectedEnumCount, result[2]);
+        Assert.Equal(expectedUnionCount, result[3]);
+        Assert.Equal(expectedInterfaceCount, result[4]);
+        Assert.Equal(expectedStructKinds.Length, result[5]);
+        for (var i = 0; i < expectedFuncCount; i++)
+        {
+            var index = funcIndices[i];
+            Assert.True(index >= 0 && index < compactCount, $"Function declaration index out of range for {label}: {index}.");
+            Assert.Equal((int)TokenType.Func, compactKinds[index]);
+            Assert.Equal(expectedAsyncFlags[i], asyncFlags[i]);
+        }
+        AssertNominalIndices(compactKinds, compactCount, enumIndices, expectedEnumCount, (int)TokenType.Enum, label);
+        AssertNominalIndices(compactKinds, compactCount, unionIndices, expectedUnionCount, (int)TokenType.Union, label);
+        AssertNominalIndices(compactKinds, compactCount, interfaceIndices, expectedInterfaceCount, (int)TokenType.Interface, label);
+        for (var i = 0; i < expectedStructKinds.Length; i++)
+        {
+            var index = structIndices[i];
+            Assert.True(index >= 0 && index < compactCount, $"Struct-like declaration index out of range for {label}: {index}.");
+            Assert.Equal(expectedStructKinds[i], compactKinds[index]);
+            Assert.Equal(expectedStructReferenceFlags[i], structReferenceFlags[i]);
+            Assert.Equal(expectedStructRecordFlags[i], structRecordFlags[i]);
         }
     }
 
@@ -10256,6 +10351,7 @@ class B
         Assert.NotNull(loadScope.Assembly);
         // Files eligible ONLY via cross-file resolution must contribute their public functions —
         // i.e. the merge actually emitted them (single-file each declines; see ColumnarCodegen_MultiFile_*).
+        Assert.Contains("TopLevelColumnarProgramDeclarationIndicesInto", methodNames!); // ParserDeclarations composed routing
         Assert.Contains("ParseFunctionSignatureInto", methodNames!); // ParserFunctionSignatures -> ParserTypeReferences
         Assert.Contains("ParseFunctionSignatureInfoInto", methodNames!); // ParserFunctionSignatures -> ParserTypeReferences
         Assert.Contains("ParseConstructorSignatureInfoInto", methodNames!); // ParserConstructorSignatures -> declarations/signatures/types
