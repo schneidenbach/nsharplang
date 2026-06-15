@@ -83,6 +83,10 @@ public class CompilerDogfoodProjectTests
                     "MatchingCloseBraceInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit MatchingCloseBraceInto.");
+            var constructorChainInfo = programType.GetMethod(
+                    "ParseConstructorChainInfoInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit ParseConstructorChainInfoInto.");
             var topLevelDeclNames = programType.GetMethod(
                     "TopLevelDeclarationNameSpansInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -208,6 +212,57 @@ func refOnly<T>(v: T): T where T: class {
                 -1,
                 matchingCloseBrace,
                 "non-brace open token");
+            AssertConstructorChainBodyIndex(
+                """
+class C {
+    X: int
+    constructor(x: int) {
+        X = x
+    }
+}
+""",
+                0,
+                Array.Empty<string>(),
+                tokenizeWithIndentation,
+                constructorChainInfo,
+                "constructor with no chain");
+            AssertConstructorChainBodyIndex(
+                """
+class C {
+    X: int
+    Y: int
+    constructor(x: int, y: int) {
+        X = x
+        Y = y
+    }
+    constructor(x: int): this(x, 0) {
+    }
+}
+""",
+                1,
+                new[] { "x", "0" },
+                tokenizeWithIndentation,
+                constructorChainInfo,
+                "constructor with this-chain");
+            AssertConstructorChainBodyIndex(
+                """
+class B {
+    X: int
+    constructor(x: int) {
+        X = x
+    }
+}
+
+class D: B {
+    constructor(x: int): base(x) {
+    }
+}
+""",
+                2,
+                new[] { "x" },
+                tokenizeWithIndentation,
+                constructorChainInfo,
+                "constructor with base-chain");
             AssertTopLevelContextualTestDeclaration(
                 """
 func helper(): int {
@@ -332,6 +387,46 @@ class B
         finally
         {
             if (File.Exists(outputPath)) File.Delete(outputPath);
+        }
+    }
+
+    private static void AssertConstructorChainBodyIndex(
+        string source,
+        int expectedInitializerKind,
+        string[] expectedArgs,
+        MethodInfo tokenizeWithIndentation,
+        MethodInfo constructorChainInfo,
+        string label)
+    {
+        var (count, kinds, starts, valueLengths, compactedSource) = TokenizeSourceViaKernel(source, tokenizeWithIndentation);
+        var ctorIndex = -1;
+        for (var i = 0; i < count; i++)
+        {
+            if (kinds[i] == (int)TokenType.Identifier
+                && valueLengths[i] == "constructor".Length
+                && string.CompareOrdinal(compactedSource, starts[i], "constructor", 0, "constructor".Length) == 0)
+            {
+                ctorIndex = i;
+            }
+        }
+
+        Assert.True(ctorIndex >= 0, $"Could not locate constructor token for {label}.");
+        var argKinds = new int[count + 1];
+        var argStarts = new int[count + 1];
+        var argLengths = new int[count + 1];
+        var result = new int[2];
+        var argCount = (int)(constructorChainInfo.Invoke(
+            null,
+            new object[] { kinds, starts, valueLengths, count, ctorIndex, argKinds, argStarts, argLengths, result }) ?? -2);
+
+        Assert.Equal(expectedArgs.Length, argCount);
+        Assert.Equal(expectedInitializerKind, result[0]);
+        Assert.True(result[1] >= 0 && result[1] < count, $"Constructor body brace index missing for {label}.");
+        Assert.Equal((int)TokenType.LeftBrace, kinds[result[1]]);
+        Assert.True(result[1] > ctorIndex, $"Constructor body brace must follow constructor token for {label}.");
+        for (var i = 0; i < expectedArgs.Length; i++)
+        {
+            Assert.Equal(expectedArgs[i], compactedSource.Substring(argStarts[i], argLengths[i]));
         }
     }
 

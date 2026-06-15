@@ -1240,9 +1240,10 @@ func ParseStructDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int
 // optional `:`; with no `:` (or no `(` params) returns 0 with outResult[0] = 0 (no initializer). For `: this(`
 // (this = 42) / `: base(` (base = 43), records each chained ARG — restricted to a SINGLE token, either a param
 // IDENTIFIER (kind 0) or an INT LITERAL (kind 1) — into outArgKinds/outArgStarts/outArgLengths, separated by `,`
-// (134), closed by `)` (128). outResult[0] = the initializer kind (0 = none, 1 = this, 2 = base). Returns the
-// chained-arg count, or -1 on a malformed initializer or a non-{identifier,int-literal} arg (a complex expression /
-// string / other literal — the host declines such a chaining ctor to the C# path).
+// (134), closed by `)` (128). outResult[0] = the initializer kind (0 = none, 1 = this, 2 = base);
+// outResult[1] = the constructor BODY `{` token index, or -1 if it is missing. Returns the chained-arg count, or
+// -1 on a malformed initializer or a non-{identifier,int-literal} arg (a complex expression / string /
+// other literal — the host declines such a chaining ctor to the C# path).
 func ParseConstructorChainInfoInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, ctorIndex: int, outArgKinds: int[], outArgStarts: int[], outArgLengths: int[], outResult: int[]): int {
     tokens := new ParserDeclarationTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
     args := new ConstructorChainArgTable { Kinds: outArgKinds, Starts: outArgStarts, Lengths: outArgLengths }
@@ -1252,6 +1253,7 @@ func ParseConstructorChainInfoInto(tokenKinds: int[], tokenStarts: int[], tokenV
 
 func ParseConstructorChainInfoCore(tokens: &ParserDeclarationTokenTable, count: int, ctorIndex: int, args: &ConstructorChainArgTable, result: &ParserDeclarationResultTable): int {
     result.Values[0] = 0
+    result.Values[1] = -1
     pos := ctorIndex + 1
     if pos >= count || tokens.Kinds[pos] != 127 {
         return 0
@@ -1275,6 +1277,9 @@ func ParseConstructorChainInfoCore(tokens: &ParserDeclarationTokenTable, count: 
     }
 
     if pos >= count || tokens.Kinds[pos] != 122 {
+        if pos < count && tokens.Kinds[pos] == 129 {
+            result.Values[1] = pos
+        }
         return 0
     }
     pos = pos + 1
@@ -1317,6 +1322,10 @@ func ParseConstructorChainInfoCore(tokens: &ParserDeclarationTokenTable, count: 
 
     if pos >= count || tokens.Kinds[pos] != 128 {
         return -1
+    }
+    pos = pos + 1
+    if pos < count && tokens.Kinds[pos] == 129 {
+        result.Values[1] = pos
     }
     return argCount
 }

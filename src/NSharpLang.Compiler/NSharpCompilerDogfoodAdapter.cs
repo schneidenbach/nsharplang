@@ -811,12 +811,19 @@ internal static class NSharpCompilerDogfoodAdapter
             paramCanonicals[p] = ColumnarTypeCanon(sk, sns, snl, scs, scc, sci, source, pTypeRoot[p]);
         }
 
-        var bodyBrace = -1;
-        for (var t = ctorIndex + 1; t < n; t++)
-        {
-            if (ck[t] == 129) { bodyBrace = t; break; }
-        }
-        if (bodyBrace < 0)
+        // Parse the optional `: this(args)` / `: base(args)` chaining initializer (chained args restricted to a param
+        // identifier or an int literal; a complex/other-literal arg returns -1 -> decline the whole ctor). The same
+        // dogfood kernel reports the body `{` after the optional initializer, keeping constructor body delimiting out
+        // of the C# adapter.
+        var caKinds = new int[cap];
+        var caStarts = new int[cap];
+        var caLengths = new int[cap];
+        var caRes = new int[2];
+        var chainArgCount = bindings.ParseConstructorChainInfo(ck, cs, cv, n, ctorIndex, caKinds, caStarts, caLengths, caRes);
+        if (chainArgCount < 0)
+            return false;
+        var bodyBrace = caRes[1];
+        if (bodyBrace < 0 || bodyBrace >= n || ck[bodyBrace] != 129)
             return false;
 
         var bk = new int[cap]; var bvs = new int[cap]; var bvl = new int[cap]; var bcs = new int[cap];
@@ -827,15 +834,6 @@ internal static class NSharpCompilerDogfoodAdapter
         if (bodyNodeCount <= 0)
             return false;
 
-        // Parse the optional `: this(args)` / `: base(args)` chaining initializer (chained args restricted to a param
-        // identifier or an int literal; a complex/other-literal arg returns -1 -> decline the whole ctor).
-        var caKinds = new int[cap];
-        var caStarts = new int[cap];
-        var caLengths = new int[cap];
-        var caRes = new int[1];
-        var chainArgCount = bindings.ParseConstructorChainInfo(ck, cs, cv, n, ctorIndex, caKinds, caStarts, caLengths, caRes);
-        if (chainArgCount < 0)
-            return false;
         var chainArgKinds = new int[chainArgCount];
         var chainArgTexts = new string[chainArgCount];
         for (var a = 0; a < chainArgCount; a++)

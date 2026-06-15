@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Constructor body delimiting moves into the N# chain parser
+
+`ParseConstructorChainInfoInto` now reports the constructor body's compacted `{` token index in
+`outResult[1]` after walking the parameter list and any `: this(...)` / `: base(...)` initializer.
+`NSharpCompilerDogfoodAdapter` uses that dogfood result before parsing constructor statements and no
+longer scans forward in C# to find the first body brace. Focused evidence:
+`./scripts/dev.sh Parser_TopLevelDeclarationKinds_MatchProductionParser`,
+`./scripts/dev.sh ColumnarCodegen_Parity_ClassConstructor`,
+`./scripts/dev.sh ColumnarCodegen_Parity_ClassInheritance`,
+`./scripts/dev.sh ColumnarCodegen_MultiFile_EligibleClusterCompiles`, and
+`./scripts/dev.sh ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines`.
+
 ## 2026-06-15 — Property accessor brace matching moves into N#
 
 `ParserDeclarations.nl` now owns `MatchingCloseBraceInto`, a table-shaped compacted-token utility
