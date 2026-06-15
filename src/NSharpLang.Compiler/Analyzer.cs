@@ -9008,7 +9008,7 @@ public class Analyzer : IDisposable
             }
 
             var argument = call.Arguments[argumentIndex];
-            if (argument.Value is not NullLiteralExpression and not DefaultExpression)
+            if (!IsNullOrDefaultLiteral(argument.Value))
                 continue;
 
             var columnName = functionType.ParameterNames != null && parameterIndex < functionType.ParameterNames.Count
@@ -9023,6 +9023,14 @@ public class Analyzer : IDisposable
                 $"Pass the backing '{columnName}' column array, or allocate one before calling {functionName}.",
                 length);
         }
+    }
+
+    private static bool IsNullOrDefaultLiteral(Expression expression)
+    {
+        while (expression is ParenthesizedExpression parenthesized)
+            expression = parenthesized.Inner;
+
+        return expression is NullLiteralExpression or DefaultExpression;
     }
 
     private void ValidateSyntheticNonNegativeIntArgument(

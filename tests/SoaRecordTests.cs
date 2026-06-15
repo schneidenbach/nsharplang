@@ -6138,6 +6138,71 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaTableWrapRejectsParenthesizedNullAndDefaultColumnLiterals()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var cases = new[]
+        {
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad() {
+                    nodes := NodeTable.wrap((null), 0)
+                }
+                """,
+                Column: "kind"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad() {
+                    nodes := NodeTable.wrap(((default)), 0)
+                }
+                """,
+                Column: "kind"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                    name: string
+                }
+
+                func bad() {
+                    kinds := new int[](2)
+                    nodes := NodeTable.wrap(name: (null), kind: kinds, length: 0)
+                }
+                """,
+                Column: "name"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                    name: string
+                }
+
+                func bad() {
+                    nodes := NodeTable.wrap(name: ((default)), kind: new(), length: 0)
+                }
+                """,
+                Column: "name")
+        };
+
+        foreach (var (source, column) in cases)
+        {
+            var result = Analyze(source);
+            var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+            Assert.Contains($"SoA table wrap column '{column}' cannot be null", error.Message);
+            Assert.Contains($"backing '{column}' column array", error.Suggestion);
+        }
+    }
+
+    [Fact]
     public void Analyzer_SoaTableWrapNamedTargetTypedNewUsesBoundExpectedType()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

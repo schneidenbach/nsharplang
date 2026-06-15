@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Parenthesized SoA wrap null columns fail before emission
+
+SoA `wrap` column validation now unwraps parentheses before checking literal `null` and `default`
+column arguments. `NodeTable.wrap((null), 0)`, nested `(default)` positional columns, and named
+forms such as `NodeTable.wrap(name: (null), kind: kinds, length: 0)` now report the direct
+`SoA table wrap column 'X' cannot be null` analyzer diagnostic instead of reaching emission and
+falling to the runtime null-column guard.
+
 ## 2026-06-15 — Parenthesized SoA table construction diagnostics stay target-typed
 
 Target-typed SoA table `default` and zero-argument `new()` diagnostics now have parenthesized

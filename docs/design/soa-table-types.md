@@ -272,7 +272,8 @@ The compiler must produce direct diagnostics for common misuse:
   other declared-type positions, `typeof`, and `sizeof`;
 - mismatched `wrap` columns: "column lengths for NodeTable do not match";
 - null `wrap` columns: "SoA table wrap column 'X' cannot be null" for literal null/default column
-  arguments, or "columns for NodeTable.wrap cannot be null" for dynamic runtime values;
+  arguments, including parenthesized forms, or "columns for NodeTable.wrap cannot be null" for dynamic
+  runtime values;
 - invalid `wrap` length: "SoA table wrap length must not be negative" for negative literals, or
   "length for NodeTable.wrap must be between 0 and column length" for dynamic runtime bounds;
 - invalid `new` capacity: "SoA table capacity must be int" or "SoA table capacity must not be negative"
