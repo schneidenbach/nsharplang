@@ -2153,29 +2153,26 @@ func CliStableDistinctRankIndicesCore(
     uniqueRankCount: int,
     seenRankTable: &CliSeenRankTable,
     results: &CliIndexResultTable): int {
-    ranks := rankTable.Ranks
-    seenRanks := seenRankTable.Ranks
-    resultIndices := results.Indices
     clearCount := uniqueRankCount + 1
-    if clearCount > seenRanks.Length {
-        clearCount = seenRanks.Length
+    if clearCount > seenRankTable.Ranks.Length {
+        clearCount = seenRankTable.Ranks.Length
     }
 
     i := 0
     while i < clearCount {
-        seenRanks[i] = 0
+        seenRankTable.Ranks[i] = 0
         i = i + 1
     }
 
     resultCount := 0
     i = 0
-    while i < ranks.Length {
-        rank := ranks[i]
-        if rank > 0 && rank <= uniqueRankCount && rank < seenRanks.Length {
-            if seenRanks[rank] == 0 {
-                seenRanks[rank] = 1
-                if resultCount < resultIndices.Length {
-                    resultIndices[resultCount] = i
+    while i < rankTable.Ranks.Length {
+        rank := rankTable.Ranks[i]
+        if rank > 0 && rank <= uniqueRankCount && rank < seenRankTable.Ranks.Length {
+            if seenRankTable.Ranks[rank] == 0 {
+                seenRankTable.Ranks[rank] = 1
+                if resultCount < results.Indices.Length {
+                    results.Indices[resultCount] = i
                 }
 
                 resultCount = resultCount + 1

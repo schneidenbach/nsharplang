@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — CliArguments stable-distinct core stays table-shaped internally
+
+`CliStableDistinctRankIndicesCore` now keeps the rank input, seen-rank scratch, and result-index
+columns behind the normal table wrappers instead of unpacking them into raw array locals. The
+adapter-facing entry point remains flattened, but the accepted product N# core carries the table
+shape all the way through the scan. Focused evidence: `./scripts/dev.sh StableDistinct`.
+
 ## 2026-06-15 — CliArguments applied-file grouping stays table-shaped internally
 
 `CliFixAppliedFileGroupsCore` now keeps its file-rank, rank-bucket, and applied-file group result
