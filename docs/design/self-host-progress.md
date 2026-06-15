@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — SoA ref/out address proof covers mixed element types
+
+Row-projection and direct-column `ref`/`out` arguments now have IL-shape evidence across the
+verified SoA element-type set: `uint`, `long`, `char`, `bool`, `string`, and an int-backed enum
+column all lower through backing-column `ldelema` without row allocation or caller-side element
+stores. The enum case also pins the forward-resolution contract for SoA columns: generated table
+methods keep baked enum tokens, while the top-level enum declaration remains idempotent so enum
+literals are still available when the enum is first reached through a SoA column type.
+
 ## 2026-06-15 — SoA ref/out negative index wrappers pinned
 
 Row-projection and direct-column `ref`/`out` arguments now have analyzer evidence for the same

@@ -18651,6 +18651,11 @@ public partial class ILCompiler
                 }
             }
 
+            if (TryEmitProjectEnumMemberConstant(staticTypeBuilder, memberName))
+            {
+                return;
+            }
+
             throw new InvalidOperationException($"Static member {memberName} not found on type {GetTypeKey(staticTypeBuilder)}");
         }
 
@@ -18665,6 +18670,11 @@ public partial class ILCompiler
             {
                 _currentIL.Emit(OpCodes.Ldsfld, declaredStaticField);
             }
+            return;
+        }
+
+        if (TryEmitProjectEnumMemberConstant(staticType, memberName))
+        {
             return;
         }
 
@@ -18696,6 +18706,71 @@ public partial class ILCompiler
         }
 
         throw new InvalidOperationException($"Static member {memberName} not found on type {GetTypeKey(staticType)}");
+    }
+
+    private bool TryEmitProjectEnumMemberConstant(Type enumType, string memberName)
+    {
+        if (TryGetProjectEnumMemberConstant(enumType, memberName, out var constantValue))
+        {
+            EmitConstantValue(constantValue, IsEnumType(enumType) ? enumType : typeof(int));
+            return true;
+        }
+
+        return false;
+    }
+
+    private bool TryGetProjectEnumMemberConstant(Type enumType, string memberName, out int constantValue)
+    {
+        constantValue = 0;
+
+        foreach (var enumTypeName in GetProjectEnumTypeNameCandidates(enumType))
+        {
+            var fieldKey = $"{enumTypeName}.{memberName}";
+            if (_fieldConstants.TryGetValue(fieldKey, out var recordedValue) && recordedValue is int recordedInt)
+            {
+                constantValue = recordedInt;
+                return true;
+            }
+
+            var resolvedTypeName = ResolveDeclaredTypeName(enumTypeName) ?? enumTypeName;
+            if (!TryGetDeclaredTypeInfo(resolvedTypeName, out var declaredType)
+                || declaredType.Declaration is not EnumDeclaration enumDeclaration
+                || enumDeclaration.Type == EnumType.String)
+            {
+                continue;
+            }
+
+            var nextValue = 0;
+            foreach (var member in enumDeclaration.Members)
+            {
+                var memberValue = member.Value switch
+                {
+                    IntLiteralExpression intLiteral => int.Parse(intLiteral.Value),
+                    _ => nextValue
+                };
+
+                if (string.Equals(member.Name, memberName, StringComparison.Ordinal))
+                {
+                    constantValue = memberValue;
+                    _fieldConstants[fieldKey] = memberValue;
+                    return true;
+                }
+
+                nextValue = memberValue + 1;
+            }
+        }
+
+        return false;
+    }
+
+    private IEnumerable<string> GetProjectEnumTypeNameCandidates(Type enumType)
+    {
+        yield return GetTypeKey(enumType);
+
+        if (!string.IsNullOrWhiteSpace(enumType.Name))
+        {
+            yield return enumType.Name;
+        }
     }
 
     private void EmitMemberStoreValue(Type objectType, string memberName)
@@ -18966,6 +19041,11 @@ public partial class ILCompiler
                         break;
                     }
                 }
+
+                if (TryEmitProjectEnumMemberConstant(staticTypeBuilder, memberAccess.MemberName))
+                {
+                    return;
+                }
             }
             else
             {
@@ -18980,6 +19060,11 @@ public partial class ILCompiler
                     {
                         _currentIL.Emit(OpCodes.Ldsfld, declaredStaticField);
                     }
+                    return;
+                }
+
+                if (TryEmitProjectEnumMemberConstant(staticType, memberAccess.MemberName))
+                {
                     return;
                 }
 
@@ -21869,13 +21954,13 @@ public partial class ILCompiler
     /// </summary>
     private void DeclareEnum(ModuleBuilder moduleBuilder, EnumDeclaration enumDecl)
     {
-        if (_enumTypes.ContainsKey(enumDecl.Name) || _stringEnumContainers.ContainsKey(enumDecl.Name))
-        {
-            return;
-        }
-
         if (enumDecl.Type == EnumType.String)
         {
+            if (_enumTypes.ContainsKey(enumDecl.Name) || _stringEnumContainers.ContainsKey(enumDecl.Name))
+            {
+                return;
+            }
+
             var typeBuilder = moduleBuilder.DefineType(
                 enumDecl.Name,
                 GetTypeVisibilityAttributes(enumDecl.Name, enumDecl.Modifiers) | TypeAttributes.Class | TypeAttributes.Abstract | TypeAttributes.Sealed);
@@ -21901,13 +21986,31 @@ public partial class ILCompiler
             return;
         }
 
-        var enumBuilder = moduleBuilder.DefineEnum(
-            enumDecl.Name,
-            GetTypeVisibilityAttributes(enumDecl.Name, enumDecl.Modifiers),
-            typeof(int));
-        ApplyCustomAttributes(enumBuilder.SetCustomAttribute, enumDecl.Attributes);
+        if (_stringEnumContainers.ContainsKey(enumDecl.Name))
+        {
+            return;
+        }
 
-        _enumTypes[enumDecl.Name] = enumBuilder;
+        EnumBuilder enumBuilder;
+        if (_enumTypes.TryGetValue(enumDecl.Name, out var existingEnumType))
+        {
+            if (existingEnumType is not EnumBuilder existingEnumBuilder)
+            {
+                return;
+            }
+
+            enumBuilder = existingEnumBuilder;
+        }
+        else
+        {
+            enumBuilder = moduleBuilder.DefineEnum(
+                enumDecl.Name,
+                GetTypeVisibilityAttributes(enumDecl.Name, enumDecl.Modifiers),
+                typeof(int));
+            ApplyCustomAttributes(enumBuilder.SetCustomAttribute, enumDecl.Attributes);
+
+            _enumTypes[enumDecl.Name] = enumBuilder;
+        }
 
         var nextValue = 0;
         foreach (var member in enumDecl.Members)
@@ -21918,9 +22021,14 @@ public partial class ILCompiler
                 _ => nextValue
             };
 
-            var fieldBuilder = enumBuilder.DefineLiteral(member.Name, constantValue);
-            _fields[$"{enumDecl.Name}.{member.Name}"] = fieldBuilder;
-            _fieldConstants[$"{enumDecl.Name}.{member.Name}"] = constantValue;
+            var fieldKey = GetFieldKey(enumBuilder, member.Name);
+            if (!_fields.ContainsKey(fieldKey))
+            {
+                var fieldBuilder = enumBuilder.DefineLiteral(member.Name, constantValue);
+                _fields[fieldKey] = fieldBuilder;
+                _fieldConstants[fieldKey] = constantValue;
+            }
+
             nextValue = constantValue + 1;
         }
     }

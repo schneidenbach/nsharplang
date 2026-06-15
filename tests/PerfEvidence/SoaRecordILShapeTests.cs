@@ -214,6 +214,110 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void RefAndOutArguments_UseColumnArrayElementAddressForVerifiedElementTypes()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                flags: uint
+                offset: long
+                marker: char
+                active: bool
+                name: string
+                kind: NodeKind
+            }
+
+            enum NodeKind {
+                Unknown,
+                Identifier,
+                Literal
+            }
+
+            type Nodes = NodeTable
+
+            func bumpFlags(ref value: uint) {
+                value += (uint)2
+            }
+
+            func setOffset(out value: long) {
+                value = 11L
+            }
+
+            func setMarker(out value: char) {
+                value = 'Z'
+            }
+
+            func flip(ref value: bool) {
+                value = !value
+            }
+
+            func setName(out value: string) {
+                value = "row"
+            }
+
+            func setKind(ref value: NodeKind) {
+                value = NodeKind.Literal
+            }
+
+            func mutate(nodes: Nodes, row: int): int {
+                bumpFlags(ref nodes[row].flags)
+                setOffset(out nodes[row].offset)
+                setMarker(out nodes.marker[row])
+                flip(ref nodes.active[row])
+                setName(out nodes[row].name)
+                setKind(ref nodes.kind[row])
+
+                score := (int)nodes[row].flags
+                score += (int)nodes[row].offset
+                score += (int)nodes.marker[row]
+                score += nodes.active[row] ? 1 : 0
+                score += nodes[row].name == "row" ? 1000 : 0
+                score += nodes.kind[row] == NodeKind.Literal ? 100 : 0
+                return score
+            }
+
+            func main(): int {
+                nodes := new Nodes(1)
+                row := nodes.add()
+                nodes[row].flags = (uint)5
+                nodes[row].offset = 3L
+                nodes.marker[row] = 'A'
+                nodes.active[row] = true
+                nodes[row].name = "start"
+                nodes.kind[row] = NodeKind.Identifier
+                return mutate(nodes, row)
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var tableType = assembly.GetType("NodeTable");
+            Assert.NotNull(tableType);
+            var kindField = tableType!.GetField("kind", BindingFlags.Public | BindingFlags.Instance);
+            Assert.NotNull(kindField);
+            var kindElementType = kindField!.FieldType.GetElementType();
+            Assert.NotNull(kindElementType);
+            Assert.True(kindElementType!.IsEnum);
+            Assert.Equal(new[] { "Unknown", "Identifier", "Literal" }, Enum.GetNames(kindElementType));
+
+            var mutate = ILShapeInspector.GetProgramMethod(assembly, "mutate");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(1208, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoFromEndSliceAllocation(mutate);
+            Assert.Equal(6, ILShapeInspector.CountOpcode(mutate, OpCodes.Ldelema));
+            Assert.True(
+                ILShapeInspector.CountOpcode(mutate, OpCodes.Ldfld) >= 12,
+                "Mixed SoA ref/out arguments should load backing column arrays directly.");
+            Assert.Equal(0, CountArrayElementStores(mutate));
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void DirectColumnDefaultAssignment_StoresDefaultWithoutReadingOldValue()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
