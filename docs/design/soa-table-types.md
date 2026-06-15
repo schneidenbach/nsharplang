@@ -330,14 +330,15 @@ The compiler must produce direct diagnostics for common misuse:
 - statically negative row indexes on row/direct-column reads or writes:
   "SoA table row indexes must not be negative" or "SoA column row indexes must not be negative",
   including parenthesized whole-expression or unary-operand, checked/unchecked, signed
-  integer-cast forms, and row-projection `ref`/`out` argument addresses including aliases;
+  integer-cast forms, and row-projection or direct-column `ref`/`out` argument addresses including
+  aliases;
 - direct table member mutation: "SoA table member 'X' cannot be assigned directly" for simple,
   compound, and null-coalescing assignment, or "SoA table member 'X' cannot be incremented or
   decremented directly", including aliases to SoA tables plus parenthesized and checked/unchecked
   target-wrapper forms;
 - non-int direct column element indexes: "Array indexes must be int, System.Index, or System.Range";
-- direct column slice reads and mutations, including aliases to SoA tables, parenthesized
-  column-member receivers, and
+- direct column slice reads, mutations, and `ref`/`out` argument addresses, including aliases to SoA
+  tables, parenthesized column-member receivers, and
   checked/unchecked mutation-target wrappers: "SoA column range slices allocate arrays";
 - hidden allocation request: "this operation would allocate row objects; use column access instead".
 
@@ -411,7 +412,8 @@ parenthesized row-view diagnostics for advanced escape, type-test, result, contr
 contexts plus receiver/null-conditional/with-value/`nameof`, literal/initializer, statement, and
 resource contexts, expression-bodied function/property/lambda contexts, storage and mutation
 contexts, pattern/event/off/async contexts, variable-held direct-column range mutation diagnostics
-including parenthesized column members, variable-held from-end
+including parenthesized column members, direct-column `ref`/`out` range and negative-index
+diagnostics, variable-held from-end
 null-coalescing reads/assignments, receiver-parenthesized bool logical and bitwise expression stores,
 receiver-parenthesized numeric arithmetic/shift/bitwise expression stores,
 receiver-parenthesized signed numeric negation and unary bitwise-not stores,

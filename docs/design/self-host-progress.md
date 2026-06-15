@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Direct SoA column ref/out indexes reject hidden slices
+
+Direct column `ref`/`out` arguments now have analyzer coverage for the rejection side of the address
+path. Alias-typed table receivers reject direct and variable-held range slices, parenthesized and
+checked column receivers, and negative direct-column row ids before the generic ref/out emitter can
+see an allocating slice or invalid element address.
+
 ## 2026-06-15 — SoA row ref/out indexes reject non-int row ids
 
 The new row-projection `ref`/`out` address path keeps the row-id contract intact. Alias-typed table
