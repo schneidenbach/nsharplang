@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Parenthesized SoA row-view expression-bodied escapes stay diagnosed
+
+Parenthesized SoA row views now have analyzer coverage for expression-bodied return contexts across
+functions, local functions, properties, typed lambdas, inferred lambdas, and block-bodied lambda
+returns. `=> (nodes[0])`, `Row: object => (Nodes[0])`, `() => (nodes[0])`, and
+`() => { return (nodes[0]) }` all report the row-view return diagnostic before IL emission, so
+lambda/property sugar cannot capture or return a row object.
+
 ## 2026-06-15 — Parenthesized SoA row-view literal and resource escapes stay diagnosed
 
 Parenthesized SoA row views now have analyzer coverage for literal, initializer, statement, and
