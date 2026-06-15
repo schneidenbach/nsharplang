@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Expression-tree default values lower
+
+Expression-tree lambdas now accept target-typed `default` values and lower them through
+`Expression.Default(Type)`. The supported-body mirror now treats `default` like other typed literal
+forms, while still requiring the surrounding expression-tree delegate or call site to provide a
+concrete type context before analysis succeeds.
+
 ## 2026-06-15 — Expression-tree conditionals lower
 
 Queryable expression-tree lambdas now lower ternary conditionals through

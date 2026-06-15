@@ -1374,6 +1374,11 @@ public partial class ILCompiler
                 EmitExpressionTreeConstant(expression, expectedType);
                 return;
 
+            case DefaultExpression:
+                EmitRuntimeTypeOf(expectedType);
+                _currentIL.Emit(OpCodes.Call, ResolveExpressionDefaultMethod());
+                return;
+
             case BinaryExpression binary:
                 EmitExpressionTreeBinaryNode(binary, parameterLocals, parameterClrTypes);
                 return;
@@ -1918,6 +1923,12 @@ public partial class ILCompiler
             nameof(System.Linq.Expressions.Expression.Condition),
             new[] { typeof(System.Linq.Expressions.Expression), typeof(System.Linq.Expressions.Expression), typeof(System.Linq.Expressions.Expression) })
         ?? throw new InvalidOperationException("Could not resolve Expression.Condition(Expression, Expression, Expression)");
+
+    private static MethodInfo ResolveExpressionDefaultMethod()
+        => typeof(System.Linq.Expressions.Expression).GetMethod(
+            nameof(System.Linq.Expressions.Expression.Default),
+            new[] { typeof(Type) })
+        ?? throw new InvalidOperationException("Could not resolve Expression.Default(Type)");
 
     private static MethodInfo ResolveBinaryExpressionMethod(string methodName)
         => typeof(System.Linq.Expressions.Expression).GetMethod(

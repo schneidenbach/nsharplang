@@ -7063,6 +7063,25 @@ func Main() {
     }
 
     [Fact]
+    public void QueryableLinq_ExpressionTreeLambdaDefault_IsSupported()
+    {
+        var result = AnalyzeWithSource(@"
+            import System.Linq
+
+            func Main() {
+                source := [1, 2, 3]
+                query := source.AsQueryable()
+                mapped: IQueryable<long> = Queryable.Select<int, long>(query, x => default)
+            }
+        ");
+
+        Assert.False(result.HasErrors,
+            result.Errors.Count > 0
+                ? $"Expected no errors but got: {string.Join(", ", result.Errors.Select(e => e.Message))}"
+                : "");
+    }
+
+    [Fact]
     public void QueryableLinq_BlockExpressionTreeLambda_ReportsFeatureNotImplemented()
     {
         var result = AnalyzeWithSource(@"
@@ -7115,7 +7134,7 @@ func Main() {
     }
 
     [Fact]
-    public void QueryableLinq_ExpressionTreeLambdaUnsupportedDefault_ReportsFeatureNotImplemented()
+    public void QueryableLinq_ExpressionTreeLambdaUnsupportedNameof_ReportsFeatureNotImplemented()
     {
         var result = AnalyzeWithSource(@"
             import System.Linq
@@ -7123,12 +7142,12 @@ func Main() {
             func Main() {
                 source := [1, 2, 3]
                 query := source.AsQueryable()
-                filtered := query.Where(x => default)
+                mapped := query.Select(x => nameof(x))
             }
         ");
 
         var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.FeatureNotImplemented);
-        Assert.Contains("default expression", error.Message);
+        Assert.Contains("nameof expression", error.Message);
     }
 
     [Fact]
