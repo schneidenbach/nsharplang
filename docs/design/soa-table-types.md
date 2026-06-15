@@ -217,7 +217,8 @@ or materializing a row. Parenthesized direct-column element lvalues such as
 `++((table.column)[row])` use the same backing-array lowering. These accepted direct-column update
 shapes also apply to literal and variable-held `System.Index` from-end element access such as
 `table.column[^1]` and `table.column[idx]`, including expression-valued simple stores, default
-stores, prefix/postfix increment/decrement, null-coalescing reads, and null-coalescing assignments.
+stores without old-element reads, prefix/postfix increment/decrement, null-coalescing reads, and
+null-coalescing assignments.
 The same nullability rule applies to both row projection and direct column elements: `??` and `??=`
 require a nullable/reference column element and non-nullable columns reject the operation during
 analysis. Direct-column range slices remain rejected before IL lowering instead of falling into the
@@ -340,10 +341,10 @@ the verified scalar/reference
 element-type set, direct column null-coalescing reads/assignments, and from-end `System.Index` access
 including parenthesized literal and variable-held from-end direct-column element lvalues,
 expression-valued simple stores, default stores across the verified scalar/reference element-type set,
-including expression-valued default stores, without old-element reads, variable-held row-index
-diagnostics, variable-held direct-column range mutation diagnostics, variable-held from-end
-null-coalescing reads/assignments, verified scalar/reference element reads/stores, bool bitwise
-expression stores, int-backed enum
+including expression-valued default stores, without old-element reads, variable-held from-end default
+stores without old-element reads, variable-held row-index diagnostics, variable-held direct-column
+range mutation diagnostics, variable-held from-end null-coalescing reads/assignments, verified
+scalar/reference element reads/stores, bool bitwise expression stores, int-backed enum
 reads/stores/default stores/generated methods, string/string? concatenating compound assignments,
 string/string? concatenation expression stores, string/string? equality/inequality expressions,
 nullable-string null equality/inequality expressions, bool equality/inequality plus logical-not and

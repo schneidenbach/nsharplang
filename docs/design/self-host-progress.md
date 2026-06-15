@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Variable-held SoA from-end default stores avoid old reads
+
+Direct backing-column `System.Index` default stores now have an explicit variable-held proof beside
+the literal `^1` path. `idx := ^1; nodes.kind[idx] = default` and expression-valued default stores
+write the backing arrays and return default values without reading the old element, while still
+avoiding slice allocation, boxing, delegate construction, and virtual dispatch. Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter
+"FullyQualifiedName~DirectColumnVariableFromEndDefaultStores_DoNotReadOldElement"`.
+
 ## 2026-06-15 — Variable-held SoA row indexes reject non-int forms
 
 SoA row projections now have analyzer pins for variable-held non-int row indexes beyond the existing
