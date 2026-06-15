@@ -534,6 +534,9 @@ ownership lands.
    `ParserColumnarProperties.nl` now wraps compact token columns, accessor text outputs,
    getter/setter statement-node rowsets, and property result slots inside its composed product core
    while preserving its flattened adapter ABI.
+   `ParserColumnarConstructors.nl` now wraps compact token columns, signature/chain output columns,
+   statement-node body rows, and constructor result slots inside its composed product core while
+   preserving its flattened adapter ABI.
    `ParserTypeReferences.nl` has started the parser token-stream
    cleanup by wrapping token metadata, recursive argument stacks, child-index outputs, and result
    slots for the type-reference recursive cores; its base, greater-consumption, postfix, and union

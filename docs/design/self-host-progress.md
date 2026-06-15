@@ -11,6 +11,22 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Constructor parser core wraps composed rowsets
+
+`ParserColumnarConstructors.nl` now keeps compact token columns, constructor signature/chain output
+columns, statement-node body columns, and result slots behind named N# table structs inside
+`ParseColumnarConstructorInfoCore`. The public `ParseColumnarConstructorInfoInto` ABI stays
+flattened for the current adapter and parity tests, while the product constructor parser wrapper no
+longer composes against anonymous parallel arrays internally. Focused evidence:
+`./scripts/dev.sh Parser_TopLevelDeclarationKinds_MatchProductionParser`,
+`./scripts/dev.sh ColumnarCodegen_Parity_ClassConstructor`,
+`./scripts/dev.sh ColumnarCodegen_Parity_ClassConstructorOverloads`,
+`./scripts/dev.sh ColumnarCodegen_Parity_ClassConstructorChaining`,
+`./scripts/dev.sh ColumnarCodegen_Parity_ValueStructConstructors`,
+`./scripts/dev.sh ColumnarCodegen_Parity_GenericClass_CtorFieldMethodProperty`,
+`./scripts/dev.sh ColumnarCodegen_CompilesRealDogfoodCorpus_Coverage`, and
+`./scripts/dev.sh ColumnarCodegen_MultiFile_EligibleClusterCompiles`.
+
 ## 2026-06-15 — Property parser core wraps composed rowsets
 
 `ParserColumnarProperties.nl` now keeps compact token columns, accessor name/type text outputs,
