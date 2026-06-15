@@ -8144,12 +8144,15 @@ class B
     [Fact]
     public void Stage5_ColumnarBackend_FallsBackToCSharpForIneligibleProgram()
     {
-        // `double` is outside the systems subset the columnar backend models -> it declines -> the production
-        // path falls back to the C# ILCompiler even with the flag on (the build still succeeds and runs).
-        var source = "func scale(x: double): double {\n    return x * 2.0\n}\n";
+        // Non-array foreach is outside the current columnar subset -> it declines -> the production path falls
+        // back to the C# ILCompiler even with the flag on (the build still succeeds and runs).
+        var source = "func countChars(s: string): int {\n    n := 0\n    foreach c in s {\n        n = n + 1\n    }\n    return n\n}\n";
+        Assert.False(RouteColumnarProgram(source).Ok);
+
         var columnar = CompileViaProduction(source, columnarBackend: true);
         Assert.NotEmpty(columnar);
-        Assert.Equal(7.0, InvokeFromAssemblyBytes(columnar, "scale", 3.5));
+        Assert.Equal(4, InvokeFromAssemblyBytes(columnar, "countChars", "test"));
+        Assert.Equal(0, InvokeFromAssemblyBytes(columnar, "countChars", ""));
     }
 
     [Fact]

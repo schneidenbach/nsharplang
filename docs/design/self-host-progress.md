@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Columnar fallback proof no longer uses completed floating-point work
+
+The production-routing fallback test no longer treats `double` as columnar-ineligible. `double` and
+`float` are already parity-pinned in the systems backend (`ColumnarCodegen_Parity_DoubleScalar` and
+`ColumnarCodegen_Parity_FloatScalar`), including NaN-sensitive comparisons and array operations. The
+fallback proof now uses a valid non-array `foreach` program: `RouteColumnarProgram` declines it, then
+the flagged production path falls back to the C# `ILCompiler` and the emitted assembly counts both a
+non-empty and empty string. Focused evidence: `dotnet test tests/Tests.csproj --filter
+"FullyQualifiedName~CompilerDogfoodProjectTests.Stage5_ColumnarBackend_FallsBackToCSharpForIneligibleProgram|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_Parity_DoubleScalar|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_Parity_FloatScalar"`.
+
 ## 2026-06-15 — SoA row collection-literal escapes are pinned
 
 Target-typed collection expressions now have an analyzer regression pin for SoA row views. A row
@@ -5665,7 +5675,7 @@ PRODUCTION entry point (`MultiFileCompiler.CompileToIlAssembly`): when `NSHARP_C
 the program is eligible (single-file, all top-level funcs in the systems subset), emission is routed through
 the columnar backend — which OWNS the assembly (its own `PersistedAssemblyBuilder`, NO C# AST) — producing a
 drop-in replacement (assembly named after the project, type `Program`, matching the C# `ILCompiler` output).
-Anything it declines (a class/struct/match/double/multi-file/etc.) falls back to the C# `ILCompiler`. The
+Anything it declines (a class/struct/match/non-array foreach/multi-file/etc.) falls back to the C# `ILCompiler`. The
 flag is OFF by default, so production is unchanged unless opted in, and always safe (decline → fallback).
 The program is parsed + analysed by the existing pipeline first (diagnostics), so the columnar backend only
 does codegen on validated input; full columnar-owned analysis (stages 1–3b) replaces that later.
@@ -5675,8 +5685,8 @@ type name) so the routed output names match the C# path. Proven end-to-end by
 `Stage5_ColumnarBackend_RoutesEligibleProgramThroughProduction`: the same source compiled through the
 production path with the flag OFF vs ON yields DIFFERENT assemblies (so the flag really re-routed the
 backend) that run IDENTICALLY (`add(2,3)=5`, `fib(10)=55`) — i.e. the production-routed columnar output is
-correct. `Stage5_ColumnarBackend_FallsBackToCSharpForIneligibleProgram` proves a `double` program declines
-and the C# path still produces it. 599 MultiFileCompiler-using tests unaffected.
+correct. `Stage5_ColumnarBackend_FallsBackToCSharpForIneligibleProgram` now proves a valid non-array
+`foreach` program declines and the C# path still produces it. 599 MultiFileCompiler-using tests unaffected.
 
 **Stage 6 (delete C#) remains correctly blocked:** the columnar backend models ~41% of the *systems dogfood
 subset* and ~0% of the rich language (classes/generics/match/async/LINQ — all the examples + full suite).
@@ -5917,7 +5927,8 @@ distinct stack representations (i4 vs i8), so passing an int where a long is exp
 the check declines it. Parity-gated (`ColumnarCodegen_Parity_LongType`) vs the C# pipeline, deliberately
 including VALUES BEYOND int range (`1e9 * 1e9 = 1e18`, `factL(20)`) to prove it is genuinely i8, not i4.
 Declines mixed int/long and a `ulong` literal. Updated the now-stale int-only decline tests (a pure-long
-function is no longer declined). Next: 4b-iii `double` (`ldc.r8`, float arithmetic), then `string`.
+function is no longer declined). Superseded next step: `double` and `float` are now complete and parity-pinned;
+the remaining string work is tracked in `roadmap-to-done.md`.
 
 ## 2026-06-08 — Stage 4b-i: TYPE-AWARE columnar emitter + bool (first type beyond int)
 

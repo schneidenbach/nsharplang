@@ -148,8 +148,10 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
         — `1e9*1e9`, `factL(20)` — + ulong/mixed declines) · [x] **div/mod DONE** (int/long `/`→`Div`, `%`→`Rem`
         signed; parity-gated w/ negatives + large long) · [x] **bitwise/shift DONE** (int/long `& | ^`→And/Or/Xor,
         `<< >>`→Shl/Shr signed; shift count is int; parity-gated w/ negative `>>` sign-extend, `1L<<40`, flag idiom)
-        · [ ] 4b-iii `double` (`ldc.r8`; NaN-correct `<=`/`>=`
-        need `.un` variants) · [ ] 4b-iv `string` (BCL `op_Equality`/`Concat`). · [x] **4c parity-vs-C#-path
+        · [x] **4b-iii `double` DONE** (`ldc.r8`; FP arithmetic/rem/negate; int/long casts; `double[]`;
+        NaN-correct comparisons via unordered complements; parity-gated over NaN, infinities, signed zero, and
+        casts) · [x] **4b-iii-a `float` DONE** (`ldc.r4`; FP arithmetic/negate; casts incl. float↔double;
+        `float[]`; same NaN comparison contract) · [ ] 4b-iv `string` (BCL `op_Equality`/`Concat`). · [x] **4c parity-vs-C#-path
         harness DONE** (`ColumnarCodegen_Parity_MatchesCSharpPath`: compile each eligible fn via BOTH the columnar
         path AND `MultiFileCompiler`→`ILCompiler`, invoke over many inputs incl. negatives/boundaries/overflow,
         assert identical; 15 fns. Caught + fixed TWO latent C# codegen bugs of one class — `EmitIf` both-arms-return
