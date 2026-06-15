@@ -11,6 +11,23 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Function signature-info wrapper reuses SoA parser rowsets
+
+`ParserFunctionSignatures.nl` now routes `ParseFunctionSignatureInfoInto` through a wrapper-aware
+core with named text/tuple/type-parameter output columns, one reusable type-node/parameter/`where`
+scratch rowset, one reusable parameter tuple-name scratch buffer, and a named owner-index result
+table. The public flattened ABIs remain in place for the current adapter and parser parity tests,
+while the product-routed function/constructor/interface signature path no longer allocates anonymous
+signature arrays inside the signature-info wrapper or calls the flattened type canonicalizer and
+tuple-name helpers when materializing accepted signature types. Focused evidence:
+`./scripts/dev.sh ParserFunctionSignatures`,
+`./scripts/dev.sh Parser_FunctionSignature_MatchesProductionParser`,
+`./scripts/dev.sh ColumnarCodegen_Parity_GenericFunctions`,
+`./scripts/dev.sh ColumnarCodegen_Parity_TupleMultiReturn`,
+`./scripts/dev.sh ColumnarCodegen_Parity_TupleDeconstruction`,
+`./scripts/dev.sh ColumnarCodegen_CompilesRealDogfoodCorpus_Coverage`, and
+`./scripts/dev.sh ColumnarCodegen_MultiFile_EligibleClusterCompiles`.
+
 ## 2026-06-15 — Constructor signature wrapper reuses SoA parser rowsets
 
 `ParserConstructorSignatures.nl` now routes `ParseConstructorSignatureInfoInto` through a

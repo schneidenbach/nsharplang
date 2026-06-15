@@ -126,92 +126,115 @@ func ParseFunctionSignatureTextInfoInto(source: string, tokenKinds: int[], token
     return paramCount
 }
 
+struct FunctionSignatureInfoOutputTable {
+    FunctionNameTexts: string[]
+    ReturnTypeTexts: string[]
+    ParamNameTexts: string[]
+    ParamTypeTexts: string[]
+    ParamTupleNameCounts: int[]
+    ParamTupleNameTexts: string[]
+    ReturnTupleNameTexts: string[]
+    TypeParamTexts: string[]
+    TypeParamSpecials: int[]
+    TypeParamConstraintCounts: int[]
+    TypeParamConstraintTypeTexts: string[]
+}
+
+struct FunctionSignatureTupleNameScratchTable {
+    Names: string[]
+}
+
+struct FunctionSignatureNameSpanTable {
+    Starts: int[]
+    Lengths: int[]
+}
+
+struct FunctionSignatureOwnerIndexTable {
+    Indices: int[]
+}
+
 func ParseFunctionSignatureInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, funcIndex: int, outFunctionNameTexts: string[], outReturnTypeTexts: string[], outParamNameTexts: string[], outParamTypeTexts: string[], outParamTupleNameCounts: int[], outParamTupleNameTexts: string[], outReturnTupleNameTexts: string[], outTypeParamTexts: string[], outTypeParamSpecials: int[], outTypeParamConstraintCounts: int[], outTypeParamConstraintTypeTexts: string[], outResult: int[]): int {
     if outFunctionNameTexts.Length < 1 || outReturnTypeTexts.Length < 1 || outResult.Length < 6 {
         return -1
     }
 
     cap := count + 1
-    nodeKinds := new int[](cap)
-    nameStarts := new int[](cap)
-    nameLengths := new int[](cap)
-    childStart := new int[](cap)
-    childCount := new int[](cap)
-    childIndices := new int[](cap)
-    spanStarts := new int[](cap)
-    spanLengths := new int[](cap)
-    paramNameStarts := new int[](cap)
-    paramNameLengths := new int[](cap)
-    paramTypeRoots := new int[](cap)
-    typeParamStarts := new int[](cap)
-    typeParamLengths := new int[](cap)
-    whereNameStarts := new int[](cap)
-    whereNameLengths := new int[](cap)
-    whereItemCodes := new int[](cap)
-    signatureResult := new int[](8)
-    paramCount := ParseFunctionSignatureInto(
-        tokenKinds, tokenStarts, tokenValueLengths, count, funcIndex,
-        nodeKinds, nameStarts, nameLengths, childStart, childCount, childIndices, spanStarts, spanLengths,
-        paramNameStarts, paramNameLengths, paramTypeRoots, typeParamStarts, typeParamLengths,
-        whereNameStarts, whereNameLengths, whereItemCodes, signatureResult)
-    if paramCount < 0 || signatureResult[3] < 0 {
+    tokens := new ParserTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
+    outputs := new FunctionSignatureInfoOutputTable { FunctionNameTexts: outFunctionNameTexts, ReturnTypeTexts: outReturnTypeTexts, ParamNameTexts: outParamNameTexts, ParamTypeTexts: outParamTypeTexts, ParamTupleNameCounts: outParamTupleNameCounts, ParamTupleNameTexts: outParamTupleNameTexts, ReturnTupleNameTexts: outReturnTupleNameTexts, TypeParamTexts: outTypeParamTexts, TypeParamSpecials: outTypeParamSpecials, TypeParamConstraintCounts: outTypeParamConstraintCounts, TypeParamConstraintTypeTexts: outTypeParamConstraintTypeTexts }
+    typeStack := new ParserArgumentStack { Values: new int[](cap) }
+    nodes := new ParserNodeTable { Kinds: new int[](cap), ValueStarts: new int[](cap), ValueLengths: new int[](cap), ChildStart: new int[](cap), ChildCount: new int[](cap), SpanStarts: new int[](cap), SpanLengths: new int[](cap) }
+    children := new ParserChildIndexTable { Indices: new int[](cap) }
+    canonicalNodes := new TypeReferenceCanonicalTable { Kinds: nodes.Kinds, ValueStarts: nodes.ValueStarts, ValueLengths: nodes.ValueLengths, ChildStart: nodes.ChildStart, ChildCount: nodes.ChildCount, ChildIndices: children.Indices }
+    parameters := new ParserFunctionParameterTable { NameStarts: new int[](cap), NameLengths: new int[](cap), TypeRoots: new int[](cap) }
+    typeParams := new ParserFunctionTypeParameterTable { Starts: new int[](cap), Lengths: new int[](cap) }
+    whereItems := new ParserFunctionWhereTable { NameStarts: new int[](cap), NameLengths: new int[](cap), ItemCodes: new int[](cap) }
+    signatureResult := new ParserResultTable { Values: new int[](8) }
+    ownerIndices := new FunctionSignatureOwnerIndexTable { Indices: new int[](cap) }
+    tupleNames := new FunctionSignatureTupleNameScratchTable { Names: new string[](cap) }
+    result := new ParserResultTable { Values: outResult }
+    return ParseFunctionSignatureInfoCore(source, ref tokens, count, funcIndex, ref outputs, ref typeStack, ref nodes, ref children, ref canonicalNodes, ref parameters, ref typeParams, ref whereItems, ref signatureResult, ref ownerIndices, ref tupleNames, ref result)
+}
+
+func ParseFunctionSignatureInfoCore(source: string, tokens: &ParserTokenTable, count: int, funcIndex: int, outputs: &FunctionSignatureInfoOutputTable, typeStack: &ParserArgumentStack, nodes: &ParserNodeTable, children: &ParserChildIndexTable, canonicalNodes: &TypeReferenceCanonicalTable, parameters: &ParserFunctionParameterTable, typeParams: &ParserFunctionTypeParameterTable, whereItems: &ParserFunctionWhereTable, signatureResult: &ParserResultTable, ownerIndices: &FunctionSignatureOwnerIndexTable, tupleNames: &FunctionSignatureTupleNameScratchTable, result: &ParserResultTable): int {
+    paramCount := ParseFunctionSignatureCore(ref tokens, count, funcIndex, ref typeStack, ref nodes, ref children, ref parameters, ref typeParams, ref whereItems, ref signatureResult)
+    if paramCount < 0 || signatureResult.Values[3] < 0 {
         return -1
     }
 
-    bodyBrace := signatureResult[6]
-    if bodyBrace < 0 || bodyBrace >= count || tokenKinds[bodyBrace] != 129 {
+    bodyBrace := signatureResult.Values[6]
+    if bodyBrace < 0 || bodyBrace >= count || tokens.Kinds[bodyBrace] != 129 {
         return -1
     }
 
-    typeParamCount := signatureResult[5]
-    whereItemCount := signatureResult[7]
-    if paramCount > outParamNameTexts.Length || paramCount > outParamTypeTexts.Length || paramCount > outParamTupleNameCounts.Length {
+    typeParamCount := signatureResult.Values[5]
+    whereItemCount := signatureResult.Values[7]
+    if paramCount > outputs.ParamNameTexts.Length || paramCount > outputs.ParamTypeTexts.Length || paramCount > outputs.ParamTupleNameCounts.Length {
         return -1
     }
 
-    if typeParamCount > outTypeParamTexts.Length || typeParamCount > outTypeParamSpecials.Length || typeParamCount > outTypeParamConstraintCounts.Length {
+    if typeParamCount > outputs.TypeParamTexts.Length || typeParamCount > outputs.TypeParamSpecials.Length || typeParamCount > outputs.TypeParamConstraintCounts.Length {
         return -1
     }
 
-    functionName := FunctionSignatureSpanText(source, signatureResult[3], signatureResult[4])
+    functionName := FunctionSignatureSpanText(source, signatureResult.Values[3], signatureResult.Values[4])
     if functionName == "" {
         return -1
     }
-    outFunctionNameTexts[0] = functionName
+    outputs.FunctionNameTexts[0] = functionName
 
     returnTupleNameCount := 0
-    returnRoot := signatureResult[1]
+    returnRoot := signatureResult.Values[1]
     if returnRoot >= 0 {
-        outReturnTypeTexts[0] = TypeReferenceCanonicalTextInto(source, nodeKinds, nameStarts, nameLengths, childStart, childCount, childIndices, returnRoot)
-        returnTupleNameCount = TypeReferenceTupleElementNamesInto(source, nodeKinds, nameStarts, nameLengths, childStart, childCount, childIndices, returnRoot, outReturnTupleNameTexts)
+        outputs.ReturnTypeTexts[0] = TypeReferenceCanonicalTextCore(source, ref canonicalNodes, returnRoot)
+        returnTupleNameCount = TypeReferenceTupleElementNamesCore(source, ref canonicalNodes, returnRoot, outputs.ReturnTupleNameTexts)
         if returnTupleNameCount < 0 {
             return -1
         }
     } else {
-        outReturnTypeTexts[0] = "void"
+        outputs.ReturnTypeTexts[0] = "void"
     }
 
     flatParamTupleNameCount := 0
     paramIndex := 0
     while paramIndex < paramCount {
-        paramName := FunctionSignatureSpanText(source, paramNameStarts[paramIndex], paramNameLengths[paramIndex])
+        paramName := FunctionSignatureSpanText(source, parameters.NameStarts[paramIndex], parameters.NameLengths[paramIndex])
         if paramName == "" {
             return -1
         }
 
-        outParamNameTexts[paramIndex] = paramName
-        outParamTypeTexts[paramIndex] = TypeReferenceCanonicalTextInto(source, nodeKinds, nameStarts, nameLengths, childStart, childCount, childIndices, paramTypeRoots[paramIndex])
+        paramRoot := parameters.TypeRoots[paramIndex]
+        outputs.ParamNameTexts[paramIndex] = paramName
+        outputs.ParamTypeTexts[paramIndex] = TypeReferenceCanonicalTextCore(source, ref canonicalNodes, paramRoot)
 
-        tupleNames := new string[](cap)
-        tupleNameCount := TypeReferenceTupleElementNamesInto(source, nodeKinds, nameStarts, nameLengths, childStart, childCount, childIndices, paramTypeRoots[paramIndex], tupleNames)
-        if tupleNameCount < 0 || flatParamTupleNameCount + tupleNameCount > outParamTupleNameTexts.Length {
+        tupleNameCount := TypeReferenceTupleElementNamesCore(source, ref canonicalNodes, paramRoot, tupleNames.Names)
+        if tupleNameCount < 0 || flatParamTupleNameCount + tupleNameCount > outputs.ParamTupleNameTexts.Length {
             return -1
         }
 
-        outParamTupleNameCounts[paramIndex] = tupleNameCount
+        outputs.ParamTupleNameCounts[paramIndex] = tupleNameCount
         tupleIndex := 0
         while tupleIndex < tupleNameCount {
-            outParamTupleNameTexts[flatParamTupleNameCount + tupleIndex] = tupleNames[tupleIndex]
+            outputs.ParamTupleNameTexts[flatParamTupleNameCount + tupleIndex] = tupleNames.Names[tupleIndex]
             tupleIndex = tupleIndex + 1
         }
 
@@ -221,14 +244,14 @@ func ParseFunctionSignatureInfoInto(source: string, tokenKinds: int[], tokenStar
 
     typeParamIndex := 0
     while typeParamIndex < typeParamCount {
-        typeParamName := FunctionSignatureSpanText(source, typeParamStarts[typeParamIndex], typeParamLengths[typeParamIndex])
+        typeParamName := FunctionSignatureSpanText(source, typeParams.Starts[typeParamIndex], typeParams.Lengths[typeParamIndex])
         if typeParamName == "" {
             return -1
         }
 
-        outTypeParamTexts[typeParamIndex] = typeParamName
-        outTypeParamSpecials[typeParamIndex] = 0
-        outTypeParamConstraintCounts[typeParamIndex] = 0
+        outputs.TypeParamTexts[typeParamIndex] = typeParamName
+        outputs.TypeParamSpecials[typeParamIndex] = 0
+        outputs.TypeParamConstraintCounts[typeParamIndex] = 0
         typeParamIndex = typeParamIndex + 1
     }
 
@@ -238,8 +261,9 @@ func ParseFunctionSignatureInfoInto(source: string, tokenKinds: int[], tokenStar
             return -1
         }
 
-        ownerIndices := new int[](cap)
-        ownerIndexCount := FunctionSignatureWhereOwnerIndicesInto(source, typeParamStarts, typeParamLengths, typeParamCount, whereNameStarts, whereNameLengths, whereItemCount, ownerIndices)
+        typeParamNames := new FunctionSignatureNameSpanTable { Starts: typeParams.Starts, Lengths: typeParams.Lengths }
+        whereNames := new FunctionSignatureNameSpanTable { Starts: whereItems.NameStarts, Lengths: whereItems.NameLengths }
+        ownerIndexCount := FunctionSignatureWhereOwnerIndicesCore(source, ref typeParamNames, typeParamCount, ref whereNames, whereItemCount, ref ownerIndices)
         if ownerIndexCount != whereItemCount {
             return -1
         }
@@ -248,22 +272,22 @@ func ParseFunctionSignatureInfoInto(source: string, tokenKinds: int[], tokenStar
         while typeParamIndex < typeParamCount {
             whereIndex := 0
             while whereIndex < whereItemCount {
-                if ownerIndices[whereIndex] == typeParamIndex {
-                    itemCode := whereItemCodes[whereIndex]
+                if ownerIndices.Indices[whereIndex] == typeParamIndex {
+                    itemCode := whereItems.ItemCodes[whereIndex]
                     if itemCode >= 0 {
-                        if flatTypeConstraintCount >= outTypeParamConstraintTypeTexts.Length {
+                        if flatTypeConstraintCount >= outputs.TypeParamConstraintTypeTexts.Length {
                             return -1
                         }
 
-                        outTypeParamConstraintTypeTexts[flatTypeConstraintCount] = TypeReferenceCanonicalTextInto(source, nodeKinds, nameStarts, nameLengths, childStart, childCount, childIndices, itemCode)
-                        outTypeParamConstraintCounts[typeParamIndex] = outTypeParamConstraintCounts[typeParamIndex] + 1
+                        outputs.TypeParamConstraintTypeTexts[flatTypeConstraintCount] = TypeReferenceCanonicalTextCore(source, ref canonicalNodes, itemCode)
+                        outputs.TypeParamConstraintCounts[typeParamIndex] = outputs.TypeParamConstraintCounts[typeParamIndex] + 1
                         flatTypeConstraintCount = flatTypeConstraintCount + 1
                     } else if itemCode == -2 {
-                        outTypeParamSpecials[typeParamIndex] = outTypeParamSpecials[typeParamIndex] | 1
+                        outputs.TypeParamSpecials[typeParamIndex] = outputs.TypeParamSpecials[typeParamIndex] | 1
                     } else if itemCode == -3 {
-                        outTypeParamSpecials[typeParamIndex] = outTypeParamSpecials[typeParamIndex] | 2
+                        outputs.TypeParamSpecials[typeParamIndex] = outputs.TypeParamSpecials[typeParamIndex] | 2
                     } else if itemCode == -4 {
-                        outTypeParamSpecials[typeParamIndex] = outTypeParamSpecials[typeParamIndex] | 4
+                        outputs.TypeParamSpecials[typeParamIndex] = outputs.TypeParamSpecials[typeParamIndex] | 4
                     } else {
                         return -1
                     }
@@ -272,7 +296,7 @@ func ParseFunctionSignatureInfoInto(source: string, tokenKinds: int[], tokenStar
                 whereIndex = whereIndex + 1
             }
 
-            if (outTypeParamSpecials[typeParamIndex] & 3) == 3 || (outTypeParamSpecials[typeParamIndex] & 6) == 6 {
+            if (outputs.TypeParamSpecials[typeParamIndex] & 3) == 3 || (outputs.TypeParamSpecials[typeParamIndex] & 6) == 6 {
                 return -1
             }
 
@@ -280,28 +304,35 @@ func ParseFunctionSignatureInfoInto(source: string, tokenKinds: int[], tokenStar
         }
     }
 
-    outResult[0] = returnTupleNameCount
-    outResult[1] = bodyBrace
-    outResult[2] = typeParamCount
-    outResult[3] = flatTypeConstraintCount
-    outResult[4] = flatParamTupleNameCount
-    outResult[5] = whereItemCount
+    result.Values[0] = returnTupleNameCount
+    result.Values[1] = bodyBrace
+    result.Values[2] = typeParamCount
+    result.Values[3] = flatTypeConstraintCount
+    result.Values[4] = flatParamTupleNameCount
+    result.Values[5] = whereItemCount
     return paramCount
 }
 
 func FunctionSignatureWhereOwnerIndicesInto(source: string, typeParamStarts: int[], typeParamLengths: int[], typeParamCount: int, whereNameStarts: int[], whereNameLengths: int[], whereItemCount: int, outOwnerIndices: int[]): int {
-    if typeParamCount < 0 || whereItemCount < 0 || whereItemCount > outOwnerIndices.Length {
+    typeParams := new FunctionSignatureNameSpanTable { Starts: typeParamStarts, Lengths: typeParamLengths }
+    whereNames := new FunctionSignatureNameSpanTable { Starts: whereNameStarts, Lengths: whereNameLengths }
+    result := new FunctionSignatureOwnerIndexTable { Indices: outOwnerIndices }
+    return FunctionSignatureWhereOwnerIndicesCore(source, ref typeParams, typeParamCount, ref whereNames, whereItemCount, ref result)
+}
+
+func FunctionSignatureWhereOwnerIndicesCore(source: string, typeParams: &FunctionSignatureNameSpanTable, typeParamCount: int, whereNames: &FunctionSignatureNameSpanTable, whereItemCount: int, result: &FunctionSignatureOwnerIndexTable): int {
+    if typeParamCount < 0 || whereItemCount < 0 || whereItemCount > result.Indices.Length {
         return -1
     }
 
     w := 0
     while w < whereItemCount {
-        ownerIndex := FunctionSignatureTypeParameterIndexOf(source, typeParamStarts, typeParamLengths, typeParamCount, whereNameStarts[w], whereNameLengths[w])
+        ownerIndex := FunctionSignatureTypeParameterIndexOfCore(source, ref typeParams, typeParamCount, whereNames.Starts[w], whereNames.Lengths[w])
         if ownerIndex < 0 {
             return -1
         }
 
-        outOwnerIndices[w] = ownerIndex
+        result.Indices[w] = ownerIndex
         w = w + 1
     }
 
@@ -309,9 +340,14 @@ func FunctionSignatureWhereOwnerIndicesInto(source: string, typeParamStarts: int
 }
 
 func FunctionSignatureTypeParameterIndexOf(source: string, typeParamStarts: int[], typeParamLengths: int[], typeParamCount: int, nameStart: int, nameLength: int): int {
+    typeParams := new FunctionSignatureNameSpanTable { Starts: typeParamStarts, Lengths: typeParamLengths }
+    return FunctionSignatureTypeParameterIndexOfCore(source, ref typeParams, typeParamCount, nameStart, nameLength)
+}
+
+func FunctionSignatureTypeParameterIndexOfCore(source: string, typeParams: &FunctionSignatureNameSpanTable, typeParamCount: int, nameStart: int, nameLength: int): int {
     i := 0
     while i < typeParamCount {
-        if FunctionSignatureSourceSpansEqual(source, typeParamStarts[i], typeParamLengths[i], nameStart, nameLength) {
+        if FunctionSignatureSourceSpansEqual(source, typeParams.Starts[i], typeParams.Lengths[i], nameStart, nameLength) {
             return i
         }
 

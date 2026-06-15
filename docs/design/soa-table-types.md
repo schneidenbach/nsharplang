@@ -553,7 +553,9 @@ ownership lands.
    internally. `ParserFunctionSignatures.nl`
    now composes those parser wrappers from a flattened entry shim, keeps token columns behind
    `ParserTokenTable` in its internal core, and groups parameter, type-parameter, `where`
-   constraint, and result columns behind named tables in its internal core. `ParserConstructorSignatures.nl`
+   constraint, and result columns behind named tables in its internal core; its signature-info wrapper
+   now also uses named output, tuple-scratch, owner-index, and parser scratch tables while composing the
+   wrapper-aware type canonicalizer/tuple-name helpers directly. `ParserConstructorSignatures.nl`
    now routes constructor signature/initializer materialization through named output columns, reuses
    one wrapper-shaped function-signature scratch rowset per constructor parse, and composes the
    wrapper-aware type canonicalizer directly while preserving its flattened adapter ABI. `ParserInterfaceSignatures.nl`
