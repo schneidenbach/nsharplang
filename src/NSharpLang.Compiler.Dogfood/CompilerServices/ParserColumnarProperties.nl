@@ -42,13 +42,29 @@ func ParseColumnarPropertyInfoCore(source: string, tokens: &ColumnarPropertyToke
         return -1
     }
 
-    propertyResult := new ColumnarPropertyResultTable { Values: new int[](6) }
-    accessorKind := ParsePropertyAccessorTypeInfoInto(
-        source, tokens.Kinds, tokens.Starts, tokens.ValueLengths, tokens.Count, propIndex,
-        texts.NameTexts, texts.TypeTexts, propertyResult.Values)
+    if texts.NameTexts.Length < 1 || texts.TypeTexts.Length < 1 {
+        return -1
+    }
+
+    declarationTokens := new ParserDeclarationTokenTable { Kinds: tokens.Kinds, Starts: tokens.Starts, ValueLengths: tokens.ValueLengths }
+    propertyResult := new ParserDeclarationResultTable { Values: new int[](6) }
+    accessorKind := ParsePropertyAccessorInfoCore(source, ref declarationTokens, tokens.Count, propIndex, ref propertyResult)
     if accessorKind < 0 {
         return -1
     }
+
+    nameText := ParserDeclarationSpanText(source, propertyResult.Values[0], propertyResult.Values[1])
+    if nameText == "" {
+        return -1
+    }
+
+    typeText := ParserDeclarationCanonicalTypeText(source, propertyResult.Values[2], propertyResult.Values[3])
+    if typeText == "" {
+        return -1
+    }
+
+    texts.NameTexts[0] = nameText
+    texts.TypeTexts[0] = typeText
 
     getBodyBrace := propertyResult.Values[4]
     if getBodyBrace < 0 || getBodyBrace >= tokens.Count || tokens.Kinds[getBodyBrace] != 129 {

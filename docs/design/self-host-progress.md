@@ -11,6 +11,19 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Property parser composes accessor core directly
+
+`ParserColumnarProperties.nl` now materializes property accessor/type information through
+`ParsePropertyAccessorInfoCore` with named declaration-token and result wrappers instead of
+re-entering the flattened `ParsePropertyAccessorTypeInfoInto` compatibility shim from inside N#.
+The public flattened ABI remains available for the current adapter and parser parity tests. Focused
+evidence: `./scripts/dev.sh ColumnarCodegen_Parity_ClassGetOnlyProperty`,
+`./scripts/dev.sh ColumnarCodegen_Parity_ClassGetSetProperty`,
+`./scripts/dev.sh ColumnarCodegen_Parity_StaticProperties`,
+`./scripts/dev.sh ColumnarCodegen_Parity_GenericClass_CtorFieldMethodProperty`,
+`./scripts/dev.sh ColumnarCodegen_MultiFile_RealParserCluster`, and
+`./scripts/dev.sh ColumnarCodegen_CompilesRealDogfoodCorpus_Coverage`.
+
 ## 2026-06-15 — Columnar body parsers compose statement cores directly
 
 `ParserColumnarFunctions.nl`, `ParserColumnarConstructors.nl`, and

@@ -534,8 +534,9 @@ ownership lands.
    local-function lookup now composes the declaration token-index core directly.
    `ParserColumnarProperties.nl` now wraps compact token columns, accessor text outputs,
    getter/setter statement-node rowsets, and property result slots inside its composed product core
-   while preserving its flattened adapter ABI; its getter/setter body wrappers now compose the
-   statement parser core directly.
+   while preserving its flattened adapter ABI; its property accessor materialization now composes the
+   declaration accessor core directly, and its getter/setter body wrappers now compose the statement
+   parser core directly.
    `ParserColumnarConstructors.nl` now wraps compact token columns, signature/chain output columns,
    statement-node body rows, and constructor result slots inside its composed product core while
    preserving its flattened adapter ABI; its body wrapper now composes the statement parser core directly.
