@@ -11,6 +11,20 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Interface signature wrapper reuses SoA parser rowsets
+
+`ParserInterfaceSignatures.nl` now routes `ParseInterfaceDeclarationSignatureInfoInto` through a
+wrapper-aware core with named base-output and method-output tables, plus one reusable
+function-signature scratch rowset per interface parse. The public flattened ABI remains in place for
+the current adapter and parser parity tests, while the product-routed interface wrapper no longer
+allocates anonymous type-node, parameter, type-parameter, `where`, and result arrays for each method
+member. It also composes the wrapper-aware type canonicalizer directly when materializing accepted
+interface member return and parameter types. Focused evidence:
+`./scripts/dev.sh ParserInterfaceSignatures`,
+`./scripts/dev.sh ColumnarCodegen_Parity_Interfaces`,
+`./scripts/dev.sh ColumnarCodegen_CompilesRealDogfoodCorpus_Coverage`, and
+`./scripts/dev.sh ColumnarCodegen_MultiFile_EligibleClusterCompiles`.
+
 ## 2026-06-15 — Struct parser core wraps scratch rowsets
 
 `ParserColumnarStructs.nl` now keeps compact token columns, hidden field/type/init/type-parameter/base

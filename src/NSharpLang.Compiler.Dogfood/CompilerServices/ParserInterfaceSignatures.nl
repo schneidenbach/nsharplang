@@ -2,105 +2,125 @@
 // file owns the cross-file routing that combines interface member indices, function-signature parsing, and canonical
 // type text for the columnar product adapter.
 
+struct InterfaceSignatureBaseOutputTable {
+    BaseNameStarts: int[]
+    BaseNameLengths: int[]
+    BaseNameTexts: string[]
+    InterfaceNameTexts: string[]
+}
+
+struct InterfaceSignatureMethodOutputTable {
+    FuncIndices: int[]
+    NameTexts: string[]
+    ReturnTexts: string[]
+    ParamCounts: int[]
+    BodyFlags: int[]
+    ParamNameTexts: string[]
+    ParamTypeTexts: string[]
+}
+
+struct InterfaceSignatureTupleNodeTable {
+    Kinds: int[]
+    ChildStart: int[]
+    ChildCount: int[]
+    ChildIndices: int[]
+}
+
 func ParseInterfaceDeclarationSignatureInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, interfaceIndex: int, outMethodFuncIndices: int[], outBaseNameStarts: int[], outBaseNameLengths: int[], outBaseNameTexts: string[], outInterfaceNameTexts: string[], outMethodNameTexts: string[], outMethodReturnTexts: string[], outMethodParamCounts: int[], outMethodBodyFlags: int[], outMethodParamNameTexts: string[], outMethodParamTypeTexts: string[], outResult: int[]): int {
     if outResult.Length < 4 {
         return -1
     }
 
-    methodCount := ParseInterfaceDeclarationInfoInto(source, tokenKinds, tokenStarts, tokenValueLengths, count, interfaceIndex, outMethodFuncIndices, outBaseNameStarts, outBaseNameLengths, outBaseNameTexts, outInterfaceNameTexts, outResult)
+    cap := count + 1
+    tokens := new ParserTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
+    baseOutputs := new InterfaceSignatureBaseOutputTable { BaseNameStarts: outBaseNameStarts, BaseNameLengths: outBaseNameLengths, BaseNameTexts: outBaseNameTexts, InterfaceNameTexts: outInterfaceNameTexts }
+    methodOutputs := new InterfaceSignatureMethodOutputTable { FuncIndices: outMethodFuncIndices, NameTexts: outMethodNameTexts, ReturnTexts: outMethodReturnTexts, ParamCounts: outMethodParamCounts, BodyFlags: outMethodBodyFlags, ParamNameTexts: outMethodParamNameTexts, ParamTypeTexts: outMethodParamTypeTexts }
+    typeStack := new ParserArgumentStack { Values: new int[](cap) }
+    nodes := new ParserNodeTable { Kinds: new int[](cap), ValueStarts: new int[](cap), ValueLengths: new int[](cap), ChildStart: new int[](cap), ChildCount: new int[](cap), SpanStarts: new int[](cap), SpanLengths: new int[](cap) }
+    children := new ParserChildIndexTable { Indices: new int[](cap) }
+    canonicalNodes := new TypeReferenceCanonicalTable { Kinds: nodes.Kinds, ValueStarts: nodes.ValueStarts, ValueLengths: nodes.ValueLengths, ChildStart: nodes.ChildStart, ChildCount: nodes.ChildCount, ChildIndices: children.Indices }
+    tupleNodes := new InterfaceSignatureTupleNodeTable { Kinds: nodes.Kinds, ChildStart: nodes.ChildStart, ChildCount: nodes.ChildCount, ChildIndices: children.Indices }
+    parameters := new ParserFunctionParameterTable { NameStarts: new int[](cap), NameLengths: new int[](cap), TypeRoots: new int[](cap) }
+    typeParams := new ParserFunctionTypeParameterTable { Starts: new int[](cap), Lengths: new int[](cap) }
+    whereItems := new ParserFunctionWhereTable { NameStarts: new int[](cap), NameLengths: new int[](cap), ItemCodes: new int[](cap) }
+    signatureResult := new ParserResultTable { Values: new int[](8) }
+    result := new ParserResultTable { Values: outResult }
+    return ParseInterfaceDeclarationSignatureInfoCore(source, ref tokens, count, interfaceIndex, ref baseOutputs, ref methodOutputs, ref typeStack, ref nodes, ref children, ref canonicalNodes, ref tupleNodes, ref parameters, ref typeParams, ref whereItems, ref signatureResult, ref result)
+}
+
+func ParseInterfaceDeclarationSignatureInfoCore(source: string, tokens: &ParserTokenTable, count: int, interfaceIndex: int, baseOutputs: &InterfaceSignatureBaseOutputTable, methodOutputs: &InterfaceSignatureMethodOutputTable, typeStack: &ParserArgumentStack, nodes: &ParserNodeTable, children: &ParserChildIndexTable, canonicalNodes: &TypeReferenceCanonicalTable, tupleNodes: &InterfaceSignatureTupleNodeTable, parameters: &ParserFunctionParameterTable, typeParams: &ParserFunctionTypeParameterTable, whereItems: &ParserFunctionWhereTable, signatureResult: &ParserResultTable, result: &ParserResultTable): int {
+    methodCount := ParseInterfaceDeclarationInfoInto(source, tokens.Kinds, tokens.Starts, tokens.ValueLengths, count, interfaceIndex, methodOutputs.FuncIndices, baseOutputs.BaseNameStarts, baseOutputs.BaseNameLengths, baseOutputs.BaseNameTexts, baseOutputs.InterfaceNameTexts, result.Values)
     if methodCount < 0 {
         return -1
     }
 
-    if methodCount > outMethodNameTexts.Length || methodCount > outMethodReturnTexts.Length || methodCount > outMethodParamCounts.Length || methodCount > outMethodBodyFlags.Length {
+    if methodCount > methodOutputs.NameTexts.Length || methodCount > methodOutputs.ReturnTexts.Length || methodCount > methodOutputs.ParamCounts.Length || methodCount > methodOutputs.BodyFlags.Length {
         return -1
     }
 
-    cap := count + 1
     flatParamCount := 0
     methodIndex := 0
     while methodIndex < methodCount {
-        nodeKinds := new int[](cap)
-        nameStarts := new int[](cap)
-        nameLengths := new int[](cap)
-        childStart := new int[](cap)
-        childCount := new int[](cap)
-        childIndices := new int[](cap)
-        spanStarts := new int[](cap)
-        spanLengths := new int[](cap)
-        paramNameStarts := new int[](cap)
-        paramNameLengths := new int[](cap)
-        paramTypeRoots := new int[](cap)
-        typeParamStarts := new int[](cap)
-        typeParamLengths := new int[](cap)
-        whereNameStarts := new int[](cap)
-        whereNameLengths := new int[](cap)
-        whereItemCodes := new int[](cap)
-        signatureResult := new int[](8)
-        paramCount := ParseFunctionSignatureInto(
-            tokenKinds, tokenStarts, tokenValueLengths, count, outMethodFuncIndices[methodIndex],
-            nodeKinds, nameStarts, nameLengths, childStart, childCount, childIndices, spanStarts, spanLengths,
-            paramNameStarts, paramNameLengths, paramTypeRoots, typeParamStarts, typeParamLengths,
-            whereNameStarts, whereNameLengths, whereItemCodes, signatureResult)
-        if paramCount < 0 || signatureResult[3] < 0 {
+        paramCount := ParseFunctionSignatureCore(ref tokens, count, methodOutputs.FuncIndices[methodIndex], ref typeStack, ref nodes, ref children, ref parameters, ref typeParams, ref whereItems, ref signatureResult)
+        if paramCount < 0 || signatureResult.Values[3] < 0 {
             return -1
         }
 
-        if signatureResult[5] > 0 || signatureResult[7] > 0 {
+        if signatureResult.Values[5] > 0 || signatureResult.Values[7] > 0 {
             return -1
         }
 
-        afterSignature := signatureResult[6]
+        afterSignature := signatureResult.Values[6]
         if afterSignature < 0 || afterSignature >= count {
             return -1
         }
 
-        methodName := FunctionSignatureSpanText(source, signatureResult[3], signatureResult[4])
+        methodName := FunctionSignatureSpanText(source, signatureResult.Values[3], signatureResult.Values[4])
         if methodName == "" {
             return -1
         }
-        outMethodNameTexts[methodIndex] = methodName
+        methodOutputs.NameTexts[methodIndex] = methodName
 
-        returnRoot := signatureResult[1]
+        returnRoot := signatureResult.Values[1]
         if returnRoot >= 0 {
-            if ParseInterfaceSignatureHasTupleNames(nodeKinds, childStart, childCount, childIndices, returnRoot) != 0 {
+            if ParseInterfaceSignatureHasTupleNamesCore(ref tupleNodes, returnRoot) != 0 {
                 return -1
             }
 
-            outMethodReturnTexts[methodIndex] = TypeReferenceCanonicalTextInto(source, nodeKinds, nameStarts, nameLengths, childStart, childCount, childIndices, returnRoot)
+            methodOutputs.ReturnTexts[methodIndex] = TypeReferenceCanonicalTextCore(source, ref canonicalNodes, returnRoot)
         } else {
-            outMethodReturnTexts[methodIndex] = "void"
+            methodOutputs.ReturnTexts[methodIndex] = "void"
         }
 
-        if flatParamCount + paramCount > outMethodParamNameTexts.Length || flatParamCount + paramCount > outMethodParamTypeTexts.Length {
+        if flatParamCount + paramCount > methodOutputs.ParamNameTexts.Length || flatParamCount + paramCount > methodOutputs.ParamTypeTexts.Length {
             return -1
         }
 
         paramIndex := 0
         while paramIndex < paramCount {
-            paramName := FunctionSignatureSpanText(source, paramNameStarts[paramIndex], paramNameLengths[paramIndex])
+            paramName := FunctionSignatureSpanText(source, parameters.NameStarts[paramIndex], parameters.NameLengths[paramIndex])
             if paramName == "" {
                 return -1
             }
 
-            paramRoot := paramTypeRoots[paramIndex]
-            if ParseInterfaceSignatureHasTupleNames(nodeKinds, childStart, childCount, childIndices, paramRoot) != 0 {
+            paramRoot := parameters.TypeRoots[paramIndex]
+            if ParseInterfaceSignatureHasTupleNamesCore(ref tupleNodes, paramRoot) != 0 {
                 return -1
             }
 
             flatSlot := flatParamCount + paramIndex
-            outMethodParamNameTexts[flatSlot] = paramName
-            outMethodParamTypeTexts[flatSlot] = TypeReferenceCanonicalTextInto(source, nodeKinds, nameStarts, nameLengths, childStart, childCount, childIndices, paramRoot)
+            methodOutputs.ParamNameTexts[flatSlot] = paramName
+            methodOutputs.ParamTypeTexts[flatSlot] = TypeReferenceCanonicalTextCore(source, ref canonicalNodes, paramRoot)
             paramIndex = paramIndex + 1
         }
 
-        outMethodParamCounts[methodIndex] = paramCount
+        methodOutputs.ParamCounts[methodIndex] = paramCount
         flatParamCount = flatParamCount + paramCount
 
-        if tokenKinds[afterSignature] == 129 {
-            outMethodBodyFlags[methodIndex] = 1
-        } else if tokenKinds[afterSignature] == 7 || tokenKinds[afterSignature] == 130 {
-            outMethodBodyFlags[methodIndex] = 0
+        if tokens.Kinds[afterSignature] == 129 {
+            methodOutputs.BodyFlags[methodIndex] = 1
+        } else if tokens.Kinds[afterSignature] == 7 || tokens.Kinds[afterSignature] == 130 {
+            methodOutputs.BodyFlags[methodIndex] = 0
         } else {
             return -1
         }
@@ -108,25 +128,30 @@ func ParseInterfaceDeclarationSignatureInfoInto(source: string, tokenKinds: int[
         methodIndex = methodIndex + 1
     }
 
-    outResult[3] = flatParamCount
+    result.Values[3] = flatParamCount
     return methodCount
 }
 
 func ParseInterfaceSignatureHasTupleNames(nodeKinds: int[], childStart: int[], childCount: int[], childIndices: int[], root: int): int {
-    if root < 0 || root >= nodeKinds.Length || nodeKinds[root] != 6 || childCount[root] == 0 {
+    nodes := new InterfaceSignatureTupleNodeTable { Kinds: nodeKinds, ChildStart: childStart, ChildCount: childCount, ChildIndices: childIndices }
+    return ParseInterfaceSignatureHasTupleNamesCore(ref nodes, root)
+}
+
+func ParseInterfaceSignatureHasTupleNamesCore(nodes: &InterfaceSignatureTupleNodeTable, root: int): int {
+    if root < 0 || root >= nodes.Kinds.Length || nodes.Kinds[root] != 6 || nodes.ChildCount[root] == 0 {
         return 0
     }
 
-    run := childStart[root]
-    first := childIndices[run]
-    if nodeKinds[first] != 7 {
+    run := nodes.ChildStart[root]
+    first := nodes.ChildIndices[run]
+    if nodes.Kinds[first] != 7 {
         return 0
     }
 
     i := 0
-    while i < childCount[root] {
-        elem := childIndices[run + i]
-        if nodeKinds[elem] != 7 {
+    while i < nodes.ChildCount[root] {
+        elem := nodes.ChildIndices[run + i]
+        if nodes.Kinds[elem] != 7 {
             return -1
         }
 

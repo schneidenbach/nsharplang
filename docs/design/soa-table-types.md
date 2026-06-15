@@ -553,7 +553,10 @@ ownership lands.
    internally. `ParserFunctionSignatures.nl`
    now composes those parser wrappers from a flattened entry shim, keeps token columns behind
    `ParserTokenTable` in its internal core, and groups parameter, type-parameter, `where`
-   constraint, and result columns behind named tables in its internal core. `ParserStatements.nl`
+   constraint, and result columns behind named tables in its internal core. `ParserInterfaceSignatures.nl`
+   now routes interface signature materialization through named base-output and method-output tables,
+   reuses one wrapper-shaped function-signature scratch rowset per interface parse, and composes the
+   wrapper-aware type canonicalizer directly while preserving its flattened adapter ABI. `ParserStatements.nl`
    now routes statement recursion through the same token, argument-stack, child-index, expression-node,
    and result wrappers, with the block-statement, statement-dispatcher, and simple-statement cores
    keeping token columns and child-stack ids wrapper-shaped internally. Only flattened compatibility
