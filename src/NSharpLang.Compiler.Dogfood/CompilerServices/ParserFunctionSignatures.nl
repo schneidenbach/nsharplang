@@ -175,6 +175,10 @@ func ParseFunctionSignatureInfoInto(source: string, tokenKinds: int[], tokenStar
 }
 
 func ParseFunctionSignatureInfoCore(source: string, tokens: &ParserTokenTable, count: int, funcIndex: int, outputs: &FunctionSignatureInfoOutputTable, typeStack: &ParserArgumentStack, nodes: &ParserNodeTable, children: &ParserChildIndexTable, canonicalNodes: &TypeReferenceCanonicalTable, parameters: &ParserFunctionParameterTable, typeParams: &ParserFunctionTypeParameterTable, whereItems: &ParserFunctionWhereTable, signatureResult: &ParserResultTable, ownerIndices: &FunctionSignatureOwnerIndexTable, tupleNames: &FunctionSignatureTupleNameScratchTable, result: &ParserResultTable): int {
+    if outputs.FunctionNameTexts.Length < 1 || outputs.ReturnTypeTexts.Length < 1 || result.Values.Length < 6 {
+        return -1
+    }
+
     paramCount := ParseFunctionSignatureCore(ref tokens, count, funcIndex, ref typeStack, ref nodes, ref children, ref parameters, ref typeParams, ref whereItems, ref signatureResult)
     if paramCount < 0 || signatureResult.Values[3] < 0 {
         return -1

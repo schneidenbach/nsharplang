@@ -11,6 +11,24 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Function parser composes signature core directly
+
+`ParserColumnarFunctions.nl` now routes product function signature parsing through
+`ParseFunctionSignatureInfoCore` with named token, signature-output, type-node, tuple-scratch,
+owner-index, parameter, constraint, and result wrappers instead of re-entering the flattened
+`ParseFunctionSignatureInfoInto` compatibility shim from inside N#. The public flattened ABI remains
+available for the current adapter and parser parity tests. Focused evidence:
+`./scripts/dev.sh ParserFunctionSignatures`,
+`./scripts/dev.sh Parser_FunctionSignature_MatchesProductionParser`,
+`./scripts/dev.sh ColumnarCodegen_Parity_LocalFunctions`,
+`./scripts/dev.sh ColumnarCodegen_Parity_NamedTuples`,
+`./scripts/dev.sh ColumnarCodegen_Parity_GenericFunctions`,
+`./scripts/dev.sh ColumnarCodegen_Parity_GenericConstraints`,
+`./scripts/dev.sh ColumnarCodegen_Parity_TupleMultiReturn`,
+`./scripts/dev.sh ColumnarCodegen_Parity_TupleDeconstruction`,
+`./scripts/dev.sh ColumnarCodegen_MultiFile_RealParserCluster`, and
+`./scripts/dev.sh ColumnarCodegen_CompilesRealDogfoodCorpus_Coverage`.
+
 ## 2026-06-15 — Constructor parser composes signature and chain cores directly
 
 `ParserColumnarConstructors.nl` now routes product constructor signature parsing through

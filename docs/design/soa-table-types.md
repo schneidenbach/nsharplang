@@ -544,7 +544,8 @@ ownership lands.
    statement parser core directly.
    `ParserColumnarFunctions.nl` now wraps compact token columns, signature output columns,
    statement-node body rows, direct local-function result columns, and function result slots inside
-   its composed product core while preserving its flattened adapter ABI; its body and local-function
+   its composed product core while preserving its flattened adapter ABI; its signature
+   materialization now composes the function signature core directly, and its body and local-function
    discovery paths now compose the statement/local-function cores directly.
    `ParserColumnarEnums.nl`, `ParserColumnarUnions.nl`, and `ParserColumnarInterfaces.nl` now wrap
    compact token columns, hidden declaration span scratch columns, text/count outputs, and result
