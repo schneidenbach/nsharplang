@@ -4,6 +4,11 @@
 // their product file — most delegate to sibling kernels that stay in the product). They are
 // NOT part of the shipped dogfood assembly.
 
+func CliDocSlugInto(raw: string, length: int, buffer: char[]): string {
+    slugBuffer := new CliDocSlugBufferTable { Chars: buffer }
+    return CliDocSlugCore(raw, length, ref slugBuffer)
+}
+
 func CliDocSymbolOrderCountingChecksumInto(
     kindRanks: int[],
     nameRanks: int[],

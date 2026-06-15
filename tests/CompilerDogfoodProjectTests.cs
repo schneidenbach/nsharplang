@@ -7723,7 +7723,7 @@ class B
 
     // MILESTONE: CliDocOrdering.nl compiles end-to-end with no C# AST. Enabling feature: new string(char[],int,int)
     // (the slug builder copies filtered/lowercased chars into a buffer, then returns a string of the slice). Reads
-    // the actual file. CliDocSlugInto directly returns the built string, so slug CONTENT parity is checked.
+    // the product file plus parity corpus. CliDocSlugInto is a parity-only direct content oracle.
     [Fact]
     public void ColumnarCodegen_CompilesRealDogfoodFile_CliDocOrdering()
     {

@@ -148,6 +148,7 @@ func CliDocSlugsCore(slugs: &CliDocSlugTable): int {
     }
 
     buffer := new char[](bufferLength)
+    slugBuffer := new CliDocSlugBufferTable { Chars: buffer }
     i := 0
     while i < count {
         raw := slugs.RawSlugs[i]
@@ -155,18 +156,14 @@ func CliDocSlugsCore(slugs: &CliDocSlugTable): int {
         if length > bufferLength {
             bufferLength = length
             buffer = new char[](length)
+            slugBuffer.Chars = buffer
         }
 
-        slugs.ResultSlugs[i] = CliDocSlugInto(raw, length, buffer)
+        slugs.ResultSlugs[i] = CliDocSlugCore(raw, length, ref slugBuffer)
         i = i + 1
     }
 
     return count
-}
-
-func CliDocSlugInto(raw: string, length: int, buffer: char[]): string {
-    slugBuffer := new CliDocSlugBufferTable { Chars: buffer }
-    return CliDocSlugCore(raw, length, ref slugBuffer)
 }
 
 func CliDocSlugCore(raw: string, length: int, buffer: &CliDocSlugBufferTable): string {

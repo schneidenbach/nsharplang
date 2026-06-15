@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — CLI doc slug content probe leaves product dogfood
+
+`CliDocSlugsCore` now constructs the `CliDocSlugBufferTable` directly in the product batch loop and
+calls `CliDocSlugCore` without going through the flat `CliDocSlugInto` helper. The single-slug
+`char[]` entry point moved to `NSharpLang.Compiler.Dogfood.ParityCorpus` as a parity-only content
+oracle for the existing string-constructor probe; it is no longer part of the shipped dogfood
+compiler-service surface. Focused evidence: `./scripts/dev.sh CliDocOrdering`,
+`./scripts/dev.sh ColumnarCodegen_MultiFile_EligibleClusterCompiles`, and
+`./scripts/dev.sh ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines`.
+
 ## 2026-06-15 — CLI doc slug helper keeps buffer table-shaped
 
 `CliDocSlugInto` now adapts its caller-provided `char[]` buffer into `CliDocSlugBufferTable` and
@@ -6785,8 +6795,8 @@ its calls are self-defined siblings (no cross-file dep).
 
 Parity-gated: `ColumnarCodegen_Parity_StringFromChars` (full-buffer + sub-slice + empty char[] + the
 `new string('a', 3)` repeat-ctor decline) and the milestone `ColumnarCodegen_CompilesRealDogfoodFile_CliDocOrdering`
-— which reads the real file and invokes `CliDocSlugInto` (it RETURNS the built string, so slug-content parity vs
-the C# pipeline is directly checked) over hyphen/digit/punctuation/empty inputs, plus `CliDocSlugsInto`,
+— which reads the real file plus parity corpus and invokes the parity-only `CliDocSlugInto` content
+oracle over hyphen/digit/punctuation/empty inputs, plus `CliDocSlugsInto`,
 `SymbolKindFilter{Indices,Checksum}Into`, `CliDocOrderingMinInt`. Ratchets raised: single-file coverage floor
 20→21, multi-file eligible cluster 23→24 (~75%). Coverage now **21/32 single-file, 24/32 via multi-file merge**.
 
