@@ -2174,8 +2174,7 @@ public sealed class SystemsAnalyzer
     {
         reason = string.Empty;
 
-        if (stackAlloc.LengthExpression is not IntLiteralExpression literal
-            || !int.TryParse(literal.Value, out var elementCount))
+        if (!TryGetStackallocElementCount(stackAlloc.LengthExpression, out var elementCount))
         {
             reason = "stackalloc length must be statically bounded in Systems N# v1";
             return false;
@@ -2205,6 +2204,68 @@ public sealed class SystemsAnalyzer
         reason = $"stackalloc reserves {total} bytes, above the configured systems stack budget of {_config.Language.Systems.StackBudgetBytes} bytes";
         return false;
     }
+
+    private static bool TryGetStackallocElementCount(Expression expression, out long elementCount)
+    {
+        expression = UnwrapStackallocLengthExpression(expression);
+
+        if (expression is UnaryExpression { Operator: UnaryOperator.Negate, Operand: var operand }
+            && TryGetUnsignedIntegerMagnitude(operand, out var negativeMagnitude))
+        {
+            elementCount = negativeMagnitude == 0 ? 0 : -1;
+            return true;
+        }
+
+        if (expression is IntLiteralExpression literal
+            && NumericLiteralFacts.TryParseUnsignedIntegerMagnitude(literal.Value, out var magnitude)
+            && magnitude <= long.MaxValue)
+        {
+            elementCount = (long)magnitude;
+            return true;
+        }
+
+        elementCount = 0;
+        return false;
+    }
+
+    private static bool TryGetUnsignedIntegerMagnitude(Expression expression, out ulong magnitude)
+    {
+        expression = UnwrapStackallocLengthExpression(expression);
+        if (expression is IntLiteralExpression literal
+            && NumericLiteralFacts.TryParseUnsignedIntegerMagnitude(literal.Value, out magnitude))
+        {
+            return true;
+        }
+
+        magnitude = 0;
+        return false;
+    }
+
+    private static Expression UnwrapStackallocLengthExpression(Expression expression)
+    {
+        while (true)
+        {
+            expression = expression switch
+            {
+                ParenthesizedExpression parenthesized => parenthesized.Inner,
+                CheckedExpression checkedExpression => checkedExpression.Expression,
+                UncheckedExpression uncheckedExpression => uncheckedExpression.Expression,
+                CastExpression castExpression when IsStackallocIntLikeCast(castExpression.TargetType) => castExpression.Expression,
+                _ => expression
+            };
+
+            if (expression is not ParenthesizedExpression
+                and not CheckedExpression
+                and not UncheckedExpression
+                && (expression is not CastExpression remainingCast || !IsStackallocIntLikeCast(remainingCast.TargetType)))
+            {
+                return expression;
+            }
+        }
+    }
+
+    private static bool IsStackallocIntLikeCast(TypeReference type)
+        => type is SimpleTypeReference { Name: "int" or "short" or "sbyte" or "byte" or "ushort" or "char" };
 
     private static bool IsReflectionOrDynamicCall(string target, out bool dynamicCode)
     {

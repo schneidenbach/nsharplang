@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Systems stackalloc budget accepts wrapped constants
+
+The systems stack-budget analyzer now classifies literal stackalloc lengths through parentheses,
+checked/unchecked wrappers, and int-like casts before applying the configured byte budget. Wrapped
+positive constants such as `checked((int)65)` now get the normal over-budget NSYS080 diagnostic, and
+wrapped negative constants such as `unchecked(-(1))` report `stackalloc length cannot be negative`
+instead of the less precise "must be statically bounded" fallback.
+
 ## 2026-06-15 — Parenthesized negative operands fail before lowering
 
 Analyzer-known negative constants now include unary minus applied to a transparently wrapped integer

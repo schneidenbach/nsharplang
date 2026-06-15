@@ -753,6 +753,36 @@ func Scratch(): int {
     }
 
     [Fact]
+    public void Stackalloc_WrappedLiteralLength_UsesConfiguredBudget()
+    {
+        var report = Analyze("""
+func Scratch(): int {
+    scratch := stackalloc byte[checked((int)65)]
+    return scratch.Length
+}
+""", profile: "systems", configure: config => config.Language.Systems.StackBudgetBytes = 64);
+
+        var finding = Assert.Single(report.Findings, f => f.Code == "NSYS080");
+        Assert.Contains("64", finding.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("statically bounded", finding.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Stackalloc_WrappedNegativeLength_ReportsNegative()
+    {
+        var report = Analyze("""
+func Scratch(): int {
+    scratch := stackalloc byte[unchecked(-(1))]
+    return scratch.Length
+}
+""", profile: "systems");
+
+        var finding = Assert.Single(report.Findings, f => f.Code == "NSYS080");
+        Assert.Contains("cannot be negative", finding.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("statically bounded", finding.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Stackalloc_OversizedCount_DoesNotOverflowBudgetCheck()
     {
         // M4: elementCount*elementSize was computed in int; 2_000_000_000 * 4 overflowed to a
