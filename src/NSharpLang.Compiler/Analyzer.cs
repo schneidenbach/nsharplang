@@ -13813,8 +13813,16 @@ public class Analyzer : IDisposable
         TypeInfo returnType;
         if (lambda.ExpressionBody != null)
         {
+            var errorsBeforeBody = _errors.Count;
             returnType = AnalyzeExpressionWithExpectedType(lambda.ExpressionBody, expectedSignature?.ReturnType);
             ReportSoaRowEscapeIfNeeded(lambda.ExpressionBody, returnType, "returned");
+            if (targetsExpressionTree && _errors.Count == errorsBeforeBody)
+            {
+                var parameterNames = lambda.Parameters
+                    .Select(parameter => parameter.Name)
+                    .ToHashSet(StringComparer.Ordinal);
+                ReportUnsupportedExpressionTreeExpressionIfNeeded(lambda.ExpressionBody, parameterNames);
+            }
         }
         else if (lambda.BlockBody != null)
         {
@@ -13909,6 +13917,172 @@ public class Analyzer : IDisposable
             "Use 'x => expression' for expression-tree targets, or assign the block lambda to a delegate type such as Func or Action.",
             GetTokenLength(lambda.Line, lambda.Column));
     }
+
+    private bool ReportUnsupportedExpressionTreeExpressionIfNeeded(Expression expression, ISet<string> parameterNames)
+    {
+        if (FindUnsupportedExpressionTreeExpression(expression, parameterNames) is not { } unsupported)
+        {
+            return false;
+        }
+
+        var (line, column, length) = GetExpressionDiagnosticSpan(unsupported.Expression);
+        var message = $"Expression-tree lambda body contains unsupported {unsupported.Description}";
+        if (_errors.Any(error =>
+                error.Code == ErrorCode.FeatureNotImplemented
+                && error.Line == line
+                && error.Column == column
+                && error.Message == message))
+        {
+            return false;
+        }
+
+        Error(
+            ErrorCode.FeatureNotImplemented,
+            message,
+            line,
+            column,
+            "Use a lambda parameter, member access, literal, supported binary expression, '!' expression, zero-argument instance call, or anonymous-object projection.",
+            length);
+        return true;
+    }
+
+    private (Expression Expression, string Description)? FindUnsupportedExpressionTreeExpression(
+        Expression expression,
+        ISet<string> parameterNames)
+    {
+        switch (expression)
+        {
+            case IdentifierExpression identifier:
+                return parameterNames.Contains(identifier.Name)
+                    ? null
+                    : (identifier, $"captured or static identifier '{identifier.Name}'");
+
+            case MemberAccessExpression { IsNullConditional: true } memberAccess:
+                return (memberAccess, "null-conditional member access");
+
+            case MemberAccessExpression memberAccess:
+                return FindUnsupportedExpressionTreeExpression(memberAccess.Object, parameterNames);
+
+            case ParenthesizedExpression parenthesized:
+                return FindUnsupportedExpressionTreeExpression(parenthesized.Inner, parameterNames);
+
+            case IntLiteralExpression
+                or FloatLiteralExpression
+                or CharLiteralExpression
+                or StringLiteralExpression
+                or BoolLiteralExpression
+                or NullLiteralExpression:
+                return null;
+
+            case BinaryExpression binary:
+                if (!IsSupportedExpressionTreeBinaryOperator(binary.Operator))
+                {
+                    return (binary, $"binary operator '{GetBinaryOperatorText(binary.Operator)}'");
+                }
+
+                return FindUnsupportedExpressionTreeExpression(binary.Left, parameterNames)
+                    ?? FindUnsupportedExpressionTreeExpression(binary.Right, parameterNames);
+
+            case UnaryExpression unary:
+                if (unary.Operator != UnaryOperator.Not)
+                {
+                    return (unary, $"unary operator '{GetUnaryOperatorText(unary.Operator)}'");
+                }
+
+                return FindUnsupportedExpressionTreeExpression(unary.Operand, parameterNames);
+
+            case CallExpression call:
+                if (call.Callee is not MemberAccessExpression memberCall)
+                {
+                    return (call, "non-instance method call");
+                }
+
+                if (memberCall.IsNullConditional)
+                {
+                    return (memberCall, "null-conditional method call");
+                }
+
+                if (call.TypeArguments is { Count: > 0 })
+                {
+                    return (call, "generic method call");
+                }
+
+                if (call.Arguments.Count != 0)
+                {
+                    return (call, "method call with arguments");
+                }
+
+                return FindUnsupportedExpressionTreeExpression(memberCall.Object, parameterNames);
+
+            case NewExpression newExpression:
+                if (!IsExpressionTreeAnonymousObjectCreation(newExpression))
+                {
+                    return (newExpression, "object construction");
+                }
+
+                foreach (var property in newExpression.Initializer!.Properties)
+                {
+                    var unsupported = FindUnsupportedExpressionTreeExpression(property.Value, parameterNames);
+                    if (unsupported != null)
+                    {
+                        return unsupported;
+                    }
+                }
+
+                return null;
+
+            default:
+                return (expression, GetExpressionTreeExpressionDescription(expression));
+        }
+    }
+
+    private static bool IsSupportedExpressionTreeBinaryOperator(BinaryOperator op)
+        => op is BinaryOperator.Add
+            or BinaryOperator.Subtract
+            or BinaryOperator.Multiply
+            or BinaryOperator.Divide
+            or BinaryOperator.Equal
+            or BinaryOperator.NotEqual
+            or BinaryOperator.Less
+            or BinaryOperator.LessOrEqual
+            or BinaryOperator.Greater
+            or BinaryOperator.GreaterOrEqual
+            or BinaryOperator.And
+            or BinaryOperator.Or;
+
+    private static bool IsExpressionTreeAnonymousObjectCreation(NewExpression newExpression)
+        => newExpression.Type == null
+            && newExpression.ConstructorArguments.Count == 0
+            && newExpression.Initializer != null
+            && newExpression.Initializer.Properties.All(property =>
+                property.Name != null
+                && property.IndexExpression == null);
+
+    private static string GetExpressionTreeExpressionDescription(Expression expression)
+        => expression switch
+        {
+            AssignmentExpression => "assignment expression",
+            AwaitExpression => "await expression",
+            CastExpression => "cast expression",
+            CheckedExpression => "checked expression",
+            DefaultExpression => "default expression",
+            IndexAccessExpression => "index access",
+            InterpolatedStringExpression => "interpolated string",
+            LambdaExpression => "nested lambda",
+            MatchExpression => "match expression",
+            MustExpression => "must expression",
+            NameofExpression => "nameof expression",
+            RangeExpression => "range expression",
+            SizeOfExpression => "sizeof expression",
+            SpreadExpression => "spread expression",
+            TernaryExpression => "ternary expression",
+            ThrowExpression => "throw expression",
+            TupleExpression => "tuple expression",
+            TypeOfExpression => "typeof expression",
+            UncheckedExpression => "unchecked expression",
+            WithExpression => "with expression",
+            _ => expression.GetType().Name
+        };
 
     private FunctionTypeInfo? GetFunctionSignature(TypeInfo? expectedType)
     {

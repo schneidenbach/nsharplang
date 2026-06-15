@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Expression-tree unsupported bodies fail before lowering
+
+Expression-tree lambda analysis now mirrors the IL builder's supported body subset. Captured/static
+identifiers, argument-taking calls, generic calls, unsupported operators such as `%`, and other
+unlowered expression forms report `NL323` during semantic analysis instead of reaching expression-tree
+IL emission and throwing. The accepted queryable subset from the previous slice remains executable.
+
 ## 2026-06-15 — Queryable expression-tree lambdas align with lowering
 
 Expression-tree lambdas now reject block bodies during semantic analysis, including reflection-bound

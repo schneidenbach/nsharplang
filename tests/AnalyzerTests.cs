@@ -6943,6 +6943,58 @@ func Main() {
     }
 
     [Fact]
+    public void QueryableLinq_ExpressionTreeLambdaWithCapturedValue_ReportsFeatureNotImplemented()
+    {
+        var result = AnalyzeWithSource(@"
+            import System.Linq
+
+            func Main() {
+                source := [1, 2, 3]
+                query := source.AsQueryable()
+                threshold := 1
+                filtered := query.Where(x => x > threshold)
+            }
+        ");
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.FeatureNotImplemented);
+        Assert.Contains("captured or static identifier 'threshold'", error.Message);
+    }
+
+    [Fact]
+    public void QueryableLinq_ExpressionTreeLambdaCallWithArguments_ReportsFeatureNotImplemented()
+    {
+        var result = AnalyzeWithSource(@"
+            import System.Linq
+
+            func Main() {
+                source := [1, 2, 3]
+                query := source.AsQueryable()
+                filtered := query.Where(x => x.ToString(""D"") == ""2"")
+            }
+        ");
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.FeatureNotImplemented);
+        Assert.Contains("method call with arguments", error.Message);
+    }
+
+    [Fact]
+    public void QueryableLinq_ExpressionTreeLambdaUnsupportedOperator_ReportsFeatureNotImplemented()
+    {
+        var result = AnalyzeWithSource(@"
+            import System.Linq
+
+            func Main() {
+                source := [1, 2, 3]
+                query := source.AsQueryable()
+                filtered := query.Where(x => x % 2 == 0)
+            }
+        ");
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.FeatureNotImplemented);
+        Assert.Contains("binary operator '%'", error.Message);
+    }
+
+    [Fact]
     public void BCL_MethodCall_WithOutArgument_NoNoMatchingOverload()
     {
         var result = AnalyzeWithSource(@"
