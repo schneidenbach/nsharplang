@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Function-signature parser keeps token table shaped
+
+`ParseFunctionSignatureCore` now reads token kind/start/length columns through `ParserTokenTable`
+instead of unpacking raw token arrays. The flattened `ParseFunctionSignatureInto` entry point
+remains the adapter boundary, and the core still composes the type-reference parser wrappers
+directly. Focused evidence: `./scripts/dev.sh Parser_FunctionSignature_MatchesProductionParser`
+and `./scripts/dev.sh ColumnarCodegen_MultiFile_RealParserCluster`.
+
 ## 2026-06-15 — Type-reference parser argument stack stays table-shaped
 
 `ParseBaseTypeReferenceNodeCore` and `ParseUnionTypeReferenceNodeCore` now keep generic, tuple, and

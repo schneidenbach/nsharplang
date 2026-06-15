@@ -84,15 +84,12 @@ func ParseFunctionSignatureCore(
     typeParams: &ParserFunctionTypeParameterTable,
     whereItems: &ParserFunctionWhereTable,
     outResult: &ParserResultTable): int {
-    tokenKinds := tokens.Kinds
-    tokenStarts := tokens.Starts
-    tokenValueLengths := tokens.ValueLengths
     funcNameStart := -1
     funcNameLength := 0
     i := funcIndex + 1
-    if i < count && tokenKinds[i] == 0 {
-        funcNameStart = tokenStarts[i]
-        funcNameLength = tokenValueLengths[i]
+    if i < count && tokens.Kinds[i] == 0 {
+        funcNameStart = tokens.Starts[i]
+        funcNameLength = tokens.ValueLengths[i]
         i = i + 1
     }
 
@@ -100,31 +97,31 @@ func ParseFunctionSignatureCore(
     // constraint (`<T: Base>`), an empty list, or any other form is unmodelled — return -1 (the host
     // declines to the C# path). With no `<`, the list is empty.
     typeParamCount := 0
-    if i < count && tokenKinds[i] == 100 {
+    if i < count && tokens.Kinds[i] == 100 {
         i = i + 1
-        while i < count && tokenKinds[i] != 102 {
-            if tokenKinds[i] != 0 {
+        while i < count && tokens.Kinds[i] != 102 {
+            if tokens.Kinds[i] != 0 {
                 return -1
             }
-            typeParams.Starts[typeParamCount] = tokenStarts[i]
-            typeParams.Lengths[typeParamCount] = tokenValueLengths[i]
+            typeParams.Starts[typeParamCount] = tokens.Starts[i]
+            typeParams.Lengths[typeParamCount] = tokens.ValueLengths[i]
             typeParamCount = typeParamCount + 1
             i = i + 1
 
-            if i < count && tokenKinds[i] != 102 {
-                if tokenKinds[i] != 134 {
+            if i < count && tokens.Kinds[i] != 102 {
+                if tokens.Kinds[i] != 134 {
                     return -1
                 }
                 i = i + 1
                 // A consumed comma must be FOLLOWED by another parameter name — a trailing comma
                 // (`<T,>`) is a production-parser error (adversarial-review finding: the loop's
                 // `!= 102` condition would otherwise exit cleanly and ACCEPT what the pipeline rejects).
-                if i >= count || tokenKinds[i] != 0 {
+                if i >= count || tokens.Kinds[i] != 0 {
                     return -1
                 }
             }
         }
-        if i >= count || tokenKinds[i] != 102 || typeParamCount == 0 {
+        if i >= count || tokens.Kinds[i] != 102 || typeParamCount == 0 {
             return -1
         }
         i = i + 1
@@ -134,7 +131,7 @@ func ParseFunctionSignatureCore(
     // scanned blindly to the first `(`, silently skipping a `<T>` list — a generic function then declined
     // later at type resolution; the list is now parsed above, and anything ELSE in the gap is malformed and
     // declines at parse instead of at emit.)
-    if i >= count || tokenKinds[i] != 127 {
+    if i >= count || tokens.Kinds[i] != 127 {
         return -1
     }
     i = i + 1
@@ -143,15 +140,15 @@ func ParseFunctionSignatureCore(
 
     paramCount := 0
 
-    while i < count && tokenKinds[i] != 128 {
+    while i < count && tokens.Kinds[i] != 128 {
         // Skip attribute lists `[ ... ]` (balanced).
-        while i < count && tokenKinds[i] == 131 {
+        while i < count && tokens.Kinds[i] == 131 {
             bracketDepth := 1
             i = i + 1
             while i < count && bracketDepth > 0 {
-                if tokenKinds[i] == 131 {
+                if tokens.Kinds[i] == 131 {
                     bracketDepth = bracketDepth + 1
-                } else if tokenKinds[i] == 132 {
+                } else if tokens.Kinds[i] == 132 {
                     bracketDepth = bracketDepth - 1
                 }
                 i = i + 1
@@ -159,19 +156,19 @@ func ParseFunctionSignatureCore(
         }
 
         // Skip parameter modifiers and `this`.
-        while i < count && (tokenKinds[i] == 78 || tokenKinds[i] == 79 || tokenKinds[i] == 82 || tokenKinds[i] == 42) {
+        while i < count && (tokens.Kinds[i] == 78 || tokens.Kinds[i] == 79 || tokens.Kinds[i] == 82 || tokens.Kinds[i] == 42) {
             i = i + 1
         }
 
-        if i >= count || tokenKinds[i] != 0 {
+        if i >= count || tokens.Kinds[i] != 0 {
             return -1
         }
 
-        paramNameStart := tokenStarts[i]
-        paramNameLength := tokenValueLengths[i]
+        paramNameStart := tokens.Starts[i]
+        paramNameLength := tokens.ValueLengths[i]
         i = i + 1
 
-        if i >= count || tokenKinds[i] != 122 {
+        if i >= count || tokens.Kinds[i] != 122 {
             return -1
         }
         i = i + 1
@@ -191,12 +188,12 @@ func ParseFunctionSignatureCore(
         paramCount = paramCount + 1
 
         // Skip a `= default` value without parsing it (balanced to the next depth-0 `,` or `)`).
-        if i < count && tokenKinds[i] == 93 {
+        if i < count && tokens.Kinds[i] == 93 {
             i = i + 1
             defaultDepth := 0
             keepSkipping := true
             while keepSkipping && i < count {
-                k := tokenKinds[i]
+                k := tokens.Kinds[i]
                 if k == 127 || k == 131 || k == 129 {
                     defaultDepth = defaultDepth + 1
                     i = i + 1
@@ -219,26 +216,26 @@ func ParseFunctionSignatureCore(
         // -- a `,` (another parameter) or `)` (end of the list). Anything else means a malformed parameter
         // (e.g. an unbalanced default value whose depth tracking overshot the list's `)`, or a deferred
         // trailing annotation): refuse with -1 rather than silently mis-parsing the rest of the signature.
-        if i >= count || (tokenKinds[i] != 134 && tokenKinds[i] != 128) {
+        if i >= count || (tokens.Kinds[i] != 134 && tokens.Kinds[i] != 128) {
             return -1
         }
 
-        if tokenKinds[i] == 134 {
+        if tokens.Kinds[i] == 134 {
             i = i + 1
         }
     }
 
-    if i < count && tokenKinds[i] == 128 {
+    if i < count && tokens.Kinds[i] == 128 {
         i = i + 1
     }
 
     returnRoot := -1
-    if i < count && tokenKinds[i] == 122 {
+    if i < count && tokens.Kinds[i] == 122 {
         // A `: this(...)` / `: base(...)` CONSTRUCTOR chaining initializer is NOT a return type — leave returnRoot at
         // -1 and stop; the host parses the initializer separately (ParseConstructorChainInfoInto). A regular
         // function's `: ReturnType` always has a TYPE token after `:`, never `this` (42) / `base` (43), so this
         // branch is constructor-only and leaves function-signature parsing unchanged.
-        if !(i + 1 < count && (tokenKinds[i + 1] == 42 || tokenKinds[i + 1] == 43)) {
+        if !(i + 1 < count && (tokens.Kinds[i + 1] == 42 || tokens.Kinds[i + 1] == 43)) {
             i = i + 1
             st.Pos = i
             st.SplitGreaterDepth = 0
@@ -258,15 +255,15 @@ func ParseFunctionSignatureCore(
     // parses as another root in the shared node table, exactly like a parameter type; `new` must be
     // followed directly by `(` `)` or the signature is malformed.
     whereItemCount := 0
-    while i < count && tokenKinds[i] == 53 {
+    while i < count && tokens.Kinds[i] == 53 {
         i = i + 1
-        if i >= count || tokenKinds[i] != 0 {
+        if i >= count || tokens.Kinds[i] != 0 {
             return -1
         }
-        whereNameStart := tokenStarts[i]
-        whereNameLength := tokenValueLengths[i]
+        whereNameStart := tokens.Starts[i]
+        whereNameLength := tokens.ValueLengths[i]
         i = i + 1
-        if i >= count || tokenKinds[i] != 122 {
+        if i >= count || tokens.Kinds[i] != 122 {
             return -1
         }
         i = i + 1
@@ -274,14 +271,14 @@ func ParseFunctionSignatureCore(
         moreItems := true
         while moreItems {
             itemCode := -1
-            if i < count && tokenKinds[i] == 8 {
+            if i < count && tokens.Kinds[i] == 8 {
                 itemCode = -2
                 i = i + 1
-            } else if i < count && tokenKinds[i] == 9 {
+            } else if i < count && tokens.Kinds[i] == 9 {
                 itemCode = -3
                 i = i + 1
-            } else if i < count && tokenKinds[i] == 41 {
-                if i + 2 >= count || tokenKinds[i + 1] != 127 || tokenKinds[i + 2] != 128 {
+            } else if i < count && tokens.Kinds[i] == 41 {
+                if i + 2 >= count || tokens.Kinds[i + 1] != 127 || tokens.Kinds[i + 2] != 128 {
                     return -1
                 }
                 itemCode = -4
@@ -302,7 +299,7 @@ func ParseFunctionSignatureCore(
             whereItems.ItemCodes[whereItemCount] = itemCode
             whereItemCount = whereItemCount + 1
 
-            if i < count && tokenKinds[i] == 134 {
+            if i < count && tokens.Kinds[i] == 134 {
                 i = i + 1
             } else {
                 moreItems = false

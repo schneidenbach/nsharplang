@@ -531,8 +531,8 @@ ownership lands.
    slots for the type-reference recursive cores; its base, greater-consumption, postfix, and union
    parser cores now keep token columns and recursive argument-stack values behind their wrapper tables
    internally. `ParserFunctionSignatures.nl`
-   now composes those parser wrappers from a flattened entry shim and groups parameter,
-   type-parameter, `where`
+   now composes those parser wrappers from a flattened entry shim, keeps token columns behind
+   `ParserTokenTable` in its internal core, and groups parameter, type-parameter, `where`
    constraint, and result columns behind named tables in its internal core. `ParserStatements.nl`
    now routes statement recursion through the same token, argument-stack, child-index, expression-node,
    and result wrappers, with only flattened compatibility shims left at expression/host boundaries.
