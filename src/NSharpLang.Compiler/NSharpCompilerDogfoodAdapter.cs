@@ -212,26 +212,10 @@ internal static class NSharpCompilerDogfoodAdapter
                 return false;
             if (funcIndexCount != funcAsyncFlags.Count)
                 return false; // the modifier scan and the func scan must agree on the function count.
+            if (bindings.TopLevelFunctionPreamblesAreValid(ck, n, funcIndices, funcIndexCount) == 0)
+                return false;
             for (var fi = 0; fi < funcIndexCount; fi++)
             {
-                // OVER-ACCEPT guard (review-found): the kernel decl scans SKIP an unknown depth-0
-                // token before `func` — `pub async func f` routed (with the async wrap applied!)
-                // where the pipeline rejects NL101. Every top-level func token may be preceded only
-                // by MODIFIER tokens (static 63 / async 68) chaining back to the file start, a
-                // closing brace (the previous declaration's end), or an IMPORT/PACKAGE header's
-                // dotted-name tail (`import System.Text` = 17, 0, 124, 0 — empirically tokenized).
-                var precedingToken = funcIndices[fi] - 1;
-                while (precedingToken >= 0 && (ck[precedingToken] == 63 || ck[precedingToken] == 68))
-                    precedingToken--;
-                if (precedingToken >= 0 && ck[precedingToken] != 130)
-                {
-                    var headerWalk = precedingToken;
-                    while (headerWalk >= 0 && (ck[headerWalk] == 0 || ck[headerWalk] == 124))
-                        headerWalk--;
-                    if (headerWalk == precedingToken || headerWalk < 0
-                        || (ck[headerWalk] != 17 && ck[headerWalk] != 18))
-                        return false;
-                }
                 if (!TryParseColumnarFunctionAt(bindings, ck, cs, cv, n, funcIndices[fi], source, out var input, isAsync: funcAsyncFlags[fi]))
                     return false;
                 inputs.Add(input);
@@ -2055,6 +2039,9 @@ internal static class NSharpCompilerDogfoodAdapter
                 CreateDelegate<TopLevelDeclarationIndicesInto>(
                     programType,
                     "TopLevelDeclarationIndicesInto"),
+                CreateDelegate<TopLevelFunctionPreamblesAreValidInto>(
+                    programType,
+                    "TopLevelFunctionPreamblesAreValidInto"),
                 CreateDelegate<MatchingCloseBraceInto>(
                     programType,
                     "MatchingCloseBraceInto"),
@@ -2196,6 +2183,8 @@ internal static class NSharpCompilerDogfoodAdapter
         string source, int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count);
     private delegate int TopLevelDeclarationIndicesInto(
         int[] tokenKinds, int count, int targetKind, int suppressWhereClause, int[] outIndices);
+    private delegate int TopLevelFunctionPreamblesAreValidInto(
+        int[] tokenKinds, int count, int[] funcIndices, int funcCount);
     private delegate int MatchingCloseBraceInto(int[] tokenKinds, int count, int open);
     private delegate int TopLevelDeclarationModifiersInto(int[] tokenKinds, int count, int[] outKinds, int[] outModifiers);
     private delegate int TopLevelDeclarationNameSpansInto(
@@ -2257,6 +2246,7 @@ internal static class NSharpCompilerDogfoodAdapter
         TopLevelDeclarationKindsInto TopLevelDeclarationKinds,
         TopLevelContextualTestDeclarationExistsInto TopLevelContextualTestDeclarationExists,
         TopLevelDeclarationIndicesInto TopLevelDeclarationIndices,
+        TopLevelFunctionPreamblesAreValidInto TopLevelFunctionPreamblesAreValid,
         MatchingCloseBraceInto MatchingCloseBrace,
         TopLevelDeclarationModifiersInto TopLevelDeclarationModifiers,
         TopLevelDeclarationNameSpansInto TopLevelDeclarationNameSpans,

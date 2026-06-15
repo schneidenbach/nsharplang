@@ -533,6 +533,46 @@ func TopLevelDeclarationIndicesCore(tokens: &ParserDeclarationKindStream, count:
     return outCount
 }
 
+// Parser declaration safety guard for top-level functions. The declaration scans intentionally skip
+// unknown depth-0 tokens, so this validates the token immediately before each `func` keyword: only
+// recognized modifiers (`static`, `async`), a previous declaration close, or a package/import dotted
+// header prefix may precede a top-level function. Returns 1 when every function preamble is valid.
+func TopLevelFunctionPreamblesAreValidInto(tokenKinds: int[], count: int, funcIndices: int[], funcCount: int): int {
+    tokens := new ParserDeclarationKindStream { Kinds: tokenKinds }
+    indices := new TopLevelDeclarationIndexTable { Indices: funcIndices }
+    return TopLevelFunctionPreamblesAreValidCore(ref tokens, count, ref indices, funcCount)
+}
+
+func TopLevelFunctionPreamblesAreValidCore(tokens: &ParserDeclarationKindStream, count: int, indices: &TopLevelDeclarationIndexTable, funcCount: int): int {
+    i := 0
+    while i < funcCount {
+        funcIndex := indices.Indices[i]
+        if funcIndex < 0 || funcIndex >= count || tokens.Kinds[funcIndex] != 7 {
+            return 0
+        }
+
+        preceding := funcIndex - 1
+        while preceding >= 0 && (tokens.Kinds[preceding] == 63 || tokens.Kinds[preceding] == 68) {
+            preceding = preceding - 1
+        }
+
+        if preceding >= 0 && tokens.Kinds[preceding] != 130 {
+            headerWalk := preceding
+            while headerWalk >= 0 && (tokens.Kinds[headerWalk] == 0 || tokens.Kinds[headerWalk] == 124) {
+                headerWalk = headerWalk - 1
+            }
+
+            if headerWalk == preceding || headerWalk < 0 || (tokens.Kinds[headerWalk] != 17 && tokens.Kinds[headerWalk] != 18) {
+                return 0
+            }
+        }
+
+        i = i + 1
+    }
+
+    return 1
+}
+
 // Parser declaration utility: the compacted-token index of the `}` (130) that closes the `{` (129)
 // at `open`, or -1 if `open` is not a left brace or the brace run is unbalanced. This keeps property
 // accessor body delimiting in the N# parser path instead of leaving a C# adapter-side scanner.

@@ -79,6 +79,10 @@ public class CompilerDogfoodProjectTests
                     "TopLevelDeclarationIndicesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit TopLevelDeclarationIndicesInto.");
+            var topLevelFunctionPreambles = programType.GetMethod(
+                    "TopLevelFunctionPreamblesAreValidInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit TopLevelFunctionPreamblesAreValidInto.");
             var matchingCloseBrace = programType.GetMethod(
                     "MatchingCloseBraceInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -181,6 +185,43 @@ func refOnly<T>(v: T): T where T: class {
                 tokenizeWithIndentation,
                 topLevelDeclIndices,
                 "generic constraint class keyword");
+            AssertTopLevelFunctionPreambles(
+                """
+import System.Text
+package Demo
+
+static async func ok(): int {
+    return 1
+}
+""",
+                true,
+                tokenizeWithIndentation,
+                topLevelDeclIndices,
+                topLevelFunctionPreambles,
+                "valid import/package/modifier preamble");
+            AssertTopLevelFunctionPreambles(
+                """
+pub async func bad(): int {
+    return 1
+}
+""",
+                false,
+                tokenizeWithIndentation,
+                topLevelDeclIndices,
+                topLevelFunctionPreambles,
+                "unknown top-level prefix before async func");
+            AssertTopLevelFunctionPreambles(
+                """
+Demo
+func bad(): int {
+    return 1
+}
+""",
+                false,
+                tokenizeWithIndentation,
+                topLevelDeclIndices,
+                topLevelFunctionPreambles,
+                "dotted-name tail without package/import header");
             var nestedBraces = new[]
             {
                 (int)TokenType.LeftBrace,
@@ -388,6 +429,26 @@ class B
         {
             if (File.Exists(outputPath)) File.Delete(outputPath);
         }
+    }
+
+    private static void AssertTopLevelFunctionPreambles(
+        string source,
+        bool expectedValid,
+        MethodInfo tokenizeWithIndentation,
+        MethodInfo topLevelDeclIndices,
+        MethodInfo topLevelFunctionPreambles,
+        string label)
+    {
+        var (count, kinds, _, _, _) = TokenizeSourceViaKernel(source, tokenizeWithIndentation);
+        var indices = new int[count + 1];
+        var funcCount = (int)(topLevelDeclIndices.Invoke(
+            null,
+            new object[] { kinds, count, (int)TokenType.Func, 0, indices }) ?? -1);
+        Assert.True(funcCount > 0, $"No top-level functions found for {label}.");
+        var actual = (int)(topLevelFunctionPreambles.Invoke(
+            null,
+            new object[] { kinds, count, indices, funcCount }) ?? -1);
+        Assert.Equal(expectedValid ? 1 : 0, actual);
     }
 
     private static void AssertConstructorChainBodyIndex(

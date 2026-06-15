@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Top-level function preamble guard moves into N#
+
+`ParserDeclarations.nl` now owns `TopLevelFunctionPreamblesAreValidInto`, the safety check that
+rejects malformed depth-0 tokens before a routed `func` declaration (for example `pub async func`).
+`NSharpCompilerDogfoodAdapter` now calls that dogfood parser kernel instead of walking backward over
+modifier/header tokens in C#. Focused evidence:
+`./scripts/dev.sh Parser_TopLevelDeclarationKinds_MatchProductionParser`,
+`./scripts/dev.sh ColumnarCodegen_Parity_MatchesCSharpPath`,
+`./scripts/dev.sh ColumnarCodegen_MultiFile_EligibleClusterCompiles`, and
+`./scripts/dev.sh ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines`.
+
 ## 2026-06-15 — Constructor body delimiting moves into the N# chain parser
 
 `ParseConstructorChainInfoInto` now reports the constructor body's compacted `{` token index in
