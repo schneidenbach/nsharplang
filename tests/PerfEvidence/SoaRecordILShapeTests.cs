@@ -2966,6 +2966,77 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void CharColumnNumericPromotionExpressions_UseColumnArrayLoadsAndOpcodesWithoutRowOrSliceAllocation()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                marker: char
+            }
+
+            func update(nodes: NodeTable, row: int): int {
+                directRow := row + 1
+
+                nodes[row].marker = 'A'
+                rowScore := nodes[row].marker + 1
+                rowScore += nodes[row].marker - 60
+                rowScore += nodes[row].marker & 15
+                rowScore += nodes[row].marker | 2
+                rowScore += nodes[row].marker ^ 1
+
+                nodes.marker[directRow] = 'B'
+                directScore := nodes.marker[directRow] << 1
+                directScore += nodes.marker[directRow] >> 1
+                directScore += nodes.marker[directRow] * 2
+
+                nodes.marker[^1] = 'C'
+                fromEndScore := ~nodes.marker[^1]
+                fromEndScore += nodes.marker[^1] % 10
+                fromEndScore += nodes.marker[^1] / 2
+
+                return rowScore + directScore + fromEndScore
+            }
+
+            func main(): int {
+                nodes := new NodeTable(3)
+                row := nodes.add()
+                nodes.add()
+                nodes.add()
+                return update(nodes, row)
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var update = ILShapeInspector.GetProgramMethod(assembly, "update");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(472, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoFromEndSliceAllocation(update);
+            Assert.True(
+                ILShapeInspector.CountOpcode(update, OpCodes.Ldfld) >= 14,
+                "Char SoA numeric-promotion expressions should load backing column fields directly.");
+            Assert.Equal(11, CountArrayElementLoads(update));
+            Assert.Equal(3, CountArrayElementStores(update));
+            Assert.True(ILShapeInspector.CountOpcode(update, OpCodes.Add) >= 1);
+            Assert.True(ILShapeInspector.CountOpcode(update, OpCodes.Sub) >= 1);
+            Assert.True(ILShapeInspector.CountOpcode(update, OpCodes.And) >= 1);
+            Assert.True(ILShapeInspector.CountOpcode(update, OpCodes.Or) >= 1);
+            Assert.True(ILShapeInspector.CountOpcode(update, OpCodes.Xor) >= 1);
+            Assert.True(ILShapeInspector.CountOpcode(update, OpCodes.Shl) >= 1);
+            Assert.True(ILShapeInspector.CountOpcode(update, OpCodes.Shr_Un) >= 1);
+            Assert.True(ILShapeInspector.CountOpcode(update, OpCodes.Mul) >= 1);
+            Assert.True(ILShapeInspector.CountOpcode(update, OpCodes.Rem) >= 1);
+            Assert.True(ILShapeInspector.CountOpcode(update, OpCodes.Div) >= 1);
+            Assert.True(ILShapeInspector.CountOpcode(update, OpCodes.Not) >= 1);
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void NumericScalarColumnComparisons_UseColumnArrayLoadsAndComparisonOpcodesOrBranchesWithoutRowOrSliceAllocation()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

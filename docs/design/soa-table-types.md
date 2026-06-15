@@ -190,8 +190,10 @@ including unsigned comparisons for `uint`, plus arithmetic expression stores, ar
 assignments, signed `int`/`long` unary negation, same-type bitwise expressions, and unary bitwise-not.
 `uint` unary negation still promotes to `long`, so assigning it back to a `uint` column is rejected
 before lowering. Numeric scalar columns also support shift expressions with direct signed and unsigned
-right-shift lowering. Char columns support equality/inequality and relational comparisons. Int-backed
-enum columns support the enum language's comparison expressions, prefix/postfix increment and decrement
+right-shift lowering. Char columns support equality/inequality, relational comparisons,
+increment/decrement update forms, and promoted numeric expressions that produce `int`; assigning those
+promoted results back into a `char` column is rejected before lowering. Int-backed enum columns
+support the enum language's comparison expressions, prefix/postfix increment and decrement
 forms, same-enum bitwise expressions, and unary bitwise-not.
 Arithmetic compound assignment is not part of the enum column proof. Each compound assignment must
 type-check through the underlying operator and produce a result assignable back to the column, so
@@ -327,7 +329,8 @@ bool equality/inequality plus logical-not and short-circuit logical expressions,
 comparison expressions, char comparison
 expressions, numeric scalar arithmetic expression stores, numeric scalar arithmetic compound
 assignments, signed numeric scalar unary negation stores, numeric scalar bitwise expression stores,
-numeric scalar unary bitwise-not stores, numeric scalar shift expression stores, same-enum comparison
+numeric scalar unary bitwise-not stores, numeric scalar shift expression stores, char numeric
+promotion expressions, same-enum comparison
 expressions, bitwise and unary bitwise-not expression stores, plus prefix/postfix update forms,
 integral `uint`/`long`/`char` update forms, and null-coalescing reads/assignments.
 Row-projection null-coalescing

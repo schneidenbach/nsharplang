@@ -15153,6 +15153,14 @@ public partial class ILCompiler
                     return;
                 }
 
+                if (operandType == typeof(uint))
+                {
+                    EmitExpression(unary.Operand);
+                    _currentIL.Emit(OpCodes.Conv_U8);
+                    _currentIL.Emit(OpCodes.Neg);
+                    return;
+                }
+
                 if (_overflowCheckingEnabled && operandType == typeof(int))
                 {
                     _currentIL.Emit(OpCodes.Ldc_I4_0);
@@ -20006,7 +20014,8 @@ public partial class ILCompiler
 
     private Type GetUnaryExpressionType(UnaryExpression unary)
     {
-        var operatorMethod = ResolveUnaryOperatorMethod(unary.Operator, GetExpressionType(unary.Operand));
+        var operandType = GetExpressionType(unary.Operand);
+        var operatorMethod = ResolveUnaryOperatorMethod(unary.Operator, operandType);
         if (operatorMethod != null)
         {
             return operatorMethod.ReturnType;
@@ -20014,9 +20023,37 @@ public partial class ILCompiler
 
         return unary.Operator switch
         {
+            UnaryOperator.Negate => GetUnaryNegationResultType(operandType),
             UnaryOperator.Not => typeof(bool),
+            UnaryOperator.BitwiseNot => GetUnaryBitwiseNotResultType(operandType),
             UnaryOperator.IndexFromEnd => typeof(Index),
-            _ => GetExpressionType(unary.Operand)
+            _ => operandType
+        };
+    }
+
+    private static Type GetUnaryNegationResultType(Type operandType)
+    {
+        operandType = Nullable.GetUnderlyingType(operandType) ?? operandType;
+        return Type.GetTypeCode(operandType) switch
+        {
+            TypeCode.Byte or TypeCode.SByte or TypeCode.Int16 or TypeCode.UInt16 or TypeCode.Char or TypeCode.Int32 => typeof(int),
+            TypeCode.UInt32 => typeof(long),
+            _ => operandType
+        };
+    }
+
+    private static Type GetUnaryBitwiseNotResultType(Type operandType)
+    {
+        if (operandType.IsEnum)
+        {
+            return operandType;
+        }
+
+        operandType = Nullable.GetUnderlyingType(operandType) ?? operandType;
+        return Type.GetTypeCode(operandType) switch
+        {
+            TypeCode.Byte or TypeCode.SByte or TypeCode.Int16 or TypeCode.UInt16 or TypeCode.Char => typeof(int),
+            _ => operandType
         };
     }
 

@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA char numeric promotions have IL-shape proof
+
+Char SoA columns now have opcode evidence for promoted numeric expressions across row projection,
+direct column indexing, and direct from-end column indexing. The accepted `char` reads promote to
+`int` for arithmetic, bitwise, shift, and unary bitwise-not expressions while loading backing column
+arrays directly with no row construction, slice allocation, boxing, delegate construction, or virtual
+dispatch. Assigning those promoted `int` results back into a `char` column is pinned as a semantic
+error before lowering.
+
 ## 2026-06-14 — SoA bool logical expressions have IL-shape proof
 
 Boolean SoA columns now have opcode evidence for short-circuiting `&&` and `||` expression-valued

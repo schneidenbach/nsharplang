@@ -342,6 +342,20 @@ func calculate(): int {
     }
 
     [Fact]
+    public void ILCompiler_UIntUnaryNegation_PromotesToLong()
+    {
+        var result = CompileAndInvoke("""
+func main(): long {
+    value: uint = (uint)3
+    negated := -value
+    return negated
+}
+""");
+
+        Assert.Equal(-3L, Assert.IsType<long>(result));
+    }
+
+    [Fact]
     public void ILCompiler_CanCompilePrintStatement()
     {
         var source = @"

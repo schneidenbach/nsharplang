@@ -4619,6 +4619,41 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Theory]
+    [InlineData("nodes[row].marker", "{target} + 1")]
+    [InlineData("nodes[row].marker", "{target} & 1")]
+    [InlineData("nodes[row].marker", "{target} << 1")]
+    [InlineData("nodes[row].marker", "~{target}")]
+    [InlineData("nodes.marker[row]", "{target} + 1")]
+    [InlineData("nodes.marker[row]", "{target} & 1")]
+    [InlineData("nodes.marker[row]", "{target} << 1")]
+    [InlineData("nodes.marker[row]", "~{target}")]
+    [InlineData("nodes.marker[^1]", "{target} + 1")]
+    [InlineData("nodes.marker[^1]", "{target} & 1")]
+    [InlineData("nodes.marker[^1]", "{target} << 1")]
+    [InlineData("nodes.marker[^1]", "~{target}")]
+    public void Analyzer_SoaRecordCharPromotedExpressionAssignment_IsRejected(
+        string target,
+        string expressionTemplate)
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var expression = expressionTemplate.Replace("{target}", target, StringComparison.Ordinal);
+        var result = Analyze($$"""
+            soa record NodeTable {
+                marker: char
+            }
+
+            func bad(nodes: NodeTable, row: int) {
+                {{target}} = {{expression}}
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Equal("int", error.ActualType);
+        Assert.Equal("char", error.ExpectedType);
+    }
+
+    [Theory]
     [InlineData("nodes[row].active", "-=", "-")]
     [InlineData("nodes[row].active", "*=", "*")]
     [InlineData("nodes[row].active", "/=", "/")]
