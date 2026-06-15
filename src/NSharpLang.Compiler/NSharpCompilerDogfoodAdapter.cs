@@ -822,12 +822,15 @@ internal static class NSharpCompilerDogfoodAdapter
     {
         input = null!;
         var propInfo = new int[6];
-        var accessorKind = bindings.ParsePropertyAccessorInfo(source, ck, cs, cv, n, propIndex, propInfo);
+        var propTypeTexts = new string[1];
+        var accessorKind = bindings.ParsePropertyAccessorTypeInfo(source, ck, cs, cv, n, propIndex, propTypeTexts, propInfo);
         if (accessorKind < 0)
             return false;
 
         var propName = source.Substring(propInfo[0], propInfo[1]);
-        var propType = source.Substring(propInfo[2], propInfo[3]);
+        var propType = propTypeTexts[0];
+        if (string.IsNullOrEmpty(propType))
+            return false;
         var cap = n + 1;
 
         var getBodyBrace = propInfo[4];
@@ -1951,9 +1954,9 @@ internal static class NSharpCompilerDogfoodAdapter
                 CreateDelegate<TokenIndexByKindStartInto>(
                     programType,
                     "TokenIndexByKindStartInto"),
-                CreateDelegate<ParsePropertyAccessorInfoInto>(
+                CreateDelegate<ParsePropertyAccessorTypeInfoInto>(
                     programType,
-                    "ParsePropertyAccessorInfoInto"),
+                    "ParsePropertyAccessorTypeInfoInto"),
                 CreateDelegate<TopLevelDeclarationModifiersInto>(
                     programType,
                     "TopLevelDeclarationModifiersInto"),
@@ -2106,9 +2109,9 @@ internal static class NSharpCompilerDogfoodAdapter
         int[] tokenKinds, int count, int[] funcIndices, int funcCount);
     private delegate int TokenIndexByKindStartInto(
         int[] tokenKinds, int[] tokenStarts, int count, int targetKind, int targetStart);
-    private delegate int ParsePropertyAccessorInfoInto(
+    private delegate int ParsePropertyAccessorTypeInfoInto(
         string source, int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths,
-        int count, int propIndex, int[] outResult);
+        int count, int propIndex, string[] outTypeTexts, int[] outResult);
     private delegate int TopLevelDeclarationModifiersInto(int[] tokenKinds, int count, int[] outKinds, int[] outModifiers);
     private delegate int TopLevelDeclarationNameSpansInto(
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count,
@@ -2189,7 +2192,7 @@ internal static class NSharpCompilerDogfoodAdapter
         TopLevelDeclarationIndicesInto TopLevelDeclarationIndices,
         TopLevelFunctionPreamblesAreValidInto TopLevelFunctionPreamblesAreValid,
         TokenIndexByKindStartInto TokenIndexByKindStart,
-        ParsePropertyAccessorInfoInto ParsePropertyAccessorInfo,
+        ParsePropertyAccessorTypeInfoInto ParsePropertyAccessorTypeInfo,
         TopLevelDeclarationModifiersInto TopLevelDeclarationModifiers,
         TopLevelDeclarationNameSpansInto TopLevelDeclarationNameSpans,
         NamespaceImportSpansInto NamespaceImportSpans,

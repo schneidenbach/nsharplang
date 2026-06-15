@@ -11,6 +11,23 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Property accessor type text moves into N#
+
+`ParserDeclarations.nl` now exports `ParsePropertyAccessorTypeInfoInto`, a product-routed wrapper
+over the existing computed-property accessor parser. It preserves the same result slots for name,
+type span, and get/set body braces, while adding a one-cell `string[]` output for the canonical
+property type text produced by `ParserDeclarationCanonicalTypeText`.
+
+`NSharpCompilerDogfoodAdapter.TryParseColumnarPropertyAt` no longer binds the old
+`ParsePropertyAccessorInfoInto` delegate or materializes the property type from a source substring
+in C#. The old span ABI remains emitted for parser parity tests only. Focused evidence:
+`./scripts/dev.sh Parser_TopLevelDeclarationKinds_MatchProductionParser`,
+`./scripts/dev.sh ColumnarCodegen_Parity_ClassGetOnlyProperty`,
+`./scripts/dev.sh ColumnarCodegen_Parity_ClassGetSetProperty`,
+`./scripts/dev.sh ColumnarCodegen_Parity_StaticProperties`,
+`./scripts/dev.sh ColumnarCodegen_Parity_GenericClass_CtorFieldMethodProperty`, and
+`./scripts/dev.sh ColumnarCodegen_MultiFile_EligibleClusterCompiles`.
+
 ## 2026-06-15 — Union field type text moves into N#
 
 `ParserDeclarations.nl` now exports `ParseUnionDeclarationInfoInto`, a product-routed wrapper over

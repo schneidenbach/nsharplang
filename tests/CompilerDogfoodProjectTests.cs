@@ -115,6 +115,10 @@ public class CompilerDogfoodProjectTests
                     "ParsePropertyAccessorInfoInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit ParsePropertyAccessorInfoInto.");
+            var parsePropertyAccessorTypeInfo = programType.GetMethod(
+                    "ParsePropertyAccessorTypeInfoInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit ParsePropertyAccessorTypeInfoInto.");
             var constructorChainInfo = programType.GetMethod(
                     "ParseConstructorChainInfoInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -379,6 +383,7 @@ class Box {
                 "int",
                 tokenizeWithIndentation,
                 parsePropertyAccessorInfo,
+                parsePropertyAccessorTypeInfo,
                 "get-only property");
             AssertPropertyAccessorInfo(
                 """
@@ -399,6 +404,7 @@ class Box {
                 "int",
                 tokenizeWithIndentation,
                 parsePropertyAccessorInfo,
+                parsePropertyAccessorTypeInfo,
                 "get-set property");
             AssertPropertyAccessorInfo(
                 """
@@ -417,6 +423,7 @@ class Box {
                 "int",
                 tokenizeWithIndentation,
                 parsePropertyAccessorInfo,
+                parsePropertyAccessorTypeInfo,
                 "set-first property");
             AssertConstructorChainBodyIndex(
                 """
@@ -1038,6 +1045,7 @@ class B
         string expectedType,
         MethodInfo tokenizeWithIndentation,
         MethodInfo parsePropertyAccessorInfo,
+        MethodInfo parsePropertyAccessorTypeInfo,
         string label)
     {
         var (count, kinds, starts, valueLengths, compactedSource) = TokenizeSourceViaKernel(source, tokenizeWithIndentation);
@@ -1056,16 +1064,24 @@ class B
         }
 
         Assert.True(propIndex >= 0, $"Could not locate property token for {label}.");
-        var result = new int[6];
-        var actualKind = (int)(parsePropertyAccessorInfo.Invoke(
+        var spanResult = new int[6];
+        var spanKind = (int)(parsePropertyAccessorInfo.Invoke(
             null,
-            new object[] { compactedSource, kinds, starts, valueLengths, count, propIndex, result }) ?? -2);
+            new object[] { compactedSource, kinds, starts, valueLengths, count, propIndex, spanResult }) ?? -2);
+        var result = new int[6];
+        var typeTexts = new string[1];
+        var actualKind = (int)(parsePropertyAccessorTypeInfo.Invoke(
+            null,
+            new object[] { compactedSource, kinds, starts, valueLengths, count, propIndex, typeTexts, result }) ?? -2);
+        Assert.Equal(spanKind, actualKind);
         Assert.Equal(expectedAccessorKind, actualKind);
         if (expectedAccessorKind < 0)
             return;
 
+        Assert.Equal(spanResult, result);
         Assert.Equal(propertyName, compactedSource.Substring(result[0], result[1]));
         Assert.Equal(expectedType, compactedSource.Substring(result[2], result[3]));
+        Assert.Equal(expectedType, typeTexts[0]);
         Assert.True(result[4] >= 0 && result[4] < count, $"Get body brace missing for {label}.");
         Assert.Equal((int)TokenType.LeftBrace, kinds[result[4]]);
         if (expectedAccessorKind == 1)
