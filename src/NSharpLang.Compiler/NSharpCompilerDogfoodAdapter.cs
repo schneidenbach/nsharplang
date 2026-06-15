@@ -48,13 +48,15 @@ internal static class NSharpCompilerDogfoodAdapter
 
         if (!TryGetColumnarFunctionInputs(bindings, source, tokens, out var inputs) || inputs.Count == 0)
             return false;
-        if (!TryGetColumnarEnumInputs(bindings, source, tokens, out var enums))
+        if (!TryGetColumnarNominalDeclarationIndices(bindings, tokens, out var nominalIndices))
+            return false;
+        if (!TryGetColumnarEnumInputs(bindings, source, tokens, nominalIndices.EnumIndices, nominalIndices.EnumCount, out var enums))
             return false;
         if (!TryGetColumnarStructInputs(bindings, source, tokens, out var structs))
             return false;
-        if (!TryGetColumnarUnionInputs(bindings, source, tokens, out var unions))
+        if (!TryGetColumnarUnionInputs(bindings, source, tokens, nominalIndices.UnionIndices, nominalIndices.UnionCount, out var unions))
             return false;
-        if (!TryGetColumnarInterfaceInputs(bindings, source, tokens, out var interfaceInputs))
+        if (!TryGetColumnarInterfaceInputs(bindings, source, tokens, nominalIndices.InterfaceIndices, nominalIndices.InterfaceCount, out var interfaceInputs))
             return false;
 
         program = new Columnar.ColumnarProgramInput(source, inputs, enums, structs, unions, interfaceInputs);
@@ -94,6 +96,32 @@ internal static class NSharpCompilerDogfoodAdapter
         internal int[] Starts { get; }
         internal int[] ValueLengths { get; }
         internal int Count { get; }
+    }
+
+    private sealed class ColumnarNominalDeclarationIndices
+    {
+        internal ColumnarNominalDeclarationIndices(
+            int[] enumIndices,
+            int enumCount,
+            int[] unionIndices,
+            int unionCount,
+            int[] interfaceIndices,
+            int interfaceCount)
+        {
+            EnumIndices = enumIndices;
+            EnumCount = enumCount;
+            UnionIndices = unionIndices;
+            UnionCount = unionCount;
+            InterfaceIndices = interfaceIndices;
+            InterfaceCount = interfaceCount;
+        }
+
+        internal int[] EnumIndices { get; }
+        internal int EnumCount { get; }
+        internal int[] UnionIndices { get; }
+        internal int UnionCount { get; }
+        internal int[] InterfaceIndices { get; }
+        internal int InterfaceCount { get; }
     }
 
     private static bool TryTokenizeColumnarSource(Bindings bindings, string source, out ColumnarTokenizedSource tokens)
@@ -138,6 +166,45 @@ internal static class NSharpCompilerDogfoodAdapter
         }
         catch
         {
+            return false;
+        }
+    }
+
+    private static bool TryGetColumnarNominalDeclarationIndices(
+        Bindings bindings,
+        ColumnarTokenizedSource tokens,
+        out ColumnarNominalDeclarationIndices indices)
+    {
+        indices = null!;
+        try
+        {
+            var n = tokens.Count;
+            var enumIndices = new int[n + 1];
+            var unionIndices = new int[n + 1];
+            var interfaceIndices = new int[n + 1];
+            var result = new int[3];
+            var totalCount = bindings.TopLevelColumnarNominalDeclarationIndices(
+                tokens.Kinds,
+                n,
+                enumIndices,
+                unionIndices,
+                interfaceIndices,
+                result);
+            if (totalCount < 0)
+                return false;
+
+            indices = new ColumnarNominalDeclarationIndices(
+                enumIndices,
+                result[0],
+                unionIndices,
+                result[1],
+                interfaceIndices,
+                result[2]);
+            return true;
+        }
+        catch
+        {
+            indices = null!;
             return false;
         }
     }
@@ -189,11 +256,11 @@ internal static class NSharpCompilerDogfoodAdapter
     }
 
     // Collect every top-level `enum` declaration into a ColumnarEnumInput (name + member names + resolved underlying
-    // int values). Consumes the shared token bundle, finds each enum keyword, and parses its body via the checked
+    // int values). Consumes enum indices from the nominal declaration rowset and parses each body via the checked
     // ParseEnumDeclarationTextInfo kernel. Returns true (possibly an empty list) for a program with no enums, or
     // false to decline the whole program to the C# path on any unsupported enum shape.
     private static bool TryGetColumnarEnumInputs(
-        Bindings bindings, string source, ColumnarTokenizedSource tokens,
+        Bindings bindings, string source, ColumnarTokenizedSource tokens, int[] enumIndices, int enumIndexCount,
         out System.Collections.Generic.List<Columnar.ColumnarEnumInput> enums)
     {
         enums = new System.Collections.Generic.List<Columnar.ColumnarEnumInput>();
@@ -204,10 +271,6 @@ internal static class NSharpCompilerDogfoodAdapter
             var cv = tokens.ValueLengths;
             var n = tokens.Count;
 
-            var enumIndices = new int[n + 1];
-            var enumIndexCount = bindings.TopLevelDeclarationIndices(ck, n, 14, 0, enumIndices);
-            if (enumIndexCount < 0)
-                return false;
             for (var enumSlot = 0; enumSlot < enumIndexCount; enumSlot++)
             {
                 var enumIndex = enumIndices[enumSlot];
@@ -468,8 +531,8 @@ internal static class NSharpCompilerDogfoodAdapter
     }
 
     // Collect every top-level `union` declaration into a ColumnarUnionInput (name + optional generic type-parameter
-    // names + per-case name + per-case field names + per-case field TYPE canonical strings). Consumes the shared
-    // token bundle, finds each union keyword (TopLevelUnionIndices), and parses its body via the
+    // names + per-case name + per-case field names + per-case field TYPE canonical strings). Consumes union indices
+    // from the nominal declaration rowset and parses each body via the
     // ParseUnionDeclarationInfo kernel — which flattens fields across cases, with outCaseFieldCounts re-segmenting
     // them per case, and returns name/type text so C# does not own union text materialization. Returns true
     // (possibly an empty list) for a program with no unions. Returns FALSE — declining the
@@ -477,7 +540,7 @@ internal static class NSharpCompilerDogfoodAdapter
     // union). The emitter further gates each field type to a supported CLR type (or one of the union's own type
     // parameters) and models the slice scope (reference-type cases).
     private static bool TryGetColumnarUnionInputs(
-        Bindings bindings, string source, ColumnarTokenizedSource tokens,
+        Bindings bindings, string source, ColumnarTokenizedSource tokens, int[] unionIndices, int unionIndexCount,
         out System.Collections.Generic.List<Columnar.ColumnarUnionInput> unions)
     {
         unions = new System.Collections.Generic.List<Columnar.ColumnarUnionInput>();
@@ -488,10 +551,6 @@ internal static class NSharpCompilerDogfoodAdapter
             var cv = tokens.ValueLengths;
             var n = tokens.Count;
 
-            var unionIndices = new int[n + 1];
-            var unionIndexCount = bindings.TopLevelDeclarationIndices(ck, n, 12, 0, unionIndices);
-            if (unionIndexCount < 0)
-                return false;
             for (var unionSlot = 0; unionSlot < unionIndexCount; unionSlot++)
             {
                 var unionIndex = unionIndices[unionSlot];
@@ -922,15 +981,15 @@ internal static class NSharpCompilerDogfoodAdapter
     }
 
     // Collect every top-level `interface` declaration into a ColumnarInterfaceInput (name + abstract
-    // method SIGNATURES — names, return canonicals, param names/canonicals). Consumes the shared
-    // token bundle, finds each interface keyword through the N# declaration-index kernel, parses the member layout via the
+    // method SIGNATURES — names, return canonicals, param names/canonicals). Consumes interface indices from the
+    // nominal declaration rowset, parses the member layout via the
     // ParseInterfaceDeclarationInfo kernel (method signatures ONLY — default bodies, bare members, properties, and
     // generics return -1 there; base-interface names are carried as text), then each member's signature via the
     // shared ParseFunctionSignature kernel.
     // Returns true (possibly empty) for a program with no interfaces; FALSE declines the program.
     // IF-1 declines: generic members, where-clauses, tuple element names on member types.
     private static bool TryGetColumnarInterfaceInputs(
-        Bindings bindings, string source, ColumnarTokenizedSource tokens,
+        Bindings bindings, string source, ColumnarTokenizedSource tokens, int[] interfaceIndices, int interfaceIndexCount,
         out System.Collections.Generic.List<Columnar.ColumnarInterfaceInput> interfaceInputs)
     {
         interfaceInputs = new System.Collections.Generic.List<Columnar.ColumnarInterfaceInput>();
@@ -941,10 +1000,6 @@ internal static class NSharpCompilerDogfoodAdapter
             var cv = tokens.ValueLengths;
             var n = tokens.Count;
 
-            var interfaceIndices = new int[n + 1];
-            var interfaceIndexCount = bindings.TopLevelDeclarationIndices(ck, n, 10, 0, interfaceIndices);
-            if (interfaceIndexCount < 0)
-                return false;
             for (var interfaceSlot = 0; interfaceSlot < interfaceIndexCount; interfaceSlot++)
             {
                 var interfaceIndex = interfaceIndices[interfaceSlot];
@@ -1982,9 +2037,9 @@ internal static class NSharpCompilerDogfoodAdapter
                 CreateDelegate<TokenizeMetadataWithIndentationInto>(
                     programType,
                     "TokenizeMetadataWithIndentationInto"),
-                CreateDelegate<TopLevelDeclarationIndicesInto>(
+                CreateDelegate<TopLevelColumnarNominalDeclarationIndicesInto>(
                     programType,
-                    "TopLevelDeclarationIndicesInto"),
+                    "TopLevelColumnarNominalDeclarationIndicesInto"),
                 CreateDelegate<TopLevelColumnarFunctionDeclarationIndicesInto>(
                     programType,
                     "TopLevelColumnarFunctionDeclarationIndicesInto"),
@@ -2137,8 +2192,8 @@ internal static class NSharpCompilerDogfoodAdapter
     // (TryGetColumnarFunctionInputs -> ColumnarIlEmitter), consuming the columnar node tables directly.
     private delegate int TokenizeMetadataWithIndentationInto(
         string source, int[] kinds, int[] starts, int[] valueLengths, int[] lines, int[] columns);
-    private delegate int TopLevelDeclarationIndicesInto(
-        int[] tokenKinds, int count, int targetKind, int suppressWhereClause, int[] outIndices);
+    private delegate int TopLevelColumnarNominalDeclarationIndicesInto(
+        int[] tokenKinds, int count, int[] outEnumIndices, int[] outUnionIndices, int[] outInterfaceIndices, int[] outResult);
     private delegate int TopLevelColumnarFunctionDeclarationIndicesInto(
         string source,
         int[] rawTokenKinds, int[] rawTokenStarts, int[] rawTokenValueLengths, int rawCount,
@@ -2234,7 +2289,7 @@ internal static class NSharpCompilerDogfoodAdapter
         AnalyzerUnionMissingCaseIndicesInto AnalyzerUnionMissingCaseIndices,
         OverloadSelectBestCandidate OverloadSelectBestCandidate,
         TokenizeMetadataWithIndentationInto TokenizeMetadataWithIndentation,
-        TopLevelDeclarationIndicesInto TopLevelDeclarationIndices,
+        TopLevelColumnarNominalDeclarationIndicesInto TopLevelColumnarNominalDeclarationIndices,
         TopLevelColumnarFunctionDeclarationIndicesInto TopLevelColumnarFunctionDeclarationIndices,
         TopLevelStructLikeDeclarationIndicesInto TopLevelStructLikeDeclarationIndices,
         TokenIndexByKindStartInto TokenIndexByKindStart,

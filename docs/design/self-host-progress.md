@@ -11,6 +11,22 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Nominal declaration selection rowset moves into N#
+
+`ParserDeclarations.nl` now exports `TopLevelColumnarNominalDeclarationIndicesInto`, a
+product-routed rowset that returns enum, union, and interface declaration index columns plus counts in
+one call. The old generic `TopLevelDeclarationIndicesInto` ABI remains emitted for parser parity
+tests, but production no longer binds it from `NSharpCompilerDogfoodAdapter`.
+
+`NSharpCompilerDogfoodAdapter.TryGetColumnarProgramInput` now computes the nominal rowset once and
+passes those N#-selected indices into enum, union, and interface materialization. The individual
+collectors no longer call the generic declaration-index delegate or carry declaration-kind constants
+for those top-level types. Focused evidence:
+`./scripts/dev.sh Parser_TopLevelDeclarationKinds_MatchProductionParser`,
+`./scripts/dev.sh ColumnarCodegen_Parity`,
+`./scripts/dev.sh ColumnarCodegen_CompilesRealDogfoodCorpus_Coverage`, and
+`./scripts/dev.sh ColumnarCodegen_MultiFile_EligibleClusterCompiles`.
+
 ## 2026-06-15 — Top-level function routing rowset moves into N#
 
 `ParserDeclarations.nl` now exports `TopLevelColumnarFunctionDeclarationIndicesInto`, a

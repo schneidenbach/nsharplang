@@ -504,6 +504,36 @@ func TopLevelStructLikeDeclarationIndicesInto(tokenKinds: int[], count: int, out
     return TopLevelStructLikeDeclarationIndicesAppend(ref tokens, count, 8, 1, 1, 0, outIndices, outReferenceFlags, outRecordFlags, outCount)
 }
 
+func TopLevelColumnarNominalDeclarationIndicesInto(tokenKinds: int[], count: int, outEnumIndices: int[], outUnionIndices: int[], outInterfaceIndices: int[], outResult: int[]): int {
+    if count < 0 || count > tokenKinds.Length || outResult.Length < 3 {
+        return -1
+    }
+
+    tokens := new ParserDeclarationKindStream { Kinds: tokenKinds }
+    enumTable := new TopLevelDeclarationIndexTable { Indices: outEnumIndices }
+    enumCount := TopLevelDeclarationIndicesCore(ref tokens, count, 14, 0, ref enumTable)
+    if enumCount < 0 {
+        return -1
+    }
+
+    unionTable := new TopLevelDeclarationIndexTable { Indices: outUnionIndices }
+    unionCount := TopLevelDeclarationIndicesCore(ref tokens, count, 12, 0, ref unionTable)
+    if unionCount < 0 {
+        return -1
+    }
+
+    interfaceTable := new TopLevelDeclarationIndexTable { Indices: outInterfaceIndices }
+    interfaceCount := TopLevelDeclarationIndicesCore(ref tokens, count, 10, 0, ref interfaceTable)
+    if interfaceCount < 0 {
+        return -1
+    }
+
+    outResult[0] = enumCount
+    outResult[1] = unionCount
+    outResult[2] = interfaceCount
+    return enumCount + unionCount + interfaceCount
+}
+
 func TopLevelStructLikeDeclarationIndicesAppend(tokens: &ParserDeclarationKindStream, count: int, targetKind: int, suppressWhereClause: int, isReference: int, isRecord: int, outIndices: int[], outReferenceFlags: int[], outRecordFlags: int[], startCount: int): int {
     braceDepth := 0
     bracketDepth := 0

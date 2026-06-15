@@ -83,6 +83,10 @@ public class CompilerDogfoodProjectTests
                     "TopLevelColumnarFunctionDeclarationIndicesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit TopLevelColumnarFunctionDeclarationIndicesInto.");
+            var topLevelColumnarNominalDeclIndices = programType.GetMethod(
+                    "TopLevelColumnarNominalDeclarationIndicesInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit TopLevelColumnarNominalDeclarationIndicesInto.");
             var topLevelStructLikeDeclIndices = programType.GetMethod(
                     "TopLevelStructLikeDeclarationIndicesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -212,6 +216,11 @@ interface Shape {
     func area(): double
 }
 
+union Maybe {
+    Some { value: int }
+    None { }
+}
+
 record Person {
     name: string
     age: int
@@ -231,6 +240,15 @@ record Person {
             AssertTopLevelDeclarationIndices(controlledCorpus, (int)TokenType.Interface, false, 1, tokenizeWithIndentation, topLevelDeclIndices, "top-level interface only");
             AssertTopLevelDeclarationIndices(controlledCorpus, (int)TokenType.Record, false, 1, tokenizeWithIndentation, topLevelDeclIndices, "top-level record only");
             AssertTopLevelDeclarationIndices(controlledCorpus, (int)TokenType.Enum, false, 1, tokenizeWithIndentation, topLevelDeclIndices, "top-level enum only");
+            AssertTopLevelDeclarationIndices(controlledCorpus, (int)TokenType.Union, false, 1, tokenizeWithIndentation, topLevelDeclIndices, "top-level union only");
+            AssertTopLevelColumnarNominalDeclarationIndices(
+                controlledCorpus,
+                expectedEnumCount: 1,
+                expectedUnionCount: 1,
+                expectedInterfaceCount: 1,
+                tokenizeWithIndentation,
+                topLevelColumnarNominalDeclIndices,
+                "controlled nominal declaration rowset");
             AssertTopLevelStructLikeDeclarationIndices(
                 controlledCorpus,
                 new[] { (int)TokenType.Struct, (int)TokenType.Record, (int)TokenType.Class },
@@ -1718,6 +1736,44 @@ class B
             }) ?? -2);
 
         Assert.Equal(-1, actualCount);
+    }
+
+    private static void AssertTopLevelColumnarNominalDeclarationIndices(
+        string source,
+        int expectedEnumCount,
+        int expectedUnionCount,
+        int expectedInterfaceCount,
+        MethodInfo tokenizeWithIndentation,
+        MethodInfo topLevelColumnarNominalDeclIndices,
+        string label)
+    {
+        var (count, kinds, _, _, _) = TokenizeSourceViaKernel(source, tokenizeWithIndentation);
+        var enumIndices = new int[count + 1];
+        var unionIndices = new int[count + 1];
+        var interfaceIndices = new int[count + 1];
+        var result = new int[3];
+
+        var actualTotal = (int)(topLevelColumnarNominalDeclIndices.Invoke(
+            null,
+            new object[] { kinds, count, enumIndices, unionIndices, interfaceIndices, result }) ?? -1);
+
+        Assert.Equal(expectedEnumCount + expectedUnionCount + expectedInterfaceCount, actualTotal);
+        Assert.Equal(expectedEnumCount, result[0]);
+        Assert.Equal(expectedUnionCount, result[1]);
+        Assert.Equal(expectedInterfaceCount, result[2]);
+        AssertNominalIndices(kinds, count, enumIndices, expectedEnumCount, (int)TokenType.Enum, label);
+        AssertNominalIndices(kinds, count, unionIndices, expectedUnionCount, (int)TokenType.Union, label);
+        AssertNominalIndices(kinds, count, interfaceIndices, expectedInterfaceCount, (int)TokenType.Interface, label);
+    }
+
+    private static void AssertNominalIndices(int[] kinds, int count, int[] indices, int expectedCount, int expectedKind, string label)
+    {
+        for (var i = 0; i < expectedCount; i++)
+        {
+            var index = indices[i];
+            Assert.True(index >= 0 && index < count, $"Nominal declaration index out of range for {label}: {index}.");
+            Assert.Equal(expectedKind, kinds[index]);
+        }
     }
 
     private static void AssertTopLevelStructLikeDeclarationIndices(
