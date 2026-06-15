@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Parenthesized SoA column-member receivers stay direct
+
+Direct backing-column element access now has IL-shape coverage when the column member itself is the
+parenthesized index receiver. `(nodes.kind)[row]`, `(nodes.kind)[^1]`, and variable-held
+`(nodes.kind)[idx]` reads, simple stores, expression-valued stores, and nullable text `??=` stores
+stay on backing field plus array element lowering, with no slice allocation, boxing, delegate
+construction, or virtual dispatch. Focused evidence: `dotnet test tests/Tests.csproj --no-restore
+--filter "FullyQualifiedName~ParenthesizedColumnMemberElementAccess_UsesColumnArrayOffsetWithoutSliceAllocation"`.
+
 ## 2026-06-15 — Parenthesized SoA direct table-member mutations stop in analysis
 
 Direct mutation diagnostics for generated SoA table members now have parenthesized-target coverage.

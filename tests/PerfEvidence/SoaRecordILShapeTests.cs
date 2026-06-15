@@ -667,6 +667,57 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void ParenthesizedColumnMemberElementAccess_UsesColumnArrayOffsetWithoutSliceAllocation()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                kind: int
+                text: string?
+            }
+
+            func useColumns(nodes: NodeTable, row: int): int {
+                idx := ^1;
+                (nodes.kind)[row] = 3;
+                (nodes.text)[row] = "row";
+                rowAssigned := (nodes.kind)[row] = (nodes.kind)[row] + 4;
+                (nodes.kind)[^1] = 11;
+                literalAssigned := (nodes.kind)[^1] = (nodes.kind)[^1] + 2;
+                (nodes.text)[^1] ??= "last";
+                variableAssigned := (nodes.kind)[idx] = (nodes.kind)[idx] + 5
+                textScore := ((nodes.text)[row] == "row" ? 10000 : 0)
+                textScore += ((nodes.text)[idx] == "last" ? 100000 : 0)
+                return rowAssigned + literalAssigned * 10 + variableAssigned * 100 + textScore + (nodes.kind)[row] + (nodes.kind)[idx]
+            }
+
+            func main(): int {
+                nodes := new NodeTable(2)
+                first := nodes.add()
+                nodes.add()
+                return useColumns(nodes, first)
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var useColumns = ILShapeInspector.GetProgramMethod(assembly, "useColumns");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(111962, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoFromEndSliceAllocation(useColumns);
+            Assert.True(
+                ILShapeInspector.CountOpcode(useColumns, OpCodes.Ldfld) >= 14,
+                "Parenthesized direct column members should load backing column fields directly.");
+            Assert.Equal(8, CountArrayElementLoads(useColumns));
+            Assert.Equal(7, CountArrayElementStores(useColumns));
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void DirectColumnFromEndAssignmentExpression_ReturnsAssignedValueWithoutSliceAllocation()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

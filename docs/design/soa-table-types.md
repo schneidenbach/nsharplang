@@ -218,10 +218,12 @@ ordinary result semantics, and default stores write the backing column without r
 or materializing a row. Parenthesized direct-column element lvalues such as
 `((table.column)[row]) = value`, `(((table.column)[row]) += value)`, and
 `++((table.column)[row])` use the same backing-array lowering. These accepted direct-column update
-shapes also apply to literal and variable-held `System.Index` from-end element access such as
-`table.column[^1]` and `table.column[idx]`, including expression-valued simple stores, default
-stores without old-element reads, prefix/postfix increment/decrement, null-coalescing reads, and
-null-coalescing assignments.
+shapes also hold when the column member is the parenthesized index receiver, such as
+`(table.column)[row]`, `(table.column)[^1]`, and `(table.column)[idx]`.
+The same direct-column update shapes also apply to literal and variable-held `System.Index` from-end
+element access such as `table.column[^1]` and `table.column[idx]`, including expression-valued simple
+stores, default stores without old-element reads, prefix/postfix increment/decrement,
+null-coalescing reads, and null-coalescing assignments.
 The same nullability rule applies to both row projection and direct column elements: `??` and `??=`
 require a nullable/reference column element and non-nullable columns reject the operation during
 analysis. Direct-column range slices remain rejected before IL lowering instead of falling into the
