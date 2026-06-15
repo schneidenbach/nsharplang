@@ -367,7 +367,8 @@ null-coalescing reads/assignments, receiver-parenthesized bool logical and bitwi
 receiver-parenthesized numeric arithmetic/shift/bitwise expression stores,
 receiver-parenthesized signed numeric negation and unary bitwise-not stores,
 receiver-parenthesized string/string? concatenation stores, receiver-parenthesized string/string?
-equality and nullable-string null equality expressions, verified
+equality and nullable-string null equality expressions, receiver-parenthesized bool/numeric/char/enum
+comparison expressions, verified
 scalar/reference element reads/stores, bool bitwise expression stores, int-backed enum
 reads/stores/default stores/generated methods, string/string? concatenating compound assignments,
 string/string? concatenation expression stores, string/string? equality/inequality expressions,

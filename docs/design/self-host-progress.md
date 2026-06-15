@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Parenthesized SoA scalar comparisons stay on direct columns
+
+Bool, numeric, char, and int-backed enum comparisons over receiver-parenthesized backing-column
+members now have IL-shape evidence for row, literal from-end, and variable-held `System.Index`
+forms. `(nodes.kind)[row] < 0`, `(nodes.flags)[^1] >= (uint)7`,
+`(nodes.marker)[^1] < 'C'`, and `idx := ^1; (nodes.nodeKind)[idx] < NodeKind.Literal`
+read backing column arrays directly and lower through comparison opcodes or comparison branches with
+no row construction, slice allocation, boxing, delegate construction, or virtual dispatch.
+
 ## 2026-06-15 — Parenthesized SoA string equality stays on direct columns
 
 String and nullable-string equality over receiver-parenthesized backing-column members now has

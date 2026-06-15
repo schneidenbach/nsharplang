@@ -1199,6 +1199,140 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void ParenthesizedColumnMemberScalarComparisons_UseColumnArrayLoadsAndComparisonOpcodes()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                kind: int
+                flags: uint
+                mask: long
+                marker: char
+                active: bool
+                nodeKind: NodeKind
+            }
+
+            enum NodeKind {
+                Unknown = 0,
+                Identifier = 1,
+                Literal = 2,
+                Error = 3
+            }
+
+            func rowOps(nodes: NodeTable, row: int): int {
+                (nodes.kind)[row] = -2;
+                (nodes.flags)[row] = (uint)7;
+                (nodes.mask)[row] = 20L;
+                (nodes.marker)[row] = 'B';
+                (nodes.active)[row] = true;
+                (nodes.nodeKind)[row] = NodeKind.Identifier;
+
+                score := (nodes.active)[row] == true ? 1 : 0
+                score += (nodes.active)[row] != false ? 1 : 0
+                score += (nodes.kind)[row] == -2 ? 1 : 0
+                score += (nodes.kind)[row] != 5 ? 1 : 0
+                score += (nodes.kind)[row] < 0 ? 1 : 0
+                score += (nodes.kind)[row] >= -2 ? 1 : 0
+                score += (nodes.flags)[row] == (uint)7 ? 1 : 0
+                score += (nodes.flags)[row] >= (uint)7 ? 1 : 0
+                score += (nodes.mask)[row] == 20L ? 1 : 0
+                score += (nodes.mask)[row] > 10L ? 1 : 0
+                score += (nodes.marker)[row] == 'B' ? 1 : 0
+                score += (nodes.marker)[row] < 'C' ? 1 : 0
+                score += (nodes.nodeKind)[row] == NodeKind.Identifier ? 1 : 0
+                score += (nodes.nodeKind)[row] < NodeKind.Literal ? 1 : 0
+                return score
+            }
+
+            func literalOps(nodes: NodeTable): int {
+                (nodes.kind)[^1] = -2;
+                (nodes.flags)[^1] = (uint)7;
+                (nodes.mask)[^1] = 20L;
+                (nodes.marker)[^1] = 'B';
+                (nodes.active)[^1] = true;
+                (nodes.nodeKind)[^1] = NodeKind.Identifier;
+
+                score := (nodes.active)[^1] == true ? 1 : 0
+                score += (nodes.active)[^1] != false ? 1 : 0
+                score += (nodes.kind)[^1] == -2 ? 1 : 0
+                score += (nodes.kind)[^1] != 5 ? 1 : 0
+                score += (nodes.kind)[^1] < 0 ? 1 : 0
+                score += (nodes.kind)[^1] >= -2 ? 1 : 0
+                score += (nodes.flags)[^1] == (uint)7 ? 1 : 0
+                score += (nodes.flags)[^1] >= (uint)7 ? 1 : 0
+                score += (nodes.mask)[^1] == 20L ? 1 : 0
+                score += (nodes.mask)[^1] > 10L ? 1 : 0
+                score += (nodes.marker)[^1] == 'B' ? 1 : 0
+                score += (nodes.marker)[^1] < 'C' ? 1 : 0
+                score += (nodes.nodeKind)[^1] == NodeKind.Identifier ? 1 : 0
+                score += (nodes.nodeKind)[^1] < NodeKind.Literal ? 1 : 0
+                return score
+            }
+
+            func variableOps(nodes: NodeTable): int {
+                idx := ^1;
+                (nodes.kind)[idx] = -2;
+                (nodes.flags)[idx] = (uint)7;
+                (nodes.mask)[idx] = 20L;
+                (nodes.marker)[idx] = 'B';
+                (nodes.active)[idx] = true;
+                (nodes.nodeKind)[idx] = NodeKind.Identifier;
+
+                score := (nodes.active)[idx] == true ? 1 : 0
+                score += (nodes.active)[idx] != false ? 1 : 0
+                score += (nodes.kind)[idx] == -2 ? 1 : 0
+                score += (nodes.kind)[idx] != 5 ? 1 : 0
+                score += (nodes.kind)[idx] < 0 ? 1 : 0
+                score += (nodes.kind)[idx] >= -2 ? 1 : 0
+                score += (nodes.flags)[idx] == (uint)7 ? 1 : 0
+                score += (nodes.flags)[idx] >= (uint)7 ? 1 : 0
+                score += (nodes.mask)[idx] == 20L ? 1 : 0
+                score += (nodes.mask)[idx] > 10L ? 1 : 0
+                score += (nodes.marker)[idx] == 'B' ? 1 : 0
+                score += (nodes.marker)[idx] < 'C' ? 1 : 0
+                score += (nodes.nodeKind)[idx] == NodeKind.Identifier ? 1 : 0
+                score += (nodes.nodeKind)[idx] < NodeKind.Literal ? 1 : 0
+                return score
+            }
+
+            func main(): int {
+                rowNodes := new NodeTable(1)
+                row := rowNodes.add()
+
+                literalNodes := new NodeTable(1)
+                literalNodes.add()
+
+                variableNodes := new NodeTable(1)
+                variableNodes.add()
+
+                return rowOps(rowNodes, row) + literalOps(literalNodes) + variableOps(variableNodes)
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var rowOps = ILShapeInspector.GetProgramMethod(assembly, "rowOps");
+            var literalOps = ILShapeInspector.GetProgramMethod(assembly, "literalOps");
+            var variableOps = ILShapeInspector.GetProgramMethod(assembly, "variableOps");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(42, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoAllocationOrDispatch(rowOps);
+            AssertParenthesizedScalarComparisonColumnShape(rowOps, "row-index");
+
+            AssertNoFromEndSliceAllocation(literalOps);
+            AssertParenthesizedScalarComparisonColumnShape(literalOps, "literal from-end");
+
+            AssertNoFromEndSliceAllocation(variableOps);
+            AssertParenthesizedScalarComparisonColumnShape(variableOps, "variable from-end");
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void ParenthesizedColumnMemberBoolLogicalExpressions_UseColumnArrayOffsetWithoutSliceAllocation()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
@@ -5303,6 +5437,53 @@ public class SoaRecordILShapeTests
         Assert.True(
             ILShapeInspector.CountOpcode(method, OpCodes.Brtrue) >= 1,
             $"Parenthesized nullable-string null inequality should branch on non-null references directly for {indexDescription} access.");
+    }
+
+    private static void AssertParenthesizedScalarComparisonColumnShape(MethodInfo method, string indexDescription)
+    {
+        var fieldLoads = ILShapeInspector.CountOpcode(method, OpCodes.Ldfld);
+        Assert.True(
+            fieldLoads >= 20,
+            $"Parenthesized SoA scalar comparisons should load backing column fields directly for {indexDescription} access; saw {fieldLoads} field loads.");
+        Assert.Equal(14, CountArrayElementLoads(method));
+        Assert.Equal(6, CountArrayElementStores(method));
+
+        var equalityComparisons = ILShapeInspector.CountOpcode(method, OpCodes.Ceq)
+            + CountOpcodes(method, OpCodes.Beq, OpCodes.Beq_S, OpCodes.Bne_Un, OpCodes.Bne_Un_S);
+        var signedRelationalComparisons = ILShapeInspector.CountOpcode(method, OpCodes.Clt)
+            + ILShapeInspector.CountOpcode(method, OpCodes.Cgt)
+            + CountOpcodes(
+                method,
+                OpCodes.Blt,
+                OpCodes.Blt_S,
+                OpCodes.Ble,
+                OpCodes.Ble_S,
+                OpCodes.Bgt,
+                OpCodes.Bgt_S,
+                OpCodes.Bge,
+                OpCodes.Bge_S);
+        var unsignedRelationalComparisons = ILShapeInspector.CountOpcode(method, OpCodes.Clt_Un)
+            + ILShapeInspector.CountOpcode(method, OpCodes.Cgt_Un)
+            + CountOpcodes(
+                method,
+                OpCodes.Blt_Un,
+                OpCodes.Blt_Un_S,
+                OpCodes.Ble_Un,
+                OpCodes.Ble_Un_S,
+                OpCodes.Bgt_Un,
+                OpCodes.Bgt_Un_S,
+                OpCodes.Bge_Un,
+                OpCodes.Bge_Un_S);
+
+        Assert.True(
+            equalityComparisons >= 8,
+            $"Parenthesized SoA scalar equality/inequality should use direct comparison opcodes or branches for {indexDescription} access; saw {equalityComparisons}.");
+        Assert.True(
+            signedRelationalComparisons >= 4,
+            $"Parenthesized SoA signed/enum relational comparisons should use direct comparison opcodes or branches for {indexDescription} access; saw {signedRelationalComparisons}.");
+        Assert.True(
+            unsignedRelationalComparisons >= 2,
+            $"Parenthesized SoA unsigned/char relational comparisons should use unsigned comparison opcodes or branches for {indexDescription} access; saw {unsignedRelationalComparisons}.");
     }
 
     private static void AssertParenthesizedBoolBitwiseColumnShape(MethodInfo method, string indexDescription)
