@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Parenthesized SoA string concatenation stores keep direct column IL
+
+String and nullable-string concatenation stores over receiver-parenthesized backing-column members
+now have IL-shape evidence for row, literal from-end, and variable-held `System.Index` forms.
+`(nodes.name)[row] = (nodes.name)[row] + "-expr"`, `(nodes.name)[^1] += "-compound"`, and
+`idx := ^1; (nodes.optionalName)[idx] = (nodes.optionalName)[idx] + "maybe"` stay on backing column
+arrays, preserve expression-valued assignment results, and lower through direct `string.Concat`
+calls with no row construction, slice allocation, boxing, delegate construction, or virtual dispatch.
+
 ## 2026-06-15 — Parenthesized SoA numeric unary stores keep direct column IL
 
 Signed numeric negation and numeric bitwise-not stores over receiver-parenthesized backing-column

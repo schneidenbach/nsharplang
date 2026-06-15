@@ -365,7 +365,8 @@ variable-held direct-column
 range mutation diagnostics including parenthesized column members, variable-held from-end
 null-coalescing reads/assignments, receiver-parenthesized bool logical and bitwise expression stores,
 receiver-parenthesized numeric arithmetic/shift/bitwise expression stores,
-receiver-parenthesized signed numeric negation and unary bitwise-not stores, verified
+receiver-parenthesized signed numeric negation and unary bitwise-not stores,
+receiver-parenthesized string/string? concatenation stores, verified
 scalar/reference element reads/stores, bool bitwise expression stores, int-backed enum
 reads/stores/default stores/generated methods, string/string? concatenating compound assignments,
 string/string? concatenation expression stores, string/string? equality/inequality expressions,

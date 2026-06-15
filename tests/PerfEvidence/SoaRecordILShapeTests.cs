@@ -1008,6 +1008,91 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void ParenthesizedColumnMemberStringConcatenation_UsesColumnArrayOffsetAndStringConcat()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                name: string
+                optionalName: string?
+            }
+
+            func rowOps(nodes: NodeTable, row: int): int {
+                (nodes.name)[row] = "row";
+                exprValue := (nodes.name)[row] = (nodes.name)[row] + "-expr";
+                compoundValue := (nodes.name)[row] += "-compound";
+                nullableExpr := (nodes.optionalName)[row] = (nodes.optionalName)[row] + "maybe";
+                nullableCompound := (nodes.optionalName)[row] += "-compound";
+
+                score := exprValue == "row-expr" ? 1000 : 0
+                score += compoundValue == "row-expr-compound" ? 100 : 0
+                score += nullableExpr == "maybe" ? 10 : 0
+                score += nullableCompound == "maybe-compound" ? 1 : 0
+                return score
+            }
+
+            func literalOps(nodes: NodeTable): int {
+                (nodes.name)[^1] = "last";
+                exprValue := (nodes.name)[^1] = (nodes.name)[^1] + "-expr";
+                compoundValue := (nodes.name)[^1] += "-compound";
+                nullableExpr := (nodes.optionalName)[^1] = (nodes.optionalName)[^1] + "maybe";
+                nullableCompound := (nodes.optionalName)[^1] += "-compound";
+
+                score := exprValue == "last-expr" ? 1000 : 0
+                score += compoundValue == "last-expr-compound" ? 100 : 0
+                score += nullableExpr == "maybe" ? 10 : 0
+                score += nullableCompound == "maybe-compound" ? 1 : 0
+                return score
+            }
+
+            func variableOps(nodes: NodeTable): int {
+                idx := ^1;
+                (nodes.name)[idx] = "var";
+                exprValue := (nodes.name)[idx] = (nodes.name)[idx] + "-expr";
+                compoundValue := (nodes.name)[idx] += "-compound";
+                nullableExpr := (nodes.optionalName)[idx] = (nodes.optionalName)[idx] + "maybe";
+                nullableCompound := (nodes.optionalName)[idx] += "-compound";
+
+                score := exprValue == "var-expr" ? 1000 : 0
+                score += compoundValue == "var-expr-compound" ? 100 : 0
+                score += nullableExpr == "maybe" ? 10 : 0
+                score += nullableCompound == "maybe-compound" ? 1 : 0
+                return score
+            }
+
+            func main(): int {
+                rowNodes := new NodeTable(1)
+                row := rowNodes.add()
+
+                literalNodes := new NodeTable(1)
+                literalNodes.add()
+
+                variableNodes := new NodeTable(1)
+                variableNodes.add()
+
+                return rowOps(rowNodes, row) + literalOps(literalNodes) + variableOps(variableNodes)
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var rowOps = ILShapeInspector.GetProgramMethod(assembly, "rowOps");
+            var literalOps = ILShapeInspector.GetProgramMethod(assembly, "literalOps");
+            var variableOps = ILShapeInspector.GetProgramMethod(assembly, "variableOps");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(3333, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertParenthesizedStringConcatColumnShape(rowOps, "row-index");
+            AssertParenthesizedStringConcatColumnShape(literalOps, "literal from-end");
+            AssertParenthesizedStringConcatColumnShape(variableOps, "variable from-end");
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void ParenthesizedColumnMemberBoolLogicalExpressions_UseColumnArrayOffsetWithoutSliceAllocation()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
@@ -5080,6 +5165,19 @@ public class SoaRecordILShapeTests
         Assert.True(
             CountOpcodes(method, OpCodes.Brtrue, OpCodes.Brtrue_S) >= 1,
             $"Parenthesized SoA bool logical-or should lower through short-circuit true branches for {indexDescription} access.");
+    }
+
+    private static void AssertParenthesizedStringConcatColumnShape(MethodInfo method, string indexDescription)
+    {
+        AssertNoFromEndSliceAllocation(method);
+        var fieldLoads = ILShapeInspector.CountOpcode(method, OpCodes.Ldfld);
+        Assert.True(
+            fieldLoads >= 7,
+            $"Parenthesized SoA string concatenation stores should load backing column fields directly for {indexDescription} access; saw {fieldLoads} field loads.");
+        Assert.Equal(4, CountArrayElementLoads(method));
+        Assert.Equal(5, CountArrayElementStores(method));
+        Assert.Equal(4, ILShapeInspector.CountCallsTo(method, typeof(string), nameof(string.Concat)));
+        Assert.Equal(4, ILShapeInspector.CountCallsTo(method, typeof(string), "op_Equality"));
     }
 
     private static void AssertParenthesizedBoolBitwiseColumnShape(MethodInfo method, string indexDescription)
