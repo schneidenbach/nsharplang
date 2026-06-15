@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — SoA ref/out negative index wrappers pinned
+
+Row-projection and direct-column `ref`/`out` arguments now have analyzer evidence for the same
+checked/unchecked negative index wrappers and signed-small-integer negative casts already covered by
+ordinary reads and writes. These cases fail with SoA-specific row-index diagnostics before the new
+byref IL address emitters can see an invalid element address.
+
 ## 2026-06-15 — Pressure-only CLI probes documented as unrouted
 
 The dogfood rewrite evidence list now separates the accepted batch-result packed-count route from
