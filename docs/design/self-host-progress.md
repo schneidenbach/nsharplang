@@ -11,6 +11,26 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Constructor signature materialization moves into N#
+
+`ParserConstructorSignatures.nl` now exports `ParseConstructorSignatureInfoInto`, a product-routed
+cross-file wrapper over constructor chain parsing, function-signature parsing, and canonical type
+text. It returns constructor parameter names/types, chain initializer kind/argument text, body-brace
+index, and count metadata in one rowset. Constructor-specific refusals for return types, generic
+parameters, `where` clauses, non-`constructor` members, invalid chain arguments, and missing bodies
+now happen before C# materializes a `ColumnarConstructorInput`.
+
+`NSharpCompilerDogfoodAdapter.TryParseColumnarConstructorAt` no longer calls
+`ParseFunctionSignatureTextInfoInto`, `TypeReferenceCanonicalTextInto`, or
+`ParseConstructorTextInfoInto` directly. It consumes the N# signature-info rowset and only builds the
+CLR-facing constructor/body inputs. Focused evidence:
+`./scripts/dev.sh Parser_TopLevelDeclarationKinds_MatchProductionParser`,
+`./scripts/dev.sh ColumnarCodegen_Parity_ClassConstructor`,
+`./scripts/dev.sh ColumnarCodegen_Parity_ValueStructConstructors`,
+`./scripts/dev.sh ColumnarCodegen_Parity_GenericClass_CtorFieldMethodProperty`,
+`./scripts/dev.sh ColumnarCodegen_CompilesRealDogfoodCorpus_Coverage`, and
+`./scripts/dev.sh ColumnarCodegen_MultiFile_EligibleClusterCompiles`.
+
 ## 2026-06-15 — Interface member signature materialization moves into N#
 
 `ParserInterfaceSignatures.nl` now exports `ParseInterfaceDeclarationSignatureInfoInto`, a

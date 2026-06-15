@@ -167,6 +167,10 @@ public class CompilerDogfoodProjectTests
                     "ParseConstructorTextInfoInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit ParseConstructorTextInfoInto.");
+            var constructorSignatureInfo = programType.GetMethod(
+                    "ParseConstructorSignatureInfoInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit ParseConstructorSignatureInfoInto.");
             var topLevelDeclNames = programType.GetMethod(
                     "TopLevelDeclarationNameSpansInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -645,10 +649,13 @@ class C {
 """,
                 0,
                 Array.Empty<string>(),
+                new[] { "x" },
+                new[] { "int" },
                 tokenizeWithIndentation,
                 constructorChainInfo,
                 constructorInfo,
                 constructorTextInfo,
+                constructorSignatureInfo,
                 "constructor with no chain");
             AssertConstructorChainBodyIndex(
                 """
@@ -665,10 +672,13 @@ class C {
 """,
                 1,
                 new[] { "x", "0" },
+                new[] { "x" },
+                new[] { "int" },
                 tokenizeWithIndentation,
                 constructorChainInfo,
                 constructorInfo,
                 constructorTextInfo,
+                constructorSignatureInfo,
                 "constructor with this-chain");
             AssertConstructorChainBodyIndex(
                 """
@@ -686,10 +696,13 @@ class D: B {
 """,
                 2,
                 new[] { "x" },
+                new[] { "x" },
+                new[] { "int" },
                 tokenizeWithIndentation,
                 constructorChainInfo,
                 constructorInfo,
                 constructorTextInfo,
+                constructorSignatureInfo,
                 "constructor with base-chain");
             AssertConstructorInfoDeclinesNonConstructorName(
                 """
@@ -702,6 +715,7 @@ class C {
                 tokenizeWithIndentation,
                 constructorInfo,
                 constructorTextInfo,
+                constructorSignatureInfo,
                 "constructor-like non-constructor member");
             AssertTopLevelContextualTestDeclaration(
                 """
@@ -854,12 +868,17 @@ class B
         string source,
         int expectedInitializerKind,
         string[] expectedArgs,
+        string[] expectedParamNames,
+        string[] expectedParamTypes,
         MethodInfo tokenizeWithIndentation,
         MethodInfo constructorChainInfo,
         MethodInfo constructorInfo,
         MethodInfo constructorTextInfo,
+        MethodInfo constructorSignatureInfo,
         string label)
     {
+        Assert.Equal(expectedParamNames.Length, expectedParamTypes.Length);
+
         var (count, kinds, starts, valueLengths, compactedSource) = TokenizeSourceViaKernel(source, tokenizeWithIndentation);
         var ctorIndex = -1;
         for (var i = 0; i < count; i++)
@@ -895,27 +914,66 @@ class B
         var textArgCount = (int)(constructorTextInfo.Invoke(
             null,
             new object[] { compactedSource, kinds, starts, valueLengths, count, ctorIndex, textArgKinds, textArgStarts, textArgLengths, textArgTexts, textResult }) ?? -2);
+        var signatureParamNameTexts = new string[count + 1];
+        var signatureParamTypeTexts = new string[count + 1];
+        var signatureArgKinds = new int[count + 1];
+        var signatureArgStarts = new int[count + 1];
+        var signatureArgLengths = new int[count + 1];
+        var signatureArgTexts = new string[count + 1];
+        var signatureResult = new int[4];
+        var signatureParamCount = (int)(constructorSignatureInfo.Invoke(
+            null,
+            new object[]
+            {
+                compactedSource,
+                kinds,
+                starts,
+                valueLengths,
+                count,
+                ctorIndex,
+                signatureParamNameTexts,
+                signatureParamTypeTexts,
+                signatureArgKinds,
+                signatureArgStarts,
+                signatureArgLengths,
+                signatureArgTexts,
+                signatureResult
+            }) ?? -2);
 
         Assert.Equal(expectedArgs.Length, argCount);
         Assert.Equal(argCount, checkedArgCount);
         Assert.Equal(argCount, textArgCount);
+        Assert.Equal(expectedParamNames.Length, signatureParamCount);
         Assert.Equal(expectedInitializerKind, result[0]);
         Assert.Equal(result[0], checkedResult[0]);
         Assert.Equal(result[1], checkedResult[1]);
         Assert.Equal(result[0], textResult[0]);
         Assert.Equal(result[1], textResult[1]);
+        Assert.Equal(result[0], signatureResult[0]);
+        Assert.Equal(result[1], signatureResult[1]);
+        Assert.Equal(signatureParamCount, signatureResult[2]);
+        Assert.Equal(argCount, signatureResult[3]);
         Assert.True(result[1] >= 0 && result[1] < count, $"Constructor body brace index missing for {label}.");
         Assert.Equal((int)TokenType.LeftBrace, kinds[result[1]]);
         Assert.True(result[1] > ctorIndex, $"Constructor body brace must follow constructor token for {label}.");
+        for (var i = 0; i < expectedParamNames.Length; i++)
+        {
+            Assert.Equal(expectedParamNames[i], signatureParamNameTexts[i]);
+            Assert.Equal(expectedParamTypes[i], signatureParamTypeTexts[i]);
+        }
         for (var i = 0; i < expectedArgs.Length; i++)
         {
             Assert.Equal(expectedArgs[i], compactedSource.Substring(argStarts[i], argLengths[i]));
             Assert.Equal(argKinds[i], checkedArgKinds[i]);
             Assert.Equal(argKinds[i], textArgKinds[i]);
+            Assert.Equal(argKinds[i], signatureArgKinds[i]);
             Assert.Equal(checkedArgStarts[i], textArgStarts[i]);
             Assert.Equal(checkedArgLengths[i], textArgLengths[i]);
+            Assert.Equal(checkedArgStarts[i], signatureArgStarts[i]);
+            Assert.Equal(checkedArgLengths[i], signatureArgLengths[i]);
             Assert.Equal(expectedArgs[i], compactedSource.Substring(checkedArgStarts[i], checkedArgLengths[i]));
             Assert.Equal(expectedArgs[i], textArgTexts[i]);
+            Assert.Equal(expectedArgs[i], signatureArgTexts[i]);
         }
     }
 
@@ -925,6 +983,7 @@ class B
         MethodInfo tokenizeWithIndentation,
         MethodInfo constructorInfo,
         MethodInfo constructorTextInfo,
+        MethodInfo constructorSignatureInfo,
         string label)
     {
         var (count, kinds, starts, valueLengths, compactedSource) = TokenizeSourceViaKernel(source, tokenizeWithIndentation);
@@ -951,8 +1010,27 @@ class B
         var textActual = (int)(constructorTextInfo.Invoke(
             null,
             new object[] { compactedSource, kinds, starts, valueLengths, count, memberIndex, new int[count + 1], new int[count + 1], new int[count + 1], new string[count + 1], new int[2] }) ?? -2);
+        var signatureActual = (int)(constructorSignatureInfo.Invoke(
+            null,
+            new object[]
+            {
+                compactedSource,
+                kinds,
+                starts,
+                valueLengths,
+                count,
+                memberIndex,
+                new string[count + 1],
+                new string[count + 1],
+                new int[count + 1],
+                new int[count + 1],
+                new int[count + 1],
+                new string[count + 1],
+                new int[4]
+            }) ?? -2);
         Assert.Equal(-1, actual);
         Assert.Equal(actual, textActual);
+        Assert.Equal(actual, signatureActual);
     }
 
     private static void AssertMatchingCloseBrace(
@@ -10042,7 +10120,7 @@ class B
             "CompletionGrouping.nl", "CompletionReceivers.nl", "DiagnosticClusters.nl", "DiagnosticDeduplication.nl", "DocQuery.nl",
             "FormatterImportOrdering.nl", "IdentifierSpans.nl",
             "LexerTokenKindScanner.nl", "OverloadCandidates.nl", "ParserDeclarations.nl",
-            "ParserExpressions.nl", "ParserFunctionSignatures.nl", "ParserInterfaceSignatures.nl", "ParserStatements.nl", "ParserTypeReferences.nl",
+            "ParserConstructorSignatures.nl", "ParserExpressions.nl", "ParserFunctionSignatures.nl", "ParserInterfaceSignatures.nl", "ParserStatements.nl", "ParserTypeReferences.nl",
             "ProjectSourceFilter.nl", "StructCopyAnalysis.nl",
             "TextEditOrdering.nl", "TypeLookup.nl",
         };
@@ -10054,6 +10132,7 @@ class B
         // Files eligible ONLY via cross-file resolution must contribute their public functions —
         // i.e. the merge actually emitted them (single-file each declines; see ColumnarCodegen_MultiFile_*).
         Assert.Contains("ParseFunctionSignatureInto", methodNames!); // ParserFunctionSignatures -> ParserTypeReferences
+        Assert.Contains("ParseConstructorSignatureInfoInto", methodNames!); // ParserConstructorSignatures -> declarations/signatures/types
         Assert.Contains("ParseInterfaceDeclarationSignatureInfoInto", methodNames!); // ParserInterfaceSignatures -> declarations/signatures/types
         Assert.Contains("ParsePrimaryExpressionNode", methodNames!); // ParserExpressions
         Assert.Contains("ParseStatementNodesInto", methodNames!);    // ParserStatements -> ParserExpressions

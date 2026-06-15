@@ -802,65 +802,47 @@ internal static class NSharpCompilerDogfoodAdapter
     }
 
     // Parse ONE user CONSTRUCTOR (at compacted token index `ctorIndex`, the "constructor" identifier) into a
-    // ColumnarFunctionInput whose name is "constructor" and whose return is "void". Reuses the function-signature
-    // kernel (a constructor has no name token and no `: ret`, so it yields funcNameStart = -1 and returnRoot = -1)
-    // and the statement kernel for the body. Declines if the signature has a return type (a
-    // `: this(...)`/`base(...)` chaining initializer makes the kernel's return-type parse fail →
-    // paramCount < 0), or the body is missing.
+    // ColumnarFunctionInput whose name is "constructor" and whose return is "void". Constructor signature,
+    // chain-initializer text, and body-brace validation are supplied by the N# signature-info wrapper; C# only
+    // materializes the CLR-facing input and parses the accepted statement body.
     private static bool TryParseColumnarConstructorAt(
         Bindings bindings, int[] ck, int[] cs, int[] cv, int n, int ctorIndex, string source,
         out Columnar.ColumnarConstructorInput input)
     {
         input = null!;
         var cap = n + 1;
-        var sk = new int[cap]; var sns = new int[cap]; var snl = new int[cap]; var scs = new int[cap];
-        var scc = new int[cap]; var sci = new int[cap]; var sss = new int[cap]; var ssl = new int[cap];
-        var pNameStart = new int[cap]; var pNameLen = new int[cap]; var pTypeRoot = new int[cap];
-        var pNameTexts = new string[cap];
-        var sres = new int[8];
-        var sTypeParamStarts = new int[cap];
-        var sTypeParamLengths = new int[cap];
-        var sTypeParamTexts = new string[cap];
-        var sWhereNameStarts = new int[cap];
-        var sWhereNameLengths = new int[cap];
-        var sWhereNameTexts = new string[cap];
-        var sWhereItemCodes = new int[cap];
-        var sFunctionNameTexts = new string[1];
-        var paramCount = bindings.ParseFunctionSignatureTextInfo(
-            source, ck, cs, cv, n, ctorIndex, sk, sns, snl, scs, scc, sci, sss, ssl,
-            pNameStart, pNameLen, pNameTexts, pTypeRoot, sTypeParamStarts, sTypeParamLengths, sTypeParamTexts,
-            sWhereNameStarts, sWhereNameLengths, sWhereNameTexts, sWhereItemCodes, sFunctionNameTexts, sres);
-        // A constructor must have NO return type (sres[1] = -1), NO generic type parameters (sres[5] = 0), and
-        // NO `where` constraint rows (sres[7] = 0). A non-negative return root means a `: <type>` was parsed —
-        // for a constructor that is malformed (or a chaining initializer the kernel rejected differently).
-        if (paramCount < 0 || sres[1] >= 0 || sres[5] != 0 || sres[7] != 0)
+        var paramNameTexts = new string[cap];
+        var paramTypeTexts = new string[cap];
+        var caKinds = new int[cap];
+        var caStarts = new int[cap];
+        var caLengths = new int[cap];
+        var caTexts = new string[cap];
+        var ctorResult = new int[4];
+        var paramCount = bindings.ParseConstructorSignatureInfo(
+            source, ck, cs, cv, n, ctorIndex,
+            paramNameTexts, paramTypeTexts, caKinds, caStarts, caLengths, caTexts, ctorResult);
+        if (paramCount < 0)
             return false;
 
         var paramNames = new string[paramCount];
         var paramCanonicals = new string[paramCount];
         for (var p = 0; p < paramCount; p++)
         {
-            var paramName = pNameTexts[p];
+            var paramName = paramNameTexts[p];
             if (string.IsNullOrEmpty(paramName))
                 return false;
             paramNames[p] = paramName;
-            paramCanonicals[p] = bindings.TypeReferenceCanonicalText(source, sk, sns, snl, scs, scc, sci, pTypeRoot[p]);
+            var paramCanonical = paramTypeTexts[p];
+            if (string.IsNullOrEmpty(paramCanonical))
+                return false;
+            paramCanonicals[p] = paramCanonical;
         }
 
-        // Parse the optional `: this(args)` / `: base(args)` chaining initializer (chained args restricted to a param
-        // identifier or an int literal; a complex/other-literal arg returns -1 -> decline the whole ctor). The same
-        // dogfood kernel reports the body `{` after the optional initializer, keeping constructor body delimiting out
-        // of the C# adapter.
-        var caKinds = new int[cap];
-        var caStarts = new int[cap];
-        var caLengths = new int[cap];
-        var caTexts = new string[cap];
-        var caRes = new int[2];
-        var chainArgCount = bindings.ParseConstructorTextInfo(source, ck, cs, cv, n, ctorIndex, caKinds, caStarts, caLengths, caTexts, caRes);
-        if (chainArgCount < 0)
-            return false;
-        var bodyBrace = caRes[1];
+        var bodyBrace = ctorResult[1];
         if (bodyBrace < 0 || bodyBrace >= n || ck[bodyBrace] != 129)
+            return false;
+        var chainArgCount = ctorResult[3];
+        if (chainArgCount < 0)
             return false;
 
         var bk = new int[cap]; var bvs = new int[cap]; var bvl = new int[cap]; var bcs = new int[cap];
@@ -886,7 +868,7 @@ internal static class NSharpCompilerDogfoodAdapter
         var body = new Columnar.ColumnarFunctionInput(
             "constructor", "void", paramNames, paramCanonicals,
             bodyNodes, bres[0]);
-        input = new Columnar.ColumnarConstructorInput(body, caRes[0], chainArgKinds, chainArgTexts);
+        input = new Columnar.ColumnarConstructorInput(body, ctorResult[0], chainArgKinds, chainArgTexts);
         return true;
     }
 
@@ -2072,9 +2054,9 @@ internal static class NSharpCompilerDogfoodAdapter
                 CreateDelegate<ParseUnionDeclarationInfoInto>(
                     programType,
                     "ParseUnionDeclarationInfoInto"),
-                CreateDelegate<ParseConstructorTextInfoInto>(
+                CreateDelegate<ParseConstructorSignatureInfoInto>(
                     programType,
-                    "ParseConstructorTextInfoInto"));
+                    "ParseConstructorSignatureInfoInto"));
         }
         catch
         {
@@ -2256,9 +2238,10 @@ internal static class NSharpCompilerDogfoodAdapter
         string[] outFieldTypeTexts,
         int[] outTypeParamStarts, int[] outTypeParamLengths, string[] outTypeParamTexts,
         string[] outUnionNameTexts, int[] outResult);
-    private delegate int ParseConstructorTextInfoInto(
+    private delegate int ParseConstructorSignatureInfoInto(
         string source,
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int ctorIndex,
+        string[] outParamNameTexts, string[] outParamTypeTexts,
         int[] outArgKinds, int[] outArgStarts, int[] outArgLengths, string[] outArgTexts, int[] outResult);
 
     private sealed record Bindings(
@@ -2293,7 +2276,7 @@ internal static class NSharpCompilerDogfoodAdapter
         ParseEnumDeclarationTextInfoInto ParseEnumDeclarationTextInfo,
         ParseStructDeclarationInfoInto ParseStructDeclarationInfo,
         ParseUnionDeclarationInfoInto ParseUnionDeclarationInfo,
-        ParseConstructorTextInfoInto ParseConstructorTextInfo);
+        ParseConstructorSignatureInfoInto ParseConstructorSignatureInfo);
 
     private sealed class ParserTokenCompactionScratch
     {
