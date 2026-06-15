@@ -1378,9 +1378,12 @@ public partial class ILCompiler
                 EmitExpressionTreeBinaryNode(binary, parameterLocals, parameterClrTypes);
                 return;
 
-            case UnaryExpression unary when unary.Operator == UnaryOperator.Not:
-                EmitExpressionTreeNode(unary.Operand, parameterLocals, parameterClrTypes, typeof(bool));
-                _currentIL.Emit(OpCodes.Call, ResolveUnaryExpressionMethod(nameof(System.Linq.Expressions.Expression.Not)));
+            case UnaryExpression unary when IsSupportedExpressionTreeUnaryOperator(unary.Operator):
+                var operandType = unary.Operator == UnaryOperator.Not
+                    ? typeof(bool)
+                    : GetExpressionTreeNodeClrType(unary.Operand, parameterClrTypes);
+                EmitExpressionTreeNode(unary.Operand, parameterLocals, parameterClrTypes, operandType);
+                _currentIL.Emit(OpCodes.Call, ResolveUnaryExpressionMethod(GetExpressionTreeUnaryMethodName(unary.Operator)));
                 return;
 
             case CallExpression call:
@@ -1568,6 +1571,18 @@ public partial class ILCompiler
             BinaryOperator.And => nameof(System.Linq.Expressions.Expression.AndAlso),
             BinaryOperator.Or => nameof(System.Linq.Expressions.Expression.OrElse),
             _ => throw new NotSupportedException($"Expression-tree binary operator '{binaryOperator}' is not supported by the IL backend yet")
+        };
+
+    private static bool IsSupportedExpressionTreeUnaryOperator(UnaryOperator unaryOperator)
+        => unaryOperator is UnaryOperator.Not
+            or UnaryOperator.Negate;
+
+    private static string GetExpressionTreeUnaryMethodName(UnaryOperator unaryOperator)
+        => unaryOperator switch
+        {
+            UnaryOperator.Not => nameof(System.Linq.Expressions.Expression.Not),
+            UnaryOperator.Negate => nameof(System.Linq.Expressions.Expression.Negate),
+            _ => throw new NotSupportedException($"Expression-tree unary operator '{unaryOperator}' is not supported by the IL backend yet")
         };
 
     private Type ResolveExpressionTreeMemberType(

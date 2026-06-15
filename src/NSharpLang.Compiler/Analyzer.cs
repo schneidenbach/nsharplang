@@ -13941,7 +13941,7 @@ public class Analyzer : IDisposable
             message,
             line,
             column,
-            "Use a lambda parameter, member access, literal, supported binary expression, '!' expression, zero-argument instance call, or anonymous-object projection.",
+            "Use a lambda parameter, member access, literal, supported binary expression, supported unary expression, zero-argument instance call, or anonymous-object projection.",
             length);
         return true;
     }
@@ -13984,7 +13984,7 @@ public class Analyzer : IDisposable
                     ?? FindUnsupportedExpressionTreeExpression(binary.Right, parameterNames);
 
             case UnaryExpression unary:
-                if (unary.Operator != UnaryOperator.Not)
+                if (!IsSupportedExpressionTreeUnaryOperator(unary.Operator))
                 {
                     return (unary, $"unary operator '{GetUnaryOperatorText(unary.Operator)}'");
                 }
@@ -14064,6 +14064,10 @@ public class Analyzer : IDisposable
             or BinaryOperator.GreaterOrEqual
             or BinaryOperator.And
             or BinaryOperator.Or;
+
+    private static bool IsSupportedExpressionTreeUnaryOperator(UnaryOperator op)
+        => op is UnaryOperator.Not
+            or UnaryOperator.Negate;
 
     private static bool IsExpressionTreeAnonymousObjectCreation(NewExpression newExpression)
         => newExpression.Type == null

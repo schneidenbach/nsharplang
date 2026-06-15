@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Expression-tree unary negation lowers
+
+Expression-tree lambda lowering now accepts unary `-` and emits it through `Expression.Negate`.
+The analyzer's supported-body mirror was updated to allow unary negation alongside logical `!`, and
+`Queryable.Where<int>(..., x => -x < -1).Select(...)` now executes end-to-end through the queryable
+expression-tree path.
+
 ## 2026-06-15 — Expression-tree modulo predicates lower
 
 Queryable expression-tree predicates now lower `%` through `Expression.Modulo`, and the analyzer
