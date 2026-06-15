@@ -1252,9 +1252,6 @@ func ParseTernaryExpressionNode(tokens: &ParserTokenTable, count: int, st: &Pars
 // a = b = c parses as a = (b = c). The full-expression entry is ParseLambdaOrAssignmentExpressionNode (the
 // lambda level above this one).
 func ParseAssignmentExpressionNode(tokens: &ParserTokenTable, count: int, st: &ParserState, argStack: &ParserArgumentStack, nodes: &ParserExpressionNodeTable, children: &ParserChildIndexTable, depth: int): int {
-    tokenKinds := tokens.Kinds
-    tokenStarts := tokens.Starts
-    tokenValueLengths := tokens.ValueLengths
     if depth > 200 {
         return -1
     }
@@ -1265,10 +1262,10 @@ func ParseAssignmentExpressionNode(tokens: &ParserTokenTable, count: int, st: &P
     }
 
     if st.Pos < count {
-        op := tokenKinds[st.Pos]
+        op := tokens.Kinds[st.Pos]
         if op == 93 || op == 94 || op == 95 || op == 96 || op == 97 || op == 117 {
-            opStart := tokenStarts[st.Pos]
-            opLength := tokenValueLengths[st.Pos]
+            opStart := tokens.Starts[st.Pos]
+            opLength := tokens.ValueLengths[st.Pos]
             st.Pos = st.Pos + 1
             value := ParseAssignmentExpressionNode(ref tokens, count, ref st, ref argStack, ref nodes, ref children, depth + 1)
             if value < 0 {

@@ -542,9 +542,9 @@ ownership lands.
    type-reference parsing through a wrapper-aware expression node/table bridge; its generic-call
    lookahead, small `or`/`and`/`not` pattern helpers, relational-pattern core, primary expression
    core, postfix expression core, call-argument core, unary expression core, binary expression core,
-   and ternary expression core have also started keeping token columns and child-stack ids
-   wrapper-shaped internally. The larger assignment and lambda expression cores remain as separate
-   alias-cleanup slices.
+   ternary expression core, and assignment expression core have also started keeping token columns
+   and child-stack ids wrapper-shaped internally. The larger lambda expression core remains as the
+   final expression parser alias-cleanup slice.
    `ParserDeclarations.nl` now also routes package/header scans, top-level declaration
    scans, interface/enum/struct/class/record, constructor-chain, and union parser bodies through
    declaration token-stream and result-slot wrappers while preserving the flattened adapter ABI.

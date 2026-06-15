@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Assignment expression parser keeps token tables shaped
+
+`ParseAssignmentExpressionNode` now reads assignment-operator token columns through
+`ParserTokenTable` instead of unpacking raw token arrays. The lambda expression core remains as the
+final expression parser cleanup slice. Focused evidence:
+`./scripts/dev.sh Parser_Expression_MatchesProductionParser` and
+`./scripts/dev.sh ColumnarCodegen_MultiFile_RealParserCluster`.
+
 ## 2026-06-15 — Ternary expression parser keeps token tables shaped
 
 `ParseTernaryExpressionNode` now reads `?` and `:` token kinds through `ParserTokenTable` instead
