@@ -63,6 +63,26 @@ public class CSharpInstancePropertyShadowsInheritedField : CSharpInheritedInstan
     public new int Value => 0;
 }
 
+public class CSharpReadonlyInstanceFieldBase
+{
+    public readonly int Value = 1;
+}
+
+public class CSharpMutableInstanceFieldShadowsReadonlyBase : CSharpReadonlyInstanceFieldBase
+{
+    public new int Value;
+}
+
+public class CSharpReadonlyStaticFieldBase
+{
+    public static readonly int Value = 1;
+}
+
+public class CSharpMutableStaticFieldShadowsReadonlyBase : CSharpReadonlyStaticFieldBase
+{
+    public new static int Value;
+}
+
 public class AnalyzerTests
 {
     // Project config for ASP.NET Core tests
@@ -2214,6 +2234,31 @@ func Main() {
         Assert.Contains($"can't be used as a {modifier} argument", error.Message);
     }
 
+    [Fact]
+    public void ReadonlyField_ExternalInheritedReadonlyShadowedByMutableField_Valid()
+    {
+        var result = AnalyzeWithInteropProbe("""
+            import NSharpLang.Tests
+
+            func bump(ref value: int) {
+                value += 1
+            }
+
+            func reset(out value: int) {
+                value = 0
+            }
+
+            func Mutate(derived: CSharpMutableInstanceFieldShadowsReadonlyBase) {
+                derived.Value = 2
+                bump(ref derived.Value)
+                reset(out derived.Value)
+                derived.Value++
+            }
+        """);
+
+        Assert.False(result.HasErrors, string.Join(", ", result.Errors.Select(e => e.Message)));
+    }
+
     [Theory]
     [InlineData("value++", "++")]
     [InlineData("this.value--", "--")]
@@ -2532,6 +2577,31 @@ func Main() {
         Assert.Contains("static readonly", error.Message);
         Assert.Contains("'++'", error.Message);
         Assert.Contains("declaration", error.Suggestion);
+    }
+
+    [Fact]
+    public void StaticReadonlyField_ExternalInheritedReadonlyShadowedByMutableField_Valid()
+    {
+        var result = AnalyzeWithInteropProbe("""
+            import NSharpLang.Tests
+
+            func bump(ref value: int) {
+                value += 1
+            }
+
+            func reset(out value: int) {
+                value = 0
+            }
+
+            func Mutate() {
+                CSharpMutableStaticFieldShadowsReadonlyBase.Value = 2
+                bump(ref CSharpMutableStaticFieldShadowsReadonlyBase.Value)
+                reset(out CSharpMutableStaticFieldShadowsReadonlyBase.Value)
+                CSharpMutableStaticFieldShadowsReadonlyBase.Value++
+            }
+        """);
+
+        Assert.False(result.HasErrors, string.Join(", ", result.Errors.Select(e => e.Message)));
     }
 
     [Theory]

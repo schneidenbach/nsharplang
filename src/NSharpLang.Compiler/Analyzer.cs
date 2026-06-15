@@ -12880,21 +12880,20 @@ public class Analyzer : IDisposable
         {
             foreach (var member in members)
             {
-                if (member is FieldDeclaration field && field.Name == fieldName)
+                if (GetDeclarationName(member) != fieldName)
                 {
-                    if (!field.Modifiers.HasFlag(Modifiers.Static) || !field.Modifiers.HasFlag(Modifiers.Readonly))
-                    {
-                        return false;
-                    }
+                    continue;
+                }
 
+                if (member is FieldDeclaration field
+                    && field.Modifiers.HasFlag(Modifiers.Static)
+                    && field.Modifiers.HasFlag(Modifiers.Readonly))
+                {
                     resolvedFieldName = field.Name;
                     return true;
                 }
 
-                if (member is PropertyDeclaration property && property.Name == fieldName)
-                {
-                    return false;
-                }
+                return false;
             }
         }
 
@@ -12910,29 +12909,44 @@ public class Analyzer : IDisposable
         if (owner is ReflectionTypeInfo reflected && reflected.Type is not System.Reflection.Emit.TypeBuilder
             && !reflected.Type.IsGenericTypeDefinition)
         {
-            try
+            return TryFindReadonlyReflectionStaticField(reflected.Type, fieldName, out resolvedFieldName);
+        }
+
+        return false;
+    }
+
+    private static bool TryFindReadonlyReflectionStaticField(Type type, string fieldName, out string resolvedFieldName)
+    {
+        const BindingFlags flags = BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly;
+        resolvedFieldName = string.Empty;
+
+        try
+        {
+            for (var current = type; current != null; current = current.BaseType)
             {
-                var field = reflected.Type.GetField(
-                    fieldName,
-                    System.Reflection.BindingFlags.Public
-                    | System.Reflection.BindingFlags.Static
-                    | System.Reflection.BindingFlags.FlattenHierarchy);
-                if (field is not ({ IsInitOnly: true } or { IsLiteral: true }))
+                var field = current.GetFields(flags).FirstOrDefault(candidate => candidate.Name == fieldName);
+                if (field != null)
+                {
+                    if (field is not ({ IsInitOnly: true } or { IsLiteral: true }))
+                    {
+                        return false;
+                    }
+
+                    resolvedFieldName = field.Name;
+                    return true;
+                }
+
+                if (current.GetProperties(flags).Any(property => property.Name == fieldName)
+                    || current.GetMethods(flags).Any(method => !method.IsSpecialName && method.Name == fieldName)
+                    || current.GetEvents(flags).Any(@event => @event.Name == fieldName))
                 {
                     return false;
                 }
-
-                resolvedFieldName = field.Name;
-                return true;
             }
-            catch (NotSupportedException)
-            {
-                return false;
-            }
-            catch (AmbiguousMatchException)
-            {
-                return false;
-            }
+        }
+        catch (NotSupportedException)
+        {
+            return false;
         }
 
         return false;
@@ -12981,15 +12995,22 @@ public class Analyzer : IDisposable
 
         if (members != null)
         {
-            var field = members.OfType<FieldDeclaration>()
-                .FirstOrDefault(field =>
-                    field.Name == fieldName
-                    && !field.Modifiers.HasFlag(Modifiers.Static)
-                    && field.Modifiers.HasFlag(Modifiers.Readonly));
-            if (field != null)
+            foreach (var member in members)
             {
-                resolvedFieldName = field.Name;
-                return true;
+                if (GetDeclarationName(member) != fieldName)
+                {
+                    continue;
+                }
+
+                if (member is FieldDeclaration field
+                    && !field.Modifiers.HasFlag(Modifiers.Static)
+                    && field.Modifiers.HasFlag(Modifiers.Readonly))
+                {
+                    resolvedFieldName = field.Name;
+                    return true;
+                }
+
+                return false;
             }
         }
 
@@ -13005,23 +13026,44 @@ public class Analyzer : IDisposable
         if (receiver is ReflectionTypeInfo reflected && reflected.Type is not System.Reflection.Emit.TypeBuilder
             && !reflected.Type.IsGenericTypeDefinition)
         {
-            try
+            return TryFindReadonlyReflectionInstanceField(reflected.Type, fieldName, out resolvedFieldName);
+        }
+
+        return false;
+    }
+
+    private static bool TryFindReadonlyReflectionInstanceField(Type type, string fieldName, out string resolvedFieldName)
+    {
+        const BindingFlags flags = BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly;
+        resolvedFieldName = string.Empty;
+
+        try
+        {
+            for (var current = type; current != null; current = current.BaseType)
             {
-                var field = reflected.Type.GetField(
-                    fieldName,
-                    System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
-                if (field is not { IsInitOnly: true })
+                var field = current.GetFields(flags).FirstOrDefault(candidate => candidate.Name == fieldName);
+                if (field != null)
+                {
+                    if (!field.IsInitOnly)
+                    {
+                        return false;
+                    }
+
+                    resolvedFieldName = field.Name;
+                    return true;
+                }
+
+                if (current.GetProperties(flags).Any(property => property.Name == fieldName)
+                    || current.GetMethods(flags).Any(method => !method.IsSpecialName && method.Name == fieldName)
+                    || current.GetEvents(flags).Any(@event => @event.Name == fieldName))
                 {
                     return false;
                 }
-
-                resolvedFieldName = field.Name;
-                return true;
             }
-            catch (NotSupportedException)
-            {
-                return false;
-            }
+        }
+        catch (NotSupportedException)
+        {
+            return false;
         }
 
         return false;

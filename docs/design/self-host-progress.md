@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Readonly inherited-field diagnostics respect shadowing
+
+Readonly-field discovery now stops at the nearest member declaration before walking inherited base
+fields. A derived mutable field that explicitly shadows a readonly C# interop field no longer gets a
+false readonly diagnostic for assignment, `ref`/`out`, or increment paths, while true inherited
+readonly fields still reject before lowering.
+
 ## 2026-06-15 — Inherited instance fields are addressable by ref/out
 
 Mutable instance fields declared on a base class now remain valid `ref`/`out` targets through a
