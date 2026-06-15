@@ -1,16 +1,44 @@
 // Product columnar enum parser wrapper. It keeps span/value-literal scratch columns inside N# and exposes only
 // the enum/member text plus resolved int values needed by the C# transition materializer.
 
-func ParseColumnarEnumInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, enumIndex: int, outNameTexts: string[], outMemberValues: int[], outEnumNameTexts: string[], outResult: int[]): int {
-    cap := count + 1
-    nameStarts := new int[](cap)
-    nameLengths := new int[](cap)
-    valueStarts := new int[](cap)
-    valueLengths := new int[](cap)
-    hasValue := new int[](cap)
+struct ColumnarEnumTokenTable {
+    Kinds: int[]
+    Starts: int[]
+    ValueLengths: int[]
+    Count: int
+}
 
+struct ColumnarEnumMemberScratchTable {
+    NameStarts: int[]
+    NameLengths: int[]
+    ValueStarts: int[]
+    ValueLengths: int[]
+    HasValue: int[]
+}
+
+struct ColumnarEnumTextOutputTable {
+    MemberNameTexts: string[]
+    MemberValues: int[]
+    EnumNameTexts: string[]
+}
+
+struct ColumnarEnumResultTable {
+    Values: int[]
+}
+
+func ParseColumnarEnumInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, enumIndex: int, outNameTexts: string[], outMemberValues: int[], outEnumNameTexts: string[], outResult: int[]): int {
+    tokens := new ColumnarEnumTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths, Count: count }
+    cap := count + 1
+    scratch := new ColumnarEnumMemberScratchTable { NameStarts: new int[](cap), NameLengths: new int[](cap), ValueStarts: new int[](cap), ValueLengths: new int[](cap), HasValue: new int[](cap) }
+    outputs := new ColumnarEnumTextOutputTable { MemberNameTexts: outNameTexts, MemberValues: outMemberValues, EnumNameTexts: outEnumNameTexts }
+    result := new ColumnarEnumResultTable { Values: outResult }
+    return ParseColumnarEnumInfoCore(source, ref tokens, enumIndex, ref scratch, ref outputs, ref result)
+}
+
+func ParseColumnarEnumInfoCore(source: string, tokens: &ColumnarEnumTokenTable, enumIndex: int, scratch: &ColumnarEnumMemberScratchTable, outputs: &ColumnarEnumTextOutputTable, result: &ColumnarEnumResultTable): int {
     return ParseEnumDeclarationTextInfoInto(
-        source, tokenKinds, tokenStarts, tokenValueLengths, count, enumIndex,
-        nameStarts, nameLengths, outNameTexts, valueStarts, valueLengths,
-        hasValue, outMemberValues, outEnumNameTexts, outResult)
+        source, tokens.Kinds, tokens.Starts, tokens.ValueLengths, tokens.Count, enumIndex,
+        scratch.NameStarts, scratch.NameLengths, outputs.MemberNameTexts,
+        scratch.ValueStarts, scratch.ValueLengths, scratch.HasValue,
+        outputs.MemberValues, outputs.EnumNameTexts, result.Values)
 }
