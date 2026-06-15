@@ -733,8 +733,8 @@ internal static class NSharpCompilerDogfoodAdapter
 
     // Parse ONE user CONSTRUCTOR (at compacted token index `ctorIndex`, the "constructor" identifier) into a
     // ColumnarFunctionInput whose name is "constructor" and whose return is "void". Constructor signature,
-    // chain-initializer text, and body-brace validation are supplied by the N# signature-info wrapper; C# only
-    // materializes the CLR-facing input and parses the accepted statement body.
+    // chain-initializer text, and the accepted statement body are supplied by the composed N# constructor wrapper;
+    // C# only materializes the CLR-facing input.
     private static bool TryParseColumnarConstructorAt(
         Bindings bindings, int[] ck, int[] cs, int[] cv, int n, int ctorIndex, string source,
         out Columnar.ColumnarConstructorInput input)
@@ -747,10 +747,13 @@ internal static class NSharpCompilerDogfoodAdapter
         var caStarts = new int[cap];
         var caLengths = new int[cap];
         var caTexts = new string[cap];
-        var ctorResult = new int[4];
-        var paramCount = bindings.ParseConstructorSignatureInfo(
+        var bk = new int[cap]; var bvs = new int[cap]; var bvl = new int[cap]; var bcs = new int[cap];
+        var bcc = new int[cap]; var bci = new int[cap]; var bss = new int[cap]; var bsl = new int[cap];
+        var ctorResult = new int[6];
+        var paramCount = bindings.ParseColumnarConstructorInfo(
             source, ck, cs, cv, n, ctorIndex,
-            paramNameTexts, paramTypeTexts, caKinds, caStarts, caLengths, caTexts, ctorResult);
+            paramNameTexts, paramTypeTexts, caKinds, caStarts, caLengths, caTexts,
+            bk, bvs, bvl, bcs, bcc, bci, bss, bsl, ctorResult);
         if (paramCount < 0)
             return false;
 
@@ -775,12 +778,9 @@ internal static class NSharpCompilerDogfoodAdapter
         if (chainArgCount < 0)
             return false;
 
-        var bk = new int[cap]; var bvs = new int[cap]; var bvl = new int[cap]; var bcs = new int[cap];
-        var bcc = new int[cap]; var bci = new int[cap]; var bss = new int[cap]; var bsl = new int[cap];
-        var bres = new int[2];
-        var bodyNodeCount = bindings.ParseStatementNodes(
-            ck, cs, cv, n, bodyBrace, bk, bvs, bvl, bcs, bcc, bci, bss, bsl, bres);
-        if (bodyNodeCount <= 0)
+        var bodyRoot = ctorResult[4];
+        var bodyNodeCount = ctorResult[5];
+        if (bodyNodeCount <= 0 || bodyRoot < 0 || bodyRoot >= bodyNodeCount)
             return false;
 
         var chainArgKinds = new int[chainArgCount];
@@ -797,7 +797,7 @@ internal static class NSharpCompilerDogfoodAdapter
         var bodyNodes = new Columnar.ColumnarNodeTable(bk, bvs, bvl, bcs, bcc, bci);
         var body = new Columnar.ColumnarFunctionInput(
             "constructor", "void", paramNames, paramCanonicals,
-            bodyNodes, bres[0]);
+            bodyNodes, bodyRoot);
         input = new Columnar.ColumnarConstructorInput(body, ctorResult[0], chainArgKinds, chainArgTexts);
         return true;
     }
@@ -1936,9 +1936,9 @@ internal static class NSharpCompilerDogfoodAdapter
                 CreateDelegate<ParseUnionDeclarationInfoInto>(
                     programType,
                     "ParseUnionDeclarationInfoInto"),
-                CreateDelegate<ParseConstructorSignatureInfoInto>(
+                CreateDelegate<ParseColumnarConstructorInfoInto>(
                     programType,
-                    "ParseConstructorSignatureInfoInto"));
+                    "ParseColumnarConstructorInfoInto"));
         }
         catch
         {
@@ -2098,11 +2098,13 @@ internal static class NSharpCompilerDogfoodAdapter
         string[] outFieldTypeTexts,
         int[] outTypeParamStarts, int[] outTypeParamLengths, string[] outTypeParamTexts,
         string[] outUnionNameTexts, int[] outResult);
-    private delegate int ParseConstructorSignatureInfoInto(
+    private delegate int ParseColumnarConstructorInfoInto(
         string source,
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int ctorIndex,
         string[] outParamNameTexts, string[] outParamTypeTexts,
-        int[] outArgKinds, int[] outArgStarts, int[] outArgLengths, string[] outArgTexts, int[] outResult);
+        int[] outArgKinds, int[] outArgStarts, int[] outArgLengths, string[] outArgTexts,
+        int[] outNodeKinds, int[] outValueStarts, int[] outValueLengths, int[] outChildStart, int[] outChildCount,
+        int[] outChildIndices, int[] outSpanStarts, int[] outSpanLengths, int[] outResult);
 
     private sealed record Bindings(
         ParserTokenCompactionIndicesInto ParserTokenCompaction,
@@ -2127,7 +2129,7 @@ internal static class NSharpCompilerDogfoodAdapter
         ParseEnumDeclarationTextInfoInto ParseEnumDeclarationTextInfo,
         ParseStructDeclarationInfoInto ParseStructDeclarationInfo,
         ParseUnionDeclarationInfoInto ParseUnionDeclarationInfo,
-        ParseConstructorSignatureInfoInto ParseConstructorSignatureInfo);
+        ParseColumnarConstructorInfoInto ParseColumnarConstructorInfo);
 
     private sealed class ParserTokenCompactionScratch
     {

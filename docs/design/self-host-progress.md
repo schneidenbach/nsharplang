@@ -11,6 +11,23 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Constructor parser composition moves into N#
+
+`ParserColumnarConstructors.nl` now exports `ParseColumnarConstructorInfoInto`, the product-routed
+constructor parser wrapper. It composes `ParseConstructorSignatureInfoInto` and
+`ParseStatementNodesInto` in N#, returning constructor parameter text, chain-initializer text, body
+root, body-node count, and chain metadata through one call.
+
+`NSharpCompilerDogfoodAdapter.TryParseColumnarConstructorAt` no longer binds
+`ParseConstructorSignatureInfoInto` or orchestrates constructor body parsing from C#. It consumes the
+composed rowset and only materializes the CLR-facing `ColumnarConstructorInput`/body containers.
+Focused evidence: `./scripts/dev.sh Parser_TopLevelDeclarationKinds_MatchProductionParser`,
+`./scripts/dev.sh ColumnarCodegen_Parity_ClassConstructor`,
+`./scripts/dev.sh ColumnarCodegen_Parity_ValueStructConstructors`,
+`./scripts/dev.sh ColumnarCodegen_Parity_GenericClass_CtorFieldMethodProperty`,
+`./scripts/dev.sh ColumnarCodegen_CompilesRealDogfoodCorpus_Coverage`, and
+`./scripts/dev.sh ColumnarCodegen_MultiFile_EligibleClusterCompiles`.
+
 ## 2026-06-15 — Regular function parser composition moves into N#
 
 `ParserColumnarFunctions.nl` now exports `ParseColumnarFunctionInfoInto`, the product-routed regular

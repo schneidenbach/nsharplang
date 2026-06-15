@@ -175,6 +175,10 @@ public class CompilerDogfoodProjectTests
                     "ParseConstructorSignatureInfoInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit ParseConstructorSignatureInfoInto.");
+            var parseColumnarConstructorInfo = programType.GetMethod(
+                    "ParseColumnarConstructorInfoInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit ParseColumnarConstructorInfoInto.");
             var topLevelDeclNames = programType.GetMethod(
                     "TopLevelDeclarationNameSpansInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -673,6 +677,7 @@ class C {
                 constructorInfo,
                 constructorTextInfo,
                 constructorSignatureInfo,
+                parseColumnarConstructorInfo,
                 "constructor with no chain");
             AssertConstructorChainBodyIndex(
                 """
@@ -696,6 +701,7 @@ class C {
                 constructorInfo,
                 constructorTextInfo,
                 constructorSignatureInfo,
+                parseColumnarConstructorInfo,
                 "constructor with this-chain");
             AssertConstructorChainBodyIndex(
                 """
@@ -720,6 +726,7 @@ class D: B {
                 constructorInfo,
                 constructorTextInfo,
                 constructorSignatureInfo,
+                parseColumnarConstructorInfo,
                 "constructor with base-chain");
             AssertConstructorInfoDeclinesNonConstructorName(
                 """
@@ -733,6 +740,7 @@ class C {
                 constructorInfo,
                 constructorTextInfo,
                 constructorSignatureInfo,
+                parseColumnarConstructorInfo,
                 "constructor-like non-constructor member");
             AssertTopLevelContextualTestDeclaration(
                 """
@@ -892,6 +900,7 @@ class B
         MethodInfo constructorInfo,
         MethodInfo constructorTextInfo,
         MethodInfo constructorSignatureInfo,
+        MethodInfo parseColumnarConstructorInfo,
         string label)
     {
         Assert.Equal(expectedParamNames.Length, expectedParamTypes.Length);
@@ -956,11 +965,53 @@ class B
                 signatureArgTexts,
                 signatureResult
             }) ?? -2);
+        var composedParamNameTexts = new string[count + 1];
+        var composedParamTypeTexts = new string[count + 1];
+        var composedArgKinds = new int[count + 1];
+        var composedArgStarts = new int[count + 1];
+        var composedArgLengths = new int[count + 1];
+        var composedArgTexts = new string[count + 1];
+        var composedKinds = new int[count + 1];
+        var composedValueStarts = new int[count + 1];
+        var composedValueLengths = new int[count + 1];
+        var composedChildStarts = new int[count + 1];
+        var composedChildCounts = new int[count + 1];
+        var composedChildIndices = new int[count + 1];
+        var composedSpanStarts = new int[count + 1];
+        var composedSpanLengths = new int[count + 1];
+        var composedResult = new int[6];
+        var composedParamCount = (int)(parseColumnarConstructorInfo.Invoke(
+            null,
+            new object[]
+            {
+                compactedSource,
+                kinds,
+                starts,
+                valueLengths,
+                count,
+                ctorIndex,
+                composedParamNameTexts,
+                composedParamTypeTexts,
+                composedArgKinds,
+                composedArgStarts,
+                composedArgLengths,
+                composedArgTexts,
+                composedKinds,
+                composedValueStarts,
+                composedValueLengths,
+                composedChildStarts,
+                composedChildCounts,
+                composedChildIndices,
+                composedSpanStarts,
+                composedSpanLengths,
+                composedResult
+            }) ?? -2);
 
         Assert.Equal(expectedArgs.Length, argCount);
         Assert.Equal(argCount, checkedArgCount);
         Assert.Equal(argCount, textArgCount);
         Assert.Equal(expectedParamNames.Length, signatureParamCount);
+        Assert.Equal(signatureParamCount, composedParamCount);
         Assert.Equal(expectedInitializerKind, result[0]);
         Assert.Equal(result[0], checkedResult[0]);
         Assert.Equal(result[1], checkedResult[1]);
@@ -970,6 +1021,13 @@ class B
         Assert.Equal(result[1], signatureResult[1]);
         Assert.Equal(signatureParamCount, signatureResult[2]);
         Assert.Equal(argCount, signatureResult[3]);
+        Assert.Equal(signatureResult[0], composedResult[0]);
+        Assert.Equal(signatureResult[1], composedResult[1]);
+        Assert.Equal(signatureResult[2], composedResult[2]);
+        Assert.Equal(signatureResult[3], composedResult[3]);
+        Assert.True(composedResult[4] >= 0 && composedResult[4] < composedResult[5], $"Composed constructor body root/count invalid for {label}.");
+        Assert.Equal((int)TokenType.LeftBrace, kinds[composedResult[1]]);
+        Assert.True(composedKinds[composedResult[4]] == 25, $"Composed constructor body root should be a block for {label}.");
         Assert.True(result[1] >= 0 && result[1] < count, $"Constructor body brace index missing for {label}.");
         Assert.Equal((int)TokenType.LeftBrace, kinds[result[1]]);
         Assert.True(result[1] > ctorIndex, $"Constructor body brace must follow constructor token for {label}.");
@@ -977,6 +1035,8 @@ class B
         {
             Assert.Equal(expectedParamNames[i], signatureParamNameTexts[i]);
             Assert.Equal(expectedParamTypes[i], signatureParamTypeTexts[i]);
+            Assert.Equal(signatureParamNameTexts[i], composedParamNameTexts[i]);
+            Assert.Equal(signatureParamTypeTexts[i], composedParamTypeTexts[i]);
         }
         for (var i = 0; i < expectedArgs.Length; i++)
         {
@@ -988,9 +1048,13 @@ class B
             Assert.Equal(checkedArgLengths[i], textArgLengths[i]);
             Assert.Equal(checkedArgStarts[i], signatureArgStarts[i]);
             Assert.Equal(checkedArgLengths[i], signatureArgLengths[i]);
+            Assert.Equal(signatureArgKinds[i], composedArgKinds[i]);
+            Assert.Equal(signatureArgStarts[i], composedArgStarts[i]);
+            Assert.Equal(signatureArgLengths[i], composedArgLengths[i]);
             Assert.Equal(expectedArgs[i], compactedSource.Substring(checkedArgStarts[i], checkedArgLengths[i]));
             Assert.Equal(expectedArgs[i], textArgTexts[i]);
             Assert.Equal(expectedArgs[i], signatureArgTexts[i]);
+            Assert.Equal(expectedArgs[i], composedArgTexts[i]);
         }
     }
 
@@ -1001,6 +1065,7 @@ class B
         MethodInfo constructorInfo,
         MethodInfo constructorTextInfo,
         MethodInfo constructorSignatureInfo,
+        MethodInfo parseColumnarConstructorInfo,
         string label)
     {
         var (count, kinds, starts, valueLengths, compactedSource) = TokenizeSourceViaKernel(source, tokenizeWithIndentation);
@@ -1045,9 +1110,36 @@ class B
                 new string[count + 1],
                 new int[4]
             }) ?? -2);
+        var composedActual = (int)(parseColumnarConstructorInfo.Invoke(
+            null,
+            new object[]
+            {
+                compactedSource,
+                kinds,
+                starts,
+                valueLengths,
+                count,
+                memberIndex,
+                new string[count + 1],
+                new string[count + 1],
+                new int[count + 1],
+                new int[count + 1],
+                new int[count + 1],
+                new string[count + 1],
+                new int[count + 1],
+                new int[count + 1],
+                new int[count + 1],
+                new int[count + 1],
+                new int[count + 1],
+                new int[count + 1],
+                new int[count + 1],
+                new int[count + 1],
+                new int[6]
+            }) ?? -2);
         Assert.Equal(-1, actual);
         Assert.Equal(actual, textActual);
         Assert.Equal(actual, signatureActual);
+        Assert.Equal(actual, composedActual);
     }
 
     private static void AssertMatchingCloseBrace(
@@ -10455,7 +10547,7 @@ func outer(x: int): int {
             "CliArguments.nl", "CliDocOrdering.nl", "CliQueryParsing.nl", "CliTreeDependencies.nl",
             "CompletionGrouping.nl", "CompletionReceivers.nl", "DiagnosticClusters.nl", "DiagnosticDeduplication.nl", "DocQuery.nl",
             "FormatterImportOrdering.nl", "IdentifierSpans.nl",
-            "LexerTokenKindScanner.nl", "OverloadCandidates.nl", "ParserColumnarFunctions.nl", "ParserDeclarations.nl",
+            "LexerTokenKindScanner.nl", "OverloadCandidates.nl", "ParserColumnarConstructors.nl", "ParserColumnarFunctions.nl", "ParserDeclarations.nl",
             "ParserConstructorSignatures.nl", "ParserExpressions.nl", "ParserFunctionSignatures.nl", "ParserInterfaceSignatures.nl", "ParserLocalFunctions.nl", "ParserStatements.nl", "ParserTypeReferences.nl",
             "ProjectSourceFilter.nl", "StructCopyAnalysis.nl",
             "TextEditOrdering.nl", "TypeLookup.nl",
@@ -10471,6 +10563,7 @@ func outer(x: int): int {
         Assert.Contains("ParseFunctionSignatureInto", methodNames!); // ParserFunctionSignatures -> ParserTypeReferences
         Assert.Contains("ParseFunctionSignatureInfoInto", methodNames!); // ParserFunctionSignatures -> ParserTypeReferences
         Assert.Contains("ParseColumnarFunctionInfoInto", methodNames!); // composed signature + body + local-function routing
+        Assert.Contains("ParseColumnarConstructorInfoInto", methodNames!); // composed constructor signature + body routing
         Assert.Contains("ParseConstructorSignatureInfoInto", methodNames!); // ParserConstructorSignatures -> declarations/signatures/types
         Assert.Contains("ParseInterfaceDeclarationSignatureInfoInto", methodNames!); // ParserInterfaceSignatures -> declarations/signatures/types
         Assert.Contains("DirectLocalFunctionTokenIndicesInto", methodNames!); // ParserLocalFunctions -> declarations/statements
