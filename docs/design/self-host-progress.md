@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Systems stackalloc budget resolves aliases
+
+The systems stack-budget analyzer now records type aliases during declaration registration and uses
+them when classifying wrapped literal `stackalloc` lengths and element sizes. Casts such as
+`checked((Count)65)` and `unchecked((Count)-1)` where `type Count = short` now produce the precise
+over-budget or negative NSYS080 diagnostic instead of falling back to "must be statically bounded";
+element aliases such as `type ScratchByte = byte` now budget as one byte per element instead of the
+unknown-type fallback size.
+
 ## 2026-06-15 — Systems integer aliases participate in count diagnostics
 
 Analyzer count validation now resolves type aliases before deciding whether a `stackalloc` length

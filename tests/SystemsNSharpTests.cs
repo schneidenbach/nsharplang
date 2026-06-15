@@ -768,6 +768,24 @@ func Scratch(): int {
     }
 
     [Fact]
+    public void Stackalloc_AliasedWrappedLiteralLength_UsesConfiguredBudget()
+    {
+        var report = Analyze("""
+type Count = short
+
+func Scratch(): int {
+    scratch := stackalloc byte[checked((Count)65)]
+    return scratch.Length
+}
+""", profile: "systems", configure: config => config.Language.Systems.StackBudgetBytes = 64);
+
+        var finding = Assert.Single(report.Findings, f => f.Code == "NSYS080");
+        Assert.Contains("65 bytes", finding.Message, StringComparison.Ordinal);
+        Assert.Contains("64 bytes", finding.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("statically bounded", finding.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Stackalloc_WrappedNegativeLength_ReportsNegative()
     {
         var report = Analyze("""
@@ -780,6 +798,41 @@ func Scratch(): int {
         var finding = Assert.Single(report.Findings, f => f.Code == "NSYS080");
         Assert.Contains("cannot be negative", finding.Message, StringComparison.Ordinal);
         Assert.DoesNotContain("statically bounded", finding.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Stackalloc_AliasedWrappedNegativeLength_ReportsNegative()
+    {
+        var report = Analyze("""
+type Count = short
+
+func Scratch(): int {
+    scratch := stackalloc byte[unchecked((Count)-1)]
+    return scratch.Length
+}
+""", profile: "systems");
+
+        var finding = Assert.Single(report.Findings, f => f.Code == "NSYS080");
+        Assert.Contains("cannot be negative", finding.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("statically bounded", finding.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Stackalloc_AliasedElementType_UsesResolvedElementSizeForBudget()
+    {
+        var report = Analyze("""
+type ScratchByte = byte
+
+func Scratch(): int {
+    scratch := stackalloc ScratchByte[65]
+    return scratch.Length
+}
+""", profile: "systems", configure: config => config.Language.Systems.StackBudgetBytes = 64);
+
+        var finding = Assert.Single(report.Findings, f => f.Code == "NSYS080");
+        Assert.Contains("65 bytes", finding.Message, StringComparison.Ordinal);
+        Assert.Contains("64 bytes", finding.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("1040 bytes", finding.Message, StringComparison.Ordinal);
     }
 
     [Fact]

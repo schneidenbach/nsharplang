@@ -745,8 +745,9 @@ Rules:
   systems stack-budget checker treats parentheses, checked/unchecked wrappers,
   and int-like casts around literal lengths as the same statically bounded
   value, so `checked((int)64)` is budgeted and `unchecked(-(1))` is reported as
-  negative rather than "not statically bounded." Aliases to signed int-like
-  casts are treated the same way for negative-literal diagnostics.
+  negative rather than "not statically bounded." Aliases to those int-like
+  casts are treated the same way for stack-budget diagnostics, and aliases
+  to stack element types are resolved before applying the byte budget.
   These checks hold in every policy, including `[boundary]` functions and
   audit mode where the NSYS080 budget gate downgrades to a warning.
 - The length must be statically bounded by a project-configurable stack budget

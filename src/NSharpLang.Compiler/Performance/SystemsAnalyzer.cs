@@ -154,6 +154,7 @@ public sealed class SystemsAnalyzer
     private readonly HashSet<string> _structTypes = new(StringComparer.Ordinal);
     private readonly HashSet<string> _refStructTypes = new(StringComparer.Ordinal);
     private readonly HashSet<string> _enumTypes = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string> _typeAliases = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _memberTypeNames = new(StringComparer.Ordinal);
     private IReadOnlyDictionary<string, SemanticModel> _semanticModels = EmptySemanticModels;
     private HotSummaryCatalog _hotSummaries;
@@ -186,6 +187,7 @@ public sealed class SystemsAnalyzer
         _structTypes.Clear();
         _refStructTypes.Clear();
         _enumTypes.Clear();
+        _typeAliases.Clear();
         _memberTypeNames.Clear();
         _semanticModels = semanticModels ?? EmptySemanticModels;
         _hotSummaries = HotSummaryCatalog.Load(_projectRoot, _config);
@@ -272,6 +274,9 @@ public sealed class SystemsAnalyzer
                     break;
                 case EnumDeclaration enm:
                     _enumTypes.Add(enm.Name);
+                    break;
+                case TypeAliasDeclaration alias:
+                    _typeAliases[alias.Name] = TypeReferenceName(alias.Type);
                     break;
             }
         }
@@ -2186,7 +2191,7 @@ public sealed class SystemsAnalyzer
             return false;
         }
 
-        var elementSize = TypeReferenceName(stackAlloc.ElementType) switch
+        var elementSize = ResolveTypeAliasName(TypeReferenceName(stackAlloc.ElementType)) switch
         {
             "bool" or "byte" or "sbyte" => 1,
             "short" or "ushort" or "char" => 2,
@@ -2205,7 +2210,7 @@ public sealed class SystemsAnalyzer
         return false;
     }
 
-    private static bool TryGetStackallocElementCount(Expression expression, out long elementCount)
+    private bool TryGetStackallocElementCount(Expression expression, out long elementCount)
     {
         expression = UnwrapStackallocLengthExpression(expression);
 
@@ -2228,7 +2233,7 @@ public sealed class SystemsAnalyzer
         return false;
     }
 
-    private static bool TryGetUnsignedIntegerMagnitude(Expression expression, out ulong magnitude)
+    private bool TryGetUnsignedIntegerMagnitude(Expression expression, out ulong magnitude)
     {
         expression = UnwrapStackallocLengthExpression(expression);
         if (expression is IntLiteralExpression literal
@@ -2241,7 +2246,7 @@ public sealed class SystemsAnalyzer
         return false;
     }
 
-    private static Expression UnwrapStackallocLengthExpression(Expression expression)
+    private Expression UnwrapStackallocLengthExpression(Expression expression)
     {
         while (true)
         {
@@ -2264,8 +2269,23 @@ public sealed class SystemsAnalyzer
         }
     }
 
-    private static bool IsStackallocIntLikeCast(TypeReference type)
-        => type is SimpleTypeReference { Name: "int" or "short" or "sbyte" or "byte" or "ushort" or "char" };
+    private bool IsStackallocIntLikeCast(TypeReference type)
+    {
+        var typeName = ResolveTypeAliasName(TypeReferenceName(type));
+        return typeName is "int" or "short" or "sbyte" or "byte" or "ushort" or "char";
+    }
+
+    private string ResolveTypeAliasName(string typeName)
+    {
+        var simpleName = SimpleName(typeName);
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        while (_typeAliases.TryGetValue(simpleName, out var aliasedName) && seen.Add(simpleName))
+        {
+            simpleName = SimpleName(aliasedName);
+        }
+
+        return simpleName;
+    }
 
     private static bool IsReflectionOrDynamicCall(string target, out bool dynamicCode)
     {
