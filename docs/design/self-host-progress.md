@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA non-numeric compound operators stop before emission
+
+Bool, string, and int-backed enum SoA columns now have analyzer pins for the unsupported compound
+operators that must not reach assignment lowering. Row projection, direct column indexing, and
+direct from-end column indexing all reject `-=`, `*=`, and `/=` for those non-numeric element kinds
+with the source operator diagnostic; string `+=` remains the accepted concatenating store shape.
+
 ## 2026-06-14 — SoA string compound assignment has IL-shape proof
 
 String SoA columns now have opcode evidence for concatenating `+=` expressions across row

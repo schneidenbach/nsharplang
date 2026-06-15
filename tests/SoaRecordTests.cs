@@ -4544,6 +4544,111 @@ public class SoaRecordTests : ILCompilerTestBase
         Assert.Contains("numeric values", error.Message);
     }
 
+    [Theory]
+    [InlineData("nodes[row].active", "-=", "-")]
+    [InlineData("nodes[row].active", "*=", "*")]
+    [InlineData("nodes[row].active", "/=", "/")]
+    [InlineData("nodes.active[row]", "-=", "-")]
+    [InlineData("nodes.active[row]", "*=", "*")]
+    [InlineData("nodes.active[row]", "/=", "/")]
+    [InlineData("nodes.active[^1]", "-=", "-")]
+    [InlineData("nodes.active[^1]", "*=", "*")]
+    [InlineData("nodes.active[^1]", "/=", "/")]
+    public void Analyzer_SoaRecordBoolUnsupportedCompoundAssignmentOperators_AreRejected(
+        string target,
+        string assignmentOperator,
+        string binaryOperator)
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze($$"""
+            soa record NodeTable {
+                active: bool
+            }
+
+            func bad(nodes: NodeTable, row: int) {
+                {{target}} {{assignmentOperator}} true
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains($"'{binaryOperator}' operator doesn't work with 'bool' and 'bool'", error.Message);
+        Assert.Contains("numeric values", error.Message);
+    }
+
+    [Theory]
+    [InlineData("nodes[row].kind", "-=", "-")]
+    [InlineData("nodes[row].kind", "*=", "*")]
+    [InlineData("nodes[row].kind", "/=", "/")]
+    [InlineData("nodes.kind[row]", "-=", "-")]
+    [InlineData("nodes.kind[row]", "*=", "*")]
+    [InlineData("nodes.kind[row]", "/=", "/")]
+    [InlineData("nodes.kind[^1]", "-=", "-")]
+    [InlineData("nodes.kind[^1]", "*=", "*")]
+    [InlineData("nodes.kind[^1]", "/=", "/")]
+    public void Analyzer_SoaRecordEnumUnsupportedCompoundAssignmentOperators_AreRejected(
+        string target,
+        string assignmentOperator,
+        string binaryOperator)
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze($$"""
+            enum NodeKind {
+                Unknown,
+                Identifier
+            }
+
+            soa record NodeTable {
+                kind: NodeKind
+            }
+
+            func bad(nodes: NodeTable, row: int) {
+                {{target}} {{assignmentOperator}} NodeKind.Identifier
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains(
+            $"'{binaryOperator}' operator doesn't work with 'NodeKind' and 'NodeKind'",
+            error.Message);
+        Assert.Contains("numeric values", error.Message);
+    }
+
+    [Theory]
+    [InlineData("nodes[row].text", "-=", "-")]
+    [InlineData("nodes[row].text", "*=", "*")]
+    [InlineData("nodes[row].text", "/=", "/")]
+    [InlineData("nodes.text[row]", "-=", "-")]
+    [InlineData("nodes.text[row]", "*=", "*")]
+    [InlineData("nodes.text[row]", "/=", "/")]
+    [InlineData("nodes.text[^1]", "-=", "-")]
+    [InlineData("nodes.text[^1]", "*=", "*")]
+    [InlineData("nodes.text[^1]", "/=", "/")]
+    public void Analyzer_SoaRecordStringUnsupportedCompoundAssignmentOperators_AreRejected(
+        string target,
+        string assignmentOperator,
+        string binaryOperator)
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze($$"""
+            soa record NodeTable {
+                text: string
+            }
+
+            func bad(nodes: NodeTable, row: int) {
+                {{target}} {{assignmentOperator}} "suffix"
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains(
+            $"'{binaryOperator}' operator doesn't work with 'string' and 'string'",
+            error.Message);
+        Assert.Contains("numeric values", error.Message);
+    }
+
     [Fact]
     public void ILCompiler_SoaRecordGeneratedOperationsBindNamedArguments()
     {

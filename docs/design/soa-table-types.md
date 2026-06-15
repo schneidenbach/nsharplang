@@ -179,14 +179,15 @@ Row-column access supports direct reads, simple stores, expression-valued stores
 null-coalescing reads and assignment, compound assignment, and increment/decrement for integral
 column element types. These accepted operations lower to the backing column arrays without row-object
 materialization; `string` columns still support reads/stores, concatenating `+=` expressions,
-equality/inequality expressions, and null coalescing but reject `++`/`--` during analysis. Bool
-columns support same-bool bitwise expressions but still reject arithmetic compound assignment before
-lowering. Int-backed enum columns support the enum language's comparison expressions,
-prefix/postfix increment and decrement forms, same-enum bitwise expressions, and unary bitwise-not.
-Arithmetic compound assignment is not part of the enum column
+equality/inequality expressions, and null coalescing but reject `-=`, `*=`, `/=`, `++`, and `--`
+during analysis. Bool columns support same-bool bitwise expressions but still reject arithmetic
+compound assignment before lowering. Int-backed enum columns support the enum language's comparison
+expressions, prefix/postfix increment and decrement forms, same-enum bitwise expressions, and unary
+bitwise-not. Arithmetic compound assignment is not part of the enum column
 proof. Each compound assignment must type-check through the underlying
 operator and produce a result assignable back to the column, so boolean and enum columns reject `+=`,
-`-=`, `*=`, and `/=` before lowering. Direct column-element access through `table.column[row]`
+`-=`, `*=`, and `/=` before lowering, while string columns reject every compound operator except
+concatenating `+=`. Direct column-element access through `table.column[row]`
 follows the same update typing rules and is also
 permitted for explicit systems kernels when the index shape is one the built-in array path supports.
 Direct column elements support the same scalar update shapes as row projection: expression-valued
