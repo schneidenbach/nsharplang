@@ -97,7 +97,7 @@ func DiagnosticDeduplicateIntoCore(
             if uniqueCount >= maxResults || probes >= capacity {
                 if sortResults {
                     earlySortKeys := new ReferenceDeduplicationKeyTable { FileIds: keys.FileIds, LineNumbers: keys.LineNumbers, Columns: keys.Columns }
-                    SortDiagnosticDeduplicationIndicesCore(scratch.ResultIndices, uniqueCount, ref earlySortKeys)
+                    SortDiagnosticDeduplicationIndicesCore(ref scratch, uniqueCount, ref earlySortKeys)
                 }
 
                 return uniqueCount
@@ -113,7 +113,7 @@ func DiagnosticDeduplicateIntoCore(
 
     if sortResults {
         finalSortKeys := new ReferenceDeduplicationKeyTable { FileIds: keys.FileIds, LineNumbers: keys.LineNumbers, Columns: keys.Columns }
-        SortDiagnosticDeduplicationIndicesCore(scratch.ResultIndices, uniqueCount, ref finalSortKeys)
+        SortDiagnosticDeduplicationIndicesCore(ref scratch, uniqueCount, ref finalSortKeys)
     }
 
     return uniqueCount
@@ -191,7 +191,7 @@ func ReferenceDeduplicateCompactCore(
 
         if !duplicate {
             if uniqueCount >= maxResults || probes >= capacity {
-                SortDiagnosticDeduplicationIndicesCore(scratch.ResultIndices, uniqueCount, ref keys)
+                SortDiagnosticDeduplicationIndicesCore(ref scratch, uniqueCount, ref keys)
                 return uniqueCount
             }
 
@@ -203,7 +203,7 @@ func ReferenceDeduplicateCompactCore(
         index = index + 1
     }
 
-    SortDiagnosticDeduplicationIndicesCore(scratch.ResultIndices, uniqueCount, ref keys)
+    SortDiagnosticDeduplicationIndicesCore(ref scratch, uniqueCount, ref keys)
     return uniqueCount
 }
 
@@ -334,7 +334,7 @@ func ReferenceDeduplicationKeysEqualCore(
 }
 
 func SortDiagnosticDeduplicationIndicesCore(
-    resultIndices: int[],
+    scratch: &DeduplicationIndexScratchTable,
     count: int,
     keys: &ReferenceDeduplicationKeyTable): void {
     if count < 2 {
@@ -343,23 +343,23 @@ func SortDiagnosticDeduplicationIndicesCore(
 
     start := count / 2 - 1
     while start >= 0 {
-        SiftDownDiagnosticDeduplicationIndicesCore(resultIndices, start, count - 1, ref keys)
+        SiftDownDiagnosticDeduplicationIndicesCore(ref scratch, start, count - 1, ref keys)
         start = start - 1
     }
 
     end := count - 1
     while end > 0 {
-        temp := resultIndices[end]
-        resultIndices[end] = resultIndices[0]
-        resultIndices[0] = temp
+        temp := scratch.ResultIndices[end]
+        scratch.ResultIndices[end] = scratch.ResultIndices[0]
+        scratch.ResultIndices[0] = temp
 
         end = end - 1
-        SiftDownDiagnosticDeduplicationIndicesCore(resultIndices, 0, end, ref keys)
+        SiftDownDiagnosticDeduplicationIndicesCore(ref scratch, 0, end, ref keys)
     }
 }
 
 func SiftDownDiagnosticDeduplicationIndicesCore(
-    resultIndices: int[],
+    scratch: &DeduplicationIndexScratchTable,
     start: int,
     end: int,
     keys: &ReferenceDeduplicationKeyTable): void {
@@ -369,11 +369,11 @@ func SiftDownDiagnosticDeduplicationIndicesCore(
         child := root * 2 + 1
         swapIndex := root
 
-        if IsDiagnosticDeduplicationIndexBeforeCore(resultIndices[swapIndex], resultIndices[child], ref keys) {
+        if IsDiagnosticDeduplicationIndexBeforeCore(scratch.ResultIndices[swapIndex], scratch.ResultIndices[child], ref keys) {
             swapIndex = child
         }
 
-        if child + 1 <= end && IsDiagnosticDeduplicationIndexBeforeCore(resultIndices[swapIndex], resultIndices[child + 1], ref keys) {
+        if child + 1 <= end && IsDiagnosticDeduplicationIndexBeforeCore(scratch.ResultIndices[swapIndex], scratch.ResultIndices[child + 1], ref keys) {
             swapIndex = child + 1
         }
 
@@ -381,9 +381,9 @@ func SiftDownDiagnosticDeduplicationIndicesCore(
             return
         }
 
-        temp := resultIndices[root]
-        resultIndices[root] = resultIndices[swapIndex]
-        resultIndices[swapIndex] = temp
+        temp := scratch.ResultIndices[root]
+        scratch.ResultIndices[root] = scratch.ResultIndices[swapIndex]
+        scratch.ResultIndices[swapIndex] = temp
         root = swapIndex
     }
 }

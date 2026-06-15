@@ -11,7 +11,8 @@ func SortDiagnosticDeduplicationIndices(
     lineNumbers: int[],
     columns: int[]): void {
     keys := new ReferenceDeduplicationKeyTable { FileIds: fileRanks, LineNumbers: lineNumbers, Columns: columns }
-    SortDiagnosticDeduplicationIndicesCore(resultIndices, count, ref keys)
+    scratch := new DeduplicationIndexScratchTable { SlotIndices: new int[](0), ResultIndices: resultIndices }
+    SortDiagnosticDeduplicationIndicesCore(ref scratch, count, ref keys)
 }
 
 func DiagnosticDeduplicateCompactChecksumInto(

@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Diagnostic deduplication sort helpers keep scratch table shaped
+
+`SortDiagnosticDeduplicationIndicesCore` and `SiftDownDiagnosticDeduplicationIndicesCore` now sort
+through `DeduplicationIndexScratchTable` instead of accepting a raw `resultIndices` array. The
+flattened adapter-facing deduplication and rank-summary entry points are unchanged; the remaining
+raw parameter aliases in `DiagnosticDeduplication.nl` are the two scalar rank shims
+(`ReferenceFileSummaryRanksInto`, `FirstDistinctRankIndicesInto`). Focused evidence:
+`./scripts/dev.sh DiagnosticDeduplication`.
+
 ## 2026-06-15 — Union declaration parser keeps tables shaped
 
 `ParseUnionDeclarationCore` now reads union names, type parameters, case names, and case field spans
