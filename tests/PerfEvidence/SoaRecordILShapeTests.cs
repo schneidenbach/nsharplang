@@ -239,6 +239,10 @@ public class SoaRecordILShapeTests
                 reset(out (nodes[row]).start)
                 bump(ref ((nodes.kind)[row]))
                 reset(out ((nodes.start)[^1]))
+                bump(ref (nodes.kind)[row])
+                reset(out (nodes.start)[^1])
+                idx := ^1
+                bump(ref (nodes.kind)[idx])
                 return nodes[row].kind * 10 + nodes.start[row]
             }
 
@@ -256,13 +260,14 @@ public class SoaRecordILShapeTests
             var mutate = ILShapeInspector.GetProgramMethod(assembly, "mutate");
             var main = ILShapeInspector.GetProgramMethod(assembly, "main");
 
-            Assert.Equal(137, Assert.IsType<int>(main.Invoke(null, null)));
+            Assert.Equal(237, Assert.IsType<int>(main.Invoke(null, null)));
 
             AssertNoFromEndSliceAllocation(mutate);
-            Assert.Equal(4, ILShapeInspector.CountOpcode(mutate, OpCodes.Ldelema));
+            Assert.Equal(7, ILShapeInspector.CountOpcode(mutate, OpCodes.Ldelema));
+            var fieldLoads = ILShapeInspector.CountOpcode(mutate, OpCodes.Ldfld);
             Assert.True(
-                ILShapeInspector.CountOpcode(mutate, OpCodes.Ldfld) >= 6,
-                "Parenthesized SoA ref/out arguments should load backing column arrays directly.");
+                fieldLoads >= 9,
+                $"Parenthesized SoA ref/out arguments, including parenthesized column receivers, should load backing column arrays directly; saw {fieldLoads} field loads.");
             Assert.Equal(0, CountArrayElementStores(mutate));
 
             return 0;

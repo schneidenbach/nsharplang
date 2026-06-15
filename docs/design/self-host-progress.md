@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — SoA receiver-parenthesized direct-column ref/out pins
+
+The SoA IL-shape evidence now covers direct-column `ref`/`out` arguments when the column member
+receiver is parenthesized: `(nodes.kind)[row]`, `(nodes.start)[^1]`, and variable-held from-end
+indexes route through the same backing-array `ldelema` path as unparenthesized direct columns. This
+separates the already-pinned whole-element parenthesized form `((nodes.kind)[row])` from the
+documented column-receiver form and keeps both allocation-free.
+
 ## 2026-06-15 — Parenthesized addressable receivers store through
 
 The generic IL address builder now treats parentheses as transparent for nested value receivers
