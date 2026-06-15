@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Pressure-only CLI probes documented as unrouted
+
+The dogfood rewrite evidence list now separates the accepted batch-result packed-count route from
+the rejected path-matching, all-positionals, build-option-summary, and watch-forwarding pressure
+probes. Those probes still compile from the parity corpus for semantic and systems-language coverage,
+but the product adapters do not route through them after their speed-gate misses.
+
 ## 2026-06-15 — Direct SoA column ref/out indexes reject hidden slices
 
 Direct column `ref`/`out` arguments now have analyzer coverage for the rejection side of the address

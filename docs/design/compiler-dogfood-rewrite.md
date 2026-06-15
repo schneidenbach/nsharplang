@@ -2045,9 +2045,10 @@ CLI stable string de-duplication for stale generated cleanup and target-framewor
 add/remove package operand discovery, tidy dependency-line keep flags,
 DocQuery reference-pack assembly-name and type-candidate de-duplication,
 CLI test outcome summaries,
-and the pressure-only
-path-matching, all-positionals CLI argument, build option summary, watch forwarded-argument, and batch result packed-count kernels through the
-compiled N# methods; `CliCommandTests` verifies both
+and the accepted batch result packed-count kernel through the compiled N# methods. The same suite
+also compiles and exercises the pressure-only path-matching, all-positionals CLI argument, build
+option summary, and watch forwarded-argument parity kernels from the parity corpus without routing
+them through product adapters; `CliCommandTests` verifies both
 packaged CLI dogfood adapter routes for duplicate batch request ids, `nlc update` target package
 selection, `nlc doc` symbol/member ordering and slug generation, `nlc tree` dependency deduplication, and
 `nlc query diagnostics --severity` filtering plus compiler-error severity filtering, skipped-fix
