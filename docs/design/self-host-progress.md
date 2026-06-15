@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Parenthesized SoA row projections keep direct column IL
+
+Accepted row projections now keep the same backing-column IL shape when the row access is
+parenthesized. `(nodes[row]).kind` routes through the same SoA row-column resolver as
+`nodes[row].kind`, so reads, writes, and compound updates over parenthesized row projections lower to
+direct column field loads plus array element loads/stores instead of falling out of the SoA path. The
+IL-shape pin rejects row construction, slice allocation, boxing, delegate construction, and virtual
+dispatch. Focused evidence: `dotnet test tests/Tests.csproj --filter
+"FullyQualifiedName~SoaRecordTests.ILCompiler_SoaRecordParenthesizedRowProjection_UsesColumnElementILShape"`.
+
 ## 2026-06-15 — Parenthesized SoA column slices keep the hidden-allocation diagnostic
 
 SoA direct-column range slices are now regression-pinned through parenthesized column member access

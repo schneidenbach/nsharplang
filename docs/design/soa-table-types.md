@@ -52,7 +52,7 @@ logical members:
 - `table.kind`: the `int[]` column.
 - `table.length`: the active row count.
 - `table.capacity`: the column capacity.
-- `table[i].kind`: row projection, lowered to `table.kind[i]`.
+- `table[i].kind` or `(table[i]).kind`: row projection, lowered to `table.kind[i]`.
 
 Construction has two forms:
 
@@ -121,6 +121,7 @@ Row views exist only as lvalue/rvalue syntax sugar:
 ```nsharp
 nodes[i].kind = NodeKind.MatchExpression
 checksum += nodes[i].valueStart
+(nodes[i]).childStart = childCursor
 ```
 
 The compiler rewrites those to column element operations for both reads and writes. This means:
@@ -316,9 +317,10 @@ the columnar backend does not own this surface yet.
 The flag is for compiler table-migration gates only. Production builds without the flag still report
 `NL323 FeatureNotImplemented` for every `soa record`.
 
-IL-shape tests pin the current wrapper proof: row projection over an existing table emits direct
-column field loads and array element loads/stores with no row allocation, boxing, delegate
-construction, heap array allocation, or virtual dispatch, including default stores across the
+IL-shape tests pin the current wrapper proof: row projection over an existing table, including
+parenthesized row projection such as `(table[row]).column`, emits direct column field loads and
+array element loads/stores with no row allocation, boxing, delegate construction, heap array
+allocation, or virtual dispatch, including default stores across the
 verified scalar/reference element-type set, including expression-valued default stores, without
 old-element reads; explicit direct column element operations (`table.column[row]`) have the same
 column-array proof for stores, expression-valued stores, default stores across the verified

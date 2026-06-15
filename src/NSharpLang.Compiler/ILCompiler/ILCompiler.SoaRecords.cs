@@ -535,7 +535,7 @@ public partial class ILCompiler
         out FieldBuilder columnField,
         out Type elementType)
     {
-        if (memberAccess.Object is IndexAccessExpression { IsNullConditional: false } indexAccess
+        if (UnwrapParenthesized(memberAccess.Object) is IndexAccessExpression { IsNullConditional: false } indexAccess
             && TryGetSoaRecordInfo(GetExpressionType(indexAccess.Object), out info!)
             && info.ColumnFields.TryGetValue(memberAccess.MemberName, out columnField!)
             && info.ColumnElementTypes.TryGetValue(memberAccess.MemberName, out elementType!))
@@ -549,6 +549,14 @@ public partial class ILCompiler
         columnField = null!;
         elementType = null!;
         return false;
+    }
+
+    private static Expression UnwrapParenthesized(Expression expression)
+    {
+        while (expression is ParenthesizedExpression parenthesized)
+            expression = parenthesized.Inner;
+
+        return expression;
     }
 
     private bool TryGetSoaRowColumnType(MemberAccessExpression memberAccess, out Type elementType)
