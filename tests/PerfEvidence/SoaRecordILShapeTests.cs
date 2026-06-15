@@ -2738,6 +2738,103 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void CharColumnComparisons_UseColumnArrayLoadsAndComparisonOpcodesOrBranchesWithoutRowOrSliceAllocation()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                marker: char
+            }
+
+            func compare(nodes: NodeTable, row: int): int {
+                directRow := row + 1
+
+                nodes[row].marker = 'B'
+                rowScore := nodes[row].marker == 'B' ? 1 : 0
+                rowScore += nodes[row].marker != 'A' ? 1 : 0
+                rowScore += nodes[row].marker >= 'A' ? 1 : 0
+                rowScore += nodes[row].marker < 'C' ? 1 : 0
+
+                nodes.marker[directRow] = 'm'
+                directScore := nodes.marker[directRow] == 'm' ? 1 : 0
+                directScore += nodes.marker[directRow] != 'z' ? 1 : 0
+                directScore += nodes.marker[directRow] >= 'a' ? 1 : 0
+                directScore += nodes.marker[directRow] < 'n' ? 1 : 0
+
+                nodes.marker[^1] = '7'
+                fromEndScore := nodes.marker[^1] == '7' ? 1 : 0
+                fromEndScore += nodes.marker[^1] != '8' ? 1 : 0
+                fromEndScore += nodes.marker[^1] >= '0' ? 1 : 0
+                fromEndScore += nodes.marker[^1] < ':' ? 1 : 0
+
+                return rowScore + directScore + fromEndScore
+            }
+
+            func main(): int {
+                nodes := new NodeTable(3)
+                row := nodes.add()
+                nodes.add()
+                nodes.add()
+                return compare(nodes, row)
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var compare = ILShapeInspector.GetProgramMethod(assembly, "compare");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(12, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoFromEndSliceAllocation(compare);
+            Assert.True(
+                ILShapeInspector.CountOpcode(compare, OpCodes.Ldfld) >= 15,
+                "Char SoA comparisons should load backing column fields directly.");
+            Assert.Equal(12, CountArrayElementLoads(compare));
+            Assert.Equal(3, CountArrayElementStores(compare));
+            var equalityComparisons = ILShapeInspector.CountOpcode(compare, OpCodes.Ceq);
+            var lessThanComparisons = ILShapeInspector.CountOpcode(compare, OpCodes.Clt);
+            var greaterThanComparisons = ILShapeInspector.CountOpcode(compare, OpCodes.Cgt);
+            var unsignedLessThanComparisons = ILShapeInspector.CountOpcode(compare, OpCodes.Clt_Un);
+            var unsignedGreaterThanComparisons = ILShapeInspector.CountOpcode(compare, OpCodes.Cgt_Un);
+            var relationalBranches = CountOpcodes(
+                compare,
+                OpCodes.Blt,
+                OpCodes.Blt_S,
+                OpCodes.Blt_Un,
+                OpCodes.Blt_Un_S,
+                OpCodes.Ble,
+                OpCodes.Ble_S,
+                OpCodes.Ble_Un,
+                OpCodes.Ble_Un_S,
+                OpCodes.Bgt,
+                OpCodes.Bgt_S,
+                OpCodes.Bgt_Un,
+                OpCodes.Bgt_Un_S,
+                OpCodes.Bge,
+                OpCodes.Bge_S,
+                OpCodes.Bge_Un,
+                OpCodes.Bge_Un_S);
+            Assert.True(
+                equalityComparisons >= 6,
+                $"Char SoA equality and inequality should use direct comparison opcodes. Actual: {equalityComparisons}.");
+            Assert.True(
+                lessThanComparisons
+                    + greaterThanComparisons
+                    + unsignedLessThanComparisons
+                    + unsignedGreaterThanComparisons
+                    + relationalBranches >= 6,
+                "Char SoA relational comparisons should use direct comparison opcodes or branches. " +
+                "Actual clt/cgt/clt.un/cgt.un/branches: " +
+                $"{lessThanComparisons}/{greaterThanComparisons}/{unsignedLessThanComparisons}/" +
+                $"{unsignedGreaterThanComparisons}/{relationalBranches}.");
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void StringColumnEquality_UsesColumnArrayLoadsAndStringOperatorsWithoutRowOrSliceAllocation()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA char comparisons have IL-shape proof
+
+Char SoA columns now have opcode evidence for equality, inequality, and relational comparisons across
+row projection, direct column indexing, and direct from-end column indexing. The comparison path reads
+backing column arrays directly and lowers through comparison opcodes or branches, with no row
+construction, slice allocation, boxing, delegate construction, or virtual dispatch.
+
 ## 2026-06-14 — SoA bool equality has IL-shape proof
 
 Boolean SoA columns now have opcode evidence for `==` and `!=` expressions across row projection,
