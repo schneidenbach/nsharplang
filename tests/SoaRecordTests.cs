@@ -5340,6 +5340,98 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void ILCompiler_SoaRecordParenthesizedFromEndDirectColumnElementTargets_UseColumnElementILShape()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var source = """
+            soa record NodeTable {
+                kind: int
+            }
+
+            func columnOps(nodes: NodeTable): int {
+                nodes.add();
+                ((nodes.kind)[^1]) = 10
+                stored := (((nodes.kind)[^1]) += 2);
+                oldUp := ((nodes.kind)[^1])++;
+                newUp := ++((nodes.kind)[^1]);
+                oldDown := ((nodes.kind)[^1])--;
+                newDown := --((nodes.kind)[^1]);
+                return stored * 100000 + oldUp * 10000 + newUp * 1000 + oldDown * 100 + newDown * 10 + ((nodes.kind)[^1])
+            }
+
+            func main(): int {
+                nodes := new NodeTable(1)
+                return columnOps(nodes)
+            }
+            """;
+
+        Assert.Equal(1335532, Assert.IsType<int>(CompileAndInvoke(source)));
+
+        var opCodes = CompileAndInspect(source, assembly =>
+        {
+            var columnOps = assembly.GetType("Program")!.GetMethod(
+                "columnOps",
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(columnOps);
+            return GetMethodOpCodes(columnOps!);
+        });
+
+        Assert.Contains(OpCodes.Ldfld, opCodes);
+        Assert.Contains(opCodes, IsArrayElementLoad);
+        Assert.Contains(opCodes, IsArrayElementStore);
+        Assert.Contains(OpCodes.Ldlen, opCodes);
+        Assert.DoesNotContain(OpCodes.Newarr, opCodes);
+        Assert.DoesNotContain(OpCodes.Box, opCodes);
+        Assert.DoesNotContain(OpCodes.Ldftn, opCodes);
+        Assert.DoesNotContain(OpCodes.Callvirt, opCodes);
+    }
+
+    [Fact]
+    public void ILCompiler_SoaRecordParenthesizedFromEndDirectColumnNullCoalesceAssign_UsesColumnElementILShape()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var source = """
+            soa record NodeTable {
+                text: string
+            }
+
+            func textOps(nodes: NodeTable): string {
+                nodes.add();
+                ((nodes.text)[^1]) ??= "fallback"
+                current := (((nodes.text)[^1]) ??= "ignored");
+                return current + ":" + ((nodes.text)[^1])
+            }
+
+            func main(): string {
+                nodes := new NodeTable(1)
+                return textOps(nodes)
+            }
+            """;
+
+        Assert.Equal("fallback:fallback", Assert.IsType<string>(CompileAndInvoke(source)));
+
+        var opCodes = CompileAndInspect(source, assembly =>
+        {
+            var textOps = assembly.GetType("Program")!.GetMethod(
+                "textOps",
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(textOps);
+            return GetMethodOpCodes(textOps!);
+        });
+
+        Assert.Contains(OpCodes.Ldfld, opCodes);
+        Assert.Contains(opCodes, IsArrayElementLoad);
+        Assert.Contains(opCodes, IsArrayElementStore);
+        Assert.Contains(OpCodes.Ldlen, opCodes);
+        Assert.DoesNotContain(OpCodes.Newarr, opCodes);
+        Assert.DoesNotContain(OpCodes.Box, opCodes);
+        Assert.DoesNotContain(OpCodes.Ldftn, opCodes);
+        Assert.DoesNotContain(OpCodes.Callvirt, opCodes);
+    }
+
+    [Fact]
     public void ILCompiler_SoaRecordVerifiedColumnTypes_LoadStoreRoundTrip()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

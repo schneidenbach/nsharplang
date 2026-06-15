@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Parenthesized SoA from-end direct-column targets are pinned
+
+Direct backing-column element lvalues now have IL-shape coverage for parenthesized `System.Index`
+from-end access. `((nodes.kind)[^1]) = value`, `(((nodes.kind)[^1]) += value)`,
+`((nodes.kind)[^1])++`, `++((nodes.kind)[^1])`, and `((nodes.text)[^1]) ??= value`
+preserve expression-valued assignment and prefix/postfix result semantics while staying on field-load
+plus array element-load/store lowering. The proof intentionally allows the `System.Index` value
+construction path but rejects hidden array allocation, boxing, delegate construction, and virtual
+dispatch. Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter
+"FullyQualifiedName~ILCompiler_SoaRecordParenthesizedFromEndDirectColumn"` (2 tests).
+
 ## 2026-06-15 — Parenthesized SoA direct-column element targets are pinned
 
 Direct backing-column element lvalues now have IL-shape coverage when the whole element access is
