@@ -1386,6 +1386,10 @@ public partial class ILCompiler
                 _currentIL.Emit(OpCodes.Call, ResolveUnaryExpressionMethod(GetExpressionTreeUnaryMethodName(unary.Operator)));
                 return;
 
+            case TernaryExpression ternary:
+                EmitExpressionTreeConditionalNode(ternary, parameterLocals, parameterClrTypes, expectedType);
+                return;
+
             case CastExpression { Kind: CastKind.Hard } cast:
                 EmitExpressionTreeNode(
                     cast.Expression,
@@ -1429,6 +1433,7 @@ public partial class ILCompiler
             ParenthesizedExpression parenthesized => GetExpressionTreeNodeClrType(parenthesized.Inner, parameterClrTypes),
             MemberAccessExpression memberAccess => ResolveExpressionTreeMemberType(memberAccess, parameterClrTypes),
             CallExpression call => ResolveExpressionTreeCallReturnType(call, parameterClrTypes),
+            TernaryExpression ternary => GetExpressionTreeConditionalClrType(ternary, parameterClrTypes, expectedType: null),
             _ => GetExpressionType(expression)
         };
     }
@@ -1487,6 +1492,94 @@ public partial class ILCompiler
         EmitExpressionTreeNode(binary.Left, parameterLocals, parameterClrTypes, leftType);
         EmitExpressionTreeNode(binary.Right, parameterLocals, parameterClrTypes, rightType);
         _currentIL.Emit(OpCodes.Call, ResolveBinaryExpressionMethod(GetExpressionTreeBinaryMethodName(binary.Operator)));
+    }
+
+    private void EmitExpressionTreeConditionalNode(
+        TernaryExpression ternary,
+        IReadOnlyDictionary<string, LocalBuilder> parameterLocals,
+        IReadOnlyDictionary<string, Type> parameterClrTypes,
+        Type expectedType)
+    {
+        if (_currentIL == null)
+        {
+            throw new InvalidOperationException("No IL generator context");
+        }
+
+        var resultType = GetExpressionTreeConditionalClrType(ternary, parameterClrTypes, expectedType);
+        EmitExpressionTreeNode(ternary.Condition, parameterLocals, parameterClrTypes, typeof(bool));
+        EmitExpressionTreeNodeAsType(ternary.ThenExpression, parameterLocals, parameterClrTypes, resultType);
+        EmitExpressionTreeNodeAsType(ternary.ElseExpression, parameterLocals, parameterClrTypes, resultType);
+        _currentIL.Emit(OpCodes.Call, ResolveExpressionConditionMethod());
+    }
+
+    private void EmitExpressionTreeNodeAsType(
+        Expression expression,
+        IReadOnlyDictionary<string, LocalBuilder> parameterLocals,
+        IReadOnlyDictionary<string, Type> parameterClrTypes,
+        Type targetType)
+    {
+        EmitExpressionTreeNode(expression, parameterLocals, parameterClrTypes, targetType);
+        var emittedType = GetEmittedExpressionTreeNodeClrType(expression, targetType, parameterClrTypes);
+        if (emittedType == targetType || !IsParameterTypeCompatible(targetType, emittedType))
+        {
+            return;
+        }
+
+        EmitRuntimeTypeOf(targetType);
+        _currentIL!.Emit(OpCodes.Call, ResolveExpressionConvertMethod());
+    }
+
+    private Type GetEmittedExpressionTreeNodeClrType(
+        Expression expression,
+        Type expectedType,
+        IReadOnlyDictionary<string, Type> parameterClrTypes)
+    {
+        if (!IsExpressionTreeConstantLiteral(expression))
+        {
+            return GetExpressionTreeNodeClrType(expression, parameterClrTypes);
+        }
+
+        return expression is NullLiteralExpression
+            ? (expectedType == typeof(object) ? typeof(object) : expectedType)
+            : expectedType == typeof(object)
+                ? GetExpressionType(expression)
+                : expectedType;
+    }
+
+    private Type GetExpressionTreeConditionalClrType(
+        TernaryExpression ternary,
+        IReadOnlyDictionary<string, Type> parameterClrTypes,
+        Type? expectedType)
+    {
+        var thenType = GetExpressionTreeNodeClrType(ternary.ThenExpression, parameterClrTypes);
+        var elseType = GetExpressionTreeNodeClrType(ternary.ElseExpression, parameterClrTypes);
+
+        if (expectedType is { } targetType
+            && targetType != typeof(void)
+            && targetType != typeof(object)
+            && IsParameterTypeCompatible(targetType, thenType)
+            && IsParameterTypeCompatible(targetType, elseType))
+        {
+            return targetType;
+        }
+
+        if (AreTypeIdentitiesEquivalent(thenType, elseType))
+        {
+            return thenType;
+        }
+
+        if (IsParameterTypeCompatible(thenType, elseType))
+        {
+            return thenType;
+        }
+
+        if (IsParameterTypeCompatible(elseType, thenType))
+        {
+            return elseType;
+        }
+
+        var inferredType = GetExpressionType(ternary);
+        return inferredType == typeof(object) ? thenType : inferredType;
     }
 
     private void EmitExpressionTreeCallNode(
@@ -1819,6 +1912,12 @@ public partial class ILCompiler
             nameof(System.Linq.Expressions.Expression.Constant),
             new[] { typeof(object), typeof(Type) })
         ?? throw new InvalidOperationException("Could not resolve Expression.Constant(object, Type)");
+
+    private static MethodInfo ResolveExpressionConditionMethod()
+        => typeof(System.Linq.Expressions.Expression).GetMethod(
+            nameof(System.Linq.Expressions.Expression.Condition),
+            new[] { typeof(System.Linq.Expressions.Expression), typeof(System.Linq.Expressions.Expression), typeof(System.Linq.Expressions.Expression) })
+        ?? throw new InvalidOperationException("Could not resolve Expression.Condition(Expression, Expression, Expression)");
 
     private static MethodInfo ResolveBinaryExpressionMethod(string methodName)
         => typeof(System.Linq.Expressions.Expression).GetMethod(

@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Expression-tree conditionals lower
+
+Queryable expression-tree lambdas now lower ternary conditionals through
+`Expression.Condition(test, ifTrue, ifFalse)`. Conditional arms are emitted with expression-tree
+`Convert` nodes when the accepted result type is wider than a branch, so mixed numeric branches such
+as `x > 1 ? x : 0L` execute end-to-end instead of reaching emission with incompatible arm nodes.
+The analyzer mirror now recurses through conditional test/arm expressions while keeping unsupported
+forms such as `default` rejected before emission.
+
 ## 2026-06-15 — Expression-tree static calls lower
 
 Queryable expression-tree lambdas now lower public static method calls such as

@@ -13962,7 +13962,7 @@ public class Analyzer : IDisposable
             message,
             line,
             column,
-            "Use a lambda parameter, member access, literal, supported binary expression, supported unary expression, positional instance/static call, or anonymous-object projection.",
+            "Use a lambda parameter, member access, literal, conditional expression, supported binary expression, supported unary expression, positional instance/static call, or anonymous-object projection.",
             length);
         return true;
     }
@@ -14011,6 +14011,11 @@ public class Analyzer : IDisposable
                 }
 
                 return FindUnsupportedExpressionTreeExpression(unary.Operand, parameterNames);
+
+            case TernaryExpression ternary:
+                return FindUnsupportedExpressionTreeExpression(ternary.Condition, parameterNames)
+                    ?? FindUnsupportedExpressionTreeExpression(ternary.ThenExpression, parameterNames)
+                    ?? FindUnsupportedExpressionTreeExpression(ternary.ElseExpression, parameterNames);
 
             case CastExpression cast:
                 if (cast.Kind is not (CastKind.Hard or CastKind.Safe))
@@ -14185,7 +14190,6 @@ public class Analyzer : IDisposable
             RangeExpression => "range expression",
             SizeOfExpression => "sizeof expression",
             SpreadExpression => "spread expression",
-            TernaryExpression => "ternary expression",
             ThrowExpression => "throw expression",
             TupleExpression => "tuple expression",
             TypeOfExpression => "typeof expression",
