@@ -3689,6 +3689,21 @@ func Main() {
     }
 
     [Fact]
+    public void CollectionExpression_IQueryableAssignment_ReportsFeatureNotImplemented()
+    {
+        var result = Analyze(@"
+            import System.Linq
+
+            func Main() {
+                let items: IQueryable<int> = [1, 2, 3]
+            }
+        ");
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.FeatureNotImplemented);
+        Assert.Contains("Collection expressions for 'IQueryable<int>'", error.Message);
+    }
+
+    [Fact]
     public void GenericInterfaceAssignment_ListToICollection_Valid()
     {
         AssertNoErrors(@"

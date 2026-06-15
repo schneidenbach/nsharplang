@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Queryable collection expressions fail before lowering
+
+Target-typed collection expressions now reject `IQueryable<T>` during semantic analysis with
+`NL323` instead of letting the IL backend attempt to emit an array/list value for a queryable
+interface target. Materializable collection targets such as arrays, `List<T>`, `HashSet<T>`,
+`Queue<T>`, and supported sequence interfaces remain valid; queryable values must be constructed
+explicitly until there is a deliberate LINQ/query lowering.
+
 ## 2026-06-15 — Attribute argument constants fail before lowering
 
 Attribute arguments now get a semantic constant-shape check before IL emission. Supported metadata

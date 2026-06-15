@@ -13899,6 +13899,7 @@ public class Analyzer : IDisposable
     {
         var expectedElement = GetExpectedElementType(_currentExpectedType);
         var expectedElementType = expectedElement?.ElementType;
+        ReportUnsupportedCollectionExpressionTargetIfNeeded(array, _currentExpectedType);
         if (array.Elements.Count == 0)
         {
             return new ArrayTypeInfo(expectedElementType ?? BuiltInTypes.Unknown);
@@ -13949,6 +13950,44 @@ public class Analyzer : IDisposable
 
         return new ArrayTypeInfo(firstType);
     }
+
+    private void ReportUnsupportedCollectionExpressionTargetIfNeeded(ArrayLiteralExpression array, TypeInfo? expectedType)
+    {
+        if (expectedType == null)
+        {
+            return;
+        }
+
+        var resolvedExpectedType = ResolveTypeAlias(expectedType);
+        if (!IsUnsupportedCollectionExpressionTarget(resolvedExpectedType, out var targetName))
+        {
+            return;
+        }
+
+        var (line, column, length) = GetExpressionDiagnosticSpan(array);
+        Error(
+            ErrorCode.FeatureNotImplemented,
+            $"Collection expressions for '{targetName}' are not implemented yet",
+            line,
+            column,
+            "Use an array, List<T>, HashSet<T>, Queue<T>, or construct the queryable value explicitly.",
+            length);
+    }
+
+    private static bool IsUnsupportedCollectionExpressionTarget(TypeInfo type, out string targetName)
+    {
+        targetName = type.ToString();
+        return type switch
+        {
+            GenericTypeInfo { Name: "IQueryable" } => true,
+            ReflectionTypeInfo reflectionType when IsIQueryableType(reflectionType.Type) => true,
+            ExternalTypeInfo externalType when externalType.Name.Contains("IQueryable<", StringComparison.Ordinal) => true,
+            _ => false
+        };
+    }
+
+    private static bool IsIQueryableType(Type type)
+        => type.IsGenericType && type.GetGenericTypeDefinition() == typeof(IQueryable<>);
 
     private TypeInfo AnalyzeNewExpression(NewExpression newExpr)
     {
