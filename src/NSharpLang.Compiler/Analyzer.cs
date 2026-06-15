@@ -8941,7 +8941,7 @@ public class Analyzer : IDisposable
         {
             case "wrap":
             {
-                ValidateSoaWrapColumnArguments(functionType, functionName, call, parameterIndexByArgument);
+                ValidateSoaWrapColumnArguments(functionType, functionName, call, argTypes, parameterIndexByArgument);
 
                 var lengthParameterIndex = functionType.ParameterNames?.FindIndex(parameterName => parameterName == "length") ?? -1;
                 if (lengthParameterIndex >= 0)
@@ -8994,6 +8994,7 @@ public class Analyzer : IDisposable
         FunctionTypeInfo functionType,
         string functionName,
         CallExpression call,
+        IReadOnlyList<TypeInfo> argTypes,
         IReadOnlyList<int> parameterIndexByArgument)
     {
         if (functionType.ParameterTypes == null)
@@ -9002,9 +9003,20 @@ public class Analyzer : IDisposable
         for (var argumentIndex = 0; argumentIndex < call.Arguments.Count; argumentIndex++)
         {
             var parameterIndex = parameterIndexByArgument[argumentIndex];
-            if (parameterIndex < 0
-                || parameterIndex >= functionType.ParameterTypes.Count
-                || ResolveTypeAlias(functionType.ParameterTypes[parameterIndex]) is not ArrayTypeInfo)
+            if (parameterIndex < 0 || parameterIndex >= functionType.ParameterTypes.Count)
+            {
+                continue;
+            }
+
+            var expectedType = functionType.ParameterTypes[parameterIndex];
+            if (ResolveTypeAlias(expectedType) is not ArrayTypeInfo)
+            {
+                continue;
+            }
+
+            if (argumentIndex < argTypes.Count
+                && !BuiltInTypes.IsUnknown(argTypes[argumentIndex])
+                && !IsAssignable(expectedType, argTypes[argumentIndex]))
             {
                 continue;
             }
@@ -9029,8 +9041,17 @@ public class Analyzer : IDisposable
 
     private static bool IsNullOrDefaultLiteral(Expression expression)
     {
-        expression = UnwrapTransparentExpressionWrappers(expression);
-        return expression is NullLiteralExpression or DefaultExpression;
+        while (true)
+        {
+            expression = UnwrapTransparentExpressionWrappers(expression);
+            if (expression is CastExpression cast)
+            {
+                expression = cast.Expression;
+                continue;
+            }
+
+            return expression is NullLiteralExpression or DefaultExpression;
+        }
     }
 
     private static Expression UnwrapTransparentExpressionWrappers(Expression expression)

@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Casted SoA wrap null columns fail before emission
+
+SoA `wrap` column validation now recognizes typed array casts around literal `null` and `default`
+column arguments, including checked/unchecked wrapper combinations such as
+`NodeTable.wrap(name: unchecked((string[])default), kind: new(), length: 0)`. Non-array casts keep
+their normal argument type mismatch, so the direct null-column diagnostic is reserved for values that
+would actually bind as backing column arrays.
+
 ## 2026-06-15 — Invalid assignment targets fail before lowering
 
 Assignment analysis now rejects non-lvalue assignment targets directly instead of letting value
