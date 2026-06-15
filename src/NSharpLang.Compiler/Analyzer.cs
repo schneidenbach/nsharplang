@@ -9027,6 +9027,12 @@ public class Analyzer : IDisposable
 
     private static bool IsNullOrDefaultLiteral(Expression expression)
     {
+        expression = UnwrapTransparentExpressionWrappers(expression);
+        return expression is NullLiteralExpression or DefaultExpression;
+    }
+
+    private static Expression UnwrapTransparentExpressionWrappers(Expression expression)
+    {
         while (true)
         {
             if (expression is ParenthesizedExpression parenthesized)
@@ -9050,7 +9056,7 @@ public class Analyzer : IDisposable
             break;
         }
 
-        return expression is NullLiteralExpression or DefaultExpression;
+        return expression;
     }
 
     private void ValidateSyntheticNonNegativeIntArgument(
@@ -13149,8 +13155,7 @@ public class Analyzer : IDisposable
 
     private static bool IsConstantNegative(Expression expression)
     {
-        while (expression is ParenthesizedExpression paren)
-            expression = paren.Inner;
+        expression = UnwrapTransparentExpressionWrappers(expression);
 
         return expression is UnaryExpression
         {

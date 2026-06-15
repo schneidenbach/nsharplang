@@ -4522,6 +4522,68 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaTableNegativeIndexLiteralsInCheckedAndUncheckedWrappersAreRejected()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var cases = new[]
+        {
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable): int {
+                    return nodes[checked(-1)].kind
+                }
+                """,
+                Message: "SoA table row indexes must not be negative"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable) {
+                    nodes[unchecked((-1))].kind = 1
+                }
+                """,
+                Message: "SoA table row indexes must not be negative"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable) {
+                    nodes.kind[checked(-1)] = 1
+                }
+                """,
+                Message: "SoA column row indexes must not be negative"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable): int {
+                    return nodes.kind[unchecked((-1))]
+                }
+                """,
+                Message: "SoA column row indexes must not be negative")
+        };
+
+        foreach (var testCase in cases)
+        {
+            var result = Analyze(testCase.Source);
+            var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+            Assert.Contains(testCase.Message, error.Message);
+            Assert.Contains("non-negative row id", error.Suggestion);
+        }
+    }
+
+    [Fact]
     public void Analyzer_SoaTableNegativeZeroIndexesAreAllowed()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
@@ -6032,6 +6094,110 @@ public class SoaRecordTests : ILCompilerTestBase
         var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
         Assert.Contains("SoA table wrap length must not be negative", error.Message);
         Assert.Contains("wrap expects a non-negative int argument", error.Suggestion);
+    }
+
+    [Fact]
+    public void Analyzer_SoaTableNegativeLiteralsInCheckedAndUncheckedWrappersAreRejected()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var cases = new[]
+        {
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad() {
+                    nodes := new NodeTable(checked(-1))
+                }
+                """,
+                Message: "SoA table capacity must not be negative",
+                Suggestion: "zero or a positive capacity"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad() {
+                    nodes := new NodeTable(unchecked((-1)))
+                }
+                """,
+                Message: "SoA table capacity must not be negative",
+                Suggestion: "zero or a positive capacity"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable) {
+                    nodes.ensureCapacity(checked(-1))
+                }
+                """,
+                Message: "SoA table capacity must not be negative",
+                Suggestion: "ensureCapacity expects a non-negative int argument"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable) {
+                    nodes.copyRow(checked(-1), 0)
+                }
+                """,
+                Message: "SoA table source row id must not be negative",
+                Suggestion: "copyRow expects a non-negative int argument"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable) {
+                    nodes.copyRow(0, unchecked((-1)))
+                }
+                """,
+                Message: "SoA table target row id must not be negative",
+                Suggestion: "copyRow expects a non-negative int argument"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad() {
+                    kinds := new int[](2)
+                    nodes := NodeTable.wrap(kinds, checked(-1))
+                }
+                """,
+                Message: "SoA table wrap length must not be negative",
+                Suggestion: "wrap expects a non-negative int argument"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad() {
+                    kinds := new int[](2)
+                    nodes := NodeTable.wrap(length: unchecked((-1)), kind: kinds)
+                }
+                """,
+                Message: "SoA table wrap length must not be negative",
+                Suggestion: "wrap expects a non-negative int argument")
+        };
+
+        foreach (var testCase in cases)
+        {
+            var result = Analyze(testCase.Source);
+            var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+            Assert.Contains(testCase.Message, error.Message);
+            Assert.Contains(testCase.Suggestion, error.Suggestion);
+        }
     }
 
     [Fact]

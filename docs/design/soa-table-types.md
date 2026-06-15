@@ -274,16 +274,19 @@ The compiler must produce direct diagnostics for common misuse:
 - null `wrap` columns: "SoA table wrap column 'X' cannot be null" for literal null/default column
   arguments, including parenthesized and checked/unchecked default forms, or "columns for
   NodeTable.wrap cannot be null" for dynamic runtime values;
-- invalid `wrap` length: "SoA table wrap length must not be negative" for negative literals, or
+- invalid `wrap` length: "SoA table wrap length must not be negative" for negative literals,
+  including parenthesized and checked/unchecked forms, or
   "length for NodeTable.wrap must be between 0 and column length" for dynamic runtime bounds;
 - invalid `new` capacity: "SoA table capacity must be int" or "SoA table capacity must not be negative"
-  for analyzer-known literals, or "capacity for NodeTable must be non-negative" for dynamic runtime values;
+  for analyzer-known literals, including parenthesized and checked/unchecked forms, or
+  "capacity for NodeTable must be non-negative" for dynamic runtime values;
 - invalid default construction: "SoA table 'NodeTable' cannot be default-initialized";
 - invalid target-typed zero-argument construction: "SoA table 'NodeTable' construction expects
   exactly one int capacity argument";
 - invalid generated operation calls: "`add`, `clear`, `ensureCapacity`, and `copyRow` must be called with
   their declared argument counts, names, and types, and literal `ensureCapacity`/`copyRow` capacity
-  or row arguments must be non-negative"; dynamic negative `ensureCapacity`/`copyRow` values throw
+  or row arguments, including parenthesized and checked/unchecked forms, must be non-negative";
+  dynamic negative `ensureCapacity`/`copyRow` values throw
   "capacity/source row/target row for NodeTable.operation must be non-negative"; dynamic `add` length
   overflow throws "length for NodeTable.add is too large", and dynamic `copyRow` sources at or beyond
   `length` throw "source row for NodeTable.copyRow must be less than length";
@@ -301,7 +304,8 @@ The compiler must produce direct diagnostics for common misuse:
 - non-int, `System.Index`, or range row indexes, including variable-held `System.Index`/`System.Range`
   values: "SoA table indexes must be int row ids";
 - statically negative row indexes on row/direct-column reads or writes:
-  "SoA table row indexes must not be negative" or "SoA column row indexes must not be negative";
+  "SoA table row indexes must not be negative" or "SoA column row indexes must not be negative",
+  including parenthesized and checked/unchecked forms;
 - direct table member mutation: "SoA table member 'X' cannot be assigned directly" for simple,
   compound, and null-coalescing assignment, or "SoA table member 'X' cannot be incremented or
   decremented directly";

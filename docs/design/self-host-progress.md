@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Checked SoA negative literals fail before emission
+
+SoA non-negative integer validation now unwraps `checked(...)` and `unchecked(...)` wrappers before
+recognizing negative literals. Table construction, `wrap` length, generated `ensureCapacity` and
+`copyRow` arguments, plus row/direct-column indexes now report their analyzer diagnostics for forms
+such as `checked(-1)` and `unchecked((-1))` instead of letting those obvious invalid values reach
+emission or the runtime guards.
+
 ## 2026-06-15 — Checked SoA wrap default columns fail before emission
 
 SoA `wrap` null-column validation now also unwraps `checked(...)` and `unchecked(...)` wrappers
