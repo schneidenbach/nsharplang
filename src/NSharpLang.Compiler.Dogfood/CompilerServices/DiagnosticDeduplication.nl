@@ -17,6 +17,26 @@ struct DeduplicationIndexScratchTable {
     ResultIndices: int[]
 }
 
+struct DeduplicationRankInputTable {
+    Ranks: int[]
+}
+
+struct DeduplicationRankCountTable {
+    Counts: int[]
+}
+
+struct DeduplicationRankResultTable {
+    Ranks: int[]
+}
+
+struct DeduplicationRankSeenTable {
+    Seen: int[]
+}
+
+struct DeduplicationIndexResultTable {
+    Indices: int[]
+}
+
 func DiagnosticDeduplicationKeyCount(keys: &DiagnosticDeduplicationKeyTable): int {
     count := DiagnosticDeduplicationMinInt(keys.CodeIds.Length, keys.FileIds.Length)
     count = DiagnosticDeduplicationMinInt(count, keys.LineNumbers.Length)
@@ -212,22 +232,33 @@ func ReferenceFileSummaryRanksInto(
     uniqueFileCount: int,
     countsByRank: int[],
     resultRanks: int[]): int {
+    ranks := new DeduplicationRankInputTable { Ranks: fileRanks }
+    counts := new DeduplicationRankCountTable { Counts: countsByRank }
+    result := new DeduplicationRankResultTable { Ranks: resultRanks }
+    return ReferenceFileSummaryRanksCore(ref ranks, uniqueFileCount, ref counts, ref result)
+}
+
+func ReferenceFileSummaryRanksCore(
+    ranks: &DeduplicationRankInputTable,
+    uniqueFileCount: int,
+    counts: &DeduplicationRankCountTable,
+    result: &DeduplicationRankResultTable): int {
     clearCount := uniqueFileCount + 1
-    if clearCount > countsByRank.Length {
-        clearCount = countsByRank.Length
+    if clearCount > counts.Counts.Length {
+        clearCount = counts.Counts.Length
     }
 
     i := 0
     while i < clearCount {
-        countsByRank[i] = 0
+        counts.Counts[i] = 0
         i = i + 1
     }
 
     i = 0
-    while i < fileRanks.Length {
-        rank := fileRanks[i]
-        if rank > 0 && rank <= uniqueFileCount && rank < countsByRank.Length {
-            countsByRank[rank] = countsByRank[rank] + 1
+    while i < ranks.Ranks.Length {
+        rank := ranks.Ranks[i]
+        if rank > 0 && rank <= uniqueFileCount && rank < counts.Counts.Length {
+            counts.Counts[rank] = counts.Counts[rank] + 1
         }
 
         i = i + 1
@@ -235,10 +266,10 @@ func ReferenceFileSummaryRanksInto(
 
     resultCount := 0
     rank := 1
-    while rank <= uniqueFileCount && rank < countsByRank.Length {
-        if countsByRank[rank] > 0 {
-            if resultCount < resultRanks.Length {
-                resultRanks[resultCount] = rank
+    while rank <= uniqueFileCount && rank < counts.Counts.Length {
+        if counts.Counts[rank] > 0 {
+            if resultCount < result.Ranks.Length {
+                result.Ranks[resultCount] = rank
             }
 
             resultCount = resultCount + 1
@@ -255,26 +286,37 @@ func FirstDistinctRankIndicesInto(
     uniqueRankCount: int,
     seenRanks: int[],
     resultIndices: int[]): int {
+    rankInput := new DeduplicationRankInputTable { Ranks: ranks }
+    seen := new DeduplicationRankSeenTable { Seen: seenRanks }
+    result := new DeduplicationIndexResultTable { Indices: resultIndices }
+    return FirstDistinctRankIndicesCore(ref rankInput, uniqueRankCount, ref seen, ref result)
+}
+
+func FirstDistinctRankIndicesCore(
+    ranks: &DeduplicationRankInputTable,
+    uniqueRankCount: int,
+    seen: &DeduplicationRankSeenTable,
+    result: &DeduplicationIndexResultTable): int {
     clearCount := uniqueRankCount + 1
-    if clearCount > seenRanks.Length {
-        clearCount = seenRanks.Length
+    if clearCount > seen.Seen.Length {
+        clearCount = seen.Seen.Length
     }
 
     i := 0
     while i < clearCount {
-        seenRanks[i] = 0
+        seen.Seen[i] = 0
         i = i + 1
     }
 
     resultCount := 0
     i = 0
-    while i < ranks.Length {
-        rank := ranks[i]
-        if rank > 0 && rank <= uniqueRankCount && rank < seenRanks.Length {
-            if seenRanks[rank] == 0 {
-                seenRanks[rank] = 1
-                if resultCount < resultIndices.Length {
-                    resultIndices[resultCount] = i
+    while i < ranks.Ranks.Length {
+        rank := ranks.Ranks[i]
+        if rank > 0 && rank <= uniqueRankCount && rank < seen.Seen.Length {
+            if seen.Seen[rank] == 0 {
+                seen.Seen[rank] = 1
+                if resultCount < result.Indices.Length {
+                    result.Indices[resultCount] = i
                 }
 
                 resultCount = resultCount + 1

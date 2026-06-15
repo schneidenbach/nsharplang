@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Diagnostic deduplication rank shims route through table cores
+
+`ReferenceFileSummaryRanksInto` and `FirstDistinctRankIndicesInto` now build small rank/count/seen
+result wrappers and delegate to wrapper-aware cores. The adapter-facing flattened signatures are
+unchanged, but the product service directory no longer has direct array-parameter aliases in its N#
+cores or shims. Focused structural check: the raw-alias scan across
+`src/NSharpLang.Compiler.Dogfood/CompilerServices/*.nl` reports no matches.
+
 ## 2026-06-15 — Diagnostic deduplication sort helpers keep scratch table shaped
 
 `SortDiagnosticDeduplicationIndicesCore` and `SiftDownDiagnosticDeduplicationIndicesCore` now sort

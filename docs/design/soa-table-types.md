@@ -489,9 +489,10 @@ ownership lands.
    parent/symbol-range, sorted-index, symbol-name, depth-output, and name-set scratch columns behind
    normal table structs; its follow-up pass also wraps visible/lookup query-result columns and
    sorted-index scratch storage. `TypeLookup.nl` wraps declared-type lookup and type-creation ordering
-   tables the same way. `DiagnosticDeduplication.nl` now wraps diagnostic/reference key columns and
-   deduplication scratch indexes behind wrapper-aware cores, including the heapsort helpers that
-   order compacted result indexes, and `DiagnosticClusters.nl` wraps
+   tables the same way. `DiagnosticDeduplication.nl` now wraps diagnostic/reference key columns,
+   rank-summary inputs/results, distinct-rank seen/result buffers, and deduplication scratch indexes
+   behind wrapper-aware cores, including the heapsort helpers that order compacted result indexes,
+   and `DiagnosticClusters.nl` wraps
    severity/trait/cluster-id/location/group/member tables for diagnostic clustering. `BindingLookup.nl`
    wraps declaration, binding, query, candidate-column, nearest-declaration, result, slot, and scratch
    tables for semantic binding lookup. `OverloadCandidates.nl` now wraps the production compact
