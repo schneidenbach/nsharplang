@@ -31,6 +31,10 @@ func ParseConstructorSignatureInfoInto(source: string, tokenKinds: int[], tokenS
 }
 
 func ParseConstructorSignatureInfoCore(source: string, tokens: &ParserTokenTable, count: int, ctorIndex: int, outputs: &ConstructorSignatureOutputTable, typeStack: &ParserArgumentStack, nodes: &ParserNodeTable, children: &ParserChildIndexTable, canonicalNodes: &TypeReferenceCanonicalTable, parameters: &ParserFunctionParameterTable, typeParams: &ParserFunctionTypeParameterTable, whereItems: &ParserFunctionWhereTable, signatureResult: &ParserResultTable, result: &ParserResultTable): int {
+    if result.Values.Length < 4 {
+        return -1
+    }
+
     paramCount := ParseFunctionSignatureCore(ref tokens, count, ctorIndex, ref typeStack, ref nodes, ref children, ref parameters, ref typeParams, ref whereItems, ref signatureResult)
     if paramCount < 0 || signatureResult.Values[1] >= 0 || signatureResult.Values[5] != 0 || signatureResult.Values[7] != 0 {
         return -1
@@ -52,9 +56,34 @@ func ParseConstructorSignatureInfoCore(source: string, tokens: &ParserTokenTable
         paramIndex = paramIndex + 1
     }
 
-    chainArgCount := ParseConstructorTextInfoInto(source, tokens.Kinds, tokens.Starts, tokens.ValueLengths, count, ctorIndex, outputs.ArgKinds, outputs.ArgStarts, outputs.ArgLengths, outputs.ArgTexts, result.Values)
+    if ctorIndex < 0 || ctorIndex >= count {
+        return -1
+    }
+
+    if tokens.Kinds[ctorIndex] != 0 {
+        return -1
+    }
+
+    if !ParserDeclarationTokenTextEquals(source, tokens.Starts[ctorIndex], tokens.ValueLengths[ctorIndex], "constructor") {
+        return -1
+    }
+
+    declarationTokens := new ParserDeclarationTokenTable { Kinds: tokens.Kinds, Starts: tokens.Starts, ValueLengths: tokens.ValueLengths }
+    chainArgs := new ConstructorChainArgTable { Kinds: outputs.ArgKinds, Starts: outputs.ArgStarts, Lengths: outputs.ArgLengths }
+    chainResult := new ParserDeclarationResultTable { Values: result.Values }
+    chainArgCount := ParseConstructorChainInfoCore(ref declarationTokens, count, ctorIndex, ref chainArgs, ref chainResult)
     if chainArgCount < 0 {
         return -1
+    }
+
+    if outputs.ArgTexts.Length < chainArgCount {
+        return -1
+    }
+
+    chainArgIndex := 0
+    while chainArgIndex < chainArgCount {
+        outputs.ArgTexts[chainArgIndex] = source.Substring(chainArgs.Starts[chainArgIndex], chainArgs.Lengths[chainArgIndex])
+        chainArgIndex = chainArgIndex + 1
     }
 
     bodyBrace := result.Values[1]

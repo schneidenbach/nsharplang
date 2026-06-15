@@ -11,6 +11,24 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Constructor parser composes signature and chain cores directly
+
+`ParserColumnarConstructors.nl` now routes product constructor signature parsing through
+`ParseConstructorSignatureInfoCore` with named token, signature-output, type-node, parameter,
+constraint, and result wrappers instead of re-entering the flattened
+`ParseConstructorSignatureInfoInto` compatibility shim from inside N#.
+`ParserConstructorSignatures.nl` also materializes constructor-chain arguments through
+`ParseConstructorChainInfoCore` directly instead of re-entering the flattened
+`ParseConstructorTextInfoInto` shim. The public flattened ABIs remain available for the current
+adapter and parser parity tests. Focused evidence: `./scripts/dev.sh ParserConstructorSignatures`,
+`./scripts/dev.sh ColumnarCodegen_Parity_ClassConstructor`,
+`./scripts/dev.sh ColumnarCodegen_Parity_ClassConstructorOverloads`,
+`./scripts/dev.sh ColumnarCodegen_Parity_ClassConstructorChaining`,
+`./scripts/dev.sh ColumnarCodegen_Parity_ValueStructConstructors`,
+`./scripts/dev.sh ColumnarCodegen_Parity_GenericClass_CtorFieldMethodProperty`,
+`./scripts/dev.sh ColumnarCodegen_MultiFile_RealParserCluster`, and
+`./scripts/dev.sh ColumnarCodegen_CompilesRealDogfoodCorpus_Coverage`.
+
 ## 2026-06-15 — Enum parser composes declaration core directly
 
 `ParserColumnarEnums.nl` now routes product enum declaration parsing through
