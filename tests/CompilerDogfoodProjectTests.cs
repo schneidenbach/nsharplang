@@ -151,6 +151,10 @@ public class CompilerDogfoodProjectTests
                     "ParseStructDeclarationInfoInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit ParseStructDeclarationInfoInto.");
+            var parseColumnarStructInfo = programType.GetMethod(
+                    "ParseColumnarStructInfoInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit ParseColumnarStructInfoInto.");
             var canonicalTypeText = programType.GetMethod(
                     "ParserDeclarationCanonicalTypeText",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -363,6 +367,7 @@ class Pair<T> {
                 tokenizeWithIndentation,
                 parseStructDeclaration,
                 parseStructDeclarationInfo,
+                parseColumnarStructInfo,
                 "generic class field text info");
             AssertStructDeclarationInfo(
                 """
@@ -381,6 +386,7 @@ class Derived: Base, IFace {
                 tokenizeWithIndentation,
                 parseStructDeclaration,
                 parseStructDeclarationInfo,
+                parseColumnarStructInfo,
                 "class base name text info");
             AssertEnumDeclarationInfo(
                 "enum E { A = 5, B, C = 20, D }",
@@ -1667,6 +1673,7 @@ class B
         MethodInfo tokenizeWithIndentation,
         MethodInfo parseStructDeclaration,
         MethodInfo parseStructDeclarationInfo,
+        MethodInfo parseColumnarStructInfo,
         string label)
     {
         Assert.Equal(expectedFieldNames.Length, expectedFieldTypes.Length);
@@ -1785,11 +1792,54 @@ class B
                 result
             }) ?? -2);
 
+        var columnarFieldNameTexts = new string[cap];
+        var columnarFieldTypeTexts = new string[cap];
+        var columnarFieldStaticFlags = new int[cap];
+        var columnarFieldInitKinds = new int[cap];
+        var columnarFieldInitTexts = new string[cap];
+        var columnarMethodFuncIndices = new int[cap];
+        var columnarMethodStaticFlags = new int[cap];
+        var columnarCtorIndices = new int[cap];
+        var columnarPropIndices = new int[cap];
+        var columnarPropStaticFlags = new int[cap];
+        var columnarTypeParamTexts = new string[cap];
+        var columnarBaseNameTexts = new string[cap];
+        var columnarStructNameTexts = new string[1];
+        var columnarResult = new int[12];
+        var columnarFieldCount = (int)(parseColumnarStructInfo.Invoke(
+            null,
+            new object[]
+            {
+                compactedSource,
+                kinds,
+                starts,
+                valueLengths,
+                count,
+                structIndex,
+                columnarFieldNameTexts,
+                columnarFieldTypeTexts,
+                columnarFieldStaticFlags,
+                columnarFieldInitKinds,
+                columnarFieldInitTexts,
+                columnarMethodFuncIndices,
+                columnarMethodStaticFlags,
+                columnarCtorIndices,
+                columnarPropIndices,
+                columnarPropStaticFlags,
+                columnarTypeParamTexts,
+                columnarBaseNameTexts,
+                columnarStructNameTexts,
+                columnarResult
+            }) ?? -2);
+
         Assert.Equal(expectedFieldNames.Length, spanFieldCount);
         Assert.Equal(spanFieldCount, fieldCount);
+        Assert.Equal(fieldCount, columnarFieldCount);
         Assert.Equal(spanResult, result);
+        Assert.Equal(result, columnarResult);
         Assert.Equal(expectedStructName, compactedSource.Substring(result[0], result[1]));
         Assert.Equal(expectedStructName, structNameTexts[0]);
+        Assert.Equal(structNameTexts[0], columnarStructNameTexts[0]);
         Assert.Equal(expectedTypeParams.Length, result[7]);
         Assert.Equal(expectedBaseNames.Length, result[8]);
 
@@ -1799,6 +1849,7 @@ class B
             Assert.Equal(spanTypeParamLengths[i], typeParamLengths[i]);
             Assert.Equal(expectedTypeParams[i], compactedSource.Substring(typeParamStarts[i], typeParamLengths[i]));
             Assert.Equal(expectedTypeParams[i], typeParamTexts[i]);
+            Assert.Equal(typeParamTexts[i], columnarTypeParamTexts[i]);
         }
 
         for (var i = 0; i < expectedBaseNames.Length; i++)
@@ -1807,6 +1858,7 @@ class B
             Assert.Equal(spanBaseNameLengths[i], baseNameLengths[i]);
             Assert.Equal(expectedBaseNames[i], compactedSource.Substring(baseNameStarts[i], baseNameLengths[i]));
             Assert.Equal(expectedBaseNames[i], baseNameTexts[i]);
+            Assert.Equal(baseNameTexts[i], columnarBaseNameTexts[i]);
         }
 
         for (var i = 0; i < expectedFieldNames.Length; i++)
@@ -1821,11 +1873,33 @@ class B
             Assert.Equal(spanFieldInitLengths[i], fieldInitLengths[i]);
             Assert.Equal(expectedFieldNames[i], compactedSource.Substring(fieldNameStarts[i], fieldNameLengths[i]));
             Assert.Equal(expectedFieldNames[i], fieldNameTexts[i]);
+            Assert.Equal(fieldNameTexts[i], columnarFieldNameTexts[i]);
             Assert.Equal(expectedFieldTypes[i], compactedSource.Substring(fieldTypeStarts[i], fieldTypeLengths[i]));
             Assert.Equal(expectedFieldTypes[i], fieldTypeTexts[i]);
+            Assert.Equal(fieldTypeTexts[i], columnarFieldTypeTexts[i]);
             Assert.Equal(expectedFieldStaticFlags[i], fieldStaticFlags[i]);
+            Assert.Equal(fieldStaticFlags[i], columnarFieldStaticFlags[i]);
+            Assert.Equal(fieldInitKinds[i], columnarFieldInitKinds[i]);
             if (expectedFieldInitTexts[i] is { } initText)
+            {
                 Assert.Equal(initText, fieldInitTexts[i]);
+                Assert.Equal(fieldInitTexts[i], columnarFieldInitTexts[i]);
+            }
+        }
+
+        for (var i = 0; i < result[2]; i++)
+        {
+            Assert.Equal(methodFuncIndices[i], columnarMethodFuncIndices[i]);
+            Assert.Equal(methodStaticFlags[i], columnarMethodStaticFlags[i]);
+        }
+
+        for (var i = 0; i < result[3]; i++)
+            Assert.Equal(ctorIndices[i], columnarCtorIndices[i]);
+
+        for (var i = 0; i < result[4]; i++)
+        {
+            Assert.Equal(propIndices[i], columnarPropIndices[i]);
+            Assert.Equal(propStaticFlags[i], columnarPropStaticFlags[i]);
         }
     }
 
@@ -10808,7 +10882,7 @@ func outer(x: int): int {
             "CliArguments.nl", "CliDocOrdering.nl", "CliQueryParsing.nl", "CliTreeDependencies.nl",
             "CompletionGrouping.nl", "CompletionReceivers.nl", "DiagnosticClusters.nl", "DiagnosticDeduplication.nl", "DocQuery.nl",
             "FormatterImportOrdering.nl", "IdentifierSpans.nl",
-            "LexerTokenKindScanner.nl", "OverloadCandidates.nl", "ParserColumnarConstructors.nl", "ParserColumnarEnums.nl", "ParserColumnarFunctions.nl", "ParserColumnarInterfaces.nl", "ParserColumnarProperties.nl", "ParserColumnarUnions.nl", "ParserDeclarations.nl",
+            "LexerTokenKindScanner.nl", "OverloadCandidates.nl", "ParserColumnarConstructors.nl", "ParserColumnarEnums.nl", "ParserColumnarFunctions.nl", "ParserColumnarInterfaces.nl", "ParserColumnarProperties.nl", "ParserColumnarStructs.nl", "ParserColumnarUnions.nl", "ParserDeclarations.nl",
             "ParserConstructorSignatures.nl", "ParserExpressions.nl", "ParserFunctionSignatures.nl", "ParserInterfaceSignatures.nl", "ParserLocalFunctions.nl", "ParserStatements.nl", "ParserTypeReferences.nl",
             "ProjectSourceFilter.nl", "StructCopyAnalysis.nl",
             "TextEditOrdering.nl", "TypeLookup.nl",
@@ -10828,6 +10902,7 @@ func outer(x: int): int {
         Assert.Contains("ParseColumnarEnumInfoInto", methodNames!); // composed enum text/value routing
         Assert.Contains("ParseColumnarInterfaceInfoInto", methodNames!); // composed interface signature/text routing
         Assert.Contains("ParseColumnarPropertyInfoInto", methodNames!); // composed property accessor + body routing
+        Assert.Contains("ParseColumnarStructInfoInto", methodNames!); // composed struct/class/record text routing
         Assert.Contains("ParseColumnarUnionInfoInto", methodNames!); // composed union text/type routing
         Assert.Contains("ParseConstructorSignatureInfoInto", methodNames!); // ParserConstructorSignatures -> declarations/signatures/types
         Assert.Contains("ParseInterfaceDeclarationSignatureInfoInto", methodNames!); // ParserInterfaceSignatures -> declarations/signatures/types

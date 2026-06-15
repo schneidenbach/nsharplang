@@ -259,7 +259,7 @@ internal static class NSharpCompilerDogfoodAdapter
 
     // Collect every top-level struct/class/record declaration into a ColumnarStructInput (name + field names + field
     // TYPE canonical strings + optional static-field initializer text). Consumes the shared token bundle, finds each
-    // declaration keyword, and parses its body via the ParseStructDeclarationInfo kernel. Returns true (possibly an
+    // declaration keyword, and parses its body via the ParseColumnarStructInfo kernel. Returns true (possibly an
     // empty list) for a program with no supported declarations. Returns FALSE — declining the whole program to C# —
     // on any parse failure (a primary-ctor struct, unsupported member shape, composed base type, etc.).
     private static bool TryGetColumnarStructInputs(
@@ -283,36 +283,25 @@ internal static class NSharpCompilerDogfoodAdapter
                 var isReference = declReferenceFlags[declSlot] == 1;
                 var isRecord = declRecordFlags[declSlot] == 1;
                 var cap = n + 1;
-                var outFieldNameStarts = new int[cap];
-                var outFieldNameLengths = new int[cap];
                 var outFieldNameTexts = new string[cap];
-                var outFieldTypeStarts = new int[cap];
-                var outFieldTypeLengths = new int[cap];
                 var outFieldTypeTexts = new string[cap];
                 var outFieldStaticFlags = new int[cap];
                 var outFieldInitKinds = new int[cap];
-                var outFieldInitStarts = new int[cap];
-                var outFieldInitLengths = new int[cap];
                 var outFieldInitTexts = new string[cap];
                 var outMethodFuncIndices = new int[cap];
                 var outMethodStaticFlags = new int[cap];
                 var outCtorIndices = new int[cap];
                 var outPropIndices = new int[cap];
                 var outPropStaticFlags = new int[cap];
-                var outTypeParamStarts = new int[cap];
-                var outTypeParamLengths = new int[cap];
                 var outTypeParamTexts = new string[cap];
-                var outBaseNameStarts = new int[cap];
-                var outBaseNameLengths = new int[cap];
                 var outBaseNameTexts = new string[cap];
                 var outStructNameTexts = new string[1];
                 var outResult = new int[12];
-                var fieldCount = bindings.ParseStructDeclarationInfo(
-                    source, ck, cs, cv, n, structIndex, outFieldNameStarts, outFieldNameLengths, outFieldNameTexts, outFieldTypeStarts,
-                    outFieldTypeLengths, outFieldTypeTexts, outFieldStaticFlags, outFieldInitKinds, outFieldInitStarts, outFieldInitLengths,
-                    outFieldInitTexts, outMethodFuncIndices, outMethodStaticFlags, outCtorIndices, outPropIndices, outPropStaticFlags,
-                    outTypeParamStarts, outTypeParamLengths, outTypeParamTexts, outBaseNameStarts, outBaseNameLengths, outBaseNameTexts,
-                    outStructNameTexts, outResult);
+                var fieldCount = bindings.ParseColumnarStructInfo(
+                    source, ck, cs, cv, n, structIndex, outFieldNameTexts, outFieldTypeTexts,
+                    outFieldStaticFlags, outFieldInitKinds, outFieldInitTexts,
+                    outMethodFuncIndices, outMethodStaticFlags, outCtorIndices, outPropIndices, outPropStaticFlags,
+                    outTypeParamTexts, outBaseNameTexts, outStructNameTexts, outResult);
                 // The kernel returns -1 on a parse failure; 0 is a legitimate FIELDLESS type. A zero-field
                 // REFERENCE type (a pure-behavior class — e.g. an inheritance base with only methods) is modelled;
                 // a zero-field VALUE struct keeps declining (a zero-size value type is a CLR layout edge case).
@@ -1913,9 +1902,9 @@ internal static class NSharpCompilerDogfoodAdapter
                 CreateDelegate<ParseColumnarEnumInfoInto>(
                     programType,
                     "ParseColumnarEnumInfoInto"),
-                CreateDelegate<ParseStructDeclarationInfoInto>(
+                CreateDelegate<ParseColumnarStructInfoInto>(
                     programType,
-                    "ParseStructDeclarationInfoInto"),
+                    "ParseColumnarStructInfoInto"),
                 CreateDelegate<ParseColumnarUnionInfoInto>(
                     programType,
                     "ParseColumnarUnionInfoInto"),
@@ -2060,15 +2049,13 @@ internal static class NSharpCompilerDogfoodAdapter
         string source,
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int enumIndex,
         string[] outNameTexts, int[] outMemberValues, string[] outEnumNameTexts, int[] outResult);
-    private delegate int ParseStructDeclarationInfoInto(
+    private delegate int ParseColumnarStructInfoInto(
         string source,
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int structIndex,
-        int[] outFieldNameStarts, int[] outFieldNameLengths, string[] outFieldNameTexts,
-        int[] outFieldTypeStarts, int[] outFieldTypeLengths,
-        string[] outFieldTypeTexts, int[] outFieldStaticFlags, int[] outFieldInitKinds, int[] outFieldInitStarts, int[] outFieldInitLengths, string[] outFieldInitTexts,
+        string[] outFieldNameTexts, string[] outFieldTypeTexts,
+        int[] outFieldStaticFlags, int[] outFieldInitKinds, string[] outFieldInitTexts,
         int[] outMethodFuncIndices, int[] outMethodStaticFlags, int[] outCtorIndices, int[] outPropIndices, int[] outPropStaticFlags,
-        int[] outTypeParamStarts, int[] outTypeParamLengths, string[] outTypeParamTexts,
-        int[] outBaseNameStarts, int[] outBaseNameLengths, string[] outBaseNameTexts,
+        string[] outTypeParamTexts, string[] outBaseNameTexts,
         string[] outStructNameTexts, int[] outResult);
     private delegate int ParseColumnarUnionInfoInto(
         string source,
@@ -2104,7 +2091,7 @@ internal static class NSharpCompilerDogfoodAdapter
         ParseColumnarPropertyInfoInto ParseColumnarPropertyInfo,
         ParseColumnarInterfaceInfoInto ParseColumnarInterfaceInfo,
         ParseColumnarEnumInfoInto ParseColumnarEnumInfo,
-        ParseStructDeclarationInfoInto ParseStructDeclarationInfo,
+        ParseColumnarStructInfoInto ParseColumnarStructInfo,
         ParseColumnarUnionInfoInto ParseColumnarUnionInfo,
         ParseColumnarConstructorInfoInto ParseColumnarConstructorInfo);
 
