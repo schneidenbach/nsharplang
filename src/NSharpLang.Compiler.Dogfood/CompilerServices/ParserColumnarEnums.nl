@@ -28,8 +28,7 @@ struct ColumnarEnumResultTable {
 
 func ParseColumnarEnumInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, enumIndex: int, outNameTexts: string[], outMemberValues: int[], outEnumNameTexts: string[], outResult: int[]): int {
     tokens := new ColumnarEnumTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths, Count: count }
-    cap := count + 1
-    scratch := new ColumnarEnumMemberScratchTable { NameStarts: new int[](cap), NameLengths: new int[](cap), ValueStarts: new int[](cap), ValueLengths: new int[](cap), HasValue: new int[](cap) }
+    scratch := new ColumnarEnumMemberScratchTable { NameStarts: new int[](count + 1), NameLengths: new int[](count + 1), ValueStarts: new int[](count + 1), ValueLengths: new int[](count + 1), HasValue: new int[](count + 1) }
     outputs := new ColumnarEnumTextOutputTable { MemberNameTexts: outNameTexts, MemberValues: outMemberValues, EnumNameTexts: outEnumNameTexts }
     result := new ColumnarEnumResultTable { Values: outResult }
     return ParseColumnarEnumInfoCore(source, ref tokens, enumIndex, ref scratch, ref outputs, ref result)

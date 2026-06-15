@@ -31,8 +31,7 @@ struct ColumnarInterfaceResultTable {
 
 func ParseColumnarInterfaceInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, interfaceIndex: int, outMethodFuncIndices: int[], outBaseNameTexts: string[], outInterfaceNameTexts: string[], outMethodNameTexts: string[], outMethodReturnTexts: string[], outMethodParamCounts: int[], outMethodBodyFlags: int[], outMethodParamNameTexts: string[], outMethodParamTypeTexts: string[], outResult: int[]): int {
     tokens := new ColumnarInterfaceTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths, Count: count }
-    cap := count + 1
-    scratch := new ColumnarInterfaceBaseScratchTable { BaseNameStarts: new int[](cap), BaseNameLengths: new int[](cap) }
+    scratch := new ColumnarInterfaceBaseScratchTable { BaseNameStarts: new int[](count + 1), BaseNameLengths: new int[](count + 1) }
     outputs := new ColumnarInterfaceOutputTable { MethodFuncIndices: outMethodFuncIndices, BaseNameTexts: outBaseNameTexts, InterfaceNameTexts: outInterfaceNameTexts, MethodNameTexts: outMethodNameTexts, MethodReturnTexts: outMethodReturnTexts, MethodParamCounts: outMethodParamCounts, MethodBodyFlags: outMethodBodyFlags, MethodParamNameTexts: outMethodParamNameTexts, MethodParamTypeTexts: outMethodParamTypeTexts }
     result := new ColumnarInterfaceResultTable { Values: outResult }
     return ParseColumnarInterfaceInfoCore(source, ref tokens, interfaceIndex, ref scratch, ref outputs, ref result)

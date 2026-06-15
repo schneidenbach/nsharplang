@@ -34,8 +34,7 @@ struct ColumnarUnionResultTable {
 
 func ParseColumnarUnionInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, unionIndex: int, outCaseNameTexts: string[], outCaseFieldCounts: int[], outFieldNameTexts: string[], outFieldTypeTexts: string[], outTypeParamTexts: string[], outUnionNameTexts: string[], outResult: int[]): int {
     tokens := new ColumnarUnionTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths, Count: count }
-    cap := count + 1
-    scratch := new ColumnarUnionScratchTable { CaseNameStarts: new int[](cap), CaseNameLengths: new int[](cap), FieldNameStarts: new int[](cap), FieldNameLengths: new int[](cap), FieldTypeStarts: new int[](cap), FieldTypeLengths: new int[](cap), TypeParamStarts: new int[](cap), TypeParamLengths: new int[](cap) }
+    scratch := new ColumnarUnionScratchTable { CaseNameStarts: new int[](count + 1), CaseNameLengths: new int[](count + 1), FieldNameStarts: new int[](count + 1), FieldNameLengths: new int[](count + 1), FieldTypeStarts: new int[](count + 1), FieldTypeLengths: new int[](count + 1), TypeParamStarts: new int[](count + 1), TypeParamLengths: new int[](count + 1) }
     outputs := new ColumnarUnionTextOutputTable { CaseNameTexts: outCaseNameTexts, CaseFieldCounts: outCaseFieldCounts, FieldNameTexts: outFieldNameTexts, FieldTypeTexts: outFieldTypeTexts, TypeParamTexts: outTypeParamTexts, UnionNameTexts: outUnionNameTexts }
     result := new ColumnarUnionResultTable { Values: outResult }
     return ParseColumnarUnionInfoCore(source, ref tokens, unionIndex, ref scratch, ref outputs, ref result)
