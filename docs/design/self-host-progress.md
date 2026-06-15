@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — SoA table with-expressions reject generated fields
+
+SoA table `with` updates now share the named-initializer guard used by object initializers.
+`nodes with { kind: ... }`, `length`, and `capacity` updates report SoA-specific diagnostics before
+the IL emitter can clone the wrapper and store generated fields, and alias-typed table targets are
+resolved to the underlying SoA table for the same check. Unknown SoA table `with` members now report
+`UndefinedMember` before emission.
+
 ## 2026-06-15 — SoA table object initializers reject generated fields
 
 SoA generated table fields now reject object-initializer writes before IL emission. `new NodeTable(1)

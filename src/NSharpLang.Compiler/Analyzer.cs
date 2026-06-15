@@ -12950,7 +12950,7 @@ public class Analyzer : IDisposable
             ? (prop.NameLine, prop.NameColumn)
             : (prop.Value.Line, prop.Value.Column);
 
-        if (ReportSoaTableObjectInitializerIfNeeded(constructedType, prop.Name, nameLine, nameColumn))
+        if (ReportSoaTableNamedInitializerIfNeeded(constructedType, prop.Name, nameLine, nameColumn))
         {
             AnalyzeExpression(prop.Value);
             return;
@@ -13137,7 +13137,7 @@ public class Analyzer : IDisposable
         return true;
     }
 
-    private bool ReportSoaTableObjectInitializerIfNeeded(
+    private bool ReportSoaTableNamedInitializerIfNeeded(
         TypeInfo constructedType,
         string memberName,
         int nameLine,
@@ -13619,7 +13619,8 @@ public class Analyzer : IDisposable
                     ? (property.NameLine, property.NameColumn)
                     : (property.Value.Line, property.Value.Column);
 
-                if (TryResolveObjectInitializerMemberType(targetType, unionCaseName: null, property.Name, nameLine, nameColumn, out var resolvedMemberType))
+                if (!ReportSoaTableNamedInitializerIfNeeded(targetType, property.Name, nameLine, nameColumn)
+                    && TryResolveObjectInitializerMemberType(targetType, unionCaseName: null, property.Name, nameLine, nameColumn, out var resolvedMemberType))
                 {
                     memberType = resolvedMemberType;
                 }
