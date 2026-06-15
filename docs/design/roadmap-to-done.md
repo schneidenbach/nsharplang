@@ -239,7 +239,10 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       only where columnar ownership is complete, and proving the emitter-port table model before moving hot
       compiler tables. The production emit entry has moved from `NSharpCompilerDogfoodAdapter.TryEmitColumnarProgram*`
       to `ColumnarCompiler.TryEmitProgram*`; the adapter now only bridges N# parser/service kernels into
-      `ColumnarProgramInput` for this route. The SoA table-type design gate is complete in [`soa-table-types.md`](soa-table-types.md);
+      `ColumnarProgramInput` for this route. Product parser wrappers for function, constructor, property,
+      body/local-function, enum, struct/class/record, union, and interface routes now compose typed N# cores
+      directly where wrapper ownership is complete; flattened exports remain compatibility/parity ABIs. The
+      SoA table-type design gate is complete in [`soa-table-types.md`](soa-table-types.md);
       non-generic `soa record` parsing/lowering and the cold overload-candidate fixture are in place behind
       `NSHARP_EXPERIMENTAL_SOA=1`. Next slices should either shrink redundant adapter/C# transition surface
       or migrate the next compiler table only when the wrapper ABI/lowering evidence is present.

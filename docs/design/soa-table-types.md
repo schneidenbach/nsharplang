@@ -550,11 +550,13 @@ ownership lands.
    `ParserColumnarEnums.nl`, `ParserColumnarUnions.nl`, and `ParserColumnarInterfaces.nl` now wrap
    compact token columns, hidden declaration span scratch columns, text/count outputs, and result
    slots inside wrapper-aware nominal product cores while preserving their flattened adapter ABIs;
-   the enum product path now also composes the declaration and member-value cores directly, and the
-   interface product path now composes the interface signature core directly.
+   the enum product path now also composes the declaration and member-value cores directly, the
+   union product path composes the union declaration core directly, and the interface product path
+   now composes the interface signature core directly.
    `ParserColumnarStructs.nl` now wraps compact token columns, hidden field/type/init/type-parameter/base
    span scratch columns, member/index outputs, text outputs, and result slots inside its wrapper-aware
-   struct/class/record product core while preserving its flattened adapter ABI.
+   struct/class/record product core while preserving its flattened adapter ABI; that product core now
+   composes the struct/class/record declaration core directly.
    `ParserTypeReferences.nl` has started the parser token-stream
    cleanup by wrapping token metadata, recursive argument stacks, child-index outputs, and result
    slots for the type-reference recursive cores; its base, greater-consumption, postfix, and union

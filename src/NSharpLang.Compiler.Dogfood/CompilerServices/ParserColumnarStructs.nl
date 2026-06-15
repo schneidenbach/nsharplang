@@ -50,15 +50,69 @@ func ParseColumnarStructInfoInto(source: string, tokenKinds: int[], tokenStarts:
 }
 
 func ParseColumnarStructInfoCore(source: string, tokens: &ColumnarStructTokenTable, structIndex: int, scratch: &ColumnarStructScratchTable, outputs: &ColumnarStructOutputTable, result: &ColumnarStructResultTable): int {
-    return ParseStructDeclarationInfoInto(
-        source, tokens.Kinds, tokens.Starts, tokens.ValueLengths, tokens.Count, structIndex,
-        scratch.FieldNameStarts, scratch.FieldNameLengths, outputs.FieldNameTexts,
-        scratch.FieldTypeStarts, scratch.FieldTypeLengths, outputs.FieldTypeTexts,
-        outputs.FieldStaticFlags, outputs.FieldInitKinds,
-        scratch.FieldInitStarts, scratch.FieldInitLengths, outputs.FieldInitTexts,
-        outputs.MethodFuncIndices, outputs.MethodStaticFlags,
-        outputs.CtorIndices, outputs.PropIndices, outputs.PropStaticFlags,
-        scratch.TypeParamStarts, scratch.TypeParamLengths, outputs.TypeParamTexts,
-        scratch.BaseNameStarts, scratch.BaseNameLengths, outputs.BaseNameTexts,
-        outputs.StructNameTexts, result.Values)
+    declarationTokens := new ParserDeclarationTokenTable { Kinds: tokens.Kinds, Starts: tokens.Starts, ValueLengths: tokens.ValueLengths }
+    decl := new StructDeclarationTable { FieldNameStarts: scratch.FieldNameStarts, FieldNameLengths: scratch.FieldNameLengths, FieldTypeStarts: scratch.FieldTypeStarts, FieldTypeLengths: scratch.FieldTypeLengths, FieldStaticFlags: outputs.FieldStaticFlags, FieldInitKinds: outputs.FieldInitKinds, FieldInitStarts: scratch.FieldInitStarts, FieldInitLengths: scratch.FieldInitLengths, MethodFuncIndices: outputs.MethodFuncIndices, MethodStaticFlags: outputs.MethodStaticFlags, CtorIndices: outputs.CtorIndices, PropIndices: outputs.PropIndices, PropStaticFlags: outputs.PropStaticFlags, TypeParamStarts: scratch.TypeParamStarts, TypeParamLengths: scratch.TypeParamLengths, BaseNameStarts: scratch.BaseNameStarts, BaseNameLengths: scratch.BaseNameLengths }
+    declarationResult := new ParserDeclarationResultTable { Values: result.Values }
+    fieldCount := ParseStructDeclarationCore(ref declarationTokens, tokens.Count, structIndex, ref decl, ref declarationResult)
+    typeParamCount := result.Values[7]
+    baseNameCount := result.Values[8]
+    if fieldCount < 0 || outputs.StructNameTexts.Length < 1 || fieldCount > outputs.FieldNameTexts.Length || fieldCount > outputs.FieldTypeTexts.Length || fieldCount > outputs.FieldInitTexts.Length || typeParamCount > outputs.TypeParamTexts.Length || baseNameCount > outputs.BaseNameTexts.Length {
+        return -1
+    }
+
+    structName := ParserDeclarationSpanText(source, result.Values[0], result.Values[1])
+    if structName == "" {
+        return -1
+    }
+    outputs.StructNameTexts[0] = structName
+
+    i := 0
+    while i < typeParamCount {
+        typeParamName := ParserDeclarationSpanText(source, scratch.TypeParamStarts[i], scratch.TypeParamLengths[i])
+        if typeParamName == "" {
+            return -1
+        }
+
+        outputs.TypeParamTexts[i] = typeParamName
+        i = i + 1
+    }
+
+    i = 0
+    while i < baseNameCount {
+        baseName := ParserDeclarationSpanText(source, scratch.BaseNameStarts[i], scratch.BaseNameLengths[i])
+        if baseName == "" {
+            return -1
+        }
+
+        outputs.BaseNameTexts[i] = baseName
+        i = i + 1
+    }
+
+    i = 0
+    while i < fieldCount {
+        fieldName := ParserDeclarationSpanText(source, scratch.FieldNameStarts[i], scratch.FieldNameLengths[i])
+        if fieldName == "" {
+            return -1
+        }
+
+        text := ParserDeclarationCanonicalTypeText(source, scratch.FieldTypeStarts[i], scratch.FieldTypeLengths[i])
+        if text.Length == 0 {
+            return -1
+        }
+
+        outputs.FieldNameTexts[i] = fieldName
+        outputs.FieldTypeTexts[i] = text
+        if outputs.FieldInitKinds[i] >= 0 {
+            initText := source.Substring(scratch.FieldInitStarts[i], scratch.FieldInitLengths[i])
+            if initText.Length == 0 {
+                return -1
+            }
+
+            outputs.FieldInitTexts[i] = initText
+        }
+
+        i = i + 1
+    }
+
+    return fieldCount
 }

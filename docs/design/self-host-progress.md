@@ -11,6 +11,22 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Struct and union parsers compose declaration cores directly
+
+`ParserColumnarStructs.nl` now routes product struct/class/record declaration parsing through
+`ParseStructDeclarationCore` with named declaration-token, struct-declaration, scratch, output, and
+result wrappers instead of re-entering the flattened `ParseStructDeclarationInfoInto`
+compatibility shim from inside N#. `ParserColumnarUnions.nl` does the same for product union
+declaration parsing through `ParseUnionDeclarationCore`, preserving its flattened public ABI for the
+current adapter and parser parity tests. With this slice, enum, struct/class/record, union,
+interface, function, constructor, property, and body product parser wrappers all compose typed N#
+cores directly where wrapper ownership has landed. Focused evidence:
+`./scripts/dev.sh Parser_TopLevelDeclarationKinds_MatchProductionParser`,
+`./scripts/dev.sh ColumnarCodegen_Parity_Struct`,
+`./scripts/dev.sh ColumnarCodegen_Parity_Union`,
+`./scripts/dev.sh ColumnarCodegen_MultiFile_RealParserCluster`, and
+`./scripts/dev.sh ColumnarCodegen_CompilesRealDogfoodCorpus_Coverage`.
+
 ## 2026-06-15 — Interface parser composes signature core directly
 
 `ParserColumnarInterfaces.nl` now routes product interface declaration/member signature parsing
