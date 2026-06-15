@@ -3368,6 +3368,32 @@ public class SoaRecordTests : ILCompilerTestBase
         Assert.Contains("allocation-free view lowering", error.Suggestion);
     }
 
+    [Theory]
+    [InlineData("nodes.kind[range] = [1]")]
+    [InlineData("nodes.kind[range] += [1]")]
+    [InlineData("nodes.kind[range] ??= [1]")]
+    [InlineData("nodes.kind[range]++")]
+    [InlineData("nodes.kind[range]--")]
+    public void Analyzer_SoaTableColumnRangeValueMutationWouldAllocate(string statement)
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze($$"""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable) {
+                range := 0..1
+                {{statement}}
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("SoA column range slices allocate arrays", error.Message);
+        Assert.Contains("allocation-free view lowering", error.Suggestion);
+    }
+
     [Fact]
     public void Analyzer_SoaRowViewCannotBeUsedAsRelationalPatternValue()
     {

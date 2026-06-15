@@ -231,9 +231,10 @@ Direct column range reads (`table.column[start..end]`) are rejected because ordi
 semantics allocate a sliced array. They can be admitted only after an allocation-free span/view lowering
 has pinned IL-shape evidence. That rejection also applies when the range uses `System.Index`
 from-end bounds, such as `table.column[1..^1]`, and when the column member is parenthesized, such as
-`(table.column)[start..end]`. Slice update forms, including simple assignment, compound assignment,
-null-coalescing assignment, increment, and decrement, all reject during analysis for both ordinary and
-from-end ranges.
+`(table.column)[start..end]`. The same rejection applies to variable-held `System.Range` values such
+as `range := 0..1; table.column[range]`. Slice update forms, including simple assignment, compound
+assignment, null-coalescing assignment, increment, and decrement, all reject during analysis for
+literal, variable-held, and from-end ranges.
 
 ## Diagnostics
 
@@ -338,9 +339,9 @@ the verified scalar/reference
 element-type set, direct column null-coalescing reads/assignments, and from-end `System.Index` access
 including parenthesized literal and variable-held from-end direct-column element lvalues,
 expression-valued simple stores, default stores across the verified scalar/reference element-type set,
-including expression-valued default stores, without old-element reads, variable-held from-end
-null-coalescing reads/assignments, verified scalar/reference element reads/stores, bool bitwise
-expression stores, int-backed enum
+including expression-valued default stores, without old-element reads, variable-held direct-column
+range mutation diagnostics, variable-held from-end null-coalescing reads/assignments, verified
+scalar/reference element reads/stores, bool bitwise expression stores, int-backed enum
 reads/stores/default stores/generated methods, string/string? concatenating compound assignments,
 string/string? concatenation expression stores, string/string? equality/inequality expressions,
 nullable-string null equality/inequality expressions, bool equality/inequality plus logical-not and

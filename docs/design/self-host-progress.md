@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Variable-held SoA column range mutations stop in analysis
+
+Direct backing-column range slices now have analyzer pins for variable-held `System.Range` values
+across the mutation surface. `range := 0..1; nodes.kind[range] = [1]`, `+=`, `??=`, `++`, and `--`
+all report the hidden-allocation diagnostic before IL emission, matching the literal and from-end
+range slice rejections. Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter
+"FullyQualifiedName~Analyzer_SoaTableColumnRangeValueMutationWouldAllocate"` (5 tests).
+
 ## 2026-06-15 — Parenthesized SoA variable from-end column targets are pinned
 
 The accepted direct-column `System.Index` path now has an explicit variable-held regression beside
