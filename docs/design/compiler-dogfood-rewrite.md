@@ -102,7 +102,10 @@ Current lexer dogfood benchmarks:
   compaction. The C# baseline mirrors `tokens.Where(t => t.Type != TokenType.Newline).ToList()`.
   The N# candidate runs after the host projects token kinds into compact ids and writes kept source
   indices through `ParserTokenCompactionIndicesInto`. Token objects and the final parser token list
-  remain C# host boundaries until the compact parser token table is ported.
+  remain C# host boundaries until the compact parser token table is ported. The product adapter now
+  binds the counted-prefix `ParserTokenCompactionIndicesCountedInto` ABI for both columnar
+  tokenization and parser-constructor compaction; the full-array export is retained for benchmark
+  and parity evidence.
 
 The lexer scanner candidate now lives in `src/NSharpLang.Compiler.Dogfood` as an ordinary N# SDK
 project. Benchmarks embed `CompilerServices/LexerTokenKindScanner.nl` as source input and compile it
@@ -1661,7 +1664,8 @@ BenchmarkDotNet evidence tier for parser newline-token compaction. It ran about 
 representative token corpus (96.771 ns vs 706.742 ns, 0 B vs 1,560 B) and about 8.6x faster on the
 large generated token corpus (31.250 us vs 268.324 us, 0 B vs 468,667 B). This is
 acceptance-grade benchmark evidence for newline compaction after the host has projected token kinds
-into compact integer ids.
+into compact integer ids. The shipped adapter binding uses the counted-prefix ABI so production
+callers pass logical token counts instead of relying on exact-sized full arrays.
 
 `CliBatchDuplicateIdRanksInto` passed parity and reported zero managed allocation in the normal
 BenchmarkDotNet evidence tier for the compact rank duplicate-id kernel. It ran about 21.8x faster

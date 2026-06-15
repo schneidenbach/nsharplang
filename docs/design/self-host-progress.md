@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Parser constructor compaction drops full-array adapter binding
+
+`NSharpCompilerDogfoodAdapter.TryCompactParserTokens` now calls
+`ParserTokenCompactionIndicesCountedInto` with the logical token count instead of binding the older
+full-array `ParserTokenCompactionIndicesInto` surface. The full-array export remains available for
+parser parity tests and benchmark evidence, but the product `Parser` constructor path no longer
+depends on it. Focused evidence: `./scripts/dev.sh ParserTokenCompaction`,
+`./scripts/dev.sh CompilerDogfoodAdapter_CompactsParserTokens`, and
+`./scripts/dev.sh ColumnarCodegen_CompilesRealDogfoodCorpus_Coverage`.
+
 ## 2026-06-15 — Top-level declaration router composes through wrapper cores
 
 `ParserDeclarations.nl` now keeps the product-routed top-level program declaration router on named
@@ -705,10 +715,11 @@ the columnar product route. `LexerTokenKindScanner.nl` now exposes
 `ParserTokenCompactionIndicesCore` loop, and the adapter uses those dogfood-selected raw token
 indices before materializing compact parser-token columns.
 
-The original `ParserTokenCompactionIndicesInto` full-array surface remains stable for parser
-constructor routing and parity benchmarks. `CompilerDogfoodProjectTests` now pads the input buffer
-when checking the counted entry point, proving the production tokenizer can pass over-allocated raw
-token arrays without compacting trailing spare capacity.
+The original `ParserTokenCompactionIndicesInto` full-array surface remains stable for parity
+benchmarks. `CompilerDogfoodProjectTests` now pads the input buffer when checking the counted entry
+point, proving the production tokenizer can pass over-allocated raw token arrays without compacting
+trailing spare capacity. The later parser-constructor adapter pass also moved that path to the
+counted entry point, leaving the full-array export out of product adapter bindings.
 
 ## 2026-06-15 — Top-level function preamble guard moves into N#
 

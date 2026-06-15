@@ -1063,8 +1063,9 @@ internal static class NSharpCompilerDogfoodAdapter
                 scratch.TokenKinds[i] = (int)tokens[i].Type;
             }
 
-            var compactedCount = bindings.ParserTokenCompaction(
+            var compactedCount = bindings.ParserTokenCompactionCounted(
                 scratch.TokenKinds,
+                tokenCount,
                 scratch.ResultIndices);
 
             if (compactedCount < 0 || compactedCount > tokenCount)
@@ -1845,9 +1846,6 @@ internal static class NSharpCompilerDogfoodAdapter
                 return null;
 
             return new Bindings(
-                CreateDelegate<ParserTokenCompactionIndicesInto>(
-                    programType,
-                    "ParserTokenCompactionIndicesInto"),
                 CreateDelegate<ParserTokenCompactionIndicesCountedInto>(
                     programType,
                     "ParserTokenCompactionIndicesCountedInto"),
@@ -1944,7 +1942,6 @@ internal static class NSharpCompilerDogfoodAdapter
         return (TDelegate)Delegate.CreateDelegate(typeof(TDelegate), method);
     }
 
-    private delegate int ParserTokenCompactionIndicesInto(int[] tokenKinds, int[] resultIndices);
     private delegate int ParserTokenCompactionIndicesCountedInto(int[] tokenKinds, int tokenCount, int[] resultIndices);
     private delegate int FormatterImportOrderIndicesInto(
         int[] systemFlags,
@@ -2072,7 +2069,6 @@ internal static class NSharpCompilerDogfoodAdapter
         int[] outChildIndices, int[] outSpanStarts, int[] outSpanLengths, int[] outResult);
 
     private sealed record Bindings(
-        ParserTokenCompactionIndicesInto ParserTokenCompaction,
         ParserTokenCompactionIndicesCountedInto ParserTokenCompactionCounted,
         FormatterImportOrderIndicesInto FormatterImportOrderIndices,
         FirstDistinctRankIndicesInto FirstDistinctRankIndices,
