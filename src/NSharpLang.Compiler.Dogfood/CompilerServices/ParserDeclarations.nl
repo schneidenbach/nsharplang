@@ -1055,21 +1055,18 @@ func ParseConstructorChainInfoInto(tokenKinds: int[], tokenStarts: int[], tokenV
 }
 
 func ParseConstructorChainInfoCore(tokens: &ParserDeclarationTokenTable, count: int, ctorIndex: int, args: &ConstructorChainArgTable, result: &ParserDeclarationResultTable): int {
-    tokenKinds := tokens.Kinds
-    tokenStarts := tokens.Starts
-    tokenValueLengths := tokens.ValueLengths
     result.Values[0] = 0
     pos := ctorIndex + 1
-    if pos >= count || tokenKinds[pos] != 127 {
+    if pos >= count || tokens.Kinds[pos] != 127 {
         return 0
     }
 
     pdepth := 0
     pdone := 0
     while pos < count && pdone == 0 {
-        if tokenKinds[pos] == 127 {
+        if tokens.Kinds[pos] == 127 {
             pdepth = pdepth + 1
-        } else if tokenKinds[pos] == 128 {
+        } else if tokens.Kinds[pos] == 128 {
             pdepth = pdepth - 1
             if pdepth == 0 {
                 pdone = 1
@@ -1081,7 +1078,7 @@ func ParseConstructorChainInfoCore(tokens: &ParserDeclarationTokenTable, count: 
         return 0
     }
 
-    if pos >= count || tokenKinds[pos] != 122 {
+    if pos >= count || tokens.Kinds[pos] != 122 {
         return 0
     }
     pos = pos + 1
@@ -1089,40 +1086,40 @@ func ParseConstructorChainInfoCore(tokens: &ParserDeclarationTokenTable, count: 
     if pos >= count {
         return -1
     }
-    if tokenKinds[pos] == 42 {
+    if tokens.Kinds[pos] == 42 {
         result.Values[0] = 1
-    } else if tokenKinds[pos] == 43 {
+    } else if tokens.Kinds[pos] == 43 {
         result.Values[0] = 2
     } else {
         return -1
     }
     pos = pos + 1
 
-    if pos >= count || tokenKinds[pos] != 127 {
+    if pos >= count || tokens.Kinds[pos] != 127 {
         return -1
     }
     pos = pos + 1
 
     argCount := 0
-    while pos < count && tokenKinds[pos] != 128 {
-        if tokenKinds[pos] != 0 && tokenKinds[pos] != 1 {
+    while pos < count && tokens.Kinds[pos] != 128 {
+        if tokens.Kinds[pos] != 0 && tokens.Kinds[pos] != 1 {
             return -1
         }
-        args.Kinds[argCount] = tokenKinds[pos]
-        args.Starts[argCount] = tokenStarts[pos]
-        args.Lengths[argCount] = tokenValueLengths[pos]
+        args.Kinds[argCount] = tokens.Kinds[pos]
+        args.Starts[argCount] = tokens.Starts[pos]
+        args.Lengths[argCount] = tokens.ValueLengths[pos]
         argCount = argCount + 1
         pos = pos + 1
 
-        if pos < count && tokenKinds[pos] != 128 {
-            if tokenKinds[pos] != 134 {
+        if pos < count && tokens.Kinds[pos] != 128 {
+            if tokens.Kinds[pos] != 134 {
                 return -1
             }
             pos = pos + 1
         }
     }
 
-    if pos >= count || tokenKinds[pos] != 128 {
+    if pos >= count || tokens.Kinds[pos] != 128 {
         return -1
     }
     return argCount

@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Constructor-chain parser keeps tables shaped
+
+`ParseConstructorChainInfoCore` now reads constructor parameter-list scans, `this`/`base`
+initializer detection, and initializer argument spans through `ParserDeclarationTokenTable` instead
+of unpacking raw token arrays. The union declaration body remains as the final declaration parser
+cleanup slice in `ParserDeclarations.nl`. Focused evidence:
+`./scripts/dev.sh ColumnarCodegen_MultiFile_EligibleClusterCompiles`.
+
 ## 2026-06-15 — Struct declaration parser keeps tables shaped
 
 `ParseStructDeclarationCore` now reads struct/class/record names, type parameters, base lists,
