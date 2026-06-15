@@ -3812,6 +3812,63 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void StringColumnConcatenationExpressions_UseColumnArrayLoadStoreAndStringConcatWithoutRowOrSliceAllocation()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                name: string
+            }
+
+            func update(nodes: NodeTable, row: int): int {
+                directRow := row + 1
+
+                nodes[row].name = "row"
+                rowValue := nodes[row].name = nodes[row].name + "-value"
+
+                nodes.name[directRow] = "direct"
+                directValue := nodes.name[directRow] = nodes.name[directRow] + "-value"
+
+                nodes.name[^1] = "last"
+                fromEndValue := nodes.name[^1] = nodes.name[^1] + "-value"
+
+                total := rowValue == "row-value" ? 100 : 0
+                total += directValue == "direct-value" ? 10 : 0
+                total += fromEndValue == "last-value" ? 1 : 0
+                return total
+            }
+
+            func main(): int {
+                nodes := new NodeTable(3)
+                row := nodes.add()
+                nodes.add()
+                nodes.add()
+                return update(nodes, row)
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var update = ILShapeInspector.GetProgramMethod(assembly, "update");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(111, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoFromEndSliceAllocation(update);
+            var fieldLoads = ILShapeInspector.CountOpcode(update, OpCodes.Ldfld);
+            Assert.True(
+                fieldLoads >= 6,
+                $"String SoA concatenation expressions should load backing column fields directly; saw {fieldLoads} field loads.");
+            Assert.Equal(3, CountArrayElementLoads(update));
+            Assert.Equal(6, CountArrayElementStores(update));
+            Assert.Equal(3, ILShapeInspector.CountCallsTo(update, typeof(string), nameof(string.Concat)));
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void StringColumnCompoundAssignment_UsesColumnArrayLoadStoreAndStringConcat()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
