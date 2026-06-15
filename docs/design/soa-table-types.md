@@ -529,6 +529,8 @@ ownership lands.
    rank/flag/count/result columns wrapper-shaped internally. The remaining `CliArguments.nl`
    test-filter name batches and format-discovery path/flag batches are table-wrapped too, leaving its
    array-taking functions as flattened adapter shims or scalar helper shims over wrapper-aware cores.
+   `ParserLocalFunctions.nl` now wraps compact token columns, statement-node columns, and local-function
+   result columns behind named tables while preserving its flattened adapter ABI.
    `ParserTypeReferences.nl` has started the parser token-stream
    cleanup by wrapping token metadata, recursive argument stacks, child-index outputs, and result
    slots for the type-reference recursive cores; its base, greater-consumption, postfix, and union

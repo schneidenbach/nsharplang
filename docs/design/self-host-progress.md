@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Local-function discovery core wraps parser tables
+
+`ParserLocalFunctions.nl` now keeps compact token columns, statement-node columns, and local-function
+result columns behind named N# table structs inside `DirectLocalFunctionTokenIndicesCore`. The
+public `DirectLocalFunctionTokenIndicesInto` ABI stays flattened for the current adapter and parity
+tests, but the product implementation no longer scans anonymous parallel arrays internally.
+Focused evidence: `./scripts/dev.sh Parser_Statement_MatchesProductionParser`,
+`./scripts/dev.sh ColumnarCodegen_Parity_LocalFunctions`,
+`./scripts/dev.sh ColumnarCodegen_CompilesRealDogfoodCorpus_Coverage`, and
+`./scripts/dev.sh ColumnarCodegen_MultiFile_EligibleClusterCompiles`.
+
 ## 2026-06-15 — Struct production rowset drops declaration span columns
 
 `ParserColumnarStructs.nl` now exports `ParseColumnarStructInfoInto`, the product-routed

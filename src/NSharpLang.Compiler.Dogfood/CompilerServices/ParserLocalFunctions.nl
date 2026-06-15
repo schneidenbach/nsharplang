@@ -2,17 +2,43 @@
 // function declaration as statement kind 41 with the `func` keyword's source span; this wrapper maps direct children
 // of a function body block to their compact token indices in N#, keeping the adapter out of statement-table scans.
 
+struct LocalFunctionTokenTable {
+    Kinds: int[]
+    Starts: int[]
+    Count: int
+}
+
+struct LocalFunctionNodeTable {
+    Kinds: int[]
+    ValueStarts: int[]
+    ChildStart: int[]
+    ChildCount: int[]
+    ChildIndices: int[]
+}
+
+struct LocalFunctionResultTable {
+    NodeIndices: int[]
+    FuncTokenIndices: int[]
+}
+
 func DirectLocalFunctionTokenIndicesInto(tokenKinds: int[], tokenStarts: int[], tokenCount: int, nodeKinds: int[], nodeValueStarts: int[], nodeChildStart: int[], nodeChildCount: int[], nodeChildIndices: int[], rootBlock: int, outNodeIndices: int[], outFuncTokenIndices: int[]): int {
-    if rootBlock < 0 || rootBlock >= nodeKinds.Length {
+    tokens := new LocalFunctionTokenTable { Kinds: tokenKinds, Starts: tokenStarts, Count: tokenCount }
+    nodes := new LocalFunctionNodeTable { Kinds: nodeKinds, ValueStarts: nodeValueStarts, ChildStart: nodeChildStart, ChildCount: nodeChildCount, ChildIndices: nodeChildIndices }
+    results := new LocalFunctionResultTable { NodeIndices: outNodeIndices, FuncTokenIndices: outFuncTokenIndices }
+    return DirectLocalFunctionTokenIndicesCore(ref tokens, ref nodes, rootBlock, ref results)
+}
+
+func DirectLocalFunctionTokenIndicesCore(tokens: &LocalFunctionTokenTable, nodes: &LocalFunctionNodeTable, rootBlock: int, results: &LocalFunctionResultTable): int {
+    if rootBlock < 0 || rootBlock >= nodes.Kinds.Length {
         return -1
     }
 
-    if nodeKinds[rootBlock] != 25 {
+    if nodes.Kinds[rootBlock] != 25 {
         return 0
     }
 
-    childRun := nodeChildStart[rootBlock]
-    childCount := nodeChildCount[rootBlock]
+    childRun := nodes.ChildStart[rootBlock]
+    childCount := nodes.ChildCount[rootBlock]
     if childRun < 0 || childCount < 0 {
         return -1
     }
@@ -20,23 +46,23 @@ func DirectLocalFunctionTokenIndicesInto(tokenKinds: int[], tokenStarts: int[], 
     resultCount := 0
     childIndex := 0
     while childIndex < childCount {
-        stmtNode := nodeChildIndices[childRun + childIndex]
-        if stmtNode < 0 || stmtNode >= nodeKinds.Length {
+        stmtNode := nodes.ChildIndices[childRun + childIndex]
+        if stmtNode < 0 || stmtNode >= nodes.Kinds.Length {
             return -1
         }
 
-        if nodeKinds[stmtNode] == 41 {
-            if resultCount >= outNodeIndices.Length || resultCount >= outFuncTokenIndices.Length {
+        if nodes.Kinds[stmtNode] == 41 {
+            if resultCount >= results.NodeIndices.Length || resultCount >= results.FuncTokenIndices.Length {
                 return -1
             }
 
-            funcTokenIndex := TokenIndexByKindStartInto(tokenKinds, tokenStarts, tokenCount, 7, nodeValueStarts[stmtNode])
+            funcTokenIndex := TokenIndexByKindStartInto(tokens.Kinds, tokens.Starts, tokens.Count, 7, nodes.ValueStarts[stmtNode])
             if funcTokenIndex < 0 {
                 return -1
             }
 
-            outNodeIndices[resultCount] = stmtNode
-            outFuncTokenIndices[resultCount] = funcTokenIndex
+            results.NodeIndices[resultCount] = stmtNode
+            results.FuncTokenIndices[resultCount] = funcTokenIndex
             resultCount = resultCount + 1
         }
 
