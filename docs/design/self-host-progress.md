@@ -11,6 +11,22 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Constructor signature wrapper reuses SoA parser rowsets
+
+`ParserConstructorSignatures.nl` now routes `ParseConstructorSignatureInfoInto` through a
+wrapper-aware core with named parameter/initializer output columns and one reusable
+function-signature scratch rowset per constructor parse. The public flattened ABI remains in place
+for the current adapter and parser parity tests, while the product-routed constructor wrapper no
+longer allocates anonymous type-node, parameter, type-parameter, `where`, and result arrays
+internally or calls the flattened type canonicalizer when materializing accepted constructor
+parameter types. Focused evidence:
+`./scripts/dev.sh ParserConstructorSignatures`,
+`./scripts/dev.sh ColumnarCodegen_Parity_ClassConstructor`,
+`./scripts/dev.sh ColumnarCodegen_Parity_ValueStructConstructors`,
+`./scripts/dev.sh ColumnarCodegen_Parity_GenericClass_CtorFieldMethodProperty`,
+`./scripts/dev.sh ColumnarCodegen_CompilesRealDogfoodCorpus_Coverage`, and
+`./scripts/dev.sh ColumnarCodegen_MultiFile_EligibleClusterCompiles`.
+
 ## 2026-06-15 — Interface signature wrapper reuses SoA parser rowsets
 
 `ParserInterfaceSignatures.nl` now routes `ParseInterfaceDeclarationSignatureInfoInto` through a
