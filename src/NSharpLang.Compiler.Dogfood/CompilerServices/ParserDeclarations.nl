@@ -497,39 +497,36 @@ func ParseInterfaceDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenV
 }
 
 func ParseInterfaceDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int, interfaceIndex: int, decl: &InterfaceDeclarationTable, result: &ParserDeclarationResultTable): int {
-    tokenKinds := tokens.Kinds
-    tokenStarts := tokens.Starts
-    tokenValueLengths := tokens.ValueLengths
     pos := interfaceIndex
-    if pos >= count || tokenKinds[pos] != 10 {
+    if pos >= count || tokens.Kinds[pos] != 10 {
         return -1
     }
     pos = pos + 1
 
-    if pos >= count || tokenKinds[pos] != 0 {
+    if pos >= count || tokens.Kinds[pos] != 0 {
         return -1
     }
-    result.Values[0] = tokenStarts[pos]
-    result.Values[1] = tokenValueLengths[pos]
+    result.Values[0] = tokens.Starts[pos]
+    result.Values[1] = tokens.ValueLengths[pos]
     pos = pos + 1
 
-    if pos < count && tokenKinds[pos] == 100 {
+    if pos < count && tokens.Kinds[pos] == 100 {
         return -1
     }
 
     baseCount := 0
-    if pos < count && tokenKinds[pos] == 122 {
+    if pos < count && tokens.Kinds[pos] == 122 {
         pos = pos + 1
         while true {
-            if pos >= count || tokenKinds[pos] != 0 {
+            if pos >= count || tokens.Kinds[pos] != 0 {
                 return -1
             }
-            decl.BaseNameStarts[baseCount] = tokenStarts[pos]
-            decl.BaseNameLengths[baseCount] = tokenValueLengths[pos]
+            decl.BaseNameStarts[baseCount] = tokens.Starts[pos]
+            decl.BaseNameLengths[baseCount] = tokens.ValueLengths[pos]
             baseCount = baseCount + 1
             pos = pos + 1
 
-            if pos < count && tokenKinds[pos] == 134 {
+            if pos < count && tokens.Kinds[pos] == 134 {
                 pos = pos + 1
                 continue
             }
@@ -538,26 +535,26 @@ func ParseInterfaceDeclarationCore(tokens: &ParserDeclarationTokenTable, count: 
     }
     result.Values[2] = baseCount
 
-    if pos >= count || tokenKinds[pos] != 129 {
+    if pos >= count || tokens.Kinds[pos] != 129 {
         return -1
     }
     pos = pos + 1
 
     methodCount := 0
-    while pos < count && tokenKinds[pos] != 130 {
-        if tokenKinds[pos] != 7 {
+    while pos < count && tokens.Kinds[pos] != 130 {
+        if tokens.Kinds[pos] != 7 {
             return -1
         }
         decl.MethodFuncIndices[methodCount] = pos
         pos = pos + 1
-        while pos < count && tokenKinds[pos] != 7 && tokenKinds[pos] != 130 {
-            if tokenKinds[pos] == 129 {
+        while pos < count && tokens.Kinds[pos] != 7 && tokens.Kinds[pos] != 130 {
+            if tokens.Kinds[pos] == 129 {
                 depth := 1
                 pos = pos + 1
                 while pos < count && depth > 0 {
-                    if tokenKinds[pos] == 129 {
+                    if tokens.Kinds[pos] == 129 {
                         depth = depth + 1
-                    } else if tokenKinds[pos] == 130 {
+                    } else if tokens.Kinds[pos] == 130 {
                         depth = depth - 1
                     }
                     pos = pos + 1

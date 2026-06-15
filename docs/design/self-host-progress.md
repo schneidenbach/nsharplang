@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Interface declaration parser keeps tables shaped
+
+`ParseInterfaceDeclarationCore` now reads interface names, base-interface lists, member starts, and
+default-method block spans through `ParserDeclarationTokenTable` instead of unpacking raw token
+arrays. Enum, struct, constructor-chain, and union declaration bodies remain as separate parser
+cleanup slices. Focused evidence: `./scripts/dev.sh ColumnarCodegen_MultiFile_EligibleClusterCompiles`.
+
 ## 2026-06-15 — Declaration header scans keep tables shaped
 
 `PackageNameSpanCore`, `NamespaceImportSpansCore`, `TopLevelDeclarationModifiersCore`,
