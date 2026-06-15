@@ -53,37 +53,33 @@
 // Break 35, Continue 36, Assign 93, ColonAssign 121, LeftBrace 129, RightBrace 130, Semicolon 133, Eof 135, Newline 136.
 
 func ParseBlockStatementNodeCore(tokens: &ParserTokenTable, count: int, st: &ParserState, argStack: &ParserArgumentStack, nodes: &ParserExpressionNodeTable, children: &ParserChildIndexTable, depth: int): int {
-    tokenKinds := tokens.Kinds
-    tokenStarts := tokens.Starts
-    tokenValueLengths := tokens.ValueLengths
-    argStackValues := argStack.Values
-    blockStart := tokenStarts[st.Pos]
+    blockStart := tokens.Starts[st.Pos]
     st.Pos = st.Pos + 1
     argBase := st.ArgStackTop
 
-    while st.Pos < count && tokenKinds[st.Pos] != 130 {
+    while st.Pos < count && tokens.Kinds[st.Pos] != 130 {
         stmt := ParseStatementCoreNode(ref tokens, count, ref st, ref argStack, ref nodes, ref children, depth + 1)
         if stmt < 0 {
             st.ArgStackTop = argBase
             return -1
         }
 
-        argStackValues[st.ArgStackTop] = stmt
+        argStack.Values[st.ArgStackTop] = stmt
         st.ArgStackTop = st.ArgStackTop + 1
     }
 
-    if st.Pos >= count || tokenKinds[st.Pos] != 130 {
+    if st.Pos >= count || tokens.Kinds[st.Pos] != 130 {
         st.ArgStackTop = argBase
         return -1
     }
 
-    rightBraceEnd := tokenStarts[st.Pos] + tokenValueLengths[st.Pos]
+    rightBraceEnd := tokens.Starts[st.Pos] + tokens.ValueLengths[st.Pos]
     st.Pos = st.Pos + 1
     childCount := st.ArgStackTop - argBase
     childRunStart := st.ChildCursor
     a := argBase
     while a < st.ArgStackTop {
-        AppendExpressionChild(ref st, ref children, argStackValues[a])
+        AppendExpressionChild(ref st, ref children, argStack.Values[a])
         a = a + 1
     }
     st.ArgStackTop = argBase

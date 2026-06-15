@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Block statement parser keeps tables shaped
+
+`ParseBlockStatementNodeCore` now reads block delimiters through `ParserTokenTable` and keeps the
+statement child ids behind `ParserArgumentStack` instead of unpacking token and stack arrays. The
+flattened `ParseStatementNodesInto` entry point remains the adapter boundary. Focused evidence:
+`./scripts/dev.sh Parser_Statement_MatchesProductionParser` and
+`./scripts/dev.sh ColumnarCodegen_MultiFile_RealParserCluster`.
+
 ## 2026-06-15 — Function-signature parser keeps token table shaped
 
 `ParseFunctionSignatureCore` now reads token kind/start/length columns through `ParserTokenTable`
