@@ -1144,9 +1144,6 @@ func BinaryOpPrecedence(kind: int): int {
 // the operator token in the value span and has children [left, right] (fixed arity -> contiguous, no
 // arg-stack). `minPrec == 1` is the full-expression entry.
 func ParseBinaryExpressionNode(tokens: &ParserTokenTable, count: int, st: &ParserState, argStack: &ParserArgumentStack, nodes: &ParserExpressionNodeTable, children: &ParserChildIndexTable, minPrec: int, depth: int): int {
-    tokenKinds := tokens.Kinds
-    tokenStarts := tokens.Starts
-    tokenValueLengths := tokens.ValueLengths
     if depth > 200 {
         return -1
     }
@@ -1161,9 +1158,9 @@ func ParseBinaryExpressionNode(tokens: &ParserTokenTable, count: int, st: &Parse
     // TYPE-kernel subtree (name scans walk child 0 ONLY -- type kinds collide with expression kinds).
     // IsExpression -> kind 46, AsExpression -> kind 47. Non-chaining (a second is/as after refuses
     // naturally: the bool/result re-enters the climber and 47/48 have no precedence).
-    if st.Pos < count && (tokenKinds[st.Pos] == 47 || tokenKinds[st.Pos] == 48) {
+    if st.Pos < count && (tokens.Kinds[st.Pos] == 47 || tokens.Kinds[st.Pos] == 48) {
         isAsKind := 46
-        if tokenKinds[st.Pos] == 48 {
+        if tokens.Kinds[st.Pos] == 48 {
             isAsKind = 47
         }
         st.Pos = st.Pos + 1
@@ -1184,15 +1181,15 @@ func ParseBinaryExpressionNode(tokens: &ParserTokenTable, count: int, st: &Parse
     while keepGoing {
         opKind := -1
         if st.Pos < count {
-            opKind = tokenKinds[st.Pos]
+            opKind = tokens.Kinds[st.Pos]
         }
 
         prec := BinaryOpPrecedence(opKind)
         if prec == 0 || prec < minPrec {
             keepGoing = false
         } else {
-            opStart := tokenStarts[st.Pos]
-            opLength := tokenValueLengths[st.Pos]
+            opStart := tokens.Starts[st.Pos]
+            opLength := tokens.ValueLengths[st.Pos]
             st.Pos = st.Pos + 1
             right := ParseBinaryExpressionNode(ref tokens, count, ref st, ref argStack, ref nodes, ref children, prec + 1, depth + 1)
             if right < 0 {
