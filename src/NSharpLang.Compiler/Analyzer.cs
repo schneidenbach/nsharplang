@@ -13993,7 +13993,9 @@ public class Analyzer : IDisposable
                 or StringLiteralExpression
                 or BoolLiteralExpression
                 or NullLiteralExpression
-                or DefaultExpression:
+                or DefaultExpression
+                or NameofExpression
+                or TypeOfExpression:
                 return null;
 
             case BinaryExpression binary:

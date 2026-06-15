@@ -3824,6 +3824,25 @@ func main(): string {
     }
 
     [Fact]
+    public void ILCompiler_CanExecuteQueryableExpressionTreeMetadataConstants()
+    {
+        var source = @"
+import System
+import System.Linq
+
+func main(): string {
+    source := [1, 2]
+    query: IQueryable<int> = Queryable.AsQueryable<int>(source)
+    names: IQueryable<string> = Queryable.Select<int, string>(query, x => nameof(x))
+    typeNames: IQueryable<string> = Queryable.Select<int, string>(query, x => typeof(int).Name)
+    return String.Join("":"", names) + ""|"" + String.Join("":"", typeNames)
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal("x:x|Int32:Int32", Assert.IsType<string>(result));
+    }
+
+    [Fact]
     public void ILCompiler_CanEmitAnonymousObjectExpressionTreeLambdas()
     {
         var source = @"

@@ -1379,6 +1379,14 @@ public partial class ILCompiler
                 _currentIL.Emit(OpCodes.Call, ResolveExpressionDefaultMethod());
                 return;
 
+            case NameofExpression:
+                EmitExpressionTreeConstant(expression, typeof(string));
+                return;
+
+            case TypeOfExpression:
+                EmitExpressionTreeConstant(expression, typeof(Type));
+                return;
+
             case BinaryExpression binary:
                 EmitExpressionTreeBinaryNode(binary, parameterLocals, parameterClrTypes);
                 return;

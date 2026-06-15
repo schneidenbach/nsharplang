@@ -7082,6 +7082,29 @@ func Main() {
     }
 
     [Fact]
+    public void QueryableLinq_ExpressionTreeLambdaMetadataConstants_AreSupported()
+    {
+        var result = AnalyzeWithSource(@"
+            import System.Linq
+
+            func Main() {
+                source := [1, 2, 3]
+                query := source.AsQueryable()
+                names := query.Select(x => nameof(x))
+                typeNames := query.Select(x => typeof(int).Name)
+            }
+        ");
+
+        Assert.False(result.HasErrors,
+            result.Errors.Count > 0
+                ? $"Expected no errors but got: {string.Join(", ", result.Errors.Select(e => e.Message))}"
+                : "");
+
+        Assert.Equal("IQueryable<string>", result.SemanticModel.LookupIdentifier("names")?.ToString());
+        Assert.Equal("IQueryable<string>", result.SemanticModel.LookupIdentifier("typeNames")?.ToString());
+    }
+
+    [Fact]
     public void QueryableLinq_BlockExpressionTreeLambda_ReportsFeatureNotImplemented()
     {
         var result = AnalyzeWithSource(@"
@@ -7134,7 +7157,7 @@ func Main() {
     }
 
     [Fact]
-    public void QueryableLinq_ExpressionTreeLambdaUnsupportedNameof_ReportsFeatureNotImplemented()
+    public void QueryableLinq_ExpressionTreeLambdaUnsupportedSizeof_ReportsFeatureNotImplemented()
     {
         var result = AnalyzeWithSource(@"
             import System.Linq
@@ -7142,12 +7165,12 @@ func Main() {
             func Main() {
                 source := [1, 2, 3]
                 query := source.AsQueryable()
-                mapped := query.Select(x => nameof(x))
+                mapped := query.Select(x => sizeof(int))
             }
         ");
 
         var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.FeatureNotImplemented);
-        Assert.Contains("nameof expression", error.Message);
+        Assert.Contains("sizeof expression", error.Message);
     }
 
     [Fact]

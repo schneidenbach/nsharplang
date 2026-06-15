@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Expression-tree metadata constants lower
+
+Expression-tree lambdas now lower `nameof(...)` and `typeof(...)` as constant tree nodes. This keeps
+compile-time metadata values available in queryable projections, including member access over
+`typeof(T)` such as `typeof(int).Name`, while preserving the unsupported-body diagnostic for forms
+that are not tree-shaped yet (`sizeof`, for now).
+
 ## 2026-06-15 — Expression-tree default values lower
 
 Expression-tree lambdas now accept target-typed `default` values and lower them through
