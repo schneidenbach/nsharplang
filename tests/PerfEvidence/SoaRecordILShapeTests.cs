@@ -1308,6 +1308,108 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void ParenthesizedColumnMemberNumericUnaryExpressions_UseColumnArrayOffsetWithoutSliceAllocation()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                kind: int
+                flags: uint
+                mask: long
+            }
+
+            func rowOps(nodes: NodeTable, row: int): int {
+                (nodes.kind)[row] = 7;
+                negInt := (nodes.kind)[row] = -(nodes.kind)[row];
+                (nodes.mask)[row] = 11L;
+                negLong := (nodes.mask)[row] = -(nodes.mask)[row];
+                (nodes.kind)[row] = 1;
+                notInt := (nodes.kind)[row] = ~(nodes.kind)[row];
+                (nodes.flags)[row] = (uint)0;
+                notUInt := (nodes.flags)[row] = ~(nodes.flags)[row];
+                (nodes.mask)[row] = 2L;
+                notLong := (nodes.mask)[row] = ~(nodes.mask)[row];
+
+                score := negInt == -7 ? 10000 : 0
+                score += negLong == -11L ? 1000 : 0
+                score += notInt == -2 ? 100 : 0
+                score += notUInt > (uint)0 ? 10 : 0
+                score += notLong == -3L ? 1 : 0
+                return score
+            }
+
+            func literalOps(nodes: NodeTable): int {
+                (nodes.kind)[^1] = 7;
+                negInt := (nodes.kind)[^1] = -(nodes.kind)[^1];
+                (nodes.mask)[^1] = 11L;
+                negLong := (nodes.mask)[^1] = -(nodes.mask)[^1];
+                (nodes.kind)[^1] = 1;
+                notInt := (nodes.kind)[^1] = ~(nodes.kind)[^1];
+                (nodes.flags)[^1] = (uint)0;
+                notUInt := (nodes.flags)[^1] = ~(nodes.flags)[^1];
+                (nodes.mask)[^1] = 2L;
+                notLong := (nodes.mask)[^1] = ~(nodes.mask)[^1];
+
+                score := negInt == -7 ? 10000 : 0
+                score += negLong == -11L ? 1000 : 0
+                score += notInt == -2 ? 100 : 0
+                score += notUInt > (uint)0 ? 10 : 0
+                score += notLong == -3L ? 1 : 0
+                return score
+            }
+
+            func variableOps(nodes: NodeTable): int {
+                idx := ^1;
+                (nodes.kind)[idx] = 7;
+                negInt := (nodes.kind)[idx] = -(nodes.kind)[idx];
+                (nodes.mask)[idx] = 11L;
+                negLong := (nodes.mask)[idx] = -(nodes.mask)[idx];
+                (nodes.kind)[idx] = 1;
+                notInt := (nodes.kind)[idx] = ~(nodes.kind)[idx];
+                (nodes.flags)[idx] = (uint)0;
+                notUInt := (nodes.flags)[idx] = ~(nodes.flags)[idx];
+                (nodes.mask)[idx] = 2L;
+                notLong := (nodes.mask)[idx] = ~(nodes.mask)[idx];
+
+                score := negInt == -7 ? 10000 : 0
+                score += negLong == -11L ? 1000 : 0
+                score += notInt == -2 ? 100 : 0
+                score += notUInt > (uint)0 ? 10 : 0
+                score += notLong == -3L ? 1 : 0
+                return score
+            }
+
+            func main(): int {
+                nodes := new NodeTable(1)
+                row := nodes.add()
+                return rowOps(nodes, row) + literalOps(nodes) + variableOps(nodes)
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var rowOps = ILShapeInspector.GetProgramMethod(assembly, "rowOps");
+            var literalOps = ILShapeInspector.GetProgramMethod(assembly, "literalOps");
+            var variableOps = ILShapeInspector.GetProgramMethod(assembly, "variableOps");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(33333, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoAllocationOrDispatch(rowOps);
+            AssertParenthesizedNumericUnaryColumnShape(rowOps, "row-index");
+
+            AssertNoFromEndSliceAllocation(literalOps);
+            AssertParenthesizedNumericUnaryColumnShape(literalOps, "literal from-end");
+
+            AssertNoFromEndSliceAllocation(variableOps);
+            AssertParenthesizedNumericUnaryColumnShape(variableOps, "variable from-end");
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void DirectColumnFromEndAssignmentExpression_ReturnsAssignedValueWithoutSliceAllocation()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
@@ -5048,6 +5150,23 @@ public class SoaRecordILShapeTests
         Assert.True(
             ILShapeInspector.CountOpcode(method, OpCodes.Xor) >= 1,
             $"Parenthesized SoA numeric bitwise-xor should use the direct XOR opcode for {indexDescription} access.");
+    }
+
+    private static void AssertParenthesizedNumericUnaryColumnShape(MethodInfo method, string indexDescription)
+    {
+        Assert.True(
+            ILShapeInspector.CountOpcode(method, OpCodes.Ldfld) >= 10,
+            $"Parenthesized SoA numeric unary stores should load backing column fields directly for {indexDescription} access.");
+        Assert.True(
+            CountArrayElementLoads(method) >= 5,
+            $"Parenthesized SoA numeric unary stores should read current values from backing arrays for {indexDescription} access.");
+        Assert.Equal(10, CountArrayElementStores(method));
+        Assert.True(
+            ILShapeInspector.CountOpcode(method, OpCodes.Neg) >= 2,
+            $"Parenthesized SoA signed numeric unary negation should use the direct NEG opcode for {indexDescription} access.");
+        Assert.True(
+            ILShapeInspector.CountOpcode(method, OpCodes.Not) >= 3,
+            $"Parenthesized SoA numeric unary bitwise-not should use the direct NOT opcode for {indexDescription} access.");
     }
 
     private static void AssertNoAllocationOrDispatch(MethodInfo method)
