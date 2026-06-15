@@ -378,7 +378,8 @@ table aliases, and unknown initializer members report before emission. `with` ex
 tables use the same named-initializer guard before the emitter can clone the wrapper and store
 generated fields. Non-named collection entries and indexer initializer entries on SoA table
 initializers are rejected before emission too, even for AST-level shapes that source parsing already
-prevents in some contexts.
+prevents in some contexts; the object-initializer guard follows table aliases and target-typed
+`new(capacity)` construction.
 
 The flag is for compiler table-migration gates only. Production builds without the flag still report
 `NL323 FeatureNotImplemented` for every `soa record`.
@@ -432,7 +433,8 @@ reads/assignments have the same direct column proof, with range/slice allocation
 analysis. Row-projection integral `uint`/`long`/`char` update forms are pinned with the same
 backing-column array proof. Direct generated-member object initializers and `with` updates are
 rejected during analysis, including when the constructed or target table type is an alias; non-named
-collection/indexer initializer entries are rejected before emission as well. The
+collection/indexer initializer entries are rejected before emission as well, including alias-typed
+and target-typed table construction forms. The
 generated `new`, `wrap`, `add`, `clear`, `ensureCapacity`, and
 `copyRow` methods are also pinned across the verified scalar/reference element-type set, including
 aliases to that set. Calls to generated operations through an alias-typed table receiver are pinned

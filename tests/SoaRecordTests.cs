@@ -6020,25 +6020,31 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Theory]
-    [InlineData(false, "collection initializer entries")]
-    [InlineData(true, "indexer initializers")]
+    [InlineData("NodeTable", "", false, "collection initializer entries")]
+    [InlineData("NodeTable", "", true, "indexer initializers")]
+    [InlineData("Nodes", "type Nodes = NodeTable", false, "collection initializer entries")]
+    [InlineData("Nodes", "type Nodes = NodeTable", true, "indexer initializers")]
     public void Analyzer_SoaTableWithExpressionRejectsAstCollectionAndIndexerEntriesBeforeEmission(
+        string tableTypeName,
+        string aliasDeclaration,
         bool indexerInitializer,
         string expectedShape)
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
 
-        var source = """
+        var source = $$"""
             soa record NodeTable {
                 kind: int
             }
 
-            func bad(nodes: NodeTable): NodeTable {
+            {{aliasDeclaration}}
+
+            func bad(nodes: {{tableTypeName}}): {{tableTypeName}} {
                 return nodes with { kind: new int[](1) }
             }
             """;
         var unit = ParseForAnalysis(source);
-        var function = Assert.IsType<FunctionDeclaration>(unit.Declarations[1]);
+        var function = Assert.IsType<FunctionDeclaration>(unit.Declarations[^1]);
         var returnStatement = Assert.IsType<ReturnStatement>(function.Body!.Statements[0]);
         var with = Assert.IsType<WithExpression>(returnStatement.Value);
         with.Properties.Clear();
@@ -6310,18 +6316,27 @@ public class SoaRecordTests : ILCompilerTestBase
         Assert.Contains("Member 'missing' not found on type 'NodeTable'", error.Message);
     }
 
-    [Fact]
-    public void Analyzer_SoaTableObjectInitializerRejectsIndexerEntriesBeforeEmission()
+    [Theory]
+    [InlineData("", "NodeTable", "new NodeTable(1)")]
+    [InlineData("type Nodes = NodeTable", "Nodes", "new Nodes(1)")]
+    [InlineData("", "NodeTable", "new(1)")]
+    [InlineData("type Nodes = NodeTable", "Nodes", "new(1)")]
+    public void Analyzer_SoaTableObjectInitializerRejectsIndexerEntriesBeforeEmission(
+        string aliasDeclaration,
+        string returnTypeName,
+        string construction)
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
 
-        var result = Analyze("""
+        var result = Analyze($$"""
             soa record NodeTable {
                 kind: int
             }
 
-            func bad(): NodeTable {
-                return new NodeTable(1) { [0] = 1 }
+            {{aliasDeclaration}}
+
+            func bad(): {{returnTypeName}} {
+                return {{construction}} { [0] = 1 }
             }
             """);
 
