@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Parenthesized SoA ref/out lvalues lower by address
+
+Parenthesized `ref`/`out` arguments now unwrap at the generic IL argument-address boundary before
+local/member/indexer address selection. SoA row-projection lvalues such as `(nodes[row]).kind` and
+direct-column lvalues such as `((nodes.kind)[row])` now reach the same backing-column `ldelema`
+paths as their unparenthesized forms, including from-end direct-column indexes, with no row or slice
+allocation and no caller-side element stores.
+
 ## 2026-06-15 — SoA ref/out address proof covers mixed element types
 
 Row-projection and direct-column `ref`/`out` arguments now have IL-shape evidence across the

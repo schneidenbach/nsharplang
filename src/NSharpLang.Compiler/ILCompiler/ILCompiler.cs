@@ -9591,6 +9591,10 @@ public partial class ILCompiler
 
         switch (expression)
         {
+            case ParenthesizedExpression parenthesized:
+                EmitArgumentAddress(parenthesized.Inner, elementType, allowReadOnlyRvalueCopy);
+                return;
+
             case IdentifierExpression ident when _locals.TryGetValue(ident.Name, out var local):
                 if (IsLiftedIdentifier(ident.Name))
                 {

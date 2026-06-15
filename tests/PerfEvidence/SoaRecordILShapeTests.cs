@@ -214,6 +214,62 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void ParenthesizedRefAndOutArguments_UseColumnArrayElementAddress()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                kind: int
+                start: int
+            }
+
+            type Nodes = NodeTable
+
+            func bump(ref value: int) {
+                value += 5
+            }
+
+            func reset(out value: int) {
+                value = 17
+            }
+
+            func mutate(nodes: Nodes, row: int): int {
+                bump(ref (nodes[row]).kind)
+                reset(out (nodes[row]).start)
+                bump(ref ((nodes.kind)[row]))
+                reset(out ((nodes.start)[^1]))
+                return nodes[row].kind * 10 + nodes.start[row]
+            }
+
+            func main(): int {
+                nodes := new Nodes(1)
+                row := nodes.add()
+                nodes[row].kind = 2
+                nodes[row].start = 3
+                return mutate(nodes, row)
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var mutate = ILShapeInspector.GetProgramMethod(assembly, "mutate");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(137, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoFromEndSliceAllocation(mutate);
+            Assert.Equal(4, ILShapeInspector.CountOpcode(mutate, OpCodes.Ldelema));
+            Assert.True(
+                ILShapeInspector.CountOpcode(mutate, OpCodes.Ldfld) >= 6,
+                "Parenthesized SoA ref/out arguments should load backing column arrays directly.");
+            Assert.Equal(0, CountArrayElementStores(mutate));
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void RefAndOutArguments_UseColumnArrayElementAddressForVerifiedElementTypes()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
