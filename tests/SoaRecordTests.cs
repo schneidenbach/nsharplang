@@ -7997,6 +7997,152 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaTableAliasRejectsNullConditionalAccessBeforeEmission()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var cases = new[]
+        {
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes): int {
+                    return nodes?.length
+                }
+                """,
+                Message: "SoA tables cannot use null-conditional member access",
+                Suggestion: "direct table.member access"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    row := nodes?[0]
+                }
+                """,
+                Message: "SoA row views cannot be used with null-conditional indexing",
+                Suggestion: "table[index].column"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes): int {
+                    return nodes[0]?.kind
+                }
+                """,
+                Message: "SoA row views cannot be used with null-conditional member access",
+                Suggestion: "table[index].column")
+        };
+
+        foreach (var (source, message, suggestion) in cases)
+        {
+            var result = Analyze(source);
+            var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+            Assert.Contains(message, error.Message);
+            Assert.Contains(suggestion, error.Suggestion);
+            Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.UndefinedMember);
+        }
+    }
+
+    [Theory]
+    [InlineData("nodes.kind = new int[](1)", "kind", "assigned directly", "table[index].column")]
+    [InlineData("checked(nodes.kind) ??= new int[](1)", "kind", "assigned directly", "table[index].column")]
+    [InlineData("nodes.length += 1", "length", "assigned directly", "add, clear, ensureCapacity, or copyRow")]
+    [InlineData("++checked(nodes.capacity)", "capacity", "incremented or decremented directly", "add, clear, ensureCapacity, or copyRow")]
+    public void Analyzer_SoaTableAliasRejectsDirectMemberMutationsBeforeEmission(
+        string statement,
+        string member,
+        string action,
+        string suggestion)
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze($$"""
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
+            func bad(nodes: Nodes) {
+                {{statement}}
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains($"SoA table member '{member}' cannot be {action}", error.Message);
+        Assert.Contains(suggestion, error.Suggestion);
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.UndefinedMember);
+    }
+
+    [Fact]
+    public void Analyzer_SoaTableAliasColumnRangeSlicesWouldAllocate()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var cases = new[]
+        {
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
+            func bad(nodes: Nodes): int {
+                slice := nodes.kind[0..1]
+                return slice[0]
+            }
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
+            func bad(nodes: Nodes) {
+                range := 0..1
+                (nodes.kind)[range] = [1]
+            }
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
+            func bad(nodes: Nodes) {
+                checked(nodes.kind[1..^1])++
+            }
+            """
+        };
+
+        foreach (var source in cases)
+        {
+            var result = Analyze(source);
+            var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+            Assert.Contains("SoA column range slices allocate arrays", error.Message);
+            Assert.Contains("allocation-free view lowering", error.Suggestion);
+            Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.UndefinedMember);
+        }
+    }
+
+    [Fact]
     public void ILCompiler_SoaRecordNewAddAndRowProjection_LowersToColumns()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

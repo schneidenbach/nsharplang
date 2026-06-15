@@ -75,7 +75,9 @@ Aliases to a SoA table follow the same construction surface: `new Nodes(capacity
 `type Nodes = NodeTable`.
 Alias-typed table values expose the same generated instance members (`length`, `capacity`, `add`,
 `clear`, `ensureCapacity`, `copyRow`), row projection, and direct column arrays as the underlying
-table, and invalid row/index/count arguments keep the SoA-specific diagnostics.
+table, and invalid row/index/count arguments keep the SoA-specific diagnostics. Alias receivers also
+keep the rejection-only table diagnostics for null-conditional table/row access, direct generated
+member mutation, and direct-column range slices before IL lowering.
 Target-typed `default` is not a construction form for SoA tables because it would produce a CLR
 wrapper value with null backing column arrays; use
 `new Table(capacity)` or `Table.wrap(...)` instead. Target-typed `new()` without the required capacity
@@ -330,9 +332,11 @@ The compiler must produce direct diagnostics for common misuse:
   integer-cast forms including aliases;
 - direct table member mutation: "SoA table member 'X' cannot be assigned directly" for simple,
   compound, and null-coalescing assignment, or "SoA table member 'X' cannot be incremented or
-  decremented directly", including parenthesized and checked/unchecked target-wrapper forms;
+  decremented directly", including aliases to SoA tables plus parenthesized and checked/unchecked
+  target-wrapper forms;
 - non-int direct column element indexes: "Array indexes must be int, System.Index, or System.Range";
-- direct column slice reads and mutations, including parenthesized column-member receivers and
+- direct column slice reads and mutations, including aliases to SoA tables, parenthesized
+  column-member receivers, and
   checked/unchecked mutation-target wrappers: "SoA column range slices allocate arrays";
 - hidden allocation request: "this operation would allocate row objects; use column access instead".
 

@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — SoA table aliases preserve rejection-only table paths
+
+Aliases to SoA table types now have analyzer regression coverage for rejection-only table paths
+that must never reach IL lowering. `nodes?.length`, `nodes?[0]`, `nodes[0]?.kind`, direct column
+array replacement, direct `length`/`capacity` mutation, and direct-column range reads/mutations
+through `type Nodes = NodeTable` now keep the SoA-specific diagnostics and avoid unresolved-member
+cascades.
+
 ## 2026-06-15 — SoA table aliases preserve generated member semantics
 
 Alias-typed table values now have analyzer regression coverage for generated instance members and
