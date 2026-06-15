@@ -35,6 +35,20 @@ public static class CSharpNullabilityInteropProbe
     }
 }
 
+public class CSharpInheritedStaticFieldBase
+{
+    public static int Value;
+}
+
+public class CSharpInheritedStaticFieldDerived : CSharpInheritedStaticFieldBase
+{
+}
+
+public class CSharpStaticPropertyShadowsInheritedField : CSharpInheritedStaticFieldBase
+{
+    public new static int Value => 0;
+}
+
 public class AnalyzerTests
 {
     // Project config for ASP.NET Core tests
@@ -2313,6 +2327,75 @@ func Main() {
         var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.ReadonlyAssignment);
         Assert.Contains("Field 'Value' is static readonly", error.Message);
         Assert.Contains("field initializer", error.Suggestion);
+    }
+
+    [Theory]
+    [InlineData("bump(ref Derived.Value)")]
+    [InlineData("reset(out Derived.Value)")]
+    public void StaticField_InheritedRefOutArgument_Valid(string statement)
+    {
+        AssertNoErrors($$"""
+            func bump(ref value: int) {
+                value += 1
+            }
+
+            func reset(out value: int) {
+                value = 0
+            }
+
+            class Base {
+                static Value: int
+            }
+
+            class Derived : Base {
+                static func Mutate() {
+                    {{statement}}
+                }
+            }
+        """);
+    }
+
+    [Theory]
+    [InlineData("bump(ref CSharpInheritedStaticFieldDerived.Value)")]
+    [InlineData("reset(out CSharpInheritedStaticFieldDerived.Value)")]
+    public void StaticField_ExternalInheritedRefOutArgument_Valid(string statement)
+    {
+        var result = AnalyzeWithInteropProbe($$"""
+            import NSharpLang.Tests
+
+            func bump(ref value: int) {
+                value += 1
+            }
+
+            func reset(out value: int) {
+                value = 0
+            }
+
+            func Main() {
+                {{statement}}
+            }
+        """);
+
+        Assert.False(result.HasErrors, string.Join(", ", result.Errors.Select(e => e.Message)));
+    }
+
+    [Fact]
+    public void StaticField_ExternalShadowedInheritedFieldRefArgument_Error()
+    {
+        var result = AnalyzeWithInteropProbe("""
+            import NSharpLang.Tests
+
+            func bump(ref value: int) {
+                value += 1
+            }
+
+            func Main() {
+                bump(ref CSharpStaticPropertyShadowsInheritedField.Value)
+            }
+        """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("needs an assignable target", error.Message);
     }
 
     [Theory]

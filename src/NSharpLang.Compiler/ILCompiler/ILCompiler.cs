@@ -9688,7 +9688,8 @@ public partial class ILCompiler
                 throw new InvalidOperationException($"ref/out arguments require a field, but {GetTypeKey(staticTypeBuilder)}.{memberAccess.MemberName} is not a field");
             }
 
-            var staticField = staticType.GetField(
+            var staticField = ResolveRuntimeField(
+                staticType,
                 memberAccess.MemberName,
                 BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
             if (staticField != null)

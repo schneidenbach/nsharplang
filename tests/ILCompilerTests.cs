@@ -6130,6 +6130,82 @@ func main(): int {
     }
 
     [Fact]
+    public void ILCompiler_CanExecuteRefAndOutParameterOnInheritedStaticFieldViaDerivedTypeName()
+    {
+        var source = @"
+class Base {
+    static Value: int
+}
+
+class Derived: Base {
+}
+
+func bump(ref value: int) {
+    value += 1
+}
+
+func reset(out value: int) {
+    value = 41
+}
+
+func main(): int {
+    reset(out Derived.Value)
+    bump(ref Derived.Value)
+    return Base.Value
+}";
+
+        var result = CompileAndInspect(source, assembly =>
+        {
+            var programType = assembly.GetType("Program");
+            Assert.NotNull(programType);
+            var main = programType!.GetMethod("main", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(main);
+
+            var opCodes = GetMethodOpCodes(main!);
+            Assert.True(
+                opCodes.Count(opCode => opCode == OpCodes.Ldsflda) >= 2,
+                "Inherited static ref/out arguments should lower to direct static field addresses.");
+
+            return main!.Invoke(null, null);
+        });
+
+        Assert.Equal(42, Assert.IsType<int>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_CanExecuteRefAndOutParameterOnExternalInheritedStaticFieldViaDerivedTypeName()
+    {
+        var source = @"
+import NSharpLang.Tests
+
+func bump(ref value: int) {
+    value += 1
+}
+
+func reset(out value: int) {
+    value = 41
+}
+
+func main(): int {
+    reset(out CSharpInheritedStaticFieldDerived.Value)
+    bump(ref CSharpInheritedStaticFieldDerived.Value)
+    return CSharpInheritedStaticFieldBase.Value
+}";
+
+        CSharpInheritedStaticFieldBase.Value = 0;
+        try
+        {
+            var result = CompileAndInvoke(source);
+            Assert.Equal(42, Assert.IsType<int>(result));
+            Assert.Equal(42, CSharpInheritedStaticFieldBase.Value);
+        }
+        finally
+        {
+            CSharpInheritedStaticFieldBase.Value = 0;
+        }
+    }
+
+    [Fact]
     public void ILCompiler_CanExecuteOutParameterOnUserFunction()
     {
         var source = @"

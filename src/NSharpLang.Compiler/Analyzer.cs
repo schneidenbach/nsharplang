@@ -8879,7 +8879,11 @@ public class Analyzer : IDisposable
             return null;
 
         var owner = NormalizeMemberOwnerType(ownerType);
+        return ClassifyStaticFieldMember(owner, member.MemberName);
+    }
 
+    private bool? ClassifyStaticFieldMember(TypeInfo owner, string memberName)
+    {
         List<Declaration>? members = owner switch
         {
             ClassTypeInfo classType => classType.Declaration.Members,
@@ -8890,26 +8894,62 @@ public class Analyzer : IDisposable
 
         if (members != null)
         {
-            return members.OfType<FieldDeclaration>()
-                .Any(field => field.Name == member.MemberName && field.Modifiers.HasFlag(Modifiers.Static));
+            foreach (var declaredMember in members)
+            {
+                if (GetDeclarationName(declaredMember) != memberName)
+                    continue;
+
+                return declaredMember is FieldDeclaration field
+                    && field.Modifiers.HasFlag(Modifiers.Static);
+            }
+
+            if (owner is ClassTypeInfo { Declaration.BaseClass: not null } classTypeWithBase)
+            {
+                var baseType = ResolveType(classTypeWithBase.Declaration.BaseClass);
+                return BuiltInTypes.IsUnknown(baseType)
+                    ? null
+                    : ClassifyStaticFieldMember(baseType, memberName);
+            }
+
+            return false;
         }
 
         if (owner is ReflectionTypeInfo reflected && reflected.Type is not System.Reflection.Emit.TypeBuilder
             && !reflected.Type.IsGenericTypeDefinition)
         {
-            try
-            {
-                return reflected.Type.GetField(
-                    member.MemberName,
-                    System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static) != null;
-            }
-            catch (NotSupportedException)
-            {
-                return null;
-            }
+            return ClassifyReflectionStaticFieldMember(reflected.Type, memberName);
         }
 
         return null;
+    }
+
+    private static bool? ClassifyReflectionStaticFieldMember(Type type, string memberName)
+    {
+        const BindingFlags flags = BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly;
+
+        try
+        {
+            for (var current = type; current != null; current = current.BaseType)
+            {
+                if (current.GetFields(flags).Any(field => field.Name == memberName))
+                {
+                    return true;
+                }
+
+                if (current.GetProperties(flags).Any(property => property.Name == memberName)
+                    || current.GetMethods(flags).Any(method => !method.IsSpecialName && method.Name == memberName)
+                    || current.GetEvents(flags).Any(@event => @event.Name == memberName))
+                {
+                    return false;
+                }
+            }
+        }
+        catch (NotSupportedException)
+        {
+            return null;
+        }
+
+        return false;
     }
 
     private TypeInfo? GetExpectedNSharpCallArgumentType(

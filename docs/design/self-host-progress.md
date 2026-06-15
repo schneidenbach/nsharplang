@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Inherited static fields are addressable through derived type names
+
+Mutable static fields declared on a base class now remain valid `ref`/`out` targets when reached
+through a derived type name. The analyzer's static-field addressability check walks the base-class
+chain with nearest-declaration shadowing, and the IL backend resolves external inherited static
+fields through the same recursive runtime field lookup used by static loads/stores. The accepted
+shape is pinned with `ldsflda` IL evidence.
+
 ## 2026-06-15 — Inherited static readonly fields reject derived writes
 
 Static readonly diagnostics now follow base-class static fields reached through a derived type name.
