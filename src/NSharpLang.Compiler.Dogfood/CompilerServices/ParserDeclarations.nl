@@ -668,9 +668,8 @@ func TopLevelColumnarFunctionDeclarationIndicesInto(source: string, rawTokenKind
         i = i + 1
     }
 
-    modKinds := new int[](rawCount + 1)
     modFlags := new int[](rawCount + 1)
-    modifiers := new TopLevelDeclarationModifierTable { Kinds: modKinds, Modifiers: modFlags }
+    modifiers := new TopLevelDeclarationModifierTable { Kinds: new int[](rawCount + 1), Modifiers: modFlags }
     modifierCount := TopLevelDeclarationModifiersCore(ref rawKindStream, rawCount, ref modifiers)
     if modifierCount != declCount {
         return -1
