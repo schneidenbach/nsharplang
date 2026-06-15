@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Type-reference parser argument stack stays table-shaped
+
+`ParseBaseTypeReferenceNodeCore` and `ParseUnionTypeReferenceNodeCore` now keep generic, tuple, and
+union arm ids behind `ParserArgumentStack` instead of unpacking its value array. Together with the
+token-table cleanup, `ParserTypeReferences.nl` no longer has raw table aliases in its recursive cores.
+Focused evidence: `./scripts/dev.sh Parser_TypeReferenceTree_MatchesProductionParser` and
+`./scripts/dev.sh ColumnarCodegen_MultiFile_RealParserCluster`.
+
 ## 2026-06-15 — Type-reference base parser keeps token table shaped
 
 `ParseBaseTypeReferenceNodeCore` now reads token kind/start/length columns through

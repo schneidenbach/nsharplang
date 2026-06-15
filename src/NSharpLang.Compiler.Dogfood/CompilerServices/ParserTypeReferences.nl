@@ -151,7 +151,6 @@ func ConsumeGreaterForTypeNodeCore(tokens: &ParserTokenTable, count: int, st: &P
 // (possibly dotted) name, then optional `<...>` generic arguments. Returns the emitted node id, or -1 on
 // refusal/failure. Advances st.Pos past the consumed tokens.
 func ParseBaseTypeReferenceNodeCore(tokens: &ParserTokenTable, count: int, st: &ParserState, argStack: &ParserArgumentStack, nodes: &ParserNodeTable, outChildIndices: &ParserChildIndexTable, depth: int): int {
-    argStackValues := argStack.Values
     if depth > 64 {
         return -1
     }
@@ -218,7 +217,7 @@ func ParseBaseTypeReferenceNodeCore(tokens: &ParserTokenTable, count: int, st: &
             namedForm = 0
         }
 
-        argStackValues[st.ArgStackTop] = firstElem
+        argStack.Values[st.ArgStackTop] = firstElem
         st.ArgStackTop = st.ArgStackTop + 1
 
         if st.Pos >= count || tokens.Kinds[st.Pos] != 134 {
@@ -253,7 +252,7 @@ func ParseBaseTypeReferenceNodeCore(tokens: &ParserTokenTable, count: int, st: &
                 nextElem = EmitTypeReferenceNode(ref st, ref nodes, 7, elemNameStart, elemNameLength, wrapRun, 1, elemNameStart, nodes.SpanStarts[nextElem] + nodes.SpanLengths[nextElem] - elemNameStart)
             }
 
-            argStackValues[st.ArgStackTop] = nextElem
+            argStack.Values[st.ArgStackTop] = nextElem
             st.ArgStackTop = st.ArgStackTop + 1
         }
 
@@ -268,7 +267,7 @@ func ParseBaseTypeReferenceNodeCore(tokens: &ParserTokenTable, count: int, st: &
         tupleChildRunStart := st.ChildCursor
         tupleElemIdx := tupleArgBase
         while tupleElemIdx < st.ArgStackTop {
-            AppendTypeReferenceChild(ref st, ref outChildIndices, argStackValues[tupleElemIdx])
+            AppendTypeReferenceChild(ref st, ref outChildIndices, argStack.Values[tupleElemIdx])
             tupleElemIdx = tupleElemIdx + 1
         }
         st.ArgStackTop = tupleArgBase
@@ -300,7 +299,7 @@ func ParseBaseTypeReferenceNodeCore(tokens: &ParserTokenTable, count: int, st: &
             return -1
         }
 
-        argStackValues[st.ArgStackTop] = firstArg
+        argStack.Values[st.ArgStackTop] = firstArg
         st.ArgStackTop = st.ArgStackTop + 1
 
         while st.Pos < count && tokens.Kinds[st.Pos] == 134 {
@@ -310,7 +309,7 @@ func ParseBaseTypeReferenceNodeCore(tokens: &ParserTokenTable, count: int, st: &
                 return -1
             }
 
-            argStackValues[st.ArgStackTop] = nextArg
+            argStack.Values[st.ArgStackTop] = nextArg
             st.ArgStackTop = st.ArgStackTop + 1
         }
 
@@ -323,7 +322,7 @@ func ParseBaseTypeReferenceNodeCore(tokens: &ParserTokenTable, count: int, st: &
         childRunStart := st.ChildCursor
         a := argBase
         while a < st.ArgStackTop {
-            AppendTypeReferenceChild(ref st, ref outChildIndices, argStackValues[a])
+            AppendTypeReferenceChild(ref st, ref outChildIndices, argStack.Values[a])
             a = a + 1
         }
         st.ArgStackTop = argBase
@@ -387,7 +386,6 @@ func ParsePostfixTypeReferenceNodeCore(tokens: &ParserTokenTable, count: int, st
 // single postfix node unchanged. This is the level a generic argument and the top-level entry parse, so a
 // union may appear as a generic argument (e.g. List<int | string>). Returns the node id, or -1.
 func ParseUnionTypeReferenceNodeCore(tokens: &ParserTokenTable, count: int, st: &ParserState, argStack: &ParserArgumentStack, nodes: &ParserNodeTable, outChildIndices: &ParserChildIndexTable, depth: int): int {
-    argStackValues := argStack.Values
     firstArm := ParsePostfixTypeReferenceNodeCore(ref tokens, count, ref st, ref argStack, ref nodes, ref outChildIndices, depth)
     if firstArm < 0 {
         return -1
@@ -398,7 +396,7 @@ func ParseUnionTypeReferenceNodeCore(tokens: &ParserTokenTable, count: int, st: 
     }
 
     argBase := st.ArgStackTop
-    argStackValues[st.ArgStackTop] = firstArm
+    argStack.Values[st.ArgStackTop] = firstArm
     st.ArgStackTop = st.ArgStackTop + 1
 
     while st.Pos < count && tokens.Kinds[st.Pos] == 108 {
@@ -408,16 +406,16 @@ func ParseUnionTypeReferenceNodeCore(tokens: &ParserTokenTable, count: int, st: 
             return -1
         }
 
-        argStackValues[st.ArgStackTop] = nextArm
+        argStack.Values[st.ArgStackTop] = nextArm
         st.ArgStackTop = st.ArgStackTop + 1
     }
 
-    lastArm := argStackValues[st.ArgStackTop - 1]
+    lastArm := argStack.Values[st.ArgStackTop - 1]
     childCount := st.ArgStackTop - argBase
     childRunStart := st.ChildCursor
     a := argBase
     while a < st.ArgStackTop {
-        AppendTypeReferenceChild(ref st, ref outChildIndices, argStackValues[a])
+        AppendTypeReferenceChild(ref st, ref outChildIndices, argStack.Values[a])
         a = a + 1
     }
     st.ArgStackTop = argBase
