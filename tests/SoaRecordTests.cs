@@ -4105,6 +4105,40 @@ public class SoaRecordTests : ILCompilerTestBase
         Assert.Contains("add, clear, ensureCapacity, or copyRow", error.Suggestion);
     }
 
+    [Theory]
+    [InlineData("((nodes.kind)) = new int[](1)", "kind", "assigned directly", "table[index].column")]
+    [InlineData("((nodes.kind)) += new int[](1)", "kind", "assigned directly", "table[index].column")]
+    [InlineData("((nodes.kind)) ??= new int[](1)", "kind", "assigned directly", "table[index].column")]
+    [InlineData("++((nodes.kind))", "kind", "incremented or decremented directly", "table[index].column")]
+    [InlineData("--((nodes.kind))", "kind", "incremented or decremented directly", "table[index].column")]
+    [InlineData("((nodes.length)) = 0", "length", "assigned directly", "add, clear, ensureCapacity, or copyRow")]
+    [InlineData("((nodes.capacity)) += 1", "capacity", "assigned directly", "add, clear, ensureCapacity, or copyRow")]
+    [InlineData("((nodes.length)) ??= 0", "length", "assigned directly", "add, clear, ensureCapacity, or copyRow")]
+    [InlineData("++((nodes.capacity))", "capacity", "incremented or decremented directly", "add, clear, ensureCapacity, or copyRow")]
+    [InlineData("--((nodes.length))", "length", "incremented or decremented directly", "add, clear, ensureCapacity, or copyRow")]
+    public void Analyzer_SoaTableParenthesizedDirectMemberMutationsAreRejected(
+        string statement,
+        string member,
+        string action,
+        string suggestion)
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze($$"""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable) {
+                {{statement}}
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains($"SoA table member '{member}' cannot be {action}", error.Message);
+        Assert.Contains(suggestion, error.Suggestion);
+    }
+
     [Fact]
     public void Analyzer_SoaTableCapacityConstructorRequiresOneArgument()
     {

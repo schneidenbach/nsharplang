@@ -229,7 +229,8 @@ allocating array-slice backend.
 Replacing wrapper column arrays, mutating `length`/`capacity` directly, or mutating column slices is
 not allowed: shape changes must go through construction, `wrap`, `add`, `clear`, `ensureCapacity`, or
 `copyRow`. Direct `length`/`capacity` simple assignment, compound assignment, and increment/decrement
-forms all reject during analysis.
+forms all reject during analysis. The same rejection applies when the generated table member target
+is parenthesized, including column-array assignment/coalescing forms and prefix unary updates.
 
 Direct column range reads (`table.column[start..end]`) are rejected because ordinary array slice
 semantics allocate a sliced array. They can be admitted only after an allocation-free span/view lowering

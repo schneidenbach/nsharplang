@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Parenthesized SoA direct table-member mutations stop in analysis
+
+Direct mutation diagnostics for generated SoA table members now have parenthesized-target coverage.
+Parenthesized column-array targets such as `((nodes.kind)) = new int[](1)`, `+=`, `??=`, and
+prefix unary update forms, plus parenthesized `length`/`capacity` mutations, all report the direct
+member-mutation diagnostic before lowering. Focused evidence: `dotnet test
+tests/Tests.csproj --no-restore --filter
+"FullyQualifiedName~Analyzer_SoaTableParenthesizedDirectMemberMutationsAreRejected"`.
+
 ## 2026-06-15 — Parenthesized SoA default stores preserve typed results
 
 Parenthesized SoA default stores now have IL-shape coverage across row-column projections, direct
