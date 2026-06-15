@@ -3616,6 +3616,26 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaTableColumnArrayCannotBeNullCoalescingAssignedDirectly()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable) {
+                nodes.kind ??= new int[](1)
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("SoA table member 'kind' cannot be assigned directly", error.Message);
+        Assert.Contains("table[index].column", error.Suggestion);
+    }
+
+    [Fact]
     public void Analyzer_SoaTableColumnArrayCannotBeIncrementedDirectly()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
@@ -3687,6 +3707,46 @@ public class SoaRecordTests : ILCompilerTestBase
 
             func bad(nodes: NodeTable) {
                 nodes.capacity = 0
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("SoA table member 'capacity' cannot be assigned directly", error.Message);
+        Assert.Contains("add, clear, ensureCapacity, or copyRow", error.Suggestion);
+    }
+
+    [Fact]
+    public void Analyzer_SoaTableLengthCannotBeNullCoalescingAssignedDirectly()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable) {
+                nodes.length ??= 0
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("SoA table member 'length' cannot be assigned directly", error.Message);
+        Assert.Contains("add, clear, ensureCapacity, or copyRow", error.Suggestion);
+    }
+
+    [Fact]
+    public void Analyzer_SoaTableCapacityCannotBeNullCoalescingAssignedDirectly()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable) {
+                nodes.capacity ??= 0
             }
             """);
 

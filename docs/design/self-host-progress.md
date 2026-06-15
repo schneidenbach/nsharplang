@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — SoA generated-member null-coalescing writes are pinned
+
+Direct `??=` writes to generated SoA table members now have analyzer pins for both backing column
+arrays and bookkeeping fields. These cases report the SoA member-mutation diagnostic before generic
+nullability validation or IL lowering, so `nodes.kind ??= ...` and `nodes.length ??= ...` cannot
+replace wrapper storage. Focused evidence: `dotnet test tests/Tests.csproj --filter
+"FullyQualifiedName~SoaRecordTests.Analyzer_SoaTableColumnArrayCannotBeNullCoalescingAssignedDirectly|FullyQualifiedName~SoaRecordTests.Analyzer_SoaTableLengthCannotBeNullCoalescingAssignedDirectly|FullyQualifiedName~SoaRecordTests.Analyzer_SoaTableCapacityCannotBeNullCoalescingAssignedDirectly"`
+(3 tests) and `./scripts/dev.sh SoaRecord` (419 tests).
+
 ## 2026-06-15 — CLI dogfood adapter drops its availability probe
 
 `NSharpCliDogfoodAdapter` no longer exposes `IsAvailable`, completing the removal of live

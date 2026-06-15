@@ -272,8 +272,9 @@ The compiler must produce direct diagnostics for common misuse:
 - non-int, `System.Index`, or range row indexes: "SoA table indexes must be int row ids";
 - statically negative row indexes on row/direct-column reads or writes:
   "SoA table row indexes must not be negative" or "SoA column row indexes must not be negative";
-- direct table member mutation: "SoA table member 'X' cannot be assigned directly" for simple and
-  compound assignment, or "SoA table member 'X' cannot be incremented or decremented directly";
+- direct table member mutation: "SoA table member 'X' cannot be assigned directly" for simple,
+  compound, and null-coalescing assignment, or "SoA table member 'X' cannot be incremented or
+  decremented directly";
 - non-int direct column element indexes: "Array indexes must be int, System.Index, or System.Range";
 - direct column slice reads and mutations: "SoA column range slices allocate arrays";
 - hidden allocation request: "this operation would allocate row objects; use column access instead".
