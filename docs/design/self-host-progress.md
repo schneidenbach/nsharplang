@@ -11,6 +11,20 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Parenthesized SoA column slices keep the hidden-allocation diagnostic
+
+SoA direct-column range slices are now regression-pinned through parenthesized column member access
+as well as the plain `table.column[start..end]` shape. The parser no longer treats a bare `[` after
+`)` as the operand start for a hard cast, so `(nodes.kind)[0..1]` reaches analysis as a parenthesized
+member access with a range index instead of `(nodes.kind)` cast over an array literal. Both read and
+write targets report "SoA column range slices allocate arrays", keeping the code out of the allocating
+array-slice lowering path until an allocation-free view lowering has IL-shape evidence. Focused
+evidence: `dotnet test tests/Tests.csproj --filter
+"FullyQualifiedName~ParserTests.ParenthesizedExpression_AllowsIndexPostfix|FullyQualifiedName~SoaRecordTests.Analyzer_SoaTableParenthesizedColumnRangeSliceCannotBeAssigned|FullyQualifiedName~SoaRecordTests.Analyzer_SoaTableParenthesizedColumnRangeReadWouldAllocate"`;
+`dotnet test tests/Tests.csproj --filter
+"FullyQualifiedName~ParserTests.TestQualifiedTypeCast|FullyQualifiedName~ParserTests.AnonymousUnionType_ParsesInSupportedTypePositions|FullyQualifiedName~ParserTests.ParenthesizedExpression_AllowsIndexPostfix"`;
+`./scripts/dev.sh SoaRecord`.
+
 ## 2026-06-15 — Columnar fallback proof no longer uses completed floating-point work
 
 The production-routing fallback test no longer treats `double` as columnar-ineligible. `double` and

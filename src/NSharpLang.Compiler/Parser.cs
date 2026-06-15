@@ -5961,8 +5961,12 @@ public class Parser
 
         return ScanTypeReference()
                && CurrentType() == TokenType.RightParen
-               && IsExpressionStart(position + 1 < _tokens.Count ? _tokens[position + 1].Type : TokenType.Eof);
+               && IsCastOperandStart(position + 1 < _tokens.Count ? _tokens[position + 1].Type : TokenType.Eof);
     }
+
+    private static bool IsCastOperandStart(TokenType type)
+        => type != TokenType.LeftBracket
+           && IsExpressionStart(type);
 
     private static bool IsExpressionStart(TokenType type)
     {

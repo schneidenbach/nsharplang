@@ -1700,6 +1700,26 @@ public class ParserTests
     }
 
     [Fact]
+    public void ParenthesizedExpression_AllowsIndexPostfix()
+    {
+        var source = """
+            func Test() {
+                value := (items)[0]
+            }
+        """;
+
+        var cu = Parse(source);
+        var funcDecl = Assert.IsType<FunctionDeclaration>(cu.Declarations[0]);
+        var valueDecl = Assert.IsType<VariableDeclarationStatement>(funcDecl.Body!.Statements[0]);
+        var indexAccess = Assert.IsType<IndexAccessExpression>(valueDecl.Initializer);
+        var parenthesized = Assert.IsType<ParenthesizedExpression>(indexAccess.Object);
+        var identifier = Assert.IsType<IdentifierExpression>(parenthesized.Inner);
+
+        Assert.Equal("items", identifier.Name);
+        Assert.IsType<IntLiteralExpression>(indexAccess.Index);
+    }
+
+    [Fact]
     public void TestIndexAccessWithConditional()
     {
         var source = @"

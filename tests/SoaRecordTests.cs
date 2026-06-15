@@ -3020,6 +3020,26 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaTableParenthesizedColumnRangeSliceCannotBeAssigned()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable) {
+                (nodes.kind)[0..1] = [1]
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("SoA column range slices allocate arrays", error.Message);
+        Assert.Contains("table.column[row]", error.Suggestion);
+    }
+
+    [Fact]
     public void Analyzer_SoaTableColumnFromEndRangeSliceCannotBeAssigned()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
@@ -3211,6 +3231,27 @@ public class SoaRecordTests : ILCompilerTestBase
 
             func bad(nodes: NodeTable): int {
                 slice := nodes.kind[0..1]
+                return slice[0]
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("SoA column range slices allocate arrays", error.Message);
+        Assert.Contains("table.column[row]", error.Suggestion);
+    }
+
+    [Fact]
+    public void Analyzer_SoaTableParenthesizedColumnRangeReadWouldAllocate()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable): int {
+                slice := (nodes.kind)[0..1]
                 return slice[0]
             }
             """);
