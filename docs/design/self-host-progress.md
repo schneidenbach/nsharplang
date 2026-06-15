@@ -11,6 +11,20 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Enum parser composes declaration core directly
+
+`ParserColumnarEnums.nl` now routes product enum declaration parsing through
+`ParseEnumDeclarationCore` and `ParseEnumMemberValuesInto` with named declaration-token, member, and
+result wrappers instead of re-entering the flattened `ParseEnumDeclarationTextInfoInto`
+compatibility shim from inside N#. The public flattened ABI remains available for the current
+adapter and parser parity tests. Focused evidence:
+`./scripts/dev.sh Parser_TopLevelDeclarationKinds_MatchProductionParser`,
+`./scripts/dev.sh ColumnarCodegen_Enum_DeclarationAndMemberAccess`,
+`./scripts/dev.sh ColumnarCodegen_Parity_EnumIntCastAndExplicitValues`,
+`./scripts/dev.sh ColumnarCodegen_Parity_EnumMatch`,
+`./scripts/dev.sh ColumnarCodegen_MultiFile_RealParserCluster`, and
+`./scripts/dev.sh ColumnarCodegen_CompilesRealDogfoodCorpus_Coverage`.
+
 ## 2026-06-15 — Property parser composes accessor core directly
 
 `ParserColumnarProperties.nl` now materializes property accessor/type information through

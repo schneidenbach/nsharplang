@@ -546,7 +546,8 @@ ownership lands.
    discovery paths now compose the statement/local-function cores directly.
    `ParserColumnarEnums.nl`, `ParserColumnarUnions.nl`, and `ParserColumnarInterfaces.nl` now wrap
    compact token columns, hidden declaration span scratch columns, text/count outputs, and result
-   slots inside wrapper-aware nominal product cores while preserving their flattened adapter ABIs.
+   slots inside wrapper-aware nominal product cores while preserving their flattened adapter ABIs;
+   the enum product path now also composes the declaration and member-value cores directly.
    `ParserColumnarStructs.nl` now wraps compact token columns, hidden field/type/init/type-parameter/base
    span scratch columns, member/index outputs, text outputs, and result slots inside its wrapper-aware
    struct/class/record product core while preserving its flattened adapter ABI.
