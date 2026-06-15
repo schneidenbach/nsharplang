@@ -11,6 +11,21 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Interface declaration name text moves into N#
+
+`ParserDeclarations.nl` now exports `ParseInterfaceDeclarationInfoInto`, a product-routed wrapper
+over the existing interface declaration parser. It preserves method func indices and base-name spans
+while adding materialized interface and base-interface name text columns on the N# side of the
+delegate boundary.
+
+`NSharpCompilerDogfoodAdapter.TryGetColumnarInterfaceInputs` no longer binds
+`ParseInterfaceDeclarationInto` for production or slices interface/base-interface names from source
+spans in C#. The old span parser remains emitted for parser parity tests, while production consumes
+the text-info wrapper. Focused evidence:
+`./scripts/dev.sh Parser_TopLevelDeclarationKinds_MatchProductionParser`,
+`./scripts/dev.sh ColumnarCodegen_Parity_Interfaces`, and
+`./scripts/dev.sh ColumnarCodegen_MultiFile_EligibleClusterCompiles`.
+
 ## 2026-06-15 — Union declaration name text moves into N#
 
 `ParserDeclarations.nl` extends `ParseUnionDeclarationInfoInto` so the product-routed union wrapper

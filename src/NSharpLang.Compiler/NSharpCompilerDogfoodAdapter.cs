@@ -957,8 +957,8 @@ internal static class NSharpCompilerDogfoodAdapter
     // Collect every top-level `interface` declaration into a ColumnarInterfaceInput (name + abstract
     // method SIGNATURES — names, return canonicals, param names/canonicals). Consumes the shared
     // token bundle, finds each interface keyword through the N# declaration-index kernel, parses the member layout via the
-    // ParseInterfaceDeclaration kernel (method signatures ONLY — default bodies, bare members, properties, and
-    // generics return -1 there; base-interface names are carried as spans), then each member's signature via the
+    // ParseInterfaceDeclarationInfo kernel (method signatures ONLY — default bodies, bare members, properties, and
+    // generics return -1 there; base-interface names are carried as text), then each member's signature via the
     // shared ParseFunctionSignature kernel.
     // Returns true (possibly empty) for a program with no interfaces; FALSE declines the program.
     // IF-1 declines: generic members, where-clauses, tuple element names on member types.
@@ -985,16 +985,25 @@ internal static class NSharpCompilerDogfoodAdapter
                 var outMethodFuncIndices = new int[cap];
                 var outBaseNameStarts = new int[cap];
                 var outBaseNameLengths = new int[cap];
+                var outBaseNameTexts = new string[cap];
+                var outInterfaceNameTexts = new string[1];
                 var outResult = new int[8];
-                var methodCount = bindings.ParseInterfaceDeclaration(ck, cs, cv, n, interfaceIndex,
-                    outMethodFuncIndices, outBaseNameStarts, outBaseNameLengths, outResult);
+                var methodCount = bindings.ParseInterfaceDeclarationInfo(source, ck, cs, cv, n, interfaceIndex,
+                    outMethodFuncIndices, outBaseNameStarts, outBaseNameLengths, outBaseNameTexts, outInterfaceNameTexts, outResult);
                 if (methodCount < 0)
                     return false;
-                var interfaceName = source.Substring(outResult[0], outResult[1]);
+                var interfaceName = outInterfaceNameTexts[0];
+                if (string.IsNullOrEmpty(interfaceName))
+                    return false;
                 var baseInterfaceCount = outResult[2];
                 var baseInterfaceNames = new string[baseInterfaceCount];
                 for (var b = 0; b < baseInterfaceCount; b++)
-                    baseInterfaceNames[b] = source.Substring(outBaseNameStarts[b], outBaseNameLengths[b]);
+                {
+                    var baseInterfaceName = outBaseNameTexts[b];
+                    if (string.IsNullOrEmpty(baseInterfaceName))
+                        return false;
+                    baseInterfaceNames[b] = baseInterfaceName;
+                }
                 var methodNames = new string[methodCount];
                 var methodReturns = new string[methodCount];
                 var methodParamNames = new string[methodCount][];
@@ -2051,9 +2060,9 @@ internal static class NSharpCompilerDogfoodAdapter
                 CreateDelegate<ParseStatementNodesInto>(
                     programType,
                     "ParseStatementNodesInto"),
-                CreateDelegate<ParseInterfaceDeclarationInto>(
+                CreateDelegate<ParseInterfaceDeclarationInfoInto>(
                     programType,
-                    "ParseInterfaceDeclarationInto"),
+                    "ParseInterfaceDeclarationInfoInto"),
                 CreateDelegate<ParseEnumDeclarationTextInfoInto>(
                     programType,
                     "ParseEnumDeclarationTextInfoInto"),
@@ -2213,9 +2222,11 @@ internal static class NSharpCompilerDogfoodAdapter
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int start,
         int[] outNodeKinds, int[] outValueStarts, int[] outValueLengths, int[] outChildStart, int[] outChildCount,
         int[] outChildIndices, int[] outSpanStarts, int[] outSpanLengths, int[] outResult);
-    private delegate int ParseInterfaceDeclarationInto(
+    private delegate int ParseInterfaceDeclarationInfoInto(
+        string source,
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int interfaceIndex,
-        int[] outMethodFuncIndices, int[] outBaseNameStarts, int[] outBaseNameLengths, int[] outResult);
+        int[] outMethodFuncIndices, int[] outBaseNameStarts, int[] outBaseNameLengths,
+        string[] outBaseNameTexts, string[] outInterfaceNameTexts, int[] outResult);
     private delegate int ParseEnumDeclarationTextInfoInto(
         string source,
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int enumIndex,
@@ -2274,7 +2285,7 @@ internal static class NSharpCompilerDogfoodAdapter
         TypeReferenceTupleElementNamesInto TypeReferenceTupleElementNames,
         FunctionSignatureWhereOwnerIndicesInto FunctionSignatureWhereOwnerIndices,
         ParseStatementNodesInto ParseStatementNodes,
-        ParseInterfaceDeclarationInto ParseInterfaceDeclaration,
+        ParseInterfaceDeclarationInfoInto ParseInterfaceDeclarationInfo,
         ParseEnumDeclarationTextInfoInto ParseEnumDeclarationTextInfo,
         ParseStructDeclarationInfoInto ParseStructDeclarationInfo,
         ParseUnionDeclarationInfoInto ParseUnionDeclarationInfo,

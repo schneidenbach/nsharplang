@@ -880,6 +880,40 @@ func ParseInterfaceDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenV
     return ParseInterfaceDeclarationCore(ref tokens, count, interfaceIndex, ref decl, ref result)
 }
 
+func ParseInterfaceDeclarationInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, interfaceIndex: int, outMethodFuncIndices: int[], outBaseNameStarts: int[], outBaseNameLengths: int[], outBaseNameTexts: string[], outInterfaceNameTexts: string[], outResult: int[]): int {
+    tokens := new ParserDeclarationTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
+    decl := new InterfaceDeclarationTable { MethodFuncIndices: outMethodFuncIndices, BaseNameStarts: outBaseNameStarts, BaseNameLengths: outBaseNameLengths }
+    result := new ParserDeclarationResultTable { Values: outResult }
+    methodCount := ParseInterfaceDeclarationCore(ref tokens, count, interfaceIndex, ref decl, ref result)
+    if methodCount < 0 {
+        return -1
+    }
+
+    baseCount := result.Values[2]
+    if outInterfaceNameTexts.Length < 1 || baseCount > outBaseNameTexts.Length {
+        return -1
+    }
+
+    interfaceName := ParserDeclarationSpanText(source, result.Values[0], result.Values[1])
+    if interfaceName == "" {
+        return -1
+    }
+    outInterfaceNameTexts[0] = interfaceName
+
+    i := 0
+    while i < baseCount {
+        baseName := ParserDeclarationSpanText(source, decl.BaseNameStarts[i], decl.BaseNameLengths[i])
+        if baseName == "" {
+            return -1
+        }
+
+        outBaseNameTexts[i] = baseName
+        i = i + 1
+    }
+
+    return methodCount
+}
+
 func ParseInterfaceDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int, interfaceIndex: int, decl: &InterfaceDeclarationTable, result: &ParserDeclarationResultTable): int {
     pos := interfaceIndex
     if pos >= count || tokens.Kinds[pos] != 10 {

@@ -103,6 +103,14 @@ public class CompilerDogfoodProjectTests
                     "ParseUnionDeclarationInfoInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit ParseUnionDeclarationInfoInto.");
+            var parseInterfaceDeclaration = programType.GetMethod(
+                    "ParseInterfaceDeclarationInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit ParseInterfaceDeclarationInto.");
+            var parseInterfaceDeclarationInfo = programType.GetMethod(
+                    "ParseInterfaceDeclarationInfoInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit ParseInterfaceDeclarationInfoInto.");
             var canonicalTypeText = programType.GetMethod(
                     "ParserDeclarationCanonicalTypeText",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -201,6 +209,21 @@ record Person {
             AssertTopLevelDeclarationIndices(controlledCorpus, (int)TokenType.Interface, false, 1, tokenizeWithIndentation, topLevelDeclIndices, "top-level interface only");
             AssertTopLevelDeclarationIndices(controlledCorpus, (int)TokenType.Record, false, 1, tokenizeWithIndentation, topLevelDeclIndices, "top-level record only");
             AssertTopLevelDeclarationIndices(controlledCorpus, (int)TokenType.Enum, false, 1, tokenizeWithIndentation, topLevelDeclIndices, "top-level enum only");
+            AssertInterfaceDeclarationInfo(
+                """
+interface IReadable: IBase, IOther {
+    func Read(id: int): string
+    func Reset() {
+    }
+}
+""",
+                "IReadable",
+                new[] { "IBase", "IOther" },
+                2,
+                tokenizeWithIndentation,
+                parseInterfaceDeclaration,
+                parseInterfaceDeclarationInfo,
+                "interface name/base text info");
             AssertEnumDeclarationInfo(
                 "enum E { A = 5, B, C = 20, D }",
                 "E",
@@ -936,6 +959,84 @@ class B
             }) ?? -2);
         Assert.Equal(-1, infoActual);
         Assert.Equal(-1, textActual);
+    }
+
+    private static void AssertInterfaceDeclarationInfo(
+        string source,
+        string expectedInterfaceName,
+        string[] expectedBaseNames,
+        int expectedMethodCount,
+        MethodInfo tokenizeWithIndentation,
+        MethodInfo parseInterfaceDeclaration,
+        MethodInfo parseInterfaceDeclarationInfo,
+        string label)
+    {
+        var (count, kinds, starts, valueLengths, compactedSource) = TokenizeSourceViaKernel(source, tokenizeWithIndentation);
+        var interfaceIndex = FirstTokenIndex(kinds, count, (int)TokenType.Interface);
+        Assert.True(interfaceIndex >= 0, $"Could not locate interface token for {label}.");
+
+        var cap = count + 1;
+        var spanMethodFuncIndices = new int[cap];
+        var spanBaseNameStarts = new int[cap];
+        var spanBaseNameLengths = new int[cap];
+        var spanResult = new int[8];
+        var spanMethodCount = (int)(parseInterfaceDeclaration.Invoke(
+            null,
+            new object[]
+            {
+                kinds,
+                starts,
+                valueLengths,
+                count,
+                interfaceIndex,
+                spanMethodFuncIndices,
+                spanBaseNameStarts,
+                spanBaseNameLengths,
+                spanResult
+            }) ?? -2);
+
+        var methodFuncIndices = new int[cap];
+        var baseNameStarts = new int[cap];
+        var baseNameLengths = new int[cap];
+        var baseNameTexts = new string[cap];
+        var interfaceNameTexts = new string[1];
+        var result = new int[8];
+        var methodCount = (int)(parseInterfaceDeclarationInfo.Invoke(
+            null,
+            new object[]
+            {
+                compactedSource,
+                kinds,
+                starts,
+                valueLengths,
+                count,
+                interfaceIndex,
+                methodFuncIndices,
+                baseNameStarts,
+                baseNameLengths,
+                baseNameTexts,
+                interfaceNameTexts,
+                result
+            }) ?? -2);
+
+        Assert.Equal(expectedMethodCount, spanMethodCount);
+        Assert.Equal(spanMethodCount, methodCount);
+        Assert.Equal(spanResult[0], result[0]);
+        Assert.Equal(spanResult[1], result[1]);
+        Assert.Equal(spanResult[2], result[2]);
+        Assert.Equal(expectedInterfaceName, compactedSource.Substring(result[0], result[1]));
+        Assert.Equal(expectedInterfaceName, interfaceNameTexts[0]);
+        Assert.Equal(expectedBaseNames.Length, result[2]);
+        for (var b = 0; b < expectedBaseNames.Length; b++)
+        {
+            Assert.Equal(spanBaseNameStarts[b], baseNameStarts[b]);
+            Assert.Equal(spanBaseNameLengths[b], baseNameLengths[b]);
+            Assert.Equal(expectedBaseNames[b], compactedSource.Substring(baseNameStarts[b], baseNameLengths[b]));
+            Assert.Equal(expectedBaseNames[b], baseNameTexts[b]);
+        }
+
+        for (var m = 0; m < expectedMethodCount; m++)
+            Assert.Equal(spanMethodFuncIndices[m], methodFuncIndices[m]);
     }
 
     private static void AssertUnionDeclarationInfo(
