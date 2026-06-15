@@ -3728,6 +3728,27 @@ func main(): string {
     }
 
     [Fact]
+    public void ILCompiler_CanExecuteQueryableExpressionTreeShiftOperators()
+    {
+        var source = @"
+import System
+import System.Linq
+
+func main(): string {
+    source := [1L, 2L, 3L, 4L, 5L]
+    query: IQueryable<long> = Queryable.AsQueryable<long>(source)
+    filtered: IQueryable<long> = Queryable.Where<long>(
+        query,
+        x => ((x << 1) == 4L) || ((x >> 1) == 2L))
+    texts: IQueryable<string> = Queryable.Select<long, string>(filtered, x => x.ToString())
+    return String.Join("":"", texts)
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal("2:4:5", Assert.IsType<string>(result));
+    }
+
+    [Fact]
     public void ILCompiler_CanEmitAnonymousObjectExpressionTreeLambdas()
     {
         var source = @"

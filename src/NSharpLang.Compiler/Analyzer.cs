@@ -14095,7 +14095,9 @@ public class Analyzer : IDisposable
             or BinaryOperator.Or
             or BinaryOperator.BitwiseAnd
             or BinaryOperator.BitwiseOr
-            or BinaryOperator.BitwiseXor;
+            or BinaryOperator.BitwiseXor
+            or BinaryOperator.LeftShift
+            or BinaryOperator.RightShift;
 
     private static bool IsSupportedExpressionTreeUnaryOperator(UnaryOperator op)
         => op is UnaryOperator.Not

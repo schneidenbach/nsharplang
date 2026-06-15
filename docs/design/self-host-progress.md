@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Expression-tree shift predicates lower
+
+Queryable expression-tree predicates now lower integer shift operators through
+`Expression.LeftShift` and `Expression.RightShift`, with the shift count emitted as an `int`
+expression-tree node instead of being coerced to the left operand type. The analyzer mirror accepts
+`<<` and `>>` in expression-tree bodies, and the executable queryable regression filters rows through
+both shift forms end-to-end.
+
 ## 2026-06-15 — Systems policy attributes bypass CLR constant validation
 
 The attribute-constant safety gate now skips internal systems policy attributes (`[hot]`,
@@ -23,7 +31,7 @@ systems proof matrix again builds proof 25 with `[memory(safe)]`.
 
 Queryable expression-tree predicates now lower integer bitwise `&`, `|`, and `^` through
 `Expression.And`, `Expression.Or`, and `Expression.ExclusiveOr`. The analyzer mirror accepts those
-operators while shifts remain rejected before emission; the new queryable execution pin exercises all
+operators; the later shift slice covers `<<` and `>>`. The queryable execution pin exercises all
 three bitwise nodes in one predicate and returns the expected filtered rows.
 
 ## 2026-06-15 — Expression-tree hard casts lower
@@ -44,8 +52,8 @@ expression-tree path.
 
 Queryable expression-tree predicates now lower `%` through `Expression.Modulo`, and the analyzer
 accepts modulo in the mirrored supported-body set. The regression pin executes
-`Queryable.Where<int>(..., x => x % 2 == 1).Select(...)` end-to-end; still-unsupported binary shapes
-such as shifts continue to report `NL323` before expression-tree IL emission.
+`Queryable.Where<int>(..., x => x % 2 == 1).Select(...)` end-to-end; the later shift slice extends
+the same expression-tree path to `<<` and `>>`.
 
 ## 2026-06-15 — Expression-tree positional call arguments lower
 
@@ -58,7 +66,7 @@ through the expression-tree path.
 ## 2026-06-15 — Expression-tree unsupported bodies fail before lowering
 
 Expression-tree lambda analysis now mirrors the IL builder's supported body subset. Captured/static
-identifiers, named/ref/generic calls, unsupported operators such as `<<`, and other unlowered
+identifiers, named/ref/generic calls, unsupported expressions such as ternaries, and other unlowered
 expression forms report `NL323` during semantic analysis instead of reaching expression-tree IL
 emission and throwing. The accepted queryable subset from the previous slice remains executable.
 

@@ -1458,12 +1458,18 @@ public partial class ILCompiler
 
         var leftType = GetExpressionTreeNodeClrType(binary.Left, parameterClrTypes);
         var rightType = GetExpressionTreeNodeClrType(binary.Right, parameterClrTypes);
+        if (binary.Operator is BinaryOperator.LeftShift or BinaryOperator.RightShift)
+        {
+            rightType = typeof(int);
+        }
+
         if (IsExpressionTreeConstantLiteral(binary.Left) && rightType != typeof(object))
         {
             leftType = rightType;
         }
 
-        if (IsExpressionTreeConstantLiteral(binary.Right) && leftType != typeof(object))
+        if (IsExpressionTreeConstantLiteral(binary.Right) && leftType != typeof(object)
+            && binary.Operator is not (BinaryOperator.LeftShift or BinaryOperator.RightShift))
         {
             rightType = leftType;
         }
@@ -1583,6 +1589,8 @@ public partial class ILCompiler
             BinaryOperator.BitwiseAnd => nameof(System.Linq.Expressions.Expression.And),
             BinaryOperator.BitwiseOr => nameof(System.Linq.Expressions.Expression.Or),
             BinaryOperator.BitwiseXor => nameof(System.Linq.Expressions.Expression.ExclusiveOr),
+            BinaryOperator.LeftShift => nameof(System.Linq.Expressions.Expression.LeftShift),
+            BinaryOperator.RightShift => nameof(System.Linq.Expressions.Expression.RightShift),
             _ => throw new NotSupportedException($"Expression-tree binary operator '{binaryOperator}' is not supported by the IL backend yet")
         };
 
