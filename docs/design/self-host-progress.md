@@ -11,6 +11,22 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Function parser core wraps composed rowsets
+
+`ParserColumnarFunctions.nl` now keeps compact token columns, function signature output columns,
+statement-node body columns, direct local-function result columns, and result slots behind named N#
+table structs inside `ParseColumnarFunctionInfoCore`. The public `ParseColumnarFunctionInfoInto` ABI
+stays flattened for the current adapter and parity tests, while the product function parser wrapper
+no longer composes against anonymous parallel arrays internally. Focused evidence:
+`./scripts/dev.sh Parser_FunctionSignature_MatchesProductionParser`,
+`./scripts/dev.sh ColumnarCodegen_Parity_LocalFunctions`,
+`./scripts/dev.sh ColumnarCodegen_Parity_NamedTuples`,
+`./scripts/dev.sh ColumnarCodegen_Parity_GenericFunctions`,
+`./scripts/dev.sh ColumnarCodegen_Parity_GenericConstraints`,
+`./scripts/dev.sh ColumnarCodegen_MultiFile_RealParserCluster`,
+`./scripts/dev.sh ColumnarCodegen_CompilesRealDogfoodCorpus_Coverage`, and
+`./scripts/dev.sh ColumnarCodegen_MultiFile_EligibleClusterCompiles`.
+
 ## 2026-06-15 — Constructor parser core wraps composed rowsets
 
 `ParserColumnarConstructors.nl` now keeps compact token columns, constructor signature/chain output
