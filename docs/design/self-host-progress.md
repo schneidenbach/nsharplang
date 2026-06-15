@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Newline-leading fluent chains stay in one expression
+
+The parser now treats leading `.` and `?.` tokens on a following line as postfix continuations
+instead of starting a fresh invalid expression. EF-style expression-tree chains such as
+`HasOne(...)\n    .WithOne(...)` now stay in one expression, which lets IL expression-tree binding
+reach the real fluent methods instead of seeing a `<error>` callee.
+
 ## 2026-06-15 — Systems stackalloc budget accepts wrapped constants
 
 The systems stack-budget analyzer now classifies literal stackalloc lengths through parentheses,

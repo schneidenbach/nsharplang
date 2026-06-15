@@ -238,6 +238,33 @@ public class ParserTests
     }
 
     [Fact]
+    public void PostfixMemberChain_AllowsLeadingDotContinuation()
+    {
+        var source = @"
+            func Test() {
+                result := builder
+                    .Entity()
+                    .HasOne()
+            }
+        ";
+
+        var lexer = new Lexer(source, "test.nl");
+        var parser = new Parser(lexer.Tokenize(), "test.nl", source);
+        var result = parser.ParseCompilationUnit();
+        Assert.DoesNotContain(result.Errors, error => error.Severity == ErrorSeverity.Error);
+
+        var funcDecl = Assert.IsType<FunctionDeclaration>(result.CompilationUnit!.Declarations[0]);
+        var resultDecl = Assert.IsType<VariableDeclarationStatement>(funcDecl.Body!.Statements[0]);
+        var finalCall = Assert.IsType<CallExpression>(resultDecl.Initializer);
+        var finalMember = Assert.IsType<MemberAccessExpression>(finalCall.Callee);
+        Assert.Equal("HasOne", finalMember.MemberName);
+
+        var innerCall = Assert.IsType<CallExpression>(finalMember.Object);
+        var innerMember = Assert.IsType<MemberAccessExpression>(innerCall.Callee);
+        Assert.Equal("Entity", innerMember.MemberName);
+    }
+
+    [Fact]
     public void TestFunctionCall()
     {
         var source = @"

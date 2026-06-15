@@ -4514,7 +4514,9 @@ public class Parser
 
         while (true)
         {
-            if (Current.Line > Previous.Line)
+            if (Current.Line > Previous.Line &&
+                !Check(TokenType.Dot) &&
+                !Check(TokenType.QuestionDot))
             {
                 break;
             }
