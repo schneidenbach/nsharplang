@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Parenthesized SoA bool bitwise stores keep direct column IL
+
+Bool bitwise stores over receiver-parenthesized backing-column members now have IL-shape evidence for
+row, literal from-end, and variable-held `System.Index` forms. `(nodes.active)[row] =
+(nodes.active)[row] | true`, `(nodes.active)[^1] = (nodes.active)[^1] ^ true`, and
+`idx := ^1; (nodes.active)[idx] = (nodes.active)[idx] & true` stay on backing column arrays, preserve
+expression-valued assignment results, and lower through direct `or`/`xor`/`and` opcodes with no row
+construction, slice allocation, boxing, delegate construction, or virtual dispatch.
+
 ## 2026-06-15 — Parenthesized SoA bool logical stores keep direct column IL
 
 Bool logical stores over receiver-parenthesized backing-column members now have IL-shape evidence for

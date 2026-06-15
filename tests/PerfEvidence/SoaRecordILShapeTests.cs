@@ -1085,6 +1085,79 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void ParenthesizedColumnMemberBoolBitwiseExpressions_UseColumnArrayOffsetWithoutSliceAllocation()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                active: bool
+            }
+
+            func rowOps(nodes: NodeTable, row: int): int {
+                (nodes.active)[row] = false;
+                orValue := (nodes.active)[row] = (nodes.active)[row] | true;
+                xorValue := (nodes.active)[row] = (nodes.active)[row] ^ true;
+                andValue := (nodes.active)[row] = (nodes.active)[row] & true;
+                total := orValue ? 100 : 0
+                total += xorValue ? 10 : 0
+                total += andValue ? 1 : 0
+                return total
+            }
+
+            func literalOps(nodes: NodeTable): int {
+                (nodes.active)[^1] = false;
+                orValue := (nodes.active)[^1] = (nodes.active)[^1] | true;
+                xorValue := (nodes.active)[^1] = (nodes.active)[^1] ^ true;
+                andValue := (nodes.active)[^1] = (nodes.active)[^1] & true;
+                total := orValue ? 100 : 0
+                total += xorValue ? 10 : 0
+                total += andValue ? 1 : 0
+                return total
+            }
+
+            func variableOps(nodes: NodeTable): int {
+                idx := ^1;
+                (nodes.active)[idx] = false;
+                orValue := (nodes.active)[idx] = (nodes.active)[idx] | true;
+                xorValue := (nodes.active)[idx] = (nodes.active)[idx] ^ true;
+                andValue := (nodes.active)[idx] = (nodes.active)[idx] & true;
+                total := orValue ? 100 : 0
+                total += xorValue ? 10 : 0
+                total += andValue ? 1 : 0
+                return total
+            }
+
+            func main(): int {
+                nodes := new NodeTable(1)
+                row := nodes.add()
+                return rowOps(nodes, row) + literalOps(nodes) + variableOps(nodes)
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var rowOps = ILShapeInspector.GetProgramMethod(assembly, "rowOps");
+            var literalOps = ILShapeInspector.GetProgramMethod(assembly, "literalOps");
+            var variableOps = ILShapeInspector.GetProgramMethod(assembly, "variableOps");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(300, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoAllocationOrDispatch(rowOps);
+            AssertParenthesizedBoolBitwiseColumnShape(rowOps, "row-index");
+
+            AssertNoFromEndSliceAllocation(literalOps);
+            AssertParenthesizedBoolBitwiseColumnShape(literalOps, "literal from-end");
+
+            AssertNoFromEndSliceAllocation(variableOps);
+            AssertParenthesizedBoolBitwiseColumnShape(variableOps, "variable from-end");
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void DirectColumnFromEndAssignmentExpression_ReturnsAssignedValueWithoutSliceAllocation()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
@@ -4755,6 +4828,26 @@ public class SoaRecordILShapeTests
         Assert.True(
             CountOpcodes(method, OpCodes.Brtrue, OpCodes.Brtrue_S) >= 1,
             $"Parenthesized SoA bool logical-or should lower through short-circuit true branches for {indexDescription} access.");
+    }
+
+    private static void AssertParenthesizedBoolBitwiseColumnShape(MethodInfo method, string indexDescription)
+    {
+        Assert.True(
+            ILShapeInspector.CountOpcode(method, OpCodes.Ldfld) >= 7,
+            $"Parenthesized SoA bool bitwise stores should load backing column fields directly for {indexDescription} access.");
+        Assert.True(
+            CountArrayElementLoads(method) >= 3,
+            $"Parenthesized SoA bool bitwise stores should read current values from backing arrays for {indexDescription} access.");
+        Assert.Equal(4, CountArrayElementStores(method));
+        Assert.True(
+            ILShapeInspector.CountOpcode(method, OpCodes.Or) >= 1,
+            $"Parenthesized SoA bool bitwise-or should use the direct OR opcode for {indexDescription} access.");
+        Assert.True(
+            ILShapeInspector.CountOpcode(method, OpCodes.Xor) >= 1,
+            $"Parenthesized SoA bool bitwise-xor should use the direct XOR opcode for {indexDescription} access.");
+        Assert.True(
+            ILShapeInspector.CountOpcode(method, OpCodes.And) >= 1,
+            $"Parenthesized SoA bool bitwise-and should use the direct AND opcode for {indexDescription} access.");
     }
 
     private static void AssertNoAllocationOrDispatch(MethodInfo method)
