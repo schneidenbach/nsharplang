@@ -5967,14 +5967,14 @@ public class Analyzer : IDisposable
         }
 
         var isRangeAccess = index.Index is RangeExpression || IsRangeLikeType(indexType);
-        if (receiverType is SoaRecordTypeInfo && !IsValidSoaRowIndex(indexType, isRangeAccess))
-        {
-            ReportInvalidSoaRowIndex(index.Index, indexType, isRangeAccess);
-            return BuiltInTypes.Unknown;
-        }
         if (receiverType is SoaRecordTypeInfo
             && ReportNegativeSoaRowIndexIfNeeded(index.Index, indexType, "table row"))
         {
+            return BuiltInTypes.Unknown;
+        }
+        if (receiverType is SoaRecordTypeInfo && !IsValidSoaRowIndex(indexType, isRangeAccess))
+        {
+            ReportInvalidSoaRowIndex(index.Index, indexType, isRangeAccess);
             return BuiltInTypes.Unknown;
         }
 
@@ -6051,7 +6051,15 @@ public class Analyzer : IDisposable
 
     private bool ReportNegativeSoaRowIndexIfNeeded(Expression expression, TypeInfo indexType, string targetDescription)
     {
-        if (ResolveTypeAlias(indexType) != BuiltInTypes.Int || !IsConstantNegative(expression))
+        var resolvedIndexType = ResolveTypeAlias(indexType);
+        if (resolvedIndexType != BuiltInTypes.Int
+            && resolvedIndexType != BuiltInTypes.Short
+            && resolvedIndexType != BuiltInTypes.SByte)
+        {
+            return false;
+        }
+
+        if (!IsConstantNegative(expression))
         {
             return false;
         }

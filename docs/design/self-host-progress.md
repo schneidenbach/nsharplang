@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — SoA negative row indexes resolve signed aliases
+
+The SoA analyzer now reports the precise negative row-index diagnostic before the generic row-id type
+fallback for signed small-integer casts and aliases. Table row projections such as
+`nodes[(SmallCount)-1]` and direct column indexes such as `nodes.kind[unchecked((SmallCount)-1)]`
+now fail with the same "must not be negative" diagnostic as `int` indexes, while non-negative
+small-integer row ids remain rejected by the "must be int row ids" rule.
+
 ## 2026-06-15 — Systems stackalloc budget resolves aliases
 
 The systems stack-budget analyzer now records type aliases during declaration registration and uses

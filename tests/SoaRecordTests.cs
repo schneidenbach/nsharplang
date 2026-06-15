@@ -4644,6 +4644,111 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaTableSmallSignedCastNegativeIndexesAreRejected()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var cases = new[]
+        {
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable): int {
+                    return nodes[(short)-1].kind
+                }
+                """,
+                Message: "SoA table row indexes must not be negative"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type SmallCount = short
+
+                func bad(nodes: NodeTable) {
+                    nodes[(SmallCount)-1].kind = 1
+                }
+                """,
+                Message: "SoA table row indexes must not be negative"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable) {
+                    nodes.kind[checked((short)-1)] = 1
+                }
+                """,
+                Message: "SoA column row indexes must not be negative"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type SmallCount = sbyte
+
+                func bad(nodes: NodeTable): int {
+                    return nodes.kind[unchecked((SmallCount)-1)]
+                }
+                """,
+                Message: "SoA column row indexes must not be negative")
+        };
+
+        foreach (var testCase in cases)
+        {
+            var result = Analyze(testCase.Source);
+            var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+            Assert.Contains(testCase.Message, error.Message);
+            Assert.Contains("non-negative row id", error.Suggestion);
+            Assert.DoesNotContain("must be int row ids", error.Message);
+        }
+    }
+
+    [Fact]
+    public void Analyzer_SoaTableSmallIntegerRowIndexesStillRequireInt()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var cases = new[]
+        {
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable): int {
+                return nodes[(short)1].kind
+            }
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            type SmallCount = short
+
+            func bad(nodes: NodeTable) {
+                nodes[(SmallCount)1].kind = 1
+            }
+            """
+        };
+
+        foreach (var source in cases)
+        {
+            var result = Analyze(source);
+            var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+            Assert.Contains("SoA table indexes must be int row ids", error.Message);
+            Assert.DoesNotContain("must not be negative", error.Message);
+        }
+    }
+
+    [Fact]
     public void Analyzer_SoaTableNegativeZeroIndexesAreAllowed()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

@@ -315,7 +315,7 @@ The compiler must produce direct diagnostics for common misuse:
 - statically negative row indexes on row/direct-column reads or writes:
   "SoA table row indexes must not be negative" or "SoA column row indexes must not be negative",
   including parenthesized whole-expression or unary-operand, checked/unchecked, and signed
-  integer-cast forms;
+  integer-cast forms including aliases;
 - direct table member mutation: "SoA table member 'X' cannot be assigned directly" for simple,
   compound, and null-coalescing assignment, or "SoA table member 'X' cannot be incremented or
   decremented directly", including parenthesized and checked/unchecked target-wrapper forms;
