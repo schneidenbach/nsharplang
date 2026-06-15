@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA nullable string unsupported updates stop before emission
+
+Nullable string SoA columns now have analyzer pins for unsupported compound assignment and
+increment/decrement forms across row projection, direct column indexing, and direct from-end column
+indexing. `-=`, `*=`, `/=`, `++`, and `--` all report source type diagnostics before assignment
+lowering can reach IL emission.
+
 ## 2026-06-14 — SoA nullable string null equality has IL-shape proof
 
 Nullable string SoA columns now have opcode evidence for `== null` and `!= null` expressions across

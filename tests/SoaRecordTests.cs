@@ -4649,6 +4649,39 @@ public class SoaRecordTests : ILCompilerTestBase
         Assert.Contains("numeric values", error.Message);
     }
 
+    [Theory]
+    [InlineData("nodes[row].text", "-=", "-")]
+    [InlineData("nodes[row].text", "*=", "*")]
+    [InlineData("nodes[row].text", "/=", "/")]
+    [InlineData("nodes.text[row]", "-=", "-")]
+    [InlineData("nodes.text[row]", "*=", "*")]
+    [InlineData("nodes.text[row]", "/=", "/")]
+    [InlineData("nodes.text[^1]", "-=", "-")]
+    [InlineData("nodes.text[^1]", "*=", "*")]
+    [InlineData("nodes.text[^1]", "/=", "/")]
+    public void Analyzer_SoaRecordNullableStringUnsupportedCompoundAssignmentOperators_AreRejected(
+        string target,
+        string assignmentOperator,
+        string binaryOperator)
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze($$"""
+            soa record NodeTable {
+                text: string?
+            }
+
+            func bad(nodes: NodeTable, row: int) {
+                {{target}} {{assignmentOperator}} "suffix"
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains($"'{binaryOperator}' operator doesn't work", error.Message);
+        Assert.Contains("string?", error.Message);
+        Assert.Contains("numeric values", error.Message);
+    }
+
     [Fact]
     public void ILCompiler_SoaRecordGeneratedOperationsBindNamedArguments()
     {
@@ -5778,6 +5811,34 @@ public class SoaRecordTests : ILCompilerTestBase
 
         var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
         Assert.Contains("'--' operator doesn't work with 'string'", error.Message);
+        Assert.Contains("integral numeric value", error.Message);
+    }
+
+    [Theory]
+    [InlineData("nodes[row].text++", "++")]
+    [InlineData("nodes[row].text--", "--")]
+    [InlineData("nodes.text[row]++", "++")]
+    [InlineData("nodes.text[row]--", "--")]
+    [InlineData("nodes.text[^1]++", "++")]
+    [InlineData("nodes.text[^1]--", "--")]
+    public void Analyzer_SoaRecordNullableStringIncrementAndDecrement_AreRejected(
+        string expression,
+        string operatorText)
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze($$"""
+            soa record NodeTable {
+                text: string?
+            }
+
+            func bad(nodes: NodeTable, row: int) {
+                {{expression}}
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains($"'{operatorText}' operator doesn't work with 'string?'", error.Message);
         Assert.Contains("integral numeric value", error.Message);
     }
 
