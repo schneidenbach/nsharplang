@@ -1333,6 +1333,102 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void ParenthesizedColumnMemberEnumBitwiseExpressions_UseColumnArrayOffsetWithoutSliceAllocation()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                kind: NodeKind
+            }
+
+            enum NodeKind {
+                Unknown = 0,
+                Identifier = 1,
+                Literal = 2,
+                Both = 3
+            }
+
+            func rowOps(nodes: NodeTable, row: int): int {
+                (nodes.kind)[row] = NodeKind.Identifier;
+                orValue := (nodes.kind)[row] = (nodes.kind)[row] | NodeKind.Literal;
+                xorValue := (nodes.kind)[row] = (nodes.kind)[row] ^ NodeKind.Identifier;
+                andValue := (nodes.kind)[row] = (nodes.kind)[row] & NodeKind.Literal;
+                notValue := (nodes.kind)[row] = ~(nodes.kind)[row];
+
+                score := orValue == NodeKind.Both ? 1000 : 0
+                score += xorValue == NodeKind.Literal ? 100 : 0
+                score += andValue == NodeKind.Literal ? 10 : 0
+                score += (int)notValue == -3 ? 1 : 0
+                return score
+            }
+
+            func literalOps(nodes: NodeTable): int {
+                (nodes.kind)[^1] = NodeKind.Identifier;
+                orValue := (nodes.kind)[^1] = (nodes.kind)[^1] | NodeKind.Literal;
+                xorValue := (nodes.kind)[^1] = (nodes.kind)[^1] ^ NodeKind.Identifier;
+                andValue := (nodes.kind)[^1] = (nodes.kind)[^1] & NodeKind.Literal;
+                notValue := (nodes.kind)[^1] = ~(nodes.kind)[^1];
+
+                score := orValue == NodeKind.Both ? 1000 : 0
+                score += xorValue == NodeKind.Literal ? 100 : 0
+                score += andValue == NodeKind.Literal ? 10 : 0
+                score += (int)notValue == -3 ? 1 : 0
+                return score
+            }
+
+            func variableOps(nodes: NodeTable): int {
+                idx := ^1;
+                (nodes.kind)[idx] = NodeKind.Identifier;
+                orValue := (nodes.kind)[idx] = (nodes.kind)[idx] | NodeKind.Literal;
+                xorValue := (nodes.kind)[idx] = (nodes.kind)[idx] ^ NodeKind.Identifier;
+                andValue := (nodes.kind)[idx] = (nodes.kind)[idx] & NodeKind.Literal;
+                notValue := (nodes.kind)[idx] = ~(nodes.kind)[idx];
+
+                score := orValue == NodeKind.Both ? 1000 : 0
+                score += xorValue == NodeKind.Literal ? 100 : 0
+                score += andValue == NodeKind.Literal ? 10 : 0
+                score += (int)notValue == -3 ? 1 : 0
+                return score
+            }
+
+            func main(): int {
+                rowNodes := new NodeTable(1)
+                row := rowNodes.add()
+
+                literalNodes := new NodeTable(1)
+                literalNodes.add()
+
+                variableNodes := new NodeTable(1)
+                variableNodes.add()
+
+                return rowOps(rowNodes, row) + literalOps(literalNodes) + variableOps(variableNodes)
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var rowOps = ILShapeInspector.GetProgramMethod(assembly, "rowOps");
+            var literalOps = ILShapeInspector.GetProgramMethod(assembly, "literalOps");
+            var variableOps = ILShapeInspector.GetProgramMethod(assembly, "variableOps");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(3333, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoAllocationOrDispatch(rowOps);
+            AssertParenthesizedEnumBitwiseColumnShape(rowOps, "row-index");
+
+            AssertNoFromEndSliceAllocation(literalOps);
+            AssertParenthesizedEnumBitwiseColumnShape(literalOps, "literal from-end");
+
+            AssertNoFromEndSliceAllocation(variableOps);
+            AssertParenthesizedEnumBitwiseColumnShape(variableOps, "variable from-end");
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void ParenthesizedColumnMemberBoolLogicalExpressions_UseColumnArrayOffsetWithoutSliceAllocation()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
@@ -5484,6 +5580,28 @@ public class SoaRecordILShapeTests
         Assert.True(
             unsignedRelationalComparisons >= 2,
             $"Parenthesized SoA unsigned/char relational comparisons should use unsigned comparison opcodes or branches for {indexDescription} access; saw {unsignedRelationalComparisons}.");
+    }
+
+    private static void AssertParenthesizedEnumBitwiseColumnShape(MethodInfo method, string indexDescription)
+    {
+        var fieldLoads = ILShapeInspector.CountOpcode(method, OpCodes.Ldfld);
+        Assert.True(
+            fieldLoads >= 9,
+            $"Parenthesized SoA enum bitwise stores should load backing column fields directly for {indexDescription} access; saw {fieldLoads} field loads.");
+        Assert.Equal(4, CountArrayElementLoads(method));
+        Assert.Equal(5, CountArrayElementStores(method));
+        Assert.True(
+            ILShapeInspector.CountOpcode(method, OpCodes.Or) >= 1,
+            $"Parenthesized SoA enum bitwise-or should use the direct OR opcode for {indexDescription} access.");
+        Assert.True(
+            ILShapeInspector.CountOpcode(method, OpCodes.Xor) >= 1,
+            $"Parenthesized SoA enum bitwise-xor should use the direct XOR opcode for {indexDescription} access.");
+        Assert.True(
+            ILShapeInspector.CountOpcode(method, OpCodes.And) >= 1,
+            $"Parenthesized SoA enum bitwise-and should use the direct AND opcode for {indexDescription} access.");
+        Assert.True(
+            ILShapeInspector.CountOpcode(method, OpCodes.Not) >= 1,
+            $"Parenthesized SoA enum unary bitwise-not should use the direct NOT opcode for {indexDescription} access.");
     }
 
     private static void AssertParenthesizedBoolBitwiseColumnShape(MethodInfo method, string indexDescription)

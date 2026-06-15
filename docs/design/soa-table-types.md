@@ -366,6 +366,7 @@ range mutation diagnostics including parenthesized column members, variable-held
 null-coalescing reads/assignments, receiver-parenthesized bool logical and bitwise expression stores,
 receiver-parenthesized numeric arithmetic/shift/bitwise expression stores,
 receiver-parenthesized signed numeric negation and unary bitwise-not stores,
+receiver-parenthesized int-backed enum bitwise and unary bitwise-not stores,
 receiver-parenthesized string/string? concatenation stores, receiver-parenthesized string/string?
 equality and nullable-string null equality expressions, receiver-parenthesized bool/numeric/char/enum
 comparison expressions, verified

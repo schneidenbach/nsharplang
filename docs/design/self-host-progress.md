@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Parenthesized SoA enum bitwise stores keep direct column IL
+
+Int-backed enum bitwise stores over receiver-parenthesized backing-column members now have IL-shape
+evidence for row, literal from-end, and variable-held `System.Index` forms. `(nodes.kind)[row] =
+(nodes.kind)[row] | NodeKind.Literal`, `(nodes.kind)[^1] = (nodes.kind)[^1] ^
+NodeKind.Identifier`, and `idx := ^1; (nodes.kind)[idx] = ~(nodes.kind)[idx]` stay on backing
+column arrays, preserve expression-valued assignment results, and lower through direct bitwise
+opcodes with no row construction, slice allocation, boxing, delegate construction, or virtual
+dispatch.
+
 ## 2026-06-15 — Parenthesized SoA scalar comparisons stay on direct columns
 
 Bool, numeric, char, and int-backed enum comparisons over receiver-parenthesized backing-column
