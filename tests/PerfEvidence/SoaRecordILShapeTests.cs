@@ -1093,6 +1093,112 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void ParenthesizedColumnMemberStringEquality_UsesColumnArrayOffsetAndStringOperators()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                name: string
+                optionalName: string?
+            }
+
+            func rowOps(nodes: NodeTable, row: int): int {
+                (nodes.name)[row] = "alpha";
+                nameMatches := (nodes.name)[row] == "alpha"
+                nameDiffers := (nodes.name)[row] != "beta"
+
+                optionalMissing := (nodes.optionalName)[row] == null
+                (nodes.optionalName)[row] = "maybe";
+                optionalPresent := (nodes.optionalName)[row] != null
+
+                optionalMatches := (nodes.optionalName)[row] == "maybe"
+                optionalDiffers := (nodes.optionalName)[row] != "nope"
+
+                score := nameMatches ? 100000 : 0
+                score += nameDiffers ? 10000 : 0
+                score += optionalMissing ? 1000 : 0
+                score += optionalPresent ? 100 : 0
+                score += optionalMatches ? 10 : 0
+                score += optionalDiffers ? 1 : 0
+                return score
+            }
+
+            func literalOps(nodes: NodeTable): int {
+                (nodes.name)[^1] = "alpha";
+                nameMatches := (nodes.name)[^1] == "alpha"
+                nameDiffers := (nodes.name)[^1] != "beta"
+
+                optionalMissing := (nodes.optionalName)[^1] == null
+                (nodes.optionalName)[^1] = "maybe";
+                optionalPresent := (nodes.optionalName)[^1] != null
+
+                optionalMatches := (nodes.optionalName)[^1] == "maybe"
+                optionalDiffers := (nodes.optionalName)[^1] != "nope"
+
+                score := nameMatches ? 100000 : 0
+                score += nameDiffers ? 10000 : 0
+                score += optionalMissing ? 1000 : 0
+                score += optionalPresent ? 100 : 0
+                score += optionalMatches ? 10 : 0
+                score += optionalDiffers ? 1 : 0
+                return score
+            }
+
+            func variableOps(nodes: NodeTable): int {
+                idx := ^1;
+                (nodes.name)[idx] = "alpha";
+                nameMatches := (nodes.name)[idx] == "alpha"
+                nameDiffers := (nodes.name)[idx] != "beta"
+
+                optionalMissing := (nodes.optionalName)[idx] == null
+                (nodes.optionalName)[idx] = "maybe";
+                optionalPresent := (nodes.optionalName)[idx] != null
+
+                optionalMatches := (nodes.optionalName)[idx] == "maybe"
+                optionalDiffers := (nodes.optionalName)[idx] != "nope"
+
+                score := nameMatches ? 100000 : 0
+                score += nameDiffers ? 10000 : 0
+                score += optionalMissing ? 1000 : 0
+                score += optionalPresent ? 100 : 0
+                score += optionalMatches ? 10 : 0
+                score += optionalDiffers ? 1 : 0
+                return score
+            }
+
+            func main(): int {
+                rowNodes := new NodeTable(1)
+                row := rowNodes.add()
+
+                literalNodes := new NodeTable(1)
+                literalNodes.add()
+
+                variableNodes := new NodeTable(1)
+                variableNodes.add()
+
+                return rowOps(rowNodes, row) + literalOps(literalNodes) + variableOps(variableNodes)
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var rowOps = ILShapeInspector.GetProgramMethod(assembly, "rowOps");
+            var literalOps = ILShapeInspector.GetProgramMethod(assembly, "literalOps");
+            var variableOps = ILShapeInspector.GetProgramMethod(assembly, "variableOps");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(333333, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertParenthesizedStringEqualityColumnShape(rowOps, "row-index");
+            AssertParenthesizedStringEqualityColumnShape(literalOps, "literal from-end");
+            AssertParenthesizedStringEqualityColumnShape(variableOps, "variable from-end");
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void ParenthesizedColumnMemberBoolLogicalExpressions_UseColumnArrayOffsetWithoutSliceAllocation()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
@@ -5178,6 +5284,25 @@ public class SoaRecordILShapeTests
         Assert.Equal(5, CountArrayElementStores(method));
         Assert.Equal(4, ILShapeInspector.CountCallsTo(method, typeof(string), nameof(string.Concat)));
         Assert.Equal(4, ILShapeInspector.CountCallsTo(method, typeof(string), "op_Equality"));
+    }
+
+    private static void AssertParenthesizedStringEqualityColumnShape(MethodInfo method, string indexDescription)
+    {
+        AssertNoFromEndSliceAllocation(method);
+        var fieldLoads = ILShapeInspector.CountOpcode(method, OpCodes.Ldfld);
+        Assert.True(
+            fieldLoads >= 8,
+            $"Parenthesized SoA string equality should load backing column fields directly for {indexDescription} access; saw {fieldLoads} field loads.");
+        Assert.Equal(6, CountArrayElementLoads(method));
+        Assert.Equal(2, CountArrayElementStores(method));
+        Assert.Equal(2, ILShapeInspector.CountCallsTo(method, typeof(string), "op_Equality"));
+        Assert.Equal(2, ILShapeInspector.CountCallsTo(method, typeof(string), "op_Inequality"));
+        Assert.True(
+            ILShapeInspector.CountOpcode(method, OpCodes.Brfalse) >= 1,
+            $"Parenthesized nullable-string null equality should branch on null references directly for {indexDescription} access.");
+        Assert.True(
+            ILShapeInspector.CountOpcode(method, OpCodes.Brtrue) >= 1,
+            $"Parenthesized nullable-string null inequality should branch on non-null references directly for {indexDescription} access.");
     }
 
     private static void AssertParenthesizedBoolBitwiseColumnShape(MethodInfo method, string indexDescription)

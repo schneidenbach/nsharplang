@@ -1720,6 +1720,61 @@ public class ParserTests
     }
 
     [Fact]
+    public void ParenthesizedMemberIndexEquality_InVariableInitializerParsesAsBinaryExpression()
+    {
+        var source = """
+            func Test(nodes: NodeTable, row: int) {
+                nameMatches := (nodes.name)[row] == "alpha"
+            }
+        """;
+
+        var cu = Parse(source);
+        var funcDecl = Assert.IsType<FunctionDeclaration>(cu.Declarations[0]);
+        var valueDecl = Assert.IsType<VariableDeclarationStatement>(funcDecl.Body!.Statements[0]);
+        var binary = Assert.IsType<BinaryExpression>(valueDecl.Initializer);
+        var indexAccess = Assert.IsType<IndexAccessExpression>(binary.Left);
+        var parenthesized = Assert.IsType<ParenthesizedExpression>(indexAccess.Object);
+        var memberAccess = Assert.IsType<MemberAccessExpression>(parenthesized.Inner);
+        var receiver = Assert.IsType<IdentifierExpression>(memberAccess.Object);
+
+        Assert.Equal(BinaryOperator.Equal, binary.Operator);
+        Assert.Equal("nodes", receiver.Name);
+        Assert.Equal("name", memberAccess.MemberName);
+        Assert.IsType<IdentifierExpression>(indexAccess.Index);
+        Assert.IsType<StringLiteralExpression>(binary.Right);
+    }
+
+    [Fact]
+    public void NullEqualityInitializer_DoesNotConsumeNextLineAssignment()
+    {
+        var source = """
+            func Test(nodes: NodeTable, row: int) {
+                optionalMissing := (nodes.optionalName)[row] == null
+                (nodes.optionalName)[row] = "maybe"
+            }
+        """;
+
+        var cu = Parse(source);
+        var funcDecl = Assert.IsType<FunctionDeclaration>(cu.Declarations[0]);
+        Assert.Equal(2, funcDecl.Body!.Statements.Count);
+
+        var valueDecl = Assert.IsType<VariableDeclarationStatement>(funcDecl.Body.Statements[0]);
+        var nullCheck = Assert.IsType<BinaryExpression>(valueDecl.Initializer);
+        Assert.Equal(BinaryOperator.Equal, nullCheck.Operator);
+        Assert.IsType<NullLiteralExpression>(nullCheck.Right);
+
+        var assignmentStatement = Assert.IsType<ExpressionStatement>(funcDecl.Body.Statements[1]);
+        var assignment = Assert.IsType<AssignmentExpression>(assignmentStatement.Expression);
+        var target = Assert.IsType<IndexAccessExpression>(assignment.Target);
+        var parenthesized = Assert.IsType<ParenthesizedExpression>(target.Object);
+        var memberAccess = Assert.IsType<MemberAccessExpression>(parenthesized.Inner);
+
+        Assert.Equal(AssignmentOperator.Assign, assignment.Operator);
+        Assert.Equal("optionalName", memberAccess.MemberName);
+        Assert.IsType<StringLiteralExpression>(assignment.Value);
+    }
+
+    [Fact]
     public void TestIndexAccessWithConditional()
     {
         var source = @"

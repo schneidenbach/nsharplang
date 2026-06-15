@@ -11,6 +11,19 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Parenthesized SoA string equality stays on direct columns
+
+String and nullable-string equality over receiver-parenthesized backing-column members now has
+IL-shape evidence for row, literal from-end, and variable-held `System.Index` forms.
+`(nodes.name)[row] == "alpha"`, `(nodes.name)[^1] != "beta"`,
+`(nodes.optionalName)[^1] == null`, and `idx := ^1; (nodes.optionalName)[idx] != null` read backing
+column arrays directly. String comparisons lower through the static string equality operators, while
+nullable-string null checks branch on references directly, with no row construction, slice
+allocation, boxing, delegate construction, or virtual dispatch.
+The parser now also stops postfix and assignment binding at physical line boundaries, so a
+`== null` initializer cannot absorb the next line's parenthesized column assignment as a `null(...)`
+call followed by an assignment.
+
 ## 2026-06-15 — Parenthesized SoA string concatenation stores keep direct column IL
 
 String and nullable-string concatenation stores over receiver-parenthesized backing-column members

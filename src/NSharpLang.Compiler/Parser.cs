@@ -3792,8 +3792,7 @@ public class Parser
     {
         var expr = ParseTernaryExpression();
 
-        if (Check(TokenType.Assign) || Check(TokenType.PlusAssign) || Check(TokenType.MinusAssign) ||
-            Check(TokenType.StarAssign) || Check(TokenType.SlashAssign) || Check(TokenType.QuestionQuestionAssign))
+        if (IsAssignmentOperator(Current.Type) && Current.Line == Previous.Line)
         {
             AssignmentOperator op;
             switch (Current.Type)
@@ -3845,6 +3844,14 @@ public class Parser
 
         return expr;
     }
+
+    private static bool IsAssignmentOperator(TokenType type)
+        => type is TokenType.Assign
+            or TokenType.PlusAssign
+            or TokenType.MinusAssign
+            or TokenType.StarAssign
+            or TokenType.SlashAssign
+            or TokenType.QuestionQuestionAssign;
 
     private Expression ParseRightOperandOrMissing(
         Token operatorToken,
@@ -4507,6 +4514,11 @@ public class Parser
 
         while (true)
         {
+            if (Current.Line > Previous.Line)
+            {
+                break;
+            }
+
             if (Check(TokenType.Dot) || Check(TokenType.QuestionDot))
             {
                 var isNullConditional = Check(TokenType.QuestionDot);
