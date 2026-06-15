@@ -99,6 +99,10 @@ public class CompilerDogfoodProjectTests
                     "ParseConstructorChainInfoInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit ParseConstructorChainInfoInto.");
+            var constructorInfo = programType.GetMethod(
+                    "ParseConstructorInfoInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit ParseConstructorInfoInto.");
             var topLevelDeclNames = programType.GetMethod(
                     "TopLevelDeclarationNameSpansInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -356,6 +360,7 @@ class C {
                 Array.Empty<string>(),
                 tokenizeWithIndentation,
                 constructorChainInfo,
+                constructorInfo,
                 "constructor with no chain");
             AssertConstructorChainBodyIndex(
                 """
@@ -374,6 +379,7 @@ class C {
                 new[] { "x", "0" },
                 tokenizeWithIndentation,
                 constructorChainInfo,
+                constructorInfo,
                 "constructor with this-chain");
             AssertConstructorChainBodyIndex(
                 """
@@ -393,7 +399,19 @@ class D: B {
                 new[] { "x" },
                 tokenizeWithIndentation,
                 constructorChainInfo,
+                constructorInfo,
                 "constructor with base-chain");
+            AssertConstructorInfoDeclinesNonConstructorName(
+                """
+class C {
+    build(x: int) {
+    }
+}
+""",
+                "build",
+                tokenizeWithIndentation,
+                constructorInfo,
+                "constructor-like non-constructor member");
             AssertTopLevelContextualTestDeclaration(
                 """
 func helper(): int {
@@ -547,6 +565,7 @@ class B
         string[] expectedArgs,
         MethodInfo tokenizeWithIndentation,
         MethodInfo constructorChainInfo,
+        MethodInfo constructorInfo,
         string label)
     {
         var (count, kinds, starts, valueLengths, compactedSource) = TokenizeSourceViaKernel(source, tokenizeWithIndentation);
@@ -569,16 +588,59 @@ class B
         var argCount = (int)(constructorChainInfo.Invoke(
             null,
             new object[] { kinds, starts, valueLengths, count, ctorIndex, argKinds, argStarts, argLengths, result }) ?? -2);
+        var checkedArgKinds = new int[count + 1];
+        var checkedArgStarts = new int[count + 1];
+        var checkedArgLengths = new int[count + 1];
+        var checkedResult = new int[2];
+        var checkedArgCount = (int)(constructorInfo.Invoke(
+            null,
+            new object[] { compactedSource, kinds, starts, valueLengths, count, ctorIndex, checkedArgKinds, checkedArgStarts, checkedArgLengths, checkedResult }) ?? -2);
 
         Assert.Equal(expectedArgs.Length, argCount);
+        Assert.Equal(argCount, checkedArgCount);
         Assert.Equal(expectedInitializerKind, result[0]);
+        Assert.Equal(result[0], checkedResult[0]);
+        Assert.Equal(result[1], checkedResult[1]);
         Assert.True(result[1] >= 0 && result[1] < count, $"Constructor body brace index missing for {label}.");
         Assert.Equal((int)TokenType.LeftBrace, kinds[result[1]]);
         Assert.True(result[1] > ctorIndex, $"Constructor body brace must follow constructor token for {label}.");
         for (var i = 0; i < expectedArgs.Length; i++)
         {
             Assert.Equal(expectedArgs[i], compactedSource.Substring(argStarts[i], argLengths[i]));
+            Assert.Equal(argKinds[i], checkedArgKinds[i]);
+            Assert.Equal(expectedArgs[i], compactedSource.Substring(checkedArgStarts[i], checkedArgLengths[i]));
         }
+    }
+
+    private static void AssertConstructorInfoDeclinesNonConstructorName(
+        string source,
+        string memberName,
+        MethodInfo tokenizeWithIndentation,
+        MethodInfo constructorInfo,
+        string label)
+    {
+        var (count, kinds, starts, valueLengths, compactedSource) = TokenizeSourceViaKernel(source, tokenizeWithIndentation);
+        var memberIndex = -1;
+        for (var i = 0; i < count; i++)
+        {
+            if (kinds[i] == (int)TokenType.Identifier
+                && valueLengths[i] == memberName.Length
+                && string.CompareOrdinal(compactedSource, starts[i], memberName, 0, memberName.Length) == 0)
+            {
+                memberIndex = i;
+                break;
+            }
+        }
+
+        Assert.True(memberIndex >= 0, $"Could not locate constructor-like token for {label}.");
+        var argKinds = new int[count + 1];
+        var argStarts = new int[count + 1];
+        var argLengths = new int[count + 1];
+        var result = new int[2];
+        var actual = (int)(constructorInfo.Invoke(
+            null,
+            new object[] { compactedSource, kinds, starts, valueLengths, count, memberIndex, argKinds, argStarts, argLengths, result }) ?? -2);
+        Assert.Equal(-1, actual);
     }
 
     private static void AssertMatchingCloseBrace(

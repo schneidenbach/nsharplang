@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Constructor name validation moves into N#
+
+`ParserDeclarations.nl` now exports `ParseConstructorInfoInto`, a product-routed constructor helper
+that first verifies the recorded constructor-like member token is literally `constructor`, then
+reuses the existing constructor-chain/body-brace core. `NSharpCompilerDogfoodAdapter` no longer
+performs the constructor-name `string.CompareOrdinal` guard in C#; it asks the dogfood parser for the
+checked constructor info before parsing the body.
+
+The original `ParseConstructorChainInfoInto` ABI remains for parity tests. The parser-declaration
+test now compares both surfaces on no-chain, `this(...)`, and `base(...)` constructors, and pins a
+non-`constructor` identifier member as a checked-decline case.
+
 ## 2026-06-15 — Property accessor layout moves into N#
 
 `ParserDeclarations.nl` now owns `ParsePropertyAccessorInfoInto`, the computed-property layout

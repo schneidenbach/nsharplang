@@ -1330,8 +1330,8 @@ func ParseStructDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int
     // kernels at the recorded indices (a constructor's `(params)` and `{body}` parse via the same signature/statement
     // kernels — it has no name token and no `: ret`, so the signature kernel yields name=-1, returnRoot=-1; a
     // constructor INITIALIZER `: this(...)`/`base(...)` is skipped by the signature kernel and parsed separately
-    // via ParseConstructorChainInfoInto). A member with no `{` body declines. The host verifies each ctor
-    // identifier's text is literally "constructor".
+    // via ParseConstructorInfoInto, which also verifies each ctor identifier's text is literally "constructor".
+    // A member with no `{` body declines.
     methodCount := 0
     ctorCount := 0
     while pos < count && tokens.Kinds[pos] != 130 {
@@ -1403,6 +1403,25 @@ func ParseStructDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int
 // -1 on a malformed initializer or a non-{identifier,int-literal} arg (a complex expression / string /
 // other literal — the host declines such a chaining ctor to the C# path).
 func ParseConstructorChainInfoInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, ctorIndex: int, outArgKinds: int[], outArgStarts: int[], outArgLengths: int[], outResult: int[]): int {
+    tokens := new ParserDeclarationTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
+    args := new ConstructorChainArgTable { Kinds: outArgKinds, Starts: outArgStarts, Lengths: outArgLengths }
+    result := new ParserDeclarationResultTable { Values: outResult }
+    return ParseConstructorChainInfoCore(ref tokens, count, ctorIndex, ref args, ref result)
+}
+
+func ParseConstructorInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, ctorIndex: int, outArgKinds: int[], outArgStarts: int[], outArgLengths: int[], outResult: int[]): int {
+    if ctorIndex < 0 || ctorIndex >= count {
+        return -1
+    }
+
+    if tokenKinds[ctorIndex] != 0 {
+        return -1
+    }
+
+    if !ParserDeclarationTokenTextEquals(source, tokenStarts[ctorIndex], tokenValueLengths[ctorIndex], "constructor") {
+        return -1
+    }
+
     tokens := new ParserDeclarationTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
     args := new ConstructorChainArgTable { Kinds: outArgKinds, Starts: outArgStarts, Lengths: outArgLengths }
     result := new ParserDeclarationResultTable { Values: outResult }
