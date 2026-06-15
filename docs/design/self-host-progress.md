@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA numeric scalar bitwise expressions have IL-shape proof
+
+`int`, `uint`, and `long` SoA columns now have opcode evidence for `|`, `&`, and `^` expression
+stores across row projection, direct column indexing, and direct from-end column indexing. The
+accepted bitwise stores read and write backing column arrays directly and use direct bitwise opcodes,
+with no row construction, slice allocation, boxing, delegate construction, or virtual dispatch.
+
 ## 2026-06-14 — SoA numeric scalar comparisons have IL-shape proof
 
 `int`, `uint`, and `long` SoA columns now have opcode evidence for equality, inequality, and
