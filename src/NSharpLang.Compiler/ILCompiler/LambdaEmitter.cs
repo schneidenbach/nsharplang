@@ -1580,6 +1580,9 @@ public partial class ILCompiler
             BinaryOperator.GreaterOrEqual => nameof(System.Linq.Expressions.Expression.GreaterThanOrEqual),
             BinaryOperator.And => nameof(System.Linq.Expressions.Expression.AndAlso),
             BinaryOperator.Or => nameof(System.Linq.Expressions.Expression.OrElse),
+            BinaryOperator.BitwiseAnd => nameof(System.Linq.Expressions.Expression.And),
+            BinaryOperator.BitwiseOr => nameof(System.Linq.Expressions.Expression.Or),
+            BinaryOperator.BitwiseXor => nameof(System.Linq.Expressions.Expression.ExclusiveOr),
             _ => throw new NotSupportedException($"Expression-tree binary operator '{binaryOperator}' is not supported by the IL backend yet")
         };
 

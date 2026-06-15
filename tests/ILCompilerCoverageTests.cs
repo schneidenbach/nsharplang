@@ -3707,6 +3707,27 @@ func main(): string {
     }
 
     [Fact]
+    public void ILCompiler_CanExecuteQueryableExpressionTreeBitwiseOperators()
+    {
+        var source = @"
+import System
+import System.Linq
+
+func main(): string {
+    source := [1, 2, 3, 4]
+    query: IQueryable<int> = Queryable.AsQueryable<int>(source)
+    filtered: IQueryable<int> = Queryable.Where<int>(
+        query,
+        x => ((x & 1) == 1) || ((x | 1) == 3) || ((x ^ 3) == 0))
+    texts: IQueryable<string> = Queryable.Select<int, string>(filtered, x => x.ToString())
+    return String.Join("":"", texts)
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal("1:2:3", Assert.IsType<string>(result));
+    }
+
+    [Fact]
     public void ILCompiler_CanEmitAnonymousObjectExpressionTreeLambdas()
     {
         var source = @"

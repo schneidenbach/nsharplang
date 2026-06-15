@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Expression-tree bitwise predicates lower
+
+Queryable expression-tree predicates now lower integer bitwise `&`, `|`, and `^` through
+`Expression.And`, `Expression.Or`, and `Expression.ExclusiveOr`. The analyzer mirror accepts those
+operators while shifts remain rejected before emission; the new queryable execution pin exercises all
+three bitwise nodes in one predicate and returns the expected filtered rows.
+
 ## 2026-06-15 — Expression-tree hard casts lower
 
 Expression-tree lambda lowering now accepts hard casts such as `(double)x` and emits them through
