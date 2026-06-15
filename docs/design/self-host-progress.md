@@ -11,6 +11,22 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Interface production rowset drops base-name span columns
+
+`ParserColumnarInterfaces.nl` now exports `ParseColumnarInterfaceInfoInto`, the product-routed
+interface parser wrapper. It keeps base-name span columns as N# scratch data while exposing only
+interface/base-name text, method function indices, method signature text, parameter rows, and
+default-method body flags to the C# transition materializer.
+
+`NSharpCompilerDogfoodAdapter.TryGetColumnarInterfaceInputs` no longer binds
+`ParseInterfaceDeclarationSignatureInfoInto` or allocates unused interface base-name span columns in
+C#. The declaration/signature ABIs remain emitted for direct parser parity tests and N# composition,
+while production consumes the reduced rowset. Focused evidence:
+`./scripts/dev.sh Parser_TopLevelDeclarationKinds_MatchProductionParser`,
+`./scripts/dev.sh ColumnarCodegen_Parity_Interfaces`,
+`./scripts/dev.sh ColumnarCodegen_CompilesRealDogfoodCorpus_Coverage`, and
+`./scripts/dev.sh ColumnarCodegen_MultiFile_EligibleClusterCompiles`.
+
 ## 2026-06-15 — Union production rowset drops span columns
 
 `ParserColumnarUnions.nl` now exports `ParseColumnarUnionInfoInto`, the product-routed union parser

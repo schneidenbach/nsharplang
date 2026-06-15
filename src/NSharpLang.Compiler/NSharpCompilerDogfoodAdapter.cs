@@ -860,7 +860,7 @@ internal static class NSharpCompilerDogfoodAdapter
     }
 
     // Collect every top-level `interface` declaration into a ColumnarInterfaceInput. Consumes interface indices from
-    // the nominal declaration rowset and the ParseInterfaceDeclarationSignatureInfo kernel, which returns interface
+    // the nominal declaration rowset and the ParseColumnarInterfaceInfo kernel, which returns interface
     // names, base names, supported member signatures, flat parameter rows, and default-method body flags.
     // Returns true (possibly empty) for a program with no interfaces; FALSE declines the program.
     // IF-1 declines in N#: generic members, where-clauses, tuple element names on member types.
@@ -881,8 +881,6 @@ internal static class NSharpCompilerDogfoodAdapter
                 var interfaceIndex = interfaceIndices[interfaceSlot];
                 var cap = n + 1;
                 var outMethodFuncIndices = new int[cap];
-                var outBaseNameStarts = new int[cap];
-                var outBaseNameLengths = new int[cap];
                 var outBaseNameTexts = new string[cap];
                 var outInterfaceNameTexts = new string[1];
                 var outMethodNameTexts = new string[cap];
@@ -892,8 +890,8 @@ internal static class NSharpCompilerDogfoodAdapter
                 var outMethodParamNameTexts = new string[cap];
                 var outMethodParamTypeTexts = new string[cap];
                 var outResult = new int[8];
-                var methodCount = bindings.ParseInterfaceDeclarationSignatureInfo(source, ck, cs, cv, n, interfaceIndex,
-                    outMethodFuncIndices, outBaseNameStarts, outBaseNameLengths, outBaseNameTexts, outInterfaceNameTexts,
+                var methodCount = bindings.ParseColumnarInterfaceInfo(source, ck, cs, cv, n, interfaceIndex,
+                    outMethodFuncIndices, outBaseNameTexts, outInterfaceNameTexts,
                     outMethodNameTexts, outMethodReturnTexts, outMethodParamCounts, outMethodBodyFlags,
                     outMethodParamNameTexts, outMethodParamTypeTexts, outResult);
                 if (methodCount < 0)
@@ -1909,9 +1907,9 @@ internal static class NSharpCompilerDogfoodAdapter
                 CreateDelegate<ParseColumnarPropertyInfoInto>(
                     programType,
                     "ParseColumnarPropertyInfoInto"),
-                CreateDelegate<ParseInterfaceDeclarationSignatureInfoInto>(
+                CreateDelegate<ParseColumnarInterfaceInfoInto>(
                     programType,
-                    "ParseInterfaceDeclarationSignatureInfoInto"),
+                    "ParseColumnarInterfaceInfoInto"),
                 CreateDelegate<ParseColumnarEnumInfoInto>(
                     programType,
                     "ParseColumnarEnumInfoInto"),
@@ -2051,11 +2049,10 @@ internal static class NSharpCompilerDogfoodAdapter
         int[] outGetChildIndices, int[] outGetSpanStarts, int[] outGetSpanLengths,
         int[] outSetNodeKinds, int[] outSetValueStarts, int[] outSetValueLengths, int[] outSetChildStart, int[] outSetChildCount,
         int[] outSetChildIndices, int[] outSetSpanStarts, int[] outSetSpanLengths, int[] outResult);
-    private delegate int ParseInterfaceDeclarationSignatureInfoInto(
+    private delegate int ParseColumnarInterfaceInfoInto(
         string source,
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int interfaceIndex,
-        int[] outMethodFuncIndices, int[] outBaseNameStarts, int[] outBaseNameLengths,
-        string[] outBaseNameTexts, string[] outInterfaceNameTexts,
+        int[] outMethodFuncIndices, string[] outBaseNameTexts, string[] outInterfaceNameTexts,
         string[] outMethodNameTexts, string[] outMethodReturnTexts,
         int[] outMethodParamCounts, int[] outMethodBodyFlags,
         string[] outMethodParamNameTexts, string[] outMethodParamTypeTexts, int[] outResult);
@@ -2105,7 +2102,7 @@ internal static class NSharpCompilerDogfoodAdapter
         TopLevelColumnarProgramDeclarationIndicesInto TopLevelColumnarProgramDeclarationIndices,
         ParseColumnarFunctionInfoInto ParseColumnarFunctionInfo,
         ParseColumnarPropertyInfoInto ParseColumnarPropertyInfo,
-        ParseInterfaceDeclarationSignatureInfoInto ParseInterfaceDeclarationSignatureInfo,
+        ParseColumnarInterfaceInfoInto ParseColumnarInterfaceInfo,
         ParseColumnarEnumInfoInto ParseColumnarEnumInfo,
         ParseStructDeclarationInfoInto ParseStructDeclarationInfo,
         ParseColumnarUnionInfoInto ParseColumnarUnionInfo,

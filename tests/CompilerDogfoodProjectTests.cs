@@ -139,6 +139,10 @@ public class CompilerDogfoodProjectTests
                     "ParseInterfaceDeclarationSignatureInfoInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit ParseInterfaceDeclarationSignatureInfoInto.");
+            var parseColumnarInterfaceInfo = programType.GetMethod(
+                    "ParseColumnarInterfaceInfoInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit ParseColumnarInterfaceInfoInto.");
             var parseStructDeclaration = programType.GetMethod(
                     "ParseStructDeclarationInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -318,6 +322,7 @@ interface IReadable: IBase, IOther {
                 parseInterfaceDeclaration,
                 parseInterfaceDeclarationInfo,
                 parseInterfaceDeclarationSignatureInfo,
+                parseColumnarInterfaceInfo,
                 "interface name/base text info");
             AssertInterfaceDeclarationSignatureInfoDeclines(
                 """
@@ -327,6 +332,7 @@ interface IBad {
 """,
                 tokenizeWithIndentation,
                 parseInterfaceDeclarationSignatureInfo,
+                parseColumnarInterfaceInfo,
                 "named tuple return");
             AssertInterfaceDeclarationSignatureInfoDeclines(
                 """
@@ -336,6 +342,7 @@ interface IBad {
 """,
                 tokenizeWithIndentation,
                 parseInterfaceDeclarationSignatureInfo,
+                parseColumnarInterfaceInfo,
                 "generic interface method");
             AssertStructDeclarationInfo(
                 """
@@ -1400,6 +1407,7 @@ class B
         MethodInfo parseInterfaceDeclaration,
         MethodInfo parseInterfaceDeclarationInfo,
         MethodInfo parseInterfaceDeclarationSignatureInfo,
+        MethodInfo parseColumnarInterfaceInfo,
         string label)
     {
         Assert.Equal(expectedMethodCount, expectedMethodNames.Length);
@@ -1492,18 +1500,55 @@ class B
                 signatureResult
             }) ?? -2);
 
+        var columnarMethodFuncIndices = new int[cap];
+        var columnarBaseNameTexts = new string[cap];
+        var columnarInterfaceNameTexts = new string[1];
+        var columnarMethodNameTexts = new string[cap];
+        var columnarMethodReturnTexts = new string[cap];
+        var columnarMethodParamCounts = new int[cap];
+        var columnarMethodBodyFlags = new int[cap];
+        var columnarMethodParamNameTexts = new string[cap];
+        var columnarMethodParamTypeTexts = new string[cap];
+        var columnarResult = new int[8];
+        var columnarMethodCount = (int)(parseColumnarInterfaceInfo.Invoke(
+            null,
+            new object[]
+            {
+                compactedSource,
+                kinds,
+                starts,
+                valueLengths,
+                count,
+                interfaceIndex,
+                columnarMethodFuncIndices,
+                columnarBaseNameTexts,
+                columnarInterfaceNameTexts,
+                columnarMethodNameTexts,
+                columnarMethodReturnTexts,
+                columnarMethodParamCounts,
+                columnarMethodBodyFlags,
+                columnarMethodParamNameTexts,
+                columnarMethodParamTypeTexts,
+                columnarResult
+            }) ?? -2);
+
         Assert.Equal(expectedMethodCount, spanMethodCount);
         Assert.Equal(spanMethodCount, methodCount);
         Assert.Equal(methodCount, signatureMethodCount);
+        Assert.Equal(signatureMethodCount, columnarMethodCount);
         Assert.Equal(spanResult[0], result[0]);
         Assert.Equal(spanResult[1], result[1]);
         Assert.Equal(spanResult[2], result[2]);
         Assert.Equal(result[0], signatureResult[0]);
         Assert.Equal(result[1], signatureResult[1]);
         Assert.Equal(result[2], signatureResult[2]);
+        Assert.Equal(signatureResult[0], columnarResult[0]);
+        Assert.Equal(signatureResult[1], columnarResult[1]);
+        Assert.Equal(signatureResult[2], columnarResult[2]);
         Assert.Equal(expectedInterfaceName, compactedSource.Substring(result[0], result[1]));
         Assert.Equal(expectedInterfaceName, interfaceNameTexts[0]);
         Assert.Equal(expectedInterfaceName, signatureInterfaceNameTexts[0]);
+        Assert.Equal(expectedInterfaceName, columnarInterfaceNameTexts[0]);
         Assert.Equal(expectedBaseNames.Length, result[2]);
         for (var b = 0; b < expectedBaseNames.Length; b++)
         {
@@ -1514,16 +1559,22 @@ class B
             Assert.Equal(expectedBaseNames[b], compactedSource.Substring(baseNameStarts[b], baseNameLengths[b]));
             Assert.Equal(expectedBaseNames[b], baseNameTexts[b]);
             Assert.Equal(expectedBaseNames[b], signatureBaseNameTexts[b]);
+            Assert.Equal(expectedBaseNames[b], columnarBaseNameTexts[b]);
         }
 
         for (var m = 0; m < expectedMethodCount; m++)
         {
             Assert.Equal(spanMethodFuncIndices[m], methodFuncIndices[m]);
             Assert.Equal(methodFuncIndices[m], signatureMethodFuncIndices[m]);
+            Assert.Equal(signatureMethodFuncIndices[m], columnarMethodFuncIndices[m]);
             Assert.Equal(expectedMethodNames[m], methodNameTexts[m]);
+            Assert.Equal(methodNameTexts[m], columnarMethodNameTexts[m]);
             Assert.Equal(expectedMethodReturns[m], methodReturnTexts[m]);
+            Assert.Equal(methodReturnTexts[m], columnarMethodReturnTexts[m]);
             Assert.Equal(expectedMethodParamNames[m].Length, methodParamCounts[m]);
+            Assert.Equal(methodParamCounts[m], columnarMethodParamCounts[m]);
             Assert.Equal(expectedMethodBodyFlags[m], methodBodyFlags[m]);
+            Assert.Equal(methodBodyFlags[m], columnarMethodBodyFlags[m]);
         }
 
         var flatCursor = 0;
@@ -1533,17 +1584,21 @@ class B
             for (var p = 0; p < expectedMethodParamNames[m].Length; p++)
             {
                 Assert.Equal(expectedMethodParamNames[m][p], methodParamNameTexts[flatCursor]);
+                Assert.Equal(methodParamNameTexts[flatCursor], columnarMethodParamNameTexts[flatCursor]);
                 Assert.Equal(expectedMethodParamTypes[m][p], methodParamTypeTexts[flatCursor]);
+                Assert.Equal(methodParamTypeTexts[flatCursor], columnarMethodParamTypeTexts[flatCursor]);
                 flatCursor++;
             }
         }
         Assert.Equal(flatCursor, signatureResult[3]);
+        Assert.Equal(signatureResult[3], columnarResult[3]);
     }
 
     private static void AssertInterfaceDeclarationSignatureInfoDeclines(
         string source,
         MethodInfo tokenizeWithIndentation,
         MethodInfo parseInterfaceDeclarationSignatureInfo,
+        MethodInfo parseColumnarInterfaceInfo,
         string label)
     {
         var (count, kinds, starts, valueLengths, compactedSource) = TokenizeSourceViaKernel(source, tokenizeWithIndentation);
@@ -1574,7 +1629,29 @@ class B
                 new string[cap],
                 new int[8]
             }) ?? -2);
+        var columnarActual = (int)(parseColumnarInterfaceInfo.Invoke(
+            null,
+            new object[]
+            {
+                compactedSource,
+                kinds,
+                starts,
+                valueLengths,
+                count,
+                interfaceIndex,
+                new int[cap],
+                new string[cap],
+                new string[1],
+                new string[cap],
+                new string[cap],
+                new int[cap],
+                new int[cap],
+                new string[cap],
+                new string[cap],
+                new int[8]
+            }) ?? -2);
         Assert.Equal(-1, actual);
+        Assert.Equal(-1, columnarActual);
     }
 
     private static void AssertStructDeclarationInfo(
@@ -10731,7 +10808,7 @@ func outer(x: int): int {
             "CliArguments.nl", "CliDocOrdering.nl", "CliQueryParsing.nl", "CliTreeDependencies.nl",
             "CompletionGrouping.nl", "CompletionReceivers.nl", "DiagnosticClusters.nl", "DiagnosticDeduplication.nl", "DocQuery.nl",
             "FormatterImportOrdering.nl", "IdentifierSpans.nl",
-            "LexerTokenKindScanner.nl", "OverloadCandidates.nl", "ParserColumnarConstructors.nl", "ParserColumnarEnums.nl", "ParserColumnarFunctions.nl", "ParserColumnarProperties.nl", "ParserColumnarUnions.nl", "ParserDeclarations.nl",
+            "LexerTokenKindScanner.nl", "OverloadCandidates.nl", "ParserColumnarConstructors.nl", "ParserColumnarEnums.nl", "ParserColumnarFunctions.nl", "ParserColumnarInterfaces.nl", "ParserColumnarProperties.nl", "ParserColumnarUnions.nl", "ParserDeclarations.nl",
             "ParserConstructorSignatures.nl", "ParserExpressions.nl", "ParserFunctionSignatures.nl", "ParserInterfaceSignatures.nl", "ParserLocalFunctions.nl", "ParserStatements.nl", "ParserTypeReferences.nl",
             "ProjectSourceFilter.nl", "StructCopyAnalysis.nl",
             "TextEditOrdering.nl", "TypeLookup.nl",
@@ -10749,6 +10826,7 @@ func outer(x: int): int {
         Assert.Contains("ParseColumnarFunctionInfoInto", methodNames!); // composed signature + body + local-function routing
         Assert.Contains("ParseColumnarConstructorInfoInto", methodNames!); // composed constructor signature + body routing
         Assert.Contains("ParseColumnarEnumInfoInto", methodNames!); // composed enum text/value routing
+        Assert.Contains("ParseColumnarInterfaceInfoInto", methodNames!); // composed interface signature/text routing
         Assert.Contains("ParseColumnarPropertyInfoInto", methodNames!); // composed property accessor + body routing
         Assert.Contains("ParseColumnarUnionInfoInto", methodNames!); // composed union text/type routing
         Assert.Contains("ParseConstructorSignatureInfoInto", methodNames!); // ParserConstructorSignatures -> declarations/signatures/types
