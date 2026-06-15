@@ -1923,15 +1923,6 @@ internal static class NSharpCompilerDogfoodAdapter
                 CreateDelegate<ParsePropertyAccessorTypeInfoInto>(
                     programType,
                     "ParsePropertyAccessorTypeInfoInto"),
-                CreateDelegate<TopLevelDeclarationNameSpansInto>(
-                    programType,
-                    "TopLevelDeclarationNameSpansInto"),
-                CreateDelegate<NamespaceImportSpansInto>(
-                    programType,
-                    "NamespaceImportSpansInto"),
-                CreateDelegate<PackageNameSpanInto>(
-                    programType,
-                    "PackageNameSpanInto"),
                 CreateDelegate<ParseFunctionSignatureInfoInto>(
                     programType,
                     "ParseFunctionSignatureInfoInto"),
@@ -2069,14 +2060,6 @@ internal static class NSharpCompilerDogfoodAdapter
     private delegate int ParsePropertyAccessorTypeInfoInto(
         string source, int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths,
         int count, int propIndex, string[] outNameTexts, string[] outTypeTexts, int[] outResult);
-    private delegate int TopLevelDeclarationNameSpansInto(
-        int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count,
-        int[] outKinds, int[] outNameStarts, int[] outNameLengths);
-    private delegate int NamespaceImportSpansInto(
-        int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count,
-        int[] outNsStarts, int[] outNsLengths, int[] outAliasStarts, int[] outAliasLengths);
-    private delegate int PackageNameSpanInto(
-        int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int[] outResult);
     private delegate int ParseFunctionSignatureInfoInto(
         string source,
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int funcIndex,
@@ -2145,9 +2128,6 @@ internal static class NSharpCompilerDogfoodAdapter
         TopLevelColumnarProgramDeclarationIndicesInto TopLevelColumnarProgramDeclarationIndices,
         DirectLocalFunctionTokenIndicesInto DirectLocalFunctionTokenIndices,
         ParsePropertyAccessorTypeInfoInto ParsePropertyAccessorTypeInfo,
-        TopLevelDeclarationNameSpansInto TopLevelDeclarationNameSpans,
-        NamespaceImportSpansInto NamespaceImportSpans,
-        PackageNameSpanInto PackageNameSpan,
         ParseFunctionSignatureInfoInto ParseFunctionSignatureInfo,
         ParseStatementNodesInto ParseStatementNodes,
         ParseInterfaceDeclarationSignatureInfoInto ParseInterfaceDeclarationSignatureInfo,

@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Dead parser span bindings removed from compiler dogfood adapter
+
+`NSharpCompilerDogfoodAdapter` no longer binds the legacy parser span rowsets
+`TopLevelDeclarationNameSpansInto`, `NamespaceImportSpansInto`, or `PackageNameSpanInto`. Those N#
+exports remain available for direct parser parity tests, but they are not part of the production
+columnar program-input route after the composed top-level declaration and declaration-info wrappers
+landed. Focused evidence: `./scripts/dev.sh ColumnarCodegen_MultiFile_EligibleClusterCompiles` and
+`./scripts/dev.sh Parser_TopLevelDeclarationKinds_MatchProductionParser`.
+
 ## 2026-06-15 — Top-level program declaration routing composes in N#
 
 `ParserDeclarations.nl` now exports `TopLevelColumnarProgramDeclarationIndicesInto`, a product-routed
