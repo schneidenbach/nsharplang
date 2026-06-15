@@ -16,7 +16,10 @@ else
     exit 1
 fi
 JOB="${NSHARP_SYSTEMS_BENCH_JOB:-short}"
-LAUNCH_COUNT="${NSHARP_SYSTEMS_BENCH_LAUNCH_COUNT:-2}"
+# Keep the default to one launch. The gate compares matched C#/N# medians, and BenchmarkDotNet
+# can form distinct per-launch timing clusters under desktop load; combining those clusters has
+# produced false CallerBuffers misses even when the detailed per-workload matrix is at parity.
+LAUNCH_COUNT="${NSHARP_SYSTEMS_BENCH_LAUNCH_COUNT:-1}"
 WARMUP_COUNT="${NSHARP_SYSTEMS_BENCH_WARMUP_COUNT:-3}"
 ITERATION_COUNT="${NSHARP_SYSTEMS_BENCH_ITERATION_COUNT:-16}"
 ITERATION_TIME="${NSHARP_SYSTEMS_BENCH_ITERATION_TIME:-250}"

@@ -11,6 +11,21 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — Systems benchmark gate removes cross-launch bimodality
+
+The Systems BenchmarkDotNet gate default is back to one launch while keeping the same 12-row
+coverage, warmups, 16 measured iterations, 250 ms iteration target, median ratio parser, and 0 B
+allocation gate. The two-launch default produced false `CallerBuffers` misses on this branch: a full
+product checkpoint failed twice around `1.09x`, an isolated two-launch gate failed narrowly at
+`1.0540x`, while the detailed `SystemsCallerBufferBenchmarks` matrix showed all 14 N# caller-buffer
+rows at `0.96x`-`1.01x` and 0 B. An official-profile filtered aggregate row passed at `1.0311x`, and
+the one-launch full systems gate passed with `CallerBuffers` at `0.9973x` and all six scenarios below
+the `1.05` cap.
+
+This does not relax the throughput/allocation standard; it removes a BenchmarkDotNet launch-cluster
+artifact from the blocking product gate so compiler slices are judged by matched-shape codegen
+evidence rather than process-to-process timing clusters.
+
 ## 2026-06-14 — SoA string concatenation expressions have IL-shape proof
 
 String and nullable string SoA columns now have opcode evidence for plain concatenation expression
