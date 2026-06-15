@@ -6631,6 +6631,75 @@ public class SoaRecordTests : ILCompilerTestBase
         Assert.Contains("make the left side nullable", error.Suggestion);
     }
 
+    [Theory]
+    [InlineData("", "(nodes.kind)[row] ??= 5", "??=", "make the target nullable")]
+    [InlineData("", "value := (nodes.kind)[row] ?? 5", "??", "make the left side nullable")]
+    [InlineData("", "(nodes.kind)[^1] ??= 5", "??=", "make the target nullable")]
+    [InlineData("", "value := (nodes.kind)[^1] ?? 5", "??", "make the left side nullable")]
+    [InlineData("idx := ^1;", "(nodes.kind)[idx] ??= 5", "??=", "make the target nullable")]
+    [InlineData("idx := ^1;", "value := (nodes.kind)[idx] ?? 5", "??", "make the left side nullable")]
+    public void Analyzer_SoaRecordParenthesizedColumnMemberNullCoalesceOnNonNullable_IsRejected(
+        string declaration,
+        string statement,
+        string operatorText,
+        string suggestion)
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze($$"""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable, row: int) {
+                {{declaration}}
+                {{statement}}
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains($"left side of '{operatorText}' has type 'int'", error.Message);
+        Assert.Contains("can't be null", error.Message);
+        Assert.Contains(suggestion, error.Suggestion);
+    }
+
+    [Theory]
+    [InlineData("", "(nodes.kind)[row] ??= NodeKind.Identifier", "??=", "make the target nullable")]
+    [InlineData("", "value := (nodes.kind)[row] ?? NodeKind.Identifier", "??", "make the left side nullable")]
+    [InlineData("", "(nodes.kind)[^1] ??= NodeKind.Identifier", "??=", "make the target nullable")]
+    [InlineData("", "value := (nodes.kind)[^1] ?? NodeKind.Identifier", "??", "make the left side nullable")]
+    [InlineData("idx := ^1;", "(nodes.kind)[idx] ??= NodeKind.Identifier", "??=", "make the target nullable")]
+    [InlineData("idx := ^1;", "value := (nodes.kind)[idx] ?? NodeKind.Identifier", "??", "make the left side nullable")]
+    public void Analyzer_SoaRecordParenthesizedColumnMemberNullCoalesceOnEnum_IsRejected(
+        string declaration,
+        string statement,
+        string operatorText,
+        string suggestion)
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze($$"""
+            enum NodeKind {
+                Unknown,
+                Identifier
+            }
+
+            soa record NodeTable {
+                kind: NodeKind
+            }
+
+            func bad(nodes: NodeTable, row: int) {
+                {{declaration}}
+                {{statement}}
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains($"left side of '{operatorText}' has type 'NodeKind'", error.Message);
+        Assert.Contains("can't be null", error.Message);
+        Assert.Contains(suggestion, error.Suggestion);
+    }
+
     [Fact]
     public void Analyzer_SoaRecordNonIntegralRowColumnIncrement_IsRejected()
     {

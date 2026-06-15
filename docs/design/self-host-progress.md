@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Parenthesized SoA column-member non-null coalescing stops in analysis
+
+Non-nullable and enum backing columns now have analyzer coverage for receiver-parenthesized direct
+column null-coalescing. `(nodes.kind)[row] ?? value`, `(nodes.kind)[^1] ??= value`, and
+variable-held `(nodes.kind)[idx] ?? value` report the ordinary `??`/`??=` non-nullable diagnostic
+before IL emission for both `int` and int-backed enum columns. Focused evidence: `dotnet test
+tests/Tests.csproj --no-restore --filter
+"FullyQualifiedName~Analyzer_SoaRecordParenthesizedColumnMemberNullCoalesceOn"`.
+
 ## 2026-06-15 — Parenthesized SoA column-member null coalescing stays direct
 
 Nullable/reference backing-column `??` and `??=` operations now have IL-shape coverage when the
