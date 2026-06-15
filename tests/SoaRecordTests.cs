@@ -5388,6 +5388,55 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void ILCompiler_SoaRecordParenthesizedVariableFromEndDirectColumnElementTargets_UseColumnElementILShape()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var source = """
+            soa record NodeTable {
+                kind: int
+            }
+
+            func columnOps(nodes: NodeTable): int {
+                nodes.add();
+                idx := ^1;
+                ((nodes.kind)[idx]) = 10
+                stored := (((nodes.kind)[idx]) += 2);
+                oldUp := ((nodes.kind)[idx])++;
+                newUp := ++((nodes.kind)[idx]);
+                oldDown := ((nodes.kind)[idx])--;
+                newDown := --((nodes.kind)[idx]);
+                return stored * 100000 + oldUp * 10000 + newUp * 1000 + oldDown * 100 + newDown * 10 + ((nodes.kind)[idx])
+            }
+
+            func main(): int {
+                nodes := new NodeTable(1)
+                return columnOps(nodes)
+            }
+            """;
+
+        Assert.Equal(1335532, Assert.IsType<int>(CompileAndInvoke(source)));
+
+        var opCodes = CompileAndInspect(source, assembly =>
+        {
+            var columnOps = assembly.GetType("Program")!.GetMethod(
+                "columnOps",
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(columnOps);
+            return GetMethodOpCodes(columnOps!);
+        });
+
+        Assert.Contains(OpCodes.Ldfld, opCodes);
+        Assert.Contains(opCodes, IsArrayElementLoad);
+        Assert.Contains(opCodes, IsArrayElementStore);
+        Assert.Contains(OpCodes.Ldlen, opCodes);
+        Assert.DoesNotContain(OpCodes.Newarr, opCodes);
+        Assert.DoesNotContain(OpCodes.Box, opCodes);
+        Assert.DoesNotContain(OpCodes.Ldftn, opCodes);
+        Assert.DoesNotContain(OpCodes.Callvirt, opCodes);
+    }
+
+    [Fact]
     public void ILCompiler_SoaRecordParenthesizedFromEndDirectColumnNullCoalesceAssign_UsesColumnElementILShape()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
