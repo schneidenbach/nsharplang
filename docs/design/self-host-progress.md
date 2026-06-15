@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Parenthesized SoA integral updates cover verified non-int types
+
+Receiver-parenthesized backing-column update operands now have IL-shape evidence for the verified
+non-`int` integral column types across row, literal from-end, and variable-held `System.Index`
+forms. `(nodes.flags)[row] += (uint)5`, `(nodes.start)[^1]--`, and
+`idx := ^1; ++(nodes.marker)[idx]` preserve compound-assignment and prefix/postfix result
+semantics while staying on direct backing-array traffic, with no row construction, slice allocation,
+boxing, delegate construction, or virtual dispatch.
+
 ## 2026-06-15 — Parenthesized SoA enum bitwise stores keep direct column IL
 
 Int-backed enum bitwise stores over receiver-parenthesized backing-column members now have IL-shape

@@ -359,6 +359,7 @@ including parenthesized literal and variable-held from-end direct-column element
 expression-valued simple stores, default stores across the verified scalar/reference element-type set,
 including expression-valued default stores, without old-element reads, variable-held from-end default
 stores without old-element reads, parenthesized column-member receiver compound/update operands,
+parenthesized column-member receiver integral `uint`/`long`/`char` update operands,
 parenthesized column-member receiver null-coalescing reads/assignments, parenthesized column-member
 receiver default stores without old-element reads, variable-held row-index diagnostics,
 variable-held direct-column

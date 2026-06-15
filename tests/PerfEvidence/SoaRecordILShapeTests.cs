@@ -899,6 +899,119 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void ParenthesizedColumnMemberIntegralVerifiedTypeUpdates_UseColumnArrayOffsetWithoutSliceAllocation()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                flags: uint
+                start: long
+                marker: char
+            }
+
+            func rowOps(nodes: NodeTable, row: int): int {
+                (nodes.flags)[row] += (uint)5
+                oldFlags := (nodes.flags)[row]++
+                (nodes.start)[row] += 7L
+                oldStart := (nodes.start)[row]--
+                oldMarker := (nodes.marker)[row]++
+                preMarker := ++(nodes.marker)[row]
+
+                total := (int)(nodes.flags)[row]
+                total += (int)oldFlags * 10
+                total += (int)(nodes.start)[row]
+                total += (int)oldStart
+                total += (int)oldMarker
+                total += (int)preMarker
+                total += (int)(nodes.marker)[row]
+                return total
+            }
+
+            func literalOps(nodes: NodeTable): int {
+                (nodes.flags)[^1] += (uint)5
+                oldFlags := (nodes.flags)[^1]++
+                (nodes.start)[^1] += 7L
+                oldStart := (nodes.start)[^1]--
+                oldMarker := (nodes.marker)[^1]++
+                preMarker := ++(nodes.marker)[^1]
+
+                total := (int)(nodes.flags)[^1]
+                total += (int)oldFlags * 10
+                total += (int)(nodes.start)[^1]
+                total += (int)oldStart
+                total += (int)oldMarker
+                total += (int)preMarker
+                total += (int)(nodes.marker)[^1]
+                return total
+            }
+
+            func variableOps(nodes: NodeTable): int {
+                idx := ^1;
+                (nodes.flags)[idx] += (uint)5
+                oldFlags := (nodes.flags)[idx]++
+                (nodes.start)[idx] += 7L
+                oldStart := (nodes.start)[idx]--
+                oldMarker := (nodes.marker)[idx]++
+                preMarker := ++(nodes.marker)[idx]
+
+                total := (int)(nodes.flags)[idx]
+                total += (int)oldFlags * 10
+                total += (int)(nodes.start)[idx]
+                total += (int)oldStart
+                total += (int)oldMarker
+                total += (int)preMarker
+                total += (int)(nodes.marker)[idx]
+                return total
+            }
+
+            func main(): int {
+                rowNodes := new NodeTable(1)
+                row := rowNodes.add()
+                rowNodes.flags[row] = (uint)2
+                rowNodes.start[row] = 20L
+                rowNodes.marker[row] = 'A'
+
+                literalNodes := new NodeTable(1)
+                literalNodes.add()
+                literalNodes.flags[^1] = (uint)2
+                literalNodes.start[^1] = 20L
+                literalNodes.marker[^1] = 'A'
+
+                variableNodes := new NodeTable(1)
+                variableNodes.add()
+                idx := ^1
+                variableNodes.flags[idx] = (uint)2
+                variableNodes.start[idx] = 20L
+                variableNodes.marker[idx] = 'A'
+
+                return rowOps(rowNodes, row) + literalOps(literalNodes) + variableOps(variableNodes)
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var rowOps = ILShapeInspector.GetProgramMethod(assembly, "rowOps");
+            var literalOps = ILShapeInspector.GetProgramMethod(assembly, "literalOps");
+            var variableOps = ILShapeInspector.GetProgramMethod(assembly, "variableOps");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(990, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoAllocationOrDispatch(rowOps);
+            AssertParenthesizedIntegralUpdateColumnShape(rowOps, "row-index");
+
+            AssertNoFromEndSliceAllocation(literalOps);
+            AssertParenthesizedIntegralUpdateColumnShape(literalOps, "literal from-end");
+
+            AssertNoFromEndSliceAllocation(variableOps);
+            AssertParenthesizedIntegralUpdateColumnShape(variableOps, "variable from-end");
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void ParenthesizedColumnMemberNullCoalescing_UsesColumnArrayOffsetWithoutSliceAllocation()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
@@ -5602,6 +5715,18 @@ public class SoaRecordILShapeTests
         Assert.True(
             ILShapeInspector.CountOpcode(method, OpCodes.Not) >= 1,
             $"Parenthesized SoA enum unary bitwise-not should use the direct NOT opcode for {indexDescription} access.");
+    }
+
+    private static void AssertParenthesizedIntegralUpdateColumnShape(MethodInfo method, string indexDescription)
+    {
+        var fieldLoads = ILShapeInspector.CountOpcode(method, OpCodes.Ldfld);
+        Assert.True(
+            fieldLoads >= 9,
+            $"Parenthesized SoA integral verified-type updates should load backing column fields directly for {indexDescription} access; saw {fieldLoads} field loads.");
+        Assert.True(
+            CountArrayElementLoads(method) >= 9,
+            $"Parenthesized SoA integral verified-type updates should read current and returned values from backing arrays for {indexDescription} access.");
+        Assert.Equal(6, CountArrayElementStores(method));
     }
 
     private static void AssertParenthesizedBoolBitwiseColumnShape(MethodInfo method, string indexDescription)
