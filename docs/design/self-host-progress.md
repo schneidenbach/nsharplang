@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — CliArguments summary counters stay table-shaped internally
+
+`CliTidyDependencyStatusSummaryCore` and `CliTestOutcomeSummaryCore` now keep their rank inputs and
+count outputs behind the normal table wrappers throughout the counting loops. The flattened
+array-taking shims remain as adapter boundaries; the product N# cores no longer unpack the summary
+tables into raw array locals. Focused evidence: `./scripts/dev.sh CliArguments` and
+`./scripts/dev.sh LexerTokenKindScanner_ProjectCompilesAndMatchesProductionLexer`.
+
 ## 2026-06-15 — CliArguments update/reference filters stay table-shaped internally
 
 `CliUpdateAllNuGetDependencyIndicesCore`, `CliUpdateTargetNuGetDependencyIndicesCore`, and

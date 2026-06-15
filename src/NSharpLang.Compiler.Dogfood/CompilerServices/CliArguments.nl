@@ -2188,19 +2188,17 @@ func CliTidyDependencyStatusSummaryInto(statusRanks: int[], resultCounts: int[])
 func CliTidyDependencyStatusSummaryCore(
     statusRankTable: &CliRankTable,
     counts: &CliCountResultTable): int {
-    statusRanks := statusRankTable.Ranks
-    resultCounts := counts.Counts
-    if resultCounts.Length < 2 {
+    if counts.Counts.Length < 2 {
         return -1
     }
 
     possiblyUnused := 0
     unknown := 0
     i := 0
-    length := statusRanks.Length
+    length := statusRankTable.Ranks.Length
     unrolledLimit := length - 8
     while i <= unrolledLimit {
-        rank := statusRanks[i]
+        rank := statusRankTable.Ranks[i]
         if rank == 1 {
             possiblyUnused = possiblyUnused + 1
         } else if rank == 3 {
@@ -2208,7 +2206,7 @@ func CliTidyDependencyStatusSummaryCore(
         }
 
         next := i + 1
-        rank = statusRanks[next]
+        rank = statusRankTable.Ranks[next]
         if rank == 1 {
             possiblyUnused = possiblyUnused + 1
         } else if rank == 3 {
@@ -2216,7 +2214,7 @@ func CliTidyDependencyStatusSummaryCore(
         }
 
         next = i + 2
-        rank = statusRanks[next]
+        rank = statusRankTable.Ranks[next]
         if rank == 1 {
             possiblyUnused = possiblyUnused + 1
         } else if rank == 3 {
@@ -2224,7 +2222,7 @@ func CliTidyDependencyStatusSummaryCore(
         }
 
         next = i + 3
-        rank = statusRanks[next]
+        rank = statusRankTable.Ranks[next]
         if rank == 1 {
             possiblyUnused = possiblyUnused + 1
         } else if rank == 3 {
@@ -2232,7 +2230,7 @@ func CliTidyDependencyStatusSummaryCore(
         }
 
         next = i + 4
-        rank = statusRanks[next]
+        rank = statusRankTable.Ranks[next]
         if rank == 1 {
             possiblyUnused = possiblyUnused + 1
         } else if rank == 3 {
@@ -2240,7 +2238,7 @@ func CliTidyDependencyStatusSummaryCore(
         }
 
         next = i + 5
-        rank = statusRanks[next]
+        rank = statusRankTable.Ranks[next]
         if rank == 1 {
             possiblyUnused = possiblyUnused + 1
         } else if rank == 3 {
@@ -2248,7 +2246,7 @@ func CliTidyDependencyStatusSummaryCore(
         }
 
         next = i + 6
-        rank = statusRanks[next]
+        rank = statusRankTable.Ranks[next]
         if rank == 1 {
             possiblyUnused = possiblyUnused + 1
         } else if rank == 3 {
@@ -2256,7 +2254,7 @@ func CliTidyDependencyStatusSummaryCore(
         }
 
         next = i + 7
-        rank = statusRanks[next]
+        rank = statusRankTable.Ranks[next]
         if rank == 1 {
             possiblyUnused = possiblyUnused + 1
         } else if rank == 3 {
@@ -2267,7 +2265,7 @@ func CliTidyDependencyStatusSummaryCore(
     }
 
     while i < length {
-        rank := statusRanks[i]
+        rank := statusRankTable.Ranks[i]
         if rank == 1 {
             possiblyUnused = possiblyUnused + 1
         } else if rank == 3 {
@@ -2277,8 +2275,8 @@ func CliTidyDependencyStatusSummaryCore(
         i = i + 1
     }
 
-    resultCounts[0] = possiblyUnused
-    resultCounts[1] = unknown
+    counts.Counts[0] = possiblyUnused
+    counts.Counts[1] = unknown
     return length
 }
 
@@ -2292,14 +2290,12 @@ func CliTestOutcomeSummaryCore(
     outcomeRankTable: &CliRankTable,
     count: int,
     counts: &CliCountResultTable): int {
-    outcomeRanks := outcomeRankTable.Ranks
-    resultCounts := counts.Counts
-    if resultCounts.Length < 4 {
+    if counts.Counts.Length < 4 {
         return -1
     }
 
-    if count > outcomeRanks.Length {
-        count = outcomeRanks.Length
+    if count > outcomeRankTable.Ranks.Length {
+        count = outcomeRankTable.Ranks.Length
     }
 
     if count < 0 {
@@ -2313,7 +2309,7 @@ func CliTestOutcomeSummaryCore(
     i := 0
     unrolledLimit := count - 8
     while i <= unrolledLimit {
-        rank := outcomeRanks[i]
+        rank := outcomeRankTable.Ranks[i]
         if rank == 1 {
             passed = passed + 1
         } else if rank == 2 {
@@ -2326,7 +2322,7 @@ func CliTestOutcomeSummaryCore(
         }
 
         next := i + 1
-        rank = outcomeRanks[next]
+        rank = outcomeRankTable.Ranks[next]
         if rank == 1 {
             passed = passed + 1
         } else if rank == 2 {
@@ -2339,7 +2335,7 @@ func CliTestOutcomeSummaryCore(
         }
 
         next = i + 2
-        rank = outcomeRanks[next]
+        rank = outcomeRankTable.Ranks[next]
         if rank == 1 {
             passed = passed + 1
         } else if rank == 2 {
@@ -2352,7 +2348,7 @@ func CliTestOutcomeSummaryCore(
         }
 
         next = i + 3
-        rank = outcomeRanks[next]
+        rank = outcomeRankTable.Ranks[next]
         if rank == 1 {
             passed = passed + 1
         } else if rank == 2 {
@@ -2365,7 +2361,7 @@ func CliTestOutcomeSummaryCore(
         }
 
         next = i + 4
-        rank = outcomeRanks[next]
+        rank = outcomeRankTable.Ranks[next]
         if rank == 1 {
             passed = passed + 1
         } else if rank == 2 {
@@ -2378,7 +2374,7 @@ func CliTestOutcomeSummaryCore(
         }
 
         next = i + 5
-        rank = outcomeRanks[next]
+        rank = outcomeRankTable.Ranks[next]
         if rank == 1 {
             passed = passed + 1
         } else if rank == 2 {
@@ -2391,7 +2387,7 @@ func CliTestOutcomeSummaryCore(
         }
 
         next = i + 6
-        rank = outcomeRanks[next]
+        rank = outcomeRankTable.Ranks[next]
         if rank == 1 {
             passed = passed + 1
         } else if rank == 2 {
@@ -2404,7 +2400,7 @@ func CliTestOutcomeSummaryCore(
         }
 
         next = i + 7
-        rank = outcomeRanks[next]
+        rank = outcomeRankTable.Ranks[next]
         if rank == 1 {
             passed = passed + 1
         } else if rank == 2 {
@@ -2420,7 +2416,7 @@ func CliTestOutcomeSummaryCore(
     }
 
     while i < count {
-        rank := outcomeRanks[i]
+        rank := outcomeRankTable.Ranks[i]
         if rank == 1 {
             passed = passed + 1
         } else if rank == 2 {
@@ -2435,10 +2431,10 @@ func CliTestOutcomeSummaryCore(
         i = i + 1
     }
 
-    resultCounts[0] = passed
-    resultCounts[1] = failed
-    resultCounts[2] = skipped
-    resultCounts[3] = nonOk
+    counts.Counts[0] = passed
+    counts.Counts[1] = failed
+    counts.Counts[2] = skipped
+    counts.Counts[3] = nonOk
     return count
 }
 

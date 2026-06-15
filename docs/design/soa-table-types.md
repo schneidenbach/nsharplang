@@ -522,11 +522,11 @@ ownership lands.
    inputs/scratch/result columns are now table-wrapped as well. These slices preserve the flattened
    dogfood adapter ABI. The update-dependency, reference-type, stable-distinct, best-score, and
    summary-counter rank/flag/score columns now also route through named normal structs, and the
-   update/reference filter cores plus the stable-distinct core keep their rank/flag/result columns
-   wrapper-shaped internally. The remaining `CliArguments.nl` test-filter name batches and
-   format-discovery path/flag batches are table-wrapped too, leaving its array-taking functions as
-   flattened adapter shims or scalar helper shims over wrapper-aware cores. `ParserTypeReferences.nl`
-   has started the parser token-stream
+   update/reference filter cores, summary-counter cores, and stable-distinct core keep their
+   rank/flag/count/result columns wrapper-shaped internally. The remaining `CliArguments.nl`
+   test-filter name batches and format-discovery path/flag batches are table-wrapped too, leaving its
+   array-taking functions as flattened adapter shims or scalar helper shims over wrapper-aware cores.
+   `ParserTypeReferences.nl` has started the parser token-stream
    cleanup by wrapping token metadata, recursive argument stacks, child-index outputs, and result
    slots for the type-reference recursive cores. `ParserFunctionSignatures.nl` now composes those
    parser wrappers from a flattened entry shim and groups parameter, type-parameter, `where`
