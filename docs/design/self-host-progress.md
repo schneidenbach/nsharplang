@@ -11,6 +11,12 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Direct SoA column ref/out address evidence pinned
+
+Direct column cells now have IL-shape evidence for `ref` and `out` arguments through alias-typed
+tables. `ref nodes.kind[row]` and `out nodes.start[^1]` use the generated backing column arrays and
+`ldelema` directly, including from-end direct-column indexing, with no slice allocation.
+
 ## 2026-06-15 — SoA row projections lower ref/out addresses
 
 Row-projection column cells can now be passed to `ref` and `out` parameters without falling into the

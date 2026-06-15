@@ -388,8 +388,8 @@ IL-shape tests pin the current wrapper proof: row projection over an existing ta
 parenthesized row projection such as `(table[row]).column`, emits direct column field loads and
 array element loads/stores with no row allocation, boxing, delegate construction, heap array
 allocation, or virtual dispatch, including default stores across the
-verified scalar/reference element-type set, `ref`/`out` argument addresses through backing-column
-`ldelema`, expression-valued default stores without old-element
+verified scalar/reference element-type set, row-projection `ref`/`out` argument addresses through
+backing-column `ldelema`, expression-valued default stores without old-element
 reads, and parenthesized row-column assignment/update targets, including expression-valued compound
 assignment, null-coalescing assignment, and prefix/postfix update operands; explicit direct column
 element operations (`table.column[row]`) have the same
@@ -398,7 +398,8 @@ default stores across the verified scalar/reference element-type set, including 
 default stores, without old-element reads, compound stores, prefix/postfix increments, reads across
 the verified scalar/reference
 element-type set, direct column null-coalescing reads/assignments, and from-end `System.Index` access
-including parenthesized literal and variable-held from-end direct-column element lvalues,
+including parenthesized literal and variable-held from-end direct-column element lvalues, direct
+column `ref`/`out` argument addresses through backing-column `ldelema` including from-end indexes,
 expression-valued simple stores, default stores across the verified scalar/reference element-type set,
 including expression-valued default stores, without old-element reads, variable-held from-end default
 stores without old-element reads, parenthesized column-member receiver compound/update operands,
