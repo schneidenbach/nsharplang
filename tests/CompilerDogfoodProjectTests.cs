@@ -75,6 +75,10 @@ public class CompilerDogfoodProjectTests
                     "TopLevelContextualTestDeclarationExistsInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit TopLevelContextualTestDeclarationExistsInto.");
+            var topLevelDeclIndices = programType.GetMethod(
+                    "TopLevelDeclarationIndicesInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit TopLevelDeclarationIndicesInto.");
             var topLevelDeclNames = programType.GetMethod(
                     "TopLevelDeclarationNameSpansInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -135,6 +139,40 @@ record Person {
 """;
 
             AssertTopLevelDeclarationKindsLikeProduction(controlledCorpus, tokenizeWithIndentation, topLevelDecls, topLevelDeclNames, packageNameSpan, namespaceImportSpans, declModifiers);
+            AssertTopLevelDeclarationIndices(controlledCorpus, (int)TokenType.Func, false, 1, tokenizeWithIndentation, topLevelDeclIndices, "top-level func only");
+            AssertTopLevelDeclarationIndices(controlledCorpus, (int)TokenType.Class, true, 1, tokenizeWithIndentation, topLevelDeclIndices, "top-level class only");
+            AssertTopLevelDeclarationIndices(controlledCorpus, (int)TokenType.Struct, true, 1, tokenizeWithIndentation, topLevelDeclIndices, "top-level struct only");
+            AssertTopLevelDeclarationIndices(controlledCorpus, (int)TokenType.Interface, false, 1, tokenizeWithIndentation, topLevelDeclIndices, "top-level interface only");
+            AssertTopLevelDeclarationIndices(controlledCorpus, (int)TokenType.Record, false, 1, tokenizeWithIndentation, topLevelDeclIndices, "top-level record only");
+            AssertTopLevelDeclarationIndices(controlledCorpus, (int)TokenType.Enum, false, 1, tokenizeWithIndentation, topLevelDeclIndices, "top-level enum only");
+            AssertTopLevelDeclarationIndices(
+                """
+func boxVal<T>(v: T): T where T: struct {
+    return v
+}
+
+func refOnly<T>(v: T): T where T: class {
+    return v
+}
+""",
+                (int)TokenType.Struct,
+                true,
+                0,
+                tokenizeWithIndentation,
+                topLevelDeclIndices,
+                "generic constraint struct keyword");
+            AssertTopLevelDeclarationIndices(
+                """
+func refOnly<T>(v: T): T where T: class {
+    return v
+}
+""",
+                (int)TokenType.Class,
+                true,
+                0,
+                tokenizeWithIndentation,
+                topLevelDeclIndices,
+                "generic constraint class keyword");
             AssertTopLevelContextualTestDeclaration(
                 """
 func helper(): int {
@@ -259,6 +297,39 @@ class B
         finally
         {
             if (File.Exists(outputPath)) File.Delete(outputPath);
+        }
+    }
+
+    private static void AssertTopLevelDeclarationIndices(
+        string source,
+        int targetKind,
+        bool suppressWhereClause,
+        int expectedCount,
+        MethodInfo tokenizeWithIndentation,
+        MethodInfo topLevelDeclIndices,
+        string label)
+    {
+        var capacity = 3 * (source.Length + 1) + 8;
+        var kinds = new int[capacity];
+        var starts = new int[capacity];
+        var valueLengths = new int[capacity];
+        var lines = new int[capacity];
+        var columns = new int[capacity];
+        var count = (int)(tokenizeWithIndentation.Invoke(
+            null,
+            new object[] { source, kinds, starts, valueLengths, lines, columns }) ?? -1);
+        var indices = new int[count + 1];
+
+        var actualCount = (int)(topLevelDeclIndices.Invoke(
+            null,
+            new object[] { kinds, count, targetKind, suppressWhereClause ? 1 : 0, indices }) ?? -1);
+
+        Assert.Equal(expectedCount, actualCount);
+        for (var i = 0; i < actualCount; i++)
+        {
+            var index = indices[i];
+            Assert.True(index >= 0 && index < count, $"Declaration index out of range for {label}: {index}.");
+            Assert.Equal(targetKind, kinds[index]);
         }
     }
 

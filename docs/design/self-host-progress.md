@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Top-level declaration index scans move into N#
+
+`ParserDeclarations.nl` now owns `TopLevelDeclarationIndicesInto`, a table-shaped scanner that returns
+depth-0 declaration keyword positions for the columnar compiler adapter. `NSharpCompilerDogfoodAdapter`
+now uses that N# kernel for top-level function, interface, enum, struct, record, class, and union
+collection and no longer carries seven duplicated C# brace/bracket/paren scanners. The struct/class
+constraint suppression remains explicit through the kernel's `suppressWhereClause` flag. Focused
+evidence: `./scripts/dev.sh Parser_TopLevelDeclarationKinds_MatchProductionParser`,
+`./scripts/dev.sh ColumnarCodegen_Parity_MatchesCSharpPath`,
+`./scripts/dev.sh ColumnarCodegen_MultiFile_EligibleClusterCompiles`, and
+`./scripts/dev.sh ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines`.
+
 ## 2026-06-15 — Contextual test-declaration decline scan moves into N#
 
 `ParserDeclarations.nl` now owns `TopLevelContextualTestDeclarationExistsInto`, a table-shaped

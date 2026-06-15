@@ -34,6 +34,10 @@ struct TopLevelDeclarationKindTable {
     Kinds: int[]
 }
 
+struct TopLevelDeclarationIndexTable {
+    Indices: int[]
+}
+
 struct TopLevelDeclarationNameTable {
     Kinds: int[]
     NameStarts: int[]
@@ -461,6 +465,64 @@ func TopLevelDeclarationKindsCore(tokens: &ParserDeclarationKindStream, count: i
                 inWhereClause = true
             } else if !inWhereClause && IsTopLevelDeclarationKeyword(kind) {
                 decls.Kinds[outCount] = kind
+                outCount = outCount + 1
+            }
+        }
+
+        i = i + 1
+    }
+
+    return outCount
+}
+
+func TopLevelDeclarationIndicesInto(tokenKinds: int[], count: int, targetKind: int, suppressWhereClause: int, outIndices: int[]): int {
+    tokens := new ParserDeclarationKindStream { Kinds: tokenKinds }
+    indices := new TopLevelDeclarationIndexTable { Indices: outIndices }
+    return TopLevelDeclarationIndicesCore(ref tokens, count, targetKind, suppressWhereClause, ref indices)
+}
+
+func TopLevelDeclarationIndicesCore(tokens: &ParserDeclarationKindStream, count: int, targetKind: int, suppressWhereClause: int, indices: &TopLevelDeclarationIndexTable): int {
+    braceDepth := 0
+    bracketDepth := 0
+    parenDepth := 0
+    outCount := 0
+    inWhereClause := false
+
+    i := 0
+    while i < count {
+        kind := tokens.Kinds[i]
+
+        if kind == 129 {
+            braceDepth = braceDepth + 1
+            inWhereClause = false
+        } else if kind == 130 {
+            braceDepth = braceDepth - 1
+            if braceDepth < 0 {
+                braceDepth = 0
+            }
+        } else if kind == 131 {
+            bracketDepth = bracketDepth + 1
+        } else if kind == 132 {
+            bracketDepth = bracketDepth - 1
+            if bracketDepth < 0 {
+                bracketDepth = 0
+            }
+        } else if kind == 127 {
+            parenDepth = parenDepth + 1
+        } else if kind == 128 {
+            parenDepth = parenDepth - 1
+            if parenDepth < 0 {
+                parenDepth = 0
+            }
+        } else if braceDepth == 0 && bracketDepth == 0 && parenDepth == 0 {
+            if kind == 53 {
+                inWhereClause = true
+            } else if kind == targetKind && (suppressWhereClause == 0 || !inWhereClause) {
+                if outCount >= indices.Indices.Length {
+                    return -1
+                }
+
+                indices.Indices[outCount] = i
                 outCount = outCount + 1
             }
         }

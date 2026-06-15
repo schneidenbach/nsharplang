@@ -174,7 +174,7 @@ internal static class NSharpCompilerDogfoodAdapter
                 // 7 = func, 14 = enum, 9 = struct, 13 = record, 12 = union, 8 = class; any other top-level declaration
                 // kind is unsupported and declines the whole program. Enum/struct/record/class/union decls are
                 // collected separately (TryGetColumnarEnumInputs / TryGetColumnarStructInputs /
-                // TryGetColumnarUnionInputs); the func scan below (TopLevelFuncIndices) only picks `func` tokens, so
+                // TryGetColumnarUnionInputs); the func scan below only picks `func` tokens, so
                 // type decls are skipped here rather than mis-parsed as functions.
                 if (declKinds[d] != 7 && declKinds[d] != 14 && declKinds[d] != 9 && declKinds[d] != 13 && declKinds[d] != 12 && declKinds[d] != 8 && declKinds[d] != 10)
                     return false;
@@ -183,7 +183,7 @@ internal static class NSharpCompilerDogfoodAdapter
             // ASYNC modifiers (async-arc rung A; rung 0 was a blanket decline after the probe-found
             // divergence where the modifier was silently DROPPED and columnar emitted an un-wrapped
             // method surface). The kernel scans per-declaration modifier flags ((int)Modifiers;
-            // Async = 1 << 11). The i-th kind-7 declaration is the i-th entry of TopLevelFuncIndices
+            // Async = 1 << 11). The i-th kind-7 declaration is the i-th top-level function index
             // (both walk the token stream in order), so each function input carries its own flag.
             var funcAsyncFlags = new System.Collections.Generic.List<bool>();
             {
@@ -204,12 +204,15 @@ internal static class NSharpCompilerDogfoodAdapter
             var cv = tokens.ValueLengths;
             var n = tokens.Count;
 
-            var funcIndices = TopLevelFuncIndices(ck, n);
-            if (funcIndices.Count == 0)
+            var funcIndices = new int[n + 1];
+            var funcIndexCount = bindings.TopLevelDeclarationIndices(ck, n, 7, 0, funcIndices);
+            if (funcIndexCount < 0)
                 return false;
-            if (funcIndices.Count != funcAsyncFlags.Count)
+            if (funcIndexCount == 0)
+                return false;
+            if (funcIndexCount != funcAsyncFlags.Count)
                 return false; // the modifier scan and the func scan must agree on the function count.
-            for (var fi = 0; fi < funcIndices.Count; fi++)
+            for (var fi = 0; fi < funcIndexCount; fi++)
             {
                 // OVER-ACCEPT guard (review-found): the kernel decl scans SKIP an unknown depth-0
                 // token before `func` — `pub async func f` routed (with the async wrap applied!)
@@ -260,9 +263,13 @@ internal static class NSharpCompilerDogfoodAdapter
             var cv = tokens.ValueLengths;
             var n = tokens.Count;
 
-            var enumIndices = TopLevelEnumIndices(ck, n);
-            foreach (var enumIndex in enumIndices)
+            var enumIndices = new int[n + 1];
+            var enumIndexCount = bindings.TopLevelDeclarationIndices(ck, n, 14, 0, enumIndices);
+            if (enumIndexCount < 0)
+                return false;
+            for (var enumSlot = 0; enumSlot < enumIndexCount; enumSlot++)
             {
+                var enumIndex = enumIndices[enumSlot];
                 var cap = n + 1;
                 var outNameStarts = new int[cap];
                 var outNameLengths = new int[cap];
@@ -350,9 +357,21 @@ internal static class NSharpCompilerDogfoodAdapter
             // Records carry IsRecord=true: the oracle emits records SEALED, so a record can never be a BASE type
             // (and record inheritance itself is unmodelled) — the emitter declines those shapes by this flag.
             var decls = new System.Collections.Generic.List<(int Index, bool IsReference, bool IsRecord)>();
-            foreach (var i in TopLevelStructIndices(ck, n)) decls.Add((i, false, false));
-            foreach (var i in TopLevelRecordIndices(ck, n)) decls.Add((i, true, true));
-            foreach (var i in TopLevelClassIndices(ck, n)) decls.Add((i, true, false));
+            var structIndices = new int[n + 1];
+            var structIndexCount = bindings.TopLevelDeclarationIndices(ck, n, 9, 1, structIndices);
+            if (structIndexCount < 0)
+                return false;
+            for (var i = 0; i < structIndexCount; i++) decls.Add((structIndices[i], false, false));
+            var recordIndices = new int[n + 1];
+            var recordIndexCount = bindings.TopLevelDeclarationIndices(ck, n, 13, 0, recordIndices);
+            if (recordIndexCount < 0)
+                return false;
+            for (var i = 0; i < recordIndexCount; i++) decls.Add((recordIndices[i], true, true));
+            var classIndices = new int[n + 1];
+            var classIndexCount = bindings.TopLevelDeclarationIndices(ck, n, 8, 1, classIndices);
+            if (classIndexCount < 0)
+                return false;
+            for (var i = 0; i < classIndexCount; i++) decls.Add((classIndices[i], true, false));
             foreach (var (structIndex, isReference, isRecord) in decls)
             {
                 var cap = n + 1;
@@ -533,8 +552,13 @@ internal static class NSharpCompilerDogfoodAdapter
             var cv = tokens.ValueLengths;
             var n = tokens.Count;
 
-            foreach (var unionIndex in TopLevelUnionIndices(ck, n))
+            var unionIndices = new int[n + 1];
+            var unionIndexCount = bindings.TopLevelDeclarationIndices(ck, n, 12, 0, unionIndices);
+            if (unionIndexCount < 0)
+                return false;
+            for (var unionSlot = 0; unionSlot < unionIndexCount; unionSlot++)
             {
+                var unionIndex = unionIndices[unionSlot];
                 var cap = n + 1;
                 var outCaseNameStarts = new int[cap];
                 var outCaseNameLengths = new int[cap];
@@ -1005,60 +1029,9 @@ internal static class NSharpCompilerDogfoodAdapter
         return names;
     }
 
-    /// <summary>Indices of every depth-0 <c>func</c> keyword (TokenType.Func == 7) in the compacted stream.</summary>
-    private static List<int> TopLevelFuncIndices(int[] kinds, int count)
-    {
-        var result = new List<int>();
-        var brace = 0;
-        var bracket = 0;
-        var paren = 0;
-        for (var i = 0; i < count; i++)
-        {
-            switch (kinds[i])
-            {
-                case 129: brace++; break;
-                case 130: if (brace > 0) brace--; break;
-                case 131: bracket++; break;
-                case 132: if (bracket > 0) bracket--; break;
-                case 127: paren++; break;
-                case 128: if (paren > 0) paren--; break;
-                case 7:
-                    if (brace == 0 && bracket == 0 && paren == 0) result.Add(i);
-                    break;
-            }
-        }
-
-        return result;
-    }
-
-    private static List<int> TopLevelInterfaceIndices(int[] kinds, int count)
-    {
-        var result = new List<int>();
-        var brace = 0;
-        var bracket = 0;
-        var paren = 0;
-        for (var i = 0; i < count; i++)
-        {
-            switch (kinds[i])
-            {
-                case 129: brace++; break;
-                case 130: if (brace > 0) brace--; break;
-                case 131: bracket++; break;
-                case 132: if (bracket > 0) bracket--; break;
-                case 127: paren++; break;
-                case 128: if (paren > 0) paren--; break;
-                case 10:
-                    if (brace == 0 && bracket == 0 && paren == 0) result.Add(i);
-                    break;
-            }
-        }
-
-        return result;
-    }
-
     // Collect every top-level `interface` declaration into a ColumnarInterfaceInput (name + abstract
     // method SIGNATURES — names, return canonicals, param names/canonicals). Consumes the shared
-    // token bundle, finds each interface keyword (TopLevelInterfaceIndices), parses the member layout via the
+    // token bundle, finds each interface keyword through the N# declaration-index kernel, parses the member layout via the
     // ParseInterfaceDeclaration kernel (method signatures ONLY — default bodies, bare members, properties, and
     // generics return -1 there; base-interface names are carried as spans), then each member's signature via the
     // shared ParseFunctionSignature kernel.
@@ -1076,8 +1049,13 @@ internal static class NSharpCompilerDogfoodAdapter
             var cv = tokens.ValueLengths;
             var n = tokens.Count;
 
-            foreach (var interfaceIndex in TopLevelInterfaceIndices(ck, n))
+            var interfaceIndices = new int[n + 1];
+            var interfaceIndexCount = bindings.TopLevelDeclarationIndices(ck, n, 10, 0, interfaceIndices);
+            if (interfaceIndexCount < 0)
+                return false;
+            for (var interfaceSlot = 0; interfaceSlot < interfaceIndexCount; interfaceSlot++)
             {
+                var interfaceIndex = interfaceIndices[interfaceSlot];
                 var cap = n + 1;
                 var outMethodFuncIndices = new int[cap];
                 var outBaseNameStarts = new int[cap];
@@ -1157,157 +1135,6 @@ internal static class NSharpCompilerDogfoodAdapter
             interfaceInputs = new System.Collections.Generic.List<Columnar.ColumnarInterfaceInput>();
             return false;
         }
-    }
-
-    // The compacted-token indices of each top-level `enum` keyword (token 14) — at brace/bracket/paren depth 0, so
-    // an enum nested in a (hypothetical) type body is not picked. Mirrors TopLevelFuncIndices for the enum keyword.
-    private static List<int> TopLevelEnumIndices(int[] kinds, int count)
-    {
-        var result = new List<int>();
-        var brace = 0;
-        var bracket = 0;
-        var paren = 0;
-        for (var i = 0; i < count; i++)
-        {
-            switch (kinds[i])
-            {
-                case 129: brace++; break;
-                case 130: if (brace > 0) brace--; break;
-                case 131: bracket++; break;
-                case 132: if (bracket > 0) bracket--; break;
-                case 127: paren++; break;
-                case 128: if (paren > 0) paren--; break;
-                case 14:
-                    if (brace == 0 && bracket == 0 && paren == 0) result.Add(i);
-                    break;
-            }
-        }
-
-        return result;
-    }
-
-    // The compacted-token indices of each top-level `struct` keyword (token 9) — at depth 0. Mirrors
-    // TopLevelEnumIndices for the struct keyword.
-    private static List<int> TopLevelStructIndices(int[] kinds, int count)
-    {
-        // A depth-0 `where` (53) opens a generic CONSTRAINT clause whose items may include the `struct`
-        // KEYWORD — a constraint, not a declaration; suppress until the body `{` (mirrors the kernel
-        // scanners' rule).
-        var result = new List<int>();
-        var brace = 0;
-        var bracket = 0;
-        var paren = 0;
-        var inWhereClause = false;
-        for (var i = 0; i < count; i++)
-        {
-            switch (kinds[i])
-            {
-                case 129: brace++; inWhereClause = false; break;
-                case 130: if (brace > 0) brace--; break;
-                case 131: bracket++; break;
-                case 132: if (bracket > 0) bracket--; break;
-                case 127: paren++; break;
-                case 128: if (paren > 0) paren--; break;
-                case 53:
-                    if (brace == 0 && bracket == 0 && paren == 0) inWhereClause = true;
-                    break;
-                case 9:
-                    if (brace == 0 && bracket == 0 && paren == 0 && !inWhereClause) result.Add(i);
-                    break;
-            }
-        }
-
-        return result;
-    }
-
-    // The compacted-token indices of each top-level `record` keyword (token 13) — at depth 0. Mirrors
-    // TopLevelStructIndices for the record keyword (records share the struct decl kernel + collection).
-    private static List<int> TopLevelRecordIndices(int[] kinds, int count)
-    {
-        var result = new List<int>();
-        var brace = 0;
-        var bracket = 0;
-        var paren = 0;
-        for (var i = 0; i < count; i++)
-        {
-            switch (kinds[i])
-            {
-                case 129: brace++; break;
-                case 130: if (brace > 0) brace--; break;
-                case 131: bracket++; break;
-                case 132: if (bracket > 0) bracket--; break;
-                case 127: paren++; break;
-                case 128: if (paren > 0) paren--; break;
-                case 13:
-                    if (brace == 0 && bracket == 0 && paren == 0) result.Add(i);
-                    break;
-            }
-        }
-
-        return result;
-    }
-
-    // The compacted-token indices of each top-level `class` keyword (token 8) — at depth 0. Mirrors
-    // TopLevelStructIndices for the class keyword (classes share the struct/record decl kernel + collection,
-    // IsReference=true). A class with a primary-ctor `(` after the name, or a user `constructor`, declines in the
-    // decl kernel (slice 1a: fields + methods + object-init only).
-    private static List<int> TopLevelClassIndices(int[] kinds, int count)
-    {
-        // A depth-0 `where` (53) opens a generic CONSTRAINT clause whose items may include the `class`
-        // KEYWORD — a constraint, not a declaration; suppress until the body `{` (mirrors the kernel
-        // scanners' rule).
-        var result = new List<int>();
-        var brace = 0;
-        var bracket = 0;
-        var paren = 0;
-        var inWhereClause = false;
-        for (var i = 0; i < count; i++)
-        {
-            switch (kinds[i])
-            {
-                case 129: brace++; inWhereClause = false; break;
-                case 130: if (brace > 0) brace--; break;
-                case 131: bracket++; break;
-                case 132: if (bracket > 0) bracket--; break;
-                case 127: paren++; break;
-                case 128: if (paren > 0) paren--; break;
-                case 53:
-                    if (brace == 0 && bracket == 0 && paren == 0) inWhereClause = true;
-                    break;
-                case 8:
-                    if (brace == 0 && bracket == 0 && paren == 0 && !inWhereClause) result.Add(i);
-                    break;
-            }
-        }
-
-        return result;
-    }
-
-    // The compacted-token indices of each top-level `union` keyword (token 12) — at depth 0. Mirrors
-    // TopLevelStructIndices for the union keyword.
-    private static List<int> TopLevelUnionIndices(int[] kinds, int count)
-    {
-        var result = new List<int>();
-        var brace = 0;
-        var bracket = 0;
-        var paren = 0;
-        for (var i = 0; i < count; i++)
-        {
-            switch (kinds[i])
-            {
-                case 129: brace++; break;
-                case 130: if (brace > 0) brace--; break;
-                case 131: bracket++; break;
-                case 132: if (bracket > 0) bracket--; break;
-                case 127: paren++; break;
-                case 128: if (paren > 0) paren--; break;
-                case 12:
-                    if (brace == 0 && bracket == 0 && paren == 0) result.Add(i);
-                    break;
-            }
-        }
-
-        return result;
     }
 
     /// <summary>
@@ -2239,6 +2066,9 @@ internal static class NSharpCompilerDogfoodAdapter
                 CreateDelegate<TopLevelContextualTestDeclarationExistsInto>(
                     programType,
                     "TopLevelContextualTestDeclarationExistsInto"),
+                CreateDelegate<TopLevelDeclarationIndicesInto>(
+                    programType,
+                    "TopLevelDeclarationIndicesInto"),
                 CreateDelegate<TopLevelDeclarationModifiersInto>(
                     programType,
                     "TopLevelDeclarationModifiersInto"),
@@ -2375,6 +2205,8 @@ internal static class NSharpCompilerDogfoodAdapter
     private delegate int TopLevelDeclarationKindsInto(int[] tokenKinds, int count, int[] outKinds);
     private delegate int TopLevelContextualTestDeclarationExistsInto(
         string source, int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count);
+    private delegate int TopLevelDeclarationIndicesInto(
+        int[] tokenKinds, int count, int targetKind, int suppressWhereClause, int[] outIndices);
     private delegate int TopLevelDeclarationModifiersInto(int[] tokenKinds, int count, int[] outKinds, int[] outModifiers);
     private delegate int TopLevelDeclarationNameSpansInto(
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count,
@@ -2434,6 +2266,7 @@ internal static class NSharpCompilerDogfoodAdapter
         TokenizeMetadataWithIndentationInto TokenizeMetadataWithIndentation,
         TopLevelDeclarationKindsInto TopLevelDeclarationKinds,
         TopLevelContextualTestDeclarationExistsInto TopLevelContextualTestDeclarationExists,
+        TopLevelDeclarationIndicesInto TopLevelDeclarationIndices,
         TopLevelDeclarationModifiersInto TopLevelDeclarationModifiers,
         TopLevelDeclarationNameSpansInto TopLevelDeclarationNameSpans,
         NamespaceImportSpansInto NamespaceImportSpans,
