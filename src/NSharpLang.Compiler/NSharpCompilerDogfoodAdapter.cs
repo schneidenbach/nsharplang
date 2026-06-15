@@ -125,15 +125,20 @@ internal static class NSharpCompilerDogfoodAdapter
             var kinds = new int[rawCount];
             var starts = new int[rawCount];
             var valueLengths = new int[rawCount];
-            var count = 0;
-            for (var i = 0; i < rawCount; i++)
+            var keptIndices = new int[rawCount];
+            var count = bindings.ParserTokenCompactionCounted(rawKinds, rawCount, keptIndices);
+            if (count < 0 || count > rawCount)
+                return false;
+
+            for (var i = 0; i < count; i++)
             {
-                if (rawKinds[i] == 136)
-                    continue;
-                kinds[count] = rawKinds[i];
-                starts[count] = rawStarts[i];
-                valueLengths[count] = rawValueLengths[i];
-                count++;
+                var sourceIndex = keptIndices[i];
+                if (sourceIndex < 0 || sourceIndex >= rawCount)
+                    return false;
+
+                kinds[i] = rawKinds[sourceIndex];
+                starts[i] = rawStarts[sourceIndex];
+                valueLengths[i] = rawValueLengths[sourceIndex];
             }
 
             tokens = new ColumnarTokenizedSource(
@@ -1994,6 +1999,9 @@ internal static class NSharpCompilerDogfoodAdapter
                 CreateDelegate<ParserTokenCompactionIndicesInto>(
                     programType,
                     "ParserTokenCompactionIndicesInto"),
+                CreateDelegate<ParserTokenCompactionIndicesCountedInto>(
+                    programType,
+                    "ParserTokenCompactionIndicesCountedInto"),
                 CreateDelegate<FormatterImportOrderIndicesInto>(
                     programType,
                     "FormatterImportOrderIndicesInto"),
@@ -2112,6 +2120,7 @@ internal static class NSharpCompilerDogfoodAdapter
     }
 
     private delegate int ParserTokenCompactionIndicesInto(int[] tokenKinds, int[] resultIndices);
+    private delegate int ParserTokenCompactionIndicesCountedInto(int[] tokenKinds, int tokenCount, int[] resultIndices);
     private delegate int FormatterImportOrderIndicesInto(
         int[] systemFlags,
         int[] nameRanks,
@@ -2231,6 +2240,7 @@ internal static class NSharpCompilerDogfoodAdapter
 
     private sealed record Bindings(
         ParserTokenCompactionIndicesInto ParserTokenCompaction,
+        ParserTokenCompactionIndicesCountedInto ParserTokenCompactionCounted,
         FormatterImportOrderIndicesInto FormatterImportOrderIndices,
         FirstDistinctRankIndicesInto FirstDistinctRankIndices,
         DeclaredTypeUniqueSuffixValueRank DeclaredTypeUniqueSuffixValueRank,

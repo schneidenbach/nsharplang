@@ -21,12 +21,25 @@ struct LexerIndentStackTable {
 func ParserTokenCompactionIndicesInto(tokenKinds: int[], resultIndices: int[]): int {
     tokens := new LexerTokenKindTable { Kinds: tokenKinds }
     result := new LexerTokenIndexTable { Indices: resultIndices }
-    return ParserTokenCompactionIndicesCore(ref tokens, ref result)
+    return ParserTokenCompactionIndicesCore(ref tokens, ref result, tokenKinds.Length)
 }
 
-func ParserTokenCompactionIndicesCore(tokens: &LexerTokenKindTable, result: &LexerTokenIndexTable): int {
+func ParserTokenCompactionIndicesCountedInto(tokenKinds: int[], tokenCount: int, resultIndices: int[]): int {
+    if tokenCount < 0 {
+        return -1
+    }
+
+    if tokenCount > tokenKinds.Length {
+        return -1
+    }
+
+    tokens := new LexerTokenKindTable { Kinds: tokenKinds }
+    result := new LexerTokenIndexTable { Indices: resultIndices }
+    return ParserTokenCompactionIndicesCore(ref tokens, ref result, tokenCount)
+}
+
+func ParserTokenCompactionIndicesCore(tokens: &LexerTokenKindTable, result: &LexerTokenIndexTable, length: int): int {
     count := 0
-    length := tokens.Kinds.Length
     i := 0
 
     if result.Indices.Length >= length {

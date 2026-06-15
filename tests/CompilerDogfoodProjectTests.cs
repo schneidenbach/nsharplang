@@ -10894,6 +10894,10 @@ class OtherZetaType {
                     "ParserTokenCompactionIndicesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit ParserTokenCompactionIndicesInto.");
+            var parserTokenCompactionIndicesCountedInto = programType.GetMethod(
+                    "ParserTokenCompactionIndicesCountedInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit ParserTokenCompactionIndicesCountedInto.");
             var parserTokenCompactionChecksumInto = programType.GetMethod(
                     "ParserTokenCompactionChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -11621,6 +11625,7 @@ world
             AssertParserTokenCompactionLikeProduction(
                 source,
                 parserTokenCompactionIndicesInto,
+                parserTokenCompactionIndicesCountedInto,
                 parserTokenCompactionChecksumInto);
 
             const string keywordSource = """
@@ -11636,6 +11641,7 @@ throws
             AssertParserTokenCompactionLikeProduction(
                 keywordSource,
                 parserTokenCompactionIndicesInto,
+                parserTokenCompactionIndicesCountedInto,
                 parserTokenCompactionChecksumInto);
 
             // Systems-language keywords: the N# scanner's KeywordKind must recognize the five systems
@@ -11654,6 +11660,7 @@ struct unsafe scoped
             AssertParserTokenCompactionLikeProduction(
                 systemsKeywordSource,
                 parserTokenCompactionIndicesInto,
+                parserTokenCompactionIndicesCountedInto,
                 parserTokenCompactionChecksumInto);
 
             // Lifetime tokens: at an apostrophe the C# lexer emits a single Lifetime token (142) instead
@@ -11676,6 +11683,7 @@ func NextFrame<'a>(reader: scoped 'a): Result returns 'a {
             AssertParserTokenCompactionLikeProduction(
                 lifetimeSource,
                 parserTokenCompactionIndicesInto,
+                parserTokenCompactionIndicesCountedInto,
                 parserTokenCompactionChecksumInto);
 
             // Unicode character classification: the scanner uses the BCL Unicode predicates
@@ -11689,6 +11697,7 @@ func NextFrame<'a>(reader: scoped 'a): Result returns 'a {
             AssertParserTokenCompactionLikeProduction(
                 unicodeSource,
                 parserTokenCompactionIndicesInto,
+                parserTokenCompactionIndicesCountedInto,
                 parserTokenCompactionChecksumInto);
 
             // Char literal whose escaped body runs into a line break (`'\<CR>`): C# ReadCharLiteral does
@@ -11709,6 +11718,7 @@ func NextFrame<'a>(reader: scoped 'a): Result returns 'a {
             AssertParserTokenCompactionLikeProduction(
                 malformedNumberSource,
                 parserTokenCompactionIndicesInto,
+                parserTokenCompactionIndicesCountedInto,
                 parserTokenCompactionChecksumInto);
 
             // Comment trivia: the N# CommentsInto kernel must reproduce C# Lexer.Comments. This corpus
@@ -11748,6 +11758,7 @@ func values(): int {
             AssertParserTokenCompactionLikeProduction(
                 metadataSource,
                 parserTokenCompactionIndicesInto,
+                parserTokenCompactionIndicesCountedInto,
                 parserTokenCompactionChecksumInto);
 
             // Self-host Phase 1 evidence: the N# metadata scanner must reach full token-stream parity
@@ -11785,6 +11796,7 @@ func classify(value: int, name: string): string {
             AssertParserTokenCompactionLikeProduction(
                 representativeSource,
                 parserTokenCompactionIndicesInto,
+                parserTokenCompactionIndicesCountedInto,
                 parserTokenCompactionChecksumInto);
             AssertCommentsLikeProductionLexer(representativeSource, commentsInto);
             AssertCommentsLikeProductionLexer(metadataSource, commentsInto);
@@ -12417,6 +12429,7 @@ func main() {
     private static void AssertParserTokenCompactionLikeProduction(
         string source,
         MethodInfo parserTokenCompactionIndicesInto,
+        MethodInfo parserTokenCompactionIndicesCountedInto,
         MethodInfo parserTokenCompactionChecksumInto)
     {
         var tokenKinds = new Lexer(source, "dogfood-test.nl")
@@ -12436,6 +12449,17 @@ func main() {
 
         Assert.Equal(expectedIndices.Length, actualCount);
         Assert.Equal(expectedIndices, actualIndices.Take(actualCount).ToArray());
+
+        var paddedTokenKinds = new int[tokenKinds.Length + 5];
+        Array.Copy(tokenKinds, paddedTokenKinds, tokenKinds.Length);
+        Array.Fill(paddedTokenKinds, 1, tokenKinds.Length, paddedTokenKinds.Length - tokenKinds.Length);
+        var countedIndices = new int[tokenKinds.Length];
+        var countedCount = (int)(parserTokenCompactionIndicesCountedInto.Invoke(
+            null,
+            new object[] { paddedTokenKinds, tokenKinds.Length, countedIndices }) ?? -1);
+
+        Assert.Equal(expectedIndices.Length, countedCount);
+        Assert.Equal(expectedIndices, countedIndices.Take(countedCount).ToArray());
 
         var checksumIndices = new int[tokenKinds.Length];
         var actualChecksum = (int)(parserTokenCompactionChecksumInto.Invoke(

@@ -11,6 +11,19 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Columnar token compaction routes through dogfood
+
+`NSharpCompilerDogfoodAdapter.TryTokenizeColumnarSource` no longer owns the newline-token filter for
+the columnar product route. `LexerTokenKindScanner.nl` now exposes
+`ParserTokenCompactionIndicesCountedInto`, a counted-prefix entry point over the existing
+`ParserTokenCompactionIndicesCore` loop, and the adapter uses those dogfood-selected raw token
+indices before materializing compact parser-token columns.
+
+The original `ParserTokenCompactionIndicesInto` full-array surface remains stable for parser
+constructor routing and parity benchmarks. `CompilerDogfoodProjectTests` now pads the input buffer
+when checking the counted entry point, proving the production tokenizer can pass over-allocated raw
+token arrays without compacting trailing spare capacity.
+
 ## 2026-06-15 — Top-level function preamble guard moves into N#
 
 `ParserDeclarations.nl` now owns `TopLevelFunctionPreamblesAreValidInto`, the safety check that
