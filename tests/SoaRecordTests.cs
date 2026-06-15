@@ -3089,6 +3089,72 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaRowTypeThroughTableAliasCannotBeHiddenInsideComposedTypeReferences()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var cases = new[]
+        {
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+            type MaybeRow = Nodes.Row?
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+            type RowTuple = (row: Nodes.Row, count: int)
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+            type RowChoice = Nodes.Row | int
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+            type RowFactory = Func<int, Nodes.Row>
+            """,
+            """
+            import System.Collections.Generic
+
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
+            func bad(rowsByName: Dictionary<string, Nodes.Row[]>): int {
+                return 0
+            }
+            """
+        };
+
+        foreach (var source in cases)
+        {
+            var result = Analyze(source);
+            var error = Assert.Single(
+                result.Errors,
+                e => e.Code == ErrorCode.InvalidSyntax
+                    && e.Message.Contains("SoA row type 'Nodes.Row' is not part of this lowering"));
+            Assert.Contains("table and an int row index", error.Suggestion);
+            Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.TypeNotFound);
+        }
+    }
+
+    [Fact]
     public void Analyzer_SoaRowTypeCannotBeUsedAsArrayElementAnnotation()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
@@ -3211,6 +3277,49 @@ public class SoaRecordTests : ILCompilerTestBase
         Assert.Contains("SoA row type 'NodeTable.Row' is not part of this lowering", error.Message);
         Assert.Contains("table and an int row index", error.Suggestion);
         Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.TypeNotFound);
+    }
+
+    [Fact]
+    public void Analyzer_SoaRowTypeThroughTableAliasCannotBeUsedInTypeExpressions()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var cases = new[]
+        {
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
+            func bad(): Type {
+                return typeof(Nodes.Row)
+            }
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
+            func bad(): int {
+                return sizeof(Nodes.Row)
+            }
+            """
+        };
+
+        foreach (var source in cases)
+        {
+            var result = Analyze(source);
+            var error = Assert.Single(
+                result.Errors,
+                e => e.Code == ErrorCode.InvalidSyntax
+                    && e.Message.Contains("SoA row type 'Nodes.Row' is not part of this lowering"));
+            Assert.Contains("table and an int row index", error.Suggestion);
+            Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.TypeNotFound);
+        }
     }
 
     [Fact]
@@ -3342,6 +3451,138 @@ public class SoaRecordTests : ILCompilerTestBase
                 result.Errors,
                 e => e.Code == ErrorCode.InvalidSyntax
                     && e.Message.Contains("SoA row type 'NodeTable.Row' is not part of this lowering"));
+            Assert.Contains("table and an int row index", error.Suggestion);
+            Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.TypeNotFound);
+        }
+    }
+
+    [Fact]
+    public void Analyzer_SoaRowTypeThroughTableAliasCannotBeUsedInDeclaredTypePositions()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var cases = new[]
+        {
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
+            func bad<T>(value: T): int where T : Nodes.Row {
+                return 0
+            }
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
+            class Holder : Nodes.Row {
+            }
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
+            class Base {
+            }
+
+            class Holder : Base, Nodes.Row {
+            }
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
+            struct Holder : Nodes.Row {
+                value: int
+            }
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
+            record Holder : Nodes.Row {
+                value: int
+            }
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
+            interface IRow : Nodes.Row {
+            }
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+            type RowConsumer = Func<Nodes.Row, int>
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
+            func bad(value: object): int {
+                if value is Nodes.Row {
+                    return 1
+                }
+
+                return 0
+            }
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
+            func bad(value: object): object {
+                return (Nodes.Row)value
+            }
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
+            func bad(value: object): object {
+                return value as Nodes.Row
+            }
+            """
+        };
+
+        foreach (var source in cases)
+        {
+            var result = Analyze(source);
+            var error = Assert.Single(
+                result.Errors,
+                e => e.Code == ErrorCode.InvalidSyntax
+                    && e.Message.Contains("SoA row type 'Nodes.Row' is not part of this lowering"));
             Assert.Contains("table and an int row index", error.Suggestion);
             Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.TypeNotFound);
         }

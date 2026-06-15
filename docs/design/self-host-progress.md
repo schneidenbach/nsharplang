@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — SoA row type alias references stay rejected in composed positions
+
+`Nodes.Row`, where `Nodes` aliases a SoA table, now has analyzer regression coverage across composed
+type references, type expressions, and declared-type positions. Nullable, tuple, anonymous-union,
+function-type, nested generic/array, `typeof`, `sizeof`, generic-constraint, base/interface,
+type-pattern, hard-cast, and safe-cast references all report the SoA row-type diagnostic before
+emission and avoid unresolved-type cascades.
+
 ## 2026-06-15 — SoA generated methods keep alias column shape
 
 Aliases to every verified scalar/reference SoA column shape now have generated-method IL-shape proof.
