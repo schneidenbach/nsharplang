@@ -1240,22 +1240,58 @@ func ParseStructDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValu
     return ParseStructDeclarationCore(ref tokens, count, structIndex, ref decl, ref result)
 }
 
-func ParseStructDeclarationInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, structIndex: int, outFieldNameStarts: int[], outFieldNameLengths: int[], outFieldTypeStarts: int[], outFieldTypeLengths: int[], outFieldTypeTexts: string[], outFieldStaticFlags: int[], outFieldInitKinds: int[], outFieldInitStarts: int[], outFieldInitLengths: int[], outFieldInitTexts: string[], outMethodFuncIndices: int[], outMethodStaticFlags: int[], outCtorIndices: int[], outPropIndices: int[], outPropStaticFlags: int[], outTypeParamStarts: int[], outTypeParamLengths: int[], outBaseNameStarts: int[], outBaseNameLengths: int[], outResult: int[]): int {
+func ParseStructDeclarationInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, structIndex: int, outFieldNameStarts: int[], outFieldNameLengths: int[], outFieldNameTexts: string[], outFieldTypeStarts: int[], outFieldTypeLengths: int[], outFieldTypeTexts: string[], outFieldStaticFlags: int[], outFieldInitKinds: int[], outFieldInitStarts: int[], outFieldInitLengths: int[], outFieldInitTexts: string[], outMethodFuncIndices: int[], outMethodStaticFlags: int[], outCtorIndices: int[], outPropIndices: int[], outPropStaticFlags: int[], outTypeParamStarts: int[], outTypeParamLengths: int[], outTypeParamTexts: string[], outBaseNameStarts: int[], outBaseNameLengths: int[], outBaseNameTexts: string[], outStructNameTexts: string[], outResult: int[]): int {
     tokens := new ParserDeclarationTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
     decl := new StructDeclarationTable { FieldNameStarts: outFieldNameStarts, FieldNameLengths: outFieldNameLengths, FieldTypeStarts: outFieldTypeStarts, FieldTypeLengths: outFieldTypeLengths, FieldStaticFlags: outFieldStaticFlags, FieldInitKinds: outFieldInitKinds, FieldInitStarts: outFieldInitStarts, FieldInitLengths: outFieldInitLengths, MethodFuncIndices: outMethodFuncIndices, MethodStaticFlags: outMethodStaticFlags, CtorIndices: outCtorIndices, PropIndices: outPropIndices, PropStaticFlags: outPropStaticFlags, TypeParamStarts: outTypeParamStarts, TypeParamLengths: outTypeParamLengths, BaseNameStarts: outBaseNameStarts, BaseNameLengths: outBaseNameLengths }
     result := new ParserDeclarationResultTable { Values: outResult }
     fieldCount := ParseStructDeclarationCore(ref tokens, count, structIndex, ref decl, ref result)
-    if fieldCount < 0 || fieldCount > outFieldTypeTexts.Length || fieldCount > outFieldInitTexts.Length {
+    typeParamCount := result.Values[7]
+    baseNameCount := result.Values[8]
+    if fieldCount < 0 || outStructNameTexts.Length < 1 || fieldCount > outFieldNameTexts.Length || fieldCount > outFieldTypeTexts.Length || fieldCount > outFieldInitTexts.Length || typeParamCount > outTypeParamTexts.Length || baseNameCount > outBaseNameTexts.Length {
         return -1
     }
 
+    structName := ParserDeclarationSpanText(source, result.Values[0], result.Values[1])
+    if structName == "" {
+        return -1
+    }
+    outStructNameTexts[0] = structName
+
     i := 0
+    while i < typeParamCount {
+        typeParamName := ParserDeclarationSpanText(source, decl.TypeParamStarts[i], decl.TypeParamLengths[i])
+        if typeParamName == "" {
+            return -1
+        }
+
+        outTypeParamTexts[i] = typeParamName
+        i = i + 1
+    }
+
+    i = 0
+    while i < baseNameCount {
+        baseName := ParserDeclarationSpanText(source, decl.BaseNameStarts[i], decl.BaseNameLengths[i])
+        if baseName == "" {
+            return -1
+        }
+
+        outBaseNameTexts[i] = baseName
+        i = i + 1
+    }
+
+    i = 0
     while i < fieldCount {
+        fieldName := ParserDeclarationSpanText(source, decl.FieldNameStarts[i], decl.FieldNameLengths[i])
+        if fieldName == "" {
+            return -1
+        }
+
         text := ParserDeclarationCanonicalTypeText(source, decl.FieldTypeStarts[i], decl.FieldTypeLengths[i])
         if text.Length == 0 {
             return -1
         }
 
+        outFieldNameTexts[i] = fieldName
         outFieldTypeTexts[i] = text
         if decl.FieldInitKinds[i] >= 0 {
             initText := source.Substring(decl.FieldInitStarts[i], decl.FieldInitLengths[i])

@@ -339,6 +339,7 @@ internal static class NSharpCompilerDogfoodAdapter
                 var cap = n + 1;
                 var outFieldNameStarts = new int[cap];
                 var outFieldNameLengths = new int[cap];
+                var outFieldNameTexts = new string[cap];
                 var outFieldTypeStarts = new int[cap];
                 var outFieldTypeLengths = new int[cap];
                 var outFieldTypeTexts = new string[cap];
@@ -354,27 +355,38 @@ internal static class NSharpCompilerDogfoodAdapter
                 var outPropStaticFlags = new int[cap];
                 var outTypeParamStarts = new int[cap];
                 var outTypeParamLengths = new int[cap];
+                var outTypeParamTexts = new string[cap];
                 var outBaseNameStarts = new int[cap];
                 var outBaseNameLengths = new int[cap];
+                var outBaseNameTexts = new string[cap];
+                var outStructNameTexts = new string[1];
                 var outResult = new int[12];
                 var fieldCount = bindings.ParseStructDeclarationInfo(
-                    source, ck, cs, cv, n, structIndex, outFieldNameStarts, outFieldNameLengths, outFieldTypeStarts,
+                    source, ck, cs, cv, n, structIndex, outFieldNameStarts, outFieldNameLengths, outFieldNameTexts, outFieldTypeStarts,
                     outFieldTypeLengths, outFieldTypeTexts, outFieldStaticFlags, outFieldInitKinds, outFieldInitStarts, outFieldInitLengths,
                     outFieldInitTexts, outMethodFuncIndices, outMethodStaticFlags, outCtorIndices, outPropIndices, outPropStaticFlags,
-                    outTypeParamStarts, outTypeParamLengths, outBaseNameStarts, outBaseNameLengths, outResult);
+                    outTypeParamStarts, outTypeParamLengths, outTypeParamTexts, outBaseNameStarts, outBaseNameLengths, outBaseNameTexts,
+                    outStructNameTexts, outResult);
                 // The kernel returns -1 on a parse failure; 0 is a legitimate FIELDLESS type. A zero-field
                 // REFERENCE type (a pure-behavior class — e.g. an inheritance base with only methods) is modelled;
                 // a zero-field VALUE struct keeps declining (a zero-size value type is a CLR layout edge case).
                 if (fieldCount < 0 || (fieldCount == 0 && !isReference) || outResult[1] <= 0)
                     return false;
 
-                var structName = source.Substring(outResult[0], outResult[1]);
+                var structName = outStructNameTexts[0];
+                if (string.IsNullOrEmpty(structName))
+                    return false;
                 // The optional `: Base[, IFace...]` list. The emitter resolves it against the declared types and
                 // validates: at most one class base on a class, otherwise interfaces only.
                 var baseNameCount = outResult[8];
                 var baseNames = new string[baseNameCount];
                 for (var b = 0; b < baseNameCount; b++)
-                    baseNames[b] = source.Substring(outBaseNameStarts[b], outBaseNameLengths[b]);
+                {
+                    var baseName = outBaseNameTexts[b];
+                    if (string.IsNullOrEmpty(baseName))
+                        return false;
+                    baseNames[b] = baseName;
+                }
 
                 // Optional generic type parameters `<T, U>` (outResult[7] = count). Generic RECORDS are
                 // modelled (columnar's record fields are plain public fields — the oracle's backing-field
@@ -390,7 +402,12 @@ internal static class NSharpCompilerDogfoodAdapter
 
                     typeParamNames = new string[typeParamCount];
                     for (var tp = 0; tp < typeParamCount; tp++)
-                        typeParamNames[tp] = source.Substring(outTypeParamStarts[tp], outTypeParamLengths[tp]);
+                    {
+                        var typeParamName = outTypeParamTexts[tp];
+                        if (string.IsNullOrEmpty(typeParamName))
+                            return false;
+                        typeParamNames[tp] = typeParamName;
+                    }
                 }
                 var fieldNames = new string[fieldCount];
                 var fieldTypes = new string[fieldCount];
@@ -399,7 +416,10 @@ internal static class NSharpCompilerDogfoodAdapter
                 var fieldInitTexts = new string?[fieldCount];
                 for (var f = 0; f < fieldCount; f++)
                 {
-                    fieldNames[f] = source.Substring(outFieldNameStarts[f], outFieldNameLengths[f]);
+                    var fieldName = outFieldNameTexts[f];
+                    if (string.IsNullOrEmpty(fieldName))
+                        return false;
+                    fieldNames[f] = fieldName;
                     var fieldType = outFieldTypeTexts[f];
                     if (string.IsNullOrEmpty(fieldType))
                         return false;
@@ -2236,11 +2256,13 @@ internal static class NSharpCompilerDogfoodAdapter
     private delegate int ParseStructDeclarationInfoInto(
         string source,
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int structIndex,
-        int[] outFieldNameStarts, int[] outFieldNameLengths, int[] outFieldTypeStarts, int[] outFieldTypeLengths,
+        int[] outFieldNameStarts, int[] outFieldNameLengths, string[] outFieldNameTexts,
+        int[] outFieldTypeStarts, int[] outFieldTypeLengths,
         string[] outFieldTypeTexts, int[] outFieldStaticFlags, int[] outFieldInitKinds, int[] outFieldInitStarts, int[] outFieldInitLengths, string[] outFieldInitTexts,
         int[] outMethodFuncIndices, int[] outMethodStaticFlags, int[] outCtorIndices, int[] outPropIndices, int[] outPropStaticFlags,
-        int[] outTypeParamStarts, int[] outTypeParamLengths,
-        int[] outBaseNameStarts, int[] outBaseNameLengths, int[] outResult);
+        int[] outTypeParamStarts, int[] outTypeParamLengths, string[] outTypeParamTexts,
+        int[] outBaseNameStarts, int[] outBaseNameLengths, string[] outBaseNameTexts,
+        string[] outStructNameTexts, int[] outResult);
     private delegate int ParseUnionDeclarationInfoInto(
         string source,
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int unionIndex,

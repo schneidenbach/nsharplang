@@ -111,6 +111,14 @@ public class CompilerDogfoodProjectTests
                     "ParseInterfaceDeclarationInfoInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit ParseInterfaceDeclarationInfoInto.");
+            var parseStructDeclaration = programType.GetMethod(
+                    "ParseStructDeclarationInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit ParseStructDeclarationInto.");
+            var parseStructDeclarationInfo = programType.GetMethod(
+                    "ParseStructDeclarationInfoInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit ParseStructDeclarationInfoInto.");
             var canonicalTypeText = programType.GetMethod(
                     "ParserDeclarationCanonicalTypeText",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -224,6 +232,44 @@ interface IReadable: IBase, IOther {
                 parseInterfaceDeclaration,
                 parseInterfaceDeclarationInfo,
                 "interface name/base text info");
+            AssertStructDeclarationInfo(
+                """
+class Pair<T> {
+    static Count: int = 5
+    First: T
+    Second: int
+}
+""",
+                (int)TokenType.Class,
+                "Pair",
+                new[] { "T" },
+                Array.Empty<string>(),
+                new[] { "Count", "First", "Second" },
+                new[] { "int", "T", "int" },
+                new[] { 1, 0, 0 },
+                new[] { "5", null, null },
+                tokenizeWithIndentation,
+                parseStructDeclaration,
+                parseStructDeclarationInfo,
+                "generic class field text info");
+            AssertStructDeclarationInfo(
+                """
+class Derived: Base, IFace {
+    Value: int
+}
+""",
+                (int)TokenType.Class,
+                "Derived",
+                Array.Empty<string>(),
+                new[] { "Base", "IFace" },
+                new[] { "Value" },
+                new[] { "int" },
+                new[] { 0 },
+                new string?[] { null },
+                tokenizeWithIndentation,
+                parseStructDeclaration,
+                parseStructDeclarationInfo,
+                "class base name text info");
             AssertEnumDeclarationInfo(
                 "enum E { A = 5, B, C = 20, D }",
                 "E",
@@ -1037,6 +1083,181 @@ class B
 
         for (var m = 0; m < expectedMethodCount; m++)
             Assert.Equal(spanMethodFuncIndices[m], methodFuncIndices[m]);
+    }
+
+    private static void AssertStructDeclarationInfo(
+        string source,
+        int tokenKind,
+        string expectedStructName,
+        string[] expectedTypeParams,
+        string[] expectedBaseNames,
+        string[] expectedFieldNames,
+        string[] expectedFieldTypes,
+        int[] expectedFieldStaticFlags,
+        string?[] expectedFieldInitTexts,
+        MethodInfo tokenizeWithIndentation,
+        MethodInfo parseStructDeclaration,
+        MethodInfo parseStructDeclarationInfo,
+        string label)
+    {
+        Assert.Equal(expectedFieldNames.Length, expectedFieldTypes.Length);
+        Assert.Equal(expectedFieldNames.Length, expectedFieldStaticFlags.Length);
+        Assert.Equal(expectedFieldNames.Length, expectedFieldInitTexts.Length);
+
+        var (count, kinds, starts, valueLengths, compactedSource) = TokenizeSourceViaKernel(source, tokenizeWithIndentation);
+        var structIndex = FirstTokenIndex(kinds, count, tokenKind);
+        Assert.True(structIndex >= 0, $"Could not locate type declaration token for {label}.");
+
+        var cap = count + 1;
+        var spanFieldNameStarts = new int[cap];
+        var spanFieldNameLengths = new int[cap];
+        var spanFieldTypeStarts = new int[cap];
+        var spanFieldTypeLengths = new int[cap];
+        var spanFieldStaticFlags = new int[cap];
+        var spanFieldInitKinds = new int[cap];
+        var spanFieldInitStarts = new int[cap];
+        var spanFieldInitLengths = new int[cap];
+        var spanMethodFuncIndices = new int[cap];
+        var spanMethodStaticFlags = new int[cap];
+        var spanCtorIndices = new int[cap];
+        var spanPropIndices = new int[cap];
+        var spanPropStaticFlags = new int[cap];
+        var spanTypeParamStarts = new int[cap];
+        var spanTypeParamLengths = new int[cap];
+        var spanBaseNameStarts = new int[cap];
+        var spanBaseNameLengths = new int[cap];
+        var spanResult = new int[12];
+        var spanFieldCount = (int)(parseStructDeclaration.Invoke(
+            null,
+            new object[]
+            {
+                kinds,
+                starts,
+                valueLengths,
+                count,
+                structIndex,
+                spanFieldNameStarts,
+                spanFieldNameLengths,
+                spanFieldTypeStarts,
+                spanFieldTypeLengths,
+                spanFieldStaticFlags,
+                spanFieldInitKinds,
+                spanFieldInitStarts,
+                spanFieldInitLengths,
+                spanMethodFuncIndices,
+                spanMethodStaticFlags,
+                spanCtorIndices,
+                spanPropIndices,
+                spanPropStaticFlags,
+                spanTypeParamStarts,
+                spanTypeParamLengths,
+                spanBaseNameStarts,
+                spanBaseNameLengths,
+                spanResult
+            }) ?? -2);
+
+        var fieldNameStarts = new int[cap];
+        var fieldNameLengths = new int[cap];
+        var fieldNameTexts = new string[cap];
+        var fieldTypeStarts = new int[cap];
+        var fieldTypeLengths = new int[cap];
+        var fieldTypeTexts = new string[cap];
+        var fieldStaticFlags = new int[cap];
+        var fieldInitKinds = new int[cap];
+        var fieldInitStarts = new int[cap];
+        var fieldInitLengths = new int[cap];
+        var fieldInitTexts = new string[cap];
+        var methodFuncIndices = new int[cap];
+        var methodStaticFlags = new int[cap];
+        var ctorIndices = new int[cap];
+        var propIndices = new int[cap];
+        var propStaticFlags = new int[cap];
+        var typeParamStarts = new int[cap];
+        var typeParamLengths = new int[cap];
+        var typeParamTexts = new string[cap];
+        var baseNameStarts = new int[cap];
+        var baseNameLengths = new int[cap];
+        var baseNameTexts = new string[cap];
+        var structNameTexts = new string[1];
+        var result = new int[12];
+        var fieldCount = (int)(parseStructDeclarationInfo.Invoke(
+            null,
+            new object[]
+            {
+                compactedSource,
+                kinds,
+                starts,
+                valueLengths,
+                count,
+                structIndex,
+                fieldNameStarts,
+                fieldNameLengths,
+                fieldNameTexts,
+                fieldTypeStarts,
+                fieldTypeLengths,
+                fieldTypeTexts,
+                fieldStaticFlags,
+                fieldInitKinds,
+                fieldInitStarts,
+                fieldInitLengths,
+                fieldInitTexts,
+                methodFuncIndices,
+                methodStaticFlags,
+                ctorIndices,
+                propIndices,
+                propStaticFlags,
+                typeParamStarts,
+                typeParamLengths,
+                typeParamTexts,
+                baseNameStarts,
+                baseNameLengths,
+                baseNameTexts,
+                structNameTexts,
+                result
+            }) ?? -2);
+
+        Assert.Equal(expectedFieldNames.Length, spanFieldCount);
+        Assert.Equal(spanFieldCount, fieldCount);
+        Assert.Equal(spanResult, result);
+        Assert.Equal(expectedStructName, compactedSource.Substring(result[0], result[1]));
+        Assert.Equal(expectedStructName, structNameTexts[0]);
+        Assert.Equal(expectedTypeParams.Length, result[7]);
+        Assert.Equal(expectedBaseNames.Length, result[8]);
+
+        for (var i = 0; i < expectedTypeParams.Length; i++)
+        {
+            Assert.Equal(spanTypeParamStarts[i], typeParamStarts[i]);
+            Assert.Equal(spanTypeParamLengths[i], typeParamLengths[i]);
+            Assert.Equal(expectedTypeParams[i], compactedSource.Substring(typeParamStarts[i], typeParamLengths[i]));
+            Assert.Equal(expectedTypeParams[i], typeParamTexts[i]);
+        }
+
+        for (var i = 0; i < expectedBaseNames.Length; i++)
+        {
+            Assert.Equal(spanBaseNameStarts[i], baseNameStarts[i]);
+            Assert.Equal(spanBaseNameLengths[i], baseNameLengths[i]);
+            Assert.Equal(expectedBaseNames[i], compactedSource.Substring(baseNameStarts[i], baseNameLengths[i]));
+            Assert.Equal(expectedBaseNames[i], baseNameTexts[i]);
+        }
+
+        for (var i = 0; i < expectedFieldNames.Length; i++)
+        {
+            Assert.Equal(spanFieldNameStarts[i], fieldNameStarts[i]);
+            Assert.Equal(spanFieldNameLengths[i], fieldNameLengths[i]);
+            Assert.Equal(spanFieldTypeStarts[i], fieldTypeStarts[i]);
+            Assert.Equal(spanFieldTypeLengths[i], fieldTypeLengths[i]);
+            Assert.Equal(spanFieldStaticFlags[i], fieldStaticFlags[i]);
+            Assert.Equal(spanFieldInitKinds[i], fieldInitKinds[i]);
+            Assert.Equal(spanFieldInitStarts[i], fieldInitStarts[i]);
+            Assert.Equal(spanFieldInitLengths[i], fieldInitLengths[i]);
+            Assert.Equal(expectedFieldNames[i], compactedSource.Substring(fieldNameStarts[i], fieldNameLengths[i]));
+            Assert.Equal(expectedFieldNames[i], fieldNameTexts[i]);
+            Assert.Equal(expectedFieldTypes[i], compactedSource.Substring(fieldTypeStarts[i], fieldTypeLengths[i]));
+            Assert.Equal(expectedFieldTypes[i], fieldTypeTexts[i]);
+            Assert.Equal(expectedFieldStaticFlags[i], fieldStaticFlags[i]);
+            if (expectedFieldInitTexts[i] is { } initText)
+                Assert.Equal(initText, fieldInitTexts[i]);
+        }
     }
 
     private static void AssertUnionDeclarationInfo(

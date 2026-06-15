@@ -11,6 +11,25 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Struct/class/record declaration name text moves into N#
+
+`ParserDeclarations.nl` extends `ParseStructDeclarationInfoInto` so the product-routed
+struct/class/record wrapper returns materialized declaration, field, type-parameter, and base-name
+text columns alongside the existing canonical field type and static initializer text columns. The
+span-only `ParseStructDeclarationInto` ABI remains emitted for parser parity tests.
+
+`NSharpCompilerDogfoodAdapter.TryGetColumnarStructInputs` no longer slices struct/class/record,
+base, type-parameter, or field names from source spans in C#. It consumes the N# text columns and
+only materializes CLR-facing `ColumnarStructInput` containers. Focused evidence:
+`./scripts/dev.sh Parser_TopLevelDeclarationKinds_MatchProductionParser`,
+`./scripts/dev.sh ColumnarCodegen_Parity_Struct`,
+`./scripts/dev.sh ColumnarCodegen_Parity_Record`,
+`./scripts/dev.sh ColumnarCodegen_Parity_Class`,
+`./scripts/dev.sh ColumnarCodegen_Parity_GenericClass`,
+`./scripts/dev.sh ColumnarCodegen_Parity_StaticFields`,
+`./scripts/dev.sh ColumnarCodegen_Parity_CollectionsBuilderElements`, and
+`./scripts/dev.sh ColumnarCodegen_MultiFile_EligibleClusterCompiles`.
+
 ## 2026-06-15 — Interface declaration name text moves into N#
 
 `ParserDeclarations.nl` now exports `ParseInterfaceDeclarationInfoInto`, a product-routed wrapper
