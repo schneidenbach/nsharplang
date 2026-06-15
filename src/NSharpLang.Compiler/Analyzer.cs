@@ -9027,8 +9027,28 @@ public class Analyzer : IDisposable
 
     private static bool IsNullOrDefaultLiteral(Expression expression)
     {
-        while (expression is ParenthesizedExpression parenthesized)
-            expression = parenthesized.Inner;
+        while (true)
+        {
+            if (expression is ParenthesizedExpression parenthesized)
+            {
+                expression = parenthesized.Inner;
+                continue;
+            }
+
+            if (expression is CheckedExpression checkedExpression)
+            {
+                expression = checkedExpression.Expression;
+                continue;
+            }
+
+            if (expression is UncheckedExpression uncheckedExpression)
+            {
+                expression = uncheckedExpression.Expression;
+                continue;
+            }
+
+            break;
+        }
 
         return expression is NullLiteralExpression or DefaultExpression;
     }

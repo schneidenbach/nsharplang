@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Checked SoA wrap default columns fail before emission
+
+SoA `wrap` null-column validation now also unwraps `checked(...)` and `unchecked(...)` wrappers
+around `default` column arguments. Positional and named forms such as
+`NodeTable.wrap(checked(default), 0)` and `NodeTable.wrap(name: unchecked(default), kind: new(), length: 0)`
+report the direct null-column analyzer diagnostic instead of creating a typed default backing array
+that only fails at the runtime wrap guard.
+
 ## 2026-06-15 — Parenthesized SoA wrap null columns fail before emission
 
 SoA `wrap` column validation now unwraps parentheses before checking literal `null` and `default`
