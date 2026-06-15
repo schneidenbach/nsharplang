@@ -15,11 +15,12 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 The accepted direct-column `System.Index` path now has an explicit variable-held regression beside
 the `^1` literal proof. `idx := ^1; ((nodes.kind)[idx]) = value`,
-`(((nodes.kind)[idx]) += value)`, `((nodes.kind)[idx])++`, and `++((nodes.kind)[idx])`
-preserve assignment and prefix/postfix result semantics through offset-based backing-array
-load/store lowering, with no slice allocation, boxing, delegate construction, or virtual dispatch.
-Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter
-"FullyQualifiedName~ILCompiler_SoaRecordParenthesizedVariableFromEndDirectColumnElementTargets_UseColumnElementILShape"`.
+`(((nodes.kind)[idx]) += value)`, `((nodes.kind)[idx])++`, `++((nodes.kind)[idx])`, and
+`((nodes.text)[idx]) ??= value` preserve assignment, null-coalescing assignment, and prefix/postfix
+result semantics through offset-based backing-array load/store lowering, with no slice allocation,
+boxing, delegate construction, or virtual dispatch. Focused evidence: `dotnet test
+tests/Tests.csproj --no-restore --filter
+"FullyQualifiedName~ILCompiler_SoaRecordParenthesizedVariableFromEndDirectColumn"` (2 tests).
 
 ## 2026-06-15 — Parenthesized SoA from-end direct-column targets are pinned
 

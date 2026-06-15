@@ -5437,6 +5437,51 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void ILCompiler_SoaRecordParenthesizedVariableFromEndDirectColumnNullCoalesceAssign_UsesColumnElementILShape()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var source = """
+            soa record NodeTable {
+                text: string
+            }
+
+            func textOps(nodes: NodeTable): string {
+                nodes.add();
+                idx := ^1;
+                ((nodes.text)[idx]) ??= "fallback"
+                current := (((nodes.text)[idx]) ??= "ignored");
+                return current + ":" + ((nodes.text)[idx])
+            }
+
+            func main(): string {
+                nodes := new NodeTable(1)
+                return textOps(nodes)
+            }
+            """;
+
+        Assert.Equal("fallback:fallback", Assert.IsType<string>(CompileAndInvoke(source)));
+
+        var opCodes = CompileAndInspect(source, assembly =>
+        {
+            var textOps = assembly.GetType("Program")!.GetMethod(
+                "textOps",
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(textOps);
+            return GetMethodOpCodes(textOps!);
+        });
+
+        Assert.Contains(OpCodes.Ldfld, opCodes);
+        Assert.Contains(opCodes, IsArrayElementLoad);
+        Assert.Contains(opCodes, IsArrayElementStore);
+        Assert.Contains(OpCodes.Ldlen, opCodes);
+        Assert.DoesNotContain(OpCodes.Newarr, opCodes);
+        Assert.DoesNotContain(OpCodes.Box, opCodes);
+        Assert.DoesNotContain(OpCodes.Ldftn, opCodes);
+        Assert.DoesNotContain(OpCodes.Callvirt, opCodes);
+    }
+
+    [Fact]
     public void ILCompiler_SoaRecordParenthesizedFromEndDirectColumnNullCoalesceAssign_UsesColumnElementILShape()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
