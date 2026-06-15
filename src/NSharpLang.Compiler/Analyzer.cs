@@ -12862,7 +12862,7 @@ public class Analyzer : IDisposable
         if (capacityType is SoaRowTypeInfo || BuiltInTypes.IsUnknown(capacityType))
             return;
 
-        if (capacityType != BuiltInTypes.Int)
+        if (!IsAssignable(BuiltInTypes.Int, capacityType))
         {
             var (line, column, length) = GetExpressionDiagnosticSpan(capacityArgument.Value);
             Error(

@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — SoA capacity construction follows int parameter widening
+
+SoA table capacity construction now matches the registered `int` constructor ABI instead of requiring
+the analyzed argument type to be exactly `int`. Small integral capacity inputs such as `(short)4`
+bind and lower through the normal constructor path, while analyzer-known small signed negatives such
+as `(short)-1` still report `SoA table capacity must not be negative` before IL emission.
+
 ## 2026-06-15 — Generated SoA operation counts reject small signed cast negatives
 
 Generated SoA operation argument validation now reports the non-negative count diagnostics for

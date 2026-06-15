@@ -5886,6 +5886,27 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaTableCapacityConstructorAllowsImplicitSmallIntegerCapacity()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func ok(): int {
+                nodes := new NodeTable((short)4)
+                return nodes.capacity
+            }
+            """);
+
+        Assert.False(
+            result.HasErrors,
+            $"Expected no errors but got: {string.Join(", ", result.Errors.Select(e => $"{e.DiagnosticId}:{e.Message}"))}");
+    }
+
+    [Fact]
     public void Analyzer_SoaTableCapacityConstructorRejectsUnknownNamedArgument()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
@@ -5917,6 +5938,26 @@ public class SoaRecordTests : ILCompilerTestBase
 
             func bad() {
                 nodes := new NodeTable(-1)
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains("SoA table capacity must not be negative", error.Message);
+        Assert.Contains("zero or a positive capacity", error.Suggestion);
+    }
+
+    [Fact]
+    public void Analyzer_SoaTableCapacityConstructorRejectsSmallSignedCastNegativeLiteral()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad() {
+                nodes := new NodeTable((short)-1)
             }
             """);
 
@@ -7646,6 +7687,25 @@ public class SoaRecordTests : ILCompilerTestBase
             """;
 
         Assert.Equal(2, Assert.IsType<int>(CompileAndInvoke(source)));
+    }
+
+    [Fact]
+    public void ILCompiler_SoaRecordCapacityConstructorAcceptsSmallIntegerCapacity()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var source = """
+            soa record NodeTable {
+                kind: int
+            }
+
+            func main(): int {
+                nodes := new NodeTable((short)4)
+                return nodes.capacity
+            }
+            """;
+
+        Assert.Equal(4, Assert.IsType<int>(CompileAndInvoke(source)));
     }
 
     [Fact]

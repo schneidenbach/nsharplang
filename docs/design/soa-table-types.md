@@ -61,8 +61,9 @@ nodes := new NodeTable(capacity)
 nodes := NodeTable.wrap(kind, valueStart, valueLength, childStart, childCount, sourceStart, length)
 ```
 
-`new` takes exactly one non-negative `int` capacity argument, allocates exactly one array per column,
-and initializes `length = 0`. `wrap` creates a view over caller-provided arrays, verifies matching
+`new` takes exactly one non-negative `int` capacity argument, accepts the same implicit small-integer
+widening as an ordinary `int` parameter, allocates exactly one array per column, and initializes
+`length = 0`. `wrap` creates a view over caller-provided arrays, verifies matching
 lengths/capacity, and performs no element copy. `wrap` exposes generated parameter names for each
 column plus `length`, so named calls such as `NodeTable.wrap(length: n, kind: kinds)` bind
 semantically, including target-typed argument inference; negative literal `length` values are
