@@ -714,6 +714,7 @@ public class Analyzer : IDisposable
         _currentFunctionIsAsync = func.Modifiers.HasFlag(Modifiers.Async);
 
         ValidateGeneratedRegexDeclaration(func, functionReturnType);
+        ReportGeneratorReturnTypeIfNeeded(func, functionReturnType);
 
         // Record function return type in semantic model for IDE features (scoped)
         RecordFunctionInCurrentScope(func.Name, functionReturnType);
@@ -821,6 +822,100 @@ public class Analyzer : IDisposable
             "Use `{ yield value }` to produce sequence values from a generator.",
             length);
         return true;
+    }
+
+    private bool ReportGeneratorReturnTypeIfNeeded(FunctionDeclaration func, TypeInfo returnType)
+    {
+        if (!func.Modifiers.HasFlag(Modifiers.Generator))
+        {
+            return false;
+        }
+
+        var resolvedReturnType = ResolveTypeAlias(GetNonNullableType(returnType));
+        var isAsyncGenerator = func.Modifiers.HasFlag(Modifiers.Async);
+        if (BuiltInTypes.IsUnknown(resolvedReturnType)
+            || resolvedReturnType is ExternalTypeInfo
+            || IsGeneratorSequenceReturnType(resolvedReturnType, isAsyncGenerator))
+        {
+            return false;
+        }
+
+        var sequenceKind = isAsyncGenerator
+            ? "an async enumerable sequence type"
+            : "a synchronous enumerable sequence type";
+        var suggestion = isAsyncGenerator
+            ? "Use `IAsyncEnumerable<T>` for `async func*`."
+            : "Use `IEnumerable<T>`, `IReadOnlyList<T>`, or `List<T>` for `func*`.";
+        var (line, column, length) = func.ReturnType != null
+            ? GetSourceSpanDiagnosticSpan(
+                GetTypeReferenceStartSpan(func.ReturnType),
+                func.Line,
+                func.Column,
+                Math.Max(1, returnType.ToString().Length))
+            : GetFunctionNameDiagnosticSpan(func);
+        Error(
+            ErrorCode.TypeMismatch,
+            $"Generator function '{func.Name}' must return {sequenceKind}, but it returns '{returnType}'",
+            line,
+            column,
+            suggestion,
+            length);
+        return true;
+    }
+
+    private bool IsGeneratorSequenceReturnType(TypeInfo type, bool isAsyncGenerator)
+    {
+        return type switch
+        {
+            GenericTypeInfo generic => IsGeneratorSequenceGenericName(generic.Name, generic.TypeArguments.Count, isAsyncGenerator),
+            ReflectionTypeInfo reflection => IsGeneratorSequenceReflectionType(reflection.Type, isAsyncGenerator),
+            _ => false
+        };
+    }
+
+    private static bool IsGeneratorSequenceGenericName(string name, int arity, bool isAsyncGenerator)
+    {
+        if (arity != 1)
+        {
+            return false;
+        }
+
+        var unqualifiedName = GetUnqualifiedTypeName(name);
+        var tickIndex = unqualifiedName.IndexOf('`', StringComparison.Ordinal);
+        if (tickIndex >= 0)
+        {
+            unqualifiedName = unqualifiedName[..tickIndex];
+        }
+
+        if (isAsyncGenerator)
+        {
+            return unqualifiedName == "IAsyncEnumerable";
+        }
+
+        return unqualifiedName is
+            "List" or "IEnumerable" or "ICollection" or "IList" or
+            "IReadOnlyCollection" or "IReadOnlyList";
+    }
+
+    private static bool IsGeneratorSequenceReflectionType(Type type, bool isAsyncGenerator)
+    {
+        if (type.IsArray || !type.IsGenericType)
+        {
+            return false;
+        }
+
+        var definition = type.GetGenericTypeDefinition();
+        if (isAsyncGenerator)
+        {
+            return definition == typeof(IAsyncEnumerable<>);
+        }
+
+        return definition == typeof(List<>)
+            || definition == typeof(IEnumerable<>)
+            || definition == typeof(ICollection<>)
+            || definition == typeof(IList<>)
+            || definition == typeof(IReadOnlyCollection<>)
+            || definition == typeof(IReadOnlyList<>);
     }
 
     private void ValidateGeneratedRegexDeclaration(FunctionDeclaration func, TypeInfo functionReturnType)
@@ -3172,6 +3267,8 @@ public class Analyzer : IDisposable
         _finallyDepth = 0;
         _breakTargetFinallyDepth = 0;
         _continueTargetFinallyDepth = 0;
+
+        ReportGeneratorReturnTypeIfNeeded(func, returnType);
 
         // Analyze body
         if (func.Body != null)

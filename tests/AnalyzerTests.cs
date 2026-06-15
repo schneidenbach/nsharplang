@@ -688,6 +688,68 @@ func Main() {
         Assert.Contains("yield value", error.Suggestion);
     }
 
+    [Fact]
+    public void GeneratorSequenceReturnTypes_AreValid()
+    {
+        AssertNoErrors("""
+            import System.Collections.Generic
+
+            func* Numbers(): IEnumerable<int> {
+                yield 1
+            }
+
+            func* NumberList(): List<int> {
+                yield 1
+            }
+
+            func* NumberReadOnlyList(): IReadOnlyList<int> {
+                yield 1
+            }
+
+            async func* AsyncNumbers(): IAsyncEnumerable<int> {
+                yield 1
+            }
+            """);
+    }
+
+    [Theory]
+    [InlineData("func* Numbers(): int { yield 1 }", "int", "synchronous enumerable", "IEnumerable<T>")]
+    [InlineData("func* Numbers(): int[] { yield 1 }", "int[]", "synchronous enumerable", "IEnumerable<T>")]
+    [InlineData("func* Numbers(): IEnumerator<int> { yield 1 }", "IEnumerator", "synchronous enumerable", "IEnumerable<T>")]
+    [InlineData("func* Numbers(): IAsyncEnumerable<int> { yield 1 }", "IAsyncEnumerable", "synchronous enumerable", "IEnumerable<T>")]
+    [InlineData("async func* Numbers(): int { yield 1 }", "int", "async enumerable", "IAsyncEnumerable<T>")]
+    [InlineData("async func* Numbers(): IEnumerable<int> { yield 1 }", "IEnumerable", "async enumerable", "IAsyncEnumerable<T>")]
+    public void GeneratorNonSequenceReturnType_ReportsTypeMismatch(
+        string declaration,
+        string returnType,
+        string expectedSequenceKind,
+        string expectedSuggestion)
+    {
+        var result = AnalyzeWithSource("import System.Collections.Generic\n\n" + declaration);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains(expectedSequenceKind, error.Message);
+        Assert.Contains(returnType, error.Message);
+        Assert.Contains(expectedSuggestion, error.Suggestion);
+    }
+
+    [Fact]
+    public void LocalGeneratorNonSequenceReturnType_ReportsTypeMismatch()
+    {
+        var result = AnalyzeWithSource("""
+            func Main() {
+                func* Numbers(): int {
+                    yield 1
+                }
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains("synchronous enumerable", error.Message);
+        Assert.Contains("returns 'int'", error.Message);
+        Assert.Contains("IEnumerable<T>", error.Suggestion);
+    }
+
     [Theory]
     [InlineData("func* Numbers(): IEnumerable<int> => []")]
     [InlineData("async func* Numbers(): IAsyncEnumerable<int> => []")]

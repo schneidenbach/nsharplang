@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Generator return types fail before lowering
+
+Generator functions now validate their declared return shape during semantic analysis. Clearly
+unsupported returns such as `int`, `int[]`, sync enumerators, and async/sync sequence-family
+mismatches report a type diagnostic before the IL backend can throw or emit a mismatched
+generator-list return; accepted returns such as sync `IEnumerable<T>`/`List<T>` and async
+`IAsyncEnumerable<T>` stay valid.
+
 ## 2026-06-15 — Generator expression bodies fail before lowering
 
 Expression-bodied generator functions now reject during semantic analysis for top-level, async, and
