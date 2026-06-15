@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Inherited instance fields are addressable by ref/out
+
+Mutable instance fields declared on a base class now remain valid `ref`/`out` targets through a
+derived receiver. The analyzer's instance-field addressability classifier walks base classes with
+nearest-declaration shadowing, including reflection-backed C# interop receivers, and the IL backend
+emits `ldflda` through the existing inherited-field resolver instead of failing after analysis.
+
 ## 2026-06-15 — Inherited static fields are addressable through derived type names
 
 Mutable static fields declared on a base class now remain valid `ref`/`out` targets when reached

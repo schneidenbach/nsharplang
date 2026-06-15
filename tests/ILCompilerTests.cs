@@ -4571,6 +4571,75 @@ func readWrite(x: int, v: int): int {
     }
 
     [Fact]
+    public void ILCompiler_CanExecuteRefAndOutParameterOnInheritedFieldViaDerivedReceiver()
+    {
+        var source = @"
+class Base {
+    Value: int
+}
+
+class Derived: Base {
+}
+
+func bump(ref value: int) {
+    value += 1
+}
+
+func reset(out value: int) {
+    value = 41
+}
+
+func main(): int {
+    derived := new Derived()
+    reset(out derived.Value)
+    bump(ref derived.Value)
+    return derived.Value
+}";
+
+        var result = CompileAndInspect(source, assembly =>
+        {
+            var programType = assembly.GetType("Program");
+            Assert.NotNull(programType);
+            var main = programType!.GetMethod("main", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(main);
+
+            var opCodes = GetMethodOpCodes(main!);
+            Assert.True(
+                opCodes.Count(opCode => opCode == OpCodes.Ldflda) >= 2,
+                "Inherited instance ref/out arguments should lower to direct field addresses.");
+
+            return main!.Invoke(null, null);
+        });
+
+        Assert.Equal(42, Assert.IsType<int>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_CanExecuteRefAndOutParameterOnExternalInheritedFieldViaDerivedReceiver()
+    {
+        var source = @"
+import NSharpLang.Tests
+
+func bump(ref value: int) {
+    value += 1
+}
+
+func reset(out value: int) {
+    value = 41
+}
+
+func main(): int {
+    derived := new CSharpInheritedInstanceFieldDerived()
+    reset(out derived.Value)
+    bump(ref derived.Value)
+    return derived.Value
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal(42, Assert.IsType<int>(result));
+    }
+
+    [Fact]
     public void ILCompiler_CanReadInheritedPropertyOnDerivedReceiver()
     {
         // Inherited computed PROPERTY access on a derived receiver: the get_-accessor lookup walks the base chain

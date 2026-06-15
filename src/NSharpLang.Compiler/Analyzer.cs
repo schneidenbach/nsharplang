@@ -12574,6 +12574,11 @@ public class Analyzer : IDisposable
             if (clrOwner != null)
                 owner = new ReflectionTypeInfo(clrOwner);
         }
+        return ClassifyInstanceFieldMember(owner, hop.MemberName);
+    }
+
+    private bool? ClassifyInstanceFieldMember(TypeInfo owner, string memberName)
+    {
         List<Declaration>? members = owner switch
         {
             StructTypeInfo s => s.Declaration.Members,
@@ -12582,21 +12587,62 @@ public class Analyzer : IDisposable
             _ => null,
         };
         if (members != null)
-            return members.OfType<FieldDeclaration>().Any(f => f.Name == hop.MemberName);
+        {
+            foreach (var declaredMember in members)
+            {
+                if (GetDeclarationName(declaredMember) != memberName)
+                    continue;
+
+                return declaredMember is FieldDeclaration;
+            }
+
+            if (owner is ClassTypeInfo { Declaration.BaseClass: not null } classTypeWithBase)
+            {
+                var baseType = ResolveType(classTypeWithBase.Declaration.BaseClass);
+                return BuiltInTypes.IsUnknown(baseType)
+                    ? null
+                    : ClassifyInstanceFieldMember(baseType, memberName);
+            }
+
+            return false;
+        }
+
         if (owner is ReflectionTypeInfo reflected && reflected.Type is not System.Reflection.Emit.TypeBuilder
             && !reflected.Type.IsGenericTypeDefinition)
         {
-            try
+            return ClassifyReflectionInstanceFieldMember(reflected.Type, memberName);
+        }
+
+        return null;
+    }
+
+    private static bool? ClassifyReflectionInstanceFieldMember(Type type, string memberName)
+    {
+        const BindingFlags flags = BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly;
+
+        try
+        {
+            for (var current = type; current != null; current = current.BaseType)
             {
-                return reflected.Type.GetField(hop.MemberName,
-                    System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance) != null;
-            }
-            catch (NotSupportedException)
-            {
-                return null; // an emitted instantiation — unresolvable here.
+                if (current.GetFields(flags).Any(field => field.Name == memberName))
+                {
+                    return true;
+                }
+
+                if (current.GetProperties(flags).Any(property => property.Name == memberName)
+                    || current.GetMethods(flags).Any(method => !method.IsSpecialName && method.Name == memberName)
+                    || current.GetEvents(flags).Any(@event => @event.Name == memberName))
+                {
+                    return false;
+                }
             }
         }
-        return null;
+        catch (NotSupportedException)
+        {
+            return null; // an emitted instantiation — unresolvable here.
+        }
+
+        return false;
     }
 
     private void CheckReadonlyFieldAssignment(

@@ -49,6 +49,20 @@ public class CSharpStaticPropertyShadowsInheritedField : CSharpInheritedStaticFi
     public new static int Value => 0;
 }
 
+public class CSharpInheritedInstanceFieldBase
+{
+    public int Value;
+}
+
+public class CSharpInheritedInstanceFieldDerived : CSharpInheritedInstanceFieldBase
+{
+}
+
+public class CSharpInstancePropertyShadowsInheritedField : CSharpInheritedInstanceFieldBase
+{
+    public new int Value => 0;
+}
+
 public class AnalyzerTests
 {
     // Project config for ASP.NET Core tests
@@ -2307,6 +2321,76 @@ func Main() {
         Assert.Contains("static readonly", error.Message);
         Assert.Contains($"'{op}'", error.Message);
         Assert.Contains("declaration", error.Suggestion);
+    }
+
+    [Theory]
+    [InlineData("bump(ref derived.Value)")]
+    [InlineData("reset(out derived.Value)")]
+    public void InstanceField_InheritedRefOutArgument_Valid(string statement)
+    {
+        AssertNoErrors($$"""
+            func bump(ref value: int) {
+                value += 1
+            }
+
+            func reset(out value: int) {
+                value = 0
+            }
+
+            class Base {
+                Value: int
+            }
+
+            class Derived : Base {
+            }
+
+            func Mutate(derived: Derived) {
+                {{statement}}
+            }
+        """);
+    }
+
+    [Theory]
+    [InlineData("bump(ref derived.Value)")]
+    [InlineData("reset(out derived.Value)")]
+    public void InstanceField_ExternalInheritedRefOutArgument_Valid(string statement)
+    {
+        var result = AnalyzeWithInteropProbe($$"""
+            import NSharpLang.Tests
+
+            func bump(ref value: int) {
+                value += 1
+            }
+
+            func reset(out value: int) {
+                value = 0
+            }
+
+            func Mutate(derived: CSharpInheritedInstanceFieldDerived) {
+                {{statement}}
+            }
+        """);
+
+        Assert.False(result.HasErrors, string.Join(", ", result.Errors.Select(e => e.Message)));
+    }
+
+    [Fact]
+    public void InstanceField_ExternalShadowedInheritedFieldRefArgument_Error()
+    {
+        var result = AnalyzeWithInteropProbe("""
+            import NSharpLang.Tests
+
+            func bump(ref value: int) {
+                value += 1
+            }
+
+            func Mutate(derived: CSharpInstancePropertyShadowsInheritedField) {
+                bump(ref derived.Value)
+            }
+        """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("needs an assignable target", error.Message);
     }
 
     [Fact]

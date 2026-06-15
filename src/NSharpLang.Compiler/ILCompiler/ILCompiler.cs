@@ -9705,11 +9705,12 @@ public partial class ILCompiler
         var memberOwnerType = GetByRefElementType(objectType);
         if (memberOwnerType is TypeBuilder typeBuilder)
         {
-            if (_fields.TryGetValue(GetFieldKey(typeBuilder, memberAccess.MemberName), out var fieldBuilder))
+            var fieldInfo = FindField(typeBuilder, memberAccess.MemberName);
+            if (fieldInfo != null)
             {
-                if (fieldBuilder.IsStatic)
+                if (fieldInfo.IsStatic)
                 {
-                    _currentIL.Emit(OpCodes.Ldsflda, fieldBuilder);
+                    _currentIL.Emit(OpCodes.Ldsflda, fieldInfo);
                 }
                 else
                 {
@@ -9722,7 +9723,7 @@ public partial class ILCompiler
                         EmitExpression(memberAccess.Object);
                     }
 
-                    _currentIL.Emit(OpCodes.Ldflda, fieldBuilder);
+                    _currentIL.Emit(OpCodes.Ldflda, fieldInfo);
                 }
 
                 return;
