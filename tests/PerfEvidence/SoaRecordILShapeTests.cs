@@ -2835,6 +2835,136 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void NumericScalarColumnComparisons_UseColumnArrayLoadsAndComparisonOpcodesOrBranchesWithoutRowOrSliceAllocation()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                kind: int
+                flags: uint
+                start: long
+            }
+
+            func compare(nodes: NodeTable, row: int): int {
+                directRow := row + 1
+
+                nodes[row].kind = -2
+                nodes[row].flags = (uint)7
+                nodes[row].start = 20L
+                rowScore := nodes[row].kind == -2 ? 1 : 0
+                rowScore += nodes[row].kind != 5 ? 1 : 0
+                rowScore += nodes[row].kind < 0 ? 1 : 0
+                rowScore += nodes[row].kind >= -2 ? 1 : 0
+                rowScore += nodes[row].flags == (uint)7 ? 1 : 0
+                rowScore += nodes[row].flags != (uint)3 ? 1 : 0
+                rowScore += nodes[row].flags < (uint)10 ? 1 : 0
+                rowScore += nodes[row].flags >= (uint)7 ? 1 : 0
+                rowScore += nodes[row].start == 20L ? 1 : 0
+                rowScore += nodes[row].start != 99L ? 1 : 0
+                rowScore += nodes[row].start > 10L ? 1 : 0
+                rowScore += nodes[row].start <= 20L ? 1 : 0
+
+                nodes.kind[directRow] = 12
+                nodes.flags[directRow] = (uint)100
+                nodes.start[directRow] = -5L
+                directScore := nodes.kind[directRow] == 12 ? 1 : 0
+                directScore += nodes.kind[directRow] != -1 ? 1 : 0
+                directScore += nodes.kind[directRow] > 10 ? 1 : 0
+                directScore += nodes.kind[directRow] <= 12 ? 1 : 0
+                directScore += nodes.flags[directRow] == (uint)100 ? 1 : 0
+                directScore += nodes.flags[directRow] != (uint)50 ? 1 : 0
+                directScore += nodes.flags[directRow] > (uint)90 ? 1 : 0
+                directScore += nodes.flags[directRow] <= (uint)100 ? 1 : 0
+                directScore += nodes.start[directRow] == -5L ? 1 : 0
+                directScore += nodes.start[directRow] != 0L ? 1 : 0
+                directScore += nodes.start[directRow] < 0L ? 1 : 0
+                directScore += nodes.start[directRow] >= -5L ? 1 : 0
+
+                nodes.kind[^1] = 4
+                nodes.flags[^1] = (uint)2
+                nodes.start[^1] = 1000L
+                fromEndScore := nodes.kind[^1] == 4 ? 1 : 0
+                fromEndScore += nodes.kind[^1] != 9 ? 1 : 0
+                fromEndScore += nodes.kind[^1] < 5 ? 1 : 0
+                fromEndScore += nodes.kind[^1] >= 4 ? 1 : 0
+                fromEndScore += nodes.flags[^1] == (uint)2 ? 1 : 0
+                fromEndScore += nodes.flags[^1] != (uint)9 ? 1 : 0
+                fromEndScore += nodes.flags[^1] < (uint)3 ? 1 : 0
+                fromEndScore += nodes.flags[^1] >= (uint)2 ? 1 : 0
+                fromEndScore += nodes.start[^1] == 1000L ? 1 : 0
+                fromEndScore += nodes.start[^1] != 1L ? 1 : 0
+                fromEndScore += nodes.start[^1] > 999L ? 1 : 0
+                fromEndScore += nodes.start[^1] <= 1000L ? 1 : 0
+
+                return rowScore + directScore + fromEndScore
+            }
+
+            func main(): int {
+                nodes := new NodeTable(3)
+                row := nodes.add()
+                nodes.add()
+                nodes.add()
+                return compare(nodes, row)
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var compare = ILShapeInspector.GetProgramMethod(assembly, "compare");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(36, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoFromEndSliceAllocation(compare);
+            Assert.True(
+                ILShapeInspector.CountOpcode(compare, OpCodes.Ldfld) >= 45,
+                "Numeric SoA comparisons should load backing column fields directly.");
+            Assert.Equal(36, CountArrayElementLoads(compare));
+            Assert.Equal(9, CountArrayElementStores(compare));
+
+            var equalityComparisons = ILShapeInspector.CountOpcode(compare, OpCodes.Ceq)
+                + CountOpcodes(compare, OpCodes.Beq, OpCodes.Beq_S, OpCodes.Bne_Un, OpCodes.Bne_Un_S);
+            var signedRelationalComparisons = ILShapeInspector.CountOpcode(compare, OpCodes.Clt)
+                + ILShapeInspector.CountOpcode(compare, OpCodes.Cgt)
+                + CountOpcodes(
+                    compare,
+                    OpCodes.Blt,
+                    OpCodes.Blt_S,
+                    OpCodes.Ble,
+                    OpCodes.Ble_S,
+                    OpCodes.Bgt,
+                    OpCodes.Bgt_S,
+                    OpCodes.Bge,
+                    OpCodes.Bge_S);
+            var unsignedRelationalComparisons = ILShapeInspector.CountOpcode(compare, OpCodes.Clt_Un)
+                + ILShapeInspector.CountOpcode(compare, OpCodes.Cgt_Un)
+                + CountOpcodes(
+                    compare,
+                    OpCodes.Blt_Un,
+                    OpCodes.Blt_Un_S,
+                    OpCodes.Ble_Un,
+                    OpCodes.Ble_Un_S,
+                    OpCodes.Bgt_Un,
+                    OpCodes.Bgt_Un_S,
+                    OpCodes.Bge_Un,
+                    OpCodes.Bge_Un_S);
+
+            Assert.True(
+                equalityComparisons >= 18,
+                $"Numeric SoA equality and inequality should use direct comparison opcodes or branches. Actual: {equalityComparisons}.");
+            Assert.True(
+                signedRelationalComparisons >= 12,
+                $"Signed int/long SoA relational comparisons should use direct comparison opcodes or branches. Actual: {signedRelationalComparisons}.");
+            Assert.True(
+                unsignedRelationalComparisons >= 6,
+                $"Unsigned uint SoA relational comparisons should use unsigned comparison opcodes or branches. Actual: {unsignedRelationalComparisons}.");
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void StringColumnEquality_UsesColumnArrayLoadsAndStringOperatorsWithoutRowOrSliceAllocation()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

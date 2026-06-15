@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA numeric scalar comparisons have IL-shape proof
+
+`int`, `uint`, and `long` SoA columns now have opcode evidence for equality, inequality, and
+relational comparisons across row projection, direct column indexing, and direct from-end column
+indexing. The proof covers signed `int`/`long` comparisons and unsigned `uint` comparisons while
+reading backing column arrays directly, with no row construction, slice allocation, boxing, delegate
+construction, or virtual dispatch.
+
 ## 2026-06-14 — SoA char comparisons have IL-shape proof
 
 Char SoA columns now have opcode evidence for equality, inequality, and relational comparisons across
