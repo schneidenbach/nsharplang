@@ -11,6 +11,22 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Struct field type canonicalization moves into N#
+
+`ParserDeclarations.nl` now exports `ParseStructDeclarationInfoInto`, a product-routed wrapper over
+the existing struct/class/record declaration parser. The wrapper fills a `string[]` column with each
+field type's canonical text, preserving the old rule exactly: simple non-generic spans are returned
+unchanged, while spans containing `<` have all `Char.IsWhiteSpace` characters stripped so
+`Dictionary<string, int>` becomes `Dictionary<string,int>`.
+
+`NSharpCompilerDogfoodAdapter.TryGetColumnarStructInputs` no longer carries the C#
+`StripTypeSpanWhitespace` helper or binds the span-only `ParseStructDeclarationInto` delegate. The
+adapter now receives canonical field type text from the dogfood parser and only materializes
+CLR-facing field/type containers. Focused evidence:
+`./scripts/dev.sh Parser_TopLevelDeclarationKinds_MatchProductionParser`,
+`./scripts/dev.sh ColumnarCodegen_Parity_CollectionsBuilderElements`, and
+`./scripts/dev.sh ColumnarCodegen_MultiFile_EligibleClusterCompiles`.
+
 ## 2026-06-15 — Enum member value resolution moves into N#
 
 `ParserDeclarations.nl` now exports `ParseEnumDeclarationInfoInto`, a checked enum parser wrapper

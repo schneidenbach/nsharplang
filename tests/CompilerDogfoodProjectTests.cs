@@ -91,6 +91,10 @@ public class CompilerDogfoodProjectTests
                     "ParseEnumDeclarationInfoInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit ParseEnumDeclarationInfoInto.");
+            var canonicalTypeText = programType.GetMethod(
+                    "ParserDeclarationCanonicalTypeText",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit ParserDeclarationCanonicalTypeText.");
             var matchingCloseBrace = programType.GetMethod(
                     "MatchingCloseBraceInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -200,6 +204,10 @@ record Person {
                 tokenizeWithIndentation,
                 parseEnumDeclarationInfo,
                 "non-decimal explicit value");
+            AssertCanonicalTypeText("int", "int", canonicalTypeText, "simple type");
+            AssertCanonicalTypeText("Dictionary<string, int>", "Dictionary<string,int>", canonicalTypeText, "generic comma spacing");
+            AssertCanonicalTypeText("List < int > []", "List<int>[]", canonicalTypeText, "generic spaced suffix");
+            AssertCanonicalTypeText("Plain Type", "Plain Type", canonicalTypeText, "non-generic whitespace preserved");
             AssertTopLevelDeclarationIndices(
                 """
 func boxVal<T>(v: T): T where T: struct {
@@ -791,6 +799,18 @@ class B
                 new int[2]
             }) ?? -2);
         Assert.Equal(-1, actual);
+    }
+
+    private static void AssertCanonicalTypeText(
+        string source,
+        string expected,
+        MethodInfo canonicalTypeText,
+        string label)
+    {
+        var actual = (string)(canonicalTypeText.Invoke(
+            null,
+            new object[] { source, 0, source.Length }) ?? string.Empty);
+        Assert.Equal(expected, actual);
     }
 
     private static void AssertPropertyAccessorInfo(
@@ -5284,6 +5304,7 @@ class B
             "struct Sv {\n    X: int\n}\n\n" +
             "record Holder {\n    Items: List<int>\n}\n\n" +
             "record HolderRec {\n    Items: List<Pt>\n}\n\n" +
+            "record DictHolder {\n    Items: Dictionary<string, int>\n}\n\n" +
             // construction + Add + index read + member through element + Count (probed: 10).
             "func lrec(): int {\n    l := new List<Pt>()\n    l.Add(new Pt { X: 9 })\n    return l[0].X + l.Count\n}\n\n" +
             // foreach over builder elements (probed: 7).
@@ -5305,6 +5326,7 @@ class B
             // PASS 0e skips value-member synthesis on the latter, construction/access unaffected).
             "func holdInt(): int {\n    h := new Holder { Items: new List<int>() }\n    h.Items.Add(5)\n    h.Items.Add(6)\n    return h.Items[0] + h.Items.Count\n}\n\n" +
             "func holdRec(): int {\n    h := new HolderRec { Items: new List<Pt>() }\n    h.Items.Add(new Pt { X: 8 })\n    return h.Items[0].X + h.Items.Count\n}\n\n" +
+            "func holdDict(): int {\n    h := new DictHolder { Items: new Dictionary<string, int>() }\n    h.Items[\"a\"] = 6\n    return h.Items[\"a\"] + h.Items.Count\n}\n\n" +
             // List<Pt> as a NON-generic sibling's param (probed: 1).
             "func count(items: List<Pt>): int {\n    return items.Count\n}\n\n" +
             "func cnt(): int {\n    l := new List<Pt>()\n    l.Add(new Pt { X: 1 })\n    return count(l)\n}\n\n" +
@@ -5331,6 +5353,7 @@ class B
             ("nest", System.Array.Empty<object>()),
             ("holdInt", System.Array.Empty<object>()),
             ("holdRec", System.Array.Empty<object>()),
+            ("holdDict", System.Array.Empty<object>()),
             ("cnt", System.Array.Empty<object>()),
             ("firstInt", System.Array.Empty<object>()),
             ("firstExpl", System.Array.Empty<object>()),

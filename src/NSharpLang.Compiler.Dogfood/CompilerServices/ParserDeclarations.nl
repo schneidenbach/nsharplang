@@ -1,3 +1,6 @@
+import System
+import System.Text
+
 // First N#-native parser slice: extract the top-level declaration KIND sequence from the
 // brace-inserted token-kind stream (the output of TokenizeMetadataWithIndentationInto), matching the
 // C# parser's CompilationUnit.Declarations dispatch (Parser.cs ParseDeclaration). A top-level
@@ -1135,6 +1138,63 @@ func ParseStructDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValu
     decl := new StructDeclarationTable { FieldNameStarts: outFieldNameStarts, FieldNameLengths: outFieldNameLengths, FieldTypeStarts: outFieldTypeStarts, FieldTypeLengths: outFieldTypeLengths, FieldStaticFlags: outFieldStaticFlags, FieldInitKinds: outFieldInitKinds, FieldInitStarts: outFieldInitStarts, FieldInitLengths: outFieldInitLengths, MethodFuncIndices: outMethodFuncIndices, MethodStaticFlags: outMethodStaticFlags, CtorIndices: outCtorIndices, PropIndices: outPropIndices, PropStaticFlags: outPropStaticFlags, TypeParamStarts: outTypeParamStarts, TypeParamLengths: outTypeParamLengths, BaseNameStarts: outBaseNameStarts, BaseNameLengths: outBaseNameLengths }
     result := new ParserDeclarationResultTable { Values: outResult }
     return ParseStructDeclarationCore(ref tokens, count, structIndex, ref decl, ref result)
+}
+
+func ParseStructDeclarationInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, structIndex: int, outFieldNameStarts: int[], outFieldNameLengths: int[], outFieldTypeStarts: int[], outFieldTypeLengths: int[], outFieldTypeTexts: string[], outFieldStaticFlags: int[], outFieldInitKinds: int[], outFieldInitStarts: int[], outFieldInitLengths: int[], outMethodFuncIndices: int[], outMethodStaticFlags: int[], outCtorIndices: int[], outPropIndices: int[], outPropStaticFlags: int[], outTypeParamStarts: int[], outTypeParamLengths: int[], outBaseNameStarts: int[], outBaseNameLengths: int[], outResult: int[]): int {
+    tokens := new ParserDeclarationTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
+    decl := new StructDeclarationTable { FieldNameStarts: outFieldNameStarts, FieldNameLengths: outFieldNameLengths, FieldTypeStarts: outFieldTypeStarts, FieldTypeLengths: outFieldTypeLengths, FieldStaticFlags: outFieldStaticFlags, FieldInitKinds: outFieldInitKinds, FieldInitStarts: outFieldInitStarts, FieldInitLengths: outFieldInitLengths, MethodFuncIndices: outMethodFuncIndices, MethodStaticFlags: outMethodStaticFlags, CtorIndices: outCtorIndices, PropIndices: outPropIndices, PropStaticFlags: outPropStaticFlags, TypeParamStarts: outTypeParamStarts, TypeParamLengths: outTypeParamLengths, BaseNameStarts: outBaseNameStarts, BaseNameLengths: outBaseNameLengths }
+    result := new ParserDeclarationResultTable { Values: outResult }
+    fieldCount := ParseStructDeclarationCore(ref tokens, count, structIndex, ref decl, ref result)
+    if fieldCount < 0 || fieldCount > outFieldTypeTexts.Length {
+        return -1
+    }
+
+    i := 0
+    while i < fieldCount {
+        text := ParserDeclarationCanonicalTypeText(source, decl.FieldTypeStarts[i], decl.FieldTypeLengths[i])
+        if text.Length == 0 {
+            return -1
+        }
+
+        outFieldTypeTexts[i] = text
+        i = i + 1
+    }
+
+    return fieldCount
+}
+
+func ParserDeclarationCanonicalTypeText(source: string, start: int, length: int): string {
+    if start < 0 || length <= 0 || start + length > source.Length {
+        return ""
+    }
+
+    hasGenericSuffix := false
+    i := 0
+    while i < length {
+        if source[start + i] == '<' {
+            hasGenericSuffix = true
+            break
+        }
+
+        i = i + 1
+    }
+
+    if !hasGenericSuffix {
+        return source.Substring(start, length)
+    }
+
+    builder := new StringBuilder(length)
+    i = 0
+    while i < length {
+        ch := source[start + i]
+        if !Char.IsWhiteSpace(ch) {
+            builder.Append(ch)
+        }
+
+        i = i + 1
+    }
+
+    return builder.ToString()
 }
 
 func ParseStructDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int, structIndex: int, decl: &StructDeclarationTable, result: &ParserDeclarationResultTable): int {

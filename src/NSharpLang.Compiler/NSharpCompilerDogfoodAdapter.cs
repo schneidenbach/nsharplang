@@ -292,24 +292,9 @@ internal static class NSharpCompilerDogfoodAdapter
 
     // Collect every top-level fields-only `struct` declaration into a ColumnarStructInput (name + field names + field
     // TYPE canonical strings). Consumes the shared token bundle, finds each struct keyword (TopLevelStructIndices),
-    // and parses its body via the ParseStructDeclaration kernel. Returns true (possibly an empty list) for a program
+    // and parses its body via the ParseStructDeclarationInfo kernel. Returns true (possibly an empty list) for a program
     // with no structs. Returns FALSE — declining the whole program to C# — on any parse failure (a primary-ctor
     // struct, a method, a field initializer, a composed field type, an empty struct).
-    // Strip ALL whitespace from a multi-token type SOURCE SPAN so it lands on the canonical grammar
-    // (canonicals never contain spaces). Single-token spans pass through unchanged.
-    private static string StripTypeSpanWhitespace(string span)
-    {
-        if (span.IndexOf('<') < 0)
-            return span;
-        var sb = new System.Text.StringBuilder(span.Length);
-        foreach (var c in span)
-        {
-            if (!char.IsWhiteSpace(c))
-                sb.Append(c);
-        }
-        return sb.ToString();
-    }
-
     private static bool TryGetColumnarStructInputs(
         Bindings bindings, string source, ColumnarTokenizedSource tokens,
         out System.Collections.Generic.List<Columnar.ColumnarStructInput> structs)
@@ -349,6 +334,7 @@ internal static class NSharpCompilerDogfoodAdapter
                 var outFieldNameLengths = new int[cap];
                 var outFieldTypeStarts = new int[cap];
                 var outFieldTypeLengths = new int[cap];
+                var outFieldTypeTexts = new string[cap];
                 var outFieldStaticFlags = new int[cap];
                 var outFieldInitKinds = new int[cap];
                 var outFieldInitStarts = new int[cap];
@@ -363,9 +349,9 @@ internal static class NSharpCompilerDogfoodAdapter
                 var outBaseNameStarts = new int[cap];
                 var outBaseNameLengths = new int[cap];
                 var outResult = new int[12];
-                var fieldCount = bindings.ParseStructDeclaration(
-                    ck, cs, cv, n, structIndex, outFieldNameStarts, outFieldNameLengths, outFieldTypeStarts,
-                    outFieldTypeLengths, outFieldStaticFlags, outFieldInitKinds, outFieldInitStarts, outFieldInitLengths,
+                var fieldCount = bindings.ParseStructDeclarationInfo(
+                    source, ck, cs, cv, n, structIndex, outFieldNameStarts, outFieldNameLengths, outFieldTypeStarts,
+                    outFieldTypeLengths, outFieldTypeTexts, outFieldStaticFlags, outFieldInitKinds, outFieldInitStarts, outFieldInitLengths,
                     outMethodFuncIndices, outMethodStaticFlags, outCtorIndices, outPropIndices, outPropStaticFlags,
                     outTypeParamStarts, outTypeParamLengths, outBaseNameStarts, outBaseNameLengths, outResult);
                 // The kernel returns -1 on a parse failure; 0 is a legitimate FIELDLESS type. A zero-field
@@ -406,10 +392,10 @@ internal static class NSharpCompilerDogfoodAdapter
                 for (var f = 0; f < fieldCount; f++)
                 {
                     fieldNames[f] = source.Substring(outFieldNameStarts[f], outFieldNameLengths[f]);
-                    // A composed generic field type (`Items: List<int>`) is a multi-token SOURCE SPAN —
-                    // whitespace-strip it onto the canonical grammar (`Dictionary<string, Pt>` ->
-                    // `Dictionary<string,Pt>`), exactly like the kind-40 typed-local spans.
-                    fieldTypes[f] = StripTypeSpanWhitespace(source.Substring(outFieldTypeStarts[f], outFieldTypeLengths[f]));
+                    var fieldType = outFieldTypeTexts[f];
+                    if (string.IsNullOrEmpty(fieldType))
+                        return false;
+                    fieldTypes[f] = fieldType;
                     fieldStatics[f] = outFieldStaticFlags[f] == 1;
                     fieldInitKinds[f] = outFieldInitKinds[f];
                     fieldInitTexts[f] = outFieldInitKinds[f] >= 0
@@ -2044,9 +2030,9 @@ internal static class NSharpCompilerDogfoodAdapter
                 CreateDelegate<ParseEnumDeclarationInfoInto>(
                     programType,
                     "ParseEnumDeclarationInfoInto"),
-                CreateDelegate<ParseStructDeclarationInto>(
+                CreateDelegate<ParseStructDeclarationInfoInto>(
                     programType,
-                    "ParseStructDeclarationInto"),
+                    "ParseStructDeclarationInfoInto"),
                 CreateDelegate<ParseUnionDeclarationInto>(
                     programType,
                     "ParseUnionDeclarationInto"),
@@ -2194,10 +2180,11 @@ internal static class NSharpCompilerDogfoodAdapter
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int enumIndex,
         int[] outNameStarts, int[] outNameLengths, int[] outValueStarts, int[] outValueLengths,
         int[] outHasValue, int[] outMemberValues, int[] outResult);
-    private delegate int ParseStructDeclarationInto(
+    private delegate int ParseStructDeclarationInfoInto(
+        string source,
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int structIndex,
         int[] outFieldNameStarts, int[] outFieldNameLengths, int[] outFieldTypeStarts, int[] outFieldTypeLengths,
-        int[] outFieldStaticFlags, int[] outFieldInitKinds, int[] outFieldInitStarts, int[] outFieldInitLengths,
+        string[] outFieldTypeTexts, int[] outFieldStaticFlags, int[] outFieldInitKinds, int[] outFieldInitStarts, int[] outFieldInitLengths,
         int[] outMethodFuncIndices, int[] outMethodStaticFlags, int[] outCtorIndices, int[] outPropIndices, int[] outPropStaticFlags,
         int[] outTypeParamStarts, int[] outTypeParamLengths,
         int[] outBaseNameStarts, int[] outBaseNameLengths, int[] outResult);
@@ -2240,7 +2227,7 @@ internal static class NSharpCompilerDogfoodAdapter
         ParseStatementNodesInto ParseStatementNodes,
         ParseInterfaceDeclarationInto ParseInterfaceDeclaration,
         ParseEnumDeclarationInfoInto ParseEnumDeclarationInfo,
-        ParseStructDeclarationInto ParseStructDeclaration,
+        ParseStructDeclarationInfoInto ParseStructDeclarationInfo,
         ParseUnionDeclarationInto ParseUnionDeclaration,
         ParseConstructorInfoInto ParseConstructorInfo);
 
