@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — CLI pressure probes get product-boundary pins
+
+The product/parity audit now explicitly guards the rejected `CliBuildOptionSummary*` and
+`CliWatchForwardedArg*` ABIs: they must be absent from shipped `CliArguments.nl`, while still
+compiling when the parity corpus is merged. This keeps the accepted `CliBuildFirstOperandIndexInto`
+and scalar first-positional routes separate from pressure-only probes that missed the product speed
+gate.
+
 ## 2026-06-15 — Parenthesized SoA ref/out lvalues lower by address
 
 Parenthesized `ref`/`out` arguments now unwrap at the generic IL argument-address boundary before

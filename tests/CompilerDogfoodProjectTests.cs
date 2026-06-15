@@ -8020,6 +8020,29 @@ class B
         Assert.Contains("CliQueryIsWhiteSpace", cliQueryParityMethods!);
         Assert.Contains("CliQueryMinInt", cliQueryParityMethods!);
 
+        var cliArgumentsProduct = ReadDogfoodProductFile("CliArguments.nl");
+        var cliArgumentsWithParity = ReadDogfoodFileWithParityCorpus("CliArguments.nl");
+        foreach (var functionName in new[]
+        {
+            "CliBuildOptionSummaryInto",
+            "CliBuildOptionSummaryCore",
+            "CliBuildOptionSummaryKind",
+            "CliBuildOptionSummaryChecksumInto",
+            "CliWatchForwardedArgIndicesInto",
+            "CliWatchForwardedArgIndicesCore",
+            "CliWatchArgumentIsOptionWithValue",
+            "CliWatchForwardedArgChecksumInto"
+        })
+        {
+            var functionDeclaration = $"func {functionName}(";
+            Assert.False(
+                cliArgumentsProduct.Contains(functionDeclaration, StringComparison.Ordinal),
+                $"{functionName} must live only in the parity corpus for CliArguments.nl.");
+            Assert.True(
+                cliArgumentsWithParity.Contains(functionDeclaration, StringComparison.Ordinal),
+                $"{functionName} should still be available when CliArguments.nl is merged with its parity corpus.");
+        }
+
         var lexerProduct = ReadDogfoodProductFile("LexerTokenKindScanner.nl");
         var (lexerOk, _, _, lexerProductMethods) = RouteColumnarProgram(lexerProduct);
         Assert.True(lexerOk, "LexerTokenKindScanner.nl product source should still compile without raw lexer parity wrappers.");
