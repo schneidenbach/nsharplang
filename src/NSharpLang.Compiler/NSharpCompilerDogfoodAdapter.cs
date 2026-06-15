@@ -234,12 +234,10 @@ internal static class NSharpCompilerDogfoodAdapter
         }
     }
 
-    // Collect every top-level `enum` declaration into a ColumnarEnumInput (name + member names + auto-incremented
-    // underlying int values). Consumes the shared token bundle, finds each enum keyword (TopLevelEnumIndices), and
-    // parses its body via the ParseEnumDeclaration kernel. Returns true (possibly an empty list) for a program with
-    // no enums. Returns FALSE — declining the whole program to C# — on any parse failure OR an enum with an EXPLICIT
-    // member value (`= N`): slice A models only auto-incremented `0,1,2,...` enums (explicit values are a later
-    // slice). The caller pairs the result with the function inputs for emit.
+    // Collect every top-level `enum` declaration into a ColumnarEnumInput (name + member names + resolved underlying
+    // int values). Consumes the shared token bundle, finds each enum keyword, and parses its body via the checked
+    // ParseEnumDeclarationInfo kernel. Returns true (possibly an empty list) for a program with no enums, or false to
+    // decline the whole program to the C# path on any unsupported enum shape.
     private static bool TryGetColumnarEnumInputs(
         Bindings bindings, string source, ColumnarTokenizedSource tokens,
         out System.Collections.Generic.List<Columnar.ColumnarEnumInput> enums)
@@ -265,38 +263,21 @@ internal static class NSharpCompilerDogfoodAdapter
                 var outValueStarts = new int[cap];
                 var outValueLengths = new int[cap];
                 var outHasValue = new int[cap];
+                var outMemberValues = new int[cap];
                 var outResult = new int[2];
-                var memberCount = bindings.ParseEnumDeclaration(
-                    ck, cs, cv, n, enumIndex, outNameStarts, outNameLengths, outValueStarts, outValueLengths,
-                    outHasValue, outResult);
+                var memberCount = bindings.ParseEnumDeclarationInfo(
+                    source, ck, cs, cv, n, enumIndex, outNameStarts, outNameLengths, outValueStarts, outValueLengths,
+                    outHasValue, outMemberValues, outResult);
                 if (memberCount < 0 || outResult[1] <= 0)
                     return false;
 
                 var enumName = source.Substring(outResult[0], outResult[1]);
                 var memberNames = new string[memberCount];
                 var memberValues = new int[memberCount];
-                // C#'s enum value rule (ILCompiler.cs ~21174): nextValue starts at 0; an explicit `= <int>` member
-                // sets its value AND resets nextValue to value+1; an implicit member takes the running nextValue.
-                // (e.g. `A = 5, B, C = 20, D` -> 5, 6, 20, 21.) Mirror it EXACTLY so the underlying ints byte-match.
-                var nextValue = 0;
                 for (var m = 0; m < memberCount; m++)
                 {
-                    int constantValue;
-                    if (outHasValue[m] != 0)
-                    {
-                        // An explicit plain-decimal literal — mirror C#'s int.Parse(intLiteral.Value). A non-decimal
-                        // (hex / underscore) or overflowing value declines the whole program to the C# path.
-                        var litText = source.Substring(outValueStarts[m], outValueLengths[m]);
-                        if (!int.TryParse(litText, out constantValue))
-                            return false;
-                    }
-                    else
-                    {
-                        constantValue = nextValue;
-                    }
                     memberNames[m] = source.Substring(outNameStarts[m], outNameLengths[m]);
-                    memberValues[m] = constantValue;
-                    nextValue = constantValue + 1;
+                    memberValues[m] = outMemberValues[m];
                 }
                 enums.Add(new Columnar.ColumnarEnumInput(enumName, memberNames, memberValues));
             }
@@ -2060,9 +2041,9 @@ internal static class NSharpCompilerDogfoodAdapter
                 CreateDelegate<ParseInterfaceDeclarationInto>(
                     programType,
                     "ParseInterfaceDeclarationInto"),
-                CreateDelegate<ParseEnumDeclarationInto>(
+                CreateDelegate<ParseEnumDeclarationInfoInto>(
                     programType,
-                    "ParseEnumDeclarationInto"),
+                    "ParseEnumDeclarationInfoInto"),
                 CreateDelegate<ParseStructDeclarationInto>(
                     programType,
                     "ParseStructDeclarationInto"),
@@ -2208,10 +2189,11 @@ internal static class NSharpCompilerDogfoodAdapter
     private delegate int ParseInterfaceDeclarationInto(
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int interfaceIndex,
         int[] outMethodFuncIndices, int[] outBaseNameStarts, int[] outBaseNameLengths, int[] outResult);
-    private delegate int ParseEnumDeclarationInto(
+    private delegate int ParseEnumDeclarationInfoInto(
+        string source,
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int enumIndex,
         int[] outNameStarts, int[] outNameLengths, int[] outValueStarts, int[] outValueLengths,
-        int[] outHasValue, int[] outResult);
+        int[] outHasValue, int[] outMemberValues, int[] outResult);
     private delegate int ParseStructDeclarationInto(
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int structIndex,
         int[] outFieldNameStarts, int[] outFieldNameLengths, int[] outFieldTypeStarts, int[] outFieldTypeLengths,
@@ -2257,7 +2239,7 @@ internal static class NSharpCompilerDogfoodAdapter
         ParseFunctionSignatureInto ParseFunctionSignature,
         ParseStatementNodesInto ParseStatementNodes,
         ParseInterfaceDeclarationInto ParseInterfaceDeclaration,
-        ParseEnumDeclarationInto ParseEnumDeclaration,
+        ParseEnumDeclarationInfoInto ParseEnumDeclarationInfo,
         ParseStructDeclarationInto ParseStructDeclaration,
         ParseUnionDeclarationInto ParseUnionDeclaration,
         ParseConstructorInfoInto ParseConstructorInfo);

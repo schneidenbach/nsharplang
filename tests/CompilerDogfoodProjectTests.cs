@@ -83,6 +83,14 @@ public class CompilerDogfoodProjectTests
                     "TopLevelFunctionPreamblesAreValidInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit TopLevelFunctionPreamblesAreValidInto.");
+            var parseEnumDeclaration = programType.GetMethod(
+                    "ParseEnumDeclarationInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit ParseEnumDeclarationInto.");
+            var parseEnumDeclarationInfo = programType.GetMethod(
+                    "ParseEnumDeclarationInfoInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit ParseEnumDeclarationInfoInto.");
             var matchingCloseBrace = programType.GetMethod(
                     "MatchingCloseBraceInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -169,6 +177,29 @@ record Person {
             AssertTopLevelDeclarationIndices(controlledCorpus, (int)TokenType.Interface, false, 1, tokenizeWithIndentation, topLevelDeclIndices, "top-level interface only");
             AssertTopLevelDeclarationIndices(controlledCorpus, (int)TokenType.Record, false, 1, tokenizeWithIndentation, topLevelDeclIndices, "top-level record only");
             AssertTopLevelDeclarationIndices(controlledCorpus, (int)TokenType.Enum, false, 1, tokenizeWithIndentation, topLevelDeclIndices, "top-level enum only");
+            AssertEnumDeclarationInfo(
+                "enum E { A = 5, B, C = 20, D }",
+                "E",
+                new[] { "A", "B", "C", "D" },
+                new[] { 5, 6, 20, 21 },
+                tokenizeWithIndentation,
+                parseEnumDeclaration,
+                parseEnumDeclarationInfo,
+                "explicit and implicit values");
+            AssertEnumDeclarationInfo(
+                "enum E { A = 2147483647, B, C }",
+                "E",
+                new[] { "A", "B", "C" },
+                new[] { int.MaxValue, int.MinValue, int.MinValue + 1 },
+                tokenizeWithIndentation,
+                parseEnumDeclaration,
+                parseEnumDeclarationInfo,
+                "unchecked next-value wrap");
+            AssertEnumDeclarationInfoDeclines(
+                "enum E { A = 0x10 }",
+                tokenizeWithIndentation,
+                parseEnumDeclarationInfo,
+                "non-decimal explicit value");
             AssertTopLevelDeclarationIndices(
                 """
 func boxVal<T>(v: T): T where T: struct {
@@ -674,6 +705,92 @@ class B
             null,
             new object[] { tokenKinds, tokenStarts, count, targetKind, targetStart }) ?? -2);
         Assert.Equal(expected, actual);
+    }
+
+    private static void AssertEnumDeclarationInfo(
+        string source,
+        string expectedEnumName,
+        string[] expectedMemberNames,
+        int[] expectedMemberValues,
+        MethodInfo tokenizeWithIndentation,
+        MethodInfo parseEnumDeclaration,
+        MethodInfo parseEnumDeclarationInfo,
+        string label)
+    {
+        Assert.Equal(expectedMemberNames.Length, expectedMemberValues.Length);
+        var (count, kinds, starts, tokenValueLengths, compactedSource) = TokenizeSourceViaKernel(source, tokenizeWithIndentation);
+        var enumIndex = FirstTokenIndex(kinds, count, (int)TokenType.Enum);
+        Assert.True(enumIndex >= 0, $"Could not locate enum token for {label}.");
+
+        var cap = count + 1;
+        var spanNameStarts = new int[cap];
+        var spanNameLengths = new int[cap];
+        var spanValueStarts = new int[cap];
+        var spanValueLengths = new int[cap];
+        var spanHasValue = new int[cap];
+        var spanResult = new int[2];
+        var spanCount = (int)(parseEnumDeclaration.Invoke(
+            null,
+            new object[] { kinds, starts, tokenValueLengths, count, enumIndex, spanNameStarts, spanNameLengths, spanValueStarts, spanValueLengths, spanHasValue, spanResult }) ?? -2);
+
+        var nameStarts = new int[cap];
+        var nameLengths = new int[cap];
+        var valueStarts = new int[cap];
+        var memberValueLengths = new int[cap];
+        var hasValue = new int[cap];
+        var memberValues = new int[cap];
+        var result = new int[2];
+        var memberCount = (int)(parseEnumDeclarationInfo.Invoke(
+            null,
+            new object[] { compactedSource, kinds, starts, tokenValueLengths, count, enumIndex, nameStarts, nameLengths, valueStarts, memberValueLengths, hasValue, memberValues, result }) ?? -2);
+
+        Assert.Equal(expectedMemberNames.Length, spanCount);
+        Assert.Equal(spanCount, memberCount);
+        Assert.Equal(spanResult[0], result[0]);
+        Assert.Equal(spanResult[1], result[1]);
+        Assert.Equal(expectedEnumName, compactedSource.Substring(result[0], result[1]));
+        for (var i = 0; i < expectedMemberNames.Length; i++)
+        {
+            Assert.Equal(spanNameStarts[i], nameStarts[i]);
+            Assert.Equal(spanNameLengths[i], nameLengths[i]);
+            Assert.Equal(spanHasValue[i], hasValue[i]);
+            Assert.Equal(spanValueStarts[i], valueStarts[i]);
+            Assert.Equal(spanValueLengths[i], memberValueLengths[i]);
+            Assert.Equal(expectedMemberNames[i], compactedSource.Substring(nameStarts[i], nameLengths[i]));
+            Assert.Equal(expectedMemberValues[i], memberValues[i]);
+        }
+    }
+
+    private static void AssertEnumDeclarationInfoDeclines(
+        string source,
+        MethodInfo tokenizeWithIndentation,
+        MethodInfo parseEnumDeclarationInfo,
+        string label)
+    {
+        var (count, kinds, starts, valueLengths, compactedSource) = TokenizeSourceViaKernel(source, tokenizeWithIndentation);
+        var enumIndex = FirstTokenIndex(kinds, count, (int)TokenType.Enum);
+        Assert.True(enumIndex >= 0, $"Could not locate enum token for {label}.");
+
+        var cap = count + 1;
+        var actual = (int)(parseEnumDeclarationInfo.Invoke(
+            null,
+            new object[]
+            {
+                compactedSource,
+                kinds,
+                starts,
+                valueLengths,
+                count,
+                enumIndex,
+                new int[cap],
+                new int[cap],
+                new int[cap],
+                new int[cap],
+                new int[cap],
+                new int[cap],
+                new int[2]
+            }) ?? -2);
+        Assert.Equal(-1, actual);
     }
 
     private static void AssertPropertyAccessorInfo(
@@ -1458,6 +1575,17 @@ class B
     {
         var list = TopLevelFuncIndices(kinds, count);
         return list.Count > 0 ? list[0] : -1;
+    }
+
+    private static int FirstTokenIndex(int[] kinds, int count, int targetKind)
+    {
+        for (var i = 0; i < count; i++)
+        {
+            if (kinds[i] == targetKind)
+                return i;
+        }
+
+        return -1;
     }
 
     // Depth-0 `func` keyword (TokenType.Func == 7) token indices, tracking brace/bracket/paren depth so a

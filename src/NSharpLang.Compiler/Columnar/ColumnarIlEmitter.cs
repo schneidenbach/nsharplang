@@ -167,7 +167,7 @@ internal sealed class ColumnarConstructorInput
 /// One top-level <c>enum</c> declaration's parsed members, as consumed by
 /// <see cref="ColumnarIlEmitter.TryEmitColumnarAssembly"/>. <see cref="MemberValues"/> are the resolved underlying
 /// ints (auto-incremented and/or explicit), positionally aligned with <see cref="MemberNames"/>. The parser kernel
-/// <c>ParseEnumDeclarationInto</c> produces the member spans; the adapter materializes the names and values.
+/// <c>ParseEnumDeclarationInfoInto</c> produces the member spans and values; the adapter materializes member names.
 /// </summary>
 internal sealed class ColumnarEnumInput
 {

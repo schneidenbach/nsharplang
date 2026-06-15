@@ -935,6 +935,111 @@ func ParseEnumDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValueL
     return ParseEnumDeclarationCore(ref tokens, count, enumIndex, ref members, ref result)
 }
 
+func ParseEnumDeclarationInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, enumIndex: int, outNameStarts: int[], outNameLengths: int[], outValueStarts: int[], outValueLengths: int[], outHasValue: int[], outMemberValues: int[], outResult: int[]): int {
+    tokens := new ParserDeclarationTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
+    members := new EnumMemberTable { NameStarts: outNameStarts, NameLengths: outNameLengths, ValueStarts: outValueStarts, ValueLengths: outValueLengths, HasValue: outHasValue }
+    result := new ParserDeclarationResultTable { Values: outResult }
+    memberCount := ParseEnumDeclarationCore(ref tokens, count, enumIndex, ref members, ref result)
+    if memberCount < 0 {
+        return -1
+    }
+
+    if !ParseEnumMemberValuesInto(source, ref members, memberCount, outMemberValues) {
+        return -1
+    }
+
+    return memberCount
+}
+
+func ParseEnumMemberValuesInto(source: string, members: &EnumMemberTable, memberCount: int, outMemberValues: int[]): bool {
+    if memberCount < 0 || memberCount > outMemberValues.Length {
+        return false
+    }
+
+    nextValue := 0
+    i := 0
+    while i < memberCount {
+        value := nextValue
+        if members.HasValue[i] != 0 {
+            if !ParserDeclarationTryParseIntLiteralInto(source, members.ValueStarts[i], members.ValueLengths[i], outMemberValues, i) {
+                return false
+            }
+            value = outMemberValues[i]
+        } else {
+            outMemberValues[i] = value
+        }
+
+        nextValue = ParserDeclarationNextEnumValue(value)
+        i = i + 1
+    }
+
+    return true
+}
+
+func ParserDeclarationNextEnumValue(value: int): int {
+    if value == 2147483647 {
+        return 0 - 2147483647 - 1
+    }
+
+    return value + 1
+}
+
+func ParserDeclarationTryParseIntLiteralInto(source: string, start: int, length: int, result: int[], resultIndex: int): bool {
+    if start < 0 || length <= 0 || start + length > source.Length || resultIndex < 0 || resultIndex >= result.Length {
+        return false
+    }
+
+    negative := false
+    index := start
+    end := start + length
+    if source[index] == '+' || source[index] == '-' {
+        negative = source[index] == '-'
+        index = index + 1
+        if index >= end {
+            return false
+        }
+    }
+
+    value := 0
+    while index < end {
+        ch := source[index]
+        if ch < '0' || ch > '9' {
+            return false
+        }
+
+        digit := ch - '0'
+        if value > 214748364 {
+            return false
+        }
+
+        if value == 214748364 {
+            if negative {
+                if digit == 8 && index == end - 1 {
+                    result[resultIndex] = 0 - 2147483647 - 1
+                    return true
+                }
+
+                return false
+            }
+
+            if digit > 7 {
+                return false
+            }
+        }
+
+        value = value * 10 + digit
+        index = index + 1
+    }
+
+    if negative {
+        result[resultIndex] = 0 - value
+    } else {
+        result[resultIndex] = value
+    }
+
+    return true
+}
+
 func ParseEnumDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int, enumIndex: int, members: &EnumMemberTable, result: &ParserDeclarationResultTable): int {
     pos := enumIndex
     if pos >= count || tokens.Kinds[pos] != 14 {

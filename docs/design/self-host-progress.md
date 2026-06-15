@@ -11,6 +11,23 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Enum member value resolution moves into N#
+
+`ParserDeclarations.nl` now exports `ParseEnumDeclarationInfoInto`, a checked enum parser wrapper
+that reuses the existing enum declaration core and resolves each member's underlying `int` value in
+N#. The wrapper owns the `nextValue` sequence, explicit decimal-literal parsing, overflow rejection,
+and the `2147483647 -> int.MinValue` unchecked-style wrap for the following implicit member. The
+old span-only `ParseEnumDeclarationInto` ABI remains for parser parity tests.
+
+`NSharpCompilerDogfoodAdapter.TryGetColumnarEnumInputs` no longer calls `int.TryParse` or computes
+the enum value sequence in C#; it receives the resolved value column from the dogfood parser and only
+materializes CLR-facing enum/member names. The production adapter also no longer binds the old
+span-only enum parser delegate; that ABI is kept in the dogfood assembly for direct parser parity
+tests only. Focused evidence:
+`./scripts/dev.sh Parser_TopLevelDeclarationKinds_MatchProductionParser`,
+`./scripts/dev.sh ColumnarCodegen_Parity_EnumIntCastAndExplicitValues`, and
+`./scripts/dev.sh ColumnarCodegen_MultiFile_EligibleClusterCompiles`.
+
 ## 2026-06-15 — Constructor name validation moves into N#
 
 `ParserDeclarations.nl` now exports `ParseConstructorInfoInto`, a product-routed constructor helper
