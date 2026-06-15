@@ -1296,35 +1296,31 @@ func ParseAssignmentExpressionNode(tokens: &ParserTokenTable, count: int, st: &P
 // ParseExpression recursion); a BLOCK body (`=> {`) makes the body parse refuse (-1) -- statement-bodied
 // lambdas are a later rung, and the refusal declines the whole program (safe under-acceptance).
 func ParseLambdaOrAssignmentExpressionNode(tokens: &ParserTokenTable, count: int, st: &ParserState, argStack: &ParserArgumentStack, nodes: &ParserExpressionNodeTable, children: &ParserChildIndexTable, depth: int): int {
-    tokenKinds := tokens.Kinds
-    tokenStarts := tokens.Starts
-    tokenValueLengths := tokens.ValueLengths
-    argStackValues := argStack.Values
     if depth > 200 {
         return -1
     }
 
     pos := st.Pos
     isLambda := false
-    if pos + 1 < count && tokenKinds[pos] == 0 && tokenKinds[pos + 1] == 120 {
+    if pos + 1 < count && tokens.Kinds[pos] == 0 && tokens.Kinds[pos + 1] == 120 {
         isLambda = true
-    } else if pos < count && tokenKinds[pos] == 127 {
+    } else if pos < count && tokens.Kinds[pos] == 127 {
         scan := pos + 1
         valid := true
-        if scan < count && tokenKinds[scan] == 128 {
+        if scan < count && tokens.Kinds[scan] == 128 {
             scan = scan + 1
         } else {
             scanning := true
             while scanning {
-                if scan >= count || tokenKinds[scan] != 0 {
+                if scan >= count || tokens.Kinds[scan] != 0 {
                     valid = false
                     scanning = false
                 } else {
                     scan = scan + 1
-                    if scan < count && tokenKinds[scan] == 128 {
+                    if scan < count && tokens.Kinds[scan] == 128 {
                         scan = scan + 1
                         scanning = false
-                    } else if scan < count && tokenKinds[scan] == 134 {
+                    } else if scan < count && tokens.Kinds[scan] == 134 {
                         scan = scan + 1
                     } else {
                         valid = false
@@ -1333,7 +1329,7 @@ func ParseLambdaOrAssignmentExpressionNode(tokens: &ParserTokenTable, count: int
                 }
             }
         }
-        if valid && scan < count && tokenKinds[scan] == 120 {
+        if valid && scan < count && tokens.Kinds[scan] == 120 {
             isLambda = true
         }
     }
@@ -1342,29 +1338,29 @@ func ParseLambdaOrAssignmentExpressionNode(tokens: &ParserTokenTable, count: int
         return ParseAssignmentExpressionNode(ref tokens, count, ref st, ref argStack, ref nodes, ref children, depth)
     }
 
-    spanStart := tokenStarts[st.Pos]
+    spanStart := tokens.Starts[st.Pos]
     argBase := st.ArgStackTop
-    if tokenKinds[st.Pos] == 0 {
-        paramNode := EmitExpressionNode(ref st, ref nodes, 6, tokenStarts[st.Pos], tokenValueLengths[st.Pos], -1, 0, tokenStarts[st.Pos], tokenValueLengths[st.Pos])
-        argStackValues[st.ArgStackTop] = paramNode
+    if tokens.Kinds[st.Pos] == 0 {
+        paramNode := EmitExpressionNode(ref st, ref nodes, 6, tokens.Starts[st.Pos], tokens.ValueLengths[st.Pos], -1, 0, tokens.Starts[st.Pos], tokens.ValueLengths[st.Pos])
+        argStack.Values[st.ArgStackTop] = paramNode
         st.ArgStackTop = st.ArgStackTop + 1
         st.Pos = st.Pos + 1
     } else {
         st.Pos = st.Pos + 1
-        while st.Pos < count && tokenKinds[st.Pos] != 128 {
-            paramNode := EmitExpressionNode(ref st, ref nodes, 6, tokenStarts[st.Pos], tokenValueLengths[st.Pos], -1, 0, tokenStarts[st.Pos], tokenValueLengths[st.Pos])
-            argStackValues[st.ArgStackTop] = paramNode
+        while st.Pos < count && tokens.Kinds[st.Pos] != 128 {
+            paramNode := EmitExpressionNode(ref st, ref nodes, 6, tokens.Starts[st.Pos], tokens.ValueLengths[st.Pos], -1, 0, tokens.Starts[st.Pos], tokens.ValueLengths[st.Pos])
+            argStack.Values[st.ArgStackTop] = paramNode
             st.ArgStackTop = st.ArgStackTop + 1
             st.Pos = st.Pos + 1
-            if st.Pos < count && tokenKinds[st.Pos] == 134 {
+            if st.Pos < count && tokens.Kinds[st.Pos] == 134 {
                 st.Pos = st.Pos + 1
             }
         }
         st.Pos = st.Pos + 1
     }
 
-    arrowStart := tokenStarts[st.Pos]
-    arrowLength := tokenValueLengths[st.Pos]
+    arrowStart := tokens.Starts[st.Pos]
+    arrowLength := tokens.ValueLengths[st.Pos]
     st.Pos = st.Pos + 1
 
     // BLOCK body `x => { ... }`: a statement BLOCK (kind 25) parsed by the statement kernel — the two
@@ -1372,7 +1368,7 @@ func ParseLambdaOrAssignmentExpressionNode(tokens: &ParserTokenTable, count: int
     // expressions, so this is the same mutual recursion in the other direction. Otherwise the body is an
     // expression parsed at THIS level (a lambda can return a lambda).
     body := -1
-    if st.Pos < count && tokenKinds[st.Pos] == 129 {
+    if st.Pos < count && tokens.Kinds[st.Pos] == 129 {
         body = ParseBlockStatementNodeCore(ref tokens, count, ref st, ref argStack, ref nodes, ref children, depth + 1)
     } else {
         body = ParseLambdaOrAssignmentExpressionNode(ref tokens, count, ref st, ref argStack, ref nodes, ref children, depth + 1)
@@ -1381,13 +1377,13 @@ func ParseLambdaOrAssignmentExpressionNode(tokens: &ParserTokenTable, count: int
         st.ArgStackTop = argBase
         return -1
     }
-    argStackValues[st.ArgStackTop] = body
+    argStack.Values[st.ArgStackTop] = body
     st.ArgStackTop = st.ArgStackTop + 1
 
     childRunStart := st.ChildCursor
     a := argBase
     while a < st.ArgStackTop {
-        AppendExpressionChild(ref st, ref children, argStackValues[a])
+        AppendExpressionChild(ref st, ref children, argStack.Values[a])
         a = a + 1
     }
     childCount := st.ArgStackTop - argBase

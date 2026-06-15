@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Lambda expression parser keeps tables shaped
+
+`ParseLambdaOrAssignmentExpressionNode` now reads lambda lookahead, parameter, arrow, and block-body
+token columns through `ParserTokenTable` and keeps lambda parameter/body child ids behind
+`ParserArgumentStack`. With the assignment, ternary, binary, unary, call-argument, postfix, primary,
+and pattern-helper cleanups, `ParserExpressions.nl` no longer has raw token or argument-stack aliases
+inside its product expression parser cores. Focused evidence:
+`./scripts/dev.sh Parser_Expression_MatchesProductionParser` and
+`./scripts/dev.sh ColumnarCodegen_MultiFile_RealParserCluster`.
+
 ## 2026-06-15 — Assignment expression parser keeps token tables shaped
 
 `ParseAssignmentExpressionNode` now reads assignment-operator token columns through
