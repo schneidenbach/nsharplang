@@ -471,6 +471,108 @@ func TopLevelDeclarationKindsCore(tokens: &ParserDeclarationKindStream, count: i
     return outCount
 }
 
+func TopLevelContextualTestDeclarationExistsInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int): int {
+    tokens := new ParserDeclarationTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
+    return TopLevelContextualTestDeclarationExistsCore(source, ref tokens, count)
+}
+
+func TopLevelContextualTestDeclarationExistsCore(source: string, tokens: &ParserDeclarationTokenTable, count: int): int {
+    braceDepth := 0
+    bracketDepth := 0
+    parenDepth := 0
+
+    i := 0
+    while i < count {
+        kind := tokens.Kinds[i]
+        if braceDepth == 0 && bracketDepth == 0 && parenDepth == 0 {
+            if kind == 73 {
+                return 1
+            }
+
+            if kind == 0 {
+                nextKind := ParserDeclarationNextNonNewlineTokenKind(ref tokens, count, i + 1)
+                atDeclarationBoundary := ParserDeclarationIsTopLevelDeclarationBoundaryBefore(ref tokens, i)
+                if ParserDeclarationTokenTextEquals(source, tokens.Starts[i], tokens.ValueLengths[i], "test")
+                    && (nextKind == 4 || nextKind == 129 || atDeclarationBoundary) {
+                    return 1
+                }
+
+                if (ParserDeclarationTokenTextEquals(source, tokens.Starts[i], tokens.ValueLengths[i], "setup")
+                        || ParserDeclarationTokenTextEquals(source, tokens.Starts[i], tokens.ValueLengths[i], "teardown"))
+                    && (nextKind == 129 || atDeclarationBoundary) {
+                    return 1
+                }
+            }
+        }
+
+        if kind == 129 {
+            braceDepth = braceDepth + 1
+        } else if kind == 130 {
+            braceDepth = braceDepth - 1
+            if braceDepth < 0 {
+                braceDepth = 0
+            }
+        } else if kind == 131 {
+            bracketDepth = bracketDepth + 1
+        } else if kind == 132 {
+            bracketDepth = bracketDepth - 1
+            if bracketDepth < 0 {
+                bracketDepth = 0
+            }
+        } else if kind == 127 {
+            parenDepth = parenDepth + 1
+        } else if kind == 128 {
+            parenDepth = parenDepth - 1
+            if parenDepth < 0 {
+                parenDepth = 0
+            }
+        }
+
+        i = i + 1
+    }
+
+    return 0
+}
+
+func ParserDeclarationNextNonNewlineTokenKind(tokens: &ParserDeclarationTokenTable, count: int, startIndex: int): int {
+    i := startIndex
+    while i < count {
+        if tokens.Kinds[i] != 136 {
+            return tokens.Kinds[i]
+        }
+
+        i = i + 1
+    }
+
+    return -1
+}
+
+func ParserDeclarationIsTopLevelDeclarationBoundaryBefore(tokens: &ParserDeclarationTokenTable, index: int): bool {
+    if index <= 0 {
+        return true
+    }
+
+    previousKind := tokens.Kinds[index - 1]
+    return previousKind == 136 || previousKind == 130 || previousKind == 133
+}
+
+func ParserDeclarationTokenTextEquals(source: string, start: int, length: int, expected: string): bool {
+    if start < 0 || length != expected.Length || start + length > source.Length {
+        return false
+    }
+
+    i := 0
+    while i < length {
+        if source[start + i] != expected[i] {
+            return false
+        }
+
+        i = i + 1
+    }
+
+    return true
+}
+
 // Parser slice (enum bodies): parse ONE enum declaration's members into flat parallel arrays. `enumIndex` is the
 // compacted token index of the `enum` keyword (token 14). Reads the enum NAME (the Identifier immediately after
 // `enum`) into outResult[0]=nameStart / outResult[1]=nameLength, then `{` (129), then comma-separated members until

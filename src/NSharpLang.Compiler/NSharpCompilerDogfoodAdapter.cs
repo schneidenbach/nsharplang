@@ -37,108 +37,6 @@ internal static class NSharpCompilerDogfoodAdapter
     [ThreadStatic]
     private static OverloadCandidateScratch? t_overloadCandidateScratch;
 
-    private static bool HasTopLevelContextualTestDeclaration(
-        string source,
-        int[] rawKinds,
-        int[] rawStarts,
-        int[] rawValueLengths,
-        int rawCount)
-    {
-        var braceDepth = 0;
-        var bracketDepth = 0;
-        var parenDepth = 0;
-
-        for (var i = 0; i < rawCount; i++)
-        {
-            var kind = rawKinds[i];
-            if (braceDepth == 0 && bracketDepth == 0 && parenDepth == 0)
-            {
-                if (kind == (int)TokenType.Test)
-                    return true;
-
-                if (kind == (int)TokenType.Identifier)
-                {
-                    var nextKind = NextNonNewlineTokenKind(rawKinds, rawCount, i + 1);
-                    var atDeclarationBoundary = IsTopLevelDeclarationBoundaryBefore(rawKinds, i);
-
-                    if (TokenTextEquals(source, rawStarts[i], rawValueLengths[i], "test")
-                        && (nextKind == (int)TokenType.StringLiteral
-                            || nextKind == (int)TokenType.LeftBrace
-                            || atDeclarationBoundary))
-                        return true;
-
-                    if ((TokenTextEquals(source, rawStarts[i], rawValueLengths[i], "setup")
-                            || TokenTextEquals(source, rawStarts[i], rawValueLengths[i], "teardown"))
-                        && (nextKind == (int)TokenType.LeftBrace || atDeclarationBoundary))
-                        return true;
-                }
-            }
-
-            if (kind == (int)TokenType.LeftBrace)
-            {
-                braceDepth++;
-            }
-            else if (kind == (int)TokenType.RightBrace)
-            {
-                braceDepth--;
-                if (braceDepth < 0)
-                    braceDepth = 0;
-            }
-            else if (kind == (int)TokenType.LeftBracket)
-            {
-                bracketDepth++;
-            }
-            else if (kind == (int)TokenType.RightBracket)
-            {
-                bracketDepth--;
-                if (bracketDepth < 0)
-                    bracketDepth = 0;
-            }
-            else if (kind == (int)TokenType.LeftParen)
-            {
-                parenDepth++;
-            }
-            else if (kind == (int)TokenType.RightParen)
-            {
-                parenDepth--;
-                if (parenDepth < 0)
-                    parenDepth = 0;
-            }
-        }
-
-        return false;
-    }
-
-    private static int NextNonNewlineTokenKind(int[] rawKinds, int rawCount, int startIndex)
-    {
-        for (var i = startIndex; i < rawCount; i++)
-        {
-            if (rawKinds[i] != (int)TokenType.Newline)
-                return rawKinds[i];
-        }
-
-        return -1;
-    }
-
-    private static bool IsTopLevelDeclarationBoundaryBefore(int[] rawKinds, int index)
-    {
-        if (index <= 0)
-            return true;
-
-        var previousKind = rawKinds[index - 1];
-        return previousKind == (int)TokenType.Newline
-            || previousKind == (int)TokenType.RightBrace
-            || previousKind == (int)TokenType.Semicolon;
-    }
-
-    private static bool TokenTextEquals(string source, int start, int length, string expected)
-    {
-        return start >= 0
-            && length == expected.Length
-            && start + length <= source.Length
-            && string.CompareOrdinal(source, start, expected, 0, expected.Length) == 0;
-    }
-
     internal static bool TryGetColumnarProgramInput(string source, out Columnar.ColumnarProgramInput program)
     {
         program = null!;
@@ -264,7 +162,7 @@ internal static class NSharpCompilerDogfoodAdapter
             var rawStarts = tokens.RawStarts;
             var rawValueLengths = tokens.RawValueLengths;
             var rawCount = tokens.RawCount;
-            if (HasTopLevelContextualTestDeclaration(source, rawKinds, rawStarts, rawValueLengths, rawCount))
+            if (bindings.TopLevelContextualTestDeclarationExists(source, rawKinds, rawStarts, rawValueLengths, rawCount) != 0)
                 return false;
 
             var declKinds = tokens.DeclarationKinds;
@@ -2338,6 +2236,9 @@ internal static class NSharpCompilerDogfoodAdapter
                 CreateDelegate<TopLevelDeclarationKindsInto>(
                     programType,
                     "TopLevelDeclarationKindsInto"),
+                CreateDelegate<TopLevelContextualTestDeclarationExistsInto>(
+                    programType,
+                    "TopLevelContextualTestDeclarationExistsInto"),
                 CreateDelegate<TopLevelDeclarationModifiersInto>(
                     programType,
                     "TopLevelDeclarationModifiersInto"),
@@ -2472,6 +2373,8 @@ internal static class NSharpCompilerDogfoodAdapter
     private delegate int TokenizeMetadataWithIndentationInto(
         string source, int[] kinds, int[] starts, int[] valueLengths, int[] lines, int[] columns);
     private delegate int TopLevelDeclarationKindsInto(int[] tokenKinds, int count, int[] outKinds);
+    private delegate int TopLevelContextualTestDeclarationExistsInto(
+        string source, int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count);
     private delegate int TopLevelDeclarationModifiersInto(int[] tokenKinds, int count, int[] outKinds, int[] outModifiers);
     private delegate int TopLevelDeclarationNameSpansInto(
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count,
@@ -2530,6 +2433,7 @@ internal static class NSharpCompilerDogfoodAdapter
         OverloadSelectBestCandidate OverloadSelectBestCandidate,
         TokenizeMetadataWithIndentationInto TokenizeMetadataWithIndentation,
         TopLevelDeclarationKindsInto TopLevelDeclarationKinds,
+        TopLevelContextualTestDeclarationExistsInto TopLevelContextualTestDeclarationExists,
         TopLevelDeclarationModifiersInto TopLevelDeclarationModifiers,
         TopLevelDeclarationNameSpansInto TopLevelDeclarationNameSpans,
         NamespaceImportSpansInto NamespaceImportSpans,

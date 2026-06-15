@@ -71,6 +71,10 @@ public class CompilerDogfoodProjectTests
                     "TopLevelDeclarationKindsInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit TopLevelDeclarationKindsInto.");
+            var contextualTestDecls = programType.GetMethod(
+                    "TopLevelContextualTestDeclarationExistsInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit TopLevelContextualTestDeclarationExistsInto.");
             var topLevelDeclNames = programType.GetMethod(
                     "TopLevelDeclarationNameSpansInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -131,6 +135,56 @@ record Person {
 """;
 
             AssertTopLevelDeclarationKindsLikeProduction(controlledCorpus, tokenizeWithIndentation, topLevelDecls, topLevelDeclNames, packageNameSpan, namespaceImportSpans, declModifiers);
+            AssertTopLevelContextualTestDeclaration(
+                """
+func helper(): int {
+    return 1
+}
+""",
+                false,
+                tokenizeWithIndentation,
+                contextualTestDecls,
+                "ordinary function");
+            AssertTopLevelContextualTestDeclaration(
+                """
+test "runs" {
+    assert true
+}
+""",
+                true,
+                tokenizeWithIndentation,
+                contextualTestDecls,
+                "test declaration");
+            AssertTopLevelContextualTestDeclaration(
+                """
+setup {
+    value := 1
+}
+""",
+                true,
+                tokenizeWithIndentation,
+                contextualTestDecls,
+                "setup declaration");
+            AssertTopLevelContextualTestDeclaration(
+                """
+teardown {
+}
+""",
+                true,
+                tokenizeWithIndentation,
+                contextualTestDecls,
+                "teardown declaration");
+            AssertTopLevelContextualTestDeclaration(
+                """
+func helper(): int {
+    setup := 1
+    return setup
+}
+""",
+                false,
+                tokenizeWithIndentation,
+                contextualTestDecls,
+                "nested contextual identifier");
 
             // Modifier-rich declarations: every recognized declaration modifier, singly and combined, plus
             // attributes (which sit inside brackets and must not be mistaken for modifiers). Verifies the
@@ -206,6 +260,31 @@ class B
         {
             if (File.Exists(outputPath)) File.Delete(outputPath);
         }
+    }
+
+    private static void AssertTopLevelContextualTestDeclaration(
+        string source,
+        bool expected,
+        MethodInfo tokenizeWithIndentation,
+        MethodInfo contextualTestDecls,
+        string label)
+    {
+        var capacity = 3 * (source.Length + 1) + 8;
+        var kinds = new int[capacity];
+        var starts = new int[capacity];
+        var valueLengths = new int[capacity];
+        var lines = new int[capacity];
+        var columns = new int[capacity];
+        var count = (int)(tokenizeWithIndentation.Invoke(
+            null,
+            new object[] { source, kinds, starts, valueLengths, lines, columns }) ?? -1);
+
+        var actual = (int)(contextualTestDecls.Invoke(
+            null,
+            new object[] { source, kinds, starts, valueLengths, count }) ?? -1);
+        Assert.True(
+            actual == (expected ? 1 : 0),
+            $"Contextual test/setup/teardown declaration mismatch for {label}: expected {expected}, actual code {actual}.");
     }
 
     private static void AssertTopLevelDeclarationKindsLikeProduction(

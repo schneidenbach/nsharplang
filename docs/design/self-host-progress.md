@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Contextual test-declaration decline scan moves into N#
+
+`ParserDeclarations.nl` now owns `TopLevelContextualTestDeclarationExistsInto`, a table-shaped
+source/token-column scanner for top-level `test`, `setup`, and `teardown` declarations. The columnar
+compiler adapter routes its contextual-declaration safety check through this dogfood kernel and no
+longer carries the duplicated C# brace/bracket/paren scanner or token-text helpers. Focused evidence:
+`./scripts/dev.sh Parser_TopLevelDeclarationKinds_MatchProductionParser`,
+`./scripts/dev.sh Stage5_ColumnarBackend_DeclinesContextualTestDeclarations`,
+`./scripts/dev.sh ColumnarCodegen_Parity_MatchesCSharpPath`,
+`./scripts/dev.sh ColumnarCodegen_MultiFile_EligibleClusterCompiles`, and
+`./scripts/dev.sh ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines`.
+
 ## 2026-06-15 — CLI doc slug content probe leaves product dogfood
 
 `CliDocSlugsCore` now constructs the `CliDocSlugBufferTable` directly in the product batch loop and
