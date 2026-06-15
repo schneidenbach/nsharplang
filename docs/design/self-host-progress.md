@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA nullable string compound assignment has IL-shape proof
+
+Nullable string SoA columns now have opcode evidence for concatenating `+=` expressions across row
+projection, direct column indexing, and direct from-end column indexing. The proof covers null
+backing slots concatenating through `string.Concat(string, string)` and storing back to the nullable
+column, with no row construction, slice allocation, boxing, delegate construction, or virtual
+dispatch.
+
 ## 2026-06-14 — SoA nullable string unsupported updates stop before emission
 
 Nullable string SoA columns now have analyzer pins for unsupported compound assignment and
