@@ -533,6 +533,38 @@ func TopLevelDeclarationIndicesCore(tokens: &ParserDeclarationKindStream, count:
     return outCount
 }
 
+// Parser declaration utility: the compacted-token index of the `}` (130) that closes the `{` (129)
+// at `open`, or -1 if `open` is not a left brace or the brace run is unbalanced. This keeps property
+// accessor body delimiting in the N# parser path instead of leaving a C# adapter-side scanner.
+func MatchingCloseBraceInto(tokenKinds: int[], count: int, open: int): int {
+    tokens := new ParserDeclarationKindStream { Kinds: tokenKinds }
+    return MatchingCloseBraceCore(ref tokens, count, open)
+}
+
+func MatchingCloseBraceCore(tokens: &ParserDeclarationKindStream, count: int, open: int): int {
+    if open < 0 || open >= count || tokens.Kinds[open] != 129 {
+        return -1
+    }
+
+    depth := 0
+    i := open
+    while i < count {
+        kind := tokens.Kinds[i]
+        if kind == 129 {
+            depth = depth + 1
+        } else if kind == 130 {
+            depth = depth - 1
+            if depth == 0 {
+                return i
+            }
+        }
+
+        i = i + 1
+    }
+
+    return -1
+}
+
 func TopLevelContextualTestDeclarationExistsInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int): int {
     tokens := new ParserDeclarationTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
     return TopLevelContextualTestDeclarationExistsCore(source, ref tokens, count)

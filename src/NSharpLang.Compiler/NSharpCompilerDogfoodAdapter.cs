@@ -878,7 +878,7 @@ internal static class NSharpCompilerDogfoodAdapter
 
         // Parse the get body. Find its matching `}` to locate what follows (the property `}` for get-only, or a `set`).
         var getBodyBrace = propIndex + 5;
-        var getBodyEnd = MatchingCloseBrace(ck, n, getBodyBrace);
+        var getBodyEnd = bindings.MatchingCloseBrace(ck, n, getBodyBrace);
         if (getBodyEnd < 0)
             return false;
         var gk = new int[cap]; var gvs = new int[cap]; var gvl = new int[cap]; var gcs = new int[cap];
@@ -902,7 +902,7 @@ internal static class NSharpCompilerDogfoodAdapter
             // `set { setBody }` — implicit `value` parameter of the property type, void return. The set body's `}`
             // must be immediately followed by the property block `}` (a third accessor declines).
             var setBodyBrace = after + 1;
-            var setBodyEnd = MatchingCloseBrace(ck, n, setBodyBrace);
+            var setBodyEnd = bindings.MatchingCloseBrace(ck, n, setBodyBrace);
             if (setBodyEnd < 0 || setBodyEnd + 1 >= n || ck[setBodyEnd + 1] != 130)
                 return false;
             var stk = new int[cap]; var stvs = new int[cap]; var stvl = new int[cap]; var stcs = new int[cap];
@@ -922,18 +922,6 @@ internal static class NSharpCompilerDogfoodAdapter
 
         input = new Columnar.ColumnarPropertyInput(propName, propType, getter, setter, isStatic);
         return true;
-    }
-
-    // The compacted-token index of the `}` (130) that closes the `{` (129) at `open`, or -1 if unbalanced.
-    private static int MatchingCloseBrace(int[] ck, int n, int open)
-    {
-        var depth = 0;
-        for (var t = open; t < n; t++)
-        {
-            if (ck[t] == 129) depth++;
-            else if (ck[t] == 130) { depth--; if (depth == 0) return t; }
-        }
-        return -1;
     }
 
     // Canonical type string from a columnar TYPE subtree (kinds 0 Simple,1 Generic,2 Array,3 Nullable,
@@ -2069,6 +2057,9 @@ internal static class NSharpCompilerDogfoodAdapter
                 CreateDelegate<TopLevelDeclarationIndicesInto>(
                     programType,
                     "TopLevelDeclarationIndicesInto"),
+                CreateDelegate<MatchingCloseBraceInto>(
+                    programType,
+                    "MatchingCloseBraceInto"),
                 CreateDelegate<TopLevelDeclarationModifiersInto>(
                     programType,
                     "TopLevelDeclarationModifiersInto"),
@@ -2207,6 +2198,7 @@ internal static class NSharpCompilerDogfoodAdapter
         string source, int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count);
     private delegate int TopLevelDeclarationIndicesInto(
         int[] tokenKinds, int count, int targetKind, int suppressWhereClause, int[] outIndices);
+    private delegate int MatchingCloseBraceInto(int[] tokenKinds, int count, int open);
     private delegate int TopLevelDeclarationModifiersInto(int[] tokenKinds, int count, int[] outKinds, int[] outModifiers);
     private delegate int TopLevelDeclarationNameSpansInto(
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count,
@@ -2267,6 +2259,7 @@ internal static class NSharpCompilerDogfoodAdapter
         TopLevelDeclarationKindsInto TopLevelDeclarationKinds,
         TopLevelContextualTestDeclarationExistsInto TopLevelContextualTestDeclarationExists,
         TopLevelDeclarationIndicesInto TopLevelDeclarationIndices,
+        MatchingCloseBraceInto MatchingCloseBrace,
         TopLevelDeclarationModifiersInto TopLevelDeclarationModifiers,
         TopLevelDeclarationNameSpansInto TopLevelDeclarationNameSpans,
         NamespaceImportSpansInto NamespaceImportSpans,

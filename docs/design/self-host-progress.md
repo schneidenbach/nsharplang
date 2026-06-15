@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Property accessor brace matching moves into N#
+
+`ParserDeclarations.nl` now owns `MatchingCloseBraceInto`, a table-shaped compacted-token utility
+used by the columnar property parser to delimit getter and setter bodies. `NSharpCompilerDogfoodAdapter`
+routes computed-property accessor parsing through that dogfood kernel and no longer carries the local
+C# `MatchingCloseBrace` scanner. Focused evidence:
+`./scripts/dev.sh Parser_TopLevelDeclarationKinds_MatchProductionParser`,
+`./scripts/dev.sh ColumnarCodegen_Parity_ClassGet`,
+`./scripts/dev.sh ColumnarCodegen_MultiFile_EligibleClusterCompiles`, and
+`./scripts/dev.sh ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines`.
+
 ## 2026-06-15 — Top-level declaration index scans move into N#
 
 `ParserDeclarations.nl` now owns `TopLevelDeclarationIndicesInto`, a table-shaped scanner that returns

@@ -79,6 +79,10 @@ public class CompilerDogfoodProjectTests
                     "TopLevelDeclarationIndicesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit TopLevelDeclarationIndicesInto.");
+            var matchingCloseBrace = programType.GetMethod(
+                    "MatchingCloseBraceInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit MatchingCloseBraceInto.");
             var topLevelDeclNames = programType.GetMethod(
                     "TopLevelDeclarationNameSpansInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -173,6 +177,37 @@ func refOnly<T>(v: T): T where T: class {
                 tokenizeWithIndentation,
                 topLevelDeclIndices,
                 "generic constraint class keyword");
+            var nestedBraces = new[]
+            {
+                (int)TokenType.LeftBrace,
+                (int)TokenType.LeftBrace,
+                (int)TokenType.RightBrace,
+                (int)TokenType.RightBrace,
+            };
+            AssertMatchingCloseBrace(
+                nestedBraces,
+                0,
+                3,
+                matchingCloseBrace,
+                "nested outer brace");
+            AssertMatchingCloseBrace(
+                nestedBraces,
+                1,
+                2,
+                matchingCloseBrace,
+                "nested inner brace");
+            AssertMatchingCloseBrace(
+                new[] { (int)TokenType.LeftBrace, (int)TokenType.LeftBrace, (int)TokenType.RightBrace },
+                0,
+                -1,
+                matchingCloseBrace,
+                "unbalanced outer brace");
+            AssertMatchingCloseBrace(
+                new[] { (int)TokenType.Identifier, (int)TokenType.RightBrace },
+                0,
+                -1,
+                matchingCloseBrace,
+                "non-brace open token");
             AssertTopLevelContextualTestDeclaration(
                 """
 func helper(): int {
@@ -297,6 +332,23 @@ class B
         finally
         {
             if (File.Exists(outputPath)) File.Delete(outputPath);
+        }
+    }
+
+    private static void AssertMatchingCloseBrace(
+        int[] kinds,
+        int open,
+        int expectedClose,
+        MethodInfo matchingCloseBrace,
+        string label)
+    {
+        var actualClose = (int)(matchingCloseBrace.Invoke(
+            null,
+            new object[] { kinds, kinds.Length, open }) ?? -2);
+        Assert.Equal(expectedClose, actualClose);
+        if (actualClose >= 0)
+        {
+            Assert.Equal((int)TokenType.RightBrace, kinds[actualClose]);
         }
     }
 
