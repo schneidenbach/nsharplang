@@ -596,21 +596,27 @@ internal static class NSharpCompilerDogfoodAdapter
         var sk = new int[cap]; var sns = new int[cap]; var snl = new int[cap]; var scs = new int[cap];
         var scc = new int[cap]; var sci = new int[cap]; var sss = new int[cap]; var ssl = new int[cap];
         var pNameStart = new int[cap]; var pNameLen = new int[cap]; var pTypeRoot = new int[cap];
+        var pNameTexts = new string[cap];
         var sres = new int[8];
         var sTypeParamStarts = new int[cap];
         var sTypeParamLengths = new int[cap];
+        var sTypeParamTexts = new string[cap];
         var sWhereNameStarts = new int[cap];
         var sWhereNameLengths = new int[cap];
+        var sWhereNameTexts = new string[cap];
         var sWhereItemCodes = new int[cap];
         var sWhereOwnerIndices = new int[cap];
-        var paramCount = bindings.ParseFunctionSignature(
-            ck, cs, cv, n, funcIndex, sk, sns, snl, scs, scc, sci, sss, ssl,
-            pNameStart, pNameLen, pTypeRoot, sTypeParamStarts, sTypeParamLengths,
-            sWhereNameStarts, sWhereNameLengths, sWhereItemCodes, sres);
+        var sFunctionNameTexts = new string[1];
+        var paramCount = bindings.ParseFunctionSignatureTextInfo(
+            source, ck, cs, cv, n, funcIndex, sk, sns, snl, scs, scc, sci, sss, ssl,
+            pNameStart, pNameLen, pNameTexts, pTypeRoot, sTypeParamStarts, sTypeParamLengths, sTypeParamTexts,
+            sWhereNameStarts, sWhereNameLengths, sWhereNameTexts, sWhereItemCodes, sFunctionNameTexts, sres);
         if (paramCount < 0 || sres[3] < 0)
             return false;
 
-        var fname = source.Substring(sres[3], sres[4]);
+        var fname = sFunctionNameTexts[0];
+        if (string.IsNullOrEmpty(fname))
+            return false;
         // sres[1] is the return-type tree root, or -1 when the function OMITS its return type (`func f(...) {`,
         // implicit void — the kernel sets returnRoot = -1, a valid signature, not a parse error). Canonicalize to
         // "void" in that case (the emitter's pass 1 maps "void" -> typeof(void)), matching the columnar
@@ -624,7 +630,10 @@ internal static class NSharpCompilerDogfoodAdapter
         string[]?[]? paramTupleNames = null;
         for (var p = 0; p < paramCount; p++)
         {
-            paramNames[p] = source.Substring(pNameStart[p], pNameLen[p]);
+            var paramName = pNameTexts[p];
+            if (string.IsNullOrEmpty(paramName))
+                return false;
+            paramNames[p] = paramName;
             paramCanonicals[p] = bindings.TypeReferenceCanonicalText(source, sk, sns, snl, scs, scc, sci, pTypeRoot[p]);
             if (!TryGetTypeReferenceTupleElementNames(bindings, source, sk, sns, snl, scs, scc, sci, pTypeRoot[p], out var paramElementNames))
                 return false;
@@ -646,7 +655,12 @@ internal static class NSharpCompilerDogfoodAdapter
         {
             typeParamNames = new string[sres[5]];
             for (var t = 0; t < sres[5]; t++)
-                typeParamNames[t] = source.Substring(sTypeParamStarts[t], sTypeParamLengths[t]);
+            {
+                var typeParamName = sTypeParamTexts[t];
+                if (string.IsNullOrEmpty(typeParamName))
+                    return false;
+                typeParamNames[t] = typeParamName;
+            }
         }
 
         // Generic CONSTRAINTS (`where T: Base, new()` — D-17b): the kernel reports flat rows (owner-name span +
@@ -752,16 +766,20 @@ internal static class NSharpCompilerDogfoodAdapter
         var sk = new int[cap]; var sns = new int[cap]; var snl = new int[cap]; var scs = new int[cap];
         var scc = new int[cap]; var sci = new int[cap]; var sss = new int[cap]; var ssl = new int[cap];
         var pNameStart = new int[cap]; var pNameLen = new int[cap]; var pTypeRoot = new int[cap];
+        var pNameTexts = new string[cap];
         var sres = new int[8];
         var sTypeParamStarts = new int[cap];
         var sTypeParamLengths = new int[cap];
+        var sTypeParamTexts = new string[cap];
         var sWhereNameStarts = new int[cap];
         var sWhereNameLengths = new int[cap];
+        var sWhereNameTexts = new string[cap];
         var sWhereItemCodes = new int[cap];
-        var paramCount = bindings.ParseFunctionSignature(
-            ck, cs, cv, n, ctorIndex, sk, sns, snl, scs, scc, sci, sss, ssl,
-            pNameStart, pNameLen, pTypeRoot, sTypeParamStarts, sTypeParamLengths,
-            sWhereNameStarts, sWhereNameLengths, sWhereItemCodes, sres);
+        var sFunctionNameTexts = new string[1];
+        var paramCount = bindings.ParseFunctionSignatureTextInfo(
+            source, ck, cs, cv, n, ctorIndex, sk, sns, snl, scs, scc, sci, sss, ssl,
+            pNameStart, pNameLen, pNameTexts, pTypeRoot, sTypeParamStarts, sTypeParamLengths, sTypeParamTexts,
+            sWhereNameStarts, sWhereNameLengths, sWhereNameTexts, sWhereItemCodes, sFunctionNameTexts, sres);
         // A constructor must have NO return type (sres[1] = -1), NO generic type parameters (sres[5] = 0), and
         // NO `where` constraint rows (sres[7] = 0). A non-negative return root means a `: <type>` was parsed —
         // for a constructor that is malformed (or a chaining initializer the kernel rejected differently).
@@ -772,7 +790,10 @@ internal static class NSharpCompilerDogfoodAdapter
         var paramCanonicals = new string[paramCount];
         for (var p = 0; p < paramCount; p++)
         {
-            paramNames[p] = source.Substring(pNameStart[p], pNameLen[p]);
+            var paramName = pNameTexts[p];
+            if (string.IsNullOrEmpty(paramName))
+                return false;
+            paramNames[p] = paramName;
             paramCanonicals[p] = bindings.TypeReferenceCanonicalText(source, sk, sns, snl, scs, scc, sci, pTypeRoot[p]);
         }
 
@@ -957,16 +978,20 @@ internal static class NSharpCompilerDogfoodAdapter
                     var sk = new int[cap]; var sns = new int[cap]; var snl = new int[cap]; var scs = new int[cap];
                     var scc = new int[cap]; var sci = new int[cap]; var sss = new int[cap]; var ssl = new int[cap];
                     var pNameStart = new int[cap]; var pNameLen = new int[cap]; var pTypeRoot = new int[cap];
+                    var pNameTexts = new string[cap];
                     var sres = new int[8];
                     var sTypeParamStarts = new int[cap];
                     var sTypeParamLengths = new int[cap];
+                    var sTypeParamTexts = new string[cap];
                     var sWhereNameStarts = new int[cap];
                     var sWhereNameLengths = new int[cap];
+                    var sWhereNameTexts = new string[cap];
                     var sWhereItemCodes = new int[cap];
-                    var paramCount = bindings.ParseFunctionSignature(
-                        ck, cs, cv, n, outMethodFuncIndices[m], sk, sns, snl, scs, scc, sci, sss, ssl,
-                        pNameStart, pNameLen, pTypeRoot, sTypeParamStarts, sTypeParamLengths,
-                        sWhereNameStarts, sWhereNameLengths, sWhereItemCodes, sres);
+                    var sFunctionNameTexts = new string[1];
+                    var paramCount = bindings.ParseFunctionSignatureTextInfo(
+                        source, ck, cs, cv, n, outMethodFuncIndices[m], sk, sns, snl, scs, scc, sci, sss, ssl,
+                        pNameStart, pNameLen, pNameTexts, pTypeRoot, sTypeParamStarts, sTypeParamLengths, sTypeParamTexts,
+                        sWhereNameStarts, sWhereNameLengths, sWhereNameTexts, sWhereItemCodes, sFunctionNameTexts, sres);
                     if (paramCount < 0 || sres[3] < 0)
                         return false;
                     if (sres[5] > 0 || sres[7] > 0)
@@ -974,7 +999,10 @@ internal static class NSharpCompilerDogfoodAdapter
                     var afterSignature = sres[6];
                     if (afterSignature >= n)
                         return false;
-                    methodNames[m] = source.Substring(sres[3], sres[4]);
+                    var methodName = sFunctionNameTexts[0];
+                    if (string.IsNullOrEmpty(methodName))
+                        return false;
+                    methodNames[m] = methodName;
                     methodReturns[m] = sres[1] >= 0
                         ? bindings.TypeReferenceCanonicalText(source, sk, sns, snl, scs, scc, sci, sres[1])
                         : "void";
@@ -990,7 +1018,10 @@ internal static class NSharpCompilerDogfoodAdapter
                     methodParamCanonicals[m] = new string[paramCount];
                     for (var p = 0; p < paramCount; p++)
                     {
-                        methodParamNames[m][p] = source.Substring(pNameStart[p], pNameLen[p]);
+                        var paramName = pNameTexts[p];
+                        if (string.IsNullOrEmpty(paramName))
+                            return false;
+                        methodParamNames[m][p] = paramName;
                         methodParamCanonicals[m][p] = bindings.TypeReferenceCanonicalText(source, sk, sns, snl, scs, scc, sci, pTypeRoot[p]);
                         if (!TryGetTypeReferenceTupleElementNames(bindings, source, sk, sns, snl, scs, scc, sci, pTypeRoot[p], out var paramTupleNames))
                             return false;
@@ -1978,9 +2009,9 @@ internal static class NSharpCompilerDogfoodAdapter
                 CreateDelegate<PackageNameSpanInto>(
                     programType,
                     "PackageNameSpanInto"),
-                CreateDelegate<ParseFunctionSignatureInto>(
+                CreateDelegate<ParseFunctionSignatureTextInfoInto>(
                     programType,
-                    "ParseFunctionSignatureInto"),
+                    "ParseFunctionSignatureTextInfoInto"),
                 CreateDelegate<TypeReferenceCanonicalTextInto>(
                     programType,
                     "TypeReferenceCanonicalTextInto"),
@@ -2130,13 +2161,15 @@ internal static class NSharpCompilerDogfoodAdapter
         int[] outNsStarts, int[] outNsLengths, int[] outAliasStarts, int[] outAliasLengths);
     private delegate int PackageNameSpanInto(
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int[] outResult);
-    private delegate int ParseFunctionSignatureInto(
+    private delegate int ParseFunctionSignatureTextInfoInto(
+        string source,
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int funcIndex,
         int[] outNodeKinds, int[] outNameStarts, int[] outNameLengths, int[] outChildStart, int[] outChildCount,
         int[] outChildIndices, int[] outSpanStarts, int[] outSpanLengths,
-        int[] outParamNameStarts, int[] outParamNameLengths, int[] outParamTypeRoots,
-        int[] outTypeParamStarts, int[] outTypeParamLengths,
-        int[] outWhereNameStarts, int[] outWhereNameLengths, int[] outWhereItemCodes, int[] outResult);
+        int[] outParamNameStarts, int[] outParamNameLengths, string[] outParamNameTexts, int[] outParamTypeRoots,
+        int[] outTypeParamStarts, int[] outTypeParamLengths, string[] outTypeParamTexts,
+        int[] outWhereNameStarts, int[] outWhereNameLengths, string[] outWhereNameTexts,
+        int[] outWhereItemCodes, string[] outFunctionNameTexts, int[] outResult);
     private delegate string TypeReferenceCanonicalTextInto(
         string source,
         int[] nodeKinds, int[] valueStarts, int[] valueLengths, int[] childStart, int[] childCount,
@@ -2206,7 +2239,7 @@ internal static class NSharpCompilerDogfoodAdapter
         TopLevelDeclarationNameSpansInto TopLevelDeclarationNameSpans,
         NamespaceImportSpansInto NamespaceImportSpans,
         PackageNameSpanInto PackageNameSpan,
-        ParseFunctionSignatureInto ParseFunctionSignature,
+        ParseFunctionSignatureTextInfoInto ParseFunctionSignatureTextInfo,
         TypeReferenceCanonicalTextInto TypeReferenceCanonicalText,
         TypeReferenceTupleElementNamesInto TypeReferenceTupleElementNames,
         FunctionSignatureWhereOwnerIndicesInto FunctionSignatureWhereOwnerIndices,

@@ -56,6 +56,76 @@ func ParseFunctionSignatureInto(tokenKinds: int[], tokenStarts: int[], tokenValu
     return ParseFunctionSignatureCore(ref tokens, count, funcIndex, ref typeStack, ref nodes, ref children, ref parameters, ref typeParams, ref whereItems, ref result)
 }
 
+func ParseFunctionSignatureTextInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, funcIndex: int, outNodeKinds: int[], outNameStarts: int[], outNameLengths: int[], outChildStart: int[], outChildCount: int[], outChildIndices: int[], outSpanStarts: int[], outSpanLengths: int[], outParamNameStarts: int[], outParamNameLengths: int[], outParamNameTexts: string[], outParamTypeRoots: int[], outTypeParamStarts: int[], outTypeParamLengths: int[], outTypeParamTexts: string[], outWhereNameStarts: int[], outWhereNameLengths: int[], outWhereNameTexts: string[], outWhereItemCodes: int[], outFunctionNameTexts: string[], outResult: int[]): int {
+    if outFunctionNameTexts.Length < 1 {
+        return -1
+    }
+
+    tokens := new ParserTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
+    typeStack := new ParserArgumentStack { Values: new int[](count + 1) }
+    nodes := new ParserNodeTable { Kinds: outNodeKinds, ValueStarts: outNameStarts, ValueLengths: outNameLengths, ChildStart: outChildStart, ChildCount: outChildCount, SpanStarts: outSpanStarts, SpanLengths: outSpanLengths }
+    children := new ParserChildIndexTable { Indices: outChildIndices }
+    parameters := new ParserFunctionParameterTable { NameStarts: outParamNameStarts, NameLengths: outParamNameLengths, TypeRoots: outParamTypeRoots }
+    typeParams := new ParserFunctionTypeParameterTable { Starts: outTypeParamStarts, Lengths: outTypeParamLengths }
+    whereItems := new ParserFunctionWhereTable { NameStarts: outWhereNameStarts, NameLengths: outWhereNameLengths, ItemCodes: outWhereItemCodes }
+    result := new ParserResultTable { Values: outResult }
+    paramCount := ParseFunctionSignatureCore(ref tokens, count, funcIndex, ref typeStack, ref nodes, ref children, ref parameters, ref typeParams, ref whereItems, ref result)
+    if paramCount < 0 {
+        return -1
+    }
+
+    typeParamCount := result.Values[5]
+    whereItemCount := result.Values[7]
+    if paramCount > outParamNameTexts.Length || typeParamCount > outTypeParamTexts.Length || whereItemCount > outWhereNameTexts.Length {
+        return -1
+    }
+
+    if result.Values[3] >= 0 {
+        functionName := FunctionSignatureSpanText(source, result.Values[3], result.Values[4])
+        if functionName == "" {
+            return -1
+        }
+        outFunctionNameTexts[0] = functionName
+    } else {
+        outFunctionNameTexts[0] = ""
+    }
+
+    i := 0
+    while i < paramCount {
+        text := FunctionSignatureSpanText(source, parameters.NameStarts[i], parameters.NameLengths[i])
+        if text == "" {
+            return -1
+        }
+
+        outParamNameTexts[i] = text
+        i = i + 1
+    }
+
+    i = 0
+    while i < typeParamCount {
+        text := FunctionSignatureSpanText(source, typeParams.Starts[i], typeParams.Lengths[i])
+        if text == "" {
+            return -1
+        }
+
+        outTypeParamTexts[i] = text
+        i = i + 1
+    }
+
+    i = 0
+    while i < whereItemCount {
+        text := FunctionSignatureSpanText(source, whereItems.NameStarts[i], whereItems.NameLengths[i])
+        if text == "" {
+            return -1
+        }
+
+        outWhereNameTexts[i] = text
+        i = i + 1
+    }
+
+    return paramCount
+}
+
 func FunctionSignatureWhereOwnerIndicesInto(source: string, typeParamStarts: int[], typeParamLengths: int[], typeParamCount: int, whereNameStarts: int[], whereNameLengths: int[], whereItemCount: int, outOwnerIndices: int[]): int {
     if typeParamCount < 0 || whereItemCount < 0 || whereItemCount > outOwnerIndices.Length {
         return -1
@@ -86,6 +156,14 @@ func FunctionSignatureTypeParameterIndexOf(source: string, typeParamStarts: int[
     }
 
     return -1
+}
+
+func FunctionSignatureSpanText(source: string, start: int, length: int): string {
+    if start < 0 || length <= 0 || start + length > source.Length {
+        return ""
+    }
+
+    return source.Substring(start, length)
 }
 
 func FunctionSignatureSourceSpansEqual(source: string, leftStart: int, leftLength: int, rightStart: int, rightLength: int): bool {

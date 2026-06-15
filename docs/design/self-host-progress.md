@@ -11,6 +11,23 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Function signature name text moves into N#
+
+`ParserFunctionSignatures.nl` now exports `ParseFunctionSignatureTextInfoInto`, a product-routed
+wrapper over the existing signature parser. It preserves the old span/type-node ABI while adding
+materialized function, parameter, type-parameter, and `where` owner name text columns on the N# side
+of the delegate boundary.
+
+`NSharpCompilerDogfoodAdapter` no longer binds `ParseFunctionSignatureInto` for production or
+slices function/parameter/type-parameter names from source spans in C#. Top-level functions,
+constructors, and interface method signatures consume the N# text columns, while the old span-only
+ABI remains emitted for parser parity tests. Focused evidence:
+`./scripts/dev.sh Parser_FunctionSignature_MatchesProductionParser`,
+`./scripts/dev.sh ColumnarCodegen_Parity_GenericConstraints`,
+`./scripts/dev.sh ColumnarCodegen_Parity_ClassConstructor`,
+`./scripts/dev.sh ColumnarCodegen_Parity_Interfaces`, and
+`./scripts/dev.sh ColumnarCodegen_MultiFile_EligibleClusterCompiles`.
+
 ## 2026-06-15 — Static field initializer text moves into N#
 
 `ParserDeclarations.nl` extends `ParseStructDeclarationInfoInto` so the same product-routed

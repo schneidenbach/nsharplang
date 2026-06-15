@@ -1714,6 +1714,10 @@ class B
                     "ParseFunctionSignatureInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit ParseFunctionSignatureInto.");
+            var parseSigText = programType.GetMethod(
+                    "ParseFunctionSignatureTextInfoInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit ParseFunctionSignatureTextInfoInto.");
             var whereOwnerIndices = programType.GetMethod(
                     "FunctionSignatureWhereOwnerIndicesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -1744,6 +1748,17 @@ class B
             };
             foreach (var fn in functions)
                 AssertFunctionSignatureLikeProduction(fn, tokenize, parseSig);
+
+            AssertFunctionSignatureTextInfo(
+                "func pair<T, U>(left: T, right: U): T where T: class, new() where U: struct { return left }",
+                "pair",
+                new[] { "left", "right" },
+                new[] { "T", "U" },
+                new[] { "T", "T", "U" },
+                tokenize,
+                parseSig,
+                parseSigText,
+                "generic function text info");
 
             AssertFunctionSignatureWhereOwnerIndices(
                 "func cw2<T, U>(a: T, b: U): T where T: class, new() where U: T { }",
@@ -1836,6 +1851,87 @@ class B
         Assert.True(funcIndex >= 0, $"Could not locate `func` keyword for '{funcSource}'.");
 
         VerifyFunctionSignature(source, kinds, starts, valueLengths, count, funcIndex, fn, parseSig, funcSource);
+    }
+
+    private static void AssertFunctionSignatureTextInfo(
+        string funcSource,
+        string expectedFunctionName,
+        string[] expectedParamNames,
+        string[] expectedTypeParamNames,
+        string[] expectedWhereNames,
+        MethodInfo tokenize,
+        MethodInfo parseSig,
+        MethodInfo parseSigText,
+        string label)
+    {
+        var (count, kinds, starts, valueLengths, source) = TokenizeSourceViaKernel(funcSource, tokenize);
+        var funcIndex = FirstTopLevelFuncIndex(kinds, count);
+        Assert.True(funcIndex >= 0, $"Could not locate `func` keyword for '{funcSource}'.");
+
+        var cap = count + 1;
+        var spanParamNameStarts = new int[cap];
+        var spanParamNameLengths = new int[cap];
+        var spanParamTypeRoots = new int[cap];
+        var spanTypeParamStarts = new int[cap];
+        var spanTypeParamLengths = new int[cap];
+        var spanWhereNameStarts = new int[cap];
+        var spanWhereNameLengths = new int[cap];
+        var spanWhereItemCodes = new int[cap];
+        var spanResult = new int[8];
+        var spanParamCount = (int)(parseSig.Invoke(
+            null,
+            new object[]
+            {
+                kinds, starts, valueLengths, count, funcIndex,
+                new int[cap], new int[cap], new int[cap], new int[cap], new int[cap], new int[cap], new int[cap], new int[cap],
+                spanParamNameStarts, spanParamNameLengths, spanParamTypeRoots, spanTypeParamStarts, spanTypeParamLengths,
+                spanWhereNameStarts, spanWhereNameLengths, spanWhereItemCodes, spanResult,
+            }) ?? -2);
+
+        var textParamNameStarts = new int[cap];
+        var textParamNameLengths = new int[cap];
+        var textParamNameTexts = new string[cap];
+        var textParamTypeRoots = new int[cap];
+        var textTypeParamStarts = new int[cap];
+        var textTypeParamLengths = new int[cap];
+        var textTypeParamTexts = new string[cap];
+        var textWhereNameStarts = new int[cap];
+        var textWhereNameLengths = new int[cap];
+        var textWhereNameTexts = new string[cap];
+        var textWhereItemCodes = new int[cap];
+        var functionNameTexts = new string[1];
+        var textResult = new int[8];
+        var textParamCount = (int)(parseSigText.Invoke(
+            null,
+            new object[]
+            {
+                source, kinds, starts, valueLengths, count, funcIndex,
+                new int[cap], new int[cap], new int[cap], new int[cap], new int[cap], new int[cap], new int[cap], new int[cap],
+                textParamNameStarts, textParamNameLengths, textParamNameTexts, textParamTypeRoots,
+                textTypeParamStarts, textTypeParamLengths, textTypeParamTexts,
+                textWhereNameStarts, textWhereNameLengths, textWhereNameTexts,
+                textWhereItemCodes, functionNameTexts, textResult,
+            }) ?? -2);
+
+        Assert.True(spanParamCount >= 0, $"Span parser refused function signature for '{label}'.");
+        Assert.Equal(spanParamCount, textParamCount);
+        Assert.Equal(spanResult, textResult);
+        Assert.Equal(expectedParamNames.Length, textParamCount);
+        Assert.Equal(expectedTypeParamNames.Length, textResult[5]);
+        Assert.Equal(expectedWhereNames.Length, textResult[7]);
+        Assert.Equal(expectedFunctionName, functionNameTexts[0]);
+
+        Assert.Equal(spanParamNameStarts.Take(textParamCount).ToArray(), textParamNameStarts.Take(textParamCount).ToArray());
+        Assert.Equal(spanParamNameLengths.Take(textParamCount).ToArray(), textParamNameLengths.Take(textParamCount).ToArray());
+        Assert.Equal(spanParamTypeRoots.Take(textParamCount).ToArray(), textParamTypeRoots.Take(textParamCount).ToArray());
+        Assert.Equal(spanTypeParamStarts.Take(textResult[5]).ToArray(), textTypeParamStarts.Take(textResult[5]).ToArray());
+        Assert.Equal(spanTypeParamLengths.Take(textResult[5]).ToArray(), textTypeParamLengths.Take(textResult[5]).ToArray());
+        Assert.Equal(spanWhereNameStarts.Take(textResult[7]).ToArray(), textWhereNameStarts.Take(textResult[7]).ToArray());
+        Assert.Equal(spanWhereNameLengths.Take(textResult[7]).ToArray(), textWhereNameLengths.Take(textResult[7]).ToArray());
+        Assert.Equal(spanWhereItemCodes.Take(textResult[7]).ToArray(), textWhereItemCodes.Take(textResult[7]).ToArray());
+        Assert.Equal(expectedParamNames, textParamNameTexts.Take(textParamCount).ToArray());
+        Assert.Equal(expectedTypeParamNames, textTypeParamTexts.Take(textResult[5]).ToArray());
+        Assert.Equal(expectedWhereNames, textWhereNameTexts.Take(textResult[7]).ToArray());
     }
 
     private static void AssertFunctionSignatureRefused(string funcSource, MethodInfo tokenize, MethodInfo parseSig)
