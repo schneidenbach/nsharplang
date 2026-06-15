@@ -903,6 +903,66 @@ func Main() {
         Assert.Contains($"as the {modifier} argument", error.Suggestion);
     }
 
+    [Theory]
+    [InlineData("if Int32.TryParse(\"42\", out checked(result)) { }", "out")]
+    [InlineData("Int32.TryParse(\"42\", out text.Length)", "out")]
+    [InlineData("update(ref items[0])", "ref")]
+    public void RefOutArgument_NonAddressableClrTargets_Error(string statement, string modifier)
+    {
+        var result = AnalyzeWithSource($$"""
+            import System
+            import System.Collections.Generic
+
+            func update(ref value: int) {
+                value += 1
+            }
+
+            func Main() {
+                result := 0
+                text := "abc"
+                items := new List<int>()
+                {{statement}}
+            }
+        """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains($"'{modifier}' argument needs an assignable target", error.Message);
+        Assert.Contains($"as the {modifier} argument", error.Suggestion);
+    }
+
+    [Fact]
+    public void RefOutArgument_ArrayRangeSlice_Error()
+    {
+        var result = AnalyzeWithSource("""
+            func update(ref values: int[]) {
+            }
+
+            func Main() {
+                values := [1, 2, 3]
+                update(ref values[0..1])
+            }
+        """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("Array slices cannot be used as the ref argument", error.Message);
+        Assert.Contains("Assign individual elements", error.Suggestion);
+    }
+
+    [Fact]
+    public void RefOutArgument_ArrayFromEndElement_IsAddressable()
+    {
+        AssertNoErrors("""
+            func update(ref value: int) {
+                value += 1
+            }
+
+            func Main() {
+                values := [1, 2, 3]
+                update(ref values[^1])
+            }
+        """);
+    }
+
     [Fact]
     public void ClassDeclaration_Valid()
     {

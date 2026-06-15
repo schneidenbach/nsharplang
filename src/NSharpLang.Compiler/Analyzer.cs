@@ -8385,6 +8385,7 @@ public class Analyzer : IDisposable
             {
                 var argument = call.Arguments[i];
                 var argumentErrorsBefore = _errors.Count;
+                Dictionary<Expression, TypeInfo>? refOutTargetExpressionTypes;
                 TypeInfo? expectedType;
                 if (functionType.Declaration is { } declaration)
                 {
@@ -8406,8 +8407,8 @@ public class Analyzer : IDisposable
                         : null;
                 }
 
-                argTypes.Add(AnalyzeExpressionWithExpectedType(argument.Value, expectedType));
-                ReportInvalidRefOutArgumentTargetIfNeeded(argument, argumentErrorsBefore);
+                argTypes.Add(AnalyzeRefOutArgumentExpression(argument, expectedType, out refOutTargetExpressionTypes));
+                ReportInvalidRefOutArgumentTargetIfNeeded(argument, argumentErrorsBefore, refOutTargetExpressionTypes);
             }
         }
         else
@@ -8424,11 +8425,15 @@ public class Analyzer : IDisposable
                 if (isMethodGroup && arg.Value is LambdaExpression)
                 {
                     argTypes.Add(BuiltInTypes.Unknown);
-                    ReportInvalidRefOutArgumentTargetIfNeeded(arg, argumentErrorsBefore);
+                    ReportInvalidRefOutArgumentTargetIfNeeded(arg, argumentErrorsBefore, expressionTypes: null);
                     continue;
                 }
-                argTypes.Add(AnalyzeExpressionWithExpectedType(arg.Value, null, allowUnboundCallableReference: isMethodGroup));
-                ReportInvalidRefOutArgumentTargetIfNeeded(arg, argumentErrorsBefore);
+                argTypes.Add(AnalyzeRefOutArgumentExpression(
+                    arg,
+                    expectedType: null,
+                    out var refOutTargetExpressionTypes,
+                    allowUnboundCallableReference: isMethodGroup));
+                ReportInvalidRefOutArgumentTargetIfNeeded(arg, argumentErrorsBefore, refOutTargetExpressionTypes);
             }
         }
 
@@ -8718,35 +8723,193 @@ public class Analyzer : IDisposable
         return BuiltInTypes.Unknown;
     }
 
-    private bool ReportInvalidRefOutArgumentTargetIfNeeded(Argument argument, int argumentErrorsBefore)
+    private TypeInfo AnalyzeRefOutArgumentExpression(
+        Argument argument,
+        TypeInfo? expectedType,
+        out Dictionary<Expression, TypeInfo>? expressionTypes,
+        bool allowUnboundCallableReference = false)
+    {
+        expressionTypes = null;
+        if (argument.Modifier is not (ArgumentModifier.Ref or ArgumentModifier.Out))
+        {
+            return AnalyzeExpressionWithExpectedType(argument.Value, expectedType, allowUnboundCallableReference);
+        }
+
+        var previousTargetTypes = _assignmentTargetExpressionTypes;
+        expressionTypes = new Dictionary<Expression, TypeInfo>(ReferenceEqualityComparer.Instance);
+        _assignmentTargetExpressionTypes = expressionTypes;
+        try
+        {
+            return AnalyzeExpressionWithExpectedType(argument.Value, expectedType, allowUnboundCallableReference);
+        }
+        finally
+        {
+            _assignmentTargetExpressionTypes = previousTargetTypes;
+        }
+    }
+
+    private bool ReportInvalidRefOutArgumentTargetIfNeeded(
+        Argument argument,
+        int argumentErrorsBefore,
+        Dictionary<Expression, TypeInfo>? expressionTypes)
     {
         if (argument.Modifier is not (ArgumentModifier.Ref or ArgumentModifier.Out)
-            || _errors.Count != argumentErrorsBefore
-            || IsRefOutArgumentTarget(argument.Value))
+            || _errors.Count != argumentErrorsBefore)
         {
             return false;
         }
 
         var modifier = argument.Modifier == ArgumentModifier.Ref ? "ref" : "out";
+        var action = $"used as the {modifier} argument";
+        if (ReportSoaTableMemberMutationIfNeeded(argument.Value, expressionTypes, action)
+            || ReportUnsupportedBuiltInIndexedMutationIfNeeded(argument.Value, expressionTypes, action))
+        {
+            return true;
+        }
+
+        if (IsRefOutArgumentTarget(argument.Value, expressionTypes))
+        {
+            return false;
+        }
+
         var (line, column, length) = GetExpressionDiagnosticSpan(argument.Value);
         Error(
             ErrorCode.InvalidSyntax,
             $"The '{modifier}' argument needs an assignable target",
             line,
             column,
-            $"Use a variable, field, property, or indexed element as the {modifier} argument.",
+            $"Use a variable, field, or indexed array/SoA column element as the {modifier} argument.",
             length);
         return true;
     }
 
-    private static bool IsRefOutArgumentTarget(Expression expression) => expression switch
+    private bool IsRefOutArgumentTarget(
+        Expression expression,
+        Dictionary<Expression, TypeInfo>? expressionTypes) => expression switch
     {
         IdentifierExpression => true,
-        MemberAccessExpression => true,
-        IndexAccessExpression => true,
-        ParenthesizedExpression parenthesized => IsRefOutArgumentTarget(parenthesized.Inner),
+        MemberAccessExpression memberAccess => IsAddressableRefOutMember(memberAccess, expressionTypes),
+        IndexAccessExpression indexAccess => IsAddressableRefOutIndex(indexAccess, expressionTypes),
+        ParenthesizedExpression parenthesized => IsRefOutArgumentTarget(parenthesized.Inner, expressionTypes),
         _ => false
     };
+
+    private bool IsAddressableRefOutMember(
+        MemberAccessExpression member,
+        Dictionary<Expression, TypeInfo>? expressionTypes)
+    {
+        if (expressionTypes == null)
+            return true;
+
+        if (expressionTypes.TryGetValue(member.Object, out var receiverType))
+        {
+            var resolvedReceiverType = ResolveTypeAlias(GetNonNullableType(receiverType));
+            if (resolvedReceiverType is ByRefTypeInfo byRefReceiver)
+                resolvedReceiverType = ResolveTypeAlias(GetNonNullableType(byRefReceiver.InnerType));
+
+            if (resolvedReceiverType is SoaRowTypeInfo soaRowType
+                && TryGetSoaColumn(soaRowType.Declaration, member.MemberName) != null)
+            {
+                return true;
+            }
+
+            if (resolvedReceiverType is SoaRecordTypeInfo)
+            {
+                return false;
+            }
+        }
+
+        if (IsStaticMemberAccessTarget(member.Object))
+        {
+            var staticClassification = ClassifyStaticFieldMember(member, expressionTypes);
+            return staticClassification != false;
+        }
+
+        var instanceClassification = ClassifyInstanceFieldHop(member, expressionTypes);
+        return instanceClassification != false;
+    }
+
+    private bool IsAddressableRefOutIndex(
+        IndexAccessExpression index,
+        Dictionary<Expression, TypeInfo>? expressionTypes)
+    {
+        if (expressionTypes == null)
+            return true;
+
+        var isRangeAccess = index.Index is RangeExpression
+            || (expressionTypes.TryGetValue(index.Index, out var indexType) && IsRangeLikeType(indexType));
+        if (isRangeAccess)
+            return false;
+
+        if (IsSoaColumnMemberAccess(index.Object))
+            return true;
+
+        if (!expressionTypes.TryGetValue(index.Object, out var receiverType))
+            return true;
+
+        var resolvedReceiverType = ResolveTypeAlias(GetNonNullableType(receiverType));
+        var isArrayReceiver = resolvedReceiverType is ArrayTypeInfo
+            || resolvedReceiverType is ReflectionTypeInfo { Type.IsArray: true };
+        if (!isArrayReceiver)
+            return false;
+
+        if (!expressionTypes.TryGetValue(index.Index, out var resolvedIndexType))
+            return true;
+
+        resolvedIndexType = ResolveTypeAlias(resolvedIndexType);
+        return BuiltInTypes.IsUnknown(resolvedIndexType)
+            || resolvedIndexType == BuiltInTypes.Int
+            || IsIndexLikeType(resolvedIndexType);
+    }
+
+    private bool? ClassifyStaticFieldMember(
+        MemberAccessExpression member,
+        Dictionary<Expression, TypeInfo> expressionTypes)
+    {
+        if (!expressionTypes.TryGetValue(member.Object, out var ownerType))
+            return null;
+
+        var owner = ResolveTypeAlias(ownerType);
+        if (owner is GenericTypeInfo generic)
+            owner = LookupType(generic.Name) ?? owner;
+        if (owner is SimpleTypeInfo or GenericTypeInfo or ArrayTypeInfo)
+        {
+            var clrOwner = TryConvertTypeInfoToClrType(owner);
+            if (clrOwner != null)
+                owner = new ReflectionTypeInfo(clrOwner);
+        }
+
+        List<Declaration>? members = owner switch
+        {
+            ClassTypeInfo classType => classType.Declaration.Members,
+            StructTypeInfo structType => structType.Declaration.Members,
+            RecordTypeInfo recordType => recordType.Declaration.Members,
+            _ => null,
+        };
+
+        if (members != null)
+        {
+            return members.OfType<FieldDeclaration>()
+                .Any(field => field.Name == member.MemberName && field.Modifiers.HasFlag(Modifiers.Static));
+        }
+
+        if (owner is ReflectionTypeInfo reflected && reflected.Type is not System.Reflection.Emit.TypeBuilder
+            && !reflected.Type.IsGenericTypeDefinition)
+        {
+            try
+            {
+                return reflected.Type.GetField(
+                    member.MemberName,
+                    System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static) != null;
+            }
+            catch (NotSupportedException)
+            {
+                return null;
+            }
+        }
+
+        return null;
+    }
 
     private TypeInfo? GetExpectedNSharpCallArgumentType(
         FunctionDeclaration declaration,
@@ -12364,6 +12527,12 @@ public class Analyzer : IDisposable
         var owner = ResolveTypeAlias(ownerType);
         if (owner is GenericTypeInfo generic)
             owner = LookupType(generic.Name) ?? owner;
+        if (owner is SimpleTypeInfo or GenericTypeInfo or ArrayTypeInfo)
+        {
+            var clrOwner = TryConvertTypeInfoToClrType(owner);
+            if (clrOwner != null)
+                owner = new ReflectionTypeInfo(clrOwner);
+        }
         List<Declaration>? members = owner switch
         {
             StructTypeInfo s => s.Declaration.Members,

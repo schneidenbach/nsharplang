@@ -5850,6 +5850,61 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaDirectMembersCannotBeRefOutArguments()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var cases = new[]
+        {
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func replace(ref values: int[]) {
+                }
+
+                func bad(nodes: Nodes) {
+                    replace(ref nodes.kind)
+                }
+                """,
+                Member: "kind",
+                Modifier: "ref",
+                Suggestion: "construct/wrap"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func set(out value: int) {
+                    value = 0
+                }
+
+                func bad(nodes: Nodes) {
+                    set(out nodes.length)
+                }
+                """,
+                Member: "length",
+                Modifier: "out",
+                Suggestion: "add, clear, ensureCapacity, or copyRow")
+        };
+
+        foreach (var testCase in cases)
+        {
+            var result = Analyze(testCase.Source);
+            var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+            Assert.Contains($"SoA table member '{testCase.Member}' cannot be used as the {testCase.Modifier} argument", error.Message);
+            Assert.Contains(testCase.Suggestion, error.Suggestion);
+        }
+    }
+
+    [Fact]
     public void Analyzer_SoaTableColumnFromEndRangeSliceCannotBeAssigned()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

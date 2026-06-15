@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Ref/out addressability rejects non-storage targets
+
+The analyzer now validates `ref`/`out` arguments against the storage shapes the IL backends can
+actually address, not just syntax that looks assignable. CLR properties such as `text.Length`,
+ordinary indexer results such as `List<T>[i]`, and array range slices now fail before emission,
+while array elements, including from-end `System.Index` elements, remain accepted. SoA generated
+members are also guarded: `ref nodes.kind` and `out nodes.length` report the direct table-member
+diagnostic instead of allowing a caller to replace wrapper columns or mutate bookkeeping through a
+byref call.
+
 ## 2026-06-15 — SoA mixed-type from-end ref/out addresses pinned
 
 Direct-column `ref`/`out` arguments over variable-held and literal from-end indexes now have
