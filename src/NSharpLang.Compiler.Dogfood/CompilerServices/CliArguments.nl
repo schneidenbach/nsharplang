@@ -1752,106 +1752,104 @@ func CliUpdateAllNuGetDependencyIndicesInto(
 func CliUpdateAllNuGetDependencyIndicesCore(
     flagTable: &CliFlagTable,
     results: &CliIndexResultTable): int {
-    nugetFlags := flagTable.Flags
-    resultIndices := results.Indices
-    length := nugetFlags.Length
+    length := flagTable.Flags.Length
     resultCount := 0
     i := 0
-    if resultIndices.Length >= length {
+    if results.Indices.Length >= length {
         unrolledLimit := length - 16
         while i <= unrolledLimit {
-            if nugetFlags[i] != 0 {
-                resultIndices[resultCount] = i
+            if flagTable.Flags[i] != 0 {
+                results.Indices[resultCount] = i
                 resultCount = resultCount + 1
             }
 
             next := i + 1
-            if nugetFlags[next] != 0 {
-                resultIndices[resultCount] = next
+            if flagTable.Flags[next] != 0 {
+                results.Indices[resultCount] = next
                 resultCount = resultCount + 1
             }
 
             next = i + 2
-            if nugetFlags[next] != 0 {
-                resultIndices[resultCount] = next
+            if flagTable.Flags[next] != 0 {
+                results.Indices[resultCount] = next
                 resultCount = resultCount + 1
             }
 
             next = i + 3
-            if nugetFlags[next] != 0 {
-                resultIndices[resultCount] = next
+            if flagTable.Flags[next] != 0 {
+                results.Indices[resultCount] = next
                 resultCount = resultCount + 1
             }
 
             next = i + 4
-            if nugetFlags[next] != 0 {
-                resultIndices[resultCount] = next
+            if flagTable.Flags[next] != 0 {
+                results.Indices[resultCount] = next
                 resultCount = resultCount + 1
             }
 
             next = i + 5
-            if nugetFlags[next] != 0 {
-                resultIndices[resultCount] = next
+            if flagTable.Flags[next] != 0 {
+                results.Indices[resultCount] = next
                 resultCount = resultCount + 1
             }
 
             next = i + 6
-            if nugetFlags[next] != 0 {
-                resultIndices[resultCount] = next
+            if flagTable.Flags[next] != 0 {
+                results.Indices[resultCount] = next
                 resultCount = resultCount + 1
             }
 
             next = i + 7
-            if nugetFlags[next] != 0 {
-                resultIndices[resultCount] = next
+            if flagTable.Flags[next] != 0 {
+                results.Indices[resultCount] = next
                 resultCount = resultCount + 1
             }
 
             next = i + 8
-            if nugetFlags[next] != 0 {
-                resultIndices[resultCount] = next
+            if flagTable.Flags[next] != 0 {
+                results.Indices[resultCount] = next
                 resultCount = resultCount + 1
             }
 
             next = i + 9
-            if nugetFlags[next] != 0 {
-                resultIndices[resultCount] = next
+            if flagTable.Flags[next] != 0 {
+                results.Indices[resultCount] = next
                 resultCount = resultCount + 1
             }
 
             next = i + 10
-            if nugetFlags[next] != 0 {
-                resultIndices[resultCount] = next
+            if flagTable.Flags[next] != 0 {
+                results.Indices[resultCount] = next
                 resultCount = resultCount + 1
             }
 
             next = i + 11
-            if nugetFlags[next] != 0 {
-                resultIndices[resultCount] = next
+            if flagTable.Flags[next] != 0 {
+                results.Indices[resultCount] = next
                 resultCount = resultCount + 1
             }
 
             next = i + 12
-            if nugetFlags[next] != 0 {
-                resultIndices[resultCount] = next
+            if flagTable.Flags[next] != 0 {
+                results.Indices[resultCount] = next
                 resultCount = resultCount + 1
             }
 
             next = i + 13
-            if nugetFlags[next] != 0 {
-                resultIndices[resultCount] = next
+            if flagTable.Flags[next] != 0 {
+                results.Indices[resultCount] = next
                 resultCount = resultCount + 1
             }
 
             next = i + 14
-            if nugetFlags[next] != 0 {
-                resultIndices[resultCount] = next
+            if flagTable.Flags[next] != 0 {
+                results.Indices[resultCount] = next
                 resultCount = resultCount + 1
             }
 
             next = i + 15
-            if nugetFlags[next] != 0 {
-                resultIndices[resultCount] = next
+            if flagTable.Flags[next] != 0 {
+                results.Indices[resultCount] = next
                 resultCount = resultCount + 1
             }
 
@@ -1859,8 +1857,8 @@ func CliUpdateAllNuGetDependencyIndicesCore(
         }
 
         while i < length {
-            if nugetFlags[i] != 0 {
-                resultIndices[resultCount] = i
+            if flagTable.Flags[i] != 0 {
+                results.Indices[resultCount] = i
                 resultCount = resultCount + 1
             }
 
@@ -1871,9 +1869,9 @@ func CliUpdateAllNuGetDependencyIndicesCore(
     }
 
     while i < length {
-        if nugetFlags[i] != 0 {
-            if resultCount < resultIndices.Length {
-                resultIndices[resultCount] = i
+        if flagTable.Flags[i] != 0 {
+            if resultCount < results.Indices.Length {
+                results.Indices[resultCount] = i
             }
 
             resultCount = resultCount + 1
@@ -1898,62 +1896,60 @@ func CliUpdateTargetNuGetDependencyIndicesCore(
     nameRankTable: &CliRankTable,
     targetNameRank: int,
     results: &CliIndexResultTable): int {
-    nameRanks := nameRankTable.Ranks
-    resultIndices := results.Indices
     if targetNameRank <= 0 {
         return 0
     }
 
-    length := nameRanks.Length
+    length := nameRankTable.Ranks.Length
     resultCount := 0
     i := 0
-    if resultIndices.Length >= length {
+    if results.Indices.Length >= length {
         unrolledLimit := length - 8
         while i <= unrolledLimit {
-            if nameRanks[i] == targetNameRank {
-                resultIndices[resultCount] = i
+            if nameRankTable.Ranks[i] == targetNameRank {
+                results.Indices[resultCount] = i
                 resultCount = resultCount + 1
             }
 
             next := i + 1
-            if nameRanks[next] == targetNameRank {
-                resultIndices[resultCount] = next
+            if nameRankTable.Ranks[next] == targetNameRank {
+                results.Indices[resultCount] = next
                 resultCount = resultCount + 1
             }
 
             next = i + 2
-            if nameRanks[next] == targetNameRank {
-                resultIndices[resultCount] = next
+            if nameRankTable.Ranks[next] == targetNameRank {
+                results.Indices[resultCount] = next
                 resultCount = resultCount + 1
             }
 
             next = i + 3
-            if nameRanks[next] == targetNameRank {
-                resultIndices[resultCount] = next
+            if nameRankTable.Ranks[next] == targetNameRank {
+                results.Indices[resultCount] = next
                 resultCount = resultCount + 1
             }
 
             next = i + 4
-            if nameRanks[next] == targetNameRank {
-                resultIndices[resultCount] = next
+            if nameRankTable.Ranks[next] == targetNameRank {
+                results.Indices[resultCount] = next
                 resultCount = resultCount + 1
             }
 
             next = i + 5
-            if nameRanks[next] == targetNameRank {
-                resultIndices[resultCount] = next
+            if nameRankTable.Ranks[next] == targetNameRank {
+                results.Indices[resultCount] = next
                 resultCount = resultCount + 1
             }
 
             next = i + 6
-            if nameRanks[next] == targetNameRank {
-                resultIndices[resultCount] = next
+            if nameRankTable.Ranks[next] == targetNameRank {
+                results.Indices[resultCount] = next
                 resultCount = resultCount + 1
             }
 
             next = i + 7
-            if nameRanks[next] == targetNameRank {
-                resultIndices[resultCount] = next
+            if nameRankTable.Ranks[next] == targetNameRank {
+                results.Indices[resultCount] = next
                 resultCount = resultCount + 1
             }
 
@@ -1961,8 +1957,8 @@ func CliUpdateTargetNuGetDependencyIndicesCore(
         }
 
         while i < length {
-            if nameRanks[i] == targetNameRank {
-                resultIndices[resultCount] = i
+            if nameRankTable.Ranks[i] == targetNameRank {
+                results.Indices[resultCount] = i
                 resultCount = resultCount + 1
             }
 
@@ -1973,9 +1969,9 @@ func CliUpdateTargetNuGetDependencyIndicesCore(
     }
 
     while i < length {
-        if nameRanks[i] == targetNameRank {
-            if resultCount < resultIndices.Length {
-                resultIndices[resultCount] = i
+        if nameRankTable.Ranks[i] == targetNameRank {
+            if resultCount < results.Indices.Length {
+                results.Indices[resultCount] = i
             }
 
             resultCount = resultCount + 1
@@ -2000,110 +1996,108 @@ func CliReferenceTypeFilterIndicesCore(
     typeRankTable: &CliRankTable,
     targetTypeRank: int,
     results: &CliIndexResultTable): int {
-    typeRanks := typeRankTable.Ranks
-    resultIndices := results.Indices
     if targetTypeRank <= 0 {
         return 0
     }
 
-    length := typeRanks.Length
+    length := typeRankTable.Ranks.Length
     resultCount := 0
     i := 0
-    if resultIndices.Length >= length {
+    if results.Indices.Length >= length {
         unrolledLimit := length - 16
         while i <= unrolledLimit {
-            if typeRanks[i] == targetTypeRank {
-                resultIndices[resultCount] = i
+            if typeRankTable.Ranks[i] == targetTypeRank {
+                results.Indices[resultCount] = i
                 resultCount = resultCount + 1
             }
 
             next := i + 1
-            if typeRanks[next] == targetTypeRank {
-                resultIndices[resultCount] = next
+            if typeRankTable.Ranks[next] == targetTypeRank {
+                results.Indices[resultCount] = next
                 resultCount = resultCount + 1
             }
 
             next = i + 2
-            if typeRanks[next] == targetTypeRank {
-                resultIndices[resultCount] = next
+            if typeRankTable.Ranks[next] == targetTypeRank {
+                results.Indices[resultCount] = next
                 resultCount = resultCount + 1
             }
 
             next = i + 3
-            if typeRanks[next] == targetTypeRank {
-                resultIndices[resultCount] = next
+            if typeRankTable.Ranks[next] == targetTypeRank {
+                results.Indices[resultCount] = next
                 resultCount = resultCount + 1
             }
 
             next = i + 4
-            if typeRanks[next] == targetTypeRank {
-                resultIndices[resultCount] = next
+            if typeRankTable.Ranks[next] == targetTypeRank {
+                results.Indices[resultCount] = next
                 resultCount = resultCount + 1
             }
 
             next = i + 5
-            if typeRanks[next] == targetTypeRank {
-                resultIndices[resultCount] = next
+            if typeRankTable.Ranks[next] == targetTypeRank {
+                results.Indices[resultCount] = next
                 resultCount = resultCount + 1
             }
 
             next = i + 6
-            if typeRanks[next] == targetTypeRank {
-                resultIndices[resultCount] = next
+            if typeRankTable.Ranks[next] == targetTypeRank {
+                results.Indices[resultCount] = next
                 resultCount = resultCount + 1
             }
 
             next = i + 7
-            if typeRanks[next] == targetTypeRank {
-                resultIndices[resultCount] = next
+            if typeRankTable.Ranks[next] == targetTypeRank {
+                results.Indices[resultCount] = next
                 resultCount = resultCount + 1
             }
 
             next = i + 8
-            if typeRanks[next] == targetTypeRank {
-                resultIndices[resultCount] = next
+            if typeRankTable.Ranks[next] == targetTypeRank {
+                results.Indices[resultCount] = next
                 resultCount = resultCount + 1
             }
 
             next = i + 9
-            if typeRanks[next] == targetTypeRank {
-                resultIndices[resultCount] = next
+            if typeRankTable.Ranks[next] == targetTypeRank {
+                results.Indices[resultCount] = next
                 resultCount = resultCount + 1
             }
 
             next = i + 10
-            if typeRanks[next] == targetTypeRank {
-                resultIndices[resultCount] = next
+            if typeRankTable.Ranks[next] == targetTypeRank {
+                results.Indices[resultCount] = next
                 resultCount = resultCount + 1
             }
 
             next = i + 11
-            if typeRanks[next] == targetTypeRank {
-                resultIndices[resultCount] = next
+            if typeRankTable.Ranks[next] == targetTypeRank {
+                results.Indices[resultCount] = next
                 resultCount = resultCount + 1
             }
 
             next = i + 12
-            if typeRanks[next] == targetTypeRank {
-                resultIndices[resultCount] = next
+            if typeRankTable.Ranks[next] == targetTypeRank {
+                results.Indices[resultCount] = next
                 resultCount = resultCount + 1
             }
 
             next = i + 13
-            if typeRanks[next] == targetTypeRank {
-                resultIndices[resultCount] = next
+            if typeRankTable.Ranks[next] == targetTypeRank {
+                results.Indices[resultCount] = next
                 resultCount = resultCount + 1
             }
 
             next = i + 14
-            if typeRanks[next] == targetTypeRank {
-                resultIndices[resultCount] = next
+            if typeRankTable.Ranks[next] == targetTypeRank {
+                results.Indices[resultCount] = next
                 resultCount = resultCount + 1
             }
 
             next = i + 15
-            if typeRanks[next] == targetTypeRank {
-                resultIndices[resultCount] = next
+            if typeRankTable.Ranks[next] == targetTypeRank {
+                results.Indices[resultCount] = next
                 resultCount = resultCount + 1
             }
 
@@ -2111,8 +2105,8 @@ func CliReferenceTypeFilterIndicesCore(
         }
 
         while i < length {
-            if typeRanks[i] == targetTypeRank {
-                resultIndices[resultCount] = i
+            if typeRankTable.Ranks[i] == targetTypeRank {
+                results.Indices[resultCount] = i
                 resultCount = resultCount + 1
             }
 
@@ -2123,9 +2117,9 @@ func CliReferenceTypeFilterIndicesCore(
     }
 
     while i < length {
-        if typeRanks[i] == targetTypeRank {
-            if resultCount < resultIndices.Length {
-                resultIndices[resultCount] = i
+        if typeRankTable.Ranks[i] == targetTypeRank {
+            if resultCount < results.Indices.Length {
+                results.Indices[resultCount] = i
             }
 
             resultCount = resultCount + 1

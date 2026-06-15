@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — CliArguments update/reference filters stay table-shaped internally
+
+`CliUpdateAllNuGetDependencyIndicesCore`, `CliUpdateTargetNuGetDependencyIndicesCore`, and
+`CliReferenceTypeFilterIndicesCore` now keep their flag/rank inputs and result-index outputs behind
+the normal table wrappers for the whole scan. The flattened adapter-facing entry points are
+unchanged; this only shrinks raw-array leakage inside accepted product N# code. Focused evidence:
+`./scripts/dev.sh CliArguments` and
+`./scripts/dev.sh LexerTokenKindScanner_ProjectCompilesAndMatchesProductionLexer`.
+
 ## 2026-06-15 — CliArguments stable-distinct core stays table-shaped internally
 
 `CliStableDistinctRankIndicesCore` now keeps the rank input, seen-rank scratch, and result-index
