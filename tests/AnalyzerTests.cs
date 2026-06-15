@@ -6926,6 +6926,23 @@ func Main() {
     }
 
     [Fact]
+    public void QueryableLinq_BlockExpressionTreeLambda_ReportsFeatureNotImplemented()
+    {
+        var result = AnalyzeWithSource(@"
+            import System.Linq
+
+            func Main() {
+                source := [1, 2, 3]
+                query := source.AsQueryable()
+                filtered := query.Where(x => { return x > 1 })
+            }
+        ");
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.FeatureNotImplemented);
+        Assert.Contains("Expression-tree lambdas must use an expression body", error.Message);
+    }
+
+    [Fact]
     public void BCL_MethodCall_WithOutArgument_NoNoMatchingOverload()
     {
         var result = AnalyzeWithSource(@"

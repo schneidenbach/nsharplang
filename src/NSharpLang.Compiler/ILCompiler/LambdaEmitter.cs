@@ -1365,9 +1365,26 @@ public partial class ILCompiler
                 EmitExpressionTreeNode(parenthesized.Inner, parameterLocals, parameterClrTypes, expectedType);
                 return;
 
+            case IntLiteralExpression:
+            case FloatLiteralExpression:
+            case CharLiteralExpression:
+            case StringLiteralExpression:
+            case BoolLiteralExpression:
+            case NullLiteralExpression:
+                EmitExpressionTreeConstant(expression, expectedType);
+                return;
+
+            case BinaryExpression binary:
+                EmitExpressionTreeBinaryNode(binary, parameterLocals, parameterClrTypes);
+                return;
+
             case UnaryExpression unary when unary.Operator == UnaryOperator.Not:
                 EmitExpressionTreeNode(unary.Operand, parameterLocals, parameterClrTypes, typeof(bool));
                 _currentIL.Emit(OpCodes.Call, ResolveUnaryExpressionMethod(nameof(System.Linq.Expressions.Expression.Not)));
+                return;
+
+            case CallExpression call:
+                EmitExpressionTreeCallNode(call, parameterLocals, parameterClrTypes);
                 return;
 
             case NewExpression newExpression when IsAnonymousObjectCreation(newExpression):
@@ -1388,9 +1405,141 @@ public partial class ILCompiler
             IdentifierExpression identifier when parameterClrTypes.TryGetValue(identifier.Name, out var parameterType) => parameterType,
             ParenthesizedExpression parenthesized => GetExpressionTreeNodeClrType(parenthesized.Inner, parameterClrTypes),
             MemberAccessExpression memberAccess => ResolveExpressionTreeMemberType(memberAccess, parameterClrTypes),
+            CallExpression call => ResolveExpressionTreeCallReturnType(call, parameterClrTypes),
             _ => GetExpressionType(expression)
         };
     }
+
+    private void EmitExpressionTreeConstant(Expression expression, Type expectedType)
+    {
+        if (_currentIL == null)
+        {
+            throw new InvalidOperationException("No IL generator context");
+        }
+
+        var constantType = expression is NullLiteralExpression
+            ? (expectedType == typeof(object) ? typeof(object) : expectedType)
+            : expectedType == typeof(object)
+                ? GetExpressionType(expression)
+                : expectedType;
+
+        EmitExpressionWithExpectedType(expression, constantType);
+        if (constantType.IsValueType)
+        {
+            _currentIL.Emit(OpCodes.Box, constantType);
+        }
+
+        EmitRuntimeTypeOf(constantType);
+        _currentIL.Emit(OpCodes.Call, ResolveExpressionConstantMethod());
+    }
+
+    private void EmitExpressionTreeBinaryNode(
+        BinaryExpression binary,
+        IReadOnlyDictionary<string, LocalBuilder> parameterLocals,
+        IReadOnlyDictionary<string, Type> parameterClrTypes)
+    {
+        if (_currentIL == null)
+        {
+            throw new InvalidOperationException("No IL generator context");
+        }
+
+        var leftType = GetExpressionTreeNodeClrType(binary.Left, parameterClrTypes);
+        var rightType = GetExpressionTreeNodeClrType(binary.Right, parameterClrTypes);
+        if (IsExpressionTreeConstantLiteral(binary.Left) && rightType != typeof(object))
+        {
+            leftType = rightType;
+        }
+
+        if (IsExpressionTreeConstantLiteral(binary.Right) && leftType != typeof(object))
+        {
+            rightType = leftType;
+        }
+
+        EmitExpressionTreeNode(binary.Left, parameterLocals, parameterClrTypes, leftType);
+        EmitExpressionTreeNode(binary.Right, parameterLocals, parameterClrTypes, rightType);
+        _currentIL.Emit(OpCodes.Call, ResolveBinaryExpressionMethod(GetExpressionTreeBinaryMethodName(binary.Operator)));
+    }
+
+    private void EmitExpressionTreeCallNode(
+        CallExpression call,
+        IReadOnlyDictionary<string, LocalBuilder> parameterLocals,
+        IReadOnlyDictionary<string, Type> parameterClrTypes)
+    {
+        if (_currentIL == null)
+        {
+            throw new InvalidOperationException("No IL generator context");
+        }
+
+        if (call.Callee is not MemberAccessExpression memberAccess
+            || call.Arguments.Count != 0
+            || (call.TypeArguments != null && call.TypeArguments.Count != 0))
+        {
+            throw new NotSupportedException($"Expression-tree call '{call.GetType().Name}' is not supported by the IL backend yet");
+        }
+
+        var receiverType = GetExpressionTreeNodeClrType(memberAccess.Object, parameterClrTypes);
+        var method = ResolveRuntimeMethod(
+            receiverType,
+            memberAccess.MemberName,
+            BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance,
+            Type.EmptyTypes);
+        if (method == null)
+        {
+            throw new NotSupportedException($"Expression-tree call '{memberAccess.MemberName}' on '{receiverType}' is not supported by the IL backend yet");
+        }
+
+        EmitExpressionTreeNode(memberAccess.Object, parameterLocals, parameterClrTypes, receiverType);
+        EmitRuntimeMethodInfo(method);
+        _currentIL.Emit(OpCodes.Ldc_I4_0);
+        _currentIL.Emit(OpCodes.Newarr, typeof(System.Linq.Expressions.Expression));
+        _currentIL.Emit(OpCodes.Call, ResolveExpressionCallMethod());
+    }
+
+    private Type ResolveExpressionTreeCallReturnType(
+        CallExpression call,
+        IReadOnlyDictionary<string, Type> parameterClrTypes)
+    {
+        if (call.Callee is not MemberAccessExpression memberAccess
+            || call.Arguments.Count != 0
+            || (call.TypeArguments != null && call.TypeArguments.Count != 0))
+        {
+            return GetExpressionType(call);
+        }
+
+        var receiverType = GetExpressionTreeNodeClrType(memberAccess.Object, parameterClrTypes);
+        var method = ResolveRuntimeMethod(
+            receiverType,
+            memberAccess.MemberName,
+            BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance,
+            Type.EmptyTypes);
+        return method?.ReturnType ?? GetExpressionType(call);
+    }
+
+    private static bool IsExpressionTreeConstantLiteral(Expression expression)
+        => expression is IntLiteralExpression
+            or FloatLiteralExpression
+            or CharLiteralExpression
+            or StringLiteralExpression
+            or BoolLiteralExpression
+            or NullLiteralExpression;
+
+    private static string GetExpressionTreeBinaryMethodName(BinaryOperator binaryOperator)
+        => binaryOperator switch
+        {
+            BinaryOperator.Add => nameof(System.Linq.Expressions.Expression.Add),
+            BinaryOperator.Subtract => nameof(System.Linq.Expressions.Expression.Subtract),
+            BinaryOperator.Multiply => nameof(System.Linq.Expressions.Expression.Multiply),
+            BinaryOperator.Divide => nameof(System.Linq.Expressions.Expression.Divide),
+            BinaryOperator.Equal => nameof(System.Linq.Expressions.Expression.Equal),
+            BinaryOperator.NotEqual => nameof(System.Linq.Expressions.Expression.NotEqual),
+            BinaryOperator.Less => nameof(System.Linq.Expressions.Expression.LessThan),
+            BinaryOperator.LessOrEqual => nameof(System.Linq.Expressions.Expression.LessThanOrEqual),
+            BinaryOperator.Greater => nameof(System.Linq.Expressions.Expression.GreaterThan),
+            BinaryOperator.GreaterOrEqual => nameof(System.Linq.Expressions.Expression.GreaterThanOrEqual),
+            BinaryOperator.And => nameof(System.Linq.Expressions.Expression.AndAlso),
+            BinaryOperator.Or => nameof(System.Linq.Expressions.Expression.OrElse),
+            _ => throw new NotSupportedException($"Expression-tree binary operator '{binaryOperator}' is not supported by the IL backend yet")
+        };
 
     private Type ResolveExpressionTreeMemberType(
         MemberAccessExpression memberAccess,
@@ -1501,9 +1650,28 @@ public partial class ILCompiler
 
         EmitRuntimeTypeOf(method.DeclaringType ?? throw new InvalidOperationException("Method has no declaring type"));
         _currentIL.Emit(OpCodes.Ldstr, method.Name);
+        EmitRuntimeTypeArray(method.GetParameters().Select(parameter => parameter.ParameterType).ToArray());
         _currentIL.Emit(OpCodes.Callvirt, typeof(Type).GetMethod(
             nameof(Type.GetMethod),
-            new[] { typeof(string) })!);
+            new[] { typeof(string), typeof(Type[]) })!);
+    }
+
+    private void EmitRuntimeTypeArray(Type[] types)
+    {
+        if (_currentIL == null)
+        {
+            throw new InvalidOperationException("No IL generator context");
+        }
+
+        _currentIL.Emit(OpCodes.Ldc_I4, types.Length);
+        _currentIL.Emit(OpCodes.Newarr, typeof(Type));
+        for (int i = 0; i < types.Length; i++)
+        {
+            _currentIL.Emit(OpCodes.Dup);
+            _currentIL.Emit(OpCodes.Ldc_I4, i);
+            EmitRuntimeTypeOf(types[i]);
+            _currentIL.Emit(OpCodes.Stelem_Ref);
+        }
     }
 
     private static MethodInfo ResolveExpressionParameterMethod()
@@ -1523,6 +1691,24 @@ public partial class ILCompiler
             nameof(System.Linq.Expressions.Expression.Convert),
             new[] { typeof(System.Linq.Expressions.Expression), typeof(Type) })
         ?? throw new InvalidOperationException("Could not resolve Expression.Convert(Expression, Type)");
+
+    private static MethodInfo ResolveExpressionConstantMethod()
+        => typeof(System.Linq.Expressions.Expression).GetMethod(
+            nameof(System.Linq.Expressions.Expression.Constant),
+            new[] { typeof(object), typeof(Type) })
+        ?? throw new InvalidOperationException("Could not resolve Expression.Constant(object, Type)");
+
+    private static MethodInfo ResolveBinaryExpressionMethod(string methodName)
+        => typeof(System.Linq.Expressions.Expression).GetMethod(
+            methodName,
+            new[] { typeof(System.Linq.Expressions.Expression), typeof(System.Linq.Expressions.Expression) })
+        ?? throw new InvalidOperationException($"Could not resolve Expression.{methodName}(Expression, Expression)");
+
+    private static MethodInfo ResolveExpressionCallMethod()
+        => typeof(System.Linq.Expressions.Expression).GetMethod(
+            nameof(System.Linq.Expressions.Expression.Call),
+            new[] { typeof(System.Linq.Expressions.Expression), typeof(MethodInfo), typeof(System.Linq.Expressions.Expression[]) })
+        ?? throw new InvalidOperationException("Could not resolve Expression.Call(Expression, MethodInfo, Expression[])");
 
     private static MethodInfo ResolveExpressionNewMethod()
         => typeof(System.Linq.Expressions.Expression).GetMethod(

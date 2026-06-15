@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Queryable expression-tree lambdas align with lowering
+
+Expression-tree lambdas now reject block bodies during semantic analysis, including reflection-bound
+`Queryable` calls where overload resolution unwraps the delegate signature before final validation.
+The IL expression-tree builder also covers the accepted queryable predicate/projection shape:
+literals, binary comparison/arithmetic/logical nodes, zero-argument instance calls such as
+`x.ToString()`, and overload-exact `MethodInfo` emission. `Queryable.Where(...).Select(...)` now has
+an executable IL regression pin instead of relying on a backend unsupported-case throw.
+
 ## 2026-06-15 — List patterns require indexable targets before lowering
 
 List-pattern analysis now matches the IL contract: arrays and indexable collection targets with a

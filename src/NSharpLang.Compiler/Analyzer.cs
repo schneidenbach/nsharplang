@@ -12092,7 +12092,10 @@ public class Analyzer : IDisposable
             if (expectedSignature == null)
                 return null;
 
-            var lambdaType = AnalyzeLambda(lambda, expectedSignature);
+            var lambdaType = AnalyzeLambda(
+                lambda,
+                expectedSignature,
+                isExpressionTreeTarget: IsExpressionTreeLambdaTarget(boundArgument.OpenParameterType));
             var lambdaDelegateType = TryConstructDelegateType(lambdaType);
             if (lambdaDelegateType != null)
             {
@@ -12256,7 +12259,10 @@ public class Analyzer : IDisposable
             if (expectedSignature == null)
                 return false;
 
-            var lambdaArgumentType = AnalyzeLambda(lambda, expectedSignature);
+            var lambdaArgumentType = AnalyzeLambda(
+                lambda,
+                expectedSignature,
+                isExpressionTreeTarget: IsExpressionTreeLambdaTarget(supplied.OpenParameterType));
             validatedArgumentTypes.Add(lambdaArgumentType);
             return true;
         }
@@ -13752,9 +13758,14 @@ public class Analyzer : IDisposable
         };
     }
 
-    private FunctionTypeInfo AnalyzeLambda(LambdaExpression lambda, TypeInfo? expectedType = null, bool reportInferenceFailure = true)
+    private FunctionTypeInfo AnalyzeLambda(
+        LambdaExpression lambda,
+        TypeInfo? expectedType = null,
+        bool reportInferenceFailure = true,
+        bool isExpressionTreeTarget = false)
     {
         var expectedSignature = GetFunctionSignature(expectedType);
+        var targetsExpressionTree = isExpressionTreeTarget || IsExpressionTreeLambdaTarget(expectedType);
         PushScope(new Scope(ScopeKind.Function), lambda.Line, lambda.Column);
         var parameterTypes = new List<TypeInfo>();
         var reportedParameterInferenceFailure = false;
@@ -13807,6 +13818,11 @@ public class Analyzer : IDisposable
         }
         else if (lambda.BlockBody != null)
         {
+            if (targetsExpressionTree)
+            {
+                ReportExpressionTreeBlockLambdaIfNeeded(lambda);
+            }
+
             var previousReturnType = _currentReturnType;
             var previousFunction = _currentFunction;
             var previousFunctionReturnTypeWasOmitted = _currentFunctionReturnTypeWasOmitted;
@@ -13857,6 +13873,43 @@ public class Analyzer : IDisposable
         };
     }
 
+    private bool IsExpressionTreeLambdaTarget(TypeInfo? expectedType)
+    {
+        if (expectedType == null)
+            return false;
+
+        var resolvedExpectedType = ResolveTypeAlias(expectedType);
+        if (resolvedExpectedType is ReflectionTypeInfo reflectionType)
+            return IsExpressionTreeLambdaTarget(reflectionType.Type);
+
+        var clrType = TryConvertTypeInfoToClrType(resolvedExpectedType);
+        return clrType != null && IsExpressionTreeLambdaTarget(clrType);
+    }
+
+    private static bool IsExpressionTreeLambdaTarget(Type type)
+        => TryGetExpressionTreeDelegateType(type, out _);
+
+    private void ReportExpressionTreeBlockLambdaIfNeeded(LambdaExpression lambda)
+    {
+        const string message = "Expression-tree lambdas must use an expression body; block bodies are not supported";
+        if (_errors.Any(error =>
+                error.Code == ErrorCode.FeatureNotImplemented
+                && error.Line == lambda.Line
+                && error.Column == lambda.Column
+                && error.Message == message))
+        {
+            return;
+        }
+
+        Error(
+            ErrorCode.FeatureNotImplemented,
+            message,
+            lambda.Line,
+            lambda.Column,
+            "Use 'x => expression' for expression-tree targets, or assign the block lambda to a delegate type such as Func or Action.",
+            GetTokenLength(lambda.Line, lambda.Column));
+    }
+
     private FunctionTypeInfo? GetFunctionSignature(TypeInfo? expectedType)
     {
         if (expectedType == null)
@@ -13867,14 +13920,17 @@ public class Analyzer : IDisposable
         if (resolvedExpectedType is FunctionTypeInfo functionType)
             return functionType;
 
-        if (resolvedExpectedType is ReflectionTypeInfo reflectionType && IsDelegateType(reflectionType.Type))
+        if (resolvedExpectedType is ReflectionTypeInfo reflectionType
+            && (IsDelegateType(reflectionType.Type) || IsExpressionTreeLambdaTarget(reflectionType.Type)))
+        {
             return CreateFunctionTypeInfoFromDelegate(reflectionType.Type);
+        }
 
         // Handle generic delegate types (Func<int, int>, Action<string>) from N# declarations
         if (resolvedExpectedType is GenericTypeInfo)
         {
             var clrType = TryConvertTypeInfoToClrType(resolvedExpectedType);
-            if (clrType != null && IsDelegateType(clrType))
+            if (clrType != null && (IsDelegateType(clrType) || IsExpressionTreeLambdaTarget(clrType)))
                 return CreateFunctionTypeInfoFromDelegate(clrType);
         }
 
