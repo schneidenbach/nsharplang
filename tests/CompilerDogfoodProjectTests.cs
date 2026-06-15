@@ -2339,7 +2339,7 @@ class B
     // Stage 4c -- the columnar codegen PARITY ORACLE. The Stage-4 emitter is verified not against
     // hand-written expected constants (that only proves self-consistency) but against the
     // AUTHORITATIVE production C# ILCompiler: the SAME N# source is compiled by BOTH the columnar
-    // path (TryEmitColumnarProgram) and the C# AST path, then each emitted method is invoked over a
+    // path (ColumnarCompiler.TryEmitProgram) and the C# AST path, then each emitted method is invoked over a
     // spread of inputs -- including negatives, zero, ordering boundaries for comparisons, and
     // overflow extremes -- and the results MUST be identical. This is the acceptance gate every
     // future codegen-routing slice must clear: it proves the columnar IL is semantically equivalent
@@ -8637,9 +8637,9 @@ class B
 
     private static (bool Ok, byte[]? Assembly, string? TypeName, string[]? MethodNames) RouteColumnarProgram(string source)
     {
-        var adapterType = typeof(Parser).Assembly.GetType("NSharpLang.Compiler.NSharpCompilerDogfoodAdapter")
-            ?? throw new InvalidOperationException("Compiler dogfood adapter type was not emitted.");
-        var method = adapterType.GetMethod("TryEmitColumnarProgram", BindingFlags.Static | BindingFlags.NonPublic,
+        var compilerType = typeof(Parser).Assembly.GetType("NSharpLang.Compiler.Columnar.ColumnarCompiler")
+            ?? throw new InvalidOperationException("Columnar compiler type was not emitted.");
+        var method = compilerType.GetMethod("TryEmitProgram", BindingFlags.Static | BindingFlags.NonPublic,
             new[]
             {
                 typeof(string),
@@ -8649,7 +8649,7 @@ class B
                 typeof(string).MakeByRefType(),
                 typeof(string[]).MakeByRefType(),
             })
-            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryEmitColumnarProgram.");
+            ?? throw new InvalidOperationException("Columnar compiler did not emit TryEmitProgram.");
         var args = new object?[] { source, "ColumnarProgram", "ColumnarProgram", null, null, null };
         var ok = (bool)(method.Invoke(null, args) ?? false);
         return (ok, (byte[]?)args[3], (string?)args[4], (string[]?)args[5]);
@@ -8676,10 +8676,10 @@ class B
 
     private static (bool Ok, byte[]? Assembly, string? TypeName, string[]? MethodNames) RouteColumnarMultiFile(string[] sources)
     {
-        var adapterType = typeof(Parser).Assembly.GetType("NSharpLang.Compiler.NSharpCompilerDogfoodAdapter")
-            ?? throw new InvalidOperationException("Compiler dogfood adapter type was not emitted.");
-        var method = adapterType.GetMethod("TryEmitColumnarProgramMultiFile", BindingFlags.Static | BindingFlags.NonPublic)
-            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryEmitColumnarProgramMultiFile.");
+        var compilerType = typeof(Parser).Assembly.GetType("NSharpLang.Compiler.Columnar.ColumnarCompiler")
+            ?? throw new InvalidOperationException("Columnar compiler type was not emitted.");
+        var method = compilerType.GetMethod("TryEmitProgramMultiFile", BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Columnar compiler did not emit TryEmitProgramMultiFile.");
         var args = new object?[] { sources, "ColumnarMultiFile", "ColumnarMultiFile", null, null, null };
         var ok = (bool)(method.Invoke(null, args) ?? false);
         return (ok, (byte[]?)args[3], (string?)args[4], (string[]?)args[5]);

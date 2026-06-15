@@ -139,43 +139,7 @@ internal static class NSharpCompilerDogfoodAdapter
             && string.CompareOrdinal(source, start, expected, 0, expected.Length) == 0;
     }
 
-    // Production-facing standalone columnar backend (Stage 5 routing): emit EVERY top-level function into an
-    // assembly named `assemblyName` and type `typeName` directly from columnar tables, with NO C# AST. The
-    // MultiFileCompiler uses this default-on route to produce a drop-in replacement for the C# ILCompiler's
-    // output — assembly name + type "Program" matching the C# path — for the systems subset it models, falling
-    // back to the C# path on decline.
-    internal static bool TryEmitColumnarProgram(string source, string assemblyName, string typeName, out byte[] assembly, out string emittedTypeName, out string[] methodNames)
-    {
-        assembly = System.Array.Empty<byte>();
-        emittedTypeName = string.Empty;
-        methodNames = System.Array.Empty<string>();
-
-        if (!TryGetColumnarProgramInput(source, out var program))
-            return false;
-        // The columnar emit is a best-effort, DECLINE-on-failure optimization: it must never throw a hard error the
-        // authoritative C# path would not. Any unexpected emit exception (e.g. a Reflection.Emit limitation on a
-        // not-yet-fully-modelled type shape) is caught here and declines → C# fallback, matching the try/catch the
-        // collection helpers already use. A supported program that wrongly declines is caught by the parity tests
-        // (which assert Ok == true), so this net cannot silently hide a regression from the gate.
-        try
-        {
-            if (!Columnar.ColumnarIlEmitter.TryEmitColumnarAssembly(assemblyName, typeName, program, out assembly))
-                return false;
-        }
-        catch
-        {
-            assembly = System.Array.Empty<byte>();
-            return false;
-        }
-
-        emittedTypeName = typeName;
-        methodNames = new string[program.Functions.Count];
-        for (var i = 0; i < program.Functions.Count; i++)
-            methodNames[i] = program.Functions[i].Name;
-        return true;
-    }
-
-    private static bool TryGetColumnarProgramInput(string source, out Columnar.ColumnarProgramInput program)
+    internal static bool TryGetColumnarProgramInput(string source, out Columnar.ColumnarProgramInput program)
     {
         program = null!;
         var bindings = s_bindings.Value;
@@ -197,35 +161,6 @@ internal static class NSharpCompilerDogfoodAdapter
 
         program = new Columnar.ColumnarProgramInput(source, inputs, enums, structs, unions, interfaceInputs);
         return true;
-    }
-
-    // MULTI-FILE entry for the default-on Stage-5 route. The dogfood compiler-service is a MULTI-FILE
-    // program — a function in one file calls public functions in others (e.g.
-    // ParserFunctionSignatures.ParseFunctionSignatureInto calls ParserTypeReferences.ParseUnionTypeReferenceNode).
-    // A single-file emit cannot resolve such a cross-file call (the callee is not a sibling), so those files
-    // decline even though every construct they use is modelled. This merges the files by concatenating their
-    // sources into ONE columnar program (separated by blank lines so the top-level func scan stays correct);
-    // the unified sibling map built in pass 1 then resolves every cross-file call exactly as the C#
-    // MultiFileCompiler binds declarations across files. The emitted IL for each function body is independent of
-    // how the program is assembled, so the merged program runs identically to the multi-file C# build. Declines
-    // (C# fallback) if any file fails to parse or any function is ineligible. LIMITATIONS (none arise for the
-    // single-package dogfood corpus, which uses unique PascalCase names; refine if they ever do): (1) two files
-    // with a colliding top-level function name decline at the duplicate-name guard rather than being per-file
-    // mangled; (2) concatenation flattens files into one scope, so file-private (camelCase) and cross-PACKAGE
-    // visibility are NOT enforced — a call the C# build would reject across a package boundary could resolve
-    // here. The corpus has no camelCase top-level funcs and is one package, and the multi-file parity oracle
-    // (a genuine separate-file MultiFileCompiler build) would surface any such divergence as a compile failure.
-    internal static bool TryEmitColumnarProgramMultiFile(
-        System.Collections.Generic.IReadOnlyList<string> sources, string assemblyName, string typeName,
-        out byte[] assembly, out string emittedTypeName, out string[] methodNames)
-    {
-        assembly = System.Array.Empty<byte>();
-        emittedTypeName = string.Empty;
-        methodNames = System.Array.Empty<string>();
-        if (sources == null || sources.Count == 0)
-            return false;
-        var combined = string.Join("\n\n", sources);
-        return TryEmitColumnarProgram(combined, assemblyName, typeName, out assembly, out emittedTypeName, out methodNames);
     }
 
     private sealed class ColumnarTokenizedSource

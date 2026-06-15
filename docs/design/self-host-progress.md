@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Columnar emit entry leaves the dogfood adapter
+
+`MultiFileCompiler` now routes the default standalone columnar backend through
+`ColumnarCompiler.TryEmitProgram` / `TryEmitProgramMultiFile` instead of calling
+`NSharpCompilerDogfoodAdapter.TryEmitColumnarProgram*` directly. The new compiler entry owns the
+whole-program emit orchestration and decline-on-emitter-failure behavior.
+
+`NSharpCompilerDogfoodAdapter` still builds `ColumnarProgramInput` from the N# parser/service kernels;
+that is the remaining transition bridge until those kernels are routed directly. This shrinks the
+adapter surface without changing backend semantics or the C# fallback contract.
+
 ## 2026-06-15 — Readonly inherited-field diagnostics respect shadowing
 
 Readonly-field discovery now stops at the nearest member declaration before walking inherited base

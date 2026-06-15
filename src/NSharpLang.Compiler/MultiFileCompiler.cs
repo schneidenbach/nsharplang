@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using NSharpLang.Compiler.Ast;
 using NSharpLang.Compiler.CodeIntelligence;
+using NSharpLang.Compiler.Columnar;
 using NSharpLang.Compiler.ILCompiler;
 using NSharpLang.Compiler.Performance;
 using NSharpLang.Compiler.SourceGenerators;
@@ -1009,11 +1010,11 @@ public class MultiFileCompiler
     // Try to emit the whole assembly via the standalone columnar backend (no C# AST). The assembly is
     // `assemblyName` and the type is "Program", matching the C# ILCompiler's output so the result is a drop-in
     // replacement. A SINGLE source routes through the single-file entry; MULTIPLE sources route through the
-    // multi-file merge (`TryEmitColumnarProgramMultiFile`), which unifies the files into one columnar program so
-    // cross-file public calls resolve exactly as the C# binder resolves declarations across files. Returns false
-    // (-> fall back to the C# ILCompiler) when there are no files, a source text is unavailable, or the backend
-    // declines any function (a construct outside the systems subset it models). The program has already been
-    // parsed and analyzed by this point, so the columnar backend only does codegen on validated input.
+    // multi-file merge, which unifies the files into one columnar program so cross-file public calls resolve
+    // exactly as the C# binder resolves declarations across files. Returns false (-> fall back to the C#
+    // ILCompiler) when there are no files, a source text is unavailable, or the backend declines any function
+    // (a construct outside the systems subset it models). The program has already been parsed and analyzed by
+    // this point, so the columnar backend only does codegen on validated input.
     private bool TryEmitWithColumnarBackend(string assemblyName, string outputPath)
     {
         if (_sourceFiles.Count == 0)
@@ -1031,8 +1032,8 @@ public class MultiFileCompiler
 
         byte[] assembly;
         bool emitted = sources.Count == 1
-            ? NSharpCompilerDogfoodAdapter.TryEmitColumnarProgram(sources[0], assemblyName, "Program", out assembly, out _, out _)
-            : NSharpCompilerDogfoodAdapter.TryEmitColumnarProgramMultiFile(sources, assemblyName, "Program", out assembly, out _, out _);
+            ? ColumnarCompiler.TryEmitProgram(sources[0], assemblyName, "Program", out assembly, out _, out _)
+            : ColumnarCompiler.TryEmitProgramMultiFile(sources, assemblyName, "Program", out assembly, out _, out _);
         if (!emitted)
             return false;
         File.WriteAllBytes(outputPath, assembly);

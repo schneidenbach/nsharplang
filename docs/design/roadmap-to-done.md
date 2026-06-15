@@ -232,12 +232,14 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       `NSHARP_COLUMNAR_BACKEND=0` opt-out; remaining self-host work is columnar-owned analysis and the Stage 6
       C# surface shrink.
 - [~] **Stage 6 — delete C#.** Remove the C# binder/analyzer/codegen paths the columnar pipeline replaces;
-      shrink/remove the `*DogfoodAdapter` bridges. Track C# LOC deleted. **Current cursor (2026-06-13):**
+      shrink/remove the `*DogfoodAdapter` bridges. Track C# LOC deleted. **Current cursor (2026-06-15):**
       route-all/default-on has landed, including the Phase-P vectorization port and IF-2 residuals; the C#
       backend remains as the explicit `NSHARP_COLUMNAR_BACKEND=0/false` fallback and as the parity oracle.
       The active blocker is no longer rich-language route coverage. It is replacing transition-era C# surface
       only where columnar ownership is complete, and proving the emitter-port table model before moving hot
-      compiler tables. The SoA table-type design gate is complete in [`soa-table-types.md`](soa-table-types.md);
+      compiler tables. The production emit entry has moved from `NSharpCompilerDogfoodAdapter.TryEmitColumnarProgram*`
+      to `ColumnarCompiler.TryEmitProgram*`; the adapter now only bridges N# parser/service kernels into
+      `ColumnarProgramInput` for this route. The SoA table-type design gate is complete in [`soa-table-types.md`](soa-table-types.md);
       non-generic `soa record` parsing/lowering and the cold overload-candidate fixture are in place behind
       `NSHARP_EXPERIMENTAL_SOA=1`. Next slices should either shrink redundant adapter/C# transition surface
       or migrate the next compiler table only when the wrapper ABI/lowering evidence is present.
