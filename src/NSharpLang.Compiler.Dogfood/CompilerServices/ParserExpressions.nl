@@ -285,15 +285,11 @@ func ParseNotPatternNode(tokens: &ParserTokenTable, count: int, st: &ParserState
 // token in the value span, 1 child = the operand primary). Otherwise an ordinary primary. (`>=` is one token, so
 // there is no `>`-split here.)
 func ParseRelationalPatternNode(tokens: &ParserTokenTable, count: int, st: &ParserState, argStack: &ParserArgumentStack, nodes: &ParserExpressionNodeTable, children: &ParserChildIndexTable, depth: int): int {
-    tokenKinds := tokens.Kinds
-    tokenStarts := tokens.Starts
-    tokenValueLengths := tokens.ValueLengths
-    argStackValues := argStack.Values
     if st.Pos < count {
-        relTok := tokenKinds[st.Pos]
+        relTok := tokens.Kinds[st.Pos]
         if relTok == 100 || relTok == 101 || relTok == 102 || relTok == 103 {
-            relOpStart := tokenStarts[st.Pos]
-            relOpLen := tokenValueLengths[st.Pos]
+            relOpStart := tokens.Starts[st.Pos]
+            relOpLen := tokens.ValueLengths[st.Pos]
             st.Pos = st.Pos + 1
             relOperand := ParsePrimaryExpressionNode(ref tokens, count, ref st, ref argStack, ref nodes, ref children, depth + 1)
             if relOperand < 0 {
@@ -322,41 +318,41 @@ func ParseRelationalPatternNode(tokens: &ParserTokenTable, count: int, st: &Pars
     // (`{ field: <pat> }`) declines here (the `:` after a binding is neither `,` nor `}` -> -1), so the whole
     // program falls back to the C# pipeline. The emitter (case 37) resolves the case, `isinst`-tests it, and binds
     // each named field to a local.
-    if nodes.Kinds[leaf] == 8 && st.Pos < count && tokenKinds[st.Pos] == 129 {
+    if nodes.Kinds[leaf] == 8 && st.Pos < count && tokens.Kinds[st.Pos] == 129 {
         st.Pos = st.Pos + 1
         caseArgBase := st.ArgStackTop
-        argStackValues[st.ArgStackTop] = leaf
+        argStack.Values[st.ArgStackTop] = leaf
         st.ArgStackTop = st.ArgStackTop + 1
-        while st.Pos < count && tokenKinds[st.Pos] != 130 {
-            if tokenKinds[st.Pos] != 0 {
+        while st.Pos < count && tokens.Kinds[st.Pos] != 130 {
+            if tokens.Kinds[st.Pos] != 0 {
                 st.ArgStackTop = caseArgBase
                 return -1
             }
-            bindStart := tokenStarts[st.Pos]
-            bindLen := tokenValueLengths[st.Pos]
+            bindStart := tokens.Starts[st.Pos]
+            bindLen := tokens.ValueLengths[st.Pos]
             st.Pos = st.Pos + 1
             bindNode := EmitExpressionNode(ref st, ref nodes, 6, bindStart, bindLen, -1, 0, bindStart, bindLen)
-            argStackValues[st.ArgStackTop] = bindNode
+            argStack.Values[st.ArgStackTop] = bindNode
             st.ArgStackTop = st.ArgStackTop + 1
-            if st.Pos < count && tokenKinds[st.Pos] != 130 {
-                if tokenKinds[st.Pos] != 134 {
+            if st.Pos < count && tokens.Kinds[st.Pos] != 130 {
+                if tokens.Kinds[st.Pos] != 134 {
                     st.ArgStackTop = caseArgBase
                     return -1
                 }
                 st.Pos = st.Pos + 1
             }
         }
-        if st.Pos >= count || tokenKinds[st.Pos] != 130 {
+        if st.Pos >= count || tokens.Kinds[st.Pos] != 130 {
             st.ArgStackTop = caseArgBase
             return -1
         }
-        caseEnd := tokenStarts[st.Pos] + tokenValueLengths[st.Pos]
+        caseEnd := tokens.Starts[st.Pos] + tokens.ValueLengths[st.Pos]
         st.Pos = st.Pos + 1
         caseChildCount := st.ArgStackTop - caseArgBase
         caseChildRun := st.ChildCursor
         caseArg := caseArgBase
         while caseArg < st.ArgStackTop {
-            AppendExpressionChild(ref st, ref children, argStackValues[caseArg])
+            AppendExpressionChild(ref st, ref children, argStack.Values[caseArg])
             caseArg = caseArg + 1
         }
         st.ArgStackTop = caseArgBase

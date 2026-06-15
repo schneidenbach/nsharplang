@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Relational pattern parser keeps tables shaped
+
+`ParseRelationalPatternNode` now reads relational-pattern and union-case property-pattern token
+columns through `ParserTokenTable` and keeps property binding child ids behind `ParserArgumentStack`.
+The primary and postfix expression cores remain the next large parser cleanup targets. Focused
+evidence: `./scripts/dev.sh Parser_Expression_MatchesProductionParser` and
+`./scripts/dev.sh ColumnarCodegen_MultiFile_RealParserCluster`.
+
 ## 2026-06-15 — Expression small pattern helpers keep token tables shaped
 
 `IsGenericCallTypeArgs`, `ParseOrPatternNode`, `ParseAndPatternNode`, and `ParseNotPatternNode`
