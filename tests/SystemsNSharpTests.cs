@@ -3055,6 +3055,24 @@ func Run(): int {
     }
 
     [Fact]
+    public void StackallocExpression_AliasedSmallIntegerLength_CompilesAndRuns()
+    {
+        var result = CompileAndInvoke("""
+import System
+
+type Count = short
+
+func Run(): int {
+    count: Count = 12
+    scratch := stackalloc byte[count]
+    return scratch.Length
+}
+""", "Run");
+
+        Assert.Equal(12, result);
+    }
+
+    [Fact]
     public void StackallocExpression_LongTypedLength_IsNormalizedToInt32()
     {
         // Verifiability backstop pin: the analyzer rejects long lengths up front (NL202), but a

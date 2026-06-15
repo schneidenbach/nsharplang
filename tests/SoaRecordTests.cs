@@ -6553,6 +6553,20 @@ public class SoaRecordTests : ILCompilerTestBase
                     kind: int
                 }
 
+                type SmallCount = short
+
+                func bad(nodes: NodeTable) {
+                    nodes.ensureCapacity((SmallCount)-1)
+                }
+                """,
+                Message: "SoA table capacity must not be negative",
+                Suggestion: "ensureCapacity expects a non-negative int argument"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
                 func bad(nodes: NodeTable) {
                     nodes.copyRow(from: checked((short)-1), to: 0)
                 }

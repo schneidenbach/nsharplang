@@ -13221,15 +13221,18 @@ public class Analyzer : IDisposable
     /// int itself plus the smaller integer types. long/uint/ulong, floating point, and
     /// non-numeric types require an explicit conversion.
     /// </summary>
-    private static bool IsImplicitlyIntStackAllocLength(TypeInfo type)
-        => type == BuiltInTypes.Int
-           || type == BuiltInTypes.Short
-           || type == BuiltInTypes.SByte
-           || type == BuiltInTypes.Byte
-           || type == BuiltInTypes.UShort
-           || type == BuiltInTypes.Char;
+    private bool IsImplicitlyIntStackAllocLength(TypeInfo type)
+    {
+        type = ResolveTypeAlias(type);
+        return type == BuiltInTypes.Int
+               || type == BuiltInTypes.Short
+               || type == BuiltInTypes.SByte
+               || type == BuiltInTypes.Byte
+               || type == BuiltInTypes.UShort
+               || type == BuiltInTypes.Char;
+    }
 
-    private static bool IsConstantNegative(Expression expression)
+    private bool IsConstantNegative(Expression expression)
     {
         while (true)
         {
@@ -13252,7 +13255,7 @@ public class Analyzer : IDisposable
             && magnitude != 0;
     }
 
-    private static bool TryGetUnsignedIntegerMagnitude(Expression expression, out ulong magnitude)
+    private bool TryGetUnsignedIntegerMagnitude(Expression expression, out ulong magnitude)
     {
         while (true)
         {
@@ -13276,8 +13279,19 @@ public class Analyzer : IDisposable
         return false;
     }
 
-    private static bool IsSignedIntegerCast(TypeReference type)
-        => type is SimpleTypeReference { Name: "int" or "short" or "sbyte" };
+    private bool IsSignedIntegerCast(TypeReference type)
+    {
+        if (type is not SimpleTypeReference simple)
+            return false;
+
+        if (simple.Name is "int" or "short" or "sbyte")
+            return true;
+
+        var resolved = ResolveTypeAlias(LookupType(simple.Name) ?? BuiltInTypes.Unknown);
+        return resolved == BuiltInTypes.Int
+               || resolved == BuiltInTypes.Short
+               || resolved == BuiltInTypes.SByte;
+    }
 
     /// <summary>
     /// The static type of a union case construction (new Union.Case { ... }). For a

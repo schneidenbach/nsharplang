@@ -9694,6 +9694,20 @@ func Scratch(b: byte, s: short, c: char): int {
     }
 
     [Fact]
+    public void StackAlloc_AliasedSmallIntLength_Accepted()
+    {
+        var result = Analyze(@"
+type Count = short
+
+func Scratch(count: Count): int {
+    scratch := stackalloc byte[count]
+    return scratch.Length
+}");
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.UndefinedVariable);
+    }
+
+    [Fact]
     public void StackAlloc_NegativeConstantLength_Rejected()
     {
         var error = AssertHasErrorCode(@"
@@ -9721,6 +9735,19 @@ func Scratch(): int {
         var error = AssertHasErrorCode(@"
 func Scratch(): int {
     scratch := stackalloc byte[unchecked(-(1))]
+    return scratch.Length
+}", ErrorCode.TypeMismatch);
+        Assert.Contains("must not be negative", error.Message);
+    }
+
+    [Fact]
+    public void StackAlloc_AliasedSignedCastNegativeConstantLength_Rejected()
+    {
+        var error = AssertHasErrorCode(@"
+type Count = short
+
+func Scratch(): int {
+    scratch := stackalloc byte[(Count)-1]
     return scratch.Length
 }", ErrorCode.TypeMismatch);
         Assert.Contains("must not be negative", error.Message);

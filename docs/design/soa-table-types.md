@@ -69,8 +69,9 @@ column plus `length`, so named calls such as `NodeTable.wrap(length: n, kind: ki
 semantically, including target-typed argument inference; negative literal `length` values are
 rejected during analysis. Generated `int` parameters on `wrap`, `ensureCapacity`, and `copyRow`
 accept the same implicit small-integer widening as ordinary calls, with analyzer-known small signed
-negative literals rejected before emission. Target-typed `default` is not a construction form for SoA
-tables because it would produce a CLR wrapper value with null backing column arrays; use
+negative literals, including aliases to signed small integer types, rejected before emission.
+Target-typed `default` is not a construction form for SoA tables because it would produce a CLR
+wrapper value with null backing column arrays; use
 `new Table(capacity)` or `Table.wrap(...)` instead. Target-typed `new()` without the required capacity
 argument is rejected the same way as `new Table()`, including when the expected table type comes from
 a typed local, return, expression-bodied function/local function, call argument, default parameter

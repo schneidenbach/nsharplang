@@ -739,12 +739,14 @@ Rules:
 - The length expression receives full semantic analysis like any other
   expression: undefined names are NL301, the type must be `int` (or a smaller
   integer type that widens implicitly: `byte`, `sbyte`, `short`, `ushort`,
-  `char` — `long`/`uint`/floating point/non-numeric types are NL202 and need
-  an explicit `(int)` cast), and a constant negative length is rejected. The
+  `char`, including aliases to those types — `long`/`uint`/floating
+  point/non-numeric types are NL202 and need an explicit `(int)` cast), and a
+  constant negative length is rejected. The
   systems stack-budget checker treats parentheses, checked/unchecked wrappers,
   and int-like casts around literal lengths as the same statically bounded
   value, so `checked((int)64)` is budgeted and `unchecked(-(1))` is reported as
-  negative rather than "not statically bounded."
+  negative rather than "not statically bounded." Aliases to signed int-like
+  casts are treated the same way for negative-literal diagnostics.
   These checks hold in every policy, including `[boundary]` functions and
   audit mode where the NSYS080 budget gate downgrades to a warning.
 - The length must be statically bounded by a project-configurable stack budget

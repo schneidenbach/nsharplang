@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Systems integer aliases participate in count diagnostics
+
+Analyzer count validation now resolves type aliases before deciding whether a `stackalloc` length
+implicitly widens to `int`, and the shared constant-negative helper unwraps casts through aliases to
+signed int-like types. This keeps aliases such as `type Count = short` on the accepted product path
+for stack allocation while still rejecting `(Count)-1` in stackalloc and generated SoA operation
+counts before IL emission.
+
 ## 2026-06-15 — Generated SoA operation int widening is IL-pinned
 
 The accepted side of generated SoA operation arguments now has explicit IL execution coverage:
