@@ -123,6 +123,10 @@ public class CompilerDogfoodProjectTests
                     "ParseInterfaceDeclarationInfoInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit ParseInterfaceDeclarationInfoInto.");
+            var parseInterfaceDeclarationSignatureInfo = programType.GetMethod(
+                    "ParseInterfaceDeclarationSignatureInfoInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit ParseInterfaceDeclarationSignatureInfoInto.");
             var parseStructDeclaration = programType.GetMethod(
                     "ParseStructDeclarationInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -268,10 +272,34 @@ interface IReadable: IBase, IOther {
                 "IReadable",
                 new[] { "IBase", "IOther" },
                 2,
+                new[] { "Read", "Reset" },
+                new[] { "string", "void" },
+                new[] { new[] { "id" }, Array.Empty<string>() },
+                new[] { new[] { "int" }, Array.Empty<string>() },
+                new[] { 0, 1 },
                 tokenizeWithIndentation,
                 parseInterfaceDeclaration,
                 parseInterfaceDeclarationInfo,
+                parseInterfaceDeclarationSignatureInfo,
                 "interface name/base text info");
+            AssertInterfaceDeclarationSignatureInfoDeclines(
+                """
+interface IBad {
+    func Pair(): (x: int, y: int)
+}
+""",
+                tokenizeWithIndentation,
+                parseInterfaceDeclarationSignatureInfo,
+                "named tuple return");
+            AssertInterfaceDeclarationSignatureInfoDeclines(
+                """
+interface IBad {
+    func Generic<T>(value: T): T
+}
+""",
+                tokenizeWithIndentation,
+                parseInterfaceDeclarationSignatureInfo,
+                "generic interface method");
             AssertStructDeclarationInfo(
                 """
 class Pair<T> {
@@ -1113,11 +1141,23 @@ class B
         string expectedInterfaceName,
         string[] expectedBaseNames,
         int expectedMethodCount,
+        string[] expectedMethodNames,
+        string[] expectedMethodReturns,
+        string[][] expectedMethodParamNames,
+        string[][] expectedMethodParamTypes,
+        int[] expectedMethodBodyFlags,
         MethodInfo tokenizeWithIndentation,
         MethodInfo parseInterfaceDeclaration,
         MethodInfo parseInterfaceDeclarationInfo,
+        MethodInfo parseInterfaceDeclarationSignatureInfo,
         string label)
     {
+        Assert.Equal(expectedMethodCount, expectedMethodNames.Length);
+        Assert.Equal(expectedMethodCount, expectedMethodReturns.Length);
+        Assert.Equal(expectedMethodCount, expectedMethodParamNames.Length);
+        Assert.Equal(expectedMethodCount, expectedMethodParamTypes.Length);
+        Assert.Equal(expectedMethodCount, expectedMethodBodyFlags.Length);
+
         var (count, kinds, starts, valueLengths, compactedSource) = TokenizeSourceViaKernel(source, tokenizeWithIndentation);
         var interfaceIndex = FirstTokenIndex(kinds, count, (int)TokenType.Interface);
         Assert.True(interfaceIndex >= 0, $"Could not locate interface token for {label}.");
@@ -1166,24 +1206,125 @@ class B
                 result
             }) ?? -2);
 
+        var signatureMethodFuncIndices = new int[cap];
+        var signatureBaseNameStarts = new int[cap];
+        var signatureBaseNameLengths = new int[cap];
+        var signatureBaseNameTexts = new string[cap];
+        var signatureInterfaceNameTexts = new string[1];
+        var methodNameTexts = new string[cap];
+        var methodReturnTexts = new string[cap];
+        var methodParamCounts = new int[cap];
+        var methodBodyFlags = new int[cap];
+        var methodParamNameTexts = new string[cap];
+        var methodParamTypeTexts = new string[cap];
+        var signatureResult = new int[8];
+        var signatureMethodCount = (int)(parseInterfaceDeclarationSignatureInfo.Invoke(
+            null,
+            new object[]
+            {
+                compactedSource,
+                kinds,
+                starts,
+                valueLengths,
+                count,
+                interfaceIndex,
+                signatureMethodFuncIndices,
+                signatureBaseNameStarts,
+                signatureBaseNameLengths,
+                signatureBaseNameTexts,
+                signatureInterfaceNameTexts,
+                methodNameTexts,
+                methodReturnTexts,
+                methodParamCounts,
+                methodBodyFlags,
+                methodParamNameTexts,
+                methodParamTypeTexts,
+                signatureResult
+            }) ?? -2);
+
         Assert.Equal(expectedMethodCount, spanMethodCount);
         Assert.Equal(spanMethodCount, methodCount);
+        Assert.Equal(methodCount, signatureMethodCount);
         Assert.Equal(spanResult[0], result[0]);
         Assert.Equal(spanResult[1], result[1]);
         Assert.Equal(spanResult[2], result[2]);
+        Assert.Equal(result[0], signatureResult[0]);
+        Assert.Equal(result[1], signatureResult[1]);
+        Assert.Equal(result[2], signatureResult[2]);
         Assert.Equal(expectedInterfaceName, compactedSource.Substring(result[0], result[1]));
         Assert.Equal(expectedInterfaceName, interfaceNameTexts[0]);
+        Assert.Equal(expectedInterfaceName, signatureInterfaceNameTexts[0]);
         Assert.Equal(expectedBaseNames.Length, result[2]);
         for (var b = 0; b < expectedBaseNames.Length; b++)
         {
             Assert.Equal(spanBaseNameStarts[b], baseNameStarts[b]);
             Assert.Equal(spanBaseNameLengths[b], baseNameLengths[b]);
+            Assert.Equal(baseNameStarts[b], signatureBaseNameStarts[b]);
+            Assert.Equal(baseNameLengths[b], signatureBaseNameLengths[b]);
             Assert.Equal(expectedBaseNames[b], compactedSource.Substring(baseNameStarts[b], baseNameLengths[b]));
             Assert.Equal(expectedBaseNames[b], baseNameTexts[b]);
+            Assert.Equal(expectedBaseNames[b], signatureBaseNameTexts[b]);
         }
 
         for (var m = 0; m < expectedMethodCount; m++)
+        {
             Assert.Equal(spanMethodFuncIndices[m], methodFuncIndices[m]);
+            Assert.Equal(methodFuncIndices[m], signatureMethodFuncIndices[m]);
+            Assert.Equal(expectedMethodNames[m], methodNameTexts[m]);
+            Assert.Equal(expectedMethodReturns[m], methodReturnTexts[m]);
+            Assert.Equal(expectedMethodParamNames[m].Length, methodParamCounts[m]);
+            Assert.Equal(expectedMethodBodyFlags[m], methodBodyFlags[m]);
+        }
+
+        var flatCursor = 0;
+        for (var m = 0; m < expectedMethodCount; m++)
+        {
+            Assert.Equal(expectedMethodParamNames[m].Length, expectedMethodParamTypes[m].Length);
+            for (var p = 0; p < expectedMethodParamNames[m].Length; p++)
+            {
+                Assert.Equal(expectedMethodParamNames[m][p], methodParamNameTexts[flatCursor]);
+                Assert.Equal(expectedMethodParamTypes[m][p], methodParamTypeTexts[flatCursor]);
+                flatCursor++;
+            }
+        }
+        Assert.Equal(flatCursor, signatureResult[3]);
+    }
+
+    private static void AssertInterfaceDeclarationSignatureInfoDeclines(
+        string source,
+        MethodInfo tokenizeWithIndentation,
+        MethodInfo parseInterfaceDeclarationSignatureInfo,
+        string label)
+    {
+        var (count, kinds, starts, valueLengths, compactedSource) = TokenizeSourceViaKernel(source, tokenizeWithIndentation);
+        var interfaceIndex = FirstTokenIndex(kinds, count, (int)TokenType.Interface);
+        Assert.True(interfaceIndex >= 0, $"Could not locate interface token for {label}.");
+
+        var cap = count + 1;
+        var actual = (int)(parseInterfaceDeclarationSignatureInfo.Invoke(
+            null,
+            new object[]
+            {
+                compactedSource,
+                kinds,
+                starts,
+                valueLengths,
+                count,
+                interfaceIndex,
+                new int[cap],
+                new int[cap],
+                new int[cap],
+                new string[cap],
+                new string[1],
+                new string[cap],
+                new string[cap],
+                new int[cap],
+                new int[cap],
+                new string[cap],
+                new string[cap],
+                new int[8]
+            }) ?? -2);
+        Assert.Equal(-1, actual);
     }
 
     private static void AssertStructDeclarationInfo(
@@ -9901,7 +10042,7 @@ class B
             "CompletionGrouping.nl", "CompletionReceivers.nl", "DiagnosticClusters.nl", "DiagnosticDeduplication.nl", "DocQuery.nl",
             "FormatterImportOrdering.nl", "IdentifierSpans.nl",
             "LexerTokenKindScanner.nl", "OverloadCandidates.nl", "ParserDeclarations.nl",
-            "ParserExpressions.nl", "ParserFunctionSignatures.nl", "ParserStatements.nl", "ParserTypeReferences.nl",
+            "ParserExpressions.nl", "ParserFunctionSignatures.nl", "ParserInterfaceSignatures.nl", "ParserStatements.nl", "ParserTypeReferences.nl",
             "ProjectSourceFilter.nl", "StructCopyAnalysis.nl",
             "TextEditOrdering.nl", "TypeLookup.nl",
         };
@@ -9910,9 +10051,10 @@ class B
         Assert.True(ok, $"Columnar backend declined the merged {cluster.Length}-file eligible cluster.");
         using var loadScope = CollectibleAssemblyScope.Load(assembly!); // the merged IL is a valid, loadable assembly.
         Assert.NotNull(loadScope.Assembly);
-        // The three files eligible ONLY via cross-file resolution must contribute their public functions —
+        // Files eligible ONLY via cross-file resolution must contribute their public functions —
         // i.e. the merge actually emitted them (single-file each declines; see ColumnarCodegen_MultiFile_*).
         Assert.Contains("ParseFunctionSignatureInto", methodNames!); // ParserFunctionSignatures -> ParserTypeReferences
+        Assert.Contains("ParseInterfaceDeclarationSignatureInfoInto", methodNames!); // ParserInterfaceSignatures -> declarations/signatures/types
         Assert.Contains("ParsePrimaryExpressionNode", methodNames!); // ParserExpressions
         Assert.Contains("ParseStatementNodesInto", methodNames!);    // ParserStatements -> ParserExpressions
     }

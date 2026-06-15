@@ -980,14 +980,11 @@ internal static class NSharpCompilerDogfoodAdapter
         return true;
     }
 
-    // Collect every top-level `interface` declaration into a ColumnarInterfaceInput (name + abstract
-    // method SIGNATURES — names, return canonicals, param names/canonicals). Consumes interface indices from the
-    // nominal declaration rowset, parses the member layout via the
-    // ParseInterfaceDeclarationInfo kernel (method signatures ONLY — default bodies, bare members, properties, and
-    // generics return -1 there; base-interface names are carried as text), then each member's signature via the
-    // shared ParseFunctionSignature kernel.
+    // Collect every top-level `interface` declaration into a ColumnarInterfaceInput. Consumes interface indices from
+    // the nominal declaration rowset and the ParseInterfaceDeclarationSignatureInfo kernel, which returns interface
+    // names, base names, supported member signatures, flat parameter rows, and default-method body flags.
     // Returns true (possibly empty) for a program with no interfaces; FALSE declines the program.
-    // IF-1 declines: generic members, where-clauses, tuple element names on member types.
+    // IF-1 declines in N#: generic members, where-clauses, tuple element names on member types.
     private static bool TryGetColumnarInterfaceInputs(
         Bindings bindings, string source, ColumnarTokenizedSource tokens, int[] interfaceIndices, int interfaceIndexCount,
         out System.Collections.Generic.List<Columnar.ColumnarInterfaceInput> interfaceInputs)
@@ -1009,9 +1006,17 @@ internal static class NSharpCompilerDogfoodAdapter
                 var outBaseNameLengths = new int[cap];
                 var outBaseNameTexts = new string[cap];
                 var outInterfaceNameTexts = new string[1];
+                var outMethodNameTexts = new string[cap];
+                var outMethodReturnTexts = new string[cap];
+                var outMethodParamCounts = new int[cap];
+                var outMethodBodyFlags = new int[cap];
+                var outMethodParamNameTexts = new string[cap];
+                var outMethodParamTypeTexts = new string[cap];
                 var outResult = new int[8];
-                var methodCount = bindings.ParseInterfaceDeclarationInfo(source, ck, cs, cv, n, interfaceIndex,
-                    outMethodFuncIndices, outBaseNameStarts, outBaseNameLengths, outBaseNameTexts, outInterfaceNameTexts, outResult);
+                var methodCount = bindings.ParseInterfaceDeclarationSignatureInfo(source, ck, cs, cv, n, interfaceIndex,
+                    outMethodFuncIndices, outBaseNameStarts, outBaseNameLengths, outBaseNameTexts, outInterfaceNameTexts,
+                    outMethodNameTexts, outMethodReturnTexts, outMethodParamCounts, outMethodBodyFlags,
+                    outMethodParamNameTexts, outMethodParamTypeTexts, outResult);
                 if (methodCount < 0)
                     return false;
                 var interfaceName = outInterfaceNameTexts[0];
@@ -1031,62 +1036,39 @@ internal static class NSharpCompilerDogfoodAdapter
                 var methodParamNames = new string[methodCount][];
                 var methodParamCanonicals = new string[methodCount][];
                 var methodBodies = new Columnar.ColumnarFunctionInput?[methodCount];
+                var flatParamCount = outResult[3];
+                if (flatParamCount < 0)
+                    return false;
+                var paramCursor = 0;
                 for (var m = 0; m < methodCount; m++)
                 {
-                    var sk = new int[cap]; var sns = new int[cap]; var snl = new int[cap]; var scs = new int[cap];
-                    var scc = new int[cap]; var sci = new int[cap]; var sss = new int[cap]; var ssl = new int[cap];
-                    var pNameStart = new int[cap]; var pNameLen = new int[cap]; var pTypeRoot = new int[cap];
-                    var pNameTexts = new string[cap];
-                    var sres = new int[8];
-                    var sTypeParamStarts = new int[cap];
-                    var sTypeParamLengths = new int[cap];
-                    var sTypeParamTexts = new string[cap];
-                    var sWhereNameStarts = new int[cap];
-                    var sWhereNameLengths = new int[cap];
-                    var sWhereNameTexts = new string[cap];
-                    var sWhereItemCodes = new int[cap];
-                    var sFunctionNameTexts = new string[1];
-                    var paramCount = bindings.ParseFunctionSignatureTextInfo(
-                        source, ck, cs, cv, n, outMethodFuncIndices[m], sk, sns, snl, scs, scc, sci, sss, ssl,
-                        pNameStart, pNameLen, pNameTexts, pTypeRoot, sTypeParamStarts, sTypeParamLengths, sTypeParamTexts,
-                        sWhereNameStarts, sWhereNameLengths, sWhereNameTexts, sWhereItemCodes, sFunctionNameTexts, sres);
-                    if (paramCount < 0 || sres[3] < 0)
-                        return false;
-                    if (sres[5] > 0 || sres[7] > 0)
-                        return false; // generic interface members / where-clauses are unmodeled.
-                    var afterSignature = sres[6];
-                    if (afterSignature >= n)
-                        return false;
-                    var methodName = sFunctionNameTexts[0];
+                    var methodName = outMethodNameTexts[m];
                     if (string.IsNullOrEmpty(methodName))
                         return false;
                     methodNames[m] = methodName;
-                    methodReturns[m] = sres[1] >= 0
-                        ? bindings.TypeReferenceCanonicalText(source, sk, sns, snl, scs, scc, sci, sres[1])
-                        : "void";
-                    string[]? returnTupleNames = null;
-                    if (sres[1] >= 0)
-                    {
-                        if (!TryGetTypeReferenceTupleElementNames(bindings, source, sk, sns, snl, scs, scc, sci, sres[1], out returnTupleNames))
-                            return false;
-                    }
-                    if (returnTupleNames != null)
-                        return false; // named-tuple member returns are unmodeled.
+                    var methodReturn = outMethodReturnTexts[m];
+                    if (string.IsNullOrEmpty(methodReturn))
+                        return false;
+                    methodReturns[m] = methodReturn;
+                    var paramCount = outMethodParamCounts[m];
+                    if (paramCount < 0 || paramCursor + paramCount > flatParamCount)
+                        return false;
                     methodParamNames[m] = new string[paramCount];
                     methodParamCanonicals[m] = new string[paramCount];
                     for (var p = 0; p < paramCount; p++)
                     {
-                        var paramName = pNameTexts[p];
+                        var flatSlot = paramCursor + p;
+                        var paramName = outMethodParamNameTexts[flatSlot];
                         if (string.IsNullOrEmpty(paramName))
                             return false;
                         methodParamNames[m][p] = paramName;
-                        methodParamCanonicals[m][p] = bindings.TypeReferenceCanonicalText(source, sk, sns, snl, scs, scc, sci, pTypeRoot[p]);
-                        if (!TryGetTypeReferenceTupleElementNames(bindings, source, sk, sns, snl, scs, scc, sci, pTypeRoot[p], out var paramTupleNames))
+                        var paramCanonical = outMethodParamTypeTexts[flatSlot];
+                        if (string.IsNullOrEmpty(paramCanonical))
                             return false;
-                        if (paramTupleNames != null)
-                            return false;
+                        methodParamCanonicals[m][p] = paramCanonical;
                     }
-                    if (ck[afterSignature] == 129)
+                    paramCursor += paramCount;
+                    if (outMethodBodyFlags[m] == 1)
                     {
                         if (!TryParseColumnarFunctionAt(bindings, ck, cs, cv, n, outMethodFuncIndices[m], source, out var bodyInput))
                             return false;
@@ -1094,11 +1076,13 @@ internal static class NSharpCompilerDogfoodAdapter
                             return false;
                         methodBodies[m] = bodyInput;
                     }
-                    else if (ck[afterSignature] != 7 && ck[afterSignature] != 130)
+                    else if (outMethodBodyFlags[m] != 0)
                     {
                         return false;
                     }
                 }
+                if (paramCursor != flatParamCount)
+                    return false;
                 interfaceInputs.Add(new Columnar.ColumnarInterfaceInput(
                     interfaceName, baseInterfaceNames, methodNames, methodReturns, methodParamNames, methodParamCanonicals, methodBodies));
             }
@@ -2076,9 +2060,9 @@ internal static class NSharpCompilerDogfoodAdapter
                 CreateDelegate<ParseStatementNodesInto>(
                     programType,
                     "ParseStatementNodesInto"),
-                CreateDelegate<ParseInterfaceDeclarationInfoInto>(
+                CreateDelegate<ParseInterfaceDeclarationSignatureInfoInto>(
                     programType,
-                    "ParseInterfaceDeclarationInfoInto"),
+                    "ParseInterfaceDeclarationSignatureInfoInto"),
                 CreateDelegate<ParseEnumDeclarationTextInfoInto>(
                     programType,
                     "ParseEnumDeclarationTextInfoInto"),
@@ -2239,11 +2223,14 @@ internal static class NSharpCompilerDogfoodAdapter
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int start,
         int[] outNodeKinds, int[] outValueStarts, int[] outValueLengths, int[] outChildStart, int[] outChildCount,
         int[] outChildIndices, int[] outSpanStarts, int[] outSpanLengths, int[] outResult);
-    private delegate int ParseInterfaceDeclarationInfoInto(
+    private delegate int ParseInterfaceDeclarationSignatureInfoInto(
         string source,
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int interfaceIndex,
         int[] outMethodFuncIndices, int[] outBaseNameStarts, int[] outBaseNameLengths,
-        string[] outBaseNameTexts, string[] outInterfaceNameTexts, int[] outResult);
+        string[] outBaseNameTexts, string[] outInterfaceNameTexts,
+        string[] outMethodNameTexts, string[] outMethodReturnTexts,
+        int[] outMethodParamCounts, int[] outMethodBodyFlags,
+        string[] outMethodParamNameTexts, string[] outMethodParamTypeTexts, int[] outResult);
     private delegate int ParseEnumDeclarationTextInfoInto(
         string source,
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int enumIndex,
@@ -2302,7 +2289,7 @@ internal static class NSharpCompilerDogfoodAdapter
         TypeReferenceTupleElementNamesInto TypeReferenceTupleElementNames,
         FunctionSignatureWhereOwnerIndicesInto FunctionSignatureWhereOwnerIndices,
         ParseStatementNodesInto ParseStatementNodes,
-        ParseInterfaceDeclarationInfoInto ParseInterfaceDeclarationInfo,
+        ParseInterfaceDeclarationSignatureInfoInto ParseInterfaceDeclarationSignatureInfo,
         ParseEnumDeclarationTextInfoInto ParseEnumDeclarationTextInfo,
         ParseStructDeclarationInfoInto ParseStructDeclarationInfo,
         ParseUnionDeclarationInfoInto ParseUnionDeclarationInfo,

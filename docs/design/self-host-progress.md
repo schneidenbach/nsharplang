@@ -11,6 +11,24 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Interface member signature materialization moves into N#
+
+`ParserInterfaceSignatures.nl` now exports `ParseInterfaceDeclarationSignatureInfoInto`, a
+product-routed cross-file wrapper over interface declaration parsing and function-signature parsing. It returns
+interface/base names, method names, canonical return texts, flat parameter name/type rows, parameter
+counts, and default-method body flags. Unsupported interface member signature cases such as generic
+members, `where` clauses, and named tuple member types now decline before C# materialization.
+
+`NSharpCompilerDogfoodAdapter.TryGetColumnarInterfaceInputs` no longer calls
+`ParseFunctionSignatureTextInfoInto`, `TypeReferenceCanonicalTextInto`, or tuple-name helpers for
+interface members. It consumes the N# signature-info rowset and only builds the CLR-facing
+`ColumnarInterfaceInput` arrays, with the existing body parser retained for accepted default-method
+bodies. Focused evidence:
+`./scripts/dev.sh Parser_TopLevelDeclarationKinds_MatchProductionParser`,
+`./scripts/dev.sh ColumnarCodegen_Parity_Interfaces`,
+`./scripts/dev.sh ColumnarCodegen_CompilesRealDogfoodCorpus_Coverage`, and
+`./scripts/dev.sh ColumnarCodegen_MultiFile_EligibleClusterCompiles`.
+
 ## 2026-06-15 — Nominal declaration selection rowset moves into N#
 
 `ParserDeclarations.nl` now exports `TopLevelColumnarNominalDeclarationIndicesInto`, a
