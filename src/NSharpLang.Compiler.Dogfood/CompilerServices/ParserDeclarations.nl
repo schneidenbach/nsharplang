@@ -106,6 +106,11 @@ struct ParserDeclarationKindStream {
     Kinds: int[]
 }
 
+struct ParserDeclarationStartKindStream {
+    Kinds: int[]
+    Starts: int[]
+}
+
 struct ParserDeclarationResultTable {
     Values: int[]
 }
@@ -597,6 +602,39 @@ func MatchingCloseBraceCore(tokens: &ParserDeclarationKindStream, count: int, op
             if depth == 0 {
                 return i
             }
+        }
+
+        i = i + 1
+    }
+
+    return -1
+}
+
+// Parser declaration utility: find the compacted-token index whose kind and source start match a
+// parser-node source span. Used for local-function statement nodes, where the statement parser
+// records the `func` keyword span and the adapter must re-enter the declaration parser at that token.
+func TokenIndexByKindStartInto(tokenKinds: int[], tokenStarts: int[], count: int, targetKind: int, targetStart: int): int {
+    if count < 0 {
+        return -1
+    }
+
+    if count > tokenKinds.Length {
+        return -1
+    }
+
+    if count > tokenStarts.Length {
+        return -1
+    }
+
+    tokens := new ParserDeclarationStartKindStream { Kinds: tokenKinds, Starts: tokenStarts }
+    return TokenIndexByKindStartCore(ref tokens, count, targetKind, targetStart)
+}
+
+func TokenIndexByKindStartCore(tokens: &ParserDeclarationStartKindStream, count: int, targetKind: int, targetStart: int): int {
+    i := 0
+    while i < count {
+        if tokens.Kinds[i] == targetKind && tokens.Starts[i] == targetStart {
+            return i
         }
 
         i = i + 1

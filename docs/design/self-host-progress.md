@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Local-function token relocation moves into N#
+
+`ParserDeclarations.nl` now owns `TokenIndexByKindStartInto`, a counted compact-token lookup that
+maps a parser-node source span back to the corresponding declaration token. The columnar local
+function route uses it to re-enter `TryParseColumnarFunctionAt` for kind-41 statement nodes, removing
+the adapter-side C# scan over every compact token by kind/start pair.
+
+The parser-declaration parity test pins the positive match, counted-prefix miss, and same-start
+different-kind cases; the columnar local-function parity test covers the production route.
+
 ## 2026-06-15 — Columnar token compaction routes through dogfood
 
 `NSharpCompilerDogfoodAdapter.TryTokenizeColumnarSource` no longer owns the newline-token filter for

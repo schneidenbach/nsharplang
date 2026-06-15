@@ -742,11 +742,7 @@ internal static class NSharpCompilerDogfoodAdapter
                 var stmtNode = bci[bcs[rootBlock] + rc];
                 if (bk[stmtNode] != 41)
                     continue;
-                var funcTokenIndex = -1;
-                for (var ti = 0; ti < n; ti++)
-                {
-                    if (cs[ti] == bvs[stmtNode] && ck[ti] == 7) { funcTokenIndex = ti; break; }
-                }
+                var funcTokenIndex = bindings.TokenIndexByKindStart(ck, cs, n, 7, bvs[stmtNode]);
                 if (funcTokenIndex < 0)
                     return false;
                 if (!TryParseColumnarFunctionAt(bindings, ck, cs, cv, n, funcTokenIndex, source, out var localFn))
@@ -2053,6 +2049,9 @@ internal static class NSharpCompilerDogfoodAdapter
                 CreateDelegate<MatchingCloseBraceInto>(
                     programType,
                     "MatchingCloseBraceInto"),
+                CreateDelegate<TokenIndexByKindStartInto>(
+                    programType,
+                    "TokenIndexByKindStartInto"),
                 CreateDelegate<TopLevelDeclarationModifiersInto>(
                     programType,
                     "TopLevelDeclarationModifiersInto"),
@@ -2195,6 +2194,8 @@ internal static class NSharpCompilerDogfoodAdapter
     private delegate int TopLevelFunctionPreamblesAreValidInto(
         int[] tokenKinds, int count, int[] funcIndices, int funcCount);
     private delegate int MatchingCloseBraceInto(int[] tokenKinds, int count, int open);
+    private delegate int TokenIndexByKindStartInto(
+        int[] tokenKinds, int[] tokenStarts, int count, int targetKind, int targetStart);
     private delegate int TopLevelDeclarationModifiersInto(int[] tokenKinds, int count, int[] outKinds, int[] outModifiers);
     private delegate int TopLevelDeclarationNameSpansInto(
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count,
@@ -2258,6 +2259,7 @@ internal static class NSharpCompilerDogfoodAdapter
         TopLevelDeclarationIndicesInto TopLevelDeclarationIndices,
         TopLevelFunctionPreamblesAreValidInto TopLevelFunctionPreamblesAreValid,
         MatchingCloseBraceInto MatchingCloseBrace,
+        TokenIndexByKindStartInto TokenIndexByKindStart,
         TopLevelDeclarationModifiersInto TopLevelDeclarationModifiers,
         TopLevelDeclarationNameSpansInto TopLevelDeclarationNameSpans,
         NamespaceImportSpansInto NamespaceImportSpans,

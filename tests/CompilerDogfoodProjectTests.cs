@@ -87,6 +87,10 @@ public class CompilerDogfoodProjectTests
                     "MatchingCloseBraceInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit MatchingCloseBraceInto.");
+            var tokenIndexByKindStart = programType.GetMethod(
+                    "TokenIndexByKindStartInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit TokenIndexByKindStartInto.");
             var constructorChainInfo = programType.GetMethod(
                     "ParseConstructorChainInfoInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -253,6 +257,33 @@ func bad(): int {
                 -1,
                 matchingCloseBrace,
                 "non-brace open token");
+            AssertTokenIndexByKindStart(
+                new[] { (int)TokenType.Func, (int)TokenType.Identifier, (int)TokenType.Func },
+                new[] { 10, 15, 30 },
+                3,
+                (int)TokenType.Func,
+                30,
+                2,
+                tokenIndexByKindStart,
+                "matching func token");
+            AssertTokenIndexByKindStart(
+                new[] { (int)TokenType.Func, (int)TokenType.Identifier, (int)TokenType.Func },
+                new[] { 10, 15, 30 },
+                2,
+                (int)TokenType.Func,
+                30,
+                -1,
+                tokenIndexByKindStart,
+                "counted prefix excludes trailing func");
+            AssertTokenIndexByKindStart(
+                new[] { (int)TokenType.Identifier, (int)TokenType.Func },
+                new[] { 30, 30 },
+                2,
+                (int)TokenType.Func,
+                30,
+                1,
+                tokenIndexByKindStart,
+                "kind disambiguates same start");
             AssertConstructorChainBodyIndex(
                 """
 class C {
@@ -506,6 +537,22 @@ class B
         {
             Assert.Equal((int)TokenType.RightBrace, kinds[actualClose]);
         }
+    }
+
+    private static void AssertTokenIndexByKindStart(
+        int[] tokenKinds,
+        int[] tokenStarts,
+        int count,
+        int targetKind,
+        int targetStart,
+        int expected,
+        MethodInfo tokenIndexByKindStart,
+        string label)
+    {
+        var actual = (int)(tokenIndexByKindStart.Invoke(
+            null,
+            new object[] { tokenKinds, tokenStarts, count, targetKind, targetStart }) ?? -2);
+        Assert.Equal(expected, actual);
     }
 
     private static void AssertTopLevelDeclarationIndices(
