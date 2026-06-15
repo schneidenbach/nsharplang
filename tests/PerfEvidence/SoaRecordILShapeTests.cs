@@ -2680,6 +2680,64 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void BoolColumnEquality_UsesColumnArrayLoadsAndComparisonOpcodesWithoutRowOrSliceAllocation()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                active: bool
+            }
+
+            func compare(nodes: NodeTable, row: int): int {
+                directRow := row + 1
+
+                nodes[row].active = true
+                rowScore := nodes[row].active == true ? 100000 : 0
+                rowScore += nodes[row].active != false ? 10000 : 0
+
+                nodes.active[directRow] = false
+                directScore := nodes.active[directRow] == false ? 1000 : 0
+                directScore += nodes.active[directRow] != true ? 100 : 0
+
+                nodes.active[^1] = true
+                fromEndScore := nodes.active[^1] == true ? 10 : 0
+                fromEndScore += nodes.active[^1] != false ? 1 : 0
+
+                return rowScore + directScore + fromEndScore
+            }
+
+            func main(): int {
+                nodes := new NodeTable(3)
+                row := nodes.add()
+                nodes.add()
+                nodes.add()
+                return compare(nodes, row)
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var compare = ILShapeInspector.GetProgramMethod(assembly, "compare");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(111111, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoFromEndSliceAllocation(compare);
+            Assert.True(
+                ILShapeInspector.CountOpcode(compare, OpCodes.Ldfld) >= 9,
+                "Bool SoA equality should load backing column fields directly.");
+            Assert.Equal(6, CountArrayElementLoads(compare));
+            Assert.Equal(3, CountArrayElementStores(compare));
+            Assert.True(
+                ILShapeInspector.CountOpcode(compare, OpCodes.Ceq) >= 9,
+                "Bool SoA equality and inequality should use direct comparison opcodes.");
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void StringColumnEquality_UsesColumnArrayLoadsAndStringOperatorsWithoutRowOrSliceAllocation()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

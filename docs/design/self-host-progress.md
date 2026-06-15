@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA bool equality has IL-shape proof
+
+Boolean SoA columns now have opcode evidence for `==` and `!=` expressions across row projection,
+direct column indexing, and direct from-end column indexing. Comparisons read backing column arrays
+directly and materialize boolean results with comparison opcodes, with no row construction, slice
+allocation, boxing, delegate construction, or virtual dispatch.
+
 ## 2026-06-14 — SoA nullable string equality has IL-shape proof
 
 Nullable string SoA columns now have opcode evidence for `==` and `!=` expressions against non-null
