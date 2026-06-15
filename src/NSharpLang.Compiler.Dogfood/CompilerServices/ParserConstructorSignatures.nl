@@ -16,16 +16,15 @@ func ParseConstructorSignatureInfoInto(source: string, tokenKinds: int[], tokenS
         return -1
     }
 
-    cap := count + 1
     tokens := new ParserTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
     outputs := new ConstructorSignatureOutputTable { ParamNameTexts: outParamNameTexts, ParamTypeTexts: outParamTypeTexts, ArgKinds: outArgKinds, ArgStarts: outArgStarts, ArgLengths: outArgLengths, ArgTexts: outArgTexts }
-    typeStack := new ParserArgumentStack { Values: new int[](cap) }
-    nodes := new ParserNodeTable { Kinds: new int[](cap), ValueStarts: new int[](cap), ValueLengths: new int[](cap), ChildStart: new int[](cap), ChildCount: new int[](cap), SpanStarts: new int[](cap), SpanLengths: new int[](cap) }
-    children := new ParserChildIndexTable { Indices: new int[](cap) }
+    typeStack := new ParserArgumentStack { Values: new int[](count + 1) }
+    nodes := new ParserNodeTable { Kinds: new int[](count + 1), ValueStarts: new int[](count + 1), ValueLengths: new int[](count + 1), ChildStart: new int[](count + 1), ChildCount: new int[](count + 1), SpanStarts: new int[](count + 1), SpanLengths: new int[](count + 1) }
+    children := new ParserChildIndexTable { Indices: new int[](count + 1) }
     canonicalNodes := new TypeReferenceCanonicalTable { Kinds: nodes.Kinds, ValueStarts: nodes.ValueStarts, ValueLengths: nodes.ValueLengths, ChildStart: nodes.ChildStart, ChildCount: nodes.ChildCount, ChildIndices: children.Indices }
-    parameters := new ParserFunctionParameterTable { NameStarts: new int[](cap), NameLengths: new int[](cap), TypeRoots: new int[](cap) }
-    typeParams := new ParserFunctionTypeParameterTable { Starts: new int[](cap), Lengths: new int[](cap) }
-    whereItems := new ParserFunctionWhereTable { NameStarts: new int[](cap), NameLengths: new int[](cap), ItemCodes: new int[](cap) }
+    parameters := new ParserFunctionParameterTable { NameStarts: new int[](count + 1), NameLengths: new int[](count + 1), TypeRoots: new int[](count + 1) }
+    typeParams := new ParserFunctionTypeParameterTable { Starts: new int[](count + 1), Lengths: new int[](count + 1) }
+    whereItems := new ParserFunctionWhereTable { NameStarts: new int[](count + 1), NameLengths: new int[](count + 1), ItemCodes: new int[](count + 1) }
     signatureResult := new ParserResultTable { Values: new int[](8) }
     result := new ParserResultTable { Values: outResult }
     return ParseConstructorSignatureInfoCore(source, ref tokens, count, ctorIndex, ref outputs, ref typeStack, ref nodes, ref children, ref canonicalNodes, ref parameters, ref typeParams, ref whereItems, ref signatureResult, ref result)
