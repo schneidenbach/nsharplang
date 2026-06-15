@@ -3043,6 +3043,84 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void NumericScalarColumnUnaryBitwiseNot_UsesColumnArrayLoadStoreWithoutRowOrSliceAllocation()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                kind: int
+                flags: uint
+                mask: long
+            }
+
+            func update(nodes: NodeTable, row: int): int {
+                directRow := row + 1
+
+                nodes[row].kind = 1
+                rowInt := nodes[row].kind = ~nodes[row].kind
+                nodes[row].flags = (uint)0
+                rowUInt := nodes[row].flags = ~nodes[row].flags
+                nodes[row].mask = 2L
+                rowLong := nodes[row].mask = ~nodes[row].mask
+
+                nodes.kind[directRow] = 3
+                directInt := nodes.kind[directRow] = ~nodes.kind[directRow]
+                nodes.flags[directRow] = (uint)1
+                directUInt := nodes.flags[directRow] = ~nodes.flags[directRow]
+                nodes.mask[directRow] = 4L
+                directLong := nodes.mask[directRow] = ~nodes.mask[directRow]
+
+                nodes.kind[^1] = 5
+                fromEndInt := nodes.kind[^1] = ~nodes.kind[^1]
+                nodes.flags[^1] = (uint)2
+                fromEndUInt := nodes.flags[^1] = ~nodes.flags[^1]
+                nodes.mask[^1] = 6L
+                fromEndLong := nodes.mask[^1] = ~nodes.mask[^1]
+
+                total := rowInt == -2 ? 100000000 : 0
+                total += rowUInt > (uint)0 ? 10000000 : 0
+                total += rowLong == -3L ? 1000000 : 0
+                total += directInt == -4 ? 100000 : 0
+                total += directUInt > (uint)0 ? 10000 : 0
+                total += directLong == -5L ? 1000 : 0
+                total += fromEndInt == -6 ? 100 : 0
+                total += fromEndUInt > (uint)0 ? 10 : 0
+                total += fromEndLong == -7L ? 1 : 0
+                return total
+            }
+
+            func main(): int {
+                nodes := new NodeTable(3)
+                row := nodes.add()
+                nodes.add()
+                nodes.add()
+                return update(nodes, row)
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var update = ILShapeInspector.GetProgramMethod(assembly, "update");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(111111111, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoFromEndSliceAllocation(update);
+            Assert.True(
+                ILShapeInspector.CountOpcode(update, OpCodes.Ldfld) >= 18,
+                "Numeric SoA unary bitwise-not stores should load backing column fields directly.");
+            Assert.Equal(9, CountArrayElementLoads(update));
+            Assert.Equal(18, CountArrayElementStores(update));
+            Assert.True(
+                ILShapeInspector.CountOpcode(update, OpCodes.Not) >= 9,
+                "Numeric SoA unary bitwise-not should use the direct NOT opcode.");
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void StringColumnEquality_UsesColumnArrayLoadsAndStringOperatorsWithoutRowOrSliceAllocation()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

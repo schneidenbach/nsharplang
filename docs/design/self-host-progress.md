@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA numeric scalar unary bitwise-not has IL-shape proof
+
+`int`, `uint`, and `long` SoA columns now have opcode evidence for unary bitwise-not stores across
+row projection, direct column indexing, and direct from-end column indexing. `~` reads the backing
+column array, emits the direct `not` opcode, and stores the result back to the column with no row
+construction, slice allocation, boxing, delegate construction, or virtual dispatch.
+
 ## 2026-06-14 — SoA numeric scalar bitwise expressions have IL-shape proof
 
 `int`, `uint`, and `long` SoA columns now have opcode evidence for `|`, `&`, and `^` expression
