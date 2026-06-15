@@ -286,10 +286,11 @@ The compiler must produce direct diagnostics for common misuse:
 - mismatched `wrap` columns: "column lengths for NodeTable do not match";
 - null `wrap` columns: "SoA table wrap column 'X' cannot be null" for literal null/default column
   arguments, including parenthesized, checked/unchecked default, and typed array-cast null/default
-  forms, or "columns for NodeTable.wrap cannot be null" for dynamic runtime values;
+  forms, through direct table names or aliases to SoA tables, or "columns for NodeTable.wrap cannot
+  be null" for dynamic runtime values;
 - invalid `wrap` length: "SoA table wrap length must not be negative" for negative literals,
   including parenthesized whole-expression or unary-operand, checked/unchecked, and signed
-  integer-cast forms, or
+  integer-cast forms, through direct table names or aliases to SoA tables, or
   "length for NodeTable.wrap must be between 0 and column length" for dynamic runtime bounds;
 - invalid `new` capacity: "SoA table capacity must be int" or "SoA table capacity must not be negative"
   for analyzer-known literals, including parenthesized whole-expression or unary-operand,

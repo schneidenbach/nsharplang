@@ -6922,6 +6922,8 @@ public class Analyzer : IDisposable
             objectType = byRefType.InnerType;
         }
 
+        objectType = ResolveTypeAlias(objectType);
+
         if (objectType is NullableTypeInfo nullableType)
         {
             if (memberName == "HasValue")

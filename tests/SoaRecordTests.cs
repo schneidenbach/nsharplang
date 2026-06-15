@@ -7767,6 +7767,132 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaTableAliasWrapRejectsInvalidArgumentsBeforeEmission()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var cases = new (string Source, string Message, string? Suggestion)[]
+        {
+            ("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
+            func bad() {
+                nodes := Nodes.wrap(null, 0)
+            }
+            """, "SoA table wrap column 'kind' cannot be null", "backing 'kind' column array"),
+            ("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
+            func bad() {
+                nodes := Nodes.wrap(default, 0)
+            }
+            """, "SoA table wrap column 'kind' cannot be null", "backing 'kind' column array"),
+            ("""
+            soa record NodeTable {
+                kind: int
+                name: string
+            }
+
+            type Nodes = NodeTable
+
+            func bad() {
+                kinds := new int[](2)
+                nodes := Nodes.wrap(name: null, kind: kinds, length: 0)
+            }
+            """, "SoA table wrap column 'name' cannot be null", "backing 'name' column array"),
+            ("""
+            soa record NodeTable {
+                kind: int
+                name: string
+            }
+
+            type Nodes = NodeTable
+
+            func bad() {
+                kinds := new int[](2)
+                nodes := Nodes.wrap(name: checked((default)), kind: kinds, length: 0)
+            }
+            """, "SoA table wrap column 'name' cannot be null", "backing 'name' column array"),
+            ("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
+            func bad() {
+                nodes := Nodes.wrap(length: 1, kind: 0)
+            }
+            """, "Argument 'kind' to 'wrap' is 'int'", null),
+            ("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
+            func bad() {
+                kinds := new int[](2)
+                nodes := Nodes.wrap(kinds, (short)-1)
+            }
+            """, "SoA table wrap length must not be negative", "wrap expects a non-negative int argument"),
+            ("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
+            func bad() {
+                kinds := new int[](2)
+                nodes := Nodes.wrap(length: unchecked((sbyte)-1), kind: kinds)
+            }
+            """, "SoA table wrap length must not be negative", "wrap expects a non-negative int argument")
+        };
+
+        foreach (var (source, message, suggestion) in cases)
+        {
+            var result = Analyze(source);
+            var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+            Assert.Contains(message, error.Message);
+            if (suggestion != null)
+                Assert.Contains(suggestion, error.Suggestion);
+            Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.TypeNotFound);
+        }
+    }
+
+    [Fact]
+    public void Analyzer_SoaTableAliasWrapNamedTargetTypedNewUsesBoundExpectedType()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+                name: string
+            }
+
+            type Nodes = NodeTable
+
+            func ok() {
+                nodes := Nodes.wrap(name: new(), kind: new(), length: 0)
+            }
+            """);
+
+        Assert.False(
+            result.HasErrors,
+            $"Expected no errors but got: {string.Join(", ", result.Errors.Select(e => $"{e.DiagnosticId}:{e.Message}"))}");
+    }
+
+    [Fact]
     public void ILCompiler_SoaRecordNewAddAndRowProjection_LowersToColumns()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

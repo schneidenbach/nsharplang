@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — SoA alias wrap calls keep pre-emission diagnostics
+
+Static `wrap` calls reached through a table alias now have analyzer regression coverage for the same
+pre-emission checks as direct table calls. `Nodes.wrap(...)`, where `type Nodes = NodeTable`, reports
+the direct null/default column diagnostic, named-argument type mismatch, and analyzer-known negative
+length diagnostic without falling back to unresolved-type handling, while named target-typed `new()`
+column arrays still bind from the generated parameter types.
+
 ## 2026-06-15 — SoA table aliases keep construction diagnostics and shape
 
 Aliases to SoA table types now have analyzer and IL-shape regression coverage across construction
