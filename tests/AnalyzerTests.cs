@@ -6945,6 +6945,25 @@ func Main() {
     }
 
     [Fact]
+    public void QueryableLinq_ExpressionTreeLambdaHardCast_IsSupported()
+    {
+        var result = AnalyzeWithSource(@"
+            import System.Linq
+
+            func Main() {
+                source := [1, 2, 3]
+                query := source.AsQueryable()
+                filtered := query.Where(x => (double)x > 1.5)
+            }
+        ");
+
+        Assert.False(result.HasErrors,
+            result.Errors.Count > 0
+                ? $"Expected no errors but got: {string.Join(", ", result.Errors.Select(e => e.Message))}"
+                : "");
+    }
+
+    [Fact]
     public void QueryableLinq_BlockExpressionTreeLambda_ReportsFeatureNotImplemented()
     {
         var result = AnalyzeWithSource(@"

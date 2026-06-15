@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Expression-tree hard casts lower
+
+Expression-tree lambda lowering now accepts hard casts such as `(double)x` and emits them through
+`Expression.Convert`. The analyzer's supported-body mirror recurses through hard casts while keeping
+`as` casts rejected before emission until their expression-tree semantics are intentionally mapped.
+`Queryable.Where<int>(..., x => (double)x > 1.5).Select(...)` now executes end-to-end.
+
 ## 2026-06-15 — Expression-tree unary negation lowers
 
 Expression-tree lambda lowering now accepts unary `-` and emits it through `Expression.Negate`.

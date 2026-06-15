@@ -1386,6 +1386,16 @@ public partial class ILCompiler
                 _currentIL.Emit(OpCodes.Call, ResolveUnaryExpressionMethod(GetExpressionTreeUnaryMethodName(unary.Operator)));
                 return;
 
+            case CastExpression { Kind: CastKind.Hard } cast:
+                EmitExpressionTreeNode(
+                    cast.Expression,
+                    parameterLocals,
+                    parameterClrTypes,
+                    GetExpressionTreeNodeClrType(cast.Expression, parameterClrTypes));
+                EmitRuntimeTypeOf(ResolveType(cast.TargetType, _currentGenericParameters));
+                _currentIL.Emit(OpCodes.Call, ResolveExpressionConvertMethod());
+                return;
+
             case CallExpression call:
                 EmitExpressionTreeCallNode(call, parameterLocals, parameterClrTypes);
                 return;
