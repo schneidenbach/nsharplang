@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Primary expression parser keeps tables shaped
+
+`ParsePrimaryExpressionNode` now reads literal, match, `new`, cast, named-tuple, tuple, and
+parenthesized-expression token columns through `ParserTokenTable` and keeps match, constructor,
+object-initializer, named-tuple, and tuple child ids behind `ParserArgumentStack`. The postfix,
+call-argument, unary, binary, ternary, assignment, and lambda expression cores remain as separate
+parser cleanup slices. Focused evidence: `./scripts/dev.sh Parser_Expression_MatchesProductionParser`
+and `./scripts/dev.sh ColumnarCodegen_MultiFile_RealParserCluster`.
+
 ## 2026-06-15 — Relational pattern parser keeps tables shaped
 
 `ParseRelationalPatternNode` now reads relational-pattern and union-case property-pattern token
