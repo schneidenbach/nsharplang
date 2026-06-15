@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Expression-tree static calls lower
+
+Queryable expression-tree lambdas now lower public static method calls such as
+`String.IsNullOrEmpty(x)` through `Expression.Call(MethodInfo, Expression[])`. The analyzer's
+supported-body mirror recognizes static type receivers without permitting captured value receivers,
+so unsupported captures still fail before emission while the executable queryable regression filters
+through a static BCL call end-to-end.
+
 ## 2026-06-15 — Expression-tree safe casts lower
 
 Expression-tree lambda lowering now accepts safe casts such as `x as object` and emits them through

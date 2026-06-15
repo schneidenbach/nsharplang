@@ -1506,8 +1506,26 @@ public partial class ILCompiler
             throw new NotSupportedException($"Expression-tree call '{call.GetType().Name}' is not supported by the IL backend yet");
         }
 
-        var receiverType = GetExpressionTreeNodeClrType(memberAccess.Object, parameterClrTypes);
         var argumentTypes = GetExpressionTreeCallArgumentTypes(call, parameterClrTypes);
+        if (TryResolveStaticContainer(memberAccess.Object, out var staticReceiverType))
+        {
+            var staticMethod = ResolveRuntimeMethod(
+                staticReceiverType,
+                memberAccess.MemberName,
+                BindingFlags.Public | BindingFlags.Static,
+                argumentTypes);
+            if (staticMethod == null)
+            {
+                throw new NotSupportedException($"Expression-tree static call '{memberAccess.MemberName}' on '{staticReceiverType}' is not supported by the IL backend yet");
+            }
+
+            EmitRuntimeMethodInfo(staticMethod);
+            EmitExpressionTreeCallArguments(call, parameterLocals, parameterClrTypes, staticMethod);
+            _currentIL.Emit(OpCodes.Call, ResolveStaticExpressionCallMethod());
+            return;
+        }
+
+        var receiverType = GetExpressionTreeNodeClrType(memberAccess.Object, parameterClrTypes);
         var method = ResolveRuntimeMethod(
             receiverType,
             memberAccess.MemberName,
@@ -1520,6 +1538,21 @@ public partial class ILCompiler
 
         EmitExpressionTreeNode(memberAccess.Object, parameterLocals, parameterClrTypes, receiverType);
         EmitRuntimeMethodInfo(method);
+        EmitExpressionTreeCallArguments(call, parameterLocals, parameterClrTypes, method);
+        _currentIL.Emit(OpCodes.Call, ResolveExpressionCallMethod());
+    }
+
+    private void EmitExpressionTreeCallArguments(
+        CallExpression call,
+        IReadOnlyDictionary<string, LocalBuilder> parameterLocals,
+        IReadOnlyDictionary<string, Type> parameterClrTypes,
+        MethodInfo method)
+    {
+        if (_currentIL == null)
+        {
+            throw new InvalidOperationException("No IL generator context");
+        }
+
         var parameters = method.GetParameters();
         _currentIL.Emit(OpCodes.Ldc_I4, call.Arguments.Count);
         _currentIL.Emit(OpCodes.Newarr, typeof(System.Linq.Expressions.Expression));
@@ -1534,8 +1567,6 @@ public partial class ILCompiler
                 parameters[i].ParameterType);
             _currentIL.Emit(OpCodes.Stelem_Ref);
         }
-
-        _currentIL.Emit(OpCodes.Call, ResolveExpressionCallMethod());
     }
 
     private Type ResolveExpressionTreeCallReturnType(
@@ -1549,8 +1580,18 @@ public partial class ILCompiler
             return GetExpressionType(call);
         }
 
-        var receiverType = GetExpressionTreeNodeClrType(memberAccess.Object, parameterClrTypes);
         var argumentTypes = GetExpressionTreeCallArgumentTypes(call, parameterClrTypes);
+        if (TryResolveStaticContainer(memberAccess.Object, out var staticReceiverType))
+        {
+            var staticMethod = ResolveRuntimeMethod(
+                staticReceiverType,
+                memberAccess.MemberName,
+                BindingFlags.Public | BindingFlags.Static,
+                argumentTypes);
+            return staticMethod?.ReturnType ?? GetExpressionType(call);
+        }
+
+        var receiverType = GetExpressionTreeNodeClrType(memberAccess.Object, parameterClrTypes);
         var method = ResolveRuntimeMethod(
             receiverType,
             memberAccess.MemberName,
@@ -1790,6 +1831,12 @@ public partial class ILCompiler
             nameof(System.Linq.Expressions.Expression.Call),
             new[] { typeof(System.Linq.Expressions.Expression), typeof(MethodInfo), typeof(System.Linq.Expressions.Expression[]) })
         ?? throw new InvalidOperationException("Could not resolve Expression.Call(Expression, MethodInfo, Expression[])");
+
+    private static MethodInfo ResolveStaticExpressionCallMethod()
+        => typeof(System.Linq.Expressions.Expression).GetMethod(
+            nameof(System.Linq.Expressions.Expression.Call),
+            new[] { typeof(MethodInfo), typeof(System.Linq.Expressions.Expression[]) })
+        ?? throw new InvalidOperationException("Could not resolve Expression.Call(MethodInfo, Expression[])");
 
     private static MethodInfo ResolveExpressionNewMethod()
         => typeof(System.Linq.Expressions.Expression).GetMethod(

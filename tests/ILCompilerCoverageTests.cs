@@ -3768,6 +3768,24 @@ func main(): string {
     }
 
     [Fact]
+    public void ILCompiler_CanExecuteQueryableExpressionTreeStaticMethodCall()
+    {
+        var source = @"
+import System
+import System.Linq
+
+func main(): string {
+    source := [""a"", """", ""bb""]
+    query: IQueryable<string> = Queryable.AsQueryable<string>(source)
+    filtered: IQueryable<string> = Queryable.Where<string>(query, x => !String.IsNullOrEmpty(x))
+    return String.Join("":"", filtered)
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal("a:bb", Assert.IsType<string>(result));
+    }
+
+    [Fact]
     public void ILCompiler_CanEmitAnonymousObjectExpressionTreeLambdas()
     {
         var source = @"

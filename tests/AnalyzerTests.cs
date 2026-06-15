@@ -7021,6 +7021,26 @@ func Main() {
     }
 
     [Fact]
+    public void QueryableLinq_ExpressionTreeLambdaStaticMethodCall_IsSupported()
+    {
+        var result = AnalyzeWithSource(@"
+            import System
+            import System.Linq
+
+            func Main() {
+                source := [""a"", """", ""bb""]
+                query := source.AsQueryable()
+                filtered := query.Where(x => !String.IsNullOrEmpty(x))
+            }
+        ");
+
+        Assert.False(result.HasErrors,
+            result.Errors.Count > 0
+                ? $"Expected no errors but got: {string.Join(", ", result.Errors.Select(e => e.Message))}"
+                : "");
+    }
+
+    [Fact]
     public void QueryableLinq_BlockExpressionTreeLambda_ReportsFeatureNotImplemented()
     {
         var result = AnalyzeWithSource(@"

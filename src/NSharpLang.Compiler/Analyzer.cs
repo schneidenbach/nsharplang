@@ -13962,7 +13962,7 @@ public class Analyzer : IDisposable
             message,
             line,
             column,
-            "Use a lambda parameter, member access, literal, supported binary expression, supported unary expression, zero-argument instance call, or anonymous-object projection.",
+            "Use a lambda parameter, member access, literal, supported binary expression, supported unary expression, positional instance/static call, or anonymous-object projection.",
             length);
         return true;
     }
@@ -14055,7 +14055,9 @@ public class Analyzer : IDisposable
                     }
                 }
 
-                return FindUnsupportedExpressionTreeExpression(memberCall.Object, parameterNames);
+                return IsExpressionTreeStaticCallReceiver(memberCall.Object, parameterNames)
+                    ? null
+                    : FindUnsupportedExpressionTreeExpression(memberCall.Object, parameterNames);
 
             case NewExpression newExpression:
                 if (!IsExpressionTreeAnonymousObjectCreation(newExpression))
@@ -14076,6 +14078,61 @@ public class Analyzer : IDisposable
 
             default:
                 return (expression, GetExpressionTreeExpressionDescription(expression));
+        }
+    }
+
+    private bool IsExpressionTreeStaticCallReceiver(Expression expression, ISet<string> parameterNames)
+    {
+        if (ExpressionTreeReceiverStartsWithValueIdentifier(expression, parameterNames))
+        {
+            return false;
+        }
+
+        if (!TryGetQualifiedExpressionTreeName(expression, out var name))
+        {
+            return false;
+        }
+
+        if (TryResolveBuiltInTypeKeyword(name) != null)
+        {
+            return true;
+        }
+
+        var resolvedType = ResolveTypeAlias(LookupType(name) ?? BuiltInTypes.Unknown);
+        if (!BuiltInTypes.IsUnknown(resolvedType))
+        {
+            return true;
+        }
+
+        return TryResolveExternalType(name) is ReflectionTypeInfo;
+    }
+
+    private bool ExpressionTreeReceiverStartsWithValueIdentifier(Expression expression, ISet<string> parameterNames)
+    {
+        return expression switch
+        {
+            IdentifierExpression identifier => parameterNames.Contains(identifier.Name)
+                || LookupSymbol(identifier.Name) != null,
+            MemberAccessExpression { IsNullConditional: false } memberAccess =>
+                ExpressionTreeReceiverStartsWithValueIdentifier(memberAccess.Object, parameterNames),
+            _ => false
+        };
+    }
+
+    private static bool TryGetQualifiedExpressionTreeName(Expression expression, out string name)
+    {
+        switch (expression)
+        {
+            case IdentifierExpression identifier:
+                name = identifier.Name;
+                return true;
+            case MemberAccessExpression { IsNullConditional: false } memberAccess
+                when TryGetQualifiedExpressionTreeName(memberAccess.Object, out var parentName):
+                name = $"{parentName}.{memberAccess.MemberName}";
+                return true;
+            default:
+                name = string.Empty;
+                return false;
         }
     }
 
