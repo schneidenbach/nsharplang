@@ -1799,6 +1799,193 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_ParenthesizedSoaRowViewCannotEscapeFromLiteralStatementAndResourceContexts()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var cases = new[]
+        {
+            (Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable): int {
+                    values := [(nodes[0])]
+                    return values.Length
+                }
+                """,
+                Message: "SoA row views cannot be stored in an array"),
+            (Source: """
+                import System.Collections.Generic
+
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable): int {
+                    let values: List<object> = [(nodes[0])]
+                    return values.Count
+                }
+                """,
+                Message: "SoA row views cannot be stored in a collection literal"),
+            (Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable): int {
+                    values := (row: (nodes[0]), fallback: 1)
+                    return values.fallback
+                }
+                """,
+                Message: "SoA row views cannot be stored in a tuple"),
+            (Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable): int {
+                    values := new object[] { (nodes[0]) }
+                    return values.Length
+                }
+                """,
+                Message: "SoA row views cannot be stored in an initializer"),
+            (Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                class Holder {
+                    constructor(value: object) {
+                    }
+                }
+
+                func bad(nodes: NodeTable): int {
+                    holder := new Holder((nodes[0]))
+                    return 0
+                }
+                """,
+                Message: "SoA row views cannot be passed as a constructor argument"),
+            (Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable) {
+                    print (nodes[0])
+                }
+                """,
+                Message: "SoA row views cannot be printed"),
+            (Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable): string {
+                    return $"{(nodes[0])}"
+                }
+                """,
+                Message: "SoA row views cannot be formatted in an interpolated string"),
+            (Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable) {
+                    throw (nodes[0])
+                }
+                """,
+                Message: "SoA row views cannot be thrown"),
+            (Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable) {
+                    _ = (nodes[0])
+                }
+                """,
+                Message: "SoA row views cannot be discarded"),
+            (Source: """
+                import System.Collections.Generic
+
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func* bad(nodes: NodeTable): IEnumerable<object> {
+                    yield (nodes[0])
+                }
+                """,
+                Message: "SoA row views cannot be yielded"),
+            (Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable) {
+                    assert (nodes[0])
+                }
+                """,
+                Message: "SoA row views cannot be asserted"),
+            (Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable) {
+                    assert true, (nodes[0])
+                }
+                """,
+                Message: "SoA row views cannot be used as an assertion message"),
+            (Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable) {
+                    using ((nodes[0])) {
+                    }
+                }
+                """,
+                Message: "SoA row views cannot be used as a using resource"),
+            (Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable) {
+                    lock ((nodes[0])) {
+                    }
+                }
+                """,
+                Message: "SoA row views cannot be locked"),
+            (Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable): int {
+                    switch (nodes[0]) {
+                        default => return 0
+                    }
+                    return 1
+                }
+                """,
+                Message: "SoA row views cannot be used as a switch value")
+        };
+
+        foreach (var testCase in cases)
+        {
+            var result = Analyze(testCase.Source);
+            var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+            Assert.Contains(testCase.Message, error.Message);
+            Assert.Contains("table[index].column", error.Suggestion);
+        }
+    }
+
+    [Fact]
     public void Analyzer_SoaRowViewCannotEscapeIntoCallArgument()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Parenthesized SoA row-view literal and resource escapes stay diagnosed
+
+Parenthesized SoA row views now have analyzer coverage for literal, initializer, statement, and
+resource contexts. `[(nodes[0])]`, `new object[] { (nodes[0]) }`,
+`new Holder((nodes[0]))`, `print (nodes[0])`, `$"{(nodes[0])}"`, `throw (nodes[0])`,
+`_ = (nodes[0])`, `yield (nodes[0])`, `assert (nodes[0])`, `using ((nodes[0]))`,
+`lock ((nodes[0]))`, and `switch (nodes[0])` all fail before IL emission with row-view diagnostics.
+This preserves the no-row-value rule across the statement and resource forms most likely to
+materialize or box an accidental row object.
+
 ## 2026-06-15 — Parenthesized SoA row-view receiver escapes stay diagnosed
 
 Parenthesized SoA row views now have analyzer coverage for receiver and metadata-adjacent value
