@@ -5437,6 +5437,53 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void ILCompiler_SoaRecordParenthesizedVariableFromEndDirectColumnNullCoalesceRead_UsesColumnElementILShape()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var source = """
+            soa record NodeTable {
+                text: string
+            }
+
+            func readOps(nodes: NodeTable): string {
+                missingIdx := ^2;
+                existingIdx := ^1;
+                missing := ((nodes.text)[missingIdx]) ?? "fallback";
+                existing := (((nodes.text)[existingIdx]) ?? "ignored");
+                return missing + ":" + existing
+            }
+
+            func main(): string {
+                nodes := new NodeTable(2)
+                nodes.add();
+                nodes.add();
+                nodes.text[1] = "ready"
+                return readOps(nodes)
+            }
+            """;
+
+        Assert.Equal("fallback:ready", Assert.IsType<string>(CompileAndInvoke(source)));
+
+        var opCodes = CompileAndInspect(source, assembly =>
+        {
+            var readOps = assembly.GetType("Program")!.GetMethod(
+                "readOps",
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(readOps);
+            return GetMethodOpCodes(readOps!);
+        });
+
+        Assert.Contains(OpCodes.Ldfld, opCodes);
+        Assert.Contains(opCodes, IsArrayElementLoad);
+        Assert.Contains(OpCodes.Ldlen, opCodes);
+        Assert.DoesNotContain(OpCodes.Newarr, opCodes);
+        Assert.DoesNotContain(OpCodes.Box, opCodes);
+        Assert.DoesNotContain(OpCodes.Ldftn, opCodes);
+        Assert.DoesNotContain(OpCodes.Callvirt, opCodes);
+    }
+
+    [Fact]
     public void ILCompiler_SoaRecordParenthesizedVariableFromEndDirectColumnNullCoalesceAssign_UsesColumnElementILShape()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

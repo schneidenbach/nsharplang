@@ -339,8 +339,8 @@ element-type set, direct column null-coalescing reads/assignments, and from-end 
 including parenthesized literal and variable-held from-end direct-column element lvalues,
 expression-valued simple stores, default stores across the verified scalar/reference element-type set,
 including expression-valued default stores, without old-element reads, variable-held from-end
-null-coalescing assignments, verified scalar/reference element reads/stores, bool bitwise expression
-stores, int-backed enum
+null-coalescing reads/assignments, verified scalar/reference element reads/stores, bool bitwise
+expression stores, int-backed enum
 reads/stores/default stores/generated methods, string/string? concatenating compound assignments,
 string/string? concatenation expression stores, string/string? equality/inequality expressions,
 nullable-string null equality/inequality expressions, bool equality/inequality plus logical-not and
