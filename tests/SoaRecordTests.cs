@@ -134,16 +134,22 @@ public class SoaRecordTests : ILCompilerTestBase
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
 
         var result = Analyze("""
+            type KindColumn = int
+            type FlagsColumn = uint
+            type StartColumn = long
+            type ActiveColumn = bool
+            type MarkerColumn = char
+            type NameColumn = string
             type CountColumn = int
             type OptionalNameColumn = string?
 
             soa record NodeTable {
-                kind: int
-                flags: uint
-                start: long
-                active: bool
-                marker: char
-                name: string
+                kind: KindColumn
+                flags: FlagsColumn
+                start: StartColumn
+                active: ActiveColumn
+                marker: MarkerColumn
+                name: NameColumn
                 optionalName: OptionalNameColumn
                 count: CountColumn
             }
@@ -8435,16 +8441,22 @@ public class SoaRecordTests : ILCompilerTestBase
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
 
         var source = """
+            type KindColumn = int
+            type FlagsColumn = uint
+            type StartColumn = long
+            type ActiveColumn = bool
+            type MarkerColumn = char
+            type NameColumn = string
             type CountColumn = int
             type OptionalNameColumn = string?
 
             soa record NodeTable {
-                kind: int
-                flags: uint
-                start: long
-                active: bool
-                marker: char
-                name: string
+                kind: KindColumn
+                flags: FlagsColumn
+                start: StartColumn
+                active: ActiveColumn
+                marker: MarkerColumn
+                name: NameColumn
                 optionalName: OptionalNameColumn
                 count: CountColumn
             }

@@ -149,8 +149,9 @@ feature exists to avoid.
 The current experimental lowering admits only the column element types that have been verified by
 the direct-IL wrapper proof:
 
-- numeric scalars used by the compiler tables (`int`, `uint`, `long`, `bool`, `char`);
-- `string` and `string?` columns;
+- numeric scalars used by the compiler tables (`int`, `uint`, `long`, `bool`, `char`), including
+  aliases to those scalar types;
+- `string` and `string?` columns, including aliases to those string types;
 - int-backed enum columns, including aliases to those enums.
 
 Future slices can admit user value types only after their column element load/store shape is

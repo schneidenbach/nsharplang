@@ -3879,6 +3879,148 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void AliasedVerifiedColumnTypes_UseColumnArrayLoadStoreWithoutRowAllocation()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            type KindColumn = int
+            type FlagsColumn = uint
+            type StartColumn = long
+            type ActiveColumn = bool
+            type MarkerColumn = char
+            type NameColumn = string
+            type OptionalNameColumn = string?
+            type CountColumn = int
+
+            soa record NodeTable {
+                kind: KindColumn
+                flags: FlagsColumn
+                start: StartColumn
+                active: ActiveColumn
+                marker: MarkerColumn
+                name: NameColumn
+                optionalName: OptionalNameColumn
+                count: CountColumn
+            }
+
+            func setRow(nodes: NodeTable, row: int, name: NameColumn, optionalName: OptionalNameColumn) {
+                nodes[row].kind = 3
+                nodes[row].flags = (uint)7
+                nodes[row].start = 19L
+                nodes[row].active = true
+                nodes[row].marker = 'A'
+                nodes[row].name = name
+                nodes[row].optionalName = optionalName
+                nodes[row].count = 11
+            }
+
+            func setDirect(nodes: NodeTable, row: int, name: NameColumn, optionalName: OptionalNameColumn) {
+                nodes.kind[row] = 3
+                nodes.flags[row] = (uint)7
+                nodes.start[row] = 19L
+                nodes.active[row] = true
+                nodes.marker[row] = 'A'
+                nodes.name[row] = name
+                nodes.optionalName[row] = optionalName
+                nodes.count[row] = 11
+            }
+
+            func readRowScalars(nodes: NodeTable, row: int): int {
+                total := nodes[row].kind
+                total += (int)nodes[row].flags
+                total += (int)nodes[row].start
+                total += (nodes[row].active ? 100 : 0)
+                total += (int)nodes[row].marker
+                total += nodes[row].count
+                return total
+            }
+
+            func readDirectScalars(nodes: NodeTable, row: int): int {
+                total := nodes.kind[row]
+                total += (int)nodes.flags[row]
+                total += (int)nodes.start[row]
+                total += (nodes.active[row] ? 100 : 0)
+                total += (int)nodes.marker[row]
+                total += nodes.count[row]
+                return total
+            }
+
+            func readRowName(nodes: NodeTable, row: int): NameColumn {
+                return nodes[row].name
+            }
+
+            func readDirectName(nodes: NodeTable, row: int): NameColumn {
+                return nodes.name[row]
+            }
+
+            func readRowOptional(nodes: NodeTable, row: int): OptionalNameColumn {
+                return nodes[row].optionalName
+            }
+
+            func readDirectOptional(nodes: NodeTable, row: int): OptionalNameColumn {
+                return nodes.optionalName[row]
+            }
+
+            func main(): int {
+                nodes := new NodeTable(2)
+                row := nodes.add()
+                directRow := nodes.add()
+                setRow(nodes, row, "abcd", null)
+                setDirect(nodes, directRow, "efgh", "ij")
+
+                total := readRowScalars(nodes, row)
+                total += readRowName(nodes, row).Length
+                total += (readRowOptional(nodes, row) == null ? 1000 : 0)
+                total += readDirectScalars(nodes, directRow)
+                total += readDirectName(nodes, directRow).Length
+                directOptional := readDirectOptional(nodes, directRow)
+                total += (directOptional == null ? 0 : directOptional.Length)
+                return total
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var setRow = ILShapeInspector.GetProgramMethod(assembly, "setRow");
+            var setDirect = ILShapeInspector.GetProgramMethod(assembly, "setDirect");
+            var readRowScalars = ILShapeInspector.GetProgramMethod(assembly, "readRowScalars");
+            var readDirectScalars = ILShapeInspector.GetProgramMethod(assembly, "readDirectScalars");
+            var readRowName = ILShapeInspector.GetProgramMethod(assembly, "readRowName");
+            var readDirectName = ILShapeInspector.GetProgramMethod(assembly, "readDirectName");
+            var readRowOptional = ILShapeInspector.GetProgramMethod(assembly, "readRowOptional");
+            var readDirectOptional = ILShapeInspector.GetProgramMethod(assembly, "readDirectOptional");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(1420, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoAllocationOrDispatch(setRow);
+            AssertNoAllocationOrDispatch(setDirect);
+            AssertNoAllocationOrDispatch(readRowScalars);
+            AssertNoAllocationOrDispatch(readDirectScalars);
+            AssertNoAllocationOrDispatch(readRowName);
+            AssertNoAllocationOrDispatch(readDirectName);
+            AssertNoAllocationOrDispatch(readRowOptional);
+            AssertNoAllocationOrDispatch(readDirectOptional);
+
+            Assert.Equal(8, CountArrayElementStores(setRow));
+            Assert.Equal(0, CountArrayElementLoads(setRow));
+            Assert.Equal(8, CountArrayElementStores(setDirect));
+            Assert.Equal(0, CountArrayElementLoads(setDirect));
+            Assert.Equal(6, CountArrayElementLoads(readRowScalars));
+            Assert.Equal(0, CountArrayElementStores(readRowScalars));
+            Assert.Equal(6, CountArrayElementLoads(readDirectScalars));
+            Assert.Equal(0, CountArrayElementStores(readDirectScalars));
+            Assert.Equal(1, CountArrayElementLoads(readRowName));
+            Assert.Equal(1, CountArrayElementLoads(readDirectName));
+            Assert.Equal(1, CountArrayElementLoads(readRowOptional));
+            Assert.Equal(1, CountArrayElementLoads(readDirectOptional));
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void EnumColumn_UsesColumnArrayLoadStoreAndGeneratedMethodsWithoutRowAllocation()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

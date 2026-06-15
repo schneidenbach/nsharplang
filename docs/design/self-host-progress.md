@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — SoA verified column aliases keep direct IL shape
+
+Aliases to every currently verified scalar/reference SoA column type are now pinned on the accepted
+lowering path. The analyzer accepts aliases to `int`, `uint`, `long`, `bool`, `char`, `string`,
+and `string?`, and the IL-shape evidence covers row-projection plus direct-column reads and stores
+through those aliases with direct backing-array traffic and no row allocation, boxing, delegate
+construction, object-array traffic, or virtual dispatch.
+
 ## 2026-06-15 — SoA enum column aliases have IL-shape proof
 
 Aliases to int-backed enum column types are now pinned as part of the accepted SoA lowering surface.
