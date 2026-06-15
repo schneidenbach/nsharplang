@@ -718,6 +718,93 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void ParenthesizedColumnMemberDefaultStores_DoNotReadOldElement()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                kind: int
+                text: string?
+            }
+
+            func clearColumns(nodes: NodeTable, row: int) {
+                (nodes.kind)[row] = default;
+                (nodes.text)[row] = default;
+                (nodes.kind)[^1] = default;
+                (nodes.text)[^1] = default;
+                idx := ^1;
+                (nodes.kind)[idx] = default;
+                (nodes.text)[idx] = default;
+            }
+
+            func clearColumnsAsExpression(nodes: NodeTable, row: int): int {
+                idx := ^1;
+                rowKind := (nodes.kind)[row] = default;
+                rowText := (nodes.text)[row] = default;
+                literalKind := (nodes.kind)[^1] = default;
+                literalText := (nodes.text)[^1] = default;
+                variableKind := (nodes.kind)[idx] = default;
+                variableText := (nodes.text)[idx] = default;
+                total := rowKind + literalKind + variableKind
+                total += (rowText == null ? 10 : 0)
+                total += (literalText == null ? 100 : 0)
+                total += (variableText == null ? 1000 : 0)
+                return total
+            }
+
+            func main(): int {
+                nodes := new NodeTable(2)
+                first := nodes.add()
+                second := nodes.add()
+                nodes.kind[first] = 9
+                nodes.text[first] = "first"
+                nodes.kind[second] = 7
+                nodes.text[second] = "second"
+                clearColumns(nodes, first)
+                firstScore := nodes.kind[first] + (nodes.text[first] == null ? 10 : 0)
+                firstScore += nodes.kind[second] + (nodes.text[second] == null ? 100 : 0)
+
+                nodes.kind[first] = 8
+                nodes.text[first] = "again"
+                nodes.kind[second] = 6
+                nodes.text[second] = "again"
+                expressionScore := clearColumnsAsExpression(nodes, first)
+                afterScore := nodes.kind[first] + (nodes.text[first] == null ? 10 : 0)
+                afterScore += nodes.kind[second] + (nodes.text[second] == null ? 100 : 0)
+                return firstScore + expressionScore + afterScore
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var clearColumns = ILShapeInspector.GetProgramMethod(assembly, "clearColumns");
+            var clearColumnsAsExpression = ILShapeInspector.GetProgramMethod(
+                assembly,
+                "clearColumnsAsExpression");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(1330, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoFromEndSliceAllocation(clearColumns);
+            Assert.True(
+                ILShapeInspector.CountOpcode(clearColumns, OpCodes.Ldfld) >= 6,
+                "Parenthesized SoA column-member receiver default stores should load backing column fields directly.");
+            Assert.Equal(0, CountArrayElementLoads(clearColumns));
+            Assert.Equal(6, CountArrayElementStores(clearColumns));
+
+            AssertNoFromEndSliceAllocation(clearColumnsAsExpression);
+            Assert.True(
+                ILShapeInspector.CountOpcode(clearColumnsAsExpression, OpCodes.Ldfld) >= 6,
+                "Parenthesized SoA column-member receiver default store expressions should load backing column fields directly.");
+            Assert.Equal(0, CountArrayElementLoads(clearColumnsAsExpression));
+            Assert.Equal(6, CountArrayElementStores(clearColumnsAsExpression));
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void DirectColumnFromEndAssignmentExpression_ReturnsAssignedValueWithoutSliceAllocation()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

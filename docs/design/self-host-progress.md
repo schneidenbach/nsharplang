@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Parenthesized SoA column-member defaults avoid old reads
+
+Default stores now have IL-shape coverage when the backing column member is the parenthesized index
+receiver. `(nodes.kind)[row] = default`, `(nodes.kind)[^1] = default`, and variable-held
+`(nodes.kind)[idx] = default` statement stores and assignment expressions write backing arrays
+without reading the old element, preserve target-typed default results, and avoid slice allocation,
+boxing, delegate construction, or virtual dispatch. Focused evidence: `dotnet test
+tests/Tests.csproj --no-restore --filter
+"FullyQualifiedName~ParenthesizedColumnMemberDefaultStores_DoNotReadOldElement"`.
+
 ## 2026-06-15 — Parenthesized SoA column-member receivers stay direct
 
 Direct backing-column element access now has IL-shape coverage when the column member itself is the
