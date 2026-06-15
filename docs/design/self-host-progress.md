@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Readonly fields reject ref/out mutation paths
+
+Readonly instance fields now keep their assignment protection when passed to byref calls. The
+analyzer reports `ref id` and `out this.id` outside constructors with the readonly-field diagnostic
+instead of letting the IL backend take a field address and mutate storage that ordinary assignment
+would reject.
+
 ## 2026-06-15 — Ref/out addressability rejects non-storage targets
 
 The analyzer now validates `ref`/`out` arguments against the storage shapes the IL backends can

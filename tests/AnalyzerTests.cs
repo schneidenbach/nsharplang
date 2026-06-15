@@ -2005,6 +2005,38 @@ func Main() {
         ", "readonly");
     }
 
+    [Theory]
+    [InlineData("bump(ref value)", "ref")]
+    [InlineData("reset(out this.value)", "out")]
+    public void ReadonlyField_RefOutArgumentOutsideConstructor_Error(string statement, string modifier)
+    {
+        var result = AnalyzeWithSource($$"""
+            func bump(ref value: int) {
+                value += 1
+            }
+
+            func reset(out value: int) {
+                value = 0
+            }
+
+            class Counter {
+                readonly value: int
+
+                constructor() {
+                    value = 1
+                }
+
+                func Mutate() {
+                    {{statement}}
+                }
+            }
+        """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.ReadonlyAssignment);
+        Assert.Contains($"can't be used as a {modifier} argument", error.Message);
+        Assert.Contains("remove `readonly`", error.Suggestion);
+    }
+
     [Fact]
     public void ReadonlyField_WithInitializer_Valid()
     {

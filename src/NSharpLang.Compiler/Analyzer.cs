@@ -8766,6 +8766,10 @@ public class Analyzer : IDisposable
         {
             return true;
         }
+        if (ReportReadonlyFieldRefOutArgumentIfNeeded(argument.Value, modifier))
+        {
+            return true;
+        }
 
         if (IsRefOutArgumentTarget(argument.Value, expressionTypes))
         {
@@ -12564,36 +12568,58 @@ public class Analyzer : IDisposable
         if (_inConstructor)
             return;
 
-        // Check if target is a field access on 'this'
-        string? fieldName = null;
-        if (target is MemberAccessExpression { Object: ThisExpression } memberAccess)
+        if (TryGetCurrentReadonlyFieldTarget(target, out var fieldName))
         {
-            fieldName = memberAccess.MemberName;
+            var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetAssignmentTargetNameDiagnosticSpan(target, line, column);
+            Error(
+                ErrorCode.ReadonlyAssignment,
+                $"Field '{fieldName}' is readonly — it can only be assigned in a constructor",
+                diagnosticLine,
+                diagnosticColumn,
+                "Move this assignment into a constructor, or remove `readonly` if the field needs to change later.",
+                diagnosticLength);
         }
-        else if (target is IdentifierExpression ident)
+    }
+
+    private bool ReportReadonlyFieldRefOutArgumentIfNeeded(Expression target, string modifier)
+    {
+        if (_inConstructor || !TryGetCurrentReadonlyFieldTarget(target, out var fieldName))
         {
-            // Direct field assignment (implicitly on 'this' in class context)
-            fieldName = ident.Name;
+            return false;
         }
 
-        if (fieldName != null && _currentClass != null)
-        {
-            // Check if this is a readonly field
-            var field = _currentClass.Members.OfType<FieldDeclaration>()
-                .FirstOrDefault(f => f.Name == fieldName);
+        var (line, column, length) = GetAssignmentTargetNameDiagnosticSpan(target, target.Line, target.Column);
+        Error(
+            ErrorCode.ReadonlyAssignment,
+            $"Field '{fieldName}' is readonly — it can't be used as a {modifier} argument outside a constructor",
+            line,
+            column,
+            "Assign readonly fields inside a constructor, or remove `readonly` if this field must be passed by reference.",
+            length);
+        return true;
+    }
 
-            if (field != null && field.Modifiers.HasFlag(Modifiers.Readonly))
-            {
-                var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetAssignmentTargetNameDiagnosticSpan(target, line, column);
-                Error(
-                    ErrorCode.ReadonlyAssignment,
-                    $"Field '{fieldName}' is readonly — it can only be assigned in a constructor",
-                    diagnosticLine,
-                    diagnosticColumn,
-                    "Move this assignment into a constructor, or remove `readonly` if the field needs to change later.",
-                    diagnosticLength);
-            }
+    private bool TryGetCurrentReadonlyFieldTarget(Expression target, out string fieldName)
+    {
+        if (target is ParenthesizedExpression parenthesized)
+            return TryGetCurrentReadonlyFieldTarget(parenthesized.Inner, out fieldName);
+
+        fieldName = target switch
+        {
+            MemberAccessExpression { Object: ThisExpression } memberAccess => memberAccess.MemberName,
+            IdentifierExpression ident => ident.Name,
+            _ => string.Empty
+        };
+
+        if (fieldName.Length == 0 || _currentClass == null)
+        {
+            fieldName = string.Empty;
+            return false;
         }
+
+        var targetFieldName = fieldName;
+        return _currentClass.Members.OfType<FieldDeclaration>()
+            .Any(field => field.Name == targetFieldName && field.Modifiers.HasFlag(Modifiers.Readonly));
     }
 
     private (int Line, int Column, int Length) GetAssignmentTargetNameDiagnosticSpan(Expression target, int fallbackLine, int fallbackColumn)
