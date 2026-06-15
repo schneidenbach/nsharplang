@@ -975,6 +975,36 @@ func ParseEnumDeclarationInfoInto(source: string, tokenKinds: int[], tokenStarts
     return memberCount
 }
 
+func ParseEnumDeclarationTextInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, enumIndex: int, outNameStarts: int[], outNameLengths: int[], outNameTexts: string[], outValueStarts: int[], outValueLengths: int[], outHasValue: int[], outMemberValues: int[], outEnumNameTexts: string[], outResult: int[]): int {
+    memberCount := ParseEnumDeclarationInfoInto(source, tokenKinds, tokenStarts, tokenValueLengths, count, enumIndex, outNameStarts, outNameLengths, outValueStarts, outValueLengths, outHasValue, outMemberValues, outResult)
+    if memberCount < 0 {
+        return -1
+    }
+
+    if outEnumNameTexts.Length < 1 || memberCount > outNameTexts.Length {
+        return -1
+    }
+
+    enumName := ParserDeclarationSpanText(source, outResult[0], outResult[1])
+    if enumName == "" {
+        return -1
+    }
+    outEnumNameTexts[0] = enumName
+
+    i := 0
+    while i < memberCount {
+        memberName := ParserDeclarationSpanText(source, outNameStarts[i], outNameLengths[i])
+        if memberName == "" {
+            return -1
+        }
+
+        outNameTexts[i] = memberName
+        i = i + 1
+    }
+
+    return memberCount
+}
+
 func ParseEnumMemberValuesInto(source: string, members: &EnumMemberTable, memberCount: int, outMemberValues: int[]): bool {
     if memberCount < 0 || memberCount > outMemberValues.Length {
         return false
@@ -998,6 +1028,14 @@ func ParseEnumMemberValuesInto(source: string, members: &EnumMemberTable, member
     }
 
     return true
+}
+
+func ParserDeclarationSpanText(source: string, start: int, length: int): string {
+    if start < 0 || length <= 0 || start + length > source.Length {
+        return ""
+    }
+
+    return source.Substring(start, length)
 }
 
 func ParserDeclarationNextEnumValue(value: int): int {

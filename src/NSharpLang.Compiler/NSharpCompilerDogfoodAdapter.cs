@@ -236,8 +236,8 @@ internal static class NSharpCompilerDogfoodAdapter
 
     // Collect every top-level `enum` declaration into a ColumnarEnumInput (name + member names + resolved underlying
     // int values). Consumes the shared token bundle, finds each enum keyword, and parses its body via the checked
-    // ParseEnumDeclarationInfo kernel. Returns true (possibly an empty list) for a program with no enums, or false to
-    // decline the whole program to the C# path on any unsupported enum shape.
+    // ParseEnumDeclarationTextInfo kernel. Returns true (possibly an empty list) for a program with no enums, or
+    // false to decline the whole program to the C# path on any unsupported enum shape.
     private static bool TryGetColumnarEnumInputs(
         Bindings bindings, string source, ColumnarTokenizedSource tokens,
         out System.Collections.Generic.List<Columnar.ColumnarEnumInput> enums)
@@ -260,23 +260,30 @@ internal static class NSharpCompilerDogfoodAdapter
                 var cap = n + 1;
                 var outNameStarts = new int[cap];
                 var outNameLengths = new int[cap];
+                var outNameTexts = new string[cap];
                 var outValueStarts = new int[cap];
                 var outValueLengths = new int[cap];
                 var outHasValue = new int[cap];
                 var outMemberValues = new int[cap];
+                var outEnumNameTexts = new string[1];
                 var outResult = new int[2];
-                var memberCount = bindings.ParseEnumDeclarationInfo(
-                    source, ck, cs, cv, n, enumIndex, outNameStarts, outNameLengths, outValueStarts, outValueLengths,
-                    outHasValue, outMemberValues, outResult);
+                var memberCount = bindings.ParseEnumDeclarationTextInfo(
+                    source, ck, cs, cv, n, enumIndex, outNameStarts, outNameLengths, outNameTexts, outValueStarts, outValueLengths,
+                    outHasValue, outMemberValues, outEnumNameTexts, outResult);
                 if (memberCount < 0 || outResult[1] <= 0)
                     return false;
 
-                var enumName = source.Substring(outResult[0], outResult[1]);
+                var enumName = outEnumNameTexts[0];
+                if (string.IsNullOrEmpty(enumName))
+                    return false;
                 var memberNames = new string[memberCount];
                 var memberValues = new int[memberCount];
                 for (var m = 0; m < memberCount; m++)
                 {
-                    memberNames[m] = source.Substring(outNameStarts[m], outNameLengths[m]);
+                    var memberName = outNameTexts[m];
+                    if (string.IsNullOrEmpty(memberName))
+                        return false;
+                    memberNames[m] = memberName;
                     memberValues[m] = outMemberValues[m];
                 }
                 enums.Add(new Columnar.ColumnarEnumInput(enumName, memberNames, memberValues));
@@ -2027,9 +2034,9 @@ internal static class NSharpCompilerDogfoodAdapter
                 CreateDelegate<ParseInterfaceDeclarationInto>(
                     programType,
                     "ParseInterfaceDeclarationInto"),
-                CreateDelegate<ParseEnumDeclarationInfoInto>(
+                CreateDelegate<ParseEnumDeclarationTextInfoInto>(
                     programType,
-                    "ParseEnumDeclarationInfoInto"),
+                    "ParseEnumDeclarationTextInfoInto"),
                 CreateDelegate<ParseStructDeclarationInfoInto>(
                     programType,
                     "ParseStructDeclarationInfoInto"),
@@ -2189,11 +2196,12 @@ internal static class NSharpCompilerDogfoodAdapter
     private delegate int ParseInterfaceDeclarationInto(
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int interfaceIndex,
         int[] outMethodFuncIndices, int[] outBaseNameStarts, int[] outBaseNameLengths, int[] outResult);
-    private delegate int ParseEnumDeclarationInfoInto(
+    private delegate int ParseEnumDeclarationTextInfoInto(
         string source,
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int enumIndex,
-        int[] outNameStarts, int[] outNameLengths, int[] outValueStarts, int[] outValueLengths,
-        int[] outHasValue, int[] outMemberValues, int[] outResult);
+        int[] outNameStarts, int[] outNameLengths, string[] outNameTexts,
+        int[] outValueStarts, int[] outValueLengths, int[] outHasValue, int[] outMemberValues,
+        string[] outEnumNameTexts, int[] outResult);
     private delegate int ParseStructDeclarationInfoInto(
         string source,
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int structIndex,
@@ -2245,7 +2253,7 @@ internal static class NSharpCompilerDogfoodAdapter
         FunctionSignatureWhereOwnerIndicesInto FunctionSignatureWhereOwnerIndices,
         ParseStatementNodesInto ParseStatementNodes,
         ParseInterfaceDeclarationInto ParseInterfaceDeclaration,
-        ParseEnumDeclarationInfoInto ParseEnumDeclarationInfo,
+        ParseEnumDeclarationTextInfoInto ParseEnumDeclarationTextInfo,
         ParseStructDeclarationInfoInto ParseStructDeclarationInfo,
         ParseUnionDeclarationInfoInto ParseUnionDeclarationInfo,
         ParseConstructorTextInfoInto ParseConstructorTextInfo);

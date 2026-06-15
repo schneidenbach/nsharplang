@@ -11,6 +11,21 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Enum declaration name text moves into N#
+
+`ParserDeclarations.nl` now exports `ParseEnumDeclarationTextInfoInto`, a product-routed wrapper
+over the existing checked enum parser. It preserves the enum span/value ABI and adds materialized
+enum and member name text columns on the N# side of the delegate boundary.
+
+`NSharpCompilerDogfoodAdapter.TryGetColumnarEnumInputs` no longer binds
+`ParseEnumDeclarationInfoInto` for production or slices enum/member names from source spans in C#.
+The old checked value wrapper remains emitted for parser parity tests, while production consumes the
+text-info wrapper and only materializes CLR-facing `ColumnarEnumInput` containers. Focused evidence:
+`./scripts/dev.sh Parser_TopLevelDeclarationKinds_MatchProductionParser`,
+`./scripts/dev.sh ColumnarCodegen_Parity_Enum`,
+`./scripts/dev.sh ColumnarCodegen_Enum_DeclarationAndMemberAccess`, and
+`./scripts/dev.sh ColumnarCodegen_MultiFile_EligibleClusterCompiles`.
+
 ## 2026-06-15 — Function signature name text moves into N#
 
 `ParserFunctionSignatures.nl` now exports `ParseFunctionSignatureTextInfoInto`, a product-routed

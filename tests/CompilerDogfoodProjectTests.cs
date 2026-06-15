@@ -91,6 +91,10 @@ public class CompilerDogfoodProjectTests
                     "ParseEnumDeclarationInfoInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit ParseEnumDeclarationInfoInto.");
+            var parseEnumDeclarationTextInfo = programType.GetMethod(
+                    "ParseEnumDeclarationTextInfoInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit ParseEnumDeclarationTextInfoInto.");
             var parseUnionDeclaration = programType.GetMethod(
                     "ParseUnionDeclarationInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -205,6 +209,7 @@ record Person {
                 tokenizeWithIndentation,
                 parseEnumDeclaration,
                 parseEnumDeclarationInfo,
+                parseEnumDeclarationTextInfo,
                 "explicit and implicit values");
             AssertEnumDeclarationInfo(
                 "enum E { A = 2147483647, B, C }",
@@ -214,11 +219,13 @@ record Person {
                 tokenizeWithIndentation,
                 parseEnumDeclaration,
                 parseEnumDeclarationInfo,
+                parseEnumDeclarationTextInfo,
                 "unchecked next-value wrap");
             AssertEnumDeclarationInfoDeclines(
                 "enum E { A = 0x10 }",
                 tokenizeWithIndentation,
                 parseEnumDeclarationInfo,
+                parseEnumDeclarationTextInfo,
                 "non-decimal explicit value");
             AssertUnionDeclarationInfo(
                 """
@@ -791,6 +798,7 @@ class B
         MethodInfo tokenizeWithIndentation,
         MethodInfo parseEnumDeclaration,
         MethodInfo parseEnumDeclarationInfo,
+        MethodInfo parseEnumDeclarationTextInfo,
         string label)
     {
         Assert.Equal(expectedMemberNames.Length, expectedMemberValues.Length);
@@ -815,16 +823,49 @@ class B
         var memberValueLengths = new int[cap];
         var hasValue = new int[cap];
         var memberValues = new int[cap];
-        var result = new int[2];
-        var memberCount = (int)(parseEnumDeclarationInfo.Invoke(
+        var infoResult = new int[2];
+        var infoMemberCount = (int)(parseEnumDeclarationInfo.Invoke(
             null,
-            new object[] { compactedSource, kinds, starts, tokenValueLengths, count, enumIndex, nameStarts, nameLengths, valueStarts, memberValueLengths, hasValue, memberValues, result }) ?? -2);
+            new object[] { compactedSource, kinds, starts, tokenValueLengths, count, enumIndex, nameStarts, nameLengths, valueStarts, memberValueLengths, hasValue, memberValues, infoResult }) ?? -2);
+
+        var textNameStarts = new int[cap];
+        var textNameLengths = new int[cap];
+        var nameTexts = new string[cap];
+        var textValueStarts = new int[cap];
+        var textValueLengths = new int[cap];
+        var textHasValue = new int[cap];
+        var textMemberValues = new int[cap];
+        var enumNameTexts = new string[1];
+        var textResult = new int[2];
+        var textMemberCount = (int)(parseEnumDeclarationTextInfo.Invoke(
+            null,
+            new object[]
+            {
+                compactedSource,
+                kinds,
+                starts,
+                tokenValueLengths,
+                count,
+                enumIndex,
+                textNameStarts,
+                textNameLengths,
+                nameTexts,
+                textValueStarts,
+                textValueLengths,
+                textHasValue,
+                textMemberValues,
+                enumNameTexts,
+                textResult
+            }) ?? -2);
 
         Assert.Equal(expectedMemberNames.Length, spanCount);
-        Assert.Equal(spanCount, memberCount);
-        Assert.Equal(spanResult[0], result[0]);
-        Assert.Equal(spanResult[1], result[1]);
-        Assert.Equal(expectedEnumName, compactedSource.Substring(result[0], result[1]));
+        Assert.Equal(spanCount, infoMemberCount);
+        Assert.Equal(spanCount, textMemberCount);
+        Assert.Equal(spanResult[0], infoResult[0]);
+        Assert.Equal(spanResult[1], infoResult[1]);
+        Assert.Equal(infoResult[0], textResult[0]);
+        Assert.Equal(infoResult[1], textResult[1]);
+        Assert.Equal(expectedEnumName, enumNameTexts[0]);
         for (var i = 0; i < expectedMemberNames.Length; i++)
         {
             Assert.Equal(spanNameStarts[i], nameStarts[i]);
@@ -832,7 +873,13 @@ class B
             Assert.Equal(spanHasValue[i], hasValue[i]);
             Assert.Equal(spanValueStarts[i], valueStarts[i]);
             Assert.Equal(spanValueLengths[i], memberValueLengths[i]);
-            Assert.Equal(expectedMemberNames[i], compactedSource.Substring(nameStarts[i], nameLengths[i]));
+            Assert.Equal(nameStarts[i], textNameStarts[i]);
+            Assert.Equal(nameLengths[i], textNameLengths[i]);
+            Assert.Equal(hasValue[i], textHasValue[i]);
+            Assert.Equal(valueStarts[i], textValueStarts[i]);
+            Assert.Equal(memberValueLengths[i], textValueLengths[i]);
+            Assert.Equal(memberValues[i], textMemberValues[i]);
+            Assert.Equal(expectedMemberNames[i], nameTexts[i]);
             Assert.Equal(expectedMemberValues[i], memberValues[i]);
         }
     }
@@ -841,6 +888,7 @@ class B
         string source,
         MethodInfo tokenizeWithIndentation,
         MethodInfo parseEnumDeclarationInfo,
+        MethodInfo parseEnumDeclarationTextInfo,
         string label)
     {
         var (count, kinds, starts, valueLengths, compactedSource) = TokenizeSourceViaKernel(source, tokenizeWithIndentation);
@@ -848,7 +896,7 @@ class B
         Assert.True(enumIndex >= 0, $"Could not locate enum token for {label}.");
 
         var cap = count + 1;
-        var actual = (int)(parseEnumDeclarationInfo.Invoke(
+        var infoActual = (int)(parseEnumDeclarationInfo.Invoke(
             null,
             new object[]
             {
@@ -866,7 +914,28 @@ class B
                 new int[cap],
                 new int[2]
             }) ?? -2);
-        Assert.Equal(-1, actual);
+        var textActual = (int)(parseEnumDeclarationTextInfo.Invoke(
+            null,
+            new object[]
+            {
+                compactedSource,
+                kinds,
+                starts,
+                valueLengths,
+                count,
+                enumIndex,
+                new int[cap],
+                new int[cap],
+                new string[cap],
+                new int[cap],
+                new int[cap],
+                new int[cap],
+                new int[cap],
+                new string[1],
+                new int[2]
+            }) ?? -2);
+        Assert.Equal(-1, infoActual);
+        Assert.Equal(-1, textActual);
     }
 
     private static void AssertUnionDeclarationInfo(
