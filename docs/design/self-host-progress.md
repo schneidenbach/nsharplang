@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — SoA table aliases keep construction diagnostics and shape
+
+Aliases to SoA table types now have analyzer and IL-shape regression coverage across construction
+contexts. `type Nodes = NodeTable` followed by target-typed `default` or zero-argument `new()` reports
+the same SoA table diagnostics as direct `NodeTable` and nullable `NodeTable?` contexts, optional
+parameter defaults remain rejected as metadata constants, and accepted `new Nodes(capacity)` plus
+`Nodes.wrap(...)` calls lower through the generated table members with direct backing-column traffic.
+
 ## 2026-06-15 — SoA row type alias references stay rejected in composed positions
 
 `Nodes.Row`, where `Nodes` aliases a SoA table, now has analyzer regression coverage across composed

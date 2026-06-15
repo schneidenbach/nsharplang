@@ -70,6 +70,9 @@ semantically, including target-typed argument inference; negative literal `lengt
 rejected during analysis. Generated `int` parameters on `wrap`, `ensureCapacity`, and `copyRow`
 accept the same implicit small-integer widening as ordinary calls, with analyzer-known small signed
 negative literals, including aliases to signed small integer types, rejected before emission.
+Aliases to a SoA table follow the same construction surface: `new Nodes(capacity)` and
+`Nodes.wrap(...)` resolve to the generated members of the underlying table when
+`type Nodes = NodeTable`.
 Target-typed `default` is not a construction form for SoA tables because it would produce a CLR
 wrapper value with null backing column arrays; use
 `new Table(capacity)` or `Table.wrap(...)` instead. Target-typed `new()` without the required capacity
@@ -81,6 +84,8 @@ tuple literal element, typed ternary/match result arm, hard-cast target, checked
 wrapper, or parenthesized wrapper.
 The same construction rule applies when the expected type is nullable (`Table?`): `new()` still lacks
 the required backing-column capacity and must not become a nullable wrapper around an invalid table.
+The same diagnostics apply after resolving table aliases, including `Nodes?`, hard casts to `Nodes`,
+call arguments typed as `Nodes`, and optional parameters declared with `Nodes`.
 Parameter declarations cannot use any SoA table as an optional-parameter default, including `null`
 or `new Table(capacity)`, because defaults are metadata constants while table wrappers require
 runtime-owned columns or caller-provided wrapped columns.

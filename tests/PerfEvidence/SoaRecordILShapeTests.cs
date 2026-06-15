@@ -3879,6 +3879,60 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void AliasedSoaTableConstruction_UsesGeneratedTableShape()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                kind: int
+                start: int
+            }
+
+            type Nodes = NodeTable
+
+            func set(nodes: Nodes, row: int, kind: int) {
+                nodes[row].kind = kind
+                nodes.start[row] = nodes.capacity + nodes.length
+            }
+
+            func read(nodes: Nodes, row: int): int {
+                return nodes[row].kind * 10 + nodes[row].start
+            }
+
+            func main(): int {
+                nodes := new Nodes(2)
+                first := nodes.add()
+                set(nodes, first, 3)
+                second := nodes.add()
+                set(nodes, second, 4)
+                view := Nodes.wrap(nodes.kind, nodes.start, nodes.length)
+                return read(view, first) * 1000 + read(view, second) + view.length * 100000 + view.capacity * 1000000
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var set = ILShapeInspector.GetProgramMethod(assembly, "set");
+            var read = ILShapeInspector.GetProgramMethod(assembly, "read");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(2233044, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoAllocationOrDispatch(set);
+            AssertNoAllocationOrDispatch(read);
+            Assert.Equal(0, CountArrayElementLoads(set));
+            Assert.Equal(2, CountArrayElementStores(set));
+            Assert.Equal(2, CountArrayElementLoads(read));
+            Assert.Equal(0, CountArrayElementStores(read));
+            Assert.Equal(1, ILShapeInspector.CountOpcode(main, OpCodes.Newobj));
+            Assert.Equal(0, ILShapeInspector.CountOpcode(main, OpCodes.Newarr));
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void AliasedVerifiedColumnTypes_UseColumnArrayLoadStoreWithoutRowAllocation()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

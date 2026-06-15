@@ -657,6 +657,208 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaTableAliasCannotBeDefaultInitialized()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var cases = new (string Source, ErrorCode Code, string Message)[]
+        {
+            ("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
+            func bad(): int {
+                nodes: Nodes = default
+                return nodes.length
+            }
+            """, ErrorCode.InvalidSyntax, "SoA table 'NodeTable' cannot be default-initialized"),
+            ("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
+            func bad(): int {
+                nodes: Nodes? = default
+                return 0
+            }
+            """, ErrorCode.InvalidSyntax, "SoA table 'NodeTable' cannot be default-initialized"),
+            ("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
+            func bad(): Nodes {
+                return default
+            }
+            """, ErrorCode.InvalidSyntax, "SoA table 'NodeTable' cannot be default-initialized"),
+            ("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
+            func consume(nodes: Nodes) {
+            }
+
+            func bad() {
+                consume(default)
+            }
+            """, ErrorCode.InvalidSyntax, "SoA table 'NodeTable' cannot be default-initialized"),
+            ("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
+            func bad(): int {
+                nodes := (Nodes)default
+                return nodes.length
+            }
+            """, ErrorCode.InvalidSyntax, "SoA table 'NodeTable' cannot be default-initialized"),
+            ("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
+            func bad(nodes: Nodes = null) {
+            }
+            """, ErrorCode.InvalidDefaultParameterValue, "SoA table 'NodeTable' cannot be used as a default parameter value"),
+            ("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
+            func bad(nodes: Nodes = new Nodes(1)) {
+            }
+            """, ErrorCode.InvalidDefaultParameterValue, "SoA table 'NodeTable' cannot be used as a default parameter value")
+        };
+
+        foreach (var (source, code, message) in cases)
+        {
+            var result = Analyze(source);
+            var error = Assert.Single(result.Errors, e => e.Code == code);
+            Assert.Contains(message, error.Message);
+            Assert.Contains("new NodeTable(capacity)", error.Suggestion);
+            Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.TypeNotFound);
+        }
+    }
+
+    [Fact]
+    public void Analyzer_SoaTableAliasCannotUseTargetTypedNewWithoutCapacity()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var cases = new[]
+        {
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
+            func bad(): int {
+                nodes: Nodes = new()
+                return nodes.length
+            }
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
+            func bad(): int {
+                nodes: Nodes? = new()
+                return 0
+            }
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
+            func bad(): Nodes {
+                return new()
+            }
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
+            func consume(nodes: Nodes) {
+            }
+
+            func bad() {
+                consume(new())
+            }
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
+            func bad(): int {
+                nodes := (Nodes)new()
+                return nodes.length
+            }
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
+            func bad(): int {
+                nodes: Nodes = checked(new())
+                return nodes.length
+            }
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
+            func bad(nodes: Nodes = new()) {
+            }
+            """
+        };
+
+        foreach (var source in cases)
+        {
+            var result = Analyze(source);
+            var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.NoMatchingOverload);
+            Assert.Contains("SoA table 'NodeTable' construction expects exactly one int capacity argument", error.Message);
+            Assert.Contains("new NodeTable(capacity)", error.Suggestion);
+            Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.TypeNotFound);
+        }
+    }
+
+    [Fact]
     public void Analyzer_SoaTableCannotBeDefaultInitializedInField()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
