@@ -19,6 +19,12 @@ and `string?`, and the IL-shape evidence covers row-projection plus direct-colum
 through those aliases with direct backing-array traffic and no row allocation, boxing, delegate
 construction, object-array traffic, or virtual dispatch.
 
+## 2026-06-15 — SoA unsupported column aliases fail before lowering
+
+Aliases to unsupported SoA column shapes now have explicit analyzer regression coverage. Aliases to
+array columns, nullable non-string columns, and nested SoA-table columns resolve to the real element
+shape and report the SoA unsupported-column diagnostic before any IL emission path can see them.
+
 ## 2026-06-15 — SoA enum column aliases have IL-shape proof
 
 Aliases to int-backed enum column types are now pinned as part of the accepted SoA lowering surface.

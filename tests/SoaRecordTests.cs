@@ -299,6 +299,25 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaRecordWithFlag_RejectsAliasedArrayColumnType()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            type ValuesColumn = int[]
+
+            soa record NodeTable {
+                values: ValuesColumn
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.FeatureNotImplemented);
+        Assert.Contains("SoA column type 'int[]' is not supported in this lowering", error.Message);
+        Assert.Contains("Use int, uint, long, bool, char, string, string?, or int-backed enum columns", error.Suggestion);
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.TypeNotFound);
+    }
+
+    [Fact]
     public void Analyzer_SoaRecordWithFlag_RejectsNullableNonStringColumnType()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
@@ -312,6 +331,25 @@ public class SoaRecordTests : ILCompilerTestBase
         var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.FeatureNotImplemented);
         Assert.Contains("SoA column type 'int?' is not supported in this lowering", error.Message);
         Assert.Contains("Use int, uint, long, bool, char, string, string?, or int-backed enum columns", error.Suggestion);
+    }
+
+    [Fact]
+    public void Analyzer_SoaRecordWithFlag_RejectsAliasedNullableNonStringColumnType()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            type MaybeKindColumn = int?
+
+            soa record NodeTable {
+                maybeKind: MaybeKindColumn
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.FeatureNotImplemented);
+        Assert.Contains("SoA column type 'int?' is not supported in this lowering", error.Message);
+        Assert.Contains("Use int, uint, long, bool, char, string, string?, or int-backed enum columns", error.Suggestion);
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.TypeNotFound);
     }
 
     [Fact]
@@ -332,6 +370,29 @@ public class SoaRecordTests : ILCompilerTestBase
         var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.FeatureNotImplemented);
         Assert.Contains("SoA column type 'ChildTable' is not supported in this lowering", error.Message);
         Assert.Contains("Use int, uint, long, bool, char, string, string?, or int-backed enum columns", error.Suggestion);
+    }
+
+    [Fact]
+    public void Analyzer_SoaRecordWithFlag_RejectsAliasedNestedSoaColumnType()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record ChildTable {
+                kind: int
+            }
+
+            type ChildColumn = ChildTable
+
+            soa record ParentTable {
+                child: ChildColumn
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.FeatureNotImplemented);
+        Assert.Contains("SoA column type 'ChildTable' is not supported in this lowering", error.Message);
+        Assert.Contains("Use int, uint, long, bool, char, string, string?, or int-backed enum columns", error.Suggestion);
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.TypeNotFound);
     }
 
     [Fact]

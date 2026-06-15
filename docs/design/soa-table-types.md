@@ -301,8 +301,9 @@ The compiler must produce direct diagnostics for common misuse:
   overflow throws "length for NodeTable.add is too large", and dynamic `copyRow` sources at or beyond
   `length` throw "source row for NodeTable.copyRow must be less than length";
   target rows too large to extend throw "target row for NodeTable.copyRow is too large";
-- unsupported element type, including arrays, nullable non-string columns, string-enum columns, and
-  nested SoA-table columns: "SoA column type X is not supported in this lowering";
+- unsupported element type, including direct or aliased arrays, nullable non-string columns,
+  string-enum columns, and nested SoA-table columns:
+  "SoA column type X is not supported in this lowering";
 - unsupported row/direct column compound assignment, including char arithmetic compound assignment:
   "The '+=' assignment produces 'int', which can't be stored in 'char'", and enum arithmetic compound
   assignment, including parenthesized column-member receiver forms:
