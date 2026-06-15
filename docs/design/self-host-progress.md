@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA numeric scalar compound assignments have IL-shape proof
+
+`int`, `uint`, and `long` SoA columns now have opcode evidence for supported arithmetic compound
+assignments across row projection, direct column indexing, and direct from-end column indexing. The
+proof covers `+=`, `-=`, `*=`, and `/=`, including unsigned `uint` division, while preserving the
+assigned expression value and using direct backing column-array loads/stores with no row construction,
+slice allocation, boxing, delegate construction, or virtual dispatch.
+
 ## 2026-06-14 — SoA numeric scalar arithmetic expressions have IL-shape proof
 
 `int`, `uint`, and `long` SoA columns now have opcode evidence for arithmetic expression stores

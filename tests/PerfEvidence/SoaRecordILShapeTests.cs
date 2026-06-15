@@ -3289,6 +3289,92 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void NumericScalarColumnCompoundAssignments_UseColumnArrayLoadStoreWithoutRowOrSliceAllocation()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                kind: int
+                flags: uint
+                mask: long
+            }
+
+            func update(nodes: NodeTable, row: int): int {
+                directRow := row + 1
+
+                nodes[row].kind = 10
+                rowInt := nodes[row].kind += 5
+                nodes[row].flags = (uint)20
+                rowUInt := nodes[row].flags /= (uint)4
+                nodes[row].mask = 7L
+                rowLong := nodes[row].mask *= 3L
+
+                nodes.kind[directRow] = 20
+                directInt := nodes.kind[directRow] -= 6
+                nodes.flags[directRow] = (uint)3
+                directUInt := nodes.flags[directRow] += (uint)8
+                nodes.mask[directRow] = 22L
+                directLong := nodes.mask[directRow] /= 2L
+
+                nodes.kind[^1] = 4
+                fromEndInt := nodes.kind[^1] *= 3
+                nodes.flags[^1] = (uint)20
+                fromEndUInt := nodes.flags[^1] -= (uint)9
+                nodes.mask[^1] = 30L
+                fromEndLong := nodes.mask[^1] += 8L
+
+                total := rowInt + (int)rowUInt + (int)rowLong
+                total += directInt + (int)directUInt + (int)directLong
+                total += fromEndInt + (int)fromEndUInt + (int)fromEndLong
+                return total
+            }
+
+            func main(): int {
+                nodes := new NodeTable(3)
+                row := nodes.add()
+                nodes.add()
+                nodes.add()
+                return update(nodes, row)
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var update = ILShapeInspector.GetProgramMethod(assembly, "update");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(138, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoFromEndSliceAllocation(update);
+            Assert.True(
+                ILShapeInspector.CountOpcode(update, OpCodes.Ldfld) >= 18,
+                "Numeric SoA compound assignments should load backing column fields directly.");
+            Assert.True(
+                CountArrayElementLoads(update) >= 9,
+                "Numeric SoA compound assignments should read current values from backing column arrays.");
+            Assert.Equal(18, CountArrayElementStores(update));
+            Assert.True(
+                ILShapeInspector.CountOpcode(update, OpCodes.Add) >= 3,
+                "Numeric SoA compound addition should use the direct ADD opcode.");
+            Assert.True(
+                ILShapeInspector.CountOpcode(update, OpCodes.Sub) >= 2,
+                "Numeric SoA compound subtraction should use the direct SUB opcode.");
+            Assert.True(
+                ILShapeInspector.CountOpcode(update, OpCodes.Mul) >= 2,
+                "Numeric SoA compound multiplication should use the direct MUL opcode.");
+            Assert.True(
+                ILShapeInspector.CountOpcode(update, OpCodes.Div) >= 1,
+                "Signed int/long SoA compound division should use the direct DIV opcode.");
+            Assert.True(
+                ILShapeInspector.CountOpcode(update, OpCodes.Div_Un) >= 1,
+                "Unsigned uint SoA compound division should use the direct DIV.UN opcode.");
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void StringColumnEquality_UsesColumnArrayLoadsAndStringOperatorsWithoutRowOrSliceAllocation()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
