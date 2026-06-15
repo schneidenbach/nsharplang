@@ -3121,6 +3121,84 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void NumericScalarColumnShiftExpressions_UseColumnArrayLoadStoreWithoutRowOrSliceAllocation()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                kind: int
+                flags: uint
+                mask: long
+            }
+
+            func update(nodes: NodeTable, row: int): int {
+                directRow := row + 1
+
+                nodes[row].kind = 4
+                rowInt := nodes[row].kind = nodes[row].kind << 2
+                nodes[row].flags = (uint)16
+                rowUInt := nodes[row].flags = nodes[row].flags >> 2
+                nodes[row].mask = 8L
+                rowLong := nodes[row].mask = nodes[row].mask << 1
+
+                nodes.kind[directRow] = -16
+                directInt := nodes.kind[directRow] = nodes.kind[directRow] >> 2
+                nodes.flags[directRow] = (uint)1
+                directUInt := nodes.flags[directRow] = nodes.flags[directRow] << 3
+                nodes.mask[directRow] = -16L
+                directLong := nodes.mask[directRow] = nodes.mask[directRow] >> 1
+
+                nodes.kind[^1] = 7
+                fromEndInt := nodes.kind[^1] = nodes.kind[^1] << 1
+                nodes.flags[^1] = (uint)8
+                fromEndUInt := nodes.flags[^1] = nodes.flags[^1] >> 1
+                nodes.mask[^1] = 3L
+                fromEndLong := nodes.mask[^1] = nodes.mask[^1] << 2
+
+                total := rowInt + (int)rowUInt + (int)rowLong
+                total += directInt + (int)directUInt + (int)directLong
+                total += fromEndInt + (int)fromEndUInt + (int)fromEndLong
+                return total
+            }
+
+            func main(): int {
+                nodes := new NodeTable(3)
+                row := nodes.add()
+                nodes.add()
+                nodes.add()
+                return update(nodes, row)
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var update = ILShapeInspector.GetProgramMethod(assembly, "update");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(62, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoFromEndSliceAllocation(update);
+            Assert.True(
+                ILShapeInspector.CountOpcode(update, OpCodes.Ldfld) >= 18,
+                "Numeric SoA shift stores should load backing column fields directly.");
+            Assert.Equal(9, CountArrayElementLoads(update));
+            Assert.Equal(18, CountArrayElementStores(update));
+            Assert.True(
+                ILShapeInspector.CountOpcode(update, OpCodes.Shl) >= 5,
+                "Numeric SoA left shifts should use the direct SHL opcode.");
+            Assert.True(
+                ILShapeInspector.CountOpcode(update, OpCodes.Shr) >= 2,
+                "Signed int/long SoA right shifts should use the direct SHR opcode.");
+            Assert.True(
+                ILShapeInspector.CountOpcode(update, OpCodes.Shr_Un) >= 2,
+                "Unsigned uint SoA right shifts should use the direct SHR.UN opcode.");
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void StringColumnEquality_UsesColumnArrayLoadsAndStringOperatorsWithoutRowOrSliceAllocation()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
