@@ -182,9 +182,9 @@ null-coalescing reads and assignment, compound assignment, and increment/decreme
 column element types. These accepted operations lower to the backing column arrays without row-object
 materialization; `string` and `string?` columns support reads/stores, concatenating `+=`
 expressions, plain concatenation expression stores, and null coalescing.
-Parenthesized assignment targets such as `((table[row]).column) = value`,
-`(((table[row]).column) += value)`, and `((table[row]).column) ??= value` follow the same direct
-row-column lowering as the unparenthesized forms.
+Parenthesized assignment and unary update targets such as `((table[row]).column) = value`,
+`(((table[row]).column) += value)`, `((table[row]).column) ??= value`, and
+`++((table[row]).column)` follow the same direct row-column lowering as the unparenthesized forms.
 Both string column shapes have direct string equality/inequality
 evidence, while `string?` columns additionally have direct null equality/inequality evidence. Both
 string column shapes reject `-=`, `*=`, `/=`, `++`, and `--` during analysis. Bool columns support
@@ -325,10 +325,10 @@ IL-shape tests pin the current wrapper proof: row projection over an existing ta
 parenthesized row projection such as `(table[row]).column`, emits direct column field loads and
 array element loads/stores with no row allocation, boxing, delegate construction, heap array
 allocation, or virtual dispatch, including default stores across the
-verified scalar/reference element-type set, parenthesized row-column assignment targets, including
-expression-valued compound assignment and null-coalescing assignment, expression-valued default
-stores, without old-element reads; explicit direct column element operations (`table.column[row]`)
-have the same
+verified scalar/reference element-type set, expression-valued default stores without old-element
+reads, and parenthesized row-column assignment/update targets, including expression-valued compound
+assignment, null-coalescing assignment, and prefix/postfix update operands; explicit direct column
+element operations (`table.column[row]`) have the same
 column-array proof for stores, expression-valued stores, default stores across the verified
 scalar/reference element-type set, including expression-valued default stores, without old-element
 reads, compound stores, prefix/postfix increments, reads across the verified scalar/reference

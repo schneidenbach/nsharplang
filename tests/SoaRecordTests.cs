@@ -5242,6 +5242,56 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void ILCompiler_SoaRecordParenthesizedRowProjectionIncrementTargets_UseColumnElementILShape()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var source = """
+            soa record NodeTable {
+                kind: int
+            }
+
+            func rowOps(nodes: NodeTable, row: int): int {
+                ((nodes[row]).kind) = 10
+                oldUp := ((nodes[row]).kind)++;
+                afterPostUp := ((nodes[row]).kind)
+                newUp := ++((nodes[row]).kind);
+                oldDown := ((nodes[row]).kind)--;
+                newDown := --((nodes[row]).kind);
+                ((nodes[row]).kind)++;
+                ++((nodes[row]).kind);
+                return oldUp * 100000 + afterPostUp * 10000 + newUp * 1000 + oldDown * 100 + newDown * 10 + ((nodes[row]).kind)
+            }
+
+            func main(): int {
+                nodes := new NodeTable(1)
+                row := nodes.add()
+                return rowOps(nodes, row)
+            }
+            """;
+
+        Assert.Equal(1123312, Assert.IsType<int>(CompileAndInvoke(source)));
+
+        var opCodes = CompileAndInspect(source, assembly =>
+        {
+            var rowOps = assembly.GetType("Program")!.GetMethod(
+                "rowOps",
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(rowOps);
+            return GetMethodOpCodes(rowOps!);
+        });
+
+        Assert.Contains(OpCodes.Ldfld, opCodes);
+        Assert.Contains(opCodes, IsArrayElementLoad);
+        Assert.Contains(opCodes, IsArrayElementStore);
+        Assert.DoesNotContain(OpCodes.Newobj, opCodes);
+        Assert.DoesNotContain(OpCodes.Newarr, opCodes);
+        Assert.DoesNotContain(OpCodes.Box, opCodes);
+        Assert.DoesNotContain(OpCodes.Ldftn, opCodes);
+        Assert.DoesNotContain(OpCodes.Callvirt, opCodes);
+    }
+
+    [Fact]
     public void ILCompiler_SoaRecordVerifiedColumnTypes_LoadStoreRoundTrip()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

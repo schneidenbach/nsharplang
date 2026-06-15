@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Parenthesized SoA row-column update operands are pinned
+
+Parenthesized SoA row-column operands for prefix/postfix `++` and `--` now have expression-valued and
+statement-context IL-shape coverage. Forms such as `((nodes[row]).kind)++`,
+`++((nodes[row]).kind)`, and `--((nodes[row]).kind)` preserve ordinary prefix/postfix result
+semantics while staying on backing-column field loads plus array element loads/stores, with no row
+object materialization. Focused evidence: `dotnet test tests/Tests.csproj --filter
+"FullyQualifiedName~SoaRecordTests.ILCompiler_SoaRecordParenthesizedRowProjectionIncrementTargets_UseColumnElementILShape"`.
+
 ## 2026-06-15 — Parenthesized SoA row-column assignment targets keep direct IL
 
 The direct IL backend now unwraps parenthesized write targets before routing assignment and
