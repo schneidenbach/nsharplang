@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — SoA initializers reject collection/indexer shapes
+
+SoA table object initializers and `with` expressions now reject non-named initializer entries before
+emission. Source-valid indexer initializers such as `new NodeTable(1) { [0] = ... }` report a SoA
+diagnostic instead of reaching a missing indexer setter in the value-type initializer emitter, and
+AST-level collection/indexer shapes are guarded for both object initializers and `with` expressions
+before they can fall into emitter-only failures.
+
 ## 2026-06-15 — SoA table with-expressions reject generated fields
 
 SoA table `with` updates now share the named-initializer guard used by object initializers.

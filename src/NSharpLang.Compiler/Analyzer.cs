@@ -12915,6 +12915,7 @@ public class Analyzer : IDisposable
     {
         if (prop.Name == null || prop.IndexExpression != null)
         {
+            ReportUnsupportedSoaTableInitializerShapeIfNeeded(constructedType, prop, "object-initializer");
             var expectedElement = prop.Name == null && prop.IndexExpression == null
                 ? GetExpectedElementType(constructedType)
                 : null;
@@ -13134,6 +13135,36 @@ public class Analyzer : IDisposable
         }
 
         memberType = resolved;
+        return true;
+    }
+
+    private bool ReportUnsupportedSoaTableInitializerShapeIfNeeded(
+        TypeInfo targetType,
+        PropertyInitializer property,
+        string initializerKind)
+    {
+        if (ResolveTypeAlias(GetNonNullableType(targetType)) is not SoaRecordTypeInfo)
+        {
+            return false;
+        }
+
+        if (property.Name != null && property.IndexExpression == null)
+        {
+            return false;
+        }
+
+        var diagnosticTarget = property.IndexExpression ?? property.Value;
+        var (line, column, length) = GetExpressionDiagnosticSpan(diagnosticTarget);
+        var initializerShape = property.IndexExpression != null
+            ? "indexer initializers"
+            : "collection initializer entries";
+        Error(
+            ErrorCode.InvalidSyntax,
+            $"SoA tables cannot use {initializerKind} {initializerShape}",
+            line,
+            column,
+            "Construct the table with new Table(capacity) or Table.wrap(...), then write individual columns with table[index].column.",
+            length);
         return true;
     }
 
@@ -13606,6 +13637,8 @@ public class Analyzer : IDisposable
 
         foreach (var property in with.Properties)
         {
+            var unsupportedSoaTableInitializerShape =
+                ReportUnsupportedSoaTableInitializerShapeIfNeeded(targetType, property, "`with`");
             if (property.IndexExpression != null)
             {
                 var indexType = AnalyzeExpression(property.IndexExpression);
@@ -13613,7 +13646,7 @@ public class Analyzer : IDisposable
             }
 
             TypeInfo? memberType = null;
-            if (property.Name != null && property.IndexExpression == null)
+            if (!unsupportedSoaTableInitializerShape && property.Name != null && property.IndexExpression == null)
             {
                 var (nameLine, nameColumn) = property.NameLine > 0
                     ? (property.NameLine, property.NameColumn)

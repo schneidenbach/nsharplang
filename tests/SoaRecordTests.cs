@@ -6019,6 +6019,50 @@ public class SoaRecordTests : ILCompilerTestBase
         Assert.Contains("Member 'missing' not found on type 'NodeTable'", error.Message);
     }
 
+    [Theory]
+    [InlineData(false, "collection initializer entries")]
+    [InlineData(true, "indexer initializers")]
+    public void Analyzer_SoaTableWithExpressionRejectsAstCollectionAndIndexerEntriesBeforeEmission(
+        bool indexerInitializer,
+        string expectedShape)
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var source = """
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable): NodeTable {
+                return nodes with { kind: new int[](1) }
+            }
+            """;
+        var unit = ParseForAnalysis(source);
+        var function = Assert.IsType<FunctionDeclaration>(unit.Declarations[1]);
+        var returnStatement = Assert.IsType<ReturnStatement>(function.Body!.Statements[0]);
+        var with = Assert.IsType<WithExpression>(returnStatement.Value);
+        with.Properties.Clear();
+        with.Properties.Add(indexerInitializer
+            ? new PropertyInitializer(
+                null,
+                new IntLiteralExpression("0", Line: 7, Column: 37),
+                new IntLiteralExpression("1", Line: 7, Column: 42),
+                NameLine: 7,
+                NameColumn: 37)
+            : new PropertyInitializer(
+                null,
+                null,
+                new IntLiteralExpression("1", Line: 7, Column: 37),
+                NameLine: 7,
+                NameColumn: 37));
+
+        var result = Analyze(unit, source);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains($"SoA tables cannot use `with` {expectedShape}", error.Message);
+        Assert.Contains("table[index].column", error.Suggestion);
+    }
+
     [Fact]
     public void Analyzer_SoaRowViewCannotBeUsedAsEventTarget()
     {
@@ -6264,6 +6308,61 @@ public class SoaRecordTests : ILCompilerTestBase
 
         var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.UndefinedMember);
         Assert.Contains("Member 'missing' not found on type 'NodeTable'", error.Message);
+    }
+
+    [Fact]
+    public void Analyzer_SoaTableObjectInitializerRejectsIndexerEntriesBeforeEmission()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(): NodeTable {
+                return new NodeTable(1) { [0] = 1 }
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("SoA tables cannot use object-initializer indexer initializers", error.Message);
+        Assert.Contains("table[index].column", error.Suggestion);
+    }
+
+    [Fact]
+    public void Analyzer_SoaTableObjectInitializerRejectsAstCollectionEntriesBeforeEmission()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var source = """
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(): NodeTable {
+                return new NodeTable(1) { kind: new int[](1) }
+            }
+            """;
+        var unit = ParseForAnalysis(source);
+        var function = Assert.IsType<FunctionDeclaration>(unit.Declarations[1]);
+        var returnStatement = Assert.IsType<ReturnStatement>(function.Body!.Statements[0]);
+        var newExpr = Assert.IsType<NewExpression>(returnStatement.Value);
+        Assert.NotNull(newExpr.Initializer);
+        var initializer = newExpr.Initializer!;
+        initializer.Properties.Clear();
+        initializer.Properties.Add(new PropertyInitializer(
+            null,
+            null,
+            new IntLiteralExpression("1", Line: 7, Column: 43),
+            NameLine: 7,
+            NameColumn: 43));
+
+        var result = Analyze(unit, source);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("SoA tables cannot use object-initializer collection initializer entries", error.Message);
+        Assert.Contains("table[index].column", error.Suggestion);
     }
 
     [Fact]
