@@ -777,26 +777,22 @@ internal static class NSharpCompilerDogfoodAdapter
             returnTupleElementNames: returnTupleNames, paramTupleElementNames: paramTupleNames,
             isAsync: isAsync);
 
-        // LOCAL FUNCTIONS (kind-41 statements that are DIRECT children of the root block): each node's
-        // value span is the `func` keyword's byte span — re-locate the token and parse the nested
-        // declaration through the same kernels (recursively: a local function may declare its own).
-        // Nested-BLOCK declarations are deliberately NOT collected — their kind-41 nodes stay undeclared
+        // LOCAL FUNCTIONS (kind-41 statements that are DIRECT children of the root block): the N# wrapper maps
+        // statement-node ids to compact `func` token indices, then each declaration parses through the same kernels
+        // recursively. Nested-BLOCK declarations are deliberately NOT collected — their kind-41 nodes stay undeclared
         // and the emitter declines them (scope-precise under-acceptance).
         var rootBlock = bres[0];
-        if (bk[rootBlock] == 25)
+        var localFunctionNodeIndices = new int[cap];
+        var localFunctionTokenIndices = new int[cap];
+        var localFunctionCount = bindings.DirectLocalFunctionTokenIndices(
+            ck, cs, n, bk, bvs, bcs, bcc, bci, rootBlock, localFunctionNodeIndices, localFunctionTokenIndices);
+        if (localFunctionCount < 0)
+            return false;
+        for (var lf = 0; lf < localFunctionCount; lf++)
         {
-            for (var rc = 0; rc < bcc[rootBlock]; rc++)
-            {
-                var stmtNode = bci[bcs[rootBlock] + rc];
-                if (bk[stmtNode] != 41)
-                    continue;
-                var funcTokenIndex = bindings.TokenIndexByKindStart(ck, cs, n, 7, bvs[stmtNode]);
-                if (funcTokenIndex < 0)
-                    return false;
-                if (!TryParseColumnarFunctionAt(bindings, ck, cs, cv, n, funcTokenIndex, source, out var localFn))
-                    return false;
-                (input.LocalFunctions ??= new List<(int, Columnar.ColumnarFunctionInput)>()).Add((stmtNode, localFn));
-            }
+            if (!TryParseColumnarFunctionAt(bindings, ck, cs, cv, n, localFunctionTokenIndices[lf], source, out var localFn))
+                return false;
+            (input.LocalFunctions ??= new List<(int, Columnar.ColumnarFunctionInput)>()).Add((localFunctionNodeIndices[lf], localFn));
         }
         return true;
     }
@@ -2012,9 +2008,9 @@ internal static class NSharpCompilerDogfoodAdapter
                 CreateDelegate<TopLevelStructLikeDeclarationIndicesInto>(
                     programType,
                     "TopLevelStructLikeDeclarationIndicesInto"),
-                CreateDelegate<TokenIndexByKindStartInto>(
+                CreateDelegate<DirectLocalFunctionTokenIndicesInto>(
                     programType,
-                    "TokenIndexByKindStartInto"),
+                    "DirectLocalFunctionTokenIndicesInto"),
                 CreateDelegate<ParsePropertyAccessorTypeInfoInto>(
                     programType,
                     "ParsePropertyAccessorTypeInfoInto"),
@@ -2167,8 +2163,10 @@ internal static class NSharpCompilerDogfoodAdapter
         int[] outFuncIndices, int[] outAsyncFlags, int[] outResult);
     private delegate int TopLevelStructLikeDeclarationIndicesInto(
         int[] tokenKinds, int count, int[] outIndices, int[] outReferenceFlags, int[] outRecordFlags);
-    private delegate int TokenIndexByKindStartInto(
-        int[] tokenKinds, int[] tokenStarts, int count, int targetKind, int targetStart);
+    private delegate int DirectLocalFunctionTokenIndicesInto(
+        int[] tokenKinds, int[] tokenStarts, int tokenCount,
+        int[] nodeKinds, int[] nodeValueStarts, int[] nodeChildStart, int[] nodeChildCount, int[] nodeChildIndices,
+        int rootBlock, int[] outNodeIndices, int[] outFuncTokenIndices);
     private delegate int ParsePropertyAccessorTypeInfoInto(
         string source, int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths,
         int count, int propIndex, string[] outNameTexts, string[] outTypeTexts, int[] outResult);
@@ -2262,7 +2260,7 @@ internal static class NSharpCompilerDogfoodAdapter
         TopLevelColumnarNominalDeclarationIndicesInto TopLevelColumnarNominalDeclarationIndices,
         TopLevelColumnarFunctionDeclarationIndicesInto TopLevelColumnarFunctionDeclarationIndices,
         TopLevelStructLikeDeclarationIndicesInto TopLevelStructLikeDeclarationIndices,
-        TokenIndexByKindStartInto TokenIndexByKindStart,
+        DirectLocalFunctionTokenIndicesInto DirectLocalFunctionTokenIndices,
         ParsePropertyAccessorTypeInfoInto ParsePropertyAccessorTypeInfo,
         TopLevelDeclarationNameSpansInto TopLevelDeclarationNameSpans,
         NamespaceImportSpansInto NamespaceImportSpans,

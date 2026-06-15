@@ -11,6 +11,22 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Local-function discovery rowset moves into N#
+
+`ParserLocalFunctions.nl` now exports `DirectLocalFunctionTokenIndicesInto`, a product-routed wrapper
+over statement-node rows and compact token lookup. It accepts a parsed function-body block, returns only
+direct child local-function statement nodes plus their `func` token indices, and deliberately leaves
+nested-block local functions undeclared so the emitter continues to decline unsupported scope cases.
+
+`NSharpCompilerDogfoodAdapter.TryParseColumnarFunctionAt` no longer scans the statement child table or
+binds `TokenIndexByKindStartInto` for product local-function routing. It consumes the N# rowset and
+recursively parses only the accepted local declarations. `TokenIndexByKindStartInto` remains emitted as
+a parser utility/parity ABI, not a production adapter dependency. Focused evidence:
+`./scripts/dev.sh Parser_Statement_MatchesProductionParser`,
+`./scripts/dev.sh ColumnarCodegen_Parity_LocalFunctions`,
+`./scripts/dev.sh ColumnarCodegen_CompilesRealDogfoodCorpus_Coverage`, and
+`./scripts/dev.sh ColumnarCodegen_MultiFile_EligibleClusterCompiles`.
+
 ## 2026-06-15 — Constructor signature materialization moves into N#
 
 `ParserConstructorSignatures.nl` now exports `ParseConstructorSignatureInfoInto`, a product-routed
@@ -352,9 +368,9 @@ columnar property parity tests cover the production route.
 ## 2026-06-15 — Local-function token relocation moves into N#
 
 `ParserDeclarations.nl` now owns `TokenIndexByKindStartInto`, a counted compact-token lookup that
-maps a parser-node source span back to the corresponding declaration token. The columnar local
-function route uses it to re-enter `TryParseColumnarFunctionAt` for kind-41 statement nodes, removing
-the adapter-side C# scan over every compact token by kind/start pair.
+maps a parser-node source span back to the corresponding declaration token. This first moved local
+function token relocation out of a C# compact-token scan; the later `ParserLocalFunctions.nl` rowset
+lift keeps this lookup behind an N# product wrapper.
 
 The parser-declaration parity test pins the positive match, counted-prefix miss, and same-start
 different-kind cases; the columnar local-function parity test covers the production route.

@@ -10120,7 +10120,7 @@ class B
             "CompletionGrouping.nl", "CompletionReceivers.nl", "DiagnosticClusters.nl", "DiagnosticDeduplication.nl", "DocQuery.nl",
             "FormatterImportOrdering.nl", "IdentifierSpans.nl",
             "LexerTokenKindScanner.nl", "OverloadCandidates.nl", "ParserDeclarations.nl",
-            "ParserConstructorSignatures.nl", "ParserExpressions.nl", "ParserFunctionSignatures.nl", "ParserInterfaceSignatures.nl", "ParserStatements.nl", "ParserTypeReferences.nl",
+            "ParserConstructorSignatures.nl", "ParserExpressions.nl", "ParserFunctionSignatures.nl", "ParserInterfaceSignatures.nl", "ParserLocalFunctions.nl", "ParserStatements.nl", "ParserTypeReferences.nl",
             "ProjectSourceFilter.nl", "StructCopyAnalysis.nl",
             "TextEditOrdering.nl", "TypeLookup.nl",
         };
@@ -10134,6 +10134,7 @@ class B
         Assert.Contains("ParseFunctionSignatureInto", methodNames!); // ParserFunctionSignatures -> ParserTypeReferences
         Assert.Contains("ParseConstructorSignatureInfoInto", methodNames!); // ParserConstructorSignatures -> declarations/signatures/types
         Assert.Contains("ParseInterfaceDeclarationSignatureInfoInto", methodNames!); // ParserInterfaceSignatures -> declarations/signatures/types
+        Assert.Contains("DirectLocalFunctionTokenIndicesInto", methodNames!); // ParserLocalFunctions -> declarations/statements
         Assert.Contains("ParsePrimaryExpressionNode", methodNames!); // ParserExpressions
         Assert.Contains("ParseStatementNodesInto", methodNames!);    // ParserStatements -> ParserExpressions
     }
@@ -11206,6 +11207,10 @@ class B
                     "ParseStatementNodesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit ParseStatementNodesInto.");
+            var directLocalFunctions = programType.GetMethod(
+                    "DirectLocalFunctionTokenIndicesInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit DirectLocalFunctionTokenIndicesInto.");
 
             string[] statements =
             {
@@ -11226,6 +11231,35 @@ class B
             };
             foreach (var stmt in statements)
                 AssertStatementLikeProduction(stmt, tokenize, parseStmt);
+
+            AssertDirectLocalFunctionTokenIndices(
+                """
+func outer() {
+    func inner(x: int): int {
+        return x
+    }
+    return inner(1)
+}
+""",
+                "inner",
+                tokenize,
+                parseStmt,
+                directLocalFunctions);
+            AssertDirectLocalFunctionTokenIndices(
+                """
+func outer(c: bool): int {
+    if c {
+        func nested(x: int): int {
+            return x
+        }
+    }
+    return 0
+}
+""",
+                null,
+                tokenize,
+                parseStmt,
+                directLocalFunctions);
         }
         finally
         {
@@ -11274,6 +11308,68 @@ class B
 
         // Full consumption: the statement ends at the body's closing `}` (RightBrace 130).
         Assert.True(res[1] < count && kinds[res[1]] == 130, $"Statement '{statementSource}' did not consume to the body close.");
+    }
+
+    private static void AssertDirectLocalFunctionTokenIndices(
+        string sourceText,
+        string? expectedLocalName,
+        MethodInfo tokenize,
+        MethodInfo parseStmt,
+        MethodInfo directLocalFunctions)
+    {
+        var (count, kinds, starts, valueLengths, source) = TokenizeSourceViaKernel(sourceText, tokenize);
+        var bodyBrace = -1;
+        for (var i = 0; i < count; i++)
+        {
+            if (kinds[i] == (int)TokenType.LeftBrace)
+            {
+                bodyBrace = i;
+                break;
+            }
+        }
+        Assert.True(bodyBrace >= 0, "Could not locate outer function body.");
+
+        var cap = count + 1;
+        var k = new int[cap];
+        var vs = new int[cap];
+        var vl = new int[cap];
+        var cstart = new int[cap];
+        var ccount = new int[cap];
+        var ci = new int[cap];
+        var ss = new int[cap];
+        var sl = new int[cap];
+        var res = new int[2];
+        var nodeCount = (int)(parseStmt.Invoke(
+            null,
+            new object[] { kinds, starts, valueLengths, count, bodyBrace, k, vs, vl, cstart, ccount, ci, ss, sl, res }) ?? -2);
+
+        Assert.True(nodeCount > 0, "Kernel refused outer function body.");
+        var root = res[0];
+        Assert.True(root >= 0 && root < nodeCount, "Statement parser returned an invalid root node.");
+        Assert.Equal(25, k[root]);
+
+        var outNodeIndices = new int[cap];
+        var outFuncTokenIndices = new int[cap];
+        var actual = (int)(directLocalFunctions.Invoke(
+            null,
+            new object[] { kinds, starts, count, k, vs, cstart, ccount, ci, root, outNodeIndices, outFuncTokenIndices }) ?? -2);
+
+        if (expectedLocalName == null)
+        {
+            Assert.Equal(0, actual);
+            return;
+        }
+
+        Assert.Equal(1, actual);
+        var nodeIndex = outNodeIndices[0];
+        var funcTokenIndex = outFuncTokenIndices[0];
+        Assert.True(nodeIndex >= 0 && nodeIndex < nodeCount, "Local-function node index is out of range.");
+        Assert.True(funcTokenIndex >= 0 && funcTokenIndex + 1 < count, "Local-function token index is out of range.");
+        Assert.Equal(41, k[nodeIndex]);
+        Assert.Equal((int)TokenType.Func, kinds[funcTokenIndex]);
+        Assert.Equal(vs[nodeIndex], starts[funcTokenIndex]);
+        Assert.Equal((int)TokenType.Identifier, kinds[funcTokenIndex + 1]);
+        Assert.Equal(expectedLocalName, source.Substring(starts[funcTokenIndex + 1], valueLengths[funcTokenIndex + 1]));
     }
 
     private static void AssertStmtNode(
