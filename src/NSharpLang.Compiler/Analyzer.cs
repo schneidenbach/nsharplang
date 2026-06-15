@@ -8359,15 +8359,32 @@ public class Analyzer : IDisposable
             // argument pairs with the RECEIVER's type and loses its delegate-type inference source.
             var expectedParamOffset = functionType.Declaration is { } decl
                 && IsReceiverStyleExtensionCall(decl, call) ? 1 : 0;
+            var nsharpExpectedBindings = functionType.Declaration is { } nsharpDeclaration
+                ? TryInferNSharpGenericBindings(nsharpDeclaration, call, new List<TypeInfo>())
+                : null;
             for (int i = 0; i < call.Arguments.Count; i++)
             {
-                var expectedIndex = syntheticParameterIndexByArgument != null
-                    ? syntheticParameterIndexByArgument[i]
-                    : i + expectedParamOffset;
-                var expectedType = expectedIndex < functionType.ParameterTypes.Count
-                    && expectedIndex >= 0
-                    ? functionType.ParameterTypes[expectedIndex]
-                    : null;
+                TypeInfo? expectedType;
+                if (functionType.Declaration is { } declaration)
+                {
+                    expectedType = GetExpectedNSharpCallArgumentType(
+                        declaration,
+                        call,
+                        i,
+                        expectedParamOffset,
+                        nsharpExpectedBindings);
+                }
+                else
+                {
+                    var expectedIndex = syntheticParameterIndexByArgument != null
+                        ? syntheticParameterIndexByArgument[i]
+                        : i + expectedParamOffset;
+                    expectedType = expectedIndex < functionType.ParameterTypes.Count
+                        && expectedIndex >= 0
+                        ? functionType.ParameterTypes[expectedIndex]
+                        : null;
+                }
+
                 argTypes.Add(AnalyzeExpressionWithExpectedType(call.Arguments[i].Value, expectedType));
             }
         }
@@ -8549,7 +8566,13 @@ public class Analyzer : IDisposable
                         // Get element type from array type
                         if (paramsArrayType is ArrayTypeInfo arrayType)
                         {
-                            for (int i = regularParamCount; i < argTypes.Count; i++)
+                            var isDirectParamsArrayArgument = IsSingleDirectNSharpParamsArrayArgument(
+                                regularParamCount,
+                                call.Arguments,
+                                argTypes,
+                                arrayType);
+
+                            for (int i = regularParamCount; !isDirectParamsArrayArgument && i < argTypes.Count; i++)
                             {
                                 var argType = argTypes[i];
                                 var arg = call.Arguments[i];
@@ -8668,6 +8691,64 @@ public class Analyzer : IDisposable
         }
 
         return BuiltInTypes.Unknown;
+    }
+
+    private TypeInfo? GetExpectedNSharpCallArgumentType(
+        FunctionDeclaration declaration,
+        CallExpression call,
+        int argumentIndex,
+        int paramStartIndex,
+        Dictionary<string, TypeInfo>? genericBindings)
+    {
+        var hasParams = declaration.Parameters.Count > 0 &&
+                        declaration.Parameters[^1].Modifier == Ast.ParameterModifier.Params;
+        var effectiveParamCount = declaration.Parameters.Count - paramStartIndex;
+        var regularParamCount = hasParams ? effectiveParamCount - 1 : effectiveParamCount;
+
+        if (hasParams && argumentIndex >= regularParamCount)
+        {
+            var paramsType = ResolveType(declaration.Parameters[^1].Type);
+            paramsType = ApplyNSharpGenericBindings(paramsType, genericBindings);
+            var paramsElementType = GetNSharpParamsElementType(paramsType);
+
+            // A single array literal can be either the direct params array or one expanded
+            // params element. Leave it untyped here so validation can choose by assignability.
+            if (call.Arguments.Count == regularParamCount + 1
+                && call.Arguments[argumentIndex].Value is ArrayLiteralExpression)
+            {
+                return null;
+            }
+
+            return paramsElementType ?? paramsType;
+        }
+
+        var paramIndex = argumentIndex + paramStartIndex;
+        if (paramIndex < 0 || paramIndex >= declaration.Parameters.Count)
+            return null;
+
+        var expectedType = ResolveType(declaration.Parameters[paramIndex].Type);
+        return ApplyNSharpGenericBindings(expectedType, genericBindings);
+    }
+
+    private TypeInfo? GetNSharpParamsElementType(TypeInfo paramsType)
+    {
+        return ResolveTypeAlias(paramsType) switch
+        {
+            ArrayTypeInfo array => array.ElementType,
+            GenericTypeInfo { TypeArguments.Count: 1 } generic => generic.TypeArguments[0],
+            _ => null
+        };
+    }
+
+    private bool IsSingleDirectNSharpParamsArrayArgument(
+        int regularParamCount,
+        IReadOnlyList<Argument> arguments,
+        IReadOnlyList<TypeInfo> argTypes,
+        TypeInfo paramsArrayType)
+    {
+        return argTypes.Count == regularParamCount + 1
+            && arguments[regularParamCount].Value is not SpreadExpression
+            && IsAssignable(paramsArrayType, argTypes[regularParamCount]);
     }
 
     private void ValidateSyntheticFunctionCall(FunctionTypeInfo functionType, CallExpression call, IReadOnlyList<TypeInfo> argTypes)
@@ -9419,14 +9500,25 @@ public class Analyzer : IDisposable
                 if (paramsParamType is ArrayTypeInfo paramsArrayType)
                 {
                     bool paramsMatch = true;
-                    for (int i = regularParamCount; i < argTypes.Count; i++)
+                    if (IsSingleDirectNSharpParamsArrayArgument(
+                        regularParamCount,
+                        call.Arguments,
+                        argTypes,
+                        paramsArrayType))
                     {
-                        if (!IsAssignable(paramsArrayType.ElementType, argTypes[i]))
+                        score += GetNSharpMatchScore(paramsArrayType, argTypes[regularParamCount]);
+                    }
+                    else
+                    {
+                        for (int i = regularParamCount; i < argTypes.Count; i++)
                         {
-                            paramsMatch = false;
-                            break;
+                            if (!IsAssignable(paramsArrayType.ElementType, argTypes[i]))
+                            {
+                                paramsMatch = false;
+                                break;
+                            }
+                            score += GetNSharpMatchScore(paramsArrayType.ElementType, argTypes[i]);
                         }
-                        score += GetNSharpMatchScore(paramsArrayType.ElementType, argTypes[i]);
                     }
 
                     if (!paramsMatch)
@@ -9608,7 +9700,13 @@ public class Analyzer : IDisposable
 
             if (paramsParamType is ArrayTypeInfo paramsArrayType)
             {
-                for (int i = regularParamCount; i < argTypes.Count; i++)
+                var isDirectParamsArrayArgument = IsSingleDirectNSharpParamsArrayArgument(
+                    regularParamCount,
+                    call.Arguments,
+                    argTypes,
+                    paramsArrayType);
+
+                for (int i = regularParamCount; !isDirectParamsArrayArgument && i < argTypes.Count; i++)
                 {
                     var argType = argTypes[i];
                     if (!IsAssignable(paramsArrayType.ElementType, argType))

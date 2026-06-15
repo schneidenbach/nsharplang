@@ -5534,6 +5534,25 @@ func Main() {
     }
 
     [Fact]
+    public void GenericInference_ExplicitArrayTypeArgument_ParamsArray()
+    {
+        AssertNoErrors(@"
+            func Sum(params numbers: int[]): int {
+                return 0
+            }
+
+            func CreateList<T>(params items: T[]): int {
+                return 0
+            }
+
+            func Main() {
+                direct := Sum([1, 2, 3])
+                arrays := CreateList<int[]>([1, 2], [3, 4], [5, 6])
+            }
+        ");
+    }
+
+    [Fact]
     public void OverloadResolution_AmbiguousCall_Error()
     {
         AssertHasError(@"
