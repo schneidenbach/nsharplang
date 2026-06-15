@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Systems policy attributes bypass CLR constant validation
+
+The attribute-constant safety gate now skips internal systems policy attributes (`[hot]`,
+`[memory(safe)]`, `[trusted(...)]`, `[allow(...)]`, etc.) because the IL backend intentionally does
+not emit them as CLR attributes and the systems analyzer consumes their symbolic policy arguments.
+General CLR attributes still reject non-constant calls/operators before emission; the executable
+systems proof matrix again builds proof 25 with `[memory(safe)]`.
+
 ## 2026-06-15 — Expression-tree bitwise predicates lower
 
 Queryable expression-tree predicates now lower integer bitwise `&`, `|`, and `^` through

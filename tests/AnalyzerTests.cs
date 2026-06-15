@@ -10269,6 +10269,20 @@ func Main() {
             """);
     }
 
+    [Fact]
+    public void AttributeArguments_SystemsPolicyAttributes_AcceptSymbolicArguments()
+    {
+        AssertNoErrors("""
+            [memory(safe)]
+            [allow(trap, owner: "runtime-core", reason: "bounds checked")]
+            [trusted(reason: "bounds checked", owner: "runtime-core", review: "SYS-25")]
+            [hot]
+            func Copy(): int {
+                return 0
+            }
+            """);
+    }
+
     [Theory]
     [InlineData("[System.Obsolete(BuildMessage())]", "call")]
     [InlineData("[System.Obsolete(\"v\" + \"1\")]", "+")]

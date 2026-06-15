@@ -614,12 +614,33 @@ public class Analyzer : IDisposable
 
         foreach (var attribute in attributes)
         {
+            if (IsSystemsPolicyAttribute(attribute))
+            {
+                continue;
+            }
+
             foreach (var argument in attribute.Arguments)
             {
                 var (_, valueExpression) = NormalizeAttributeArgument(argument);
                 TryValidateAttributeArgumentExpression(valueExpression, out _);
             }
         }
+    }
+
+    private static bool IsSystemsPolicyAttribute(AttributeNode attribute)
+    {
+        var policyName = attribute.Name;
+        if (policyName.Contains('.', StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        if (policyName.EndsWith("Attribute", StringComparison.Ordinal))
+        {
+            policyName = policyName[..^"Attribute".Length];
+        }
+
+        return policyName is "hot" or "boundary" or "alloc" or "allow" or "trusted" or "memory" or "aotSafe";
     }
 
     private static (string? Name, Expression Value) NormalizeAttributeArgument(Argument argument)
