@@ -643,6 +643,86 @@ func TokenIndexByKindStartCore(tokens: &ParserDeclarationStartKindStream, count:
     return -1
 }
 
+// Parser declaration utility: parse one computed property accessor block already discovered by
+// ParseStructDeclarationCore. Returns 0 for get-only, 1 for get/set, or -1 for unsupported shapes.
+// outResult: [0]=nameStart, [1]=nameLength, [2]=typeStart, [3]=typeLength,
+// [4]=getBodyBraceIndex, [5]=setBodyBraceIndex-or--1.
+func ParsePropertyAccessorInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, propIndex: int, outResult: int[]): int {
+    tokens := new ParserDeclarationTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
+    result := new ParserDeclarationResultTable { Values: outResult }
+    return ParsePropertyAccessorInfoCore(source, ref tokens, count, propIndex, ref result)
+}
+
+func ParsePropertyAccessorInfoCore(source: string, tokens: &ParserDeclarationTokenTable, count: int, propIndex: int, result: &ParserDeclarationResultTable): int {
+    if result.Values.Length < 6 {
+        return -1
+    }
+
+    if count < 0 {
+        return -1
+    }
+
+    if count > tokens.Kinds.Length {
+        return -1
+    }
+
+    if count > tokens.Starts.Length {
+        return -1
+    }
+
+    if count > tokens.ValueLengths.Length {
+        return -1
+    }
+
+    if propIndex < 0 || propIndex + 5 >= count {
+        return -1
+    }
+
+    if tokens.Kinds[propIndex] != 0 || tokens.Kinds[propIndex + 1] != 122 || tokens.Kinds[propIndex + 2] != 0 || tokens.Kinds[propIndex + 3] != 129 {
+        return -1
+    }
+
+    if tokens.Kinds[propIndex + 4] != 0 || !ParserDeclarationTokenTextEquals(source, tokens.Starts[propIndex + 4], tokens.ValueLengths[propIndex + 4], "get") {
+        return -1
+    }
+
+    if tokens.Kinds[propIndex + 5] != 129 {
+        return -1
+    }
+
+    getBodyBrace := propIndex + 5
+    kindStream := new ParserDeclarationKindStream { Kinds: tokens.Kinds }
+    getBodyEnd := MatchingCloseBraceCore(ref kindStream, count, getBodyBrace)
+    if getBodyEnd < 0 {
+        return -1
+    }
+
+    result.Values[0] = tokens.Starts[propIndex]
+    result.Values[1] = tokens.ValueLengths[propIndex]
+    result.Values[2] = tokens.Starts[propIndex + 2]
+    result.Values[3] = tokens.ValueLengths[propIndex + 2]
+    result.Values[4] = getBodyBrace
+    result.Values[5] = -1
+
+    after := getBodyEnd + 1
+    if after < count && tokens.Kinds[after] == 130 {
+        return 0
+    }
+
+    if after + 1 < count && tokens.Kinds[after] == 0 && ParserDeclarationTokenTextEquals(source, tokens.Starts[after], tokens.ValueLengths[after], "set") && tokens.Kinds[after + 1] == 129 {
+        setBodyBrace := after + 1
+        setBodyEnd := MatchingCloseBraceCore(ref kindStream, count, setBodyBrace)
+        if setBodyEnd < 0 || setBodyEnd + 1 >= count || tokens.Kinds[setBodyEnd + 1] != 130 {
+            return -1
+        }
+
+        result.Values[5] = setBodyBrace
+        return 1
+    }
+
+    return -1
+}
+
 func TopLevelContextualTestDeclarationExistsInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int): int {
     tokens := new ParserDeclarationTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
     return TopLevelContextualTestDeclarationExistsCore(source, ref tokens, count)

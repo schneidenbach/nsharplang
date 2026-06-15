@@ -846,23 +846,17 @@ internal static class NSharpCompilerDogfoodAdapter
         out Columnar.ColumnarPropertyInput input, bool isStatic = false)
     {
         input = null!;
-        if (propIndex + 5 >= n)
-            return false;
-        if (ck[propIndex] != 0 || ck[propIndex + 1] != 122 || ck[propIndex + 2] != 0 || ck[propIndex + 3] != 129)
-            return false;
-        if (ck[propIndex + 4] != 0 || cv[propIndex + 4] != 3 || string.CompareOrdinal(source, cs[propIndex + 4], "get", 0, 3) != 0)
-            return false;
-        if (ck[propIndex + 5] != 129)
+        var propInfo = new int[6];
+        var accessorKind = bindings.ParsePropertyAccessorInfo(source, ck, cs, cv, n, propIndex, propInfo);
+        if (accessorKind < 0)
             return false;
 
-        var propName = source.Substring(cs[propIndex], cv[propIndex]);
-        var propType = source.Substring(cs[propIndex + 2], cv[propIndex + 2]);
+        var propName = source.Substring(propInfo[0], propInfo[1]);
+        var propType = source.Substring(propInfo[2], propInfo[3]);
         var cap = n + 1;
 
-        // Parse the get body. Find its matching `}` to locate what follows (the property `}` for get-only, or a `set`).
-        var getBodyBrace = propIndex + 5;
-        var getBodyEnd = bindings.MatchingCloseBrace(ck, n, getBodyBrace);
-        if (getBodyEnd < 0)
+        var getBodyBrace = propInfo[4];
+        if (getBodyBrace < 0 || getBodyBrace >= n || ck[getBodyBrace] != 129)
             return false;
         var gk = new int[cap]; var gvs = new int[cap]; var gvl = new int[cap]; var gcs = new int[cap];
         var gcc = new int[cap]; var gci = new int[cap]; var gss = new int[cap]; var gsl = new int[cap];
@@ -875,18 +869,15 @@ internal static class NSharpCompilerDogfoodAdapter
             getterNodes, gres[0]);
 
         Columnar.ColumnarFunctionInput? setter = null;
-        var after = getBodyEnd + 1;
-        if (after < n && ck[after] == 130)
+        if (accessorKind == 0)
         {
-            // get-only: the property block closes right after the getter.
+            // get-only.
         }
-        else if (after + 1 < n && ck[after] == 0 && cv[after] == 3 && string.CompareOrdinal(source, cs[after], "set", 0, 3) == 0 && ck[after + 1] == 129)
+        else if (accessorKind == 1)
         {
-            // `set { setBody }` — implicit `value` parameter of the property type, void return. The set body's `}`
-            // must be immediately followed by the property block `}` (a third accessor declines).
-            var setBodyBrace = after + 1;
-            var setBodyEnd = bindings.MatchingCloseBrace(ck, n, setBodyBrace);
-            if (setBodyEnd < 0 || setBodyEnd + 1 >= n || ck[setBodyEnd + 1] != 130)
+            // `set { setBody }` — implicit `value` parameter of the property type, void return.
+            var setBodyBrace = propInfo[5];
+            if (setBodyBrace < 0 || setBodyBrace >= n || ck[setBodyBrace] != 129)
                 return false;
             var stk = new int[cap]; var stvs = new int[cap]; var stvl = new int[cap]; var stcs = new int[cap];
             var stcc = new int[cap]; var stci = new int[cap]; var stss = new int[cap]; var stsl = new int[cap];
@@ -900,7 +891,7 @@ internal static class NSharpCompilerDogfoodAdapter
         }
         else
         {
-            return false; // a set-first ordering / expression-bodied / unrecognized accessor -> decline.
+            return false;
         }
 
         input = new Columnar.ColumnarPropertyInput(propName, propType, getter, setter, isStatic);
@@ -2046,12 +2037,12 @@ internal static class NSharpCompilerDogfoodAdapter
                 CreateDelegate<TopLevelFunctionPreamblesAreValidInto>(
                     programType,
                     "TopLevelFunctionPreamblesAreValidInto"),
-                CreateDelegate<MatchingCloseBraceInto>(
-                    programType,
-                    "MatchingCloseBraceInto"),
                 CreateDelegate<TokenIndexByKindStartInto>(
                     programType,
                     "TokenIndexByKindStartInto"),
+                CreateDelegate<ParsePropertyAccessorInfoInto>(
+                    programType,
+                    "ParsePropertyAccessorInfoInto"),
                 CreateDelegate<TopLevelDeclarationModifiersInto>(
                     programType,
                     "TopLevelDeclarationModifiersInto"),
@@ -2193,9 +2184,11 @@ internal static class NSharpCompilerDogfoodAdapter
         int[] tokenKinds, int count, int targetKind, int suppressWhereClause, int[] outIndices);
     private delegate int TopLevelFunctionPreamblesAreValidInto(
         int[] tokenKinds, int count, int[] funcIndices, int funcCount);
-    private delegate int MatchingCloseBraceInto(int[] tokenKinds, int count, int open);
     private delegate int TokenIndexByKindStartInto(
         int[] tokenKinds, int[] tokenStarts, int count, int targetKind, int targetStart);
+    private delegate int ParsePropertyAccessorInfoInto(
+        string source, int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths,
+        int count, int propIndex, int[] outResult);
     private delegate int TopLevelDeclarationModifiersInto(int[] tokenKinds, int count, int[] outKinds, int[] outModifiers);
     private delegate int TopLevelDeclarationNameSpansInto(
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count,
@@ -2258,8 +2251,8 @@ internal static class NSharpCompilerDogfoodAdapter
         TopLevelContextualTestDeclarationExistsInto TopLevelContextualTestDeclarationExists,
         TopLevelDeclarationIndicesInto TopLevelDeclarationIndices,
         TopLevelFunctionPreamblesAreValidInto TopLevelFunctionPreamblesAreValid,
-        MatchingCloseBraceInto MatchingCloseBrace,
         TokenIndexByKindStartInto TokenIndexByKindStart,
+        ParsePropertyAccessorInfoInto ParsePropertyAccessorInfo,
         TopLevelDeclarationModifiersInto TopLevelDeclarationModifiers,
         TopLevelDeclarationNameSpansInto TopLevelDeclarationNameSpans,
         NamespaceImportSpansInto NamespaceImportSpans,

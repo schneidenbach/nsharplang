@@ -91,6 +91,10 @@ public class CompilerDogfoodProjectTests
                     "TokenIndexByKindStartInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit TokenIndexByKindStartInto.");
+            var parsePropertyAccessorInfo = programType.GetMethod(
+                    "ParsePropertyAccessorInfoInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit ParsePropertyAccessorInfoInto.");
             var constructorChainInfo = programType.GetMethod(
                     "ParseConstructorChainInfoInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -284,6 +288,61 @@ func bad(): int {
                 1,
                 tokenIndexByKindStart,
                 "kind disambiguates same start");
+            AssertPropertyAccessorInfo(
+                """
+class Box {
+    value: int
+    Value: int {
+        get {
+            return value
+        }
+    }
+}
+""",
+                "Value",
+                0,
+                "int",
+                tokenizeWithIndentation,
+                parsePropertyAccessorInfo,
+                "get-only property");
+            AssertPropertyAccessorInfo(
+                """
+class Box {
+    value: int
+    Value: int {
+        get {
+            return value
+        }
+        set {
+            value = value
+        }
+    }
+}
+""",
+                "Value",
+                1,
+                "int",
+                tokenizeWithIndentation,
+                parsePropertyAccessorInfo,
+                "get-set property");
+            AssertPropertyAccessorInfo(
+                """
+class Box {
+    Value: int {
+        set {
+        }
+        get {
+            return 1
+        }
+    }
+}
+""",
+                "Value",
+                -1,
+                "int",
+                tokenizeWithIndentation,
+                parsePropertyAccessorInfo,
+                "set-first property");
             AssertConstructorChainBodyIndex(
                 """
 class C {
@@ -553,6 +612,54 @@ class B
             null,
             new object[] { tokenKinds, tokenStarts, count, targetKind, targetStart }) ?? -2);
         Assert.Equal(expected, actual);
+    }
+
+    private static void AssertPropertyAccessorInfo(
+        string source,
+        string propertyName,
+        int expectedAccessorKind,
+        string expectedType,
+        MethodInfo tokenizeWithIndentation,
+        MethodInfo parsePropertyAccessorInfo,
+        string label)
+    {
+        var (count, kinds, starts, valueLengths, compactedSource) = TokenizeSourceViaKernel(source, tokenizeWithIndentation);
+        var propIndex = -1;
+        for (var i = 0; i < count; i++)
+        {
+            if (kinds[i] == (int)TokenType.Identifier
+                && valueLengths[i] == propertyName.Length
+                && string.CompareOrdinal(compactedSource, starts[i], propertyName, 0, propertyName.Length) == 0
+                && i + 1 < count
+                && kinds[i + 1] == (int)TokenType.Colon)
+            {
+                propIndex = i;
+                break;
+            }
+        }
+
+        Assert.True(propIndex >= 0, $"Could not locate property token for {label}.");
+        var result = new int[6];
+        var actualKind = (int)(parsePropertyAccessorInfo.Invoke(
+            null,
+            new object[] { compactedSource, kinds, starts, valueLengths, count, propIndex, result }) ?? -2);
+        Assert.Equal(expectedAccessorKind, actualKind);
+        if (expectedAccessorKind < 0)
+            return;
+
+        Assert.Equal(propertyName, compactedSource.Substring(result[0], result[1]));
+        Assert.Equal(expectedType, compactedSource.Substring(result[2], result[3]));
+        Assert.True(result[4] >= 0 && result[4] < count, $"Get body brace missing for {label}.");
+        Assert.Equal((int)TokenType.LeftBrace, kinds[result[4]]);
+        if (expectedAccessorKind == 1)
+        {
+            Assert.True(result[5] >= 0 && result[5] < count, $"Set body brace missing for {label}.");
+            Assert.Equal((int)TokenType.LeftBrace, kinds[result[5]]);
+        }
+        else
+        {
+            Assert.Equal(-1, result[5]);
+        }
     }
 
     private static void AssertTopLevelDeclarationIndices(

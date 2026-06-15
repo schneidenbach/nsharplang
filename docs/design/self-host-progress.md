@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Property accessor layout moves into N#
+
+`ParserDeclarations.nl` now owns `ParsePropertyAccessorInfoInto`, the computed-property layout
+parser for columnar class/record/struct properties. It validates the property name/type shape, the
+required `get { ... }` accessor, the optional `set { ... }` accessor, and the surrounding property
+block close using the N# matching-brace utility. `NSharpCompilerDogfoodAdapter` no longer binds
+`MatchingCloseBraceInto` or checks `get`/`set` text directly; it receives name/type spans and accessor
+body brace indices from the dogfood parser, then materializes `ColumnarPropertyInput`.
+
+`CompilerDogfoodProjectTests` pins get-only, get-set, and set-first-decline layouts. The existing
+columnar property parity tests cover the production route.
+
 ## 2026-06-15 — Local-function token relocation moves into N#
 
 `ParserDeclarations.nl` now owns `TokenIndexByKindStartInto`, a counted compact-token lookup that
