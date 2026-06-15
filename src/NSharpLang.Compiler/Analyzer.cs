@@ -4639,6 +4639,20 @@ public class Analyzer : IDisposable
         }
     }
 
+    private TypeInfo AnalyzeExpressionPreservingNullabilityFlowType(Expression expression)
+    {
+        var previous = _suppressNullabilityFlowType;
+        _suppressNullabilityFlowType = true;
+        try
+        {
+            return AnalyzeExpression(expression);
+        }
+        finally
+        {
+            _suppressNullabilityFlowType = previous;
+        }
+    }
+
     private bool IsUnboundCallableReference(Expression expression, TypeInfo type)
     {
         if (expression is LambdaExpression)
@@ -5020,6 +5034,19 @@ public class Analyzer : IDisposable
             return AnalyzeLogicalOp(leftType, rightType, binary);
         }
 
+        if (binary.Operator == BinaryOperator.NullCoalesce)
+        {
+            var coalesceLeftType = AnalyzeExpressionPreservingNullabilityFlowType(binary.Left);
+            var coalesceRightType = AnalyzeExpression(binary.Right);
+            if (ReportSoaRowEscapeIfNeeded(binary.Left, coalesceLeftType, "used as an operator operand")
+                | ReportSoaRowEscapeIfNeeded(binary.Right, coalesceRightType, "used as an operator operand"))
+            {
+                return BuiltInTypes.Unknown;
+            }
+
+            return AnalyzeNullCoalesceOp(coalesceLeftType, coalesceRightType, binary);
+        }
+
         var leftT = AnalyzeExpression(binary.Left);
         var rightT = AnalyzeExpression(binary.Right);
         if (ReportSoaRowEscapeIfNeeded(binary.Left, leftT, "used as an operator operand")
@@ -5038,7 +5065,6 @@ public class Analyzer : IDisposable
                 => AnalyzeShiftOp(leftT, rightT, binary),
             BinaryOperator.Equal or BinaryOperator.NotEqual or BinaryOperator.Less
                 or BinaryOperator.LessOrEqual or BinaryOperator.Greater or BinaryOperator.GreaterOrEqual => BuiltInTypes.Bool,
-            BinaryOperator.NullCoalesce => AnalyzeNullCoalesceOp(leftT, rightT, binary),
             BinaryOperator.Range => GetRangeType(),
             _ => BuiltInTypes.Unknown
         };
@@ -5052,7 +5078,7 @@ public class Analyzer : IDisposable
         // e.g., string? ?? throw => string (C# infers this correctly)
         if (expr.Right is ThrowExpression)
         {
-            return leftType;
+            return GetNonNullableType(leftType);
         }
 
         // Otherwise, the result is the right type (the fallback value)

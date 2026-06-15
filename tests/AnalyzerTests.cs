@@ -1739,6 +1739,21 @@ func Main() {
     }
 
     [Fact]
+    public void NullCoalesce_NullableValueLeft_Valid()
+    {
+        AssertNoErrors(@"
+            func FromParameter(n: int?): int {
+                return n ?? 5
+            }
+
+            func FromDefinitelyAssignedLocal(): int {
+                n: int? = 10
+                return n ?? 0
+            }
+        ");
+    }
+
+    [Fact]
     public void NullableType_Valid()
     {
         AssertNoErrors(@"
