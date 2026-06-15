@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Parenthesized SoA non-integral column updates stop in analysis
+
+Nullable string backing columns now have analyzer coverage for receiver-parenthesized direct-column
+increment/decrement attempts. `(nodes.text)[row]++`, `(nodes.text)[^1]--`, and variable-held
+`(nodes.text)[idx]++` report the ordinary non-integral update diagnostic before lowering instead of
+falling into the accepted integer update path. Focused evidence: `dotnet test
+tests/Tests.csproj --no-restore --filter
+"FullyQualifiedName~Analyzer_SoaRecordNullableStringIncrementAndDecrement_AreRejected"`.
+
 ## 2026-06-15 — Parenthesized SoA column-member non-null coalescing stops in analysis
 
 Non-nullable and enum backing columns now have analyzer coverage for receiver-parenthesized direct

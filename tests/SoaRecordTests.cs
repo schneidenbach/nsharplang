@@ -6827,6 +6827,12 @@ public class SoaRecordTests : ILCompilerTestBase
     [InlineData("nodes.text[row]--", "--")]
     [InlineData("nodes.text[^1]++", "++")]
     [InlineData("nodes.text[^1]--", "--")]
+    [InlineData("(nodes.text)[row]++", "++")]
+    [InlineData("(nodes.text)[row]--", "--")]
+    [InlineData("(nodes.text)[^1]++", "++")]
+    [InlineData("(nodes.text)[^1]--", "--")]
+    [InlineData("idx := ^1; (nodes.text)[idx]++", "++")]
+    [InlineData("idx := ^1; (nodes.text)[idx]--", "--")]
     public void Analyzer_SoaRecordNullableStringIncrementAndDecrement_AreRejected(
         string expression,
         string operatorText)

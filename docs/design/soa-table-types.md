@@ -190,10 +190,11 @@ Parenthesized default stores over row projections and backing-column elements, i
 reading the previous element value.
 Both string column shapes have direct string equality/inequality
 evidence, while `string?` columns additionally have direct null equality/inequality evidence. Both
-string column shapes reject `-=`, `*=`, `/=`, `++`, and `--` during analysis. Bool columns support
-same-bool equality/inequality, logical-not, logical `&&`/`||` expressions, and bitwise expressions but
-still reject arithmetic compound assignment before lowering; non-bool column elements reject logical
-operators during analysis.
+string column shapes reject `-=`, `*=`, `/=`, `++`, and `--` during analysis, including when the
+column member is the parenthesized index receiver. Bool columns support same-bool equality/inequality,
+logical-not, logical `&&`/`||` expressions, and bitwise expressions but still reject arithmetic
+compound assignment before lowering; non-bool column elements reject logical operators during
+analysis.
 Numeric scalar columns support equality/inequality and relational comparisons,
 including unsigned comparisons for `uint`, plus arithmetic expression stores, arithmetic compound
 assignments, signed `int`/`long` unary negation, same-type bitwise expressions, and unary bitwise-not.
@@ -285,7 +286,8 @@ The compiler must produce direct diagnostics for common misuse:
 - unsupported row/direct column compound assignment, including char arithmetic compound assignment:
   "The '+=' assignment produces 'int', which can't be stored in 'char'", and enum arithmetic compound
   assignment: "The '+' operator doesn't work with 'X' and 'Y'";
-- non-integral row/direct column increment/decrement: "The '++' operator doesn't work with 'X'";
+- non-integral row/direct column increment/decrement, including parenthesized column-member receiver
+  forms: "The '++' operator doesn't work with 'X'";
 - non-nullable row/direct column null coalescing, including enum columns:
   "The left side of '??' has type 'X', which can't be null";
 - non-int, `System.Index`, or range row indexes, including variable-held `System.Index`/`System.Range`
