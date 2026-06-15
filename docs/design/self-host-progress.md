@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Inherited readonly fields reject derived writes
+
+Readonly diagnostics now follow inherited instance fields for bare and `this.` write targets. A
+derived class can no longer assign, pass by `ref`/`out`, or increment a readonly field declared on a
+base class; even derived constructors reject these writes because only the declaring type's
+constructor may initialize its readonly storage. Current-class readonly constructor assignment remains
+unchanged.
+
 ## 2026-06-15 — Readonly fields reject increment and decrement writes
 
 Readonly field diagnostics now cover unary mutation as well as assignment and byref calls. Instance,

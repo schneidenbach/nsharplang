@@ -12700,19 +12700,56 @@ public class Analyzer : IDisposable
             return false;
         }
 
-        var targetFieldName = fieldName;
-        var field = _currentClass.Members.OfType<FieldDeclaration>()
-            .FirstOrDefault(field => field.Name == targetFieldName && field.Modifiers.HasFlag(Modifiers.Readonly));
-        if (field == null)
+        return TryGetCurrentOrInheritedReadonlyFieldTarget(fieldName, out readonlyTarget);
+    }
+
+    private bool TryGetCurrentOrInheritedReadonlyFieldTarget(
+        string fieldName,
+        out ReadonlyFieldTarget readonlyTarget)
+    {
+        readonlyTarget = default;
+        if (_currentClass == null)
         {
-            readonlyTarget = default;
+            return false;
+        }
+
+        foreach (var member in _currentClass.Members)
+        {
+            if (member is FieldDeclaration field && field.Name == fieldName)
+            {
+                if (!field.Modifiers.HasFlag(Modifiers.Readonly))
+                {
+                    return false;
+                }
+
+                readonlyTarget = new ReadonlyFieldTarget(
+                    field.Name,
+                    field.Modifiers.HasFlag(Modifiers.Static),
+                    IsCurrentInstance: !field.Modifiers.HasFlag(Modifiers.Static));
+                return true;
+            }
+
+            if (member is PropertyDeclaration property && property.Name == fieldName)
+            {
+                return false;
+            }
+        }
+
+        if (_currentClass.BaseClass == null)
+        {
+            return false;
+        }
+
+        var baseType = ResolveType(_currentClass.BaseClass);
+        if (!TryFindReadonlyInstanceField(baseType, fieldName, out var inheritedFieldName))
+        {
             return false;
         }
 
         readonlyTarget = new ReadonlyFieldTarget(
-            field.Name,
-            field.Modifiers.HasFlag(Modifiers.Static),
-            IsCurrentInstance: !field.Modifiers.HasFlag(Modifiers.Static));
+            inheritedFieldName,
+            IsStatic: false,
+            IsCurrentInstance: false);
         return true;
     }
 
