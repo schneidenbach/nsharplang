@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Compiler dogfood adapter drops its availability probe
+
+The compiler dogfood adapter no longer exposes the test-only `IsAvailable` property. Product routing
+continues to prove availability at each accepted `Try*` slice boundary, keeping the adapter surface
+focused on real dogfood calls instead of a side-channel probe. Focused evidence: `dotnet test
+tests/Tests.csproj --filter "FullyQualifiedName~CompilerDogfoodProjectTests.CompilerDogfoodAdapter_"`
+(11 tests).
+
 ## 2026-06-15 — SoA column slice mutations use the SoA hidden-allocation diagnostic
 
 Direct SoA column range slices now report the same hidden-allocation diagnostic whether the slice is

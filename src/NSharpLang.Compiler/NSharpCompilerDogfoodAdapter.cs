@@ -37,8 +37,6 @@ internal static class NSharpCompilerDogfoodAdapter
     [ThreadStatic]
     private static OverloadCandidateScratch? t_overloadCandidateScratch;
 
-    internal static bool IsAvailable => s_bindings.Value != null;
-
     private static bool HasTopLevelContextualTestDeclaration(
         string source,
         int[] rawKinds,

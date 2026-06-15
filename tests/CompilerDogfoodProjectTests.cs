@@ -9811,12 +9811,6 @@ func main(): int {
         var adapterType = typeof(Parser).Assembly.GetType("NSharpLang.Compiler.NSharpCompilerDogfoodAdapter")
             ?? throw new InvalidOperationException("Compiler dogfood adapter type was not emitted.");
 
-        var isAvailable = (bool)(adapterType.GetProperty(
-                "IsAvailable",
-                BindingFlags.Static | BindingFlags.NonPublic)
-            ?.GetValue(null) ?? false);
-        Assert.True(isAvailable, "The production test output must carry NSharpLang.Compiler.Dogfood.dll.");
-
         var tryCompactParserTokens = adapterType.GetMethod(
                 "TryCompactParserTokens",
                 BindingFlags.Static | BindingFlags.NonPublic)
@@ -9851,12 +9845,6 @@ func main(): int {
         };
         var adapterType = typeof(Parser).Assembly.GetType("NSharpLang.Compiler.NSharpCompilerDogfoodAdapter")
             ?? throw new InvalidOperationException("Compiler dogfood adapter type was not emitted.");
-
-        var isAvailable = (bool)(adapterType.GetProperty(
-                "IsAvailable",
-                BindingFlags.Static | BindingFlags.NonPublic)
-            ?.GetValue(null) ?? false);
-        Assert.True(isAvailable, "The production test output must carry NSharpLang.Compiler.Dogfood.dll.");
 
         var trySelectMissingEnumMembers = adapterType.GetMethod(
                 "TrySelectMissingEnumMembers",
@@ -9966,12 +9954,6 @@ func main(): int {
         var adapterType = typeof(Parser).Assembly.GetType("NSharpLang.Compiler.NSharpCompilerDogfoodAdapter")
             ?? throw new InvalidOperationException("Compiler dogfood adapter type was not emitted.");
 
-        var isAvailable = (bool)(adapterType.GetProperty(
-                "IsAvailable",
-                BindingFlags.Static | BindingFlags.NonPublic)
-            ?.GetValue(null) ?? false);
-        Assert.True(isAvailable, "The production test output must carry NSharpLang.Compiler.Dogfood.dll.");
-
         var dogfoodAssemblyPath = Path.Combine(AppContext.BaseDirectory, "NSharpLang.Compiler.Dogfood.dll");
         using (var dogfoodScope = CollectibleAssemblyScope.LoadFromFile(dogfoodAssemblyPath))
         {
@@ -10052,12 +10034,6 @@ func main(): int {
         var adapterType = typeof(Parser).Assembly.GetType("NSharpLang.Compiler.NSharpCompilerDogfoodAdapter")
             ?? throw new InvalidOperationException("Compiler dogfood adapter type was not emitted.");
 
-        var isAvailable = (bool)(adapterType.GetProperty(
-                "IsAvailable",
-                BindingFlags.Static | BindingFlags.NonPublic)
-            ?.GetValue(null) ?? false);
-        Assert.True(isAvailable, "The production test output must carry NSharpLang.Compiler.Dogfood.dll.");
-
         var tryDeduplicateFirstTypeKeys = adapterType.GetMethod(
                 "TryDeduplicateFirstTypeKeys",
                 BindingFlags.Static | BindingFlags.NonPublic)
@@ -10093,12 +10069,6 @@ func main(): int {
         var adapterType = typeof(Parser).Assembly.GetType("NSharpLang.Compiler.NSharpCompilerDogfoodAdapter")
             ?? throw new InvalidOperationException("Compiler dogfood adapter type was not emitted.");
 
-        var isAvailable = (bool)(adapterType.GetProperty(
-                "IsAvailable",
-                BindingFlags.Static | BindingFlags.NonPublic)
-            ?.GetValue(null) ?? false);
-        Assert.True(isAvailable, "The production test output must carry NSharpLang.Compiler.Dogfood.dll.");
-
         var tryDeduplicateFirstStringsOrdinalIgnoreCase = adapterType.GetMethod(
                 "TryDeduplicateFirstStringsOrdinalIgnoreCase",
                 BindingFlags.Static | BindingFlags.NonPublic)
@@ -10128,12 +10098,6 @@ func main(): int {
         };
         var adapterType = typeof(Parser).Assembly.GetType("NSharpLang.Compiler.NSharpCompilerDogfoodAdapter")
             ?? throw new InvalidOperationException("Compiler dogfood adapter type was not emitted.");
-
-        var isAvailable = (bool)(adapterType.GetProperty(
-                "IsAvailable",
-                BindingFlags.Static | BindingFlags.NonPublic)
-            ?.GetValue(null) ?? false);
-        Assert.True(isAvailable, "The production test output must carry NSharpLang.Compiler.Dogfood.dll.");
 
         var tryDistinctOrderStringsOrdinal = adapterType.GetMethod(
                 "TryDistinctOrderStringsOrdinal",
@@ -10273,12 +10237,6 @@ class OtherZetaType {
         var adapterType = typeof(Parser).Assembly.GetType("NSharpLang.Compiler.NSharpCompilerDogfoodAdapter")
             ?? throw new InvalidOperationException("Compiler dogfood adapter type was not emitted.");
 
-        var isAvailable = (bool)(adapterType.GetProperty(
-                "IsAvailable",
-                BindingFlags.Static | BindingFlags.NonPublic)
-            ?.GetValue(null) ?? false);
-        Assert.True(isAvailable, "The production test output must carry NSharpLang.Compiler.Dogfood.dll.");
-
         var tryOrderImports = adapterType.GetMethod(
                 "TryOrderImportsBySystemThenNamespace",
                 BindingFlags.Static | BindingFlags.NonPublic)
@@ -10304,12 +10262,6 @@ class OtherZetaType {
         // list on the same thread must not leak stale tail slots into the smaller result.
         var adapterType = typeof(Parser).Assembly.GetType("NSharpLang.Compiler.NSharpCompilerDogfoodAdapter")
             ?? throw new InvalidOperationException("Compiler dogfood adapter type was not emitted.");
-
-        var isAvailable = (bool)(adapterType.GetProperty(
-                "IsAvailable",
-                BindingFlags.Static | BindingFlags.NonPublic)
-            ?.GetValue(null) ?? false);
-        Assert.True(isAvailable, "The production test output must carry NSharpLang.Compiler.Dogfood.dll.");
 
         var tryOrderImports = adapterType.GetMethod(
                 "TryOrderImportsBySystemThenNamespace",
@@ -10364,12 +10316,6 @@ class OtherZetaType {
         };
         var adapterType = typeof(Parser).Assembly.GetType("NSharpLang.Compiler.NSharpCompilerDogfoodAdapter")
             ?? throw new InvalidOperationException("Compiler dogfood adapter type was not emitted.");
-
-        var isAvailable = (bool)(adapterType.GetProperty(
-                "IsAvailable",
-                BindingFlags.Static | BindingFlags.NonPublic)
-            ?.GetValue(null) ?? false);
-        Assert.True(isAvailable, "The production test output must carry NSharpLang.Compiler.Dogfood.dll.");
 
         var tryLookupUniqueDeclaredTypeBySuffix = adapterType.GetMethod(
                 "TryLookupUniqueDeclaredTypeBySuffix",
@@ -10440,12 +10386,6 @@ class OtherZetaType {
         var adapterType = typeof(Parser).Assembly.GetType("NSharpLang.Compiler.NSharpCompilerDogfoodAdapter")
             ?? throw new InvalidOperationException("Compiler dogfood adapter type was not emitted.");
 
-        var isAvailable = (bool)(adapterType.GetProperty(
-                "IsAvailable",
-                BindingFlags.Static | BindingFlags.NonPublic)
-            ?.GetValue(null) ?? false);
-        Assert.True(isAvailable, "The production test output must carry NSharpLang.Compiler.Dogfood.dll.");
-
         var trySelectDeclaredTypeNameCandidate = adapterType.GetMethod(
                 "TrySelectDeclaredTypeNameCandidate",
                 BindingFlags.Static | BindingFlags.NonPublic)
@@ -10497,12 +10437,6 @@ class OtherZetaType {
         };
         var adapterType = typeof(Parser).Assembly.GetType("NSharpLang.Compiler.NSharpCompilerDogfoodAdapter")
             ?? throw new InvalidOperationException("Compiler dogfood adapter type was not emitted.");
-
-        var isAvailable = (bool)(adapterType.GetProperty(
-                "IsAvailable",
-                BindingFlags.Static | BindingFlags.NonPublic)
-            ?.GetValue(null) ?? false);
-        Assert.True(isAvailable, "The production test output must carry NSharpLang.Compiler.Dogfood.dll.");
 
         var tryOrderTypesByDescendingKeyDotCount = adapterType.GetMethod(
                 "TryOrderTypesByDescendingKeyDotCount",
