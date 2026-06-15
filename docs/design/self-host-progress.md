@@ -11,6 +11,24 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Property parser composition moves into N#
+
+`ParserColumnarProperties.nl` now exports `ParseColumnarPropertyInfoInto`, the product-routed
+computed-property parser wrapper. It composes `ParsePropertyAccessorTypeInfoInto` and
+`ParseStatementNodesInto` in N#, returning property name/type text plus getter/setter body roots and
+body-node counts through one call.
+
+`NSharpCompilerDogfoodAdapter.TryParseColumnarPropertyAt` no longer binds
+`ParsePropertyAccessorTypeInfoInto` or `ParseStatementNodesInto` for production. Getter and setter
+`ColumnarFunctionInput` containers are now materialized from the composed N# rowsets, leaving
+`ParseStatementNodesInto` emitted only for direct parser parity tests and N# composition wrappers.
+Focused evidence: `./scripts/dev.sh Parser_TopLevelDeclarationKinds_MatchProductionParser`,
+`./scripts/dev.sh ColumnarCodegen_Parity_ClassGetOnlyProperty`,
+`./scripts/dev.sh ColumnarCodegen_Parity_StaticProperties`,
+`./scripts/dev.sh ColumnarCodegen_Parity_GenericClass_CtorFieldMethodProperty`,
+`./scripts/dev.sh ColumnarCodegen_CompilesRealDogfoodCorpus_Coverage`, and
+`./scripts/dev.sh ColumnarCodegen_MultiFile_EligibleClusterCompiles`.
+
 ## 2026-06-15 — Constructor parser composition moves into N#
 
 `ParserColumnarConstructors.nl` now exports `ParseColumnarConstructorInfoInto`, the product-routed

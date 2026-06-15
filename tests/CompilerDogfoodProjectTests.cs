@@ -159,6 +159,10 @@ public class CompilerDogfoodProjectTests
                     "ParsePropertyAccessorTypeInfoInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit ParsePropertyAccessorTypeInfoInto.");
+            var parseColumnarPropertyInfo = programType.GetMethod(
+                    "ParseColumnarPropertyInfoInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit ParseColumnarPropertyInfoInto.");
             var constructorChainInfo = programType.GetMethod(
                     "ParseConstructorChainInfoInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -618,6 +622,7 @@ class Box {
                 tokenizeWithIndentation,
                 parsePropertyAccessorInfo,
                 parsePropertyAccessorTypeInfo,
+                parseColumnarPropertyInfo,
                 "get-only property");
             AssertPropertyAccessorInfo(
                 """
@@ -639,6 +644,7 @@ class Box {
                 tokenizeWithIndentation,
                 parsePropertyAccessorInfo,
                 parsePropertyAccessorTypeInfo,
+                parseColumnarPropertyInfo,
                 "get-set property");
             AssertPropertyAccessorInfo(
                 """
@@ -658,6 +664,7 @@ class Box {
                 tokenizeWithIndentation,
                 parsePropertyAccessorInfo,
                 parsePropertyAccessorTypeInfo,
+                parseColumnarPropertyInfo,
                 "set-first property");
             AssertConstructorChainBodyIndex(
                 """
@@ -1911,6 +1918,7 @@ class B
         MethodInfo tokenizeWithIndentation,
         MethodInfo parsePropertyAccessorInfo,
         MethodInfo parsePropertyAccessorTypeInfo,
+        MethodInfo parseColumnarPropertyInfo,
         string label)
     {
         var (count, kinds, starts, valueLengths, compactedSource) = TokenizeSourceViaKernel(source, tokenizeWithIndentation);
@@ -1939,26 +1947,90 @@ class B
         var actualKind = (int)(parsePropertyAccessorTypeInfo.Invoke(
             null,
             new object[] { compactedSource, kinds, starts, valueLengths, count, propIndex, nameTexts, typeTexts, result }) ?? -2);
+        var composedResult = new int[10];
+        var composedNameTexts = new string[1];
+        var composedTypeTexts = new string[1];
+        var getKinds = new int[count + 1];
+        var getValueStarts = new int[count + 1];
+        var getValueLengths = new int[count + 1];
+        var getChildStarts = new int[count + 1];
+        var getChildCounts = new int[count + 1];
+        var getChildIndices = new int[count + 1];
+        var getSpanStarts = new int[count + 1];
+        var getSpanLengths = new int[count + 1];
+        var setKinds = new int[count + 1];
+        var setValueStarts = new int[count + 1];
+        var setValueLengths = new int[count + 1];
+        var setChildStarts = new int[count + 1];
+        var setChildCounts = new int[count + 1];
+        var setChildIndices = new int[count + 1];
+        var setSpanStarts = new int[count + 1];
+        var setSpanLengths = new int[count + 1];
+        var composedKind = (int)(parseColumnarPropertyInfo.Invoke(
+            null,
+            new object[]
+            {
+                compactedSource,
+                kinds,
+                starts,
+                valueLengths,
+                count,
+                propIndex,
+                composedNameTexts,
+                composedTypeTexts,
+                getKinds,
+                getValueStarts,
+                getValueLengths,
+                getChildStarts,
+                getChildCounts,
+                getChildIndices,
+                getSpanStarts,
+                getSpanLengths,
+                setKinds,
+                setValueStarts,
+                setValueLengths,
+                setChildStarts,
+                setChildCounts,
+                setChildIndices,
+                setSpanStarts,
+                setSpanLengths,
+                composedResult
+            }) ?? -2);
         Assert.Equal(spanKind, actualKind);
+        Assert.Equal(actualKind, composedKind);
         Assert.Equal(expectedAccessorKind, actualKind);
         if (expectedAccessorKind < 0)
             return;
 
         Assert.Equal(spanResult, result);
+        Assert.Equal(result[0], composedResult[0]);
+        Assert.Equal(result[1], composedResult[1]);
+        Assert.Equal(result[2], composedResult[2]);
+        Assert.Equal(result[3], composedResult[3]);
+        Assert.Equal(result[4], composedResult[4]);
+        Assert.Equal(result[5], composedResult[5]);
         Assert.Equal(propertyName, compactedSource.Substring(result[0], result[1]));
         Assert.Equal(propertyName, nameTexts[0]);
+        Assert.Equal(nameTexts[0], composedNameTexts[0]);
         Assert.Equal(expectedType, compactedSource.Substring(result[2], result[3]));
         Assert.Equal(expectedType, typeTexts[0]);
+        Assert.Equal(typeTexts[0], composedTypeTexts[0]);
         Assert.True(result[4] >= 0 && result[4] < count, $"Get body brace missing for {label}.");
         Assert.Equal((int)TokenType.LeftBrace, kinds[result[4]]);
+        Assert.True(composedResult[6] >= 0 && composedResult[6] < composedResult[7], $"Composed get body root/count invalid for {label}.");
+        Assert.Equal(25, getKinds[composedResult[6]]);
         if (expectedAccessorKind == 1)
         {
             Assert.True(result[5] >= 0 && result[5] < count, $"Set body brace missing for {label}.");
             Assert.Equal((int)TokenType.LeftBrace, kinds[result[5]]);
+            Assert.True(composedResult[8] >= 0 && composedResult[8] < composedResult[9], $"Composed set body root/count invalid for {label}.");
+            Assert.Equal(25, setKinds[composedResult[8]]);
         }
         else
         {
             Assert.Equal(-1, result[5]);
+            Assert.Equal(-1, composedResult[8]);
+            Assert.Equal(0, composedResult[9]);
         }
     }
 
@@ -10547,7 +10619,7 @@ func outer(x: int): int {
             "CliArguments.nl", "CliDocOrdering.nl", "CliQueryParsing.nl", "CliTreeDependencies.nl",
             "CompletionGrouping.nl", "CompletionReceivers.nl", "DiagnosticClusters.nl", "DiagnosticDeduplication.nl", "DocQuery.nl",
             "FormatterImportOrdering.nl", "IdentifierSpans.nl",
-            "LexerTokenKindScanner.nl", "OverloadCandidates.nl", "ParserColumnarConstructors.nl", "ParserColumnarFunctions.nl", "ParserDeclarations.nl",
+            "LexerTokenKindScanner.nl", "OverloadCandidates.nl", "ParserColumnarConstructors.nl", "ParserColumnarFunctions.nl", "ParserColumnarProperties.nl", "ParserDeclarations.nl",
             "ParserConstructorSignatures.nl", "ParserExpressions.nl", "ParserFunctionSignatures.nl", "ParserInterfaceSignatures.nl", "ParserLocalFunctions.nl", "ParserStatements.nl", "ParserTypeReferences.nl",
             "ProjectSourceFilter.nl", "StructCopyAnalysis.nl",
             "TextEditOrdering.nl", "TypeLookup.nl",
@@ -10564,6 +10636,7 @@ func outer(x: int): int {
         Assert.Contains("ParseFunctionSignatureInfoInto", methodNames!); // ParserFunctionSignatures -> ParserTypeReferences
         Assert.Contains("ParseColumnarFunctionInfoInto", methodNames!); // composed signature + body + local-function routing
         Assert.Contains("ParseColumnarConstructorInfoInto", methodNames!); // composed constructor signature + body routing
+        Assert.Contains("ParseColumnarPropertyInfoInto", methodNames!); // composed property accessor + body routing
         Assert.Contains("ParseConstructorSignatureInfoInto", methodNames!); // ParserConstructorSignatures -> declarations/signatures/types
         Assert.Contains("ParseInterfaceDeclarationSignatureInfoInto", methodNames!); // ParserInterfaceSignatures -> declarations/signatures/types
         Assert.Contains("DirectLocalFunctionTokenIndicesInto", methodNames!); // ParserLocalFunctions -> declarations/statements

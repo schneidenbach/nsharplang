@@ -802,21 +802,27 @@ internal static class NSharpCompilerDogfoodAdapter
         return true;
     }
 
-    // Parse ONE computed PROPERTY (at compacted token index `propIndex`, the property NAME). The kernel recorded it
-    // as `Name : Type { … }`; the layout is name(propIndex) `:`(+1) Type(+2) `{`(+3, property block) `get`(+4,
-    // identifier "get") `{`(+5, get body). The getter body parses into a ColumnarFunctionInput named "get_Name"
-    // (no params, returning the property type). After the get body's `}`, an OPTIONAL `set { … }` accessor parses
-    // into "set_Name" (one param "value": Type, returning void); else the property block must close with `}`. A
-    // set-first ordering, an expression-bodied accessor, or a third accessor declines (get / get-set this slice).
+    // Parse ONE computed PROPERTY (at compacted token index `propIndex`, the property NAME). The composed N#
+    // property wrapper supplies the accessor/type text plus getter/setter body rowsets; C# only materializes the
+    // CLR-facing property/accessor containers.
     private static bool TryParseColumnarPropertyAt(
         Bindings bindings, int[] ck, int[] cs, int[] cv, int n, int propIndex, string source,
         out Columnar.ColumnarPropertyInput input, bool isStatic = false)
     {
         input = null!;
-        var propInfo = new int[6];
+        var cap = n + 1;
+        var gk = new int[cap]; var gvs = new int[cap]; var gvl = new int[cap]; var gcs = new int[cap];
+        var gcc = new int[cap]; var gci = new int[cap]; var gss = new int[cap]; var gsl = new int[cap];
+        var stk = new int[cap]; var stvs = new int[cap]; var stvl = new int[cap]; var stcs = new int[cap];
+        var stcc = new int[cap]; var stci = new int[cap]; var stss = new int[cap]; var stsl = new int[cap];
+        var propInfo = new int[10];
         var propNameTexts = new string[1];
         var propTypeTexts = new string[1];
-        var accessorKind = bindings.ParsePropertyAccessorTypeInfo(source, ck, cs, cv, n, propIndex, propNameTexts, propTypeTexts, propInfo);
+        var accessorKind = bindings.ParseColumnarPropertyInfo(
+            source, ck, cs, cv, n, propIndex, propNameTexts, propTypeTexts,
+            gk, gvs, gvl, gcs, gcc, gci, gss, gsl,
+            stk, stvs, stvl, stcs, stcc, stci, stss, stsl,
+            propInfo);
         if (accessorKind < 0)
             return false;
 
@@ -826,20 +832,18 @@ internal static class NSharpCompilerDogfoodAdapter
         var propType = propTypeTexts[0];
         if (string.IsNullOrEmpty(propType))
             return false;
-        var cap = n + 1;
 
         var getBodyBrace = propInfo[4];
         if (getBodyBrace < 0 || getBodyBrace >= n || ck[getBodyBrace] != 129)
             return false;
-        var gk = new int[cap]; var gvs = new int[cap]; var gvl = new int[cap]; var gcs = new int[cap];
-        var gcc = new int[cap]; var gci = new int[cap]; var gss = new int[cap]; var gsl = new int[cap];
-        var gres = new int[2];
-        if (bindings.ParseStatementNodes(ck, cs, cv, n, getBodyBrace, gk, gvs, gvl, gcs, gcc, gci, gss, gsl, gres) <= 0)
+        var getBodyRoot = propInfo[6];
+        var getBodyNodeCount = propInfo[7];
+        if (getBodyNodeCount <= 0 || getBodyRoot < 0 || getBodyRoot >= getBodyNodeCount)
             return false;
         var getterNodes = new Columnar.ColumnarNodeTable(gk, gvs, gvl, gcs, gcc, gci);
         var getter = new Columnar.ColumnarFunctionInput(
             "get_" + propName, propType, System.Array.Empty<string>(), System.Array.Empty<string>(),
-            getterNodes, gres[0]);
+            getterNodes, getBodyRoot);
 
         Columnar.ColumnarFunctionInput? setter = null;
         if (accessorKind == 0)
@@ -852,15 +856,14 @@ internal static class NSharpCompilerDogfoodAdapter
             var setBodyBrace = propInfo[5];
             if (setBodyBrace < 0 || setBodyBrace >= n || ck[setBodyBrace] != 129)
                 return false;
-            var stk = new int[cap]; var stvs = new int[cap]; var stvl = new int[cap]; var stcs = new int[cap];
-            var stcc = new int[cap]; var stci = new int[cap]; var stss = new int[cap]; var stsl = new int[cap];
-            var stres = new int[2];
-            if (bindings.ParseStatementNodes(ck, cs, cv, n, setBodyBrace, stk, stvs, stvl, stcs, stcc, stci, stss, stsl, stres) <= 0)
+            var setBodyRoot = propInfo[8];
+            var setBodyNodeCount = propInfo[9];
+            if (setBodyNodeCount <= 0 || setBodyRoot < 0 || setBodyRoot >= setBodyNodeCount)
                 return false;
             var setterNodes = new Columnar.ColumnarNodeTable(stk, stvs, stvl, stcs, stcc, stci);
             setter = new Columnar.ColumnarFunctionInput(
                 "set_" + propName, "void", new[] { "value" }, new[] { propType },
-                setterNodes, stres[0]);
+                setterNodes, setBodyRoot);
         }
         else
         {
@@ -1915,15 +1918,12 @@ internal static class NSharpCompilerDogfoodAdapter
                 CreateDelegate<TopLevelColumnarProgramDeclarationIndicesInto>(
                     programType,
                     "TopLevelColumnarProgramDeclarationIndicesInto"),
-                CreateDelegate<ParsePropertyAccessorTypeInfoInto>(
-                    programType,
-                    "ParsePropertyAccessorTypeInfoInto"),
                 CreateDelegate<ParseColumnarFunctionInfoInto>(
                     programType,
                     "ParseColumnarFunctionInfoInto"),
-                CreateDelegate<ParseStatementNodesInto>(
+                CreateDelegate<ParseColumnarPropertyInfoInto>(
                     programType,
-                    "ParseStatementNodesInto"),
+                    "ParseColumnarPropertyInfoInto"),
                 CreateDelegate<ParseInterfaceDeclarationSignatureInfoInto>(
                     programType,
                     "ParseInterfaceDeclarationSignatureInfoInto"),
@@ -2048,9 +2048,6 @@ internal static class NSharpCompilerDogfoodAdapter
         int[] outEnumIndices, int[] outUnionIndices, int[] outInterfaceIndices,
         int[] outStructIndices, int[] outStructReferenceFlags, int[] outStructRecordFlags,
         int[] outResult);
-    private delegate int ParsePropertyAccessorTypeInfoInto(
-        string source, int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths,
-        int count, int propIndex, string[] outNameTexts, string[] outTypeTexts, int[] outResult);
     private delegate int ParseColumnarFunctionInfoInto(
         string source,
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int funcIndex,
@@ -2061,10 +2058,14 @@ internal static class NSharpCompilerDogfoodAdapter
         int[] outNodeKinds, int[] outValueStarts, int[] outValueLengths, int[] outChildStart, int[] outChildCount,
         int[] outChildIndices, int[] outSpanStarts, int[] outSpanLengths,
         int[] outLocalFunctionNodeIndices, int[] outLocalFunctionTokenIndices, int[] outResult);
-    private delegate int ParseStatementNodesInto(
-        int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int start,
-        int[] outNodeKinds, int[] outValueStarts, int[] outValueLengths, int[] outChildStart, int[] outChildCount,
-        int[] outChildIndices, int[] outSpanStarts, int[] outSpanLengths, int[] outResult);
+    private delegate int ParseColumnarPropertyInfoInto(
+        string source,
+        int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int propIndex,
+        string[] outNameTexts, string[] outTypeTexts,
+        int[] outGetNodeKinds, int[] outGetValueStarts, int[] outGetValueLengths, int[] outGetChildStart, int[] outGetChildCount,
+        int[] outGetChildIndices, int[] outGetSpanStarts, int[] outGetSpanLengths,
+        int[] outSetNodeKinds, int[] outSetValueStarts, int[] outSetValueLengths, int[] outSetChildStart, int[] outSetChildCount,
+        int[] outSetChildIndices, int[] outSetSpanStarts, int[] outSetSpanLengths, int[] outResult);
     private delegate int ParseInterfaceDeclarationSignatureInfoInto(
         string source,
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int interfaceIndex,
@@ -2122,9 +2123,8 @@ internal static class NSharpCompilerDogfoodAdapter
         OverloadSelectBestCandidate OverloadSelectBestCandidate,
         TokenizeMetadataWithIndentationInto TokenizeMetadataWithIndentation,
         TopLevelColumnarProgramDeclarationIndicesInto TopLevelColumnarProgramDeclarationIndices,
-        ParsePropertyAccessorTypeInfoInto ParsePropertyAccessorTypeInfo,
         ParseColumnarFunctionInfoInto ParseColumnarFunctionInfo,
-        ParseStatementNodesInto ParseStatementNodes,
+        ParseColumnarPropertyInfoInto ParseColumnarPropertyInfo,
         ParseInterfaceDeclarationSignatureInfoInto ParseInterfaceDeclarationSignatureInfo,
         ParseEnumDeclarationTextInfoInto ParseEnumDeclarationTextInfo,
         ParseStructDeclarationInfoInto ParseStructDeclarationInfo,
