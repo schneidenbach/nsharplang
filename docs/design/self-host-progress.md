@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — SoA mixed-type from-end ref/out addresses pinned
+
+Direct-column `ref`/`out` arguments over variable-held and literal from-end indexes now have
+IL-shape evidence across the verified SoA element set: `uint`, `long`, `char`, `bool`, `string`,
+and int-backed enum columns. These cases use backing-column `ldelema` directly and keep the caller
+free of row allocation, slice allocation, and caller-side element stores.
+
 ## 2026-06-15 — SoA checked ref/out wrappers reject before emission
 
 Top-level `checked(...)` and `unchecked(...)` wrappers around `ref`/`out` arguments are now

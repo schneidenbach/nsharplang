@@ -409,7 +409,8 @@ including parenthesized literal and variable-held from-end direct-column element
 column `ref`/`out` argument addresses through backing-column `ldelema` including from-end indexes,
 parenthesized direct-column lvalues, receiver-parenthesized direct-column `ref`/`out` arguments over
 row and literal/variable-held from-end indexes, and the verified scalar/reference/int-backed-enum
-element-type set, expression-valued simple stores, default stores across the verified scalar/reference element-type set,
+element-type set, with mixed verified element types also pinned for literal and variable-held
+from-end `ref`/`out` addresses, expression-valued simple stores, default stores across the verified scalar/reference element-type set,
 including expression-valued default stores, without old-element reads, variable-held from-end default
 stores without old-element reads, parenthesized column-member receiver compound/update operands,
 parenthesized column-member receiver integral `uint`/`long`/`char` update operands,

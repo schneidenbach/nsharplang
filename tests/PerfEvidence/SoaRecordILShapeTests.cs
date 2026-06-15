@@ -328,6 +328,13 @@ public class SoaRecordILShapeTests
                 flip(ref nodes.active[row])
                 setName(out nodes[row].name)
                 setKind(ref nodes.kind[row])
+                idx := ^1
+                bumpFlags(ref nodes.flags[idx])
+                setOffset(out nodes.offset[^1])
+                setMarker(out nodes.marker[idx])
+                flip(ref nodes.active[^1])
+                setName(out nodes.name[idx])
+                setKind(ref nodes.kind[^1])
 
                 score := (int)nodes[row].flags
                 score += (int)nodes[row].offset
@@ -335,18 +342,31 @@ public class SoaRecordILShapeTests
                 score += nodes.active[row] ? 1 : 0
                 score += nodes[row].name == "row" ? 1000 : 0
                 score += nodes.kind[row] == NodeKind.Literal ? 100 : 0
+                score += (int)nodes.flags[idx]
+                score += (int)nodes.offset[^1]
+                score += (int)nodes.marker[idx]
+                score += nodes.active[^1] ? 1 : 0
+                score += nodes.name[idx] == "row" ? 1000 : 0
+                score += nodes.kind[^1] == NodeKind.Literal ? 100 : 0
                 return score
             }
 
             func main(): int {
-                nodes := new Nodes(1)
+                nodes := new Nodes(2)
                 row := nodes.add()
+                last := nodes.add()
                 nodes[row].flags = (uint)5
                 nodes[row].offset = 3L
                 nodes.marker[row] = 'A'
                 nodes.active[row] = true
                 nodes[row].name = "start"
                 nodes.kind[row] = NodeKind.Identifier
+                nodes[last].flags = (uint)1
+                nodes[last].offset = 2L
+                nodes.marker[last] = 'B'
+                nodes.active[last] = false
+                nodes[last].name = "tail"
+                nodes.kind[last] = NodeKind.Unknown
                 return mutate(nodes, row)
             }
             """;
@@ -365,13 +385,13 @@ public class SoaRecordILShapeTests
             var mutate = ILShapeInspector.GetProgramMethod(assembly, "mutate");
             var main = ILShapeInspector.GetProgramMethod(assembly, "main");
 
-            Assert.Equal(1208, Assert.IsType<int>(main.Invoke(null, null)));
+            Assert.Equal(2413, Assert.IsType<int>(main.Invoke(null, null)));
 
             AssertNoFromEndSliceAllocation(mutate);
-            Assert.Equal(6, ILShapeInspector.CountOpcode(mutate, OpCodes.Ldelema));
+            Assert.Equal(12, ILShapeInspector.CountOpcode(mutate, OpCodes.Ldelema));
             Assert.True(
-                ILShapeInspector.CountOpcode(mutate, OpCodes.Ldfld) >= 12,
-                "Mixed SoA ref/out arguments should load backing column arrays directly.");
+                ILShapeInspector.CountOpcode(mutate, OpCodes.Ldfld) >= 24,
+                "Mixed SoA ref/out arguments, including from-end direct columns, should load backing column arrays directly.");
             Assert.Equal(0, CountArrayElementStores(mutate));
 
             return 0;
