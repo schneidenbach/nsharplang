@@ -676,6 +676,18 @@ func Main() {
         ", "declared to return 'void'");
     }
 
+    [Theory]
+    [InlineData("func* Numbers(): IEnumerable<int> { return 1 }")]
+    [InlineData("async func* Numbers(): IAsyncEnumerable<int> { return 1 }")]
+    public void GeneratorReturnValue_ReportsInvalidSyntax(string declaration)
+    {
+        var result = AnalyzeWithSource("import System.Collections.Generic\n\n" + declaration);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("Generator functions cannot return a value", error.Message);
+        Assert.Contains("yield value", error.Suggestion);
+    }
+
     [Fact]
     public void ExpressionBodiedFunctionWithoutReturnType_ReturnValue_Error()
     {

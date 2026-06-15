@@ -3828,6 +3828,19 @@ public class Analyzer : IDisposable
                 ReportSoaRowEscape(returnStmt.Value, "returned");
             }
 
+            if (_currentFunction?.Modifiers.HasFlag(Modifiers.Generator) == true)
+            {
+                var (line, column, length) = GetExpressionDiagnosticSpan(returnStmt.Value);
+                Error(
+                    ErrorCode.InvalidSyntax,
+                    "Generator functions cannot return a value",
+                    line,
+                    column,
+                    "Use `yield value` to produce sequence values, or a bare `return`/`yield break` to stop iteration.",
+                    length);
+                return;
+            }
+
             if (!IsAssignable(expectedReturnValueType, returnedType))
             {
                 // Use ErrorMessageBuilder for better error message

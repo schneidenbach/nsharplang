@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Generator return values fail before IL lowering
+
+Generator functions now reject `return <value>` during semantic analysis for both `func*` and
+`async func*`. The analyzer still walks the returned expression for nested semantic errors, then
+reports the unsupported generator control-flow shape before the IL backend can reach its defensive
+unsupported-case throw.
+
 ## 2026-06-15 — Columnar emit entry leaves the dogfood adapter
 
 `MultiFileCompiler` now routes the default standalone columnar backend through
