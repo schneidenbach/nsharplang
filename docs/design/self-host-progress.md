@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Parenthesized SoA numeric expression stores keep direct column IL
+
+Numeric scalar stores over receiver-parenthesized backing-column members now have IL-shape evidence
+for row, literal from-end, and variable-held `System.Index` forms. The proof covers `int`, `uint`,
+and `long` arithmetic, shifts, and bitwise expression stores such as `(nodes.kind)[row] =
+(nodes.kind)[row] + 5`, `(nodes.flags)[^1] = (nodes.flags)[^1] >> 1`, and
+`idx := ^1; (nodes.mask)[idx] = (nodes.mask)[idx] ^ 10L`. These accepted cases stay on backing
+column arrays, preserve expression-valued assignment results, and lower through direct arithmetic,
+shift, and bitwise opcodes with no row construction, slice allocation, boxing, delegate
+construction, or virtual dispatch.
+
 ## 2026-06-15 — Parenthesized SoA bool bitwise stores keep direct column IL
 
 Bool bitwise stores over receiver-parenthesized backing-column members now have IL-shape evidence for

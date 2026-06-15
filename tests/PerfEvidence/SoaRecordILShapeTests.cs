@@ -1158,6 +1158,156 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void ParenthesizedColumnMemberNumericExpressions_UseColumnArrayOffsetWithoutSliceAllocation()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                kind: int
+                flags: uint
+                mask: long
+            }
+
+            func rowOps(nodes: NodeTable, row: int): int {
+                (nodes.kind)[row] = 10;
+                addValue := (nodes.kind)[row] = (nodes.kind)[row] + 5;
+                (nodes.kind)[row] = 20;
+                subValue := (nodes.kind)[row] = (nodes.kind)[row] - 6;
+                (nodes.kind)[row] = 23;
+                remValue := (nodes.kind)[row] = (nodes.kind)[row] % 7;
+                (nodes.flags)[row] = (uint)20;
+                divUValue := (nodes.flags)[row] = (nodes.flags)[row] / (uint)4;
+                (nodes.flags)[row] = (uint)22;
+                remUValue := (nodes.flags)[row] = (nodes.flags)[row] % (uint)5;
+                (nodes.mask)[row] = 7L;
+                mulValue := (nodes.mask)[row] = (nodes.mask)[row] * 3L;
+                (nodes.mask)[row] = 22L;
+                divValue := (nodes.mask)[row] = (nodes.mask)[row] / 2L;
+                (nodes.kind)[row] = 4;
+                shlInt := (nodes.kind)[row] = (nodes.kind)[row] << 2;
+                (nodes.kind)[row] = -16;
+                shrInt := (nodes.kind)[row] = (nodes.kind)[row] >> 2;
+                (nodes.flags)[row] = (uint)8;
+                shrUInt := (nodes.flags)[row] = (nodes.flags)[row] >> 1;
+                (nodes.mask)[row] = 3L;
+                shlLong := (nodes.mask)[row] = (nodes.mask)[row] << 2;
+                (nodes.kind)[row] = 10;
+                orInt := (nodes.kind)[row] = (nodes.kind)[row] | 5;
+                (nodes.flags)[row] = (uint)12;
+                andUInt := (nodes.flags)[row] = (nodes.flags)[row] & (uint)10;
+                (nodes.mask)[row] = 3L;
+                xorLong := (nodes.mask)[row] = (nodes.mask)[row] ^ 10L;
+
+                total := addValue + subValue + remValue + (int)divUValue + (int)remUValue
+                total += (int)mulValue + (int)divValue + shlInt + shrInt + (int)shrUInt
+                total += (int)shlLong + orInt + (int)andUInt + (int)xorLong
+                return total
+            }
+
+            func literalOps(nodes: NodeTable): int {
+                (nodes.kind)[^1] = 10;
+                addValue := (nodes.kind)[^1] = (nodes.kind)[^1] + 5;
+                (nodes.kind)[^1] = 20;
+                subValue := (nodes.kind)[^1] = (nodes.kind)[^1] - 6;
+                (nodes.kind)[^1] = 23;
+                remValue := (nodes.kind)[^1] = (nodes.kind)[^1] % 7;
+                (nodes.flags)[^1] = (uint)20;
+                divUValue := (nodes.flags)[^1] = (nodes.flags)[^1] / (uint)4;
+                (nodes.flags)[^1] = (uint)22;
+                remUValue := (nodes.flags)[^1] = (nodes.flags)[^1] % (uint)5;
+                (nodes.mask)[^1] = 7L;
+                mulValue := (nodes.mask)[^1] = (nodes.mask)[^1] * 3L;
+                (nodes.mask)[^1] = 22L;
+                divValue := (nodes.mask)[^1] = (nodes.mask)[^1] / 2L;
+                (nodes.kind)[^1] = 4;
+                shlInt := (nodes.kind)[^1] = (nodes.kind)[^1] << 2;
+                (nodes.kind)[^1] = -16;
+                shrInt := (nodes.kind)[^1] = (nodes.kind)[^1] >> 2;
+                (nodes.flags)[^1] = (uint)8;
+                shrUInt := (nodes.flags)[^1] = (nodes.flags)[^1] >> 1;
+                (nodes.mask)[^1] = 3L;
+                shlLong := (nodes.mask)[^1] = (nodes.mask)[^1] << 2;
+                (nodes.kind)[^1] = 10;
+                orInt := (nodes.kind)[^1] = (nodes.kind)[^1] | 5;
+                (nodes.flags)[^1] = (uint)12;
+                andUInt := (nodes.flags)[^1] = (nodes.flags)[^1] & (uint)10;
+                (nodes.mask)[^1] = 3L;
+                xorLong := (nodes.mask)[^1] = (nodes.mask)[^1] ^ 10L;
+
+                total := addValue + subValue + remValue + (int)divUValue + (int)remUValue
+                total += (int)mulValue + (int)divValue + shlInt + shrInt + (int)shrUInt
+                total += (int)shlLong + orInt + (int)andUInt + (int)xorLong
+                return total
+            }
+
+            func variableOps(nodes: NodeTable): int {
+                idx := ^1;
+                (nodes.kind)[idx] = 10;
+                addValue := (nodes.kind)[idx] = (nodes.kind)[idx] + 5;
+                (nodes.kind)[idx] = 20;
+                subValue := (nodes.kind)[idx] = (nodes.kind)[idx] - 6;
+                (nodes.kind)[idx] = 23;
+                remValue := (nodes.kind)[idx] = (nodes.kind)[idx] % 7;
+                (nodes.flags)[idx] = (uint)20;
+                divUValue := (nodes.flags)[idx] = (nodes.flags)[idx] / (uint)4;
+                (nodes.flags)[idx] = (uint)22;
+                remUValue := (nodes.flags)[idx] = (nodes.flags)[idx] % (uint)5;
+                (nodes.mask)[idx] = 7L;
+                mulValue := (nodes.mask)[idx] = (nodes.mask)[idx] * 3L;
+                (nodes.mask)[idx] = 22L;
+                divValue := (nodes.mask)[idx] = (nodes.mask)[idx] / 2L;
+                (nodes.kind)[idx] = 4;
+                shlInt := (nodes.kind)[idx] = (nodes.kind)[idx] << 2;
+                (nodes.kind)[idx] = -16;
+                shrInt := (nodes.kind)[idx] = (nodes.kind)[idx] >> 2;
+                (nodes.flags)[idx] = (uint)8;
+                shrUInt := (nodes.flags)[idx] = (nodes.flags)[idx] >> 1;
+                (nodes.mask)[idx] = 3L;
+                shlLong := (nodes.mask)[idx] = (nodes.mask)[idx] << 2;
+                (nodes.kind)[idx] = 10;
+                orInt := (nodes.kind)[idx] = (nodes.kind)[idx] | 5;
+                (nodes.flags)[idx] = (uint)12;
+                andUInt := (nodes.flags)[idx] = (nodes.flags)[idx] & (uint)10;
+                (nodes.mask)[idx] = 3L;
+                xorLong := (nodes.mask)[idx] = (nodes.mask)[idx] ^ 10L;
+
+                total := addValue + subValue + remValue + (int)divUValue + (int)remUValue
+                total += (int)mulValue + (int)divValue + shlInt + shrInt + (int)shrUInt
+                total += (int)shlLong + orInt + (int)andUInt + (int)xorLong
+                return total
+            }
+
+            func main(): int {
+                nodes := new NodeTable(1)
+                row := nodes.add()
+                return rowOps(nodes, row) + literalOps(nodes) + variableOps(nodes)
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var rowOps = ILShapeInspector.GetProgramMethod(assembly, "rowOps");
+            var literalOps = ILShapeInspector.GetProgramMethod(assembly, "literalOps");
+            var variableOps = ILShapeInspector.GetProgramMethod(assembly, "variableOps");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(390, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoAllocationOrDispatch(rowOps);
+            AssertParenthesizedNumericExpressionColumnShape(rowOps, "row-index");
+
+            AssertNoFromEndSliceAllocation(literalOps);
+            AssertParenthesizedNumericExpressionColumnShape(literalOps, "literal from-end");
+
+            AssertNoFromEndSliceAllocation(variableOps);
+            AssertParenthesizedNumericExpressionColumnShape(variableOps, "variable from-end");
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void DirectColumnFromEndAssignmentExpression_ReturnsAssignedValueWithoutSliceAllocation()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
@@ -4848,6 +4998,56 @@ public class SoaRecordILShapeTests
         Assert.True(
             ILShapeInspector.CountOpcode(method, OpCodes.And) >= 1,
             $"Parenthesized SoA bool bitwise-and should use the direct AND opcode for {indexDescription} access.");
+    }
+
+    private static void AssertParenthesizedNumericExpressionColumnShape(MethodInfo method, string indexDescription)
+    {
+        Assert.True(
+            ILShapeInspector.CountOpcode(method, OpCodes.Ldfld) >= 28,
+            $"Parenthesized SoA numeric expression stores should load backing column fields directly for {indexDescription} access.");
+        Assert.True(
+            CountArrayElementLoads(method) >= 14,
+            $"Parenthesized SoA numeric expression stores should read current values from backing arrays for {indexDescription} access.");
+        Assert.Equal(28, CountArrayElementStores(method));
+        Assert.True(
+            ILShapeInspector.CountOpcode(method, OpCodes.Add) >= 1,
+            $"Parenthesized SoA numeric addition should use the direct ADD opcode for {indexDescription} access.");
+        Assert.True(
+            ILShapeInspector.CountOpcode(method, OpCodes.Sub) >= 1,
+            $"Parenthesized SoA numeric subtraction should use the direct SUB opcode for {indexDescription} access.");
+        Assert.True(
+            ILShapeInspector.CountOpcode(method, OpCodes.Mul) >= 1,
+            $"Parenthesized SoA numeric multiplication should use the direct MUL opcode for {indexDescription} access.");
+        Assert.True(
+            ILShapeInspector.CountOpcode(method, OpCodes.Div) >= 1,
+            $"Parenthesized SoA signed numeric division should use the direct DIV opcode for {indexDescription} access.");
+        Assert.True(
+            ILShapeInspector.CountOpcode(method, OpCodes.Rem) >= 1,
+            $"Parenthesized SoA signed numeric remainder should use the direct REM opcode for {indexDescription} access.");
+        Assert.True(
+            ILShapeInspector.CountOpcode(method, OpCodes.Div_Un) >= 1,
+            $"Parenthesized SoA unsigned numeric division should use the direct DIV.UN opcode for {indexDescription} access.");
+        Assert.True(
+            ILShapeInspector.CountOpcode(method, OpCodes.Rem_Un) >= 1,
+            $"Parenthesized SoA unsigned numeric remainder should use the direct REM.UN opcode for {indexDescription} access.");
+        Assert.True(
+            ILShapeInspector.CountOpcode(method, OpCodes.Shl) >= 2,
+            $"Parenthesized SoA numeric left shifts should use the direct SHL opcode for {indexDescription} access.");
+        Assert.True(
+            ILShapeInspector.CountOpcode(method, OpCodes.Shr) >= 1,
+            $"Parenthesized SoA signed numeric right shifts should use the direct SHR opcode for {indexDescription} access.");
+        Assert.True(
+            ILShapeInspector.CountOpcode(method, OpCodes.Shr_Un) >= 1,
+            $"Parenthesized SoA unsigned numeric right shifts should use the direct SHR.UN opcode for {indexDescription} access.");
+        Assert.True(
+            ILShapeInspector.CountOpcode(method, OpCodes.Or) >= 1,
+            $"Parenthesized SoA numeric bitwise-or should use the direct OR opcode for {indexDescription} access.");
+        Assert.True(
+            ILShapeInspector.CountOpcode(method, OpCodes.And) >= 1,
+            $"Parenthesized SoA numeric bitwise-and should use the direct AND opcode for {indexDescription} access.");
+        Assert.True(
+            ILShapeInspector.CountOpcode(method, OpCodes.Xor) >= 1,
+            $"Parenthesized SoA numeric bitwise-xor should use the direct XOR opcode for {indexDescription} access.");
     }
 
     private static void AssertNoAllocationOrDispatch(MethodInfo method)
