@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Ternary expression parser keeps token tables shaped
+
+`ParseTernaryExpressionNode` now reads `?` and `:` token kinds through `ParserTokenTable` instead
+of unpacking raw token arrays. The assignment and lambda expression cores remain as separate parser
+cleanup slices. Focused evidence: `./scripts/dev.sh Parser_Expression_MatchesProductionParser` and
+`./scripts/dev.sh ColumnarCodegen_MultiFile_RealParserCluster`.
+
 ## 2026-06-15 — Binary expression parser keeps token tables shaped
 
 `ParseBinaryExpressionNode` now reads `is`/`as` and binary-operator token columns through

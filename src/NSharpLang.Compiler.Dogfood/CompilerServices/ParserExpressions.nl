@@ -1212,13 +1212,12 @@ func ParseBinaryExpressionNode(tokens: &ParserTokenTable, count: int, st: &Parse
 // (TernaryExpression, kind 13, children [condition, then, else]). The then/else branches are full
 // expressions (assignment level), making the ternary right-associative in the else branch.
 func ParseTernaryExpressionNode(tokens: &ParserTokenTable, count: int, st: &ParserState, argStack: &ParserArgumentStack, nodes: &ParserExpressionNodeTable, children: &ParserChildIndexTable, depth: int): int {
-    tokenKinds := tokens.Kinds
     condition := ParseBinaryExpressionNode(ref tokens, count, ref st, ref argStack, ref nodes, ref children, 1, depth)
     if condition < 0 {
         return -1
     }
 
-    if st.Pos < count && tokenKinds[st.Pos] == 115 {
+    if st.Pos < count && tokens.Kinds[st.Pos] == 115 {
         conditionSpanStart := nodes.SpanStarts[condition]
         st.Pos = st.Pos + 1
         thenNode := ParseAssignmentExpressionNode(ref tokens, count, ref st, ref argStack, ref nodes, ref children, depth + 1)
@@ -1226,7 +1225,7 @@ func ParseTernaryExpressionNode(tokens: &ParserTokenTable, count: int, st: &Pars
             return -1
         }
 
-        if st.Pos >= count || tokenKinds[st.Pos] != 122 {
+        if st.Pos >= count || tokens.Kinds[st.Pos] != 122 {
             return -1
         }
         st.Pos = st.Pos + 1
