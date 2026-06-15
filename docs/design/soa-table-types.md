@@ -179,7 +179,7 @@ Row-column access supports direct reads, simple stores, expression-valued stores
 null-coalescing reads and assignment, compound assignment, and increment/decrement for integral
 column element types. These accepted operations lower to the backing column arrays without row-object
 materialization; `string` and `string?` columns support reads/stores, concatenating `+=`
-expressions, and null coalescing. `string` columns also support plain concatenation expression stores.
+expressions, plain concatenation expression stores, and null coalescing.
 Both string column shapes have direct string equality/inequality
 evidence, while `string?` columns additionally have direct null equality/inequality evidence. Both
 string column shapes reject `-=`, `*=`, `/=`, `++`, and `--` during analysis. Bool columns support
@@ -328,7 +328,7 @@ including expression-valued simple stores, default stores across the verified sc
 element-type set, including expression-valued default stores, without old-element reads, verified
 scalar/reference element reads/stores, bool bitwise expression stores, int-backed enum
 reads/stores/default stores/generated methods, string/string? concatenating compound assignments,
-string concatenation expression stores, string/string? equality/inequality expressions,
+string/string? concatenation expression stores, string/string? equality/inequality expressions,
 nullable-string null equality/inequality expressions, bool equality/inequality plus logical-not and
 short-circuit logical expressions, numeric scalar
 comparison expressions, char comparison

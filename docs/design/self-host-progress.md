@@ -13,11 +13,11 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ## 2026-06-14 — SoA string concatenation expressions have IL-shape proof
 
-String SoA columns now have opcode evidence for plain concatenation expression stores across row
-projection, direct column indexing, and direct from-end column indexing. The accepted `string + string`
-forms load backing column arrays directly, call `string.Concat`, preserve expression-valued assignment
-results, and avoid row construction, slice allocation, boxing, delegate construction, and virtual
-dispatch.
+String and nullable string SoA columns now have opcode evidence for plain concatenation expression
+stores across row projection, direct column indexing, and direct from-end column indexing. The
+accepted `string + string` and `string? + string` forms load backing column arrays directly, call
+`string.Concat`, preserve expression-valued assignment results, and avoid row construction, slice
+allocation, boxing, delegate construction, and virtual dispatch.
 
 ## 2026-06-14 — SoA char compound assignments stop before emission
 
