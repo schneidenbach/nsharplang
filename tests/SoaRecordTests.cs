@@ -4646,6 +4646,64 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaTableCheckedAndUncheckedColumnMemberAccessKeepsDirectColumnDiagnostics()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var cases = new[]
+        {
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable): int {
+                    return (checked(nodes.kind))[-1]
+                }
+                """,
+                Code: ErrorCode.TypeMismatch,
+                Message: "SoA column row indexes must not be negative",
+                Suggestion: "non-negative row id"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable): int {
+                    values := (checked(nodes.kind))[0..1]
+                    return values.Length
+                }
+                """,
+                Code: ErrorCode.InvalidSyntax,
+                Message: "SoA column range slices allocate arrays",
+                Suggestion: "table.column[row]"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable) {
+                    (unchecked(nodes.kind))[0..1] = [1]
+                }
+                """,
+                Code: ErrorCode.InvalidSyntax,
+                Message: "SoA column range slices allocate arrays",
+                Suggestion: "table.column[row]")
+        };
+
+        foreach (var testCase in cases)
+        {
+            var result = Analyze(testCase.Source);
+            var error = Assert.Single(result.Errors, e => e.Code == testCase.Code);
+            Assert.Contains(testCase.Message, error.Message);
+            Assert.Contains(testCase.Suggestion, error.Suggestion);
+        }
+    }
+
+    [Fact]
     public void Analyzer_SoaTableColumnFromEndRangeSliceCannotBeAssigned()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

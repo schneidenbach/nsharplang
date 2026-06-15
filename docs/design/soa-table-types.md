@@ -310,7 +310,8 @@ The compiler must produce direct diagnostics for common misuse:
   compound, and null-coalescing assignment, or "SoA table member 'X' cannot be incremented or
   decremented directly";
 - non-int direct column element indexes: "Array indexes must be int, System.Index, or System.Range";
-- direct column slice reads and mutations: "SoA column range slices allocate arrays";
+- direct column slice reads and mutations, including parenthesized and checked/unchecked
+  column-member receivers: "SoA column range slices allocate arrays";
 - hidden allocation request: "this operation would allocate row objects; use column access instead".
 
 These diagnostics must point at the row access or column declaration, not at generated lowering code.

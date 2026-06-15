@@ -6101,6 +6101,8 @@ public class Analyzer : IDisposable
     {
         MemberAccessExpression member => _soaColumnMemberAccesses.Contains(member),
         ParenthesizedExpression parenthesized => IsSoaColumnMemberAccess(parenthesized.Inner),
+        CheckedExpression checkedExpression => IsSoaColumnMemberAccess(checkedExpression.Expression),
+        UncheckedExpression uncheckedExpression => IsSoaColumnMemberAccess(uncheckedExpression.Expression),
         _ => false
     };
 

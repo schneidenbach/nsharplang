@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Checked SoA direct columns keep column diagnostics
+
+Direct SoA column recognition now treats `checked(...)` and `unchecked(...)` around a column member
+as transparent, matching the analyzer's existing parenthesized-column handling. Wrapped column
+indexes such as `(checked(nodes.kind))[-1]` still report the SoA non-negative row diagnostic, and
+wrapped range slices such as `(unchecked(nodes.kind))[0..1]` still fail before emission with the
+allocation diagnostic instead of falling back to generic array behavior.
+
 ## 2026-06-15 — Checked SoA negative literals fail before emission
 
 SoA non-negative integer validation now unwraps `checked(...)` and `unchecked(...)` wrappers before
