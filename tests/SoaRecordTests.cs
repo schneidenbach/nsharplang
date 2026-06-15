@@ -4872,6 +4872,8 @@ public class SoaRecordTests : ILCompilerTestBase
     [InlineData("nodes[row].flags")]
     [InlineData("nodes.flags[row]")]
     [InlineData("nodes.flags[^1]")]
+    [InlineData("(nodes.flags)[row]")]
+    [InlineData("(nodes.flags)[^1]")]
     public void Analyzer_SoaRecordUintUnaryNegationAssignment_IsRejected(string target)
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
@@ -4895,6 +4897,8 @@ public class SoaRecordTests : ILCompilerTestBase
     [InlineData("nodes[row].kind")]
     [InlineData("nodes.kind[row]")]
     [InlineData("nodes.kind[^1]")]
+    [InlineData("(nodes.kind)[row]")]
+    [InlineData("(nodes.kind)[^1]")]
     public void Analyzer_SoaRecordNonBoolColumnLogicalNot_IsRejected(string target)
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
@@ -4918,9 +4922,13 @@ public class SoaRecordTests : ILCompilerTestBase
     [InlineData("nodes[row].kind", "&&")]
     [InlineData("nodes.kind[row]", "&&")]
     [InlineData("nodes.kind[^1]", "&&")]
+    [InlineData("(nodes.kind)[row]", "&&")]
+    [InlineData("(nodes.kind)[^1]", "&&")]
     [InlineData("nodes[row].kind", "||")]
     [InlineData("nodes.kind[row]", "||")]
     [InlineData("nodes.kind[^1]", "||")]
+    [InlineData("(nodes.kind)[row]", "||")]
+    [InlineData("(nodes.kind)[^1]", "||")]
     public void Analyzer_SoaRecordNonBoolColumnLogicalExpressions_AreRejected(
         string target,
         string logicalOperator)
@@ -4955,6 +4963,14 @@ public class SoaRecordTests : ILCompilerTestBase
     [InlineData("nodes.marker[^1]", "{target} & 1")]
     [InlineData("nodes.marker[^1]", "{target} << 1")]
     [InlineData("nodes.marker[^1]", "~{target}")]
+    [InlineData("(nodes.marker)[row]", "{target} + 1")]
+    [InlineData("(nodes.marker)[row]", "{target} & 1")]
+    [InlineData("(nodes.marker)[row]", "{target} << 1")]
+    [InlineData("(nodes.marker)[row]", "~{target}")]
+    [InlineData("(nodes.marker)[^1]", "{target} + 1")]
+    [InlineData("(nodes.marker)[^1]", "{target} & 1")]
+    [InlineData("(nodes.marker)[^1]", "{target} << 1")]
+    [InlineData("(nodes.marker)[^1]", "~{target}")]
     public void Analyzer_SoaRecordCharPromotedExpressionAssignment_IsRejected(
         string target,
         string expressionTemplate)
@@ -4990,6 +5006,14 @@ public class SoaRecordTests : ILCompilerTestBase
     [InlineData("nodes.marker[^1]", "-=", "-")]
     [InlineData("nodes.marker[^1]", "*=", "*")]
     [InlineData("nodes.marker[^1]", "/=", "/")]
+    [InlineData("(nodes.marker)[row]", "+=", "+")]
+    [InlineData("(nodes.marker)[row]", "-=", "-")]
+    [InlineData("(nodes.marker)[row]", "*=", "*")]
+    [InlineData("(nodes.marker)[row]", "/=", "/")]
+    [InlineData("(nodes.marker)[^1]", "+=", "+")]
+    [InlineData("(nodes.marker)[^1]", "-=", "-")]
+    [InlineData("(nodes.marker)[^1]", "*=", "*")]
+    [InlineData("(nodes.marker)[^1]", "/=", "/")]
     public void Analyzer_SoaRecordCharArithmeticCompoundAssignments_AreRejected(
         string target,
         string assignmentOperator,

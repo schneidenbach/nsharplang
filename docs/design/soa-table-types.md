@@ -194,17 +194,20 @@ string column shapes reject `-=`, `*=`, `/=`, `++`, and `--` during analysis, in
 column member is the parenthesized index receiver. Bool columns support same-bool equality/inequality,
 logical-not, logical `&&`/`||` expressions, and bitwise expressions but still reject arithmetic
 compound assignment before lowering, including when the column member is the parenthesized index
-receiver; non-bool column elements reject logical operators during analysis.
+receiver; non-bool column elements reject logical operators during analysis, including when the
+column member is the parenthesized index receiver.
 Numeric scalar columns support equality/inequality and relational comparisons,
 including unsigned comparisons for `uint`, plus arithmetic expression stores, arithmetic compound
 assignments, signed `int`/`long` unary negation, same-type bitwise expressions, and unary bitwise-not.
 `uint` unary negation still promotes to `long`, so assigning it back to a `uint` column is rejected
-before lowering. Numeric scalar columns also support shift expressions with direct signed and unsigned
-right-shift lowering. Char columns support equality/inequality, relational comparisons,
+before lowering, including when the column member is the parenthesized index receiver. Numeric scalar
+columns also support shift expressions with direct signed and unsigned right-shift lowering. Char
+columns support equality/inequality, relational comparisons,
 increment/decrement update forms, and promoted numeric expressions that produce `int`; assigning those
 promoted results back into a `char` column is rejected before lowering. Char arithmetic compound
 assignments reject for the same reason: the compound operator result promotes to `int`, which is not
-assignable to the `char` column. Int-backed enum columns support the enum language's comparison
+assignable to the `char` column, including when the column member is the parenthesized index receiver.
+Int-backed enum columns support the enum language's comparison
 expressions, prefix/postfix increment and decrement
 forms, same-enum bitwise expressions, and unary bitwise-not.
 Arithmetic compound assignment is not part of the enum column proof. Each compound assignment must

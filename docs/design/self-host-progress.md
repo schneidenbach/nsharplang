@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Parenthesized SoA promoted/logical failures stop in analysis
+
+Receiver-parenthesized backing-column elements now have analyzer coverage for the remaining promoted
+or non-boolean value cases that must not reach SoA lowering. `(nodes.flags)[row] = -(nodes.flags)[row]`
+reports the `long`-to-`uint` assignment mismatch, `(nodes.kind)[^1] && true` and
+`!(nodes.kind)[row]` report boolean operand diagnostics, and `(nodes.marker)[row] += 'a'` plus
+promoted expressions like `(nodes.marker)[^1] = (nodes.marker)[^1] + 1` report the `int`-to-`char`
+store mismatch during analysis.
+
 ## 2026-06-15 — Parenthesized SoA unsupported compound stores stop in analysis
 
 Unsupported compound assignments now have analyzer coverage when the backing column member is the
