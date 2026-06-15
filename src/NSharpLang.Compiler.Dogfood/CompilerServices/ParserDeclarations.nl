@@ -113,13 +113,10 @@ func PackageNameSpanInto(tokenKinds: int[], tokenStarts: int[], tokenValueLength
 }
 
 func PackageNameSpanCore(tokens: &ParserDeclarationTokenTable, count: int, result: &ParserDeclarationResultTable): int {
-    tokenKinds := tokens.Kinds
-    tokenStarts := tokens.Starts
-    tokenValueLengths := tokens.ValueLengths
     braceDepth := 0
     i := 0
     while i < count {
-        kind := tokenKinds[i]
+        kind := tokens.Kinds[i]
         if kind == 129 {
             braceDepth = braceDepth + 1
         } else if kind == 130 {
@@ -132,13 +129,13 @@ func PackageNameSpanCore(tokens: &ParserDeclarationTokenTable, count: int, resul
             j := i + 1
             nameStart := -1
             nameEnd := -1
-            while j < count && (tokenKinds[j] == 0 || tokenKinds[j] == 124) {
-                if tokenKinds[j] == 0 {
+            while j < count && (tokens.Kinds[j] == 0 || tokens.Kinds[j] == 124) {
+                if tokens.Kinds[j] == 0 {
                     if nameStart < 0 {
-                        nameStart = tokenStarts[j]
+                        nameStart = tokens.Starts[j]
                     }
 
-                    nameEnd = tokenStarts[j] + tokenValueLengths[j]
+                    nameEnd = tokens.Starts[j] + tokens.ValueLengths[j]
                 }
 
                 j = j + 1
@@ -172,13 +169,10 @@ func NamespaceImportSpansInto(tokenKinds: int[], tokenStarts: int[], tokenValueL
 }
 
 func NamespaceImportSpansCore(tokens: &ParserDeclarationTokenTable, count: int, imports: &NamespaceImportTable): int {
-    tokenKinds := tokens.Kinds
-    tokenStarts := tokens.Starts
-    tokenValueLengths := tokens.ValueLengths
     outCount := 0
     i := 0
     while i < count {
-        kind := tokenKinds[i]
+        kind := tokens.Kinds[i]
 
         if kind == 136 {
             i = i + 1
@@ -187,7 +181,7 @@ func NamespaceImportSpansCore(tokens: &ParserDeclarationTokenTable, count: int, 
 
         if kind == 18 {
             i = i + 1
-            while i < count && (tokenKinds[i] == 0 || tokenKinds[i] == 124) {
+            while i < count && (tokens.Kinds[i] == 0 || tokens.Kinds[i] == 124) {
                 i = i + 1
             }
             continue
@@ -195,13 +189,13 @@ func NamespaceImportSpansCore(tokens: &ParserDeclarationTokenTable, count: int, 
 
         if kind == 17 {
             i = i + 1
-            if i < count && tokenKinds[i] == 0 {
-                nsStart := tokenStarts[i]
-                nsEnd := tokenStarts[i] + tokenValueLengths[i]
+            if i < count && tokens.Kinds[i] == 0 {
+                nsStart := tokens.Starts[i]
+                nsEnd := tokens.Starts[i] + tokens.ValueLengths[i]
                 i = i + 1
-                while i < count && (tokenKinds[i] == 0 || tokenKinds[i] == 124) {
-                    if tokenKinds[i] == 0 {
-                        nsEnd = tokenStarts[i] + tokenValueLengths[i]
+                while i < count && (tokens.Kinds[i] == 0 || tokens.Kinds[i] == 124) {
+                    if tokens.Kinds[i] == 0 {
+                        nsEnd = tokens.Starts[i] + tokens.ValueLengths[i]
                     }
 
                     i = i + 1
@@ -209,11 +203,11 @@ func NamespaceImportSpansCore(tokens: &ParserDeclarationTokenTable, count: int, 
 
                 aliasStart := -1
                 aliasLength := 0
-                if i < count && tokenKinds[i] == 48 {
+                if i < count && tokens.Kinds[i] == 48 {
                     i = i + 1
-                    if i < count && tokenKinds[i] == 0 {
-                        aliasStart = tokenStarts[i]
-                        aliasLength = tokenValueLengths[i]
+                    if i < count && tokens.Kinds[i] == 0 {
+                        aliasStart = tokens.Starts[i]
+                        aliasLength = tokens.ValueLengths[i]
                         i = i + 1
                     }
                 }
@@ -226,7 +220,7 @@ func NamespaceImportSpansCore(tokens: &ParserDeclarationTokenTable, count: int, 
                 continue
             }
 
-            while i < count && tokenKinds[i] != 136 {
+            while i < count && tokens.Kinds[i] != 136 {
                 i = i + 1
             }
             continue
@@ -296,7 +290,6 @@ func TopLevelDeclarationModifiersInto(tokenKinds: int[], count: int, outKinds: i
 }
 
 func TopLevelDeclarationModifiersCore(tokens: &ParserDeclarationKindStream, count: int, decls: &TopLevelDeclarationModifierTable): int {
-    tokenKinds := tokens.Kinds
     braceDepth := 0
     bracketDepth := 0
     parenDepth := 0
@@ -306,7 +299,7 @@ func TopLevelDeclarationModifiersCore(tokens: &ParserDeclarationKindStream, coun
 
     i := 0
     while i < count {
-        kind := tokenKinds[i]
+        kind := tokens.Kinds[i]
 
         if kind == 129 {
             braceDepth = braceDepth + 1
@@ -369,9 +362,6 @@ func TopLevelDeclarationNameSpansInto(tokenKinds: int[], tokenStarts: int[], tok
 }
 
 func TopLevelDeclarationNameSpansCore(tokens: &ParserDeclarationTokenTable, count: int, decls: &TopLevelDeclarationNameTable): int {
-    tokenKinds := tokens.Kinds
-    tokenStarts := tokens.Starts
-    tokenValueLengths := tokens.ValueLengths
     braceDepth := 0
     bracketDepth := 0
     parenDepth := 0
@@ -380,7 +370,7 @@ func TopLevelDeclarationNameSpansCore(tokens: &ParserDeclarationTokenTable, coun
 
     i := 0
     while i < count {
-        kind := tokenKinds[i]
+        kind := tokens.Kinds[i]
 
         if kind == 129 {
             braceDepth = braceDepth + 1
@@ -409,9 +399,9 @@ func TopLevelDeclarationNameSpansCore(tokens: &ParserDeclarationTokenTable, coun
                 inWhereClause = true
             } else if !inWhereClause && IsTopLevelDeclarationKeyword(kind) {
                 decls.Kinds[outCount] = kind
-                if i + 1 < count && tokenKinds[i + 1] == 0 {
-                    decls.NameStarts[outCount] = tokenStarts[i + 1]
-                    decls.NameLengths[outCount] = tokenValueLengths[i + 1]
+                if i + 1 < count && tokens.Kinds[i + 1] == 0 {
+                    decls.NameStarts[outCount] = tokens.Starts[i + 1]
+                    decls.NameLengths[outCount] = tokens.ValueLengths[i + 1]
                 } else {
                     decls.NameStarts[outCount] = -1
                     decls.NameLengths[outCount] = 0
@@ -434,7 +424,6 @@ func TopLevelDeclarationKindsInto(tokenKinds: int[], count: int, outKinds: int[]
 }
 
 func TopLevelDeclarationKindsCore(tokens: &ParserDeclarationKindStream, count: int, decls: &TopLevelDeclarationKindTable): int {
-    tokenKinds := tokens.Kinds
     braceDepth := 0
     bracketDepth := 0
     parenDepth := 0
@@ -443,7 +432,7 @@ func TopLevelDeclarationKindsCore(tokens: &ParserDeclarationKindStream, count: i
 
     i := 0
     while i < count {
-        kind := tokenKinds[i]
+        kind := tokens.Kinds[i]
 
         if kind == 129 {
             braceDepth = braceDepth + 1

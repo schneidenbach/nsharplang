@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Declaration header scans keep tables shaped
+
+`PackageNameSpanCore`, `NamespaceImportSpansCore`, `TopLevelDeclarationModifiersCore`,
+`TopLevelDeclarationNameSpansCore`, and `TopLevelDeclarationKindsCore` now read package/import and
+top-level declaration token columns through `ParserDeclarationTokenTable` /
+`ParserDeclarationKindStream` instead of unpacking raw token arrays. Interface, enum, struct,
+constructor-chain, and union declaration bodies remain as separate parser cleanup slices. Focused
+evidence: `./scripts/dev.sh Parser_TopLevelDeclarationKinds_MatchProductionParser` and
+`./scripts/dev.sh ColumnarCodegen_MultiFile_RealParserCluster`.
+
 ## 2026-06-15 — Lambda expression parser keeps tables shaped
 
 `ParseLambdaOrAssignmentExpressionNode` now reads lambda lookahead, parameter, arrow, and block-body

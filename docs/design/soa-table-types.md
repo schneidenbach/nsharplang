@@ -547,7 +547,10 @@ ownership lands.
    token or argument-stack aliases inside its product expression parser cores.
    `ParserDeclarations.nl` now also routes package/header scans, top-level declaration
    scans, interface/enum/struct/class/record, constructor-chain, and union parser bodies through
-   declaration token-stream and result-slot wrappers while preserving the flattened adapter ABI.
+   declaration token-stream and result-slot wrappers while preserving the flattened adapter ABI; its
+   package/import and top-level modifier/name/kind scan cores keep token columns wrapper-shaped
+   internally, leaving interface, enum, struct, constructor-chain, and union declaration bodies as
+   separate alias-cleanup slices.
 7. Only after those gates pass, start replacing C# emitter/analyzer internals that still require untyped
    parallel-array plumbing.
 
