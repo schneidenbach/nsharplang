@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Expression-tree index reads lower
+
+Expression-tree lambdas now accept non-null-conditional index reads and lower them either through
+`Expression.ArrayIndex` for arrays or `Expression.Call` to the runtime indexer getter for CLR
+indexers such as `string.get_Chars(int)`. Null-conditional indexing remains rejected before emission
+until it has an explicit tree shape and nullable result contract.
+
 ## 2026-06-15 — Expression-tree metadata constants lower
 
 Expression-tree lambdas now lower `nameof(...)` and `typeof(...)` as constant tree nodes. This keeps

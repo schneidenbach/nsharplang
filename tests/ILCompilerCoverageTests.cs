@@ -3843,6 +3843,25 @@ func main(): string {
     }
 
     [Fact]
+    public void ILCompiler_CanExecuteQueryableExpressionTreeIndexAccess()
+    {
+        var source = @"
+import System
+import System.Linq
+
+func main(): string {
+    source := [""ab"", ""cd""]
+    query: IQueryable<string> = Queryable.AsQueryable<string>(source)
+    chars: IQueryable<char> = Queryable.Select<string, char>(query, x => x[0])
+    texts: IQueryable<string> = Queryable.Select<char, string>(chars, x => x.ToString())
+    return String.Join("":"", texts)
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal("a:c", Assert.IsType<string>(result));
+    }
+
+    [Fact]
     public void ILCompiler_CanEmitAnonymousObjectExpressionTreeLambdas()
     {
         var source = @"

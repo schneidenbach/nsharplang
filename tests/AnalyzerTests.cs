@@ -7105,6 +7105,27 @@ func Main() {
     }
 
     [Fact]
+    public void QueryableLinq_ExpressionTreeLambdaIndexAccess_IsSupported()
+    {
+        var result = AnalyzeWithSource(@"
+            import System.Linq
+
+            func Main() {
+                source := [""ab"", ""cd""]
+                query := source.AsQueryable()
+                chars := query.Select(x => x[0])
+            }
+        ");
+
+        Assert.False(result.HasErrors,
+            result.Errors.Count > 0
+                ? $"Expected no errors but got: {string.Join(", ", result.Errors.Select(e => e.Message))}"
+                : "");
+
+        Assert.Equal("IQueryable<Char>", result.SemanticModel.LookupIdentifier("chars")?.ToString());
+    }
+
+    [Fact]
     public void QueryableLinq_BlockExpressionTreeLambda_ReportsFeatureNotImplemented()
     {
         var result = AnalyzeWithSource(@"
@@ -7137,6 +7158,23 @@ func Main() {
 
         var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.FeatureNotImplemented);
         Assert.Contains("captured or static identifier 'threshold'", error.Message);
+    }
+
+    [Fact]
+    public void QueryableLinq_ExpressionTreeLambdaNullConditionalIndexAccess_ReportsFeatureNotImplemented()
+    {
+        var result = AnalyzeWithSource(@"
+            import System.Linq
+
+            func Main() {
+                source := [""ab"", ""cd""]
+                query := source.AsQueryable()
+                chars := query.Select(x => x?[0])
+            }
+        ");
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.FeatureNotImplemented);
+        Assert.Contains("null-conditional index access", error.Message);
     }
 
     [Fact]

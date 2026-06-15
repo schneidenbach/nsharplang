@@ -1361,6 +1361,10 @@ public partial class ILCompiler
                 _currentIL.Emit(OpCodes.Call, ResolveExpressionPropertyOrFieldMethod());
                 return;
 
+            case IndexAccessExpression { IsNullConditional: false } indexAccess:
+                EmitExpressionTreeIndexNode(indexAccess, parameterLocals, parameterClrTypes);
+                return;
+
             case ParenthesizedExpression parenthesized:
                 EmitExpressionTreeNode(parenthesized.Inner, parameterLocals, parameterClrTypes, expectedType);
                 return;
@@ -1445,6 +1449,7 @@ public partial class ILCompiler
             IdentifierExpression identifier when parameterClrTypes.TryGetValue(identifier.Name, out var parameterType) => parameterType,
             ParenthesizedExpression parenthesized => GetExpressionTreeNodeClrType(parenthesized.Inner, parameterClrTypes),
             MemberAccessExpression memberAccess => ResolveExpressionTreeMemberType(memberAccess, parameterClrTypes),
+            IndexAccessExpression indexAccess => GetIndexAccessType(indexAccess),
             CallExpression call => ResolveExpressionTreeCallReturnType(call, parameterClrTypes),
             TernaryExpression ternary => GetExpressionTreeConditionalClrType(ternary, parameterClrTypes, expectedType: null),
             _ => GetExpressionType(expression)
@@ -1593,6 +1598,72 @@ public partial class ILCompiler
 
         var inferredType = GetExpressionType(ternary);
         return inferredType == typeof(object) ? thenType : inferredType;
+    }
+
+    private void EmitExpressionTreeIndexNode(
+        IndexAccessExpression indexAccess,
+        IReadOnlyDictionary<string, LocalBuilder> parameterLocals,
+        IReadOnlyDictionary<string, Type> parameterClrTypes)
+    {
+        if (_currentIL == null)
+        {
+            throw new InvalidOperationException("No IL generator context");
+        }
+
+        var receiverType = GetExpressionTreeNodeClrType(indexAccess.Object, parameterClrTypes);
+        var indexType = GetExpressionTreeNodeClrType(indexAccess.Index, parameterClrTypes);
+
+        EmitExpressionTreeNode(indexAccess.Object, parameterLocals, parameterClrTypes, receiverType);
+        if (receiverType.IsArray)
+        {
+            EmitExpressionTreeNodeAsType(indexAccess.Index, parameterLocals, parameterClrTypes, typeof(int));
+            _currentIL.Emit(OpCodes.Call, ResolveExpressionArrayIndexMethod());
+            return;
+        }
+
+        var getter = ResolveRuntimeMethod(
+                receiverType,
+                "get_Item",
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance,
+                new[] { indexType })
+            ?? ResolveRuntimeMethod(
+                receiverType,
+                "get_Chars",
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance,
+                new[] { indexType });
+        if (getter == null)
+        {
+            throw new NotSupportedException($"Expression-tree index access on '{receiverType}' is not supported by the IL backend yet");
+        }
+
+        EmitRuntimeMethodInfo(getter);
+        EmitExpressionTreeIndexArguments(indexAccess, parameterLocals, parameterClrTypes, getter);
+        _currentIL.Emit(OpCodes.Call, ResolveExpressionCallMethod());
+    }
+
+    private void EmitExpressionTreeIndexArguments(
+        IndexAccessExpression indexAccess,
+        IReadOnlyDictionary<string, LocalBuilder> parameterLocals,
+        IReadOnlyDictionary<string, Type> parameterClrTypes,
+        MethodInfo getter)
+    {
+        if (_currentIL == null)
+        {
+            throw new InvalidOperationException("No IL generator context");
+        }
+
+        var parameters = getter.GetParameters();
+        if (parameters.Length != 1)
+        {
+            throw new NotSupportedException($"Expression-tree index getter '{getter.Name}' must have exactly one parameter");
+        }
+
+        _currentIL.Emit(OpCodes.Ldc_I4_1);
+        _currentIL.Emit(OpCodes.Newarr, typeof(System.Linq.Expressions.Expression));
+        _currentIL.Emit(OpCodes.Dup);
+        _currentIL.Emit(OpCodes.Ldc_I4_0);
+        EmitExpressionTreeNodeAsType(indexAccess.Index, parameterLocals, parameterClrTypes, parameters[0].ParameterType);
+        _currentIL.Emit(OpCodes.Stelem_Ref);
     }
 
     private void EmitExpressionTreeCallNode(
@@ -1937,6 +2008,12 @@ public partial class ILCompiler
             nameof(System.Linq.Expressions.Expression.Default),
             new[] { typeof(Type) })
         ?? throw new InvalidOperationException("Could not resolve Expression.Default(Type)");
+
+    private static MethodInfo ResolveExpressionArrayIndexMethod()
+        => typeof(System.Linq.Expressions.Expression).GetMethod(
+            nameof(System.Linq.Expressions.Expression.ArrayIndex),
+            new[] { typeof(System.Linq.Expressions.Expression), typeof(System.Linq.Expressions.Expression) })
+        ?? throw new InvalidOperationException("Could not resolve Expression.ArrayIndex(Expression, Expression)");
 
     private static MethodInfo ResolveBinaryExpressionMethod(string methodName)
         => typeof(System.Linq.Expressions.Expression).GetMethod(

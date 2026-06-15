@@ -13984,6 +13984,13 @@ public class Analyzer : IDisposable
             case MemberAccessExpression memberAccess:
                 return FindUnsupportedExpressionTreeExpression(memberAccess.Object, parameterNames);
 
+            case IndexAccessExpression { IsNullConditional: true } indexAccess:
+                return (indexAccess, "null-conditional index access");
+
+            case IndexAccessExpression indexAccess:
+                return FindUnsupportedExpressionTreeExpression(indexAccess.Object, parameterNames)
+                    ?? FindUnsupportedExpressionTreeExpression(indexAccess.Index, parameterNames);
+
             case ParenthesizedExpression parenthesized:
                 return FindUnsupportedExpressionTreeExpression(parenthesized.Inner, parameterNames);
 
@@ -14184,7 +14191,6 @@ public class Analyzer : IDisposable
             CastExpression => "cast expression",
             CheckedExpression => "checked expression",
             DefaultExpression => "default expression",
-            IndexAccessExpression => "index access",
             InterpolatedStringExpression => "interpolated string",
             LambdaExpression => "nested lambda",
             MatchExpression => "match expression",
