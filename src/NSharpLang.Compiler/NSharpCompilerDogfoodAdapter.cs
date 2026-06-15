@@ -596,11 +596,16 @@ internal static class NSharpCompilerDogfoodAdapter
         var sTypeParamSpecials = new int[cap];
         var sTypeParamConstraintCounts = new int[cap];
         var sTypeParamConstraintTypeTexts = new string[cap];
-        var sres = new int[6];
-        var paramCount = bindings.ParseFunctionSignatureInfo(
+        var bk = new int[cap]; var bvs = new int[cap]; var bvl = new int[cap]; var bcs = new int[cap];
+        var bcc = new int[cap]; var bci = new int[cap]; var bss = new int[cap]; var bsl = new int[cap];
+        var localFunctionNodeIndices = new int[cap];
+        var localFunctionTokenIndices = new int[cap];
+        var sres = new int[9];
+        var paramCount = bindings.ParseColumnarFunctionInfo(
             source, ck, cs, cv, n, funcIndex, sFunctionNameTexts, sReturnTypeTexts,
             pNameTexts, pTypeTexts, pTupleNameCounts, pTupleNameTexts, sReturnTupleNameTexts,
-            sTypeParamTexts, sTypeParamSpecials, sTypeParamConstraintCounts, sTypeParamConstraintTypeTexts, sres);
+            sTypeParamTexts, sTypeParamSpecials, sTypeParamConstraintCounts, sTypeParamConstraintTypeTexts,
+            bk, bvs, bvl, bcs, bcc, bci, bss, bsl, localFunctionNodeIndices, localFunctionTokenIndices, sres);
         if (paramCount < 0)
             return false;
 
@@ -649,7 +654,7 @@ internal static class NSharpCompilerDogfoodAdapter
         // The wrapper also validates that the parsed signature is followed by the function body `{`, not an
         // unmodelled trailer such as an expression body.
         var bodyBrace = sres[1];
-        if (bodyBrace >= n || ck[bodyBrace] != 129)
+        if (bodyBrace < 0 || bodyBrace >= n || ck[bodyBrace] != 129)
             return false;
         var typeParamNames = System.Array.Empty<string>();
         var typeParamCount = sres[2];
@@ -697,32 +702,25 @@ internal static class NSharpCompilerDogfoodAdapter
             }
         }
 
-        var bk = new int[cap]; var bvs = new int[cap]; var bvl = new int[cap]; var bcs = new int[cap];
-        var bcc = new int[cap]; var bci = new int[cap]; var bss = new int[cap]; var bsl = new int[cap];
-        var bres = new int[2];
-        var bodyNodeCount = bindings.ParseStatementNodes(
-            ck, cs, cv, n, bodyBrace, bk, bvs, bvl, bcs, bcc, bci, bss, bsl, bres);
-        if (bodyNodeCount <= 0)
+        var rootBlock = sres[6];
+        var bodyNodeCount = sres[7];
+        if (bodyNodeCount <= 0 || rootBlock < 0 || rootBlock >= bodyNodeCount)
             return false;
 
         var bodyNodes = new Columnar.ColumnarNodeTable(bk, bvs, bvl, bcs, bcc, bci);
         input = new Columnar.ColumnarFunctionInput(
             fname, returnCanonical, paramNames, paramCanonicals,
-            bodyNodes, bres[0], isStatic, typeParamNames,
+            bodyNodes, rootBlock, isStatic, typeParamNames,
             typeParamSpecials, typeParamTypeConstraints,
             returnTupleElementNames: returnTupleNames, paramTupleElementNames: paramTupleNames,
             isAsync: isAsync);
 
-        // LOCAL FUNCTIONS (kind-41 statements that are DIRECT children of the root block): the N# wrapper maps
-        // statement-node ids to compact `func` token indices, then each declaration parses through the same kernels
-        // recursively. Nested-BLOCK declarations are deliberately NOT collected — their kind-41 nodes stay undeclared
-        // and the emitter declines them (scope-precise under-acceptance).
-        var rootBlock = bres[0];
-        var localFunctionNodeIndices = new int[cap];
-        var localFunctionTokenIndices = new int[cap];
-        var localFunctionCount = bindings.DirectLocalFunctionTokenIndices(
-            ck, cs, n, bk, bvs, bcs, bcc, bci, rootBlock, localFunctionNodeIndices, localFunctionTokenIndices);
-        if (localFunctionCount < 0)
+        // LOCAL FUNCTIONS (kind-41 statements that are DIRECT children of the root block): the composed N#
+        // function parser maps statement-node ids to compact `func` token indices, then C# recursively
+        // materializes only the accepted declarations. Nested-BLOCK declarations remain undeclared and decline in
+        // the emitter (scope-precise under-acceptance).
+        var localFunctionCount = sres[8];
+        if (localFunctionCount < 0 || localFunctionCount > localFunctionNodeIndices.Length)
             return false;
         for (var lf = 0; lf < localFunctionCount; lf++)
         {
@@ -1917,15 +1915,12 @@ internal static class NSharpCompilerDogfoodAdapter
                 CreateDelegate<TopLevelColumnarProgramDeclarationIndicesInto>(
                     programType,
                     "TopLevelColumnarProgramDeclarationIndicesInto"),
-                CreateDelegate<DirectLocalFunctionTokenIndicesInto>(
-                    programType,
-                    "DirectLocalFunctionTokenIndicesInto"),
                 CreateDelegate<ParsePropertyAccessorTypeInfoInto>(
                     programType,
                     "ParsePropertyAccessorTypeInfoInto"),
-                CreateDelegate<ParseFunctionSignatureInfoInto>(
+                CreateDelegate<ParseColumnarFunctionInfoInto>(
                     programType,
-                    "ParseFunctionSignatureInfoInto"),
+                    "ParseColumnarFunctionInfoInto"),
                 CreateDelegate<ParseStatementNodesInto>(
                     programType,
                     "ParseStatementNodesInto"),
@@ -2053,20 +2048,19 @@ internal static class NSharpCompilerDogfoodAdapter
         int[] outEnumIndices, int[] outUnionIndices, int[] outInterfaceIndices,
         int[] outStructIndices, int[] outStructReferenceFlags, int[] outStructRecordFlags,
         int[] outResult);
-    private delegate int DirectLocalFunctionTokenIndicesInto(
-        int[] tokenKinds, int[] tokenStarts, int tokenCount,
-        int[] nodeKinds, int[] nodeValueStarts, int[] nodeChildStart, int[] nodeChildCount, int[] nodeChildIndices,
-        int rootBlock, int[] outNodeIndices, int[] outFuncTokenIndices);
     private delegate int ParsePropertyAccessorTypeInfoInto(
         string source, int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths,
         int count, int propIndex, string[] outNameTexts, string[] outTypeTexts, int[] outResult);
-    private delegate int ParseFunctionSignatureInfoInto(
+    private delegate int ParseColumnarFunctionInfoInto(
         string source,
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int funcIndex,
         string[] outFunctionNameTexts, string[] outReturnTypeTexts,
         string[] outParamNameTexts, string[] outParamTypeTexts, int[] outParamTupleNameCounts, string[] outParamTupleNameTexts,
         string[] outReturnTupleNameTexts, string[] outTypeParamTexts, int[] outTypeParamSpecials,
-        int[] outTypeParamConstraintCounts, string[] outTypeParamConstraintTypeTexts, int[] outResult);
+        int[] outTypeParamConstraintCounts, string[] outTypeParamConstraintTypeTexts,
+        int[] outNodeKinds, int[] outValueStarts, int[] outValueLengths, int[] outChildStart, int[] outChildCount,
+        int[] outChildIndices, int[] outSpanStarts, int[] outSpanLengths,
+        int[] outLocalFunctionNodeIndices, int[] outLocalFunctionTokenIndices, int[] outResult);
     private delegate int ParseStatementNodesInto(
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int start,
         int[] outNodeKinds, int[] outValueStarts, int[] outValueLengths, int[] outChildStart, int[] outChildCount,
@@ -2126,9 +2120,8 @@ internal static class NSharpCompilerDogfoodAdapter
         OverloadSelectBestCandidate OverloadSelectBestCandidate,
         TokenizeMetadataWithIndentationInto TokenizeMetadataWithIndentation,
         TopLevelColumnarProgramDeclarationIndicesInto TopLevelColumnarProgramDeclarationIndices,
-        DirectLocalFunctionTokenIndicesInto DirectLocalFunctionTokenIndices,
         ParsePropertyAccessorTypeInfoInto ParsePropertyAccessorTypeInfo,
-        ParseFunctionSignatureInfoInto ParseFunctionSignatureInfo,
+        ParseColumnarFunctionInfoInto ParseColumnarFunctionInfo,
         ParseStatementNodesInto ParseStatementNodes,
         ParseInterfaceDeclarationSignatureInfoInto ParseInterfaceDeclarationSignatureInfo,
         ParseEnumDeclarationTextInfoInto ParseEnumDeclarationTextInfo,

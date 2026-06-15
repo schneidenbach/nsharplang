@@ -2695,6 +2695,10 @@ class B
                     "ParseFunctionSignatureInfoInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit ParseFunctionSignatureInfoInto.");
+            var parseColumnarFunctionInfo = programType.GetMethod(
+                    "ParseColumnarFunctionInfoInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit ParseColumnarFunctionInfoInto.");
             var whereOwnerIndices = programType.GetMethod(
                     "FunctionSignatureWhereOwnerIndicesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -2754,10 +2758,27 @@ class B
                 tokenize,
                 parseSigInfo,
                 "function signature info");
+            AssertColumnarFunctionInfo(
+                """
+func outer(x: int): int {
+    func inc(y: int): int {
+        return y + 1
+    }
+    return inc(x)
+}
+""",
+                tokenize,
+                parseColumnarFunctionInfo,
+                "regular function info");
             AssertFunctionSignatureInfoDeclines(
                 "func bad<T>(x: T): T where U: class { return x }",
                 tokenize,
                 parseSigInfo,
+                "unknown constraint owner");
+            AssertColumnarFunctionInfoDeclines(
+                "func bad<T>(x: T): T where U: class { return x }",
+                tokenize,
+                parseColumnarFunctionInfo,
                 "unknown constraint owner");
 
             AssertFunctionSignatureWhereOwnerIndices(
@@ -3033,6 +3054,73 @@ class B
         Assert.Equal(expectedWhereItemCount, result[5]);
     }
 
+    private static void AssertColumnarFunctionInfo(
+        string funcSource,
+        MethodInfo tokenize,
+        MethodInfo parseColumnarFunctionInfo,
+        string label)
+    {
+        var (count, kinds, starts, valueLengths, source) = TokenizeSourceViaKernel(funcSource, tokenize);
+        var funcIndex = FirstTopLevelFuncIndex(kinds, count);
+        Assert.True(funcIndex >= 0, $"Could not locate `func` keyword for '{label}'.");
+
+        var cap = count + 1;
+        var functionNameTexts = new string[1];
+        var returnTypeTexts = new string[1];
+        var paramNameTexts = new string[cap];
+        var paramTypeTexts = new string[cap];
+        var paramTupleNameCounts = new int[cap];
+        var paramTupleNameTexts = new string[cap];
+        var returnTupleNameTexts = new string[cap];
+        var typeParamTexts = new string[cap];
+        var typeParamSpecials = new int[cap];
+        var typeParamConstraintCounts = new int[cap];
+        var typeParamConstraintTypeTexts = new string[cap];
+        var nodeKinds = new int[cap];
+        var nodeValueStarts = new int[cap];
+        var nodeValueLengths = new int[cap];
+        var nodeChildStart = new int[cap];
+        var nodeChildCount = new int[cap];
+        var nodeChildIndices = new int[cap];
+        var nodeSpanStarts = new int[cap];
+        var nodeSpanLengths = new int[cap];
+        var localFunctionNodeIndices = new int[cap];
+        var localFunctionTokenIndices = new int[cap];
+        var result = new int[9];
+
+        var actualParamCount = (int)(parseColumnarFunctionInfo.Invoke(
+            null,
+            new object[]
+            {
+                source, kinds, starts, valueLengths, count, funcIndex,
+                functionNameTexts, returnTypeTexts,
+                paramNameTexts, paramTypeTexts, paramTupleNameCounts, paramTupleNameTexts,
+                returnTupleNameTexts, typeParamTexts, typeParamSpecials,
+                typeParamConstraintCounts, typeParamConstraintTypeTexts,
+                nodeKinds, nodeValueStarts, nodeValueLengths, nodeChildStart, nodeChildCount,
+                nodeChildIndices, nodeSpanStarts, nodeSpanLengths,
+                localFunctionNodeIndices, localFunctionTokenIndices, result,
+            }) ?? -2);
+
+        Assert.Equal(1, actualParamCount);
+        Assert.Equal("outer", functionNameTexts[0]);
+        Assert.Equal("int", returnTypeTexts[0]);
+        Assert.Equal("x", paramNameTexts[0]);
+        Assert.Equal("int", paramTypeTexts[0]);
+        Assert.True(result[1] >= 0 && result[1] < count && kinds[result[1]] == (int)TokenType.LeftBrace, $"Expected body brace for '{label}'.");
+        Assert.Equal(0, result[2]);
+        Assert.Equal(0, result[3]);
+        Assert.Equal(0, result[4]);
+        Assert.Equal(0, result[5]);
+        Assert.True(result[6] >= 0 && result[6] < result[7], $"Expected body root inside the node table for '{label}'.");
+        Assert.Equal(25, nodeKinds[result[6]]);
+        Assert.True(result[7] > 0, $"Expected body nodes for '{label}'.");
+        Assert.Equal(1, result[8]);
+        Assert.Equal(41, nodeKinds[localFunctionNodeIndices[0]]);
+        Assert.True(localFunctionTokenIndices[0] >= 0 && localFunctionTokenIndices[0] < count, $"Expected local function token index for '{label}'.");
+        Assert.Equal((int)TokenType.Func, kinds[localFunctionTokenIndices[0]]);
+    }
+
     private static void AssertFunctionSignatureInfoDeclines(
         string funcSource,
         MethodInfo tokenize,
@@ -3053,6 +3141,34 @@ class B
                 new string[cap], new string[cap], new int[cap], new string[cap],
                 new string[cap], new string[cap], new int[cap],
                 new int[cap], new string[cap], new int[6],
+            }) ?? -2);
+
+        Assert.Equal(-1, actualParamCount);
+    }
+
+    private static void AssertColumnarFunctionInfoDeclines(
+        string funcSource,
+        MethodInfo tokenize,
+        MethodInfo parseColumnarFunctionInfo,
+        string label)
+    {
+        var (count, kinds, starts, valueLengths, source) = TokenizeSourceViaKernel(funcSource, tokenize);
+        var funcIndex = FirstTopLevelFuncIndex(kinds, count);
+        Assert.True(funcIndex >= 0, $"Could not locate `func` keyword for '{label}'.");
+
+        var cap = count + 1;
+        var actualParamCount = (int)(parseColumnarFunctionInfo.Invoke(
+            null,
+            new object[]
+            {
+                source, kinds, starts, valueLengths, count, funcIndex,
+                new string[1], new string[1],
+                new string[cap], new string[cap], new int[cap], new string[cap],
+                new string[cap], new string[cap], new int[cap],
+                new int[cap], new string[cap],
+                new int[cap], new int[cap], new int[cap], new int[cap], new int[cap],
+                new int[cap], new int[cap], new int[cap],
+                new int[cap], new int[cap], new int[9],
             }) ?? -2);
 
         Assert.Equal(-1, actualParamCount);
@@ -10339,7 +10455,7 @@ class B
             "CliArguments.nl", "CliDocOrdering.nl", "CliQueryParsing.nl", "CliTreeDependencies.nl",
             "CompletionGrouping.nl", "CompletionReceivers.nl", "DiagnosticClusters.nl", "DiagnosticDeduplication.nl", "DocQuery.nl",
             "FormatterImportOrdering.nl", "IdentifierSpans.nl",
-            "LexerTokenKindScanner.nl", "OverloadCandidates.nl", "ParserDeclarations.nl",
+            "LexerTokenKindScanner.nl", "OverloadCandidates.nl", "ParserColumnarFunctions.nl", "ParserDeclarations.nl",
             "ParserConstructorSignatures.nl", "ParserExpressions.nl", "ParserFunctionSignatures.nl", "ParserInterfaceSignatures.nl", "ParserLocalFunctions.nl", "ParserStatements.nl", "ParserTypeReferences.nl",
             "ProjectSourceFilter.nl", "StructCopyAnalysis.nl",
             "TextEditOrdering.nl", "TypeLookup.nl",
@@ -10354,6 +10470,7 @@ class B
         Assert.Contains("TopLevelColumnarProgramDeclarationIndicesInto", methodNames!); // ParserDeclarations composed routing
         Assert.Contains("ParseFunctionSignatureInto", methodNames!); // ParserFunctionSignatures -> ParserTypeReferences
         Assert.Contains("ParseFunctionSignatureInfoInto", methodNames!); // ParserFunctionSignatures -> ParserTypeReferences
+        Assert.Contains("ParseColumnarFunctionInfoInto", methodNames!); // composed signature + body + local-function routing
         Assert.Contains("ParseConstructorSignatureInfoInto", methodNames!); // ParserConstructorSignatures -> declarations/signatures/types
         Assert.Contains("ParseInterfaceDeclarationSignatureInfoInto", methodNames!); // ParserInterfaceSignatures -> declarations/signatures/types
         Assert.Contains("DirectLocalFunctionTokenIndicesInto", methodNames!); // ParserLocalFunctions -> declarations/statements

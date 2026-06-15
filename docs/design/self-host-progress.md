@@ -11,6 +11,24 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Regular function parser composition moves into N#
+
+`ParserColumnarFunctions.nl` now exports `ParseColumnarFunctionInfoInto`, the product-routed regular
+function parser wrapper. It composes `ParseFunctionSignatureInfoInto`, `ParseStatementNodesInto`,
+and `DirectLocalFunctionTokenIndicesInto` in N#, returning signature text, body node tables, body
+root, body-node count, and direct local-function token rows through one call.
+
+`NSharpCompilerDogfoodAdapter.TryParseColumnarFunctionAt` no longer binds
+`ParseFunctionSignatureInfoInto` or `DirectLocalFunctionTokenIndicesInto` for production regular
+function parsing. C# now materializes `ColumnarFunctionInput` from the composed rowset and recursively
+materializes accepted local functions; lower-level rowsets remain emitted for direct parser parity
+tests and for N# composition. Focused evidence:
+`./scripts/dev.sh Parser_FunctionSignature_MatchesProductionParser`,
+`./scripts/dev.sh ColumnarCodegen_Parity_LocalFunctions`,
+`./scripts/dev.sh ColumnarCodegen_MultiFile_RealParserCluster`,
+`./scripts/dev.sh ColumnarCodegen_MultiFile_EligibleClusterCompiles`, and
+`./scripts/dev.sh ColumnarCodegen_CompilesRealDogfoodCorpus_Coverage`.
+
 ## 2026-06-15 — Dead parser span bindings removed from compiler dogfood adapter
 
 `NSharpCompilerDogfoodAdapter` no longer binds the legacy parser span rowsets
