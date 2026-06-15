@@ -10609,6 +10609,30 @@ func F(): int {
     }
 
     [Fact]
+    public void MemberAccess_ThroughByRefStructReceiver_ResolvesFields()
+    {
+        AssertNoErrors(@"
+struct Entry {
+    Key: int
+    Used: bool
+}
+
+struct FixedMap {
+    entries: Entry[]
+}
+
+func Contains(map: &FixedMap, key: int): bool {
+    for i := 0; i < map.entries.Length; i++ {
+        if !map.entries[i].Used || map.entries[i].Key == key {
+            return true
+        }
+    }
+    return false
+}
+");
+    }
+
+    [Fact]
     public void MemberWrite_ThroughAddressableValueChains_NoFalsePositive()
     {
         // Field chains rooted at locals/params and ARRAY elements are real variables.

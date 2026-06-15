@@ -20,7 +20,7 @@ func Warmup() {
 
 [hot]
 func LookupByte(value: byte): int {
-    index := value
+    index := (int)value
     if index < Tables.Lookup.Length {
         return Tables.Lookup[index]
     }

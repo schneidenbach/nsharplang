@@ -5892,6 +5892,8 @@ public class Analyzer : IDisposable
 
         ReportPossibleNullAccess(member.Object, objectType, member.Line, member.Column, "dereference", member.IsNullConditional);
         var receiverType = GetNonNullableType(objectType);
+        if (receiverType is ByRefTypeInfo byRefReceiver)
+            receiverType = GetNonNullableType(byRefReceiver.InnerType);
 
         if (receiverType is SoaRecordTypeInfo && member.IsNullConditional)
         {
@@ -6903,6 +6905,11 @@ public class Analyzer : IDisposable
         if (objectType is ObliviousTypeInfo obliviousType)
         {
             objectType = obliviousType.InnerType;
+        }
+
+        if (objectType is ByRefTypeInfo byRefType)
+        {
+            objectType = byRefType.InnerType;
         }
 
         if (objectType is NullableTypeInfo nullableType)
