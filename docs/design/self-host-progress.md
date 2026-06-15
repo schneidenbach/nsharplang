@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-14 — SoA bool logical-not has IL-shape proof
+
+Boolean SoA columns now have opcode evidence for logical `!` stores across row projection, direct
+column indexing, and direct from-end column indexing. The accepted bool cases read and write backing
+column arrays directly through comparison opcodes with no row construction, slice allocation, boxing,
+delegate construction, or virtual dispatch, while non-bool column elements now fail semantic analysis
+instead of lowering as integer zero checks.
+
 ## 2026-06-14 — SoA signed numeric unary negation has IL-shape proof
 
 `int` and `long` SoA columns now have opcode evidence for unary `-` stores across row projection,

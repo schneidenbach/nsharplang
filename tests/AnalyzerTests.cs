@@ -1076,6 +1076,20 @@ func Main() {
     }
 
     [Fact]
+    public void LogicalNot_NonBoolOperand_Error()
+    {
+        var result = AnalyzeWithSource(@"
+func bad(value: int): bool {
+    return !value
+}
+");
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains("'!' operator doesn't work with 'int'", error.Message);
+        Assert.Contains("boolean value", error.Message);
+    }
+
+    [Fact]
     public void NegativeIntegerLiteral_TargetTypedSignedNarrowing_IsPreserved()
     {
         AssertNoErrors(@"
@@ -9731,6 +9745,23 @@ func combine(a: Flags, b: Flags): Flags {
     masked := a & b
     shifted := masked << 2
     return ~shifted
+}", ErrorCode.TypeMismatch);
+    }
+
+    [Fact]
+    public void LogicalNot_OnUserDeclaredStructOperator_NoTypeMismatch()
+    {
+        AssertNoErrorCode(@"
+struct Flag {
+    Value: int
+
+    static func operator !(value: Flag): bool {
+        return value.Value == 0
+    }
+}
+
+func check(value: Flag): bool {
+    return !value
 }", ErrorCode.TypeMismatch);
     }
 

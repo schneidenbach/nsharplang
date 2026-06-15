@@ -4568,6 +4568,29 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Theory]
+    [InlineData("nodes[row].kind")]
+    [InlineData("nodes.kind[row]")]
+    [InlineData("nodes.kind[^1]")]
+    public void Analyzer_SoaRecordNonBoolColumnLogicalNot_IsRejected(string target)
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze($$"""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable, row: int): bool {
+                return !{{target}}
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains("'!' operator doesn't work with 'int'", error.Message);
+        Assert.Contains("boolean value", error.Message);
+    }
+
+    [Theory]
     [InlineData("nodes[row].active", "-=", "-")]
     [InlineData("nodes[row].active", "*=", "*")]
     [InlineData("nodes[row].active", "/=", "/")]

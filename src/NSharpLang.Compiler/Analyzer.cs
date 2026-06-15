@@ -5657,13 +5657,34 @@ public class Analyzer : IDisposable
         return unary.Operator switch
         {
             UnaryOperator.Negate => AnalyzeUnaryNegation(operandType, unary),
-            UnaryOperator.Not => BuiltInTypes.Bool,
+            UnaryOperator.Not => AnalyzeLogicalNot(operandType, unary),
             UnaryOperator.BitwiseNot => AnalyzeUnaryBitwiseNot(operandType, unary),
             UnaryOperator.PreIncrement or UnaryOperator.PreDecrement
                 or UnaryOperator.PostIncrement or UnaryOperator.PostDecrement => AnalyzeIncrementOrDecrement(operandType, unary),
             UnaryOperator.IndexFromEnd => GetIndexType(),
             _ => BuiltInTypes.Unknown
         };
+    }
+
+    private TypeInfo AnalyzeLogicalNot(TypeInfo operandType, UnaryExpression unary)
+    {
+        if (BuiltInTypes.IsUnknown(operandType))
+        {
+            return BuiltInTypes.Unknown;
+        }
+
+        if (TryResolveUnaryOperatorOverloadResult(unary.Operator, operandType, out var overloadResult))
+        {
+            return overloadResult;
+        }
+
+        if (IsBoolType(ResolveTypeAlias(operandType)))
+        {
+            return BuiltInTypes.Bool;
+        }
+
+        ReportUnaryOperatorOperandMismatch(unary, operandType, "the operand needs a boolean value");
+        return BuiltInTypes.Unknown;
     }
 
     private bool ReportInvalidIncrementOrDecrementTargetIfNeeded(UnaryExpression unary)
