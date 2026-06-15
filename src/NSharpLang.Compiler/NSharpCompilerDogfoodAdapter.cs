@@ -607,7 +607,7 @@ internal static class NSharpCompilerDogfoodAdapter
         // type-inference parity harness. Without this,
         // SemanticScopes' implicit-void procedures (SortIdsByStart, ClearTouched) declined the whole file at parse.
         var returnCanonical = sres[1] >= 0
-            ? ColumnarTypeCanon(sk, sns, snl, scs, scc, sci, source, sres[1])
+            ? bindings.TypeReferenceCanonicalText(source, sk, sns, snl, scs, scc, sci, sres[1])
             : "void";
         var paramNames = new string[paramCount];
         var paramCanonicals = new string[paramCount];
@@ -615,13 +615,15 @@ internal static class NSharpCompilerDogfoodAdapter
         for (var p = 0; p < paramCount; p++)
         {
             paramNames[p] = source.Substring(pNameStart[p], pNameLen[p]);
-            paramCanonicals[p] = ColumnarTypeCanon(sk, sns, snl, scs, scc, sci, source, pTypeRoot[p]);
-            if (TupleElementNamesOfType(sk, sns, snl, scs, scc, sci, source, pTypeRoot[p]) is { } paramElementNames)
+            paramCanonicals[p] = bindings.TypeReferenceCanonicalText(source, sk, sns, snl, scs, scc, sci, pTypeRoot[p]);
+            if (!TryGetTypeReferenceTupleElementNames(bindings, source, sk, sns, snl, scs, scc, sci, pTypeRoot[p], out var paramElementNames))
+                return false;
+            if (paramElementNames is { })
                 (paramTupleNames ??= new string[paramCount][])[p] = paramElementNames;
         }
-        var returnTupleNames = sres[1] >= 0
-            ? TupleElementNamesOfType(sk, sns, snl, scs, scc, sci, source, sres[1])
-            : null;
+        string[]? returnTupleNames = null;
+        if (sres[1] >= 0 && !TryGetTypeReferenceTupleElementNames(bindings, source, sk, sns, snl, scs, scc, sci, sres[1], out returnTupleNames))
+            return false;
 
         // Generic TYPE PARAMETERS (`func Identity<T>(...)`): sres[5] names parsed by the kernel. The token at
         // sres[6] (immediately after the signature, PAST any `where` clauses) must be the body `{` — anything
@@ -666,7 +668,7 @@ internal static class NSharpCompilerDogfoodAdapter
                 var code = sWhereItemCodes[w];
                 if (code >= 0)
                     (constraintLists[ownerIndex] ??= new List<string>()).Add(
-                        ColumnarTypeCanon(sk, sns, snl, scs, scc, sci, source, code));
+                        bindings.TypeReferenceCanonicalText(source, sk, sns, snl, scs, scc, sci, code));
                 else if (code == -2)
                     typeParamSpecials[ownerIndex] |= 1;
                 else if (code == -3)
@@ -761,7 +763,7 @@ internal static class NSharpCompilerDogfoodAdapter
         for (var p = 0; p < paramCount; p++)
         {
             paramNames[p] = source.Substring(pNameStart[p], pNameLen[p]);
-            paramCanonicals[p] = ColumnarTypeCanon(sk, sns, snl, scs, scc, sci, source, pTypeRoot[p]);
+            paramCanonicals[p] = bindings.TypeReferenceCanonicalText(source, sk, sns, snl, scs, scc, sci, pTypeRoot[p]);
         }
 
         // Parse the optional `: this(args)` / `: base(args)` chaining initializer (chained args restricted to a param
@@ -866,97 +868,25 @@ internal static class NSharpCompilerDogfoodAdapter
         return true;
     }
 
-    // Canonical type string from a columnar TYPE subtree (kinds 0 Simple,1 Generic,2 Array,3 Nullable,
-    // 4 Union,5 ByRef), matching Columnar.ColumnarFunctionSymbol.CanonicalType for the C# AST exactly.
-    private static string ColumnarTypeCanon(
+    private static bool TryGetTypeReferenceTupleElementNames(
+        Bindings bindings, string source,
         int[] kinds, int[] valueStarts, int[] valueLengths, int[] childStart, int[] childCount, int[] childIndices,
-        string source, int idx)
+        int root, out string[]? names)
     {
-        switch (kinds[idx])
-        {
-            case 0:
-                return source.Substring(valueStarts[idx], valueLengths[idx]);
-            case 1:
-            {
-                var sb = new System.Text.StringBuilder();
-                sb.Append(source, valueStarts[idx], valueLengths[idx]).Append('<');
-                var run = childStart[idx];
-                for (var k = 0; k < childCount[idx]; k++)
-                {
-                    if (k > 0) sb.Append(',');
-                    sb.Append(ColumnarTypeCanon(kinds, valueStarts, valueLengths, childStart, childCount, childIndices, source, childIndices[run + k]));
-                }
+        names = null;
+        if (root < 0)
+            return true;
 
-                sb.Append('>');
-                return sb.ToString();
-            }
-            case 2:
-                return ColumnarTypeCanon(kinds, valueStarts, valueLengths, childStart, childCount, childIndices, source, childIndices[childStart[idx]]) + "[]";
-            case 3:
-                return ColumnarTypeCanon(kinds, valueStarts, valueLengths, childStart, childCount, childIndices, source, childIndices[childStart[idx]]) + "?";
-            case 4:
-            {
-                var sb = new System.Text.StringBuilder();
-                var run = childStart[idx];
-                for (var k = 0; k < childCount[idx]; k++)
-                {
-                    if (k > 0) sb.Append('|');
-                    sb.Append(ColumnarTypeCanon(kinds, valueStarts, valueLengths, childStart, childCount, childIndices, source, childIndices[run + k]));
-                }
+        var buffer = new string[Math.Max(1, childCount[root])];
+        var count = bindings.TypeReferenceTupleElementNames(source, kinds, valueStarts, valueLengths, childStart, childCount, childIndices, root, buffer);
+        if (count < 0)
+            return false;
+        if (count == 0)
+            return true;
 
-                return sb.ToString();
-            }
-            case 5:
-                return "&" + ColumnarTypeCanon(kinds, valueStarts, valueLengths, childStart, childCount, childIndices, source, childIndices[childStart[idx]]);
-            case 6:
-            {
-                // Tuple `(e0, e1, ...)` -> the canonical `(e0,e1,...)` (parens + comma-joined element canons, no
-                // spaces) — the SAME format ColumnarFunctionSymbol.CanonicalType produces and the emitter's
-                // TryResolveType parses back into a System.ValueTuple. NAMED elements (kind-7 wrapper children)
-                // are ERASED — tuple identity is positional (.NET semantics), exactly like the C# canonical,
-                // which also drops TupleTypeElement names; the names travel separately (TupleElementNamesOfType).
-                var sb = new System.Text.StringBuilder();
-                sb.Append('(');
-                var run = childStart[idx];
-                for (var k = 0; k < childCount[idx]; k++)
-                {
-                    if (k > 0) sb.Append(',');
-                    var elem = childIndices[run + k];
-                    if (kinds[elem] == 7)
-                        elem = childIndices[childStart[elem]]; // unwrap NamedTupleElement -> the element type.
-                    sb.Append(ColumnarTypeCanon(kinds, valueStarts, valueLengths, childStart, childCount, childIndices, source, elem));
-                }
-
-                sb.Append(')');
-                return sb.ToString();
-            }
-            default:
-                return "?";
-        }
-    }
-
-    // Tuple ELEMENT NAMES of a type-node root: a kind-6 tuple whose children are kind-7 NamedTupleElement
-    // wrappers yields the element-name texts (all-or-nothing by the kernel); any other root yields null.
-    // Canonicals ERASE the names (tuple identity is positional); these travel on ColumnarFunctionInput for
-    // the emitter's name->ItemN member mapping.
-    private static string[]? TupleElementNamesOfType(
-        int[] kinds, int[] valueStarts, int[] valueLengths, int[] childStart, int[] childCount, int[] childIndices,
-        string source, int root)
-    {
-        if (root < 0 || kinds[root] != 6 || childCount[root] == 0)
-            return null;
-        var run = childStart[root];
-        if (kinds[childIndices[run]] != 7)
-            return null;
-        var names = new string[childCount[root]];
-        for (var k = 0; k < names.Length; k++)
-        {
-            var elem = childIndices[run + k];
-            if (kinds[elem] != 7)
-                return null;
-            names[k] = source.Substring(valueStarts[elem], valueLengths[elem]);
-        }
-        return names;
+        names = new string[count];
+        Array.Copy(buffer, names, count);
+        return true;
     }
 
     // Collect every top-level `interface` declaration into a ColumnarInterfaceInput (name + abstract
@@ -1029,17 +959,25 @@ internal static class NSharpCompilerDogfoodAdapter
                         return false;
                     methodNames[m] = source.Substring(sres[3], sres[4]);
                     methodReturns[m] = sres[1] >= 0
-                        ? ColumnarTypeCanon(sk, sns, snl, scs, scc, sci, source, sres[1])
+                        ? bindings.TypeReferenceCanonicalText(source, sk, sns, snl, scs, scc, sci, sres[1])
                         : "void";
-                    if (sres[1] >= 0 && TupleElementNamesOfType(sk, sns, snl, scs, scc, sci, source, sres[1]) != null)
+                    string[]? returnTupleNames = null;
+                    if (sres[1] >= 0)
+                    {
+                        if (!TryGetTypeReferenceTupleElementNames(bindings, source, sk, sns, snl, scs, scc, sci, sres[1], out returnTupleNames))
+                            return false;
+                    }
+                    if (returnTupleNames != null)
                         return false; // named-tuple member returns are unmodeled.
                     methodParamNames[m] = new string[paramCount];
                     methodParamCanonicals[m] = new string[paramCount];
                     for (var p = 0; p < paramCount; p++)
                     {
                         methodParamNames[m][p] = source.Substring(pNameStart[p], pNameLen[p]);
-                        methodParamCanonicals[m][p] = ColumnarTypeCanon(sk, sns, snl, scs, scc, sci, source, pTypeRoot[p]);
-                        if (TupleElementNamesOfType(sk, sns, snl, scs, scc, sci, source, pTypeRoot[p]) != null)
+                        methodParamCanonicals[m][p] = bindings.TypeReferenceCanonicalText(source, sk, sns, snl, scs, scc, sci, pTypeRoot[p]);
+                        if (!TryGetTypeReferenceTupleElementNames(bindings, source, sk, sns, snl, scs, scc, sci, pTypeRoot[p], out var paramTupleNames))
+                            return false;
+                        if (paramTupleNames != null)
                             return false;
                     }
                     if (ck[afterSignature] == 129)
@@ -2026,6 +1964,12 @@ internal static class NSharpCompilerDogfoodAdapter
                 CreateDelegate<ParseFunctionSignatureInto>(
                     programType,
                     "ParseFunctionSignatureInto"),
+                CreateDelegate<TypeReferenceCanonicalTextInto>(
+                    programType,
+                    "TypeReferenceCanonicalTextInto"),
+                CreateDelegate<TypeReferenceTupleElementNamesInto>(
+                    programType,
+                    "TypeReferenceTupleElementNamesInto"),
                 CreateDelegate<FunctionSignatureWhereOwnerIndicesInto>(
                     programType,
                     "FunctionSignatureWhereOwnerIndicesInto"),
@@ -2176,6 +2120,14 @@ internal static class NSharpCompilerDogfoodAdapter
         int[] outParamNameStarts, int[] outParamNameLengths, int[] outParamTypeRoots,
         int[] outTypeParamStarts, int[] outTypeParamLengths,
         int[] outWhereNameStarts, int[] outWhereNameLengths, int[] outWhereItemCodes, int[] outResult);
+    private delegate string TypeReferenceCanonicalTextInto(
+        string source,
+        int[] nodeKinds, int[] valueStarts, int[] valueLengths, int[] childStart, int[] childCount,
+        int[] childIndices, int root);
+    private delegate int TypeReferenceTupleElementNamesInto(
+        string source,
+        int[] nodeKinds, int[] valueStarts, int[] valueLengths, int[] childStart, int[] childCount,
+        int[] childIndices, int root, string[] outNames);
     private delegate int FunctionSignatureWhereOwnerIndicesInto(
         string source,
         int[] typeParamStarts, int[] typeParamLengths, int typeParamCount,
@@ -2236,6 +2188,8 @@ internal static class NSharpCompilerDogfoodAdapter
         NamespaceImportSpansInto NamespaceImportSpans,
         PackageNameSpanInto PackageNameSpan,
         ParseFunctionSignatureInto ParseFunctionSignature,
+        TypeReferenceCanonicalTextInto TypeReferenceCanonicalText,
+        TypeReferenceTupleElementNamesInto TypeReferenceTupleElementNames,
         FunctionSignatureWhereOwnerIndicesInto FunctionSignatureWhereOwnerIndices,
         ParseStatementNodesInto ParseStatementNodes,
         ParseInterfaceDeclarationInto ParseInterfaceDeclaration,

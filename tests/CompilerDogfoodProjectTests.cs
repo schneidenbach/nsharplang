@@ -1130,6 +1130,14 @@ class B
                     "ParseTypeReferenceNodesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit ParseTypeReferenceNodesInto.");
+            var canonicalText = programType.GetMethod(
+                    "TypeReferenceCanonicalTextInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit TypeReferenceCanonicalTextInto.");
+            var tupleElementNames = programType.GetMethod(
+                    "TypeReferenceTupleElementNamesInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit TypeReferenceTupleElementNamesInto.");
 
             // Positive corpus: every supported form, singly and recursively composed. Notably exercises the
             // `>>` (RightShift) split (List<List<int>>, Foo<Bar<Baz<int>>>), postfix composition
@@ -1153,14 +1161,16 @@ class B
                 "List<int | string>", "Dictionary<int | string, bool>", "int[] | List<int> | string?",
                 // ByRef (slice 8): `&` prefixing a postfix type; reachable as a union arm / generic arg too.
                 "&int", "&List<int>", "&int[]", "List<&int>", "&int | string",
+                // Tuples (slice 23): canonicals erase names; names travel through a separate helper.
+                "(int, string)", "(x: int, y: string)", "(int, List<string>)", "List<(x: int, y: string)>",
             };
             foreach (var t in positives)
-                AssertTypeReferenceTreeLikeProduction(t, tokenize, parseTypeRefs);
+                AssertTypeReferenceTreeLikeProduction(t, tokenize, parseTypeRefs, canonicalText, tupleElementNames);
 
             // Real-corpus pins: the literal Simple/Array type annotations that appear in the dogfood kernel
             // signatures, mirroring the lexer's real-corpus discipline.
             foreach (var t in new[] { "int", "int[]", "string", "bool", "string[]" })
-                AssertTypeReferenceTreeLikeProduction(t, tokenize, parseTypeRefs);
+                AssertTypeReferenceTreeLikeProduction(t, tokenize, parseTypeRefs, canonicalText, tupleElementNames);
 
             // Refused (-1) seam: a single parenthesised type `(int)` is not a tuple (no comma), and a
             // PARTIALLY named tuple is a production parse error (naming is all-or-nothing). (Positional
@@ -1214,7 +1224,12 @@ class B
         return (count, kinds, starts, valueLengths, start, source);
     }
 
-    private static void AssertTypeReferenceTreeLikeProduction(string typeString, MethodInfo tokenize, MethodInfo parseTypeRefs)
+    private static void AssertTypeReferenceTreeLikeProduction(
+        string typeString,
+        MethodInfo tokenize,
+        MethodInfo parseTypeRefs,
+        MethodInfo canonicalText,
+        MethodInfo tupleElementNames)
     {
         // Ground truth: parse `class T { v: S }` with the production lexer+parser and pull the field's type.
         var tokens = new Lexer("class T { v: " + typeString + " }", "decl-test.nl").Tokenize();
@@ -1234,6 +1249,13 @@ class B
         Assert.Equal(nodeCount - 1, root); // post-order: the root is the last node emitted
 
         AssertTypeRefNode(expected!, root, k, ns, nl, cs, cc, ci, source, typeString);
+
+        var actualCanonical = (string?)canonicalText.Invoke(
+            null,
+            new object[] { source, k, ns, nl, cs, cc, ci, root });
+        Assert.Equal(ColumnarFunctionSymbol.CanonicalType(expected!), actualCanonical);
+
+        AssertTypeReferenceTupleElementNames(expected!, source, root, k, ns, nl, cs, cc, ci, tupleElementNames, typeString);
 
         // Byte-span pin: the root node's span is exactly the type annotation text.
         Assert.Equal(typeString, source.Substring(ss[root], sl[root]));
@@ -1333,10 +1355,65 @@ class B
                 Assert.Equal(1, childCount[idx]);
                 AssertTypeRefNode(b.InnerType, childIndices[childStart[idx]], kinds, nameStarts, nameLengths, childStart, childCount, childIndices, source, label);
                 break;
+            case TupleTypeReference t:
+                Assert.True(kinds[idx] == 6, $"Expected Tuple (6) at node {idx} for '{label}', got kind {kinds[idx]}.");
+                Assert.Equal(t.Elements.Count, childCount[idx]);
+                for (var ti = 0; ti < t.Elements.Count; ti++)
+                {
+                    var child = childIndices[childStart[idx] + ti];
+                    var expectedElement = t.Elements[ti];
+                    if (expectedElement.Name != null)
+                    {
+                        Assert.True(kinds[child] == 7, $"Expected NamedTupleElement (7) at tuple child {ti} for '{label}', got kind {kinds[child]}.");
+                        Assert.Equal(expectedElement.Name, source.Substring(nameStarts[child], nameLengths[child]));
+                        Assert.Equal(1, childCount[child]);
+                        child = childIndices[childStart[child]];
+                    }
+
+                    AssertTypeRefNode(expectedElement.Type, child, kinds, nameStarts, nameLengths, childStart, childCount, childIndices, source, label);
+                }
+                break;
             default:
                 Assert.Fail($"Unexpected production type node {expected.GetType().Name} for '{label}' (out of slice-6/7 scope).");
                 break;
         }
+    }
+
+    private static void AssertTypeReferenceTupleElementNames(
+        TypeReference expected,
+        string source,
+        int root,
+        int[] kinds,
+        int[] nameStarts,
+        int[] nameLengths,
+        int[] childStart,
+        int[] childCount,
+        int[] childIndices,
+        MethodInfo tupleElementNames,
+        string label)
+    {
+        var buffer = new string[Math.Max(1, childCount[root])];
+        var actualCount = (int)(tupleElementNames.Invoke(
+            null,
+            new object[] { source, kinds, nameStarts, nameLengths, childStart, childCount, childIndices, root, buffer }) ?? -2);
+
+        var expectedNames = TopLevelTupleElementNames(expected);
+        if (expectedNames == null)
+        {
+            Assert.Equal(0, actualCount);
+            return;
+        }
+
+        Assert.Equal(expectedNames.Length, actualCount);
+        Assert.Equal(expectedNames, buffer.Take(actualCount).ToArray());
+    }
+
+    private static string[]? TopLevelTupleElementNames(TypeReference type)
+    {
+        if (type is not TupleTypeReference tuple || tuple.Elements.Count == 0 || tuple.Elements[0].Name == null)
+            return null;
+
+        return tuple.Elements.Select(element => element.Name!).ToArray();
     }
 
     // Parser slice 9: the first declaration-level recursive-descent kernel. ParseFunctionSignatureInto
@@ -1776,6 +1853,7 @@ class B
         NullableTypeReference n => IsSupportedTypeForm(n.InnerType),
         UnionTypeReference u => u.Arms.All(IsSupportedTypeForm),
         ByRefTypeReference b => IsSupportedTypeForm(b.InnerType),
+        TupleTypeReference t => t.Elements.All(element => IsSupportedTypeForm(element.Type)),
         _ => false,
     };
 
@@ -4128,7 +4206,7 @@ class B
     }
 
     // TUPLE multi-return (sub-slice 2): tuple TYPE references `(int, int)` on params + returns (parser kernel type
-    // kind 6), with the `(int,int)` canonical agreed across the kernel's ColumnarTypeCanon, the C#
+    // kind 6), with the `(int,int)` canonical agreed across the N# TypeReferenceCanonicalTextInto helper,
     // ColumnarFunctionSymbol.CanonicalType, and the emitter's TryResolveType (-> System.ValueTuple). Tuples now
     // CROSS function boundaries: returned from one function and consumed by another, passed as a sibling-call arg.
     [Fact]

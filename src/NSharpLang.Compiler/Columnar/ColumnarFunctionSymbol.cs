@@ -79,8 +79,8 @@ internal readonly record struct ColumnarFunctionSymbol(
                 return "&" + CanonicalType(b.InnerType);
             case TupleTypeReference t:
             {
-                // `(e0,e1,...)` — parens + comma-joined element canons (no spaces), matching the columnar kernel's
-                // TupleTypeReference (kind 6) canonicalization in NSharpCompilerDogfoodAdapter.ColumnarTypeCanon.
+                // `(e0,e1,...)` — parens + comma-joined element canons (no spaces), matching the N# type-table
+                // helper TypeReferenceCanonicalTextInto.
                 var sb = new StringBuilder();
                 sb.Append('(');
                 for (var i = 0; i < t.Elements.Count; i++)

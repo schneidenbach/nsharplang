@@ -1,3 +1,5 @@
+import System.Text
+
 // Parser slice 6: the first N#-native RECURSIVE-DESCENT, tree-building parser kernel. Where slices 1-5
 // produced flat top-level indices via single-pass token scans, this kernel reproduces the C# parser's
 // ParseTypeReference -> ParsePostfixTypeReference -> ParseBaseTypeReference recursion (Parser.cs:1718-1907)
@@ -98,6 +100,133 @@ struct ParserChildIndexTable {
 
 struct ParserResultTable {
     Values: int[]
+}
+
+struct TypeReferenceCanonicalTable {
+    Kinds: int[]
+    ValueStarts: int[]
+    ValueLengths: int[]
+    ChildStart: int[]
+    ChildCount: int[]
+    ChildIndices: int[]
+}
+
+func TypeReferenceCanonicalTextInto(source: string, nodeKinds: int[], valueStarts: int[], valueLengths: int[], childStart: int[], childCount: int[], childIndices: int[], root: int): string {
+    nodes := new TypeReferenceCanonicalTable { Kinds: nodeKinds, ValueStarts: valueStarts, ValueLengths: valueLengths, ChildStart: childStart, ChildCount: childCount, ChildIndices: childIndices }
+    return TypeReferenceCanonicalTextCore(source, ref nodes, root)
+}
+
+func TypeReferenceTupleElementNamesInto(source: string, nodeKinds: int[], valueStarts: int[], valueLengths: int[], childStart: int[], childCount: int[], childIndices: int[], root: int, outNames: string[]): int {
+    nodes := new TypeReferenceCanonicalTable { Kinds: nodeKinds, ValueStarts: valueStarts, ValueLengths: valueLengths, ChildStart: childStart, ChildCount: childCount, ChildIndices: childIndices }
+    return TypeReferenceTupleElementNamesCore(source, ref nodes, root, outNames)
+}
+
+func TypeReferenceCanonicalTextCore(source: string, nodes: &TypeReferenceCanonicalTable, root: int): string {
+    if root < 0 || root >= nodes.Kinds.Length {
+        return "?"
+    }
+
+    kind := nodes.Kinds[root]
+    if kind == 0 {
+        return source.Substring(nodes.ValueStarts[root], nodes.ValueLengths[root])
+    }
+
+    if kind == 1 {
+        builder := new StringBuilder(32)
+        builder.Append(source.Substring(nodes.ValueStarts[root], nodes.ValueLengths[root]))
+        builder.Append('<')
+        run := nodes.ChildStart[root]
+        i := 0
+        while i < nodes.ChildCount[root] {
+            if i > 0 {
+                builder.Append(',')
+            }
+
+            builder.Append(TypeReferenceCanonicalTextCore(source, ref nodes, nodes.ChildIndices[run + i]))
+            i = i + 1
+        }
+
+        builder.Append('>')
+        return builder.ToString()
+    }
+
+    if kind == 2 {
+        return TypeReferenceCanonicalTextCore(source, ref nodes, nodes.ChildIndices[nodes.ChildStart[root]]) + "[]"
+    }
+
+    if kind == 3 {
+        return TypeReferenceCanonicalTextCore(source, ref nodes, nodes.ChildIndices[nodes.ChildStart[root]]) + "?"
+    }
+
+    if kind == 4 {
+        builder := new StringBuilder(32)
+        run := nodes.ChildStart[root]
+        i := 0
+        while i < nodes.ChildCount[root] {
+            if i > 0 {
+                builder.Append('|')
+            }
+
+            builder.Append(TypeReferenceCanonicalTextCore(source, ref nodes, nodes.ChildIndices[run + i]))
+            i = i + 1
+        }
+
+        return builder.ToString()
+    }
+
+    if kind == 5 {
+        return "&" + TypeReferenceCanonicalTextCore(source, ref nodes, nodes.ChildIndices[nodes.ChildStart[root]])
+    }
+
+    if kind == 6 {
+        builder := new StringBuilder(32)
+        builder.Append('(')
+        run := nodes.ChildStart[root]
+        i := 0
+        while i < nodes.ChildCount[root] {
+            if i > 0 {
+                builder.Append(',')
+            }
+
+            elem := nodes.ChildIndices[run + i]
+            if nodes.Kinds[elem] == 7 {
+                elem = nodes.ChildIndices[nodes.ChildStart[elem]]
+            }
+
+            builder.Append(TypeReferenceCanonicalTextCore(source, ref nodes, elem))
+            i = i + 1
+        }
+
+        builder.Append(')')
+        return builder.ToString()
+    }
+
+    return "?"
+}
+
+func TypeReferenceTupleElementNamesCore(source: string, nodes: &TypeReferenceCanonicalTable, root: int, outNames: string[]): int {
+    if root < 0 || root >= nodes.Kinds.Length || nodes.Kinds[root] != 6 || nodes.ChildCount[root] == 0 {
+        return 0
+    }
+
+    run := nodes.ChildStart[root]
+    first := nodes.ChildIndices[run]
+    if nodes.Kinds[first] != 7 {
+        return 0
+    }
+
+    i := 0
+    while i < nodes.ChildCount[root] {
+        elem := nodes.ChildIndices[run + i]
+        if nodes.Kinds[elem] != 7 {
+            return -1
+        }
+
+        outNames[i] = source.Substring(nodes.ValueStarts[elem], nodes.ValueLengths[elem])
+        i = i + 1
+    }
+
+    return nodes.ChildCount[root]
 }
 
 func EmitTypeReferenceNode(st: &ParserState, nodes: &ParserNodeTable, kind: int, nameStart: int, nameLength: int, childStart: int, childCount: int, spanStart: int, spanLength: int): int {

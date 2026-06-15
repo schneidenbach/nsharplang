@@ -2457,8 +2457,8 @@ internal sealed class ColumnarIlEmitter
             type = typeof(System.Text.StringBuilder);
             return true;
         }
-        // Tuple `(e0,e1,...)` -> System.ValueTuple<...> (positional, arity 2-7). The canonical (from the kernel's
-        // ColumnarTypeCanon / the C# ColumnarFunctionSymbol.CanonicalType) is parens + comma-joined element canons;
+        // Tuple `(e0,e1,...)` -> System.ValueTuple<...> (positional, arity 2-7). The canonical (from the N#
+        // TypeReferenceCanonicalTextInto helper / the C# ColumnarFunctionSymbol.CanonicalType) is parens + comma-joined element canons;
         // split at the TOP level (respecting nested ()/<>/[]), resolve each element recursively, then
         // MakeGenericType the matching open ValueTuple. (Only Tuple type nodes produce a `(...)` canonical.)
         if (canonical.Length >= 2 && canonical[0] == '(' && canonical[^1] == ')')

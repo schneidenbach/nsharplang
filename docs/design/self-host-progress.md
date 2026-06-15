@@ -11,6 +11,24 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Type-reference canonicalization moves into N#
+
+`ParserTypeReferences.nl` now exports `TypeReferenceCanonicalTextInto` and
+`TypeReferenceTupleElementNamesInto` over the existing type-reference node tables. The N# helper owns
+simple/generic/array/nullable/anonymous-union/byref/tuple canonical strings, including named-tuple
+name erasure for CLR type identity, while the tuple-name helper returns the separate named-element
+column consumed by the emitter.
+
+`NSharpCompilerDogfoodAdapter` no longer carries the recursive C# `ColumnarTypeCanon` or
+`TupleElementNamesOfType` table walkers. Function signatures, constructor parameters, interface
+member signatures, and generic constraint type rows now ask the dogfood parser/type-reference kernel
+for canonical text and tuple names; the adapter only materializes CLR-facing strings and arrays.
+Focused evidence: `./scripts/dev.sh Parser_TypeReference_MatchesProductionParser`,
+`./scripts/dev.sh Parser_FunctionSignature_MatchesProductionParser`,
+`./scripts/dev.sh ColumnarCodegen_Parity_NamedTuples`,
+`./scripts/dev.sh ColumnarCodegen_Parity_GenericConstraints`, and
+`./scripts/dev.sh ColumnarCodegen_MultiFile_EligibleClusterCompiles`.
+
 ## 2026-06-15 — Generic constraint owner lookup moves into N#
 
 `ParserFunctionSignatures.nl` now exports `FunctionSignatureWhereOwnerIndicesInto`, a span-based
