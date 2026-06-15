@@ -531,6 +531,9 @@ ownership lands.
    array-taking functions as flattened adapter shims or scalar helper shims over wrapper-aware cores.
    `ParserLocalFunctions.nl` now wraps compact token columns, statement-node columns, and local-function
    result columns behind named tables while preserving its flattened adapter ABI.
+   `ParserColumnarProperties.nl` now wraps compact token columns, accessor text outputs,
+   getter/setter statement-node rowsets, and property result slots inside its composed product core
+   while preserving its flattened adapter ABI.
    `ParserTypeReferences.nl` has started the parser token-stream
    cleanup by wrapping token metadata, recursive argument stacks, child-index outputs, and result
    slots for the type-reference recursive cores; its base, greater-consumption, postfix, and union

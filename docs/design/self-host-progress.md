@@ -11,6 +11,21 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Property parser core wraps composed rowsets
+
+`ParserColumnarProperties.nl` now keeps compact token columns, accessor name/type text outputs,
+getter/setter statement-node rowsets, and result slots behind named N# table structs inside
+`ParseColumnarPropertyInfoCore`. The public `ParseColumnarPropertyInfoInto` ABI stays flattened for
+the current adapter and parity tests, while the product property parser wrapper no longer composes
+against anonymous parallel arrays internally. Focused evidence:
+`./scripts/dev.sh Parser_TopLevelDeclarationKinds_MatchProductionParser`,
+`./scripts/dev.sh ColumnarCodegen_Parity_ClassGetOnlyProperty`,
+`./scripts/dev.sh ColumnarCodegen_Parity_ClassGetSetProperty`,
+`./scripts/dev.sh ColumnarCodegen_Parity_StaticProperties`,
+`./scripts/dev.sh ColumnarCodegen_Parity_GenericClass_CtorFieldMethodProperty`,
+`./scripts/dev.sh ColumnarCodegen_CompilesRealDogfoodCorpus_Coverage`, and
+`./scripts/dev.sh ColumnarCodegen_MultiFile_EligibleClusterCompiles`.
+
 ## 2026-06-15 — Local-function discovery core wraps parser tables
 
 `ParserLocalFunctions.nl` now keeps compact token columns, statement-node columns, and local-function
