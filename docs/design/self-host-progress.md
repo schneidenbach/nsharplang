@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Parenthesized SoA row-view escapes are pinned
+
+Bare SoA row views remain non-materializable even when wrapped in parentheses. The analyzer regression
+now covers `(nodes[row])` in the core escape contexts that would otherwise allocate or store a row
+value: local inference, returns, call arguments, and array literals. These forms keep reporting the
+row-view diagnostic before IL emission, while `(nodes[row]).column` stays accepted through the direct
+column projection path. Focused evidence: `dotnet test tests/Tests.csproj --filter
+"FullyQualifiedName~SoaRecordTests.Analyzer_ParenthesizedSoaRowViewCannotEscapeFromCoreContexts"`.
+
 ## 2026-06-15 — Parenthesized SoA row projections keep direct column IL
 
 Accepted row projections now keep the same backing-column IL shape when the row access is

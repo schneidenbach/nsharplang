@@ -1363,6 +1363,70 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_ParenthesizedSoaRowViewCannotEscapeFromCoreContexts()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var cases = new[]
+        {
+            (Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable): int {
+                    row := (nodes[0])
+                    return 0
+                }
+                """,
+                Message: "SoA row views cannot be stored in a variable"),
+            (Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable): object {
+                    return (nodes[0])
+                }
+                """,
+                Message: "SoA row views cannot be returned"),
+            (Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func consume(value: object) {
+                }
+
+                func bad(nodes: NodeTable): int {
+                    consume((nodes[0]))
+                    return 0
+                }
+                """,
+                Message: "SoA row views cannot be passed as an argument"),
+            (Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable): int {
+                    values := [(nodes[0])]
+                    return values.Length
+                }
+                """,
+                Message: "SoA row views cannot be stored in an array")
+        };
+
+        foreach (var testCase in cases)
+        {
+            var result = Analyze(testCase.Source);
+            var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+            Assert.Contains(testCase.Message, error.Message);
+            Assert.Contains("table[index].column", error.Suggestion);
+        }
+    }
+
+    [Fact]
     public void Analyzer_SoaRowViewCannotEscapeIntoCallArgument()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

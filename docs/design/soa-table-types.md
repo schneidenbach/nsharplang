@@ -130,9 +130,10 @@ The compiler rewrites those to column element operations for both reads and writ
   from-end access is only valid on direct backing columns such as `nodes.kind[^1]`. The same rule
   applies to write targets such as `nodes[^1].kind = value`.
 - `nodes[0..1].kind = value` declines; range indexes would be row-slice syntax, not a scalar row id.
-- `row := nodes[i]` declines unless `row` is a stack-only ephemeral used in the same statement.
-- `return nodes[i]` declines.
-- `list.Add(nodes[i])` declines.
+- `row := nodes[i]` and `row := (nodes[i])` decline unless `row` is a stack-only ephemeral used in
+  the same statement.
+- `return nodes[i]` and `return (nodes[i])` decline.
+- `list.Add(nodes[i])` and `list.Add((nodes[i]))` decline.
 - `func f(row: NodeTable.Row)` is not part of v1.
 
 These restrictions are intentional. Persistable row values would reintroduce the object-row shape this
