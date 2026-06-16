@@ -36,9 +36,9 @@ internal readonly record struct ColumnarFunctionSymbol(
     }
 
     /// <summary>
-    /// Canonical type string for a C# AST <see cref="TypeReference"/>, matching the columnar type canon in
-    /// <see cref="NSharpCompilerDogfoodAdapter"/> exactly (so the two symbol models compare equal). Simple
-    /// names verbatim; <c>Name&lt;a,b&gt;</c> generics; <c>elem[]</c> arrays; <c>elem?</c> nullable;
+    /// Canonical type string for a C# AST <see cref="TypeReference"/>, matching the N#
+    /// ParserDeclarationCanonicalTypeText columnar type canon exactly (so the two symbol models compare equal).
+    /// Simple names verbatim; <c>Name&lt;a,b&gt;</c> generics; <c>elem[]</c> arrays; <c>elem?</c> nullable;
     /// <c>a|b</c> unions; <c>&amp;elem</c> by-ref.
     /// </summary>
     internal static string CanonicalType(TypeReference type)

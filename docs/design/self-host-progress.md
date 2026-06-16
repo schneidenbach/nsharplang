@@ -11,13 +11,22 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Final IL type-table helpers leave the general dogfood adapter
+
+The last live product routes in `NSharpCompilerDogfoodAdapter` moved beside IL emission as
+`ILTypeTableSelector`: type-key deduplication, declared-type suffix lookup, declared-type name
+candidate selection, and type-creation ordering. `ILCompiler` now calls that owner-local helper
+directly, the reflection-based adapter tests now exercise the helper directly, and the general
+compiler dogfood adapter source type is deleted. Remaining dogfood delegate host boundaries are now
+owned by their product consumers or by the non-compiler adapters.
+Focused evidence: `dotnet test tests/Tests.csproj --filter "FullyQualifiedName~ILTypeTableSelector_DeduplicatesFirstTypeKeys|FullyQualifiedName~ILTypeTableSelector_LooksUpUniqueDeclaredTypeBySuffix|FullyQualifiedName~ILTypeTableSelector_SelectsDeclaredTypeNameCandidate|FullyQualifiedName~ILTypeTableSelector_OrdersTypesByDescendingKeyDotCount"`.
+
 ## 2026-06-16 — Overload candidate selection leaves the general dogfood adapter
 
 `ILCompiler` now routes declared-method overload ranking through `OverloadCandidateSelector`, an
 IL-emission-owned helper that binds the N# `OverloadSelectBestCandidate` kernel beside the call
 resolver that consumes it. The general `NSharpCompilerDogfoodAdapter` no longer owns the overload
-ranking delegate, candidate scratch columns, or selection entry point; its remaining product calls
-are the IL declared-type lookup, type creation ordering, and type-key dedup surfaces.
+ranking delegate, candidate scratch columns, or selection entry point.
 Focused evidence: `dotnet test tests/Tests.csproj --filter "FullyQualifiedName~OverloadCandidateSelector_SelectsBestCandidateThroughDogfoodKernel"`.
 
 ## 2026-06-16 — Anonymous-union shim selection leaves the general dogfood adapter
@@ -26,8 +35,7 @@ Focused evidence: `dotnet test tests/Tests.csproj --filter "FullyQualifiedName~O
 `AnonymousUnionShimSelector`, an IL-emission-owned helper that binds the N#
 `AnonymousUnionDeclaresPublicShim` kernel beside the shim emitter that consumes it. The general
 `NSharpCompilerDogfoodAdapter` no longer owns the anonymous-union shim delegate, scratch storage, or
-selection entry point; its remaining product calls are the IL declared-type lookup, type creation
-ordering, and type-key dedup surfaces.
+selection entry point.
 Focused evidence: `dotnet test tests/Tests.csproj --filter "FullyQualifiedName~AnonymousUnionShimSelector_ChecksAnonymousUnionShimEligibility"`.
 
 ## 2026-06-16 — Analyzer exhaustiveness selection leaves the general dogfood adapter
@@ -10474,13 +10482,15 @@ or stand up the N#-native pooled `Token`/`TokenStream` so the parser can consume
 ## Bootstrap coverage
 
 - **0%** — no compiler source is yet compiled by the N# compiler itself. The dogfood kernels are
-  N#-authored compiler *services* compiled through the normal `NSharpLang.Sdk` path and bound via the
-  `*DogfoodAdapter` delegate boundary; this is the pre-bootstrap stage. The endgame (per the boundary
+  N#-authored compiler *services* compiled through the normal `NSharpLang.Sdk` path and bound through
+  temporary delegate host boundaries; this is the pre-bootstrap stage. The endgame (per the boundary
   profiling doc) is removing those delegate boundaries via in-assembly N#-to-N# calls.
 
 ## Adapters (debt to shrink toward zero)
 
-- `NSharpCompilerDogfoodAdapter`, `NSharpCodeIntelligenceDogfoodAdapter`,
-  `NSharpPerformanceDogfoodAdapter`, `NSharpCliDogfoodAdapter` — all still present as temporary
-  transition boundaries. None removed yet. Each routed kernel still crosses the ~1.2 ns
-  delegate-dispatch + bounds-check floor documented in the boundary profiling doc.
+- `NSharpCompilerDogfoodAdapter` — removed 2026-06-16. Compiler product routes now use owner-local
+  host helpers beside the consuming subsystem while the N# kernels remain pre-bootstrap services.
+- `NSharpCodeIntelligenceDogfoodAdapter`, `NSharpPerformanceDogfoodAdapter`,
+  `NSharpCliDogfoodAdapter` — still present as temporary transition boundaries. Each routed kernel
+  still crosses the ~1.2 ns delegate-dispatch + bounds-check floor documented in the boundary
+  profiling doc.

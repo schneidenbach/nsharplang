@@ -4,9 +4,9 @@ using System.IO;
 using System.Reflection;
 using NSharpLang.Compiler.Ast;
 
-namespace NSharpLang.Compiler;
+namespace NSharpLang.Compiler.ILCompiler;
 
-internal static class NSharpCompilerDogfoodAdapter
+internal static class ILTypeTableSelector
 {
     private const string DogfoodAssemblyName = "NSharpLang.Compiler.Dogfood";
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);

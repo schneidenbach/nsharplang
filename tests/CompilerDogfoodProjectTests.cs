@@ -13987,7 +13987,7 @@ func main(): int {
     }
 
     [Fact]
-    public void CompilerDogfoodAdapter_DeduplicatesFirstTypeKeys()
+    public void ILTypeTableSelector_DeduplicatesFirstTypeKeys()
     {
         var types = new[]
         {
@@ -13998,21 +13998,10 @@ func main(): int {
             typeof(IEnumerable<string>),
             typeof(IDictionary<string, int>)
         };
-        var adapterType = typeof(Parser).Assembly.GetType("NSharpLang.Compiler.NSharpCompilerDogfoodAdapter")
-            ?? throw new InvalidOperationException("Compiler dogfood adapter type was not emitted.");
-
-        var tryDeduplicateFirstTypeKeys = adapterType.GetMethod(
-                "TryDeduplicateFirstTypeKeys",
-                BindingFlags.Static | BindingFlags.NonPublic)
-            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryDeduplicateFirstTypeKeys.");
-        var args = new object?[]
-        {
+        Assert.True(ILTypeTableSelector.TryDeduplicateFirstTypeKeys(
             types,
-            (Func<Type, string>)(type => type.FullName ?? type.Name),
-            null
-        };
-        Assert.True((bool)(tryDeduplicateFirstTypeKeys.Invoke(null, args) ?? false));
-        var deduplicatedTypes = Assert.IsType<List<Type>>(args[2]);
+            static type => type.FullName ?? type.Name,
+            out var deduplicatedTypes));
 
         Assert.Equal(new[]
         {
@@ -14235,7 +14224,7 @@ class OtherZetaType {
     }
 
     [Fact]
-    public void CompilerDogfoodAdapter_LooksUpUniqueDeclaredTypeBySuffix()
+    public void ILTypeTableSelector_LooksUpUniqueDeclaredTypeBySuffix()
     {
         var declaredTypes = new Dictionary<string, Type>(StringComparer.Ordinal)
         {
@@ -14244,43 +14233,49 @@ class OtherZetaType {
             ["Demo.Core.Shared"] = typeof(int),
             ["Demo.Other.Shared"] = typeof(long)
         };
-        var adapterType = typeof(Parser).Assembly.GetType("NSharpLang.Compiler.NSharpCompilerDogfoodAdapter")
-            ?? throw new InvalidOperationException("Compiler dogfood adapter type was not emitted.");
+        Assert.True(ILTypeTableSelector.TryLookupUniqueDeclaredTypeBySuffix(
+            declaredTypes,
+            "Customer",
+            out var uniqueType,
+            out var uniqueFound));
+        Assert.True(uniqueFound);
+        Assert.Same(typeof(string), uniqueType);
 
-        var tryLookupUniqueDeclaredTypeBySuffix = adapterType.GetMethod(
-                "TryLookupUniqueDeclaredTypeBySuffix",
-                BindingFlags.Static | BindingFlags.NonPublic)
-            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryLookupUniqueDeclaredTypeBySuffix.");
-        var genericLookup = tryLookupUniqueDeclaredTypeBySuffix.MakeGenericMethod(typeof(Type));
+        Assert.True(ILTypeTableSelector.TryLookupUniqueDeclaredTypeBySuffix(
+            declaredTypes,
+            "Foo",
+            out var tinyType,
+            out var tinyFound));
+        Assert.True(tinyFound);
+        Assert.Same(typeof(decimal), tinyType);
 
-        var uniqueArgs = new object?[] { declaredTypes, "Customer", null, false };
-        Assert.True((bool)(genericLookup.Invoke(null, uniqueArgs) ?? false));
-        Assert.Equal(true, uniqueArgs[3]);
-        Assert.Same(typeof(string), uniqueArgs[2]);
+        Assert.True(ILTypeTableSelector.TryLookupUniqueDeclaredTypeBySuffix(
+            declaredTypes,
+            "Demo.Core.Shared",
+            out var exactType,
+            out var exactFound));
+        Assert.True(exactFound);
+        Assert.Same(typeof(int), exactType);
 
-        var tinyArgs = new object?[] { declaredTypes, "Foo", null, false };
-        Assert.True((bool)(genericLookup.Invoke(null, tinyArgs) ?? false));
-        Assert.Equal(true, tinyArgs[3]);
-        Assert.Same(typeof(decimal), tinyArgs[2]);
+        Assert.True(ILTypeTableSelector.TryLookupUniqueDeclaredTypeBySuffix(
+            declaredTypes,
+            "Missing",
+            out var missingType,
+            out var missingFound));
+        Assert.False(missingFound);
+        Assert.Null(missingType);
 
-        var exactArgs = new object?[] { declaredTypes, "Demo.Core.Shared", null, false };
-        Assert.True((bool)(genericLookup.Invoke(null, exactArgs) ?? false));
-        Assert.Equal(true, exactArgs[3]);
-        Assert.Same(typeof(int), exactArgs[2]);
-
-        var missingArgs = new object?[] { declaredTypes, "Missing", null, false };
-        Assert.True((bool)(genericLookup.Invoke(null, missingArgs) ?? false));
-        Assert.Equal(false, missingArgs[3]);
-        Assert.Null(missingArgs[2]);
-
-        var ambiguousArgs = new object?[] { declaredTypes, "Shared", null, false };
-        Assert.True((bool)(genericLookup.Invoke(null, ambiguousArgs) ?? false));
-        Assert.Equal(false, ambiguousArgs[3]);
-        Assert.Null(ambiguousArgs[2]);
+        Assert.True(ILTypeTableSelector.TryLookupUniqueDeclaredTypeBySuffix(
+            declaredTypes,
+            "Shared",
+            out var ambiguousType,
+            out var ambiguousFound));
+        Assert.False(ambiguousFound);
+        Assert.Null(ambiguousType);
     }
 
     [Fact]
-    public void CompilerDogfoodAdapter_SelectsDeclaredTypeNameCandidate()
+    public void ILTypeTableSelector_SelectsDeclaredTypeNameCandidate()
     {
         static ClassDeclaration TypeDeclaration(string name) => new(
             name,
@@ -14313,41 +14308,45 @@ class OtherZetaType {
             },
             Line: 1,
             Column: 1);
-        var adapterType = typeof(Parser).Assembly.GetType("NSharpLang.Compiler.NSharpCompilerDogfoodAdapter")
-            ?? throw new InvalidOperationException("Compiler dogfood adapter type was not emitted.");
+        Assert.True(ILTypeTableSelector.TrySelectDeclaredTypeNameCandidate(
+            compilationUnit,
+            "Customer",
+            out var importedSuffixCandidate));
+        Assert.Equal("Demo.Imported.Customer", importedSuffixCandidate);
 
-        var trySelectDeclaredTypeNameCandidate = adapterType.GetMethod(
-                "TrySelectDeclaredTypeNameCandidate",
-                BindingFlags.Static | BindingFlags.NonPublic)
-            ?? throw new InvalidOperationException("Dogfood adapter did not emit TrySelectDeclaredTypeNameCandidate.");
+        Assert.True(ILTypeTableSelector.TrySelectDeclaredTypeNameCandidate(
+            compilationUnit,
+            "Invoice",
+            out var uniqueSuffixCandidate));
+        Assert.Equal("Demo.Local.Invoice", uniqueSuffixCandidate);
 
-        var importedSuffixArgs = new object?[] { compilationUnit, "Customer", null };
-        Assert.True((bool)(trySelectDeclaredTypeNameCandidate.Invoke(null, importedSuffixArgs) ?? false));
-        Assert.Equal("Demo.Imported.Customer", importedSuffixArgs[2]);
+        Assert.True(ILTypeTableSelector.TrySelectDeclaredTypeNameCandidate(
+            compilationUnit,
+            "Foo",
+            out var tinySuffixCandidate));
+        Assert.Equal("Demo.Tiny.Foo", tinySuffixCandidate);
 
-        var uniqueSuffixArgs = new object?[] { compilationUnit, "Invoice", null };
-        Assert.True((bool)(trySelectDeclaredTypeNameCandidate.Invoke(null, uniqueSuffixArgs) ?? false));
-        Assert.Equal("Demo.Local.Invoice", uniqueSuffixArgs[2]);
+        Assert.True(ILTypeTableSelector.TrySelectDeclaredTypeNameCandidate(
+            compilationUnit,
+            "Demo.Local.Invoice",
+            out var exactCandidate));
+        Assert.Equal("Demo.Local.Invoice", exactCandidate);
 
-        var tinySuffixArgs = new object?[] { compilationUnit, "Foo", null };
-        Assert.True((bool)(trySelectDeclaredTypeNameCandidate.Invoke(null, tinySuffixArgs) ?? false));
-        Assert.Equal("Demo.Tiny.Foo", tinySuffixArgs[2]);
+        Assert.True(ILTypeTableSelector.TrySelectDeclaredTypeNameCandidate(
+            compilationUnit,
+            "Shared",
+            out var ambiguousCandidate));
+        Assert.Null(ambiguousCandidate);
 
-        var exactArgs = new object?[] { compilationUnit, "Demo.Local.Invoice", null };
-        Assert.True((bool)(trySelectDeclaredTypeNameCandidate.Invoke(null, exactArgs) ?? false));
-        Assert.Equal("Demo.Local.Invoice", exactArgs[2]);
-
-        var ambiguousArgs = new object?[] { compilationUnit, "Shared", null };
-        Assert.True((bool)(trySelectDeclaredTypeNameCandidate.Invoke(null, ambiguousArgs) ?? false));
-        Assert.Null(ambiguousArgs[2]);
-
-        var missingArgs = new object?[] { compilationUnit, "Missing", null };
-        Assert.True((bool)(trySelectDeclaredTypeNameCandidate.Invoke(null, missingArgs) ?? false));
-        Assert.Null(missingArgs[2]);
+        Assert.True(ILTypeTableSelector.TrySelectDeclaredTypeNameCandidate(
+            compilationUnit,
+            "Missing",
+            out var missingCandidate));
+        Assert.Null(missingCandidate);
     }
 
     [Fact]
-    public void CompilerDogfoodAdapter_OrdersTypesByDescendingKeyDotCount()
+    public void ILTypeTableSelector_OrdersTypesByDescendingKeyDotCount()
     {
         var types = new[]
         {
@@ -14365,23 +14364,10 @@ class OtherZetaType {
             [typeof(DateTime)] = "Other.Deep",
             [typeof(Guid)] = "Root.Nested.Deep.More"
         };
-        var adapterType = typeof(Parser).Assembly.GetType("NSharpLang.Compiler.NSharpCompilerDogfoodAdapter")
-            ?? throw new InvalidOperationException("Compiler dogfood adapter type was not emitted.");
-
-        var tryOrderTypesByDescendingKeyDotCount = adapterType.GetMethod(
-                "TryOrderTypesByDescendingKeyDotCount",
-                BindingFlags.Static | BindingFlags.NonPublic)
-            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryOrderTypesByDescendingKeyDotCount.");
-        var genericOrder = tryOrderTypesByDescendingKeyDotCount.MakeGenericMethod(typeof(Type));
-        var args = new object?[]
-        {
+        Assert.True(ILTypeTableSelector.TryOrderTypesByDescendingKeyDotCount(
             types,
-            (Func<Type, string>)(type => keys[type]),
-            null
-        };
-
-        Assert.True((bool)(genericOrder.Invoke(null, args) ?? false));
-        var orderedTypes = Assert.IsType<List<Type>>(args[2]);
+            type => keys[type],
+            out var orderedTypes));
         Assert.Equal(new[]
         {
             typeof(Guid),

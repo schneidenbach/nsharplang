@@ -1622,10 +1622,10 @@ public partial class ILCompiler
             yield return $"{import.Namespace}.{typeName}";
         }
 
-        if (NSharpCompilerDogfoodAdapter.TrySelectDeclaredTypeNameCandidate(
-            _compilationUnit,
-            typeName,
-            out var dogfoodDeclaredNameCandidate))
+        if (ILTypeTableSelector.TrySelectDeclaredTypeNameCandidate(
+                _compilationUnit,
+                typeName,
+                out var dogfoodDeclaredNameCandidate))
         {
             if (dogfoodDeclaredNameCandidate != null)
             {
@@ -1777,7 +1777,7 @@ public partial class ILCompiler
     private static bool TryLookupUniqueDeclaredTypeBySuffix<TType>(IReadOnlyDictionary<string, TType> types, string typeName, out TType type)
         where TType : Type
     {
-        if (NSharpCompilerDogfoodAdapter.TryLookupUniqueDeclaredTypeBySuffix(types, typeName, out type, out var found))
+        if (ILTypeTableSelector.TryLookupUniqueDeclaredTypeBySuffix(types, typeName, out type, out var found))
         {
             return found;
         }
@@ -9121,7 +9121,7 @@ public partial class ILCompiler
             }
         }
 
-        return NSharpCompilerDogfoodAdapter.TryDeduplicateFirstTypeKeys(
+        return ILTypeTableSelector.TryDeduplicateFirstTypeKeys(
             expandedInterfaces,
             GetTypeKey,
             out var dogfoodInterfaces)
@@ -10091,7 +10091,7 @@ public partial class ILCompiler
 
     private IEnumerable<TypeBuilder> OrderTypeBuildersByDescendingTypeKeyDepth(IEnumerable<TypeBuilder> typeBuilders)
     {
-        return NSharpCompilerDogfoodAdapter.TryOrderTypesByDescendingKeyDotCount(
+        return ILTypeTableSelector.TryOrderTypesByDescendingKeyDotCount(
             typeBuilders,
             GetTypeKey,
             out var dogfoodOrder)
