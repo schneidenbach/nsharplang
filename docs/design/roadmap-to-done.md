@@ -243,7 +243,8 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       compaction now lives beside `Parser` in `ParserTokenCompactor`, and project source filtering now lives beside
       `ProjectConfig` in `ProjectSourceFileFilter`; formatter import ordering now lives beside `Formatter` in
       `FormatterImportOrderer`; source-file dedup and stub namespace ordering now live beside their compiler/stub
-      consumers in `SourceFileDeduplicator` and `CompilationStubNamespaceOrderer`, instead of the general compiler
+      consumers in `SourceFileDeduplicator` and `CompilationStubNamespaceOrderer`, and analyzer exhaustiveness
+      selection now lives beside `Analyzer` in `AnalyzerExhaustivenessSelector`, instead of the general compiler
       adapter. Product parser
       wrappers for function, constructor, property, body/local-function, enum, struct/class/record, union, and
       interface routes now compose typed N# cores directly where wrapper ownership is complete, and columnar

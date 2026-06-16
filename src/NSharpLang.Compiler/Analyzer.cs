@@ -15790,7 +15790,7 @@ public class Analyzer : IDisposable
                 }
             }
 
-            if (!NSharpCompilerDogfoodAdapter.TrySelectMissingUnionCasesFromFlags(
+            if (!AnalyzerExhaustivenessSelector.TrySelectMissingUnionCasesFromFlags(
                     unionCases,
                     coveredFlags,
                     partialFlags,
@@ -16159,7 +16159,7 @@ public class Analyzer : IDisposable
         }
 
         // Check if all enum members are covered
-        if (!NSharpCompilerDogfoodAdapter.TrySelectMissingEnumMembers(
+        if (!AnalyzerExhaustivenessSelector.TrySelectMissingEnumMembers(
                 enumType.Declaration.Members,
                 coveredMembers,
                 out var missingMembers))

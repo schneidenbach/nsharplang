@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Analyzer exhaustiveness selection leaves the general dogfood adapter
+
+`Analyzer` now routes enum and union missing-case selection through `AnalyzerExhaustivenessSelector`,
+which binds the N# `AnalyzerMissingMemberIndicesInto` and `AnalyzerUnionMissingCaseIndicesInto`
+kernels beside the analyzer diagnostics that consume them. The general `NSharpCompilerDogfoodAdapter`
+no longer owns the analyzer exhaustiveness delegates, missing-member/missing-case scratch storage, or
+selection entry points. This keeps the pre-emission diagnostic route product-owned by the analyzer
+while shrinking the transition adapter to the remaining IL/type-helper surfaces.
+Focused evidence: `dotnet build src/NSharpLang.Compiler/Compiler.csproj --no-restore` and
+`dotnet test tests/Tests.csproj --filter "FullyQualifiedName~AnalyzerExhaustivenessSelector_SelectsMissingEnumMembersAndUnionCases"`.
+
 ## 2026-06-16 — Source-file and stub string ordering leave the general dogfood adapter
 
 `MultiFileCompiler` and `CompilationStubEmitter` now deduplicate source-file paths through

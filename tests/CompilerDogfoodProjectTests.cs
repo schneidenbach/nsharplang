@@ -13771,7 +13771,7 @@ func main(): int {
     }
 
     [Fact]
-    public void CompilerDogfoodAdapter_SelectsMissingEnumMembers()
+    public void AnalyzerExhaustivenessSelector_SelectsMissingEnumMembersAndUnionCases()
     {
         var members = new List<EnumMember>
         {
@@ -13788,44 +13788,28 @@ func main(): int {
             "Running",
             "Succeeded"
         };
-        var adapterType = typeof(Parser).Assembly.GetType("NSharpLang.Compiler.NSharpCompilerDogfoodAdapter")
-            ?? throw new InvalidOperationException("Compiler dogfood adapter type was not emitted.");
-
-        var trySelectMissingEnumMembers = adapterType.GetMethod(
-                "TrySelectMissingEnumMembers",
-                BindingFlags.Static | BindingFlags.NonPublic)
-            ?? throw new InvalidOperationException("Dogfood adapter did not emit TrySelectMissingEnumMembers.");
-        var trySelectMissingUnionCasesFromFlags = adapterType.GetMethod(
-                "TrySelectMissingUnionCasesFromFlags",
-                BindingFlags.Static | BindingFlags.NonPublic)
-            ?? throw new InvalidOperationException("Dogfood adapter did not emit TrySelectMissingUnionCasesFromFlags.");
-
-        var missingArgs = new object?[] { members, coveredMembers, null };
-        Assert.True((bool)(trySelectMissingEnumMembers.Invoke(null, missingArgs) ?? false));
+        Assert.True(AnalyzerExhaustivenessSelector.TrySelectMissingEnumMembers(
+            members,
+            coveredMembers,
+            out var missingMembers));
         Assert.Equal(
             new[] { "Created", "Failed", "Retrying" },
-            Assert.IsType<List<string>>(missingArgs[2]));
+            missingMembers);
 
-        var allCoveredArgs = new object?[]
-        {
+        Assert.True(AnalyzerExhaustivenessSelector.TrySelectMissingEnumMembers(
             members,
             new HashSet<string>(members.Select(static member => member.Name), StringComparer.Ordinal),
-            null
-        };
-        Assert.True((bool)(trySelectMissingEnumMembers.Invoke(null, allCoveredArgs) ?? false));
-        Assert.Empty(Assert.IsType<List<string>>(allCoveredArgs[2]));
+            out var allCoveredMissingMembers));
+        Assert.Empty(allCoveredMissingMembers);
 
-        var duplicateMemberArgs = new object?[]
-        {
+        Assert.False(AnalyzerExhaustivenessSelector.TrySelectMissingEnumMembers(
             new List<EnumMember>
             {
                 new("Created", Value: null),
                 new("Created", Value: null)
             },
             new HashSet<string>(StringComparer.Ordinal),
-            null
-        };
-        Assert.False((bool)(trySelectMissingEnumMembers.Invoke(null, duplicateMemberArgs) ?? true));
+            out _));
 
         var unionCases = new List<UnionCase>
         {
@@ -13838,20 +13822,32 @@ func main(): int {
         };
         var coveredFlags = new[] { 0, 1, 0, 1, 0, 0 };
         var partialFlags = new[] { 0, 0, 1, 0, 1, 0 };
-        var missingUnionArgs = new object?[] { unionCases, coveredFlags, partialFlags, unionCases.Count, null, null, null };
-        Assert.True((bool)(trySelectMissingUnionCasesFromFlags.Invoke(null, missingUnionArgs) ?? false));
+        Assert.True(AnalyzerExhaustivenessSelector.TrySelectMissingUnionCasesFromFlags(
+            unionCases,
+            coveredFlags,
+            partialFlags,
+            unionCases.Count,
+            out var missingCases,
+            out var partialMissingCases,
+            out var neverCoveredCases));
         Assert.Equal(
             new[] { "Created", "Running", "Failed", "Retrying" },
-            Assert.IsType<List<string>>(missingUnionArgs[4]));
+            missingCases);
         Assert.Equal(
             new[] { "Running", "Failed" },
-            Assert.IsType<List<string>>(missingUnionArgs[5]));
+            partialMissingCases);
         Assert.Equal(
             new[] { "Created", "Retrying" },
-            Assert.IsType<List<string>>(missingUnionArgs[6]));
+            neverCoveredCases);
 
-        var invalidUnionArgs = new object?[] { unionCases, coveredFlags, partialFlags, unionCases.Count + 1, null, null, null };
-        Assert.False((bool)(trySelectMissingUnionCasesFromFlags.Invoke(null, invalidUnionArgs) ?? true));
+        Assert.False(AnalyzerExhaustivenessSelector.TrySelectMissingUnionCasesFromFlags(
+            unionCases,
+            coveredFlags,
+            partialFlags,
+            unionCases.Count + 1,
+            out _,
+            out _,
+            out _));
     }
 
     [Fact]
