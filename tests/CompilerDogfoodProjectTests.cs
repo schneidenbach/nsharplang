@@ -3630,6 +3630,16 @@ func outer(x: int): int {
                 tokenize,
                 parseColumnarFunctionInfo,
                 "duplicate type parameter");
+            AssertFunctionSignatureInfoDeclines(
+                "func bad(x: int, x: int): int { return x }",
+                tokenize,
+                parseSigInfo,
+                "duplicate parameter");
+            AssertColumnarFunctionInfoDeclines(
+                "func bad(x: int, x: int): int { return x }",
+                tokenize,
+                parseColumnarFunctionInfo,
+                "duplicate parameter");
 
             AssertFunctionSignatureWhereOwnerIndices(
                 "func cw2<T, U>(a: T, b: U): T where T: class, new() where U: T { }",
@@ -6389,6 +6399,9 @@ func outer(x: int): int {
 
         // DECLINE: the assigned value's type must match the parameter's type (a long into an int param).
         Assert.False(RouteColumnarProgram("func f(x: int): int {\n    x = 5L\n    return x\n}\n").Ok);
+        // Duplicate function parameters are rejected by the N# signature parser before function rows cross
+        // into emission.
+        Assert.False(RouteColumnarProgram("func f(x: int, x: int): int {\n    return x\n}\n").Ok);
     }
 
     // Array.Fill<T>(T[] array, T value, int startIndex, int count) -> void, invoked as a bare VOID STATEMENT
@@ -10698,6 +10711,8 @@ func outer(x: int): int {
         // before a local body is materialized for IL emission.
         Assert.False(RouteColumnarProgram("func f(v: int): int {\n    func id<T>(n: T): T {\n        return n\n    }\n    return id<int>(v)\n}\n").Ok);
         Assert.False(RouteColumnarProgram("func f(v: int): int {\n    func outer(n: int): int {\n        func inner(x: int): int {\n            return x + 1\n        }\n        return inner(n)\n    }\n    return outer(v)\n}\n").Ok);
+        // Duplicate local-function parameters are rejected by the same N# signature parser wrapper.
+        Assert.False(RouteColumnarProgram("func f(v: int): int {\n    func g(x: int, x: int): int {\n        return x\n    }\n    return g(v, v)\n}\n").Ok);
         // a NESTED-BLOCK local function (scoping is a later rung; the kind-41 node stays undeclared).
         Assert.False(RouteColumnarProgram("func f(c: bool, v: int): int {\n    if c {\n        func g(n: int): int {\n            return n + 1\n        }\n        return g(v)\n    }\n    return v\n}\n").Ok);
         // a local function used as a VALUE (delegate materialization at the boundary — a later rung).

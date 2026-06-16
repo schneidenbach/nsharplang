@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Function duplicate parameter decline moves into N# parser
+
+`ParseFunctionSignatureInfoCore` now rejects duplicate parameter names by comparing declaration spans
+before signature text rows are materialized. Because member functions, constructors, property accessors,
+interface methods, regular functions, and local functions all compose the same function-signature kernel,
+the duplicate-parameter decline is parser-owned across those product routes. The columnar emitter no
+longer carries the duplicate local-function parameter fallback guard; lambda literal parameter
+duplicates remain body-expression owned because lambdas do not use function signatures.
+
 ## 2026-06-16 — Struct method-field collision decline moves into N# parser
 
 `ParseColumnarStructInfoCore` now rejects method names that collide with instance or static field names

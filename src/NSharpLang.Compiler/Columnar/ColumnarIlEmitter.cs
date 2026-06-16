@@ -3778,8 +3778,7 @@ internal sealed class ColumnarIlEmitter
                     var localParamTypes = new Dictionary<string, Type>(StringComparer.Ordinal);
                     for (var lp = 0; lp < localFn.ParamNames.Length; lp++)
                     {
-                        if (!localOrdinals.TryAdd(localFn.ParamNames[lp], lp))
-                            return false;
+                        localOrdinals[localFn.ParamNames[lp]] = lp;
                         if (parentBindings.Contains(localFn.ParamNames[lp]))
                             return false; // a local-func param shadowing a parent binding — NL316.
                         localParamTypes[localFn.ParamNames[lp]] = target.ParamTypes[lp];

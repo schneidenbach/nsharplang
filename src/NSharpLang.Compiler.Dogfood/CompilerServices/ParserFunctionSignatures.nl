@@ -101,6 +101,10 @@ func ParseFunctionSignatureInfoCore(source: string, tokens: &ParserTokenTable, c
     if FunctionSignatureTypeParameterNamesDistinctCore(source, ref declaredTypeParamNames, typeParamCount) == 0 {
         return -1
     }
+    declaredParamNames := new FunctionSignatureNameSpanTable { Starts: parameters.NameStarts, Lengths: parameters.NameLengths }
+    if FunctionSignatureParameterNamesDistinctCore(source, ref declaredParamNames, paramCount) == 0 {
+        return -1
+    }
 
     functionName := FunctionSignatureSpanText(source, signatureResult.Values[3], signatureResult.Values[4])
     if functionName == "" {
@@ -269,6 +273,32 @@ func FunctionSignatureTypeParameterNamesDistinctCore(source: string, typeParams:
         j := i + 1
         while j < typeParamCount {
             if FunctionSignatureSourceSpansEqual(source, typeParams.Starts[i], typeParams.Lengths[i], typeParams.Starts[j], typeParams.Lengths[j]) {
+                return 0
+            }
+
+            j = j + 1
+        }
+
+        i = i + 1
+    }
+
+    return 1
+}
+
+func FunctionSignatureParameterNamesDistinctCore(source: string, parameters: &FunctionSignatureNameSpanTable, paramCount: int): int {
+    if paramCount < 0 {
+        return 0
+    }
+
+    i := 0
+    while i < paramCount {
+        if parameters.Starts[i] < 0 || parameters.Lengths[i] <= 0 {
+            return 0
+        }
+
+        j := i + 1
+        while j < paramCount {
+            if FunctionSignatureSourceSpansEqual(source, parameters.Starts[i], parameters.Lengths[i], parameters.Starts[j], parameters.Lengths[j]) {
                 return 0
             }
 
