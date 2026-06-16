@@ -3579,9 +3579,7 @@ internal sealed class ColumnarIlEmitter
                 fnTypeParams = new Type[gpBuilders.Length];
                 for (var g = 0; g < gpBuilders.Length; g++)
                 {
-                    // A duplicate type-parameter name is malformed — decline.
-                    if (!typeParamMap.TryAdd(fn.TypeParamNames[g], gpBuilders[g]))
-                        return false;
+                    typeParamMap[fn.TypeParamNames[g]] = gpBuilders[g];
                     fnTypeParams[g] = gpBuilders[g];
                 }
                 // Generic CONSTRAINTS (`where T: Base, new()` — D-17b): special flags map onto

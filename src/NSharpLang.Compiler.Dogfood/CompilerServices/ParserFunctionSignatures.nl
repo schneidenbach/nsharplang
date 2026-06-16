@@ -97,6 +97,10 @@ func ParseFunctionSignatureInfoCore(source: string, tokens: &ParserTokenTable, c
     if typeParamCount > outputs.TypeParamTexts.Length || typeParamCount > outputs.TypeParamSpecials.Length || typeParamCount > outputs.TypeParamConstraintCounts.Length {
         return -1
     }
+    declaredTypeParamNames := new FunctionSignatureNameSpanTable { Starts: typeParams.Starts, Lengths: typeParams.Lengths }
+    if FunctionSignatureTypeParameterNamesDistinctCore(source, ref declaredTypeParamNames, typeParamCount) == 0 {
+        return -1
+    }
 
     functionName := FunctionSignatureSpanText(source, signatureResult.Values[3], signatureResult.Values[4])
     if functionName == "" {
@@ -163,9 +167,8 @@ func ParseFunctionSignatureInfoCore(source: string, tokens: &ParserTokenTable, c
             return -1
         }
 
-        typeParamNames := new FunctionSignatureNameSpanTable { Starts: typeParams.Starts, Lengths: typeParams.Lengths }
         whereNames := new FunctionSignatureNameSpanTable { Starts: whereItems.NameStarts, Lengths: whereItems.NameLengths }
-        ownerIndexCount := FunctionSignatureWhereOwnerIndicesCore(source, ref typeParamNames, typeParamCount, ref whereNames, whereItemCount, ref ownerIndices)
+        ownerIndexCount := FunctionSignatureWhereOwnerIndicesCore(source, ref declaredTypeParamNames, typeParamCount, ref whereNames, whereItemCount, ref ownerIndices)
         if ownerIndexCount != whereItemCount {
             return -1
         }
@@ -250,6 +253,32 @@ func FunctionSignatureTypeParameterIndexOfCore(source: string, typeParams: &Func
     }
 
     return -1
+}
+
+func FunctionSignatureTypeParameterNamesDistinctCore(source: string, typeParams: &FunctionSignatureNameSpanTable, typeParamCount: int): int {
+    if typeParamCount < 0 {
+        return 0
+    }
+
+    i := 0
+    while i < typeParamCount {
+        if typeParams.Starts[i] < 0 || typeParams.Lengths[i] <= 0 {
+            return 0
+        }
+
+        j := i + 1
+        while j < typeParamCount {
+            if FunctionSignatureSourceSpansEqual(source, typeParams.Starts[i], typeParams.Lengths[i], typeParams.Starts[j], typeParams.Lengths[j]) {
+                return 0
+            }
+
+            j = j + 1
+        }
+
+        i = i + 1
+    }
+
+    return 1
 }
 
 func FunctionSignatureSpanText(source: string, start: int, length: int): string {

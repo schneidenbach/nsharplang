@@ -3328,6 +3328,16 @@ func outer(x: int): int {
                 tokenize,
                 parseColumnarFunctionInfo,
                 "unknown constraint owner");
+            AssertFunctionSignatureInfoDeclines(
+                "func bad<T, T>(x: T): T { return x }",
+                tokenize,
+                parseSigInfo,
+                "duplicate type parameter");
+            AssertColumnarFunctionInfoDeclines(
+                "func bad<T, T>(x: T): T { return x }",
+                tokenize,
+                parseColumnarFunctionInfo,
+                "duplicate type parameter");
 
             AssertFunctionSignatureWhereOwnerIndices(
                 "func cw2<T, U>(a: T, b: U): T where T: class, new() where U: T { }",
@@ -9894,7 +9904,7 @@ func outer(x: int): int {
         Assert.True(RouteColumnarProgram("class Animal {\n    n: int\n}\n\nfunc F<T>(x: T): int where T: Animal {\n    return 1\n}\n\nfunc f(): int {\n    return 2\n}\n").Ok);
         // an INLINE constraint in the type-parameter list.
         Assert.False(RouteColumnarProgram("class Animal {\n    n: int\n}\n\nfunc F<T: Animal>(x: T): int {\n    return 1\n}\n\nfunc f(): int {\n    return 2\n}\n").Ok);
-        // DUPLICATE type-parameter names.
+        // DUPLICATE type-parameter names: the N# signature-info parser rejects these before emission.
         Assert.False(RouteColumnarProgram("func F<T, T>(a: T, b: T): int {\n    return 1\n}\n\nfunc f(): int {\n    return 2\n}\n").Ok);
         // an UNINFERRABLE type parameter (no argument mentions T).
         Assert.False(RouteColumnarProgram("func F<T>(x: int): int {\n    return x\n}\n\nfunc f(): int {\n    return F(5)\n}\n").Ok);

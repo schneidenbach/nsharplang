@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Function duplicate type-parameter decline moves into N# parser
+
+`ParseFunctionSignatureInfoCore` now rejects duplicate generic type-parameter names by comparing the
+declared name spans before materializing function signature rows. Product regular-function routing now
+fails `func F<T, T>(...)` before CLR generic method setup, and the redundant top-level function
+emitter guard was removed.
+
 ## 2026-06-16 — Local-function context decline moves into N# parser
 
 `ParserColumnarFunctions.nl` now exposes `ParseColumnarProductFunctionInfoInto`, the adapter-bound
