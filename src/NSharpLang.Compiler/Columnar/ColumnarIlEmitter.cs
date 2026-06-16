@@ -3199,7 +3199,8 @@ internal sealed class ColumnarIlEmitter
         // method, so they emit via the same structMethodJobs path in PASS 2. The property is registered for
         // `receiver.Name` read (case 8 -> callvirt get_Name) + `receiver.Name = v` write (case 23 -> callvirt
         // set_Name). Declines: a value-type property (deferred), a property name colliding with a field/method/another
-        // property, or a synthesized get_Name/set_Name colliding with a user method of that name.
+        // property, or a synthesized get_Name/set_Name colliding with a user method of that name. Same-declaration
+        // property source-name collisions with fields/methods/properties are rejected by the N# struct parser.
         for (var s = 0; s < structs.Count; s++)
         {
             if (structs[s].Properties.Count == 0)
@@ -3207,8 +3208,6 @@ internal sealed class ColumnarIlEmitter
             var def = structRegistry[structs[s].Name];
             foreach (var prop in structs[s].Properties)
             {
-                if (def.Fields.ContainsKey(prop.Name) || def.StaticFields.ContainsKey(prop.Name) || def.Methods.ContainsKey(prop.Name) || def.StaticMethods.ContainsKey(prop.Name) || def.Properties.ContainsKey(prop.Name) || def.StaticProperties.ContainsKey(prop.Name))
-                    return false; // a property colliding with a field/method/another property is a duplicate member.
                 // A synthesized accessor name ("get_Name"/"set_Name") must not collide with a user method of the same
                 // name (the N# pipeline accepts them as distinct symbols, but two CLR methods of identical signature
                 // would throw at CreateType) — decline so columnar never emits the duplicate.

@@ -467,6 +467,31 @@ class DuplicateMethod {
                 expectColumnarDecline: true);
             AssertStructDeclarationInfo(
                 """
+class DuplicateProperty {
+    Value: int
+    Value: int {
+        get {
+            return 1
+        }
+    }
+}
+""",
+                (int)TokenType.Class,
+                "DuplicateProperty",
+                Array.Empty<string>(),
+                Array.Empty<string>(),
+                new[] { "Value" },
+                new[] { "int" },
+                new[] { 0 },
+                new string?[] { null },
+                tokenizeWithIndentation,
+                parseStructDeclaration,
+                parseStructDeclarationInfo,
+                parseColumnarStructInfo,
+                "duplicate class property source name",
+                expectColumnarDecline: true);
+            AssertStructDeclarationInfo(
+                """
 record Duplicate<T, T> {
     Value: int
 }
@@ -10063,9 +10088,10 @@ func outer(x: int): int {
         Assert.False(RouteColumnarProgram("class C {\n    static Seven: int => 7\n}\n\nfunc f(): int {\n    return C.Seven\n}\n").Ok);
         // a static property on a VALUE STRUCT (value-type properties are deferred wholesale).
         Assert.False(RouteColumnarProgram("struct S {\n    v: int\n    static Five: int {\n        get {\n            return 5\n        }\n    }\n}\n\nfunc f(): int {\n    return S.Five\n}\n").Ok);
-        // NL306: a static property colliding with a static field, and with a static method.
+        // Source-name collisions with fields, methods, or another property are rejected by the N# struct parser.
         Assert.False(RouteColumnarProgram("class C {\n    static V: int\n    static V: int {\n        get {\n            return 1\n        }\n    }\n}\n\nfunc f(): int {\n    return C.V\n}\n").Ok);
         Assert.False(RouteColumnarProgram("class C {\n    static func V(): int {\n        return 1\n    }\n    static V: int {\n        get {\n            return 2\n        }\n    }\n}\n\nfunc f(): int {\n    return C.V\n}\n").Ok);
+        Assert.False(RouteColumnarProgram("class C {\n    static V: int {\n        get {\n            return 1\n        }\n    }\n    static V: int {\n        get {\n            return 2\n        }\n    }\n}\n\nfunc f(): int {\n    return C.V\n}\n").Ok);
         // a derived STATIC PROPERTY shadowing an inherited one (no static-member data hiding is modelled).
         Assert.False(RouteColumnarProgram("class Base {\n    static X: int {\n        get {\n            return 1\n        }\n    }\n}\n\nclass D: Base {\n    static X: int {\n        get {\n            return 2\n        }\n    }\n}\n\nfunc f(): int {\n    return D.X\n}\n").Ok);
         // a class inheriting from a RECORD (the oracle emits records SEALED — the assembly would not even load;

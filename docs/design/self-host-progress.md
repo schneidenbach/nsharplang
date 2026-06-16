@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Struct property source-name collisions move into N# parser
+
+`ParseColumnarStructInfoCore` now rejects class/record/struct property names that collide with fields,
+methods, or another property in the same declaration before property rows cross the transition boundary.
+The columnar emitter no longer carries the same-type property source-name guard; generated accessor
+collisions (`get_`/`set_` methods), inherited-member shadowing, type resolution, and accessor lowering
+remain emission-owned semantic checks.
+
 ## 2026-06-16 — Struct instance-method duplicate declines move into N# parser
 
 `ParseColumnarStructInfoCore` now rejects duplicate instance method names and static/instance method

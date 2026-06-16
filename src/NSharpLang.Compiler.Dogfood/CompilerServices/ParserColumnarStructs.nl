@@ -75,6 +75,9 @@ func ParseColumnarStructInfoCore(source: string, tokens: &ColumnarStructTokenTab
     if ColumnarStructMethodNameModesSupported(source, ref tokens, ref outputs, methodCount) == 0 {
         return -1
     }
+    if ColumnarStructPropertyMemberNamesDistinct(source, ref tokens, ref scratch, ref outputs, fieldCount, methodCount, propCount) == 0 {
+        return -1
+    }
 
     if isReference == 0 {
         instanceFieldCount := 0
@@ -416,6 +419,73 @@ func ColumnarStructMethodNameModesSupported(source: string, tokens: &ColumnarStr
                 if outputs.MethodStaticFlags[i] == 0 || outputs.MethodStaticFlags[j] == 0 {
                     return 0
                 }
+            }
+
+            j = j + 1
+        }
+
+        i = i + 1
+    }
+
+    return 1
+}
+
+func ColumnarStructPropertyMemberNamesDistinct(source: string, tokens: &ColumnarStructTokenTable, scratch: &ColumnarStructScratchTable, outputs: &ColumnarStructOutputTable, fieldCount: int, methodCount: int, propCount: int): int {
+    if propCount < 0 {
+        return 0
+    }
+
+    i := 0
+    while i < propCount {
+        if outputs.PropStaticFlags[i] != 0 && outputs.PropStaticFlags[i] != 1 {
+            return 0
+        }
+
+        propNameIndex := outputs.PropIndices[i]
+        if propNameIndex < 0 || propNameIndex >= tokens.Count || tokens.Kinds[propNameIndex] != 0 {
+            return 0
+        }
+
+        f := 0
+        while f < fieldCount {
+            if scratch.FieldNameStarts[f] < 0 || scratch.FieldNameLengths[f] <= 0 {
+                return 0
+            }
+
+            if ParserDeclarationSourceSpansEqual(source, tokens.Starts[propNameIndex], tokens.ValueLengths[propNameIndex], scratch.FieldNameStarts[f], scratch.FieldNameLengths[f]) {
+                return 0
+            }
+
+            f = f + 1
+        }
+
+        m := 0
+        while m < methodCount {
+            methodNameIndex := outputs.MethodFuncIndices[m] + 1
+            if methodNameIndex < 0 || methodNameIndex >= tokens.Count || tokens.Kinds[methodNameIndex] != 0 {
+                return 0
+            }
+
+            if ParserDeclarationSourceSpansEqual(source, tokens.Starts[propNameIndex], tokens.ValueLengths[propNameIndex], tokens.Starts[methodNameIndex], tokens.ValueLengths[methodNameIndex]) {
+                return 0
+            }
+
+            m = m + 1
+        }
+
+        j := i + 1
+        while j < propCount {
+            if outputs.PropStaticFlags[j] != 0 && outputs.PropStaticFlags[j] != 1 {
+                return 0
+            }
+
+            otherPropNameIndex := outputs.PropIndices[j]
+            if otherPropNameIndex < 0 || otherPropNameIndex >= tokens.Count || tokens.Kinds[otherPropNameIndex] != 0 {
+                return 0
+            }
+
+            if ParserDeclarationSourceSpansEqual(source, tokens.Starts[propNameIndex], tokens.ValueLengths[propNameIndex], tokens.Starts[otherPropNameIndex], tokens.ValueLengths[otherPropNameIndex]) {
+                return 0
             }
 
             j = j + 1
