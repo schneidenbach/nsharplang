@@ -13266,28 +13266,20 @@ func documented(): int {
         Assert.True((bool)(tryExtractCompletionPrefix.Invoke(null, pastEndPrefixArgs) ?? false));
         Assert.Equal("    value := input.Count", pastEndPrefixArgs[5]);
 
-        var tryClassifyCompletionReceiver = adapterType.GetMethod(
-                "TryClassifyCompletionReceiver",
-                BindingFlags.Static | BindingFlags.NonPublic,
-                binder: null,
-                types: new[] { typeof(string), typeof(bool).MakeByRefType(), typeof(string).MakeByRefType() },
-                modifiers: null)
-            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryClassifyCompletionReceiver.");
+        Assert.True(CompletionEngineKernels.TryClassifyCompletionReceiver(
+            "    factory.Create(name).",
+            out var isCompletionReceiverMemberAccess,
+            out var completionReceiver));
+        Assert.True(isCompletionReceiverMemberAccess);
+        Assert.Equal("factory.Create()", completionReceiver);
 
-        var completionReceiverArgs = new object?[] { "    factory.Create(name).", null, null };
-        Assert.True((bool)(tryClassifyCompletionReceiver.Invoke(null, completionReceiverArgs) ?? false));
-        Assert.Equal(true, completionReceiverArgs[1]);
-        Assert.Equal("factory.Create()", completionReceiverArgs[2]);
+        Assert.True(CompletionEngineKernels.TryClassifyCompletionReceiver(
+            "    return value",
+            out var isIdentifierCompletionMemberAccess,
+            out var identifierCompletionReceiver));
+        Assert.False(isIdentifierCompletionMemberAccess);
+        Assert.Null(identifierCompletionReceiver);
 
-        var identifierCompletionArgs = new object?[] { "    return value", null, null };
-        Assert.True((bool)(tryClassifyCompletionReceiver.Invoke(null, identifierCompletionArgs) ?? false));
-        Assert.Equal(false, identifierCompletionArgs[1]);
-        Assert.Null(identifierCompletionArgs[2]);
-
-        var tryAddGroupedCompletionItemsByKind = adapterType.GetMethod(
-                "TryAddGroupedCompletionItemsByKind",
-                BindingFlags.Static | BindingFlags.NonPublic)
-            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryAddGroupedCompletionItemsByKind.");
         var completionItems = new List<CompletionItem>
         {
             new("WriteLine", "method", "void", "()", null, true),
@@ -13297,40 +13289,28 @@ func documented(): int {
             new("Count", "property", "int", null, null, false)
         };
         var groupedCompletions = new Dictionary<string, List<CompletionItem>>();
-        var groupingAdapterArgs = new object?[] { completionItems, groupedCompletions };
-        Assert.True((bool)(tryAddGroupedCompletionItemsByKind.Invoke(null, groupingAdapterArgs) ?? false));
+        Assert.True(CompletionEngineKernels.TryAddGroupedCompletionItemsByKind(completionItems, groupedCompletions));
         Assert.Equal(new[] { "methods", "properties", "fields" }, groupedCompletions.Keys.ToArray());
         Assert.Equal(new[] { "WriteLine", "ToString" }, groupedCompletions["methods"].Select(static item => item.Name));
         Assert.Equal(new[] { "Length", "Count" }, groupedCompletions["properties"].Select(static item => item.Name));
         Assert.Equal("MaxValue", Assert.Single(groupedCompletions["fields"]).Name);
 
-        var tryGroupReflectionMethodsByName = adapterType.GetMethod(
-                "TryGroupReflectionMethodsByName",
-                BindingFlags.Static | BindingFlags.NonPublic)
-            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryGroupReflectionMethodsByName.");
         var completionMethods = typeof(CompletionMethodGroupingFixture).GetMethods(
             BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static);
-        var methodGroupingArgs = new object?[] { completionMethods, null };
-        Assert.True((bool)(tryGroupReflectionMethodsByName.Invoke(null, methodGroupingArgs) ?? false));
-        var methodGrouping = methodGroupingArgs[1]
-            ?? throw new InvalidOperationException("Dogfood adapter did not return method grouping.");
-        var methodGroupingType = methodGrouping.GetType();
+        Assert.True(CompletionEngineKernels.TryGroupReflectionMethodsByName(completionMethods, out var methodGrouping));
+        Assert.NotNull(methodGrouping);
         var expectedMethodGroups = completionMethods
             .Where(static method => !method.IsSpecialName && method.DeclaringType?.FullName != "System.Object")
             .GroupBy(static method => method.Name)
             .ToList();
-        var methodGroupCount = (int)(methodGroupingType.GetProperty("GroupCount")?.GetValue(methodGrouping) ?? -1);
-        var methodNameIds = Assert.IsType<int[]>(methodGroupingType.GetProperty("NameIds")?.GetValue(methodGrouping));
-        var methodFirstIndices = Assert.IsType<int[]>(methodGroupingType.GetProperty("FirstIndices")?.GetValue(methodGrouping));
-        var methodCounts = Assert.IsType<int[]>(methodGroupingType.GetProperty("Counts")?.GetValue(methodGrouping));
-        Assert.Equal(expectedMethodGroups.Count, methodGroupCount);
+        Assert.Equal(expectedMethodGroups.Count, methodGrouping.GroupCount);
         for (var groupIndex = 0; groupIndex < expectedMethodGroups.Count; groupIndex++)
         {
             var expectedGroup = expectedMethodGroups[groupIndex];
-            Assert.True(methodNameIds[groupIndex] > 0);
-            Assert.Equal(expectedGroup.Key, completionMethods[methodFirstIndices[groupIndex]].Name);
-            Assert.Equal(Array.IndexOf(completionMethods, expectedGroup.First()), methodFirstIndices[groupIndex]);
-            Assert.Equal(expectedGroup.Count(), methodCounts[groupIndex]);
+            Assert.True(methodGrouping.NameIds[groupIndex] > 0);
+            Assert.Equal(expectedGroup.Key, completionMethods[methodGrouping.FirstIndices[groupIndex]].Name);
+            Assert.Equal(Array.IndexOf(completionMethods, expectedGroup.First()), methodGrouping.FirstIndices[groupIndex]);
+            Assert.Equal(expectedGroup.Count(), methodGrouping.Counts[groupIndex]);
         }
 
         var tryExtractVariableDeclarationName = adapterType.GetMethod(

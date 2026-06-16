@@ -104,7 +104,7 @@ public class CompletionEngine
             return EmptyResult(CompletionContext.Unknown);
         }
 
-        if (NSharpCodeIntelligenceDogfoodAdapter.TryClassifyCompletionReceiver(
+        if (CompletionEngineKernels.TryClassifyCompletionReceiver(
                 beforeCursor,
                 out var dogfoodMemberAccess,
                 out var dogfoodReceiver))
@@ -627,7 +627,7 @@ public class CompletionEngine
 
     private static void AddMethodCompletionItems(MethodInfo[] methods, List<CompletionItem> items)
     {
-        if (NSharpCodeIntelligenceDogfoodAdapter.TryGroupReflectionMethodsByName(methods, out var grouping)
+        if (CompletionEngineKernels.TryGroupReflectionMethodsByName(methods, out var grouping)
             && grouping != null)
         {
             for (var groupIndex = 0; groupIndex < grouping.GroupCount; groupIndex++)
@@ -1447,7 +1447,7 @@ public class CompletionEngine
         List<CompletionItem> items,
         Dictionary<string, List<CompletionItem>> completions)
     {
-        if (NSharpCodeIntelligenceDogfoodAdapter.TryAddGroupedCompletionItemsByKind(items, completions))
+        if (CompletionEngineKernels.TryAddGroupedCompletionItemsByKind(items, completions))
             return;
 
         foreach (var group in items.GroupBy(m => m.Kind))

@@ -828,7 +828,9 @@ tier for the completion member-access context/receiver classifier. It ran about 
 representative corpus (47.516 us vs 248.648 us, 107.7 KB vs 1,262.11 KB) and about 5.28x faster on
 the large generated corpus (5.663 us vs 29.890 us, 13.5 KB vs 156.45 KB). This is
 acceptance-grade benchmark evidence for the post-prefix completion receiver-context hot path; the
-remaining allocations are the receiver strings required by the current completion API boundary.
+remaining allocations are the receiver strings required by the current completion API boundary. The
+production completion route now binds this kernel through `CompletionEngineKernels` instead of the
+broad code-intelligence dogfood adapter.
 
 `CompletionItemKindGroupsInto` passed parity and reported zero managed allocation in the normal
 BenchmarkDotNet evidence tier for member-completion item grouping before public CLI/daemon
@@ -836,6 +838,8 @@ completion output. It ran about 5.26x faster on the representative completion-it
 (2.827 us vs 14.865 us, 0 B vs 30,288 B) and about 5.49x faster on the large generated
 completion-item corpus (22.531 us vs 123.802 us, 0 B vs 231,208 B). This is acceptance-grade
 benchmark evidence for stable first-seen kind grouping after the host has assigned compact kind ids.
+The production completion route now binds this kernel through `CompletionEngineKernels` instead of
+the broad code-intelligence dogfood adapter.
 
 `CompletionMethodOverloadGroupsInto` passed parity and reported zero managed allocation in the
 normal BenchmarkDotNet evidence tier for reflected CLR method overload grouping before
@@ -843,7 +847,8 @@ member-completion item construction. It ran about 14.9x faster on the representa
 method corpus (1.579 us vs 23.447 us, 0 B vs 47,569 B) and about 15.9x faster on the large
 generated reflected method corpus (9.364 us vs 148.468 us, 0 B vs 215,382 B). This is
 acceptance-grade benchmark evidence for stable first-seen method-name grouping after the host has
-assigned compact method-name ids.
+assigned compact method-name ids. The production completion route now binds this kernel through
+`CompletionEngineKernels` instead of the broad code-intelligence dogfood adapter.
 
 `CodeIntelligenceDocCommentLinesFromLinesInto` passed parity and reported zero managed allocation in
 the same normal BenchmarkDotNet evidence tier. It ran about 62x faster on the representative corpus

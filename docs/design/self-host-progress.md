@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Completion grouping kernels leave the code-intelligence adapter
+
+Completion receiver classification, completion item kind grouping, and reflected method overload
+grouping now route through `CompletionEngineKernels`, beside the completion engine paths that
+consume those results. The broad `NSharpCodeIntelligenceDogfoodAdapter` no longer owns the
+completion receiver/grouping delegates, grouping DTO, or scratch arrays; existing C# fallback
+classification and LINQ grouping remain in `CompletionEngine`.
+Focused evidence: `dotnet build src/NSharpLang.Compiler/Compiler.csproj --no-restore`; `dotnet
+test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.CodeIntelligenceDogfoodAdapter_LoadsPackagedNSharpAssembly"`;
+`./scripts/dev.sh --since`.
+
 ## 2026-06-16 — Symbol-kind filtering leaves the code-intelligence adapter
 
 `nlc query symbols --kind`, batch symbol queries, and daemon symbol queries now route accepted
@@ -10800,7 +10811,8 @@ or stand up the N#-native pooled `Token`/`TokenStream` so the parser can consume
   moved to `OutputFormatterDiagnosticClusterKernels`, output-format reference-file summaries moved
   to `OutputFormatterReferenceFileKernels`, diagnostic/reference result de-duplication and lint-shadow
   suppression moved to `CodeIntelligenceResultKernels`, symbol-kind filtering moved to
-  `CodeIntelligenceSymbolKernels`, and DocQuery type/reference-pack
+  `CodeIntelligenceSymbolKernels`, completion receiver/grouping kernels moved to
+  `CompletionEngineKernels`, and DocQuery type/reference-pack
   de-duplication, best-type selection, and member ordering moved to `DocQueryKernels`; remaining
   routed kernels still cross the ~1.2 ns delegate-dispatch + bounds-check floor documented in the
   boundary profiling doc.
