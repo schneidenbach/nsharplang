@@ -2,6 +2,74 @@
 // composes the typed declaration cores directly through ParserColumnarStructs.nl and
 // ParserColumnarUnions.nl, ParserColumnarEnums.nl, and ParserInterfaceSignatures.nl.
 
+func PackageNameSpanInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, outResult: int[]): int {
+    tokens := new ParserDeclarationTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
+    result := new ParserDeclarationResultTable { Values: outResult }
+    return PackageNameSpanCore(ref tokens, count, ref result)
+}
+
+func NamespaceImportSpansInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, outNsStarts: int[], outNsLengths: int[], outAliasStarts: int[], outAliasLengths: int[]): int {
+    tokens := new ParserDeclarationTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
+    imports := new NamespaceImportTable { NsStarts: outNsStarts, NsLengths: outNsLengths, AliasStarts: outAliasStarts, AliasLengths: outAliasLengths }
+    return NamespaceImportSpansCore(ref tokens, count, ref imports)
+}
+
+func TopLevelDeclarationKindsInto(tokenKinds: int[], count: int, outKinds: int[]): int {
+    tokens := new ParserDeclarationKindStream { Kinds: tokenKinds }
+    decls := new TopLevelDeclarationKindTable { Kinds: outKinds }
+    return TopLevelDeclarationKindsCore(ref tokens, count, ref decls)
+}
+
+func TopLevelDeclarationModifiersInto(tokenKinds: int[], count: int, outKinds: int[], outModifiers: int[]): int {
+    tokens := new ParserDeclarationKindStream { Kinds: tokenKinds }
+    decls := new TopLevelDeclarationModifierTable { Kinds: outKinds, Modifiers: outModifiers }
+    return TopLevelDeclarationModifiersCore(ref tokens, count, ref decls)
+}
+
+func TopLevelDeclarationNameSpansInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, outKinds: int[], outNameStarts: int[], outNameLengths: int[]): int {
+    tokens := new ParserDeclarationTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
+    decls := new TopLevelDeclarationNameTable { Kinds: outKinds, NameStarts: outNameStarts, NameLengths: outNameLengths }
+    return TopLevelDeclarationNameSpansCore(ref tokens, count, ref decls)
+}
+
+func TopLevelDeclarationIndicesInto(tokenKinds: int[], count: int, targetKind: int, suppressWhereClause: int, outIndices: int[]): int {
+    tokens := new ParserDeclarationKindStream { Kinds: tokenKinds }
+    indices := new TopLevelDeclarationIndexTable { Indices: outIndices }
+    return TopLevelDeclarationIndicesCore(ref tokens, count, targetKind, suppressWhereClause, ref indices)
+}
+
+func TopLevelStructLikeDeclarationIndicesInto(tokenKinds: int[], count: int, outIndices: int[], outReferenceFlags: int[], outRecordFlags: int[]): int {
+    tokens := new ParserDeclarationKindStream { Kinds: tokenKinds }
+    output := new TopLevelStructLikeDeclarationTable { Indices: outIndices, ReferenceFlags: outReferenceFlags, RecordFlags: outRecordFlags }
+    return TopLevelStructLikeDeclarationIndicesCore(ref tokens, count, ref output)
+}
+
+func TopLevelColumnarNominalDeclarationIndicesInto(tokenKinds: int[], count: int, outEnumIndices: int[], outUnionIndices: int[], outInterfaceIndices: int[], outResult: int[]): int {
+    tokens := new ParserDeclarationKindStream { Kinds: tokenKinds }
+    outputs := new TopLevelColumnarNominalDeclarationTable { EnumIndices: outEnumIndices, UnionIndices: outUnionIndices, InterfaceIndices: outInterfaceIndices }
+    result := new ParserDeclarationResultTable { Values: outResult }
+    return TopLevelColumnarNominalDeclarationIndicesCore(ref tokens, count, ref outputs, ref result)
+}
+
+func TopLevelColumnarFunctionDeclarationIndicesInto(source: string, rawTokenKinds: int[], rawTokenStarts: int[], rawTokenValueLengths: int[], rawCount: int, compactTokenKinds: int[], compactCount: int, outFuncIndices: int[], outAsyncFlags: int[], outResult: int[]): int {
+    rawTokens := new ParserDeclarationTokenTable { Kinds: rawTokenKinds, Starts: rawTokenStarts, ValueLengths: rawTokenValueLengths }
+    compactTokens := new ParserDeclarationKindStream { Kinds: compactTokenKinds }
+    outputs := new TopLevelColumnarFunctionDeclarationTable { Indices: outFuncIndices, AsyncFlags: outAsyncFlags }
+    result := new ParserDeclarationResultTable { Values: outResult }
+    return TopLevelColumnarFunctionDeclarationIndicesCore(source, ref rawTokens, rawCount, ref compactTokens, compactCount, ref outputs, ref result)
+}
+
+func TopLevelFunctionPreamblesAreValidInto(tokenKinds: int[], count: int, funcIndices: int[], funcCount: int): int {
+    tokens := new ParserDeclarationKindStream { Kinds: tokenKinds }
+    indices := new TopLevelDeclarationIndexTable { Indices: funcIndices }
+    return TopLevelFunctionPreamblesAreValidCore(ref tokens, count, ref indices, funcCount)
+}
+
+func TopLevelContextualTestDeclarationExistsInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int): int {
+    tokens := new ParserDeclarationTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
+    return TopLevelContextualTestDeclarationExistsCore(source, ref tokens, count)
+}
+
 func ParseInterfaceDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, interfaceIndex: int, outMethodFuncIndices: int[], outBaseNameStarts: int[], outBaseNameLengths: int[], outResult: int[]): int {
     tokens := new ParserDeclarationTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
     decl := new InterfaceDeclarationTable { MethodFuncIndices: outMethodFuncIndices, BaseNameStarts: outBaseNameStarts, BaseNameLengths: outBaseNameLengths }

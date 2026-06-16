@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Top-level declaration probe ABIs leave product dogfood
+
+The flattened top-level declaration scan probes (`PackageNameSpanInto`, import spans, declaration
+kind/name/modifier scans, lower function/nominal/struct index scans, function preamble validation,
+and contextual test detection) now live in the parity corpus. The shipped declaration file keeps
+`TopLevelColumnarProgramDeclarationIndicesInto` as the product adapter entry and composes the
+table-shaped cores directly under that route.
+
 ## 2026-06-16 — Statement parser parity ABI leaves product dogfood
 
 The flattened `ParseStatementNodesInto` export now lives in the parity corpus instead of

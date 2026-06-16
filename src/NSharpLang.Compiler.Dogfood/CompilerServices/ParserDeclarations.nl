@@ -146,12 +146,6 @@ struct ParserDeclarationResultTable {
     Values: int[]
 }
 
-func PackageNameSpanInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, outResult: int[]): int {
-    tokens := new ParserDeclarationTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
-    result := new ParserDeclarationResultTable { Values: outResult }
-    return PackageNameSpanCore(ref tokens, count, ref result)
-}
-
 func PackageNameSpanCore(tokens: &ParserDeclarationTokenTable, count: int, result: &ParserDeclarationResultTable): int {
     braceDepth := 0
     i := 0
@@ -202,12 +196,6 @@ func PackageNameSpanCore(tokens: &ParserDeclarationTokenTable, count: int, resul
 // string is a FileImport routed elsewhere and skipped here. This walks that header prefix linearly
 // (imports/package are at depth 0, before any brace) and records each namespace import's dotted-name
 // span and optional alias span (alias start = -1 when none). The host materializes the strings.
-func NamespaceImportSpansInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, outNsStarts: int[], outNsLengths: int[], outAliasStarts: int[], outAliasLengths: int[]): int {
-    tokens := new ParserDeclarationTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
-    imports := new NamespaceImportTable { NsStarts: outNsStarts, NsLengths: outNsLengths, AliasStarts: outAliasStarts, AliasLengths: outAliasLengths }
-    return NamespaceImportSpansCore(ref tokens, count, ref imports)
-}
-
 func NamespaceImportSpansCore(tokens: &ParserDeclarationTokenTable, count: int, imports: &NamespaceImportTable): int {
     outCount := 0
     i := 0
@@ -323,12 +311,6 @@ func ModifierFlag(kind: int): int {
 // `struct` (9) KEYWORDS — those are constraints, not declarations, so keyword recognition is suppressed
 // from `where` until the body `{` (which also ends the signature). All three top-level scanners share
 // this rule.
-func TopLevelDeclarationModifiersInto(tokenKinds: int[], count: int, outKinds: int[], outModifiers: int[]): int {
-    tokens := new ParserDeclarationKindStream { Kinds: tokenKinds }
-    decls := new TopLevelDeclarationModifierTable { Kinds: outKinds, Modifiers: outModifiers }
-    return TopLevelDeclarationModifiersCore(ref tokens, count, ref decls)
-}
-
 func TopLevelDeclarationModifiersCore(tokens: &ParserDeclarationKindStream, count: int, decls: &TopLevelDeclarationModifierTable): int {
     braceDepth := 0
     bracketDepth := 0
@@ -389,18 +371,12 @@ func IsTopLevelDeclarationKeyword(kind: int): bool {
     return kind == 7 || kind == 8 || kind == 9 || kind == 10 || kind == 12 || kind == 13 || kind == 14 || kind == 72 || kind == 73
 }
 
-// Parser slice 2: like TopLevelDeclarationKindsInto, but also records each declaration's NAME span.
+// Parser slice 2: like TopLevelDeclarationKindsCore, but also records each declaration's NAME span.
 // A declaration's name is the token immediately after its keyword (modifiers precede the keyword, so
 // nothing sits between keyword and name) when that token is an Identifier (kind 0). For `test "..."`
 // the token after the keyword is a string literal, so no name is recorded (outNameStart = -1) -- the
 // C# TestDeclaration's string name is out of scope for this slice. The host materializes the name from
 // source via outNameStarts/outNameLengths.
-func TopLevelDeclarationNameSpansInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, outKinds: int[], outNameStarts: int[], outNameLengths: int[]): int {
-    tokens := new ParserDeclarationTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
-    decls := new TopLevelDeclarationNameTable { Kinds: outKinds, NameStarts: outNameStarts, NameLengths: outNameLengths }
-    return TopLevelDeclarationNameSpansCore(ref tokens, count, ref decls)
-}
-
 func TopLevelDeclarationNameSpansCore(tokens: &ParserDeclarationTokenTable, count: int, decls: &TopLevelDeclarationNameTable): int {
     braceDepth := 0
     bracketDepth := 0
@@ -457,12 +433,6 @@ func TopLevelDeclarationNameSpansCore(tokens: &ParserDeclarationTokenTable, coun
     return outCount
 }
 
-func TopLevelDeclarationKindsInto(tokenKinds: int[], count: int, outKinds: int[]): int {
-    tokens := new ParserDeclarationKindStream { Kinds: tokenKinds }
-    decls := new TopLevelDeclarationKindTable { Kinds: outKinds }
-    return TopLevelDeclarationKindsCore(ref tokens, count, ref decls)
-}
-
 func TopLevelDeclarationKindsCore(tokens: &ParserDeclarationKindStream, count: int, decls: &TopLevelDeclarationKindTable): int {
     braceDepth := 0
     bracketDepth := 0
@@ -511,18 +481,6 @@ func TopLevelDeclarationKindsCore(tokens: &ParserDeclarationKindStream, count: i
     return outCount
 }
 
-func TopLevelDeclarationIndicesInto(tokenKinds: int[], count: int, targetKind: int, suppressWhereClause: int, outIndices: int[]): int {
-    tokens := new ParserDeclarationKindStream { Kinds: tokenKinds }
-    indices := new TopLevelDeclarationIndexTable { Indices: outIndices }
-    return TopLevelDeclarationIndicesCore(ref tokens, count, targetKind, suppressWhereClause, ref indices)
-}
-
-func TopLevelStructLikeDeclarationIndicesInto(tokenKinds: int[], count: int, outIndices: int[], outReferenceFlags: int[], outRecordFlags: int[]): int {
-    tokens := new ParserDeclarationKindStream { Kinds: tokenKinds }
-    output := new TopLevelStructLikeDeclarationTable { Indices: outIndices, ReferenceFlags: outReferenceFlags, RecordFlags: outRecordFlags }
-    return TopLevelStructLikeDeclarationIndicesCore(ref tokens, count, ref output)
-}
-
 func TopLevelStructLikeDeclarationIndicesCore(tokens: &ParserDeclarationKindStream, count: int, output: &TopLevelStructLikeDeclarationTable): int {
     outCount := TopLevelStructLikeDeclarationIndicesAppend(ref tokens, count, 9, 1, 0, 0, ref output, 0)
     if outCount < 0 {
@@ -535,13 +493,6 @@ func TopLevelStructLikeDeclarationIndicesCore(tokens: &ParserDeclarationKindStre
     }
 
     return TopLevelStructLikeDeclarationIndicesAppend(ref tokens, count, 8, 1, 1, 0, ref output, outCount)
-}
-
-func TopLevelColumnarNominalDeclarationIndicesInto(tokenKinds: int[], count: int, outEnumIndices: int[], outUnionIndices: int[], outInterfaceIndices: int[], outResult: int[]): int {
-    tokens := new ParserDeclarationKindStream { Kinds: tokenKinds }
-    outputs := new TopLevelColumnarNominalDeclarationTable { EnumIndices: outEnumIndices, UnionIndices: outUnionIndices, InterfaceIndices: outInterfaceIndices }
-    result := new ParserDeclarationResultTable { Values: outResult }
-    return TopLevelColumnarNominalDeclarationIndicesCore(ref tokens, count, ref outputs, ref result)
 }
 
 func TopLevelColumnarNominalDeclarationIndicesCore(tokens: &ParserDeclarationKindStream, count: int, outputs: &TopLevelColumnarNominalDeclarationTable, result: &ParserDeclarationResultTable): int {
@@ -667,14 +618,6 @@ func TopLevelStructLikeDeclarationIndicesAppend(tokens: &ParserDeclarationKindSt
     }
 
     return outCount
-}
-
-func TopLevelColumnarFunctionDeclarationIndicesInto(source: string, rawTokenKinds: int[], rawTokenStarts: int[], rawTokenValueLengths: int[], rawCount: int, compactTokenKinds: int[], compactCount: int, outFuncIndices: int[], outAsyncFlags: int[], outResult: int[]): int {
-    rawTokens := new ParserDeclarationTokenTable { Kinds: rawTokenKinds, Starts: rawTokenStarts, ValueLengths: rawTokenValueLengths }
-    compactTokens := new ParserDeclarationKindStream { Kinds: compactTokenKinds }
-    outputs := new TopLevelColumnarFunctionDeclarationTable { Indices: outFuncIndices, AsyncFlags: outAsyncFlags }
-    result := new ParserDeclarationResultTable { Values: outResult }
-    return TopLevelColumnarFunctionDeclarationIndicesCore(source, ref rawTokens, rawCount, ref compactTokens, compactCount, ref outputs, ref result)
 }
 
 func TopLevelColumnarFunctionDeclarationIndicesCore(source: string, rawTokens: &ParserDeclarationTokenTable, rawCount: int, compactTokens: &ParserDeclarationKindStream, compactCount: int, outputs: &TopLevelColumnarFunctionDeclarationTable, result: &ParserDeclarationResultTable): int {
@@ -804,12 +747,6 @@ func TopLevelDeclarationIndicesCore(tokens: &ParserDeclarationKindStream, count:
 // unknown depth-0 tokens, so this validates the token immediately before each `func` keyword: only
 // recognized modifiers (`static`, `async`), a previous declaration close, or a package/import dotted
 // header prefix may precede a top-level function. Returns 1 when every function preamble is valid.
-func TopLevelFunctionPreamblesAreValidInto(tokenKinds: int[], count: int, funcIndices: int[], funcCount: int): int {
-    tokens := new ParserDeclarationKindStream { Kinds: tokenKinds }
-    indices := new TopLevelDeclarationIndexTable { Indices: funcIndices }
-    return TopLevelFunctionPreamblesAreValidCore(ref tokens, count, ref indices, funcCount)
-}
-
 func TopLevelFunctionPreamblesAreValidCore(tokens: &ParserDeclarationKindStream, count: int, indices: &TopLevelDeclarationIndexTable, funcCount: int): int {
     i := 0
     while i < funcCount {
@@ -979,11 +916,6 @@ func ParsePropertyAccessorInfoCore(source: string, tokens: &ParserDeclarationTok
     }
 
     return -1
-}
-
-func TopLevelContextualTestDeclarationExistsInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int): int {
-    tokens := new ParserDeclarationTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
-    return TopLevelContextualTestDeclarationExistsCore(source, ref tokens, count)
 }
 
 func TopLevelContextualTestDeclarationExistsCore(source: string, tokens: &ParserDeclarationTokenTable, count: int): int {

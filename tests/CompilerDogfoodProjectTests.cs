@@ -10896,6 +10896,9 @@ func outer(x: int): int {
         // Files eligible ONLY via cross-file resolution must contribute their public functions —
         // i.e. the merge actually emitted them (single-file each declines; see ColumnarCodegen_MultiFile_*).
         Assert.Contains("TopLevelColumnarProgramDeclarationIndicesInto", methodNames!); // ParserDeclarations composed routing
+        Assert.Contains("TopLevelColumnarFunctionDeclarationIndicesCore", methodNames!); // product function index routing
+        Assert.Contains("TopLevelColumnarNominalDeclarationIndicesCore", methodNames!); // product nominal index routing
+        Assert.Contains("TopLevelStructLikeDeclarationIndicesCore", methodNames!); // product struct/class/record index routing
         Assert.Contains("ParseFunctionSignatureCore", methodNames!); // ParserFunctionSignatures -> ParserTypeReferences
         Assert.Contains("ParseFunctionSignatureInfoCore", methodNames!); // ParserFunctionSignatures -> ParserTypeReferences
         Assert.Contains("ParseColumnarFunctionInfoInto", methodNames!); // composed signature + body + local-function routing
@@ -10969,6 +10972,17 @@ func outer(x: int): int {
 
         foreach (var (fileName, functionName) in new[]
         {
+            ("ParserDeclarations.nl", "PackageNameSpanInto"),
+            ("ParserDeclarations.nl", "NamespaceImportSpansInto"),
+            ("ParserDeclarations.nl", "TopLevelDeclarationKindsInto"),
+            ("ParserDeclarations.nl", "TopLevelDeclarationModifiersInto"),
+            ("ParserDeclarations.nl", "TopLevelDeclarationNameSpansInto"),
+            ("ParserDeclarations.nl", "TopLevelDeclarationIndicesInto"),
+            ("ParserDeclarations.nl", "TopLevelStructLikeDeclarationIndicesInto"),
+            ("ParserDeclarations.nl", "TopLevelColumnarNominalDeclarationIndicesInto"),
+            ("ParserDeclarations.nl", "TopLevelColumnarFunctionDeclarationIndicesInto"),
+            ("ParserDeclarations.nl", "TopLevelFunctionPreamblesAreValidInto"),
+            ("ParserDeclarations.nl", "TopLevelContextualTestDeclarationExistsInto"),
             ("DiagnosticClusters.nl", "IsDiagnosticClusterRootBefore"),
             ("DiagnosticDeduplication.nl", "SortDiagnosticDeduplicationIndices"),
             ("LexerTokenKindScanner.nl", "ScanOperator"),
