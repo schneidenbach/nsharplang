@@ -646,6 +646,16 @@ func TopLevelColumnarFunctionDeclarationIndicesCore(source: string, rawTokens: &
         i = i + 1
     }
 
+    names := new TopLevelDeclarationNameTable { Kinds: new int[](rawCount + 1), NameStarts: new int[](rawCount + 1), NameLengths: new int[](rawCount + 1) }
+    nameCount := TopLevelDeclarationNameSpansCore(ref rawTokens, rawCount, ref names)
+    if nameCount != declCount {
+        return -1
+    }
+
+    if TopLevelFunctionDeclarationNamesDistinct(source, ref names, nameCount) == 0 {
+        return -1
+    }
+
     modifiers := new TopLevelDeclarationModifierTable { Kinds: new int[](rawCount + 1), Modifiers: new int[](rawCount + 1) }
     modifierCount := TopLevelDeclarationModifiersCore(ref rawKindStream, rawCount, ref modifiers)
     if modifierCount != declCount {
@@ -689,6 +699,40 @@ func TopLevelColumnarFunctionDeclarationIndicesCore(source: string, rawTokens: &
     result.Values[0] = declCount
     result.Values[1] = funcCount
     return funcCount
+}
+
+func TopLevelFunctionDeclarationNamesDistinct(source: string, decls: &TopLevelDeclarationNameTable, declCount: int): int {
+    if declCount < 0 {
+        return 0
+    }
+
+    i := 0
+    while i < declCount {
+        if decls.Kinds[i] == 7 {
+            if decls.NameStarts[i] < 0 || decls.NameLengths[i] <= 0 {
+                return 0
+            }
+
+            j := i + 1
+            while j < declCount {
+                if decls.Kinds[j] == 7 {
+                    if decls.NameStarts[j] < 0 || decls.NameLengths[j] <= 0 {
+                        return 0
+                    }
+
+                    if ParserDeclarationSourceSpansEqual(source, decls.NameStarts[i], decls.NameLengths[i], decls.NameStarts[j], decls.NameLengths[j]) {
+                        return 0
+                    }
+                }
+
+                j = j + 1
+            }
+        }
+
+        i = i + 1
+    }
+
+    return 1
 }
 
 func TopLevelDeclarationIndicesCore(tokens: &ParserDeclarationKindStream, count: int, targetKind: int, suppressWhereClause: int, indices: &TopLevelDeclarationIndexTable): int {

@@ -3690,12 +3690,9 @@ internal sealed class ColumnarIlEmitter
             returnTypeByFunc[f] = asyncWrappedReturn ?? returnType; // call sites see the WRAPPED type.
             asyncWrappedByFunc[f] = asyncWrappedReturn;
             asyncInnerByFunc[f] = returnType;
-            // A duplicate top-level function name is an overload set the spike does not model — decline the
-            // whole program rather than silently pick one (a real call would be ambiguous).
             if (fn.ReturnTupleElementNames != null)
                 siblingReturnTupleNames[fn.Name] = fn.ReturnTupleElementNames;
-            if (!siblings.TryAdd(fn.Name, (methods[f], paramTypes, asyncWrappedReturn ?? returnType, fnTypeParams, fnSpecialConstraints, fnBaseConstraints)))
-                return false;
+            siblings[fn.Name] = (methods[f], paramTypes, asyncWrappedReturn ?? returnType, fnTypeParams, fnSpecialConstraints, fnBaseConstraints);
         }
 
         // Pass 2: emit each body into its declared method's IL stream. The Program TypeBuilder + a shared

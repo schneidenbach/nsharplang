@@ -306,6 +306,19 @@ record Person {
                 tokenizeWithIndentation,
                 topLevelColumnarProgramDeclIndices,
                 "controlled program declaration rowset");
+            AssertTopLevelColumnarFunctionDeclarationDeclines(
+                """
+func same(x: int): int {
+    return x
+}
+
+func same(x: string): string {
+    return x
+}
+""",
+                tokenizeWithIndentation,
+                topLevelColumnarFunctionDeclIndices,
+                "duplicate top-level function name rowset");
             AssertInterfaceDeclarationInfo(
                 """
 interface IReadable: IBase, IOther {
@@ -5967,6 +5980,9 @@ func outer(x: int): int {
         // The whole program declines (no assembly) if ANY function is ineligible (decimal is now MODELLED —
         // SC-6 — so the ineligible second func uses an unsupported PARAM shape instead: a 2-D array).
         Assert.False(RouteColumnarProgram("func ok(a: int): int {\n    return a\n}\n\nfunc bad(x: int[][]): int {\n    return 1\n}\n").Ok);
+        // Duplicate top-level function names are an overload set for the C# pipeline, but the columnar product
+        // route does not model overload dispatch yet, so the N# top-level parser rowset declines before emit.
+        Assert.False(RouteColumnarProgram("func same(x: int): int {\n    return x\n}\n\nfunc same(x: string): string {\n    return x\n}\n").Ok);
 
         // 4i SIBLING CALLS. A caller invoking a sibling, and a nested call (call result as an arg).
         var callHelper = "func add(a: int, b: int): int {\n    return a + b\n}\n\nfunc addThree(a: int, b: int, c: int): int {\n    return add(add(a, b), c)\n}\n";

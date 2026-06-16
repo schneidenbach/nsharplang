@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Top-level duplicate function decline moves into N# parser
+
+`TopLevelColumnarFunctionDeclarationIndicesCore` now rejects duplicate top-level function names while it
+still has raw declaration name spans, so overload sets decline before `ColumnarProgramInput`
+materialization. The columnar emitter no longer carries the duplicate sibling-function fallback guard;
+overload-aware function type inference remains a parity probe path until product codegen owns overload
+dispatch.
+
 ## 2026-06-16 — Local-function duplicate name decline moves into N# parser
 
 `ParseColumnarFunctionInfoCore` now rejects duplicate direct local-function names by comparing the
