@@ -10978,6 +10978,8 @@ func outer(x: int): int {
             ("ParserDeclarations.nl", "ParseEnumDeclarationTextInfoInto"),
             ("ParserDeclarations.nl", "ParseInterfaceDeclarationInto"),
             ("ParserDeclarations.nl", "ParseInterfaceDeclarationInfoInto"),
+            ("ParserDeclarations.nl", "ParsePropertyAccessorInfoInto"),
+            ("ParserDeclarations.nl", "ParsePropertyAccessorTypeInfoInto"),
             ("ParserDeclarations.nl", "ParseStructDeclarationInto"),
             ("ParserDeclarations.nl", "ParseStructDeclarationInfoInto"),
             ("ParserDeclarations.nl", "ParseUnionDeclarationInto"),

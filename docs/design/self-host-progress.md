@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Property accessor parity ABIs leave product dogfood
+
+The flattened `ParsePropertyAccessorInfoInto` and `ParsePropertyAccessorTypeInfoInto` exports now
+live in the parity corpus instead of `ParserDeclarations.nl`. Product property parsing already
+routes through `ParseColumnarPropertyInfoInto`, which composes `ParsePropertyAccessorInfoCore`
+directly and materializes property name/type text before parsing getter/setter bodies. The product
+boundary test now pins those accessor wrappers as parity-only.
+
 ## 2026-06-15 — Constructor signature parity ABIs leave product dogfood
 
 The flattened `ParseConstructorChainInfoInto`, `ParseConstructorInfoInto`,
