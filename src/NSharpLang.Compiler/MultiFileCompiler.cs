@@ -490,7 +490,7 @@ public class MultiFileCompiler
         {
             var source = ReadSourceText(filePath);
             if (source.IndexOf('\r') < 0 &&
-                NSharpCodeIntelligenceDogfoodAdapter.TryExtractSourceLine(source, line, out var dogfoodLine))
+                CodeIntelligenceSourceTextKernels.TryExtractSourceLine(source, line, out var dogfoodLine))
             {
                 return dogfoodLine;
             }

@@ -605,7 +605,7 @@ public class CodeIntelligenceService
         if (source == null)
             return false;
 
-        if (NSharpCodeIntelligenceDogfoodAdapter.TrySelectedSpanMatchesDeclarationName(
+        if (CodeIntelligenceSourceTextKernels.TrySelectedSpanMatchesDeclarationName(
                 snapshot,
                 filePath,
                 source,
@@ -871,7 +871,7 @@ public class CodeIntelligenceService
 
         var source = GetSourceText(snapshot, absolutePath);
         if (source != null
-            && NSharpCodeIntelligenceDogfoodAdapter.TryExtractDocComment(
+            && CodeIntelligenceSourceTextKernels.TryExtractDocComment(
                 snapshot,
                 absolutePath,
                 source,
@@ -1201,7 +1201,7 @@ public class CodeIntelligenceService
         var source = GetSourceText(snapshot, filePath);
         if (source == null) return null;
 
-        if (NSharpCodeIntelligenceDogfoodAdapter.TryExtractSourceContext(
+        if (CodeIntelligenceSourceTextKernels.TryExtractSourceContext(
                 snapshot,
                 filePath,
                 source,
@@ -2617,7 +2617,7 @@ public class CodeIntelligenceService
             if (source == null)
                 return null;
 
-            if (NSharpCodeIntelligenceDogfoodAdapter.TryExtractIdentifierName(
+            if (CodeIntelligenceSourceTextKernels.TryExtractIdentifierName(
                     snapshot,
                     filePath,
                     source,
@@ -2652,7 +2652,7 @@ public class CodeIntelligenceService
             if (source == null)
                 return null;
 
-            if (NSharpCodeIntelligenceDogfoodAdapter.TryExtractMemberReceiverName(
+            if (CodeIntelligenceSourceTextKernels.TryExtractMemberReceiverName(
                     snapshot,
                     filePath,
                     source,
@@ -2725,7 +2725,7 @@ public class CodeIntelligenceService
             if (source == null)
                 return null;
 
-            if (NSharpCodeIntelligenceDogfoodAdapter.TryExtractIdentifierSpan(
+            if (CodeIntelligenceSourceTextKernels.TryExtractIdentifierSpan(
                     snapshot,
                     filePath,
                     source,
@@ -2834,7 +2834,7 @@ public class CodeIntelligenceService
             if (source == null)
                 return null;
 
-            if (NSharpCodeIntelligenceDogfoodAdapter.TryExtractVariableDeclarationName(
+            if (CodeIntelligenceSourceTextKernels.TryExtractVariableDeclarationName(
                     snapshot,
                     filePath,
                     source,
@@ -2881,7 +2881,7 @@ public class CodeIntelligenceService
         if (source == null)
             return null;
 
-        if (NSharpCodeIntelligenceDogfoodAdapter.TryExtractSourceLine(
+        if (CodeIntelligenceSourceTextKernels.TryExtractSourceLine(
                 snapshot,
                 filePath,
                 source,
@@ -2896,7 +2896,7 @@ public class CodeIntelligenceService
 
     private static string? ExtractSourceLine(string source, int line)
     {
-        if (NSharpCodeIntelligenceDogfoodAdapter.TryExtractSourceLine(source, line, out var dogfoodLine))
+        if (CodeIntelligenceSourceTextKernels.TryExtractSourceLine(source, line, out var dogfoodLine))
         {
             return dogfoodLine;
         }

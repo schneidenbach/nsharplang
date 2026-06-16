@@ -7432,7 +7432,7 @@ public class Parser
         if (_sourceCode == null || line < 1)
             return null;
 
-        if (NSharpCodeIntelligenceDogfoodAdapter.TryExtractSourceLine(_sourceCode, line, out var dogfoodLine))
+        if (CodeIntelligenceSourceTextKernels.TryExtractSourceLine(_sourceCode, line, out var dogfoodLine))
         {
             return dogfoodLine;
         }

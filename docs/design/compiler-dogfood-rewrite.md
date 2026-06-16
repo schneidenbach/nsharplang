@@ -17,8 +17,9 @@ move to N#. C# is acceptable only for CLR/BCL host boundaries, bootstrap loading
 materialization, or measured fallback while a function has not yet cleared parity and speed gates.
 Adapter names such as `NSharpPerformanceDogfoodAdapter`, `NSharpCompilerDogfoodAdapter`, and
 `NSharpCliDogfoodAdapter` were temporary transition boundaries and have been deleted from product
-routes as owner-local helpers took over. `NSharpCodeIntelligenceDogfoodAdapter` remains temporary;
-adapter surfaces are not the target architecture and must shrink as N# slices land.
+routes as owner-local helpers took over. `NSharpCodeIntelligenceDogfoodAdapter` has also been
+deleted; its remaining source/text routes now live in `CodeIntelligenceSourceTextKernels`. Adapter
+surfaces are not the target architecture and must shrink as N# slices land.
 
 ## Acceptance Standard
 
@@ -875,6 +876,11 @@ behavior. It ran about 186x faster on the representative corpus (2.686 us vs 499
 4,235,264 B) and about 224,000x faster on the large generated corpus (291.808 ns vs 65.221 ms, 0 B
 vs 129,590,546 B). This is acceptance-grade benchmark evidence for cached editor identifier lookup
 after line ranges are built.
+
+As of 2026-06-16, production source/text routes bind the accepted identifier-span/name, editor-span,
+declaration-match, identifier-column, member-receiver, source-context/line, completion-prefix,
+doc-comment, and variable-declaration-name kernels through `CodeIntelligenceSourceTextKernels`;
+`NSharpCodeIntelligenceDogfoodAdapter` has been deleted.
 
 `DiagnosticClusterTraitsInto` passed parity and reported zero managed allocation in the same normal
 BenchmarkDotNet evidence tier for clustered diagnostic category/source-construct classification. It

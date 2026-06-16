@@ -7,7 +7,7 @@ using System.Text;
 
 namespace NSharpLang.Compiler.CodeIntelligence;
 
-internal static class NSharpCodeIntelligenceDogfoodAdapter
+internal static class CodeIntelligenceSourceTextKernels
 {
     private const string DogfoodAssemblyName = "NSharpLang.Compiler.Dogfood";
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);

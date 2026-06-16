@@ -13122,7 +13122,7 @@ func outer(c: bool): int {
     }
 
     [Fact]
-    public void CodeIntelligenceDogfoodAdapter_LoadsPackagedNSharpAssembly()
+    public void CodeIntelligenceKernels_LoadsPackagedNSharpAssembly()
     {
         var source = """
 func main() {
@@ -13141,32 +13141,31 @@ func main() {
             new[] { filePath },
             sourceTexts: new Dictionary<string, string> { [filePath] = source });
 
-        var adapterType = typeof(CodeIntelligenceService).Assembly.GetType(
-                "NSharpLang.Compiler.CodeIntelligence.NSharpCodeIntelligenceDogfoodAdapter")
-            ?? throw new InvalidOperationException("Dogfood code-intelligence adapter type was not emitted.");
+        Assert.True(CodeIntelligenceSourceTextKernels.TryExtractIdentifierName(
+            snapshot,
+            filePath,
+            source,
+            2,
+            15,
+            out var identifierName));
+        Assert.Equal("input", identifierName);
 
-        var tryExtractIdentifierName = adapterType.GetMethod(
-                "TryExtractIdentifierName",
-                BindingFlags.Static | BindingFlags.NonPublic)
-            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryExtractIdentifierName.");
-        var identifierArgs = new object?[] { snapshot, filePath, source, 2, 15, null };
-        Assert.True((bool)(tryExtractIdentifierName.Invoke(null, identifierArgs) ?? false));
-        Assert.Equal("input", identifierArgs[5]);
+        Assert.True(CodeIntelligenceSourceTextKernels.TryExtractEditorIdentifierSpan(
+            source,
+            2,
+            15,
+            out var editorSpan));
+        Assert.NotNull(editorSpan);
+        Assert.Equal(14, editorSpan.Value.StartColumn);
+        Assert.Equal(18, editorSpan.Value.EndColumn);
+        Assert.Equal("input", editorSpan.Value.Name);
 
-        var tryExtractEditorIdentifierSpan = adapterType.GetMethod(
-                "TryExtractEditorIdentifierSpan",
-                BindingFlags.Static | BindingFlags.NonPublic)
-            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryExtractEditorIdentifierSpan.");
-        var editorSpanArgs = new object?[] { source, 2, 15, null };
-        Assert.True((bool)(tryExtractEditorIdentifierSpan.Invoke(null, editorSpanArgs) ?? false));
-        var editorSpan = Assert.IsType<ValueTuple<int, int, string>>(editorSpanArgs[3]);
-        Assert.Equal(14, editorSpan.Item1);
-        Assert.Equal(18, editorSpan.Item2);
-        Assert.Equal("input", editorSpan.Item3);
-
-        var editorPunctuationArgs = new object?[] { source, 2, 19, null };
-        Assert.True((bool)(tryExtractEditorIdentifierSpan.Invoke(null, editorPunctuationArgs) ?? false));
-        Assert.Null(editorPunctuationArgs[3]);
+        Assert.True(CodeIntelligenceSourceTextKernels.TryExtractEditorIdentifierSpan(
+            source,
+            2,
+            19,
+            out var editorPunctuationSpan));
+        Assert.Null(editorPunctuationSpan);
 
         Assert.True(CodeIntelligenceTextUtilities.TryGetEditorIdentifierSpanAtPosition(source, 1, 14, out var publicEditorSpan));
         Assert.Equal("input", publicEditorSpan.Name);
@@ -13175,67 +13174,78 @@ func main() {
         Assert.Equal("Count", CodeIntelligenceTextUtilities.GetEditorWordAtPosition(source, 1, 999));
         Assert.False(CodeIntelligenceTextUtilities.TryGetEditorIdentifierSpanAtPosition(source, 1, 18, out _));
 
-        var trySelectedSpanMatchesDeclarationName = adapterType.GetMethod(
-                "TrySelectedSpanMatchesDeclarationName",
-                BindingFlags.Static | BindingFlags.NonPublic)
-            ?? throw new InvalidOperationException("Dogfood adapter did not emit TrySelectedSpanMatchesDeclarationName.");
-        var declarationMatchArgs = new object?[] { snapshot, filePath, source, 2, 5, "value", 5, 9, null };
-        Assert.True((bool)(trySelectedSpanMatchesDeclarationName.Invoke(null, declarationMatchArgs) ?? false));
-        Assert.Equal(true, declarationMatchArgs[8]);
+        Assert.True(CodeIntelligenceSourceTextKernels.TrySelectedSpanMatchesDeclarationName(
+            snapshot,
+            filePath,
+            source,
+            2,
+            5,
+            "value",
+            5,
+            9,
+            out var declarationMatch));
+        Assert.True(declarationMatch);
 
-        var declarationMismatchArgs = new object?[] { snapshot, filePath, source, 2, 5, "value", 14, 18, null };
-        Assert.True((bool)(trySelectedSpanMatchesDeclarationName.Invoke(null, declarationMismatchArgs) ?? false));
-        Assert.Equal(false, declarationMismatchArgs[8]);
+        Assert.True(CodeIntelligenceSourceTextKernels.TrySelectedSpanMatchesDeclarationName(
+            snapshot,
+            filePath,
+            source,
+            2,
+            5,
+            "value",
+            14,
+            18,
+            out var declarationMismatch));
+        Assert.False(declarationMismatch);
 
-        var tryFindIdentifierNameColumn = adapterType.GetMethod(
-                "TryFindIdentifierNameColumn",
-                BindingFlags.Static | BindingFlags.NonPublic)
-            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryFindIdentifierNameColumn.");
-        var declarationColumnArgs = new object?[] { source, "value", 2, 1, 0 };
-        Assert.True((bool)(tryFindIdentifierNameColumn.Invoke(null, declarationColumnArgs) ?? false));
-        Assert.Equal(5, declarationColumnArgs[4]);
+        Assert.True(CodeIntelligenceSourceTextKernels.TryFindIdentifierNameColumn(
+            source,
+            "value",
+            2,
+            1,
+            out var declarationColumn));
+        Assert.Equal(5, declarationColumn);
 
-        var tryExtractMemberReceiverName = adapterType.GetMethod(
-                "TryExtractMemberReceiverName",
-                BindingFlags.Static | BindingFlags.NonPublic)
-            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryExtractMemberReceiverName.");
-        var receiverArgs = new object?[] { snapshot, filePath, source, 2, 20, null };
-        Assert.True((bool)(tryExtractMemberReceiverName.Invoke(null, receiverArgs) ?? false));
-        Assert.Equal("input", receiverArgs[5]);
+        Assert.True(CodeIntelligenceSourceTextKernels.TryExtractMemberReceiverName(
+            snapshot,
+            filePath,
+            source,
+            2,
+            20,
+            out var receiverName));
+        Assert.Equal("input", receiverName);
 
-        var tryExtractSourceContext = adapterType.GetMethod(
-                "TryExtractSourceContext",
-                BindingFlags.Static | BindingFlags.NonPublic)
-            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryExtractSourceContext.");
+        Assert.True(CodeIntelligenceSourceTextKernels.TryExtractSourceContext(
+            snapshot,
+            filePath,
+            source,
+            2,
+            out var context));
+        Assert.Equal("value := input.Count", context);
 
-        var contextArgs = new object?[] { snapshot, filePath, source, 2, null };
-        Assert.True((bool)(tryExtractSourceContext.Invoke(null, contextArgs) ?? false));
-        Assert.Equal("value := input.Count", contextArgs[4]);
+        Assert.True(CodeIntelligenceSourceTextKernels.TryExtractSourceContext(
+            snapshot,
+            filePath,
+            source,
+            3,
+            out var blankContext));
+        Assert.Equal(string.Empty, blankContext);
 
-        var blankContextArgs = new object?[] { snapshot, filePath, source, 3, null };
-        Assert.True((bool)(tryExtractSourceContext.Invoke(null, blankContextArgs) ?? false));
-        Assert.Equal(string.Empty, blankContextArgs[4]);
+        Assert.True(CodeIntelligenceSourceTextKernels.TryExtractSourceLine(
+            snapshot,
+            filePath,
+            source,
+            2,
+            out var rawLine));
+        Assert.Equal("    value := input.Count", rawLine);
 
-        var tryExtractSourceLine = adapterType.GetMethod(
-                "TryExtractSourceLine",
-                BindingFlags.Static | BindingFlags.NonPublic,
-                binder: null,
-                types: new[] { typeof(ProjectSnapshot), typeof(string), typeof(string), typeof(int), typeof(string).MakeByRefType() },
-                modifiers: null)
-            ?? throw new InvalidOperationException("Dogfood adapter did not emit snapshot TryExtractSourceLine.");
-
-        var rawLineArgs = new object?[] { snapshot, filePath, source, 2, null };
-        Assert.True((bool)(tryExtractSourceLine.Invoke(null, rawLineArgs) ?? false));
-        Assert.Equal("    value := input.Count", rawLineArgs[4]);
-
-        var blankLineArgs = new object?[] { snapshot, filePath, source, 3, null };
-        Assert.True((bool)(tryExtractSourceLine.Invoke(null, blankLineArgs) ?? false));
-        Assert.Equal(string.Empty, blankLineArgs[4]);
-
-        var tryExtractDocComment = adapterType.GetMethod(
-                "TryExtractDocComment",
-                BindingFlags.Static | BindingFlags.NonPublic)
-            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryExtractDocComment.");
+        Assert.True(CodeIntelligenceSourceTextKernels.TryExtractSourceLine(
+            snapshot,
+            filePath,
+            source,
+            3,
+            out var blankLine));
+        Assert.Equal(string.Empty, blankLine);
 
         var docSource = """
 // First line
@@ -13246,25 +13256,31 @@ func documented(): int {
 }
 """.Replace('~', ' ');
         var docFilePath = Path.GetFullPath(Path.Combine(Path.GetTempPath(), $"dogfood-adapter-doc-{Guid.NewGuid():N}.nl"));
-        var docCommentArgs = new object?[] { snapshot, docFilePath, docSource, 4, null };
-        Assert.True((bool)(tryExtractDocComment.Invoke(null, docCommentArgs) ?? false));
-        Assert.Equal("First line\nSecond line", docCommentArgs[4]);
+        Assert.True(CodeIntelligenceSourceTextKernels.TryExtractDocComment(
+            snapshot,
+            docFilePath,
+            docSource,
+            4,
+            out var docComment));
+        Assert.Equal("First line\nSecond line", docComment);
 
-        var tryExtractCompletionPrefix = adapterType.GetMethod(
-                "TryExtractCompletionPrefix",
-                BindingFlags.Static | BindingFlags.NonPublic,
-                binder: null,
-                types: new[] { typeof(ProjectSnapshot), typeof(string), typeof(string), typeof(int), typeof(int), typeof(string).MakeByRefType() },
-                modifiers: null)
-            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryExtractCompletionPrefix.");
+        Assert.True(CodeIntelligenceSourceTextKernels.TryExtractCompletionPrefix(
+            snapshot,
+            filePath,
+            source,
+            2,
+            9,
+            out var prefix));
+        Assert.Equal("    value", prefix);
 
-        var prefixArgs = new object?[] { snapshot, filePath, source, 2, 9, null };
-        Assert.True((bool)(tryExtractCompletionPrefix.Invoke(null, prefixArgs) ?? false));
-        Assert.Equal("    value", prefixArgs[5]);
-
-        var pastEndPrefixArgs = new object?[] { snapshot, filePath, source, 2, 999, null };
-        Assert.True((bool)(tryExtractCompletionPrefix.Invoke(null, pastEndPrefixArgs) ?? false));
-        Assert.Equal("    value := input.Count", pastEndPrefixArgs[5]);
+        Assert.True(CodeIntelligenceSourceTextKernels.TryExtractCompletionPrefix(
+            snapshot,
+            filePath,
+            source,
+            2,
+            999,
+            out var pastEndPrefix));
+        Assert.Equal("    value := input.Count", pastEndPrefix);
 
         Assert.True(CompletionEngineKernels.TryClassifyCompletionReceiver(
             "    factory.Create(name).",
@@ -13313,18 +13329,21 @@ func documented(): int {
             Assert.Equal(expectedGroup.Count(), methodGrouping.Counts[groupIndex]);
         }
 
-        var tryExtractVariableDeclarationName = adapterType.GetMethod(
-                "TryExtractVariableDeclarationName",
-                BindingFlags.Static | BindingFlags.NonPublic)
-            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryExtractVariableDeclarationName.");
+        Assert.True(CodeIntelligenceSourceTextKernels.TryExtractVariableDeclarationName(
+            snapshot,
+            filePath,
+            source,
+            2,
+            out var variableName));
+        Assert.Equal("value", variableName);
 
-        var variableNameArgs = new object?[] { snapshot, filePath, source, 2, null };
-        Assert.True((bool)(tryExtractVariableDeclarationName.Invoke(null, variableNameArgs) ?? false));
-        Assert.Equal("value", variableNameArgs[4]);
-
-        var noVariableNameArgs = new object?[] { snapshot, filePath, source, 3, null };
-        Assert.True((bool)(tryExtractVariableDeclarationName.Invoke(null, noVariableNameArgs) ?? false));
-        Assert.Null(noVariableNameArgs[4]);
+        Assert.True(CodeIntelligenceSourceTextKernels.TryExtractVariableDeclarationName(
+            snapshot,
+            filePath,
+            source,
+            3,
+            out var noVariableName));
+        Assert.Null(noVariableName);
 
         var diagnostics = BuildDiagnosticClusterTraitDiagnostics();
         Assert.True(OutputFormatterDiagnosticClusterKernels.TryClassifyDiagnosticClusterTraits(

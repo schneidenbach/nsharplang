@@ -25,7 +25,7 @@ public static class CodeIntelligenceTextUtilities
         if (line < 0 || character < 0)
             return false;
 
-        if (NSharpCodeIntelligenceDogfoodAdapter.TryExtractEditorIdentifierSpan(
+        if (CodeIntelligenceSourceTextKernels.TryExtractEditorIdentifierSpan(
                 text,
                 line + 1,
                 character + 1,
@@ -46,7 +46,7 @@ public static class CodeIntelligenceTextUtilities
 
     public static string? GetSourceLine(string source, int line)
     {
-        if (NSharpCodeIntelligenceDogfoodAdapter.TryExtractSourceLine(source, line, out var dogfoodLine))
+        if (CodeIntelligenceSourceTextKernels.TryExtractSourceLine(source, line, out var dogfoodLine))
         {
             return dogfoodLine;
         }

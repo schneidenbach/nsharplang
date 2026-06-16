@@ -145,7 +145,7 @@ public class CompletionEngine
         int col,
         [NotNullWhen(true)] out string? beforeCursor)
     {
-        if (NSharpCodeIntelligenceDogfoodAdapter.TryExtractCompletionPrefix(
+        if (CodeIntelligenceSourceTextKernels.TryExtractCompletionPrefix(
                 snapshot,
                 filePath,
                 sourceText,

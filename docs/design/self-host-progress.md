@@ -11,6 +11,19 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Code-intelligence dogfood adapter removed
+
+The remaining source/text extraction routes now live in `CodeIntelligenceSourceTextKernels`:
+identifier spans/names, editor identifier spans, selected-declaration name matching, identifier-name
+column search, completion prefixes, doc comments, member receivers, source contexts/lines, and
+variable declaration names. Product compiler, analyzer, parser, completion, text-utility, and query
+callers route to that owner-local helper directly, so `NSharpCodeIntelligenceDogfoodAdapter` has
+been deleted instead of remaining as a broad transition layer. Existing C# source/text fallbacks
+remain at their consuming call sites.
+Focused evidence: `dotnet build src/NSharpLang.Compiler/Compiler.csproj --no-restore`; `dotnet
+test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.CodeIntelligenceKernels_LoadsPackagedNSharpAssembly"`;
+`./scripts/dev.sh --since`.
+
 ## 2026-06-16 — Binding lookup kernels leave the code-intelligence adapter
 
 Definition lookup candidate-column generation, strict binding declaration resolution, and nearest
@@ -19,7 +32,7 @@ paths in `CodeIntelligenceService`. The broad `NSharpCodeIntelligenceDogfoodAdap
 the binding lookup delegates, per-`BindingMap` cache, or candidate-column scratch arrays; the
 existing dictionary/LINQ fallback remains in `CodeIntelligenceService`.
 Focused evidence: `dotnet build src/NSharpLang.Compiler/Compiler.csproj --no-restore`; `dotnet
-test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.CodeIntelligenceDogfoodAdapter_LoadsPackagedNSharpAssembly"`;
+test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.CodeIntelligenceKernels_LoadsPackagedNSharpAssembly"`;
 `./scripts/dev.sh --since`.
 
 ## 2026-06-16 — Completion grouping kernels leave the code-intelligence adapter
@@ -30,7 +43,7 @@ consume those results. The broad `NSharpCodeIntelligenceDogfoodAdapter` no longe
 completion receiver/grouping delegates, grouping DTO, or scratch arrays; existing C# fallback
 classification and LINQ grouping remain in `CompletionEngine`.
 Focused evidence: `dotnet build src/NSharpLang.Compiler/Compiler.csproj --no-restore`; `dotnet
-test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.CodeIntelligenceDogfoodAdapter_LoadsPackagedNSharpAssembly"`;
+test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.CodeIntelligenceKernels_LoadsPackagedNSharpAssembly"`;
 `./scripts/dev.sh --since`.
 
 ## 2026-06-16 — Symbol-kind filtering leaves the code-intelligence adapter
@@ -41,7 +54,7 @@ query path that consumes the filtered results. The broad `NSharpCodeIntelligence
 longer owns the `SymbolKindFilterIndicesInto` delegate, entry point, or scratch arrays; the existing
 LINQ enum-filter fallback remains in `CodeIntelligenceService`.
 Focused evidence: `dotnet build src/NSharpLang.Compiler/Compiler.csproj --no-restore`; `dotnet
-test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.CodeIntelligenceDogfoodAdapter_LoadsPackagedNSharpAssembly"`;
+test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.CodeIntelligenceKernels_LoadsPackagedNSharpAssembly"`;
 `./scripts/dev.sh --since`.
 
 ## 2026-06-16 — Diagnostic/reference result kernels leave the code-intelligence adapter
@@ -53,7 +66,7 @@ that consume those indices. The broad `NSharpCodeIntelligenceDogfoodAdapter` no 
 diagnostic/reference dedup delegates, shadow-suppression delegate, or their scratch arrays; the
 existing LINQ fallbacks remain at each product caller.
 Focused evidence: `dotnet build src/NSharpLang.Compiler/Compiler.csproj --no-restore`; `dotnet
-test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.CodeIntelligenceDogfoodAdapter_LoadsPackagedNSharpAssembly"`;
+test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.CodeIntelligenceKernels_LoadsPackagedNSharpAssembly"`;
 `./scripts/dev.sh --since`.
 
 ## 2026-06-16 — Output formatter diagnostic-cluster kernels leave the code-intelligence adapter
@@ -65,7 +78,7 @@ formatter that builds clustered diagnostic JSON/text. The broad
 grouping DTO, or scratch arrays; the existing C# classification/grouping fallback remains in
 `OutputFormatter`.
 Focused evidence: `dotnet build src/NSharpLang.Compiler/Compiler.csproj --no-restore`; `dotnet
-test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.CodeIntelligenceDogfoodAdapter_LoadsPackagedNSharpAssembly"`;
+test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.CodeIntelligenceKernels_LoadsPackagedNSharpAssembly"`;
 `./scripts/dev.sh --since`.
 
 ## 2026-06-16 — Output formatter reference-file summaries leave the code-intelligence adapter
@@ -77,7 +90,7 @@ payloads for `nlc query inspect` and `nlc query diagnostics --cluster`. The broa
 reference-file summary entry points, or their scratch arrays; the existing LINQ distinct/order
 fallbacks remain in `OutputFormatter`.
 Focused evidence: `dotnet build src/NSharpLang.Compiler/Compiler.csproj --no-restore`; `dotnet
-test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.CodeIntelligenceDogfoodAdapter_LoadsPackagedNSharpAssembly"`;
+test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.CodeIntelligenceKernels_LoadsPackagedNSharpAssembly"`;
 `./scripts/dev.sh --since`.
 
 ## 2026-06-16 — DocQuery kernels leave the code-intelligence adapter
@@ -89,7 +102,7 @@ documentation-query code that consumes those results. The broad
 wrappers, or their scratch arrays; the existing LINQ/reflection fallback paths remain in
 `DocQuery`.
 Focused evidence: `dotnet build src/NSharpLang.Compiler/Compiler.csproj --no-restore`; `dotnet
-test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.DocQueryKernels_DeduplicatesStableStringsOrdinalIgnoreCase|FullyQualifiedName~CompilerDogfoodProjectTests.DocQueryKernels_DeduplicatesStableTypes|FullyQualifiedName~CompilerDogfoodProjectTests.DocQueryKernels_SelectsBestTypeByScoreNamespaceAndName|FullyQualifiedName~CompilerDogfoodProjectTests.DocQueryKernels_OrdersMembersByKindThenName|FullyQualifiedName~CompilerDogfoodProjectTests.CodeIntelligenceDogfoodAdapter_LoadsPackagedNSharpAssembly|FullyQualifiedName~DocQueryTests.DeduplicateReferencePackAssemblyNames_PreservesFirstSourceOrder|FullyQualifiedName~DocQueryTests.DeduplicateTypeCandidates_PreservesFirstSourceOrder"`;
+test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.DocQueryKernels_DeduplicatesStableStringsOrdinalIgnoreCase|FullyQualifiedName~CompilerDogfoodProjectTests.DocQueryKernels_DeduplicatesStableTypes|FullyQualifiedName~CompilerDogfoodProjectTests.DocQueryKernels_SelectsBestTypeByScoreNamespaceAndName|FullyQualifiedName~CompilerDogfoodProjectTests.DocQueryKernels_OrdersMembersByKindThenName|FullyQualifiedName~CompilerDogfoodProjectTests.CodeIntelligenceKernels_LoadsPackagedNSharpAssembly|FullyQualifiedName~DocQueryTests.DeduplicateReferencePackAssemblyNames_PreservesFirstSourceOrder|FullyQualifiedName~DocQueryTests.DeduplicateTypeCandidates_PreservesFirstSourceOrder"`;
 `./scripts/dev.sh --since`.
 
 ## 2026-06-16 — Output formatter severity kernels leave the code-intelligence adapter
@@ -100,7 +113,7 @@ results for `nlc check`, `nlc lint`, `nlc query diagnostics`, and clustered diag
 `NSharpCodeIntelligenceDogfoodAdapter` no longer owns the severity-summary/filter delegates or their
 scratch arrays; the existing LINQ count/filter fallback remains in `OutputFormatter`.
 Focused evidence: `dotnet build src/NSharpLang.Compiler/Compiler.csproj --no-restore`; `dotnet test
-tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.CodeIntelligenceDogfoodAdapter_LoadsPackagedNSharpAssembly"`;
+tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.CodeIntelligenceKernels_LoadsPackagedNSharpAssembly"`;
 `dotnet test tests/Tests.csproj --no-build --filter "FullyQualifiedName~CodeIntelligenceOutputTests.SummarizeDiagnostics_CountsStableSeveritiesAndIgnoresUnknown"`.
 
 ## 2026-06-16 — Fix applicator text-edit ordering leaves the code-intelligence adapter
@@ -3071,7 +3084,7 @@ The code-intelligence and performance dogfood adapters no longer expose `IsAvail
 now prove the N# compiler-services assembly is present by invoking accepted `Try*` routes directly,
 matching the production fallback contract and removing another transition-only side channel.
 Focused evidence: `dotnet test tests/Tests.csproj --filter
-"FullyQualifiedName~FixApplicatorTests.DogfoodTextEditOrdering|FullyQualifiedName~CompilerDogfoodProjectTests.CodeIntelligenceDogfoodAdapter_|FullyQualifiedName~CompilerDogfoodProjectTests.PerformanceDogfoodAdapter_"`
+"FullyQualifiedName~FixApplicatorTests.DogfoodTextEditOrdering|FullyQualifiedName~CompilerDogfoodProjectTests.CodeIntelligenceKernels_|FullyQualifiedName~CompilerDogfoodProjectTests.PerformanceDogfoodAdapter_"`
 (6 tests).
 
 ## 2026-06-15 — Compiler dogfood adapter drops its availability probe
@@ -10817,7 +10830,7 @@ or stand up the N#-native pooled `Token`/`TokenStream` so the parser can consume
   `AotRequirementSelector` and `StructCopyInitOnlySelector` beside their consuming analyses.
 - `NSharpCliDogfoodAdapter` — removed 2026-06-16. CLI product routes now use owner-local helpers
   beside the consuming command or resolver.
-- `NSharpCodeIntelligenceDogfoodAdapter` — still present as a temporary transition boundary. Text-edit ordering
+- `NSharpCodeIntelligenceDogfoodAdapter` — removed 2026-06-16. Text-edit ordering
   moved to `FixApplicatorTextEditOrderer` on 2026-06-16, output-format severity summary/filtering
   moved to `OutputFormatterDiagnosticKernels`, output-format diagnostic-cluster trait/group kernels
   moved to `OutputFormatterDiagnosticClusterKernels`, output-format reference-file summaries moved
@@ -10825,6 +10838,5 @@ or stand up the N#-native pooled `Token`/`TokenStream` so the parser can consume
   suppression moved to `CodeIntelligenceResultKernels`, symbol-kind filtering moved to
   `CodeIntelligenceSymbolKernels`, completion receiver/grouping kernels moved to
   `CompletionEngineKernels`, binding lookup kernels moved to `BindingLookupKernels`, and DocQuery
-  type/reference-pack de-duplication, best-type selection, and member ordering moved to `DocQueryKernels`; remaining
-  routed kernels still cross the ~1.2 ns delegate-dispatch + bounds-check floor documented in the
-  boundary profiling doc.
+  type/reference-pack de-duplication, best-type selection, and member ordering moved to `DocQueryKernels`;
+  the final source/text extraction routes moved to `CodeIntelligenceSourceTextKernels`.

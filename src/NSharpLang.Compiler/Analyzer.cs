@@ -18642,7 +18642,7 @@ public class Analyzer : IDisposable
 
     private static int FindIdentifierNameColumn(string? sourceText, string name, int line, int fallbackColumn)
     {
-        if (NSharpCodeIntelligenceDogfoodAdapter.TryFindIdentifierNameColumn(
+        if (CodeIntelligenceSourceTextKernels.TryFindIdentifierNameColumn(
             sourceText,
             name,
             line,
@@ -19309,7 +19309,7 @@ public class Analyzer : IDisposable
             return null;
 
         if (_sourceText != null &&
-            NSharpCodeIntelligenceDogfoodAdapter.TryExtractSourceLine(_sourceText, line, out var dogfoodLine))
+            CodeIntelligenceSourceTextKernels.TryExtractSourceLine(_sourceText, line, out var dogfoodLine))
         {
             return dogfoodLine;
         }
