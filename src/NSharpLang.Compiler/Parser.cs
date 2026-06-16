@@ -21,7 +21,7 @@ public class Parser
 
     public Parser(List<Token> tokens, string? fileName = null, string? sourceCode = null)
     {
-        _tokens = NSharpCompilerDogfoodAdapter.TryCompactParserTokens(tokens, out var compactedTokens)
+        _tokens = ParserTokenCompactor.TryCompact(tokens, out var compactedTokens)
             ? compactedTokens
             : tokens.Where(t => t.Type != TokenType.Newline).ToList();
         _fileName = fileName;

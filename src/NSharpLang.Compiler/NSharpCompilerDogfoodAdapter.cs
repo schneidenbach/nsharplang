@@ -11,8 +11,6 @@ internal static class NSharpCompilerDogfoodAdapter
     private const string DogfoodAssemblyName = "NSharpLang.Compiler.Dogfood";
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
     [ThreadStatic]
-    private static ParserTokenCompactionScratch? t_parserTokenCompactionScratch;
-    [ThreadStatic]
     private static FirstDistinctTypeKeyScratch? t_firstDistinctTypeKeyScratch;
     [ThreadStatic]
     private static FirstDistinctStringScratch? t_firstDistinctStringScratch;
@@ -114,62 +112,6 @@ internal static class NSharpCompilerDogfoodAdapter
         finally
         {
             scratch.ClearRelativePaths(fileCount);
-        }
-    }
-
-    internal static bool TryCompactParserTokens(IReadOnlyList<Token> tokens, out List<Token> compactedTokens)
-    {
-        compactedTokens = [];
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        var tokenCount = tokens.Count;
-        if (tokenCount == 0)
-            return true;
-
-        var scratch = t_parserTokenCompactionScratch ??= new ParserTokenCompactionScratch();
-        scratch.EnsureCapacity(tokenCount);
-
-        try
-        {
-            for (var i = 0; i < tokenCount; i++)
-            {
-                scratch.TokenKinds[i] = (int)tokens[i].Type;
-            }
-
-            var compactedCount = bindings.ParserTokenCompactionCounted(
-                scratch.TokenKinds,
-                tokenCount,
-                scratch.ResultIndices);
-
-            if (compactedCount < 0 || compactedCount > tokenCount)
-            {
-                compactedTokens = [];
-                return false;
-            }
-
-            var result = new List<Token>(compactedCount);
-            for (var i = 0; i < compactedCount; i++)
-            {
-                var sourceIndex = scratch.ResultIndices[i];
-                if (sourceIndex < 0 || sourceIndex >= tokenCount)
-                {
-                    compactedTokens = [];
-                    return false;
-                }
-
-                result.Add(tokens[sourceIndex]);
-            }
-
-            compactedTokens = result;
-            return true;
-        }
-        catch
-        {
-            compactedTokens = [];
-            return false;
         }
     }
 
@@ -922,9 +864,6 @@ internal static class NSharpCompilerDogfoodAdapter
                 return null;
 
             return new Bindings(
-                CreateDelegate<ParserTokenCompactionIndicesCountedInto>(
-                    programType,
-                    "ParserTokenCompactionIndicesCountedInto"),
                 CreateDelegate<FormatterImportOrderIndicesInto>(
                     programType,
                     "FormatterImportOrderIndicesInto"),
@@ -991,7 +930,6 @@ internal static class NSharpCompilerDogfoodAdapter
         return (TDelegate)Delegate.CreateDelegate(typeof(TDelegate), method);
     }
 
-    private delegate int ParserTokenCompactionIndicesCountedInto(int[] tokenKinds, int tokenCount, int[] resultIndices);
     private delegate int FormatterImportOrderIndicesInto(
         int[] systemFlags,
         int[] nameRanks,
@@ -1054,7 +992,6 @@ internal static class NSharpCompilerDogfoodAdapter
         int[] neverCoveredIndices,
         int[] resultCounts);
     private sealed record Bindings(
-        ParserTokenCompactionIndicesCountedInto ParserTokenCompactionCounted,
         FormatterImportOrderIndicesInto FormatterImportOrderIndices,
         FirstDistinctRankIndicesInto FirstDistinctRankIndices,
         DeclaredTypeUniqueSuffixValueRank DeclaredTypeUniqueSuffixValueRank,
@@ -1066,21 +1003,6 @@ internal static class NSharpCompilerDogfoodAdapter
         AnalyzerMissingMemberIndicesInto AnalyzerMissingMemberIndices,
         AnalyzerUnionMissingCaseIndicesInto AnalyzerUnionMissingCaseIndices,
         OverloadSelectBestCandidate OverloadSelectBestCandidate);
-
-    private sealed class ParserTokenCompactionScratch
-    {
-        internal int[] ResultIndices = Array.Empty<int>();
-        internal int[] TokenKinds = Array.Empty<int>();
-
-        internal void EnsureCapacity(int count)
-        {
-            if (TokenKinds.Length != count)
-            {
-                TokenKinds = new int[count];
-                ResultIndices = new int[count];
-            }
-        }
-    }
 
     private sealed class FormatterImportOrderingScratch
     {

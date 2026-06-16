@@ -232,14 +232,15 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       `NSHARP_COLUMNAR_BACKEND=0` opt-out; remaining self-host work is columnar-owned analysis and the Stage 6
       C# surface shrink.
 - [~] **Stage 6 — delete C#.** Remove the C# binder/analyzer/codegen paths the columnar pipeline replaces;
-      shrink/remove the `*DogfoodAdapter` bridges. Track C# LOC deleted. **Current cursor (2026-06-15):**
+      shrink/remove the `*DogfoodAdapter` bridges. Track C# LOC deleted. **Current cursor (2026-06-16):**
       route-all/default-on has landed, including the Phase-P vectorization port and IF-2 residuals; the C#
       backend remains as the explicit `NSHARP_COLUMNAR_BACKEND=0/false` fallback and as the parity oracle.
       The active blocker is no longer rich-language route coverage. It is replacing transition-era C# surface
       only where columnar ownership is complete, and proving the emitter-port table model before moving hot
       compiler tables. The production emit entry has moved from `NSharpCompilerDogfoodAdapter.TryEmitColumnarProgram*`
       to `ColumnarCompiler.TryEmitProgram*`, and typed `ColumnarProgramInput` construction now lives beside the
-      columnar backend in `ColumnarProgramInputBuilder` instead of the general compiler adapter. Product parser
+      columnar backend in `ColumnarProgramInputBuilder` instead of the general compiler adapter. Parser-token
+      compaction now lives beside `Parser` in `ParserTokenCompactor` instead of the general compiler adapter. Product parser
       wrappers for function, constructor, property, body/local-function, enum, struct/class/record, union, and
       interface routes now compose typed N# cores directly where wrapper ownership is complete, and columnar
       tokenization now compacts parser token kind/start/value-length rows in N# instead of a C# kept-index copy loop;

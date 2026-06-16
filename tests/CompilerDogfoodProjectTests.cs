@@ -23,7 +23,7 @@ public class CompilerDogfoodProjectTests
     // The production-routed parser token-compaction kernel
     // (LexerTokenKindScanner.nl: ParserTokenCompactionIndicesCountedInto) filters newline tokens by the
     // hard-coded integer ordinal 136. The Parser constructor routes through it via
-    // NSharpCompilerDogfoodAdapter.TryCompactParserTokens. If a TokenType member is inserted in the
+    // ParserTokenCompactor.TryCompact. If a TokenType member is inserted in the
     // middle of the enum, Newline's ordinal shifts, the kernel filters the wrong token type, and the
     // parser silently sees stray newline tokens (every braced source then fails to parse). This pins
     // the contract: new TokenType members must be appended at the END of the enum. See Token.cs.
@@ -13751,7 +13751,7 @@ func documented(): int {
     }
 
     [Fact]
-    public void CompilerDogfoodAdapter_CompactsParserTokens()
+    public void ParserTokenCompactor_CompactsParserTokens()
     {
         var source = """
 package CompilerDogfood.Tests
@@ -13762,16 +13762,7 @@ func main(): int {
 }
 """;
         var tokens = new Lexer(source, "test.nl").Tokenize();
-        var adapterType = typeof(Parser).Assembly.GetType("NSharpLang.Compiler.NSharpCompilerDogfoodAdapter")
-            ?? throw new InvalidOperationException("Compiler dogfood adapter type was not emitted.");
-
-        var tryCompactParserTokens = adapterType.GetMethod(
-                "TryCompactParserTokens",
-                BindingFlags.Static | BindingFlags.NonPublic)
-            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryCompactParserTokens.");
-        var compactArgs = new object?[] { tokens, null };
-        Assert.True((bool)(tryCompactParserTokens.Invoke(null, compactArgs) ?? false));
-        var compactedTokens = Assert.IsType<List<Token>>(compactArgs[1]);
+        Assert.True(ParserTokenCompactor.TryCompact(tokens, out var compactedTokens));
 
         var expectedTokens = tokens.Where(static token => token.Type != TokenType.Newline).ToList();
         Assert.Equal(expectedTokens.Select(static token => token.Type), compactedTokens.Select(static token => token.Type));

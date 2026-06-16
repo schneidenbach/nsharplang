@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Parser token compaction leaves the general dogfood adapter
+
+`Parser` now routes newline-token filtering through `ParserTokenCompactor`, a parser-owned host
+boundary that binds the counted N# `ParserTokenCompactionIndicesCountedInto` kernel directly. The
+general `NSharpCompilerDogfoodAdapter` no longer owns the parser-token delegate, scratch arrays, or
+`TryCompactParserTokens` entry point. This keeps the accepted product kernel unchanged while moving
+the C# transition surface beside the parser code that consumes it.
+Focused evidence: `dotnet build src/NSharpLang.Compiler/Compiler.csproj --no-restore` and
+`./scripts/dev.sh ParserTokenCompaction`, plus
+`dotnet test tests/Tests.csproj --no-build --filter "FullyQualifiedName~ParserTokenCompactor_CompactsParserTokens"`.
+
 ## 2026-06-16 — Columnar input builder leaves the general dogfood adapter
 
 `ColumnarCompiler` now builds typed `ColumnarProgramInput` through
