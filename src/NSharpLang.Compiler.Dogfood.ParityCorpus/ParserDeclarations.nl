@@ -1,6 +1,100 @@
 // Flattened declaration parser ABIs retained for parity tests only. Product columnar parsing
 // composes the typed declaration cores directly through ParserColumnarStructs.nl and
-// ParserColumnarUnions.nl.
+// ParserColumnarUnions.nl, ParserColumnarEnums.nl, and ParserInterfaceSignatures.nl.
+
+func ParseInterfaceDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, interfaceIndex: int, outMethodFuncIndices: int[], outBaseNameStarts: int[], outBaseNameLengths: int[], outResult: int[]): int {
+    tokens := new ParserDeclarationTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
+    decl := new InterfaceDeclarationTable { MethodFuncIndices: outMethodFuncIndices, BaseNameStarts: outBaseNameStarts, BaseNameLengths: outBaseNameLengths }
+    result := new ParserDeclarationResultTable { Values: outResult }
+    return ParseInterfaceDeclarationCore(ref tokens, count, interfaceIndex, ref decl, ref result)
+}
+
+func ParseInterfaceDeclarationInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, interfaceIndex: int, outMethodFuncIndices: int[], outBaseNameStarts: int[], outBaseNameLengths: int[], outBaseNameTexts: string[], outInterfaceNameTexts: string[], outResult: int[]): int {
+    tokens := new ParserDeclarationTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
+    decl := new InterfaceDeclarationTable { MethodFuncIndices: outMethodFuncIndices, BaseNameStarts: outBaseNameStarts, BaseNameLengths: outBaseNameLengths }
+    result := new ParserDeclarationResultTable { Values: outResult }
+    methodCount := ParseInterfaceDeclarationCore(ref tokens, count, interfaceIndex, ref decl, ref result)
+    if methodCount < 0 {
+        return -1
+    }
+
+    baseCount := result.Values[2]
+    if outInterfaceNameTexts.Length < 1 || baseCount > outBaseNameTexts.Length {
+        return -1
+    }
+
+    interfaceName := ParserDeclarationSpanText(source, result.Values[0], result.Values[1])
+    if interfaceName == "" {
+        return -1
+    }
+    outInterfaceNameTexts[0] = interfaceName
+
+    i := 0
+    while i < baseCount {
+        baseName := ParserDeclarationSpanText(source, decl.BaseNameStarts[i], decl.BaseNameLengths[i])
+        if baseName == "" {
+            return -1
+        }
+
+        outBaseNameTexts[i] = baseName
+        i = i + 1
+    }
+
+    return methodCount
+}
+
+func ParseEnumDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, enumIndex: int, outNameStarts: int[], outNameLengths: int[], outValueStarts: int[], outValueLengths: int[], outHasValue: int[], outResult: int[]): int {
+    tokens := new ParserDeclarationTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
+    members := new EnumMemberTable { NameStarts: outNameStarts, NameLengths: outNameLengths, ValueStarts: outValueStarts, ValueLengths: outValueLengths, HasValue: outHasValue }
+    result := new ParserDeclarationResultTable { Values: outResult }
+    return ParseEnumDeclarationCore(ref tokens, count, enumIndex, ref members, ref result)
+}
+
+func ParseEnumDeclarationInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, enumIndex: int, outNameStarts: int[], outNameLengths: int[], outValueStarts: int[], outValueLengths: int[], outHasValue: int[], outMemberValues: int[], outResult: int[]): int {
+    tokens := new ParserDeclarationTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
+    members := new EnumMemberTable { NameStarts: outNameStarts, NameLengths: outNameLengths, ValueStarts: outValueStarts, ValueLengths: outValueLengths, HasValue: outHasValue }
+    result := new ParserDeclarationResultTable { Values: outResult }
+    memberCount := ParseEnumDeclarationCore(ref tokens, count, enumIndex, ref members, ref result)
+    if memberCount < 0 {
+        return -1
+    }
+
+    if !ParseEnumMemberValuesInto(source, ref members, memberCount, outMemberValues) {
+        return -1
+    }
+
+    return memberCount
+}
+
+func ParseEnumDeclarationTextInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, enumIndex: int, outNameStarts: int[], outNameLengths: int[], outNameTexts: string[], outValueStarts: int[], outValueLengths: int[], outHasValue: int[], outMemberValues: int[], outEnumNameTexts: string[], outResult: int[]): int {
+    memberCount := ParseEnumDeclarationInfoInto(source, tokenKinds, tokenStarts, tokenValueLengths, count, enumIndex, outNameStarts, outNameLengths, outValueStarts, outValueLengths, outHasValue, outMemberValues, outResult)
+    if memberCount < 0 {
+        return -1
+    }
+
+    if outEnumNameTexts.Length < 1 || memberCount > outNameTexts.Length {
+        return -1
+    }
+
+    enumName := ParserDeclarationSpanText(source, outResult[0], outResult[1])
+    if enumName == "" {
+        return -1
+    }
+    outEnumNameTexts[0] = enumName
+
+    i := 0
+    while i < memberCount {
+        memberName := ParserDeclarationSpanText(source, outNameStarts[i], outNameLengths[i])
+        if memberName == "" {
+            return -1
+        }
+
+        outNameTexts[i] = memberName
+        i = i + 1
+    }
+
+    return memberCount
+}
 
 func ParseStructDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, structIndex: int, outFieldNameStarts: int[], outFieldNameLengths: int[], outFieldTypeStarts: int[], outFieldTypeLengths: int[], outFieldStaticFlags: int[], outFieldInitKinds: int[], outFieldInitStarts: int[], outFieldInitLengths: int[], outMethodFuncIndices: int[], outMethodStaticFlags: int[], outCtorIndices: int[], outPropIndices: int[], outPropStaticFlags: int[], outTypeParamStarts: int[], outTypeParamLengths: int[], outBaseNameStarts: int[], outBaseNameLengths: int[], outResult: int[]): int {
     tokens := new ParserDeclarationTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }

@@ -10905,7 +10905,7 @@ func outer(x: int): int {
         Assert.Contains("ParseColumnarStructInfoInto", methodNames!); // composed struct/class/record text routing
         Assert.Contains("ParseColumnarUnionInfoInto", methodNames!); // composed union text/type routing
         Assert.Contains("ParseConstructorSignatureInfoInto", methodNames!); // ParserConstructorSignatures -> declarations/signatures/types
-        Assert.Contains("ParseInterfaceDeclarationSignatureInfoInto", methodNames!); // ParserInterfaceSignatures -> declarations/signatures/types
+        Assert.Contains("ParseInterfaceDeclarationSignatureInfoCore", methodNames!); // ParserInterfaceSignatures -> declarations/signatures/types
         Assert.Contains("DirectLocalFunctionTokenIndicesInto", methodNames!); // ParserLocalFunctions -> declarations/statements
         Assert.Contains("ParsePrimaryExpressionNode", methodNames!); // ParserExpressions
         Assert.Contains("ParseStatementNodesInto", methodNames!);    // ParserStatements -> ParserExpressions
@@ -10969,10 +10969,16 @@ func outer(x: int): int {
             ("DiagnosticClusters.nl", "IsDiagnosticClusterRootBefore"),
             ("DiagnosticDeduplication.nl", "SortDiagnosticDeduplicationIndices"),
             ("LexerTokenKindScanner.nl", "ScanOperator"),
+            ("ParserDeclarations.nl", "ParseEnumDeclarationInto"),
+            ("ParserDeclarations.nl", "ParseEnumDeclarationInfoInto"),
+            ("ParserDeclarations.nl", "ParseEnumDeclarationTextInfoInto"),
+            ("ParserDeclarations.nl", "ParseInterfaceDeclarationInto"),
+            ("ParserDeclarations.nl", "ParseInterfaceDeclarationInfoInto"),
             ("ParserDeclarations.nl", "ParseStructDeclarationInto"),
             ("ParserDeclarations.nl", "ParseStructDeclarationInfoInto"),
             ("ParserDeclarations.nl", "ParseUnionDeclarationInto"),
             ("ParserDeclarations.nl", "ParseUnionDeclarationInfoInto"),
+            ("ParserInterfaceSignatures.nl", "ParseInterfaceDeclarationSignatureInfoInto"),
             ("ParserExpressions.nl", "ParseExpressionNodesInto"),
             ("ParserTypeReferences.nl", "ParseTypeReferenceNodesInto"),
         })

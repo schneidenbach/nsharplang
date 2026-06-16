@@ -1114,65 +1114,8 @@ func ParserDeclarationTokenTextEquals(source: string, start: int, length: int, e
     return true
 }
 
-// Parser slice (enum bodies): parse ONE enum declaration's members into flat parallel arrays. `enumIndex` is the
-// compacted token index of the `enum` keyword (token 14). Reads the enum NAME (the Identifier immediately after
-// `enum`) into outResult[0]=nameStart / outResult[1]=nameLength, then `{` (129), then comma-separated members until
-// `}` (130). Each member is an Identifier (token 0) optionally followed by `= <int-literal>` (Assign 93 then a
-// number literal, token 1): outNameStarts[m]/outNameLengths[m] = the member name span; outHasValue[m] = 1 with
-// outValueStarts[m]/outValueLengths[m] = the literal span when explicit, else outHasValue[m] = 0. A comma is
-// required between members (a trailing comma before `}` is allowed). Returns the member count, or -1 on any
-// unexpected token (a non-int member value, a `:` underlying-type annotation, attributes, a missing name/brace) so
-// the host declines the whole program to the C# path. Mirrors Parser.cs ParseEnumDeclaration for the int-enum subset.
-// Parse ONE top-level `interface` declaration (at compacted token index `interfaceIndex`):
-// `interface Name [: Base[, ...]] { <method signatures/default methods> }`. Members are `func name(params)
-// [: ret]` signatures, optionally followed by a balanced block body for a C#-8 DEFAULT method; any
-// non-`func` member (bare fields, properties) is -1 (the production pipeline silently
-// DROPS bare members and NL103s property bodies at emit -- declining inherits neither). Each
-// member's `func` token index goes to outMethodFuncIndices (the host parses signatures via the
-// shared ParseFunctionSignature kernel); outResult[0]/[1] = the interface NAME span and outResult[2]
-// = base interface count, with base-name spans in outBaseNameStarts/Lengths. Returns the method
-// count, -1 on any parse failure. Generic interfaces (`<` after the name) remain unmodeled -> -1.
-func ParseInterfaceDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, interfaceIndex: int, outMethodFuncIndices: int[], outBaseNameStarts: int[], outBaseNameLengths: int[], outResult: int[]): int {
-    tokens := new ParserDeclarationTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
-    decl := new InterfaceDeclarationTable { MethodFuncIndices: outMethodFuncIndices, BaseNameStarts: outBaseNameStarts, BaseNameLengths: outBaseNameLengths }
-    result := new ParserDeclarationResultTable { Values: outResult }
-    return ParseInterfaceDeclarationCore(ref tokens, count, interfaceIndex, ref decl, ref result)
-}
-
-func ParseInterfaceDeclarationInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, interfaceIndex: int, outMethodFuncIndices: int[], outBaseNameStarts: int[], outBaseNameLengths: int[], outBaseNameTexts: string[], outInterfaceNameTexts: string[], outResult: int[]): int {
-    tokens := new ParserDeclarationTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
-    decl := new InterfaceDeclarationTable { MethodFuncIndices: outMethodFuncIndices, BaseNameStarts: outBaseNameStarts, BaseNameLengths: outBaseNameLengths }
-    result := new ParserDeclarationResultTable { Values: outResult }
-    methodCount := ParseInterfaceDeclarationCore(ref tokens, count, interfaceIndex, ref decl, ref result)
-    if methodCount < 0 {
-        return -1
-    }
-
-    baseCount := result.Values[2]
-    if outInterfaceNameTexts.Length < 1 || baseCount > outBaseNameTexts.Length {
-        return -1
-    }
-
-    interfaceName := ParserDeclarationSpanText(source, result.Values[0], result.Values[1])
-    if interfaceName == "" {
-        return -1
-    }
-    outInterfaceNameTexts[0] = interfaceName
-
-    i := 0
-    while i < baseCount {
-        baseName := ParserDeclarationSpanText(source, decl.BaseNameStarts[i], decl.BaseNameLengths[i])
-        if baseName == "" {
-            return -1
-        }
-
-        outBaseNameTexts[i] = baseName
-        i = i + 1
-    }
-
-    return methodCount
-}
-
+// Product interface declaration core. Flattened ParseInterfaceDeclaration* ABIs live in the
+// parity corpus; product callers compose this core through ParserInterfaceSignatures.nl.
 func ParseInterfaceDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int, interfaceIndex: int, decl: &InterfaceDeclarationTable, result: &ParserDeclarationResultTable): int {
     pos := interfaceIndex
     if pos >= count || tokens.Kinds[pos] != 10 {
@@ -1249,59 +1192,6 @@ func ParseInterfaceDeclarationCore(tokens: &ParserDeclarationTokenTable, count: 
         return -1
     }
     return methodCount
-}
-
-func ParseEnumDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, enumIndex: int, outNameStarts: int[], outNameLengths: int[], outValueStarts: int[], outValueLengths: int[], outHasValue: int[], outResult: int[]): int {
-    tokens := new ParserDeclarationTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
-    members := new EnumMemberTable { NameStarts: outNameStarts, NameLengths: outNameLengths, ValueStarts: outValueStarts, ValueLengths: outValueLengths, HasValue: outHasValue }
-    result := new ParserDeclarationResultTable { Values: outResult }
-    return ParseEnumDeclarationCore(ref tokens, count, enumIndex, ref members, ref result)
-}
-
-func ParseEnumDeclarationInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, enumIndex: int, outNameStarts: int[], outNameLengths: int[], outValueStarts: int[], outValueLengths: int[], outHasValue: int[], outMemberValues: int[], outResult: int[]): int {
-    tokens := new ParserDeclarationTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
-    members := new EnumMemberTable { NameStarts: outNameStarts, NameLengths: outNameLengths, ValueStarts: outValueStarts, ValueLengths: outValueLengths, HasValue: outHasValue }
-    result := new ParserDeclarationResultTable { Values: outResult }
-    memberCount := ParseEnumDeclarationCore(ref tokens, count, enumIndex, ref members, ref result)
-    if memberCount < 0 {
-        return -1
-    }
-
-    if !ParseEnumMemberValuesInto(source, ref members, memberCount, outMemberValues) {
-        return -1
-    }
-
-    return memberCount
-}
-
-func ParseEnumDeclarationTextInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, enumIndex: int, outNameStarts: int[], outNameLengths: int[], outNameTexts: string[], outValueStarts: int[], outValueLengths: int[], outHasValue: int[], outMemberValues: int[], outEnumNameTexts: string[], outResult: int[]): int {
-    memberCount := ParseEnumDeclarationInfoInto(source, tokenKinds, tokenStarts, tokenValueLengths, count, enumIndex, outNameStarts, outNameLengths, outValueStarts, outValueLengths, outHasValue, outMemberValues, outResult)
-    if memberCount < 0 {
-        return -1
-    }
-
-    if outEnumNameTexts.Length < 1 || memberCount > outNameTexts.Length {
-        return -1
-    }
-
-    enumName := ParserDeclarationSpanText(source, outResult[0], outResult[1])
-    if enumName == "" {
-        return -1
-    }
-    outEnumNameTexts[0] = enumName
-
-    i := 0
-    while i < memberCount {
-        memberName := ParserDeclarationSpanText(source, outNameStarts[i], outNameLengths[i])
-        if memberName == "" {
-            return -1
-        }
-
-        outNameTexts[i] = memberName
-        i = i + 1
-    }
-
-    return memberCount
 }
 
 func ParseEnumMemberValuesInto(source: string, members: &EnumMemberTable, memberCount: int, outMemberValues: int[]): bool {
@@ -1401,6 +1291,8 @@ func ParserDeclarationTryParseIntLiteralInto(source: string, start: int, length:
     return true
 }
 
+// Product enum declaration core. Flattened ParseEnumDeclaration* ABIs live in the parity corpus;
+// product callers compose this core through ParserColumnarEnums.nl.
 func ParseEnumDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int, enumIndex: int, members: &EnumMemberTable, result: &ParserDeclarationResultTable): int {
     pos := enumIndex
     if pos >= count || tokens.Kinds[pos] != 14 {

@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Enum/interface declaration parity ABIs leave product dogfood
+
+The flattened `ParseEnumDeclarationInto`, `ParseEnumDeclarationInfoInto`,
+`ParseEnumDeclarationTextInfoInto`, `ParseInterfaceDeclarationInto`,
+`ParseInterfaceDeclarationInfoInto`, and `ParseInterfaceDeclarationSignatureInfoInto` exports now
+live in the parity corpus instead of shipped compiler-service product files. Product enum and
+interface parsing already routes through `ParseColumnarEnumInfoInto` /
+`ParseColumnarInterfaceInfoInto`, which compose the typed `ParseEnumDeclarationCore`,
+`ParseEnumMemberValuesInto`, and `ParseInterfaceDeclarationSignatureInfoCore` routes directly. The
+product coverage boundary test now pins these ABIs as parity-only while the parity-corpus merge gate
+continues to compile them with the product cores.
+
 ## 2026-06-15 — Struct/union declaration parity ABIs leave product dogfood
 
 The flattened `ParseStructDeclarationInto`, `ParseStructDeclarationInfoInto`,
