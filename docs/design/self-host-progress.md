@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Source-file and stub string ordering leave the general dogfood adapter
+
+`MultiFileCompiler` and `CompilationStubEmitter` now deduplicate source-file paths through
+`SourceFileDeduplicator`, while `CompilationStubEmitter` orders distinct namespace imports through
+`CompilationStubNamespaceOrderer`. Those helpers bind the N# `FirstDistinctRankIndicesInto` and
+`ReferenceFileSummaryRanksInto` kernels beside their compiler/stub consumers. The general
+`NSharpCompilerDogfoodAdapter` no longer owns the string-dedup route, the distinct-string ordering
+route, their scratch storage, or the `ReferenceFileSummaryRanksInto` binding.
+Focused evidence: `dotnet build src/NSharpLang.Compiler/Compiler.csproj --no-restore` and
+`dotnet test tests/Tests.csproj --filter "FullyQualifiedName~SourceFileDeduplicator_DeduplicatesFirstStringsOrdinalIgnoreCase|FullyQualifiedName~CompilationStubNamespaceOrderer_DistinctOrdersStringsOrdinal|FullyQualifiedName~MultiFileCompiler_DeduplicatesSourceFilesOrdinalIgnoreCase|FullyQualifiedName~CompilationStubEmitter_DeduplicatesSourceFilesBeforeParsing|FullyQualifiedName~CompilationStubEmitter_UsesDogfoodNamespaceImportOrdering"`.
+
 ## 2026-06-16 — Formatter import ordering leaves the general dogfood adapter
 
 `Formatter.Format` now routes import ordering through `FormatterImportOrderer`, which binds the N#

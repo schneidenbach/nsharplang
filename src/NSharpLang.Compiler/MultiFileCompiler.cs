@@ -155,7 +155,7 @@ public class MultiFileCompiler
 
     private static List<string> DeduplicateSourceFilesOrdinalIgnoreCase(IReadOnlyList<string> sourceFiles)
     {
-        return NSharpCompilerDogfoodAdapter.TryDeduplicateFirstStringsOrdinalIgnoreCase(sourceFiles, out var dogfoodSourceFiles)
+        return SourceFileDeduplicator.TryDeduplicateOrdinalIgnoreCase(sourceFiles, out var dogfoodSourceFiles)
             ? dogfoodSourceFiles
             : sourceFiles.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
     }

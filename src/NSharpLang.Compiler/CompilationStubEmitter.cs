@@ -43,7 +43,7 @@ public static class CompilationStubEmitter
 
     private static List<string> DeduplicateSourceFilesOrdinalIgnoreCase(IReadOnlyList<string> sourceFiles)
     {
-        return NSharpCompilerDogfoodAdapter.TryDeduplicateFirstStringsOrdinalIgnoreCase(sourceFiles, out var dogfoodSourceFiles)
+        return SourceFileDeduplicator.TryDeduplicateOrdinalIgnoreCase(sourceFiles, out var dogfoodSourceFiles)
             ? dogfoodSourceFiles
             : sourceFiles.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
     }
@@ -175,7 +175,7 @@ public static class CompilationStubEmitter
             }
 
             IEnumerable<string> orderedNamespaceNames;
-            if (NSharpCompilerDogfoodAdapter.TryDistinctOrderStringsOrdinal(namespaceNames, out var dogfoodNamespaceNames))
+            if (CompilationStubNamespaceOrderer.TryDistinctOrderOrdinal(namespaceNames, out var dogfoodNamespaceNames))
             {
                 orderedNamespaceNames = dogfoodNamespaceNames;
             }

@@ -13,10 +13,6 @@ internal static class NSharpCompilerDogfoodAdapter
     [ThreadStatic]
     private static FirstDistinctTypeKeyScratch? t_firstDistinctTypeKeyScratch;
     [ThreadStatic]
-    private static FirstDistinctStringScratch? t_firstDistinctStringScratch;
-    [ThreadStatic]
-    private static DistinctOrderedStringScratch? t_distinctOrderedStringScratch;
-    [ThreadStatic]
     private static DeclaredTypeSuffixLookupScratch? t_declaredTypeSuffixLookupScratch;
     [ThreadStatic]
     private static DeclaredTypeNameCandidateScratch? t_declaredTypeNameCandidateScratch;
@@ -28,6 +24,7 @@ internal static class NSharpCompilerDogfoodAdapter
     private static MissingEnumMemberScratch? t_missingEnumMemberScratch;
     [ThreadStatic]
     private static MissingUnionCaseScratch? t_missingUnionCaseScratch;
+    [ThreadStatic]
     private static OverloadCandidateScratch? t_overloadCandidateScratch;
 
     internal static bool TryDeduplicateFirstTypeKeys(
@@ -92,156 +89,6 @@ internal static class NSharpCompilerDogfoodAdapter
         finally
         {
             scratch.ResetKeys();
-        }
-    }
-
-    internal static bool TryDeduplicateFirstStringsOrdinalIgnoreCase(
-        IReadOnlyList<string> values,
-        out List<string> deduplicatedValues)
-    {
-        deduplicatedValues = [];
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        var valueCount = values.Count;
-        if (valueCount == 0)
-            return true;
-
-        var scratch = t_firstDistinctStringScratch ??= new FirstDistinctStringScratch(StringComparer.OrdinalIgnoreCase);
-        scratch.EnsureCapacity(valueCount);
-
-        try
-        {
-            scratch.ResetKeys();
-            for (var i = 0; i < valueCount; i++)
-            {
-                var value = values[i];
-                if (value == null)
-                {
-                    deduplicatedValues = [];
-                    return false;
-                }
-
-                scratch.Ranks[i] = scratch.AddKey(value);
-            }
-
-            var deduplicatedCount = bindings.FirstDistinctRankIndices(
-                scratch.Ranks,
-                scratch.UniqueKeyCount,
-                scratch.SeenRanks,
-                scratch.ResultIndices);
-
-            if (deduplicatedCount < 0 || deduplicatedCount > valueCount || deduplicatedCount > scratch.ResultIndices.Length)
-            {
-                deduplicatedValues = [];
-                return false;
-            }
-
-            var result = new List<string>(deduplicatedCount);
-            for (var i = 0; i < deduplicatedCount; i++)
-            {
-                var sourceIndex = scratch.ResultIndices[i];
-                if (sourceIndex < 0 || sourceIndex >= valueCount)
-                {
-                    deduplicatedValues = [];
-                    return false;
-                }
-
-                result.Add(values[sourceIndex]);
-            }
-
-            deduplicatedValues = result;
-            return true;
-        }
-        catch
-        {
-            deduplicatedValues = [];
-            return false;
-        }
-        finally
-        {
-            scratch.ResetKeys();
-        }
-    }
-
-    internal static bool TryDistinctOrderStringsOrdinal(
-        IReadOnlyList<string> values,
-        out string[] orderedValues)
-    {
-        orderedValues = Array.Empty<string>();
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        var valueCount = values.Count;
-        if (valueCount == 0)
-            return true;
-
-        var scratch = t_distinctOrderedStringScratch ??= new DistinctOrderedStringScratch();
-        scratch.EnsureCapacity(valueCount);
-
-        try
-        {
-            scratch.ResetValues();
-            for (var i = 0; i < valueCount; i++)
-            {
-                var value = values[i];
-                if (value == null)
-                {
-                    orderedValues = Array.Empty<string>();
-                    return false;
-                }
-
-                scratch.Values[i] = value;
-                scratch.AddValue(value);
-            }
-
-            scratch.BuildRanks();
-            for (var i = 0; i < valueCount; i++)
-            {
-                scratch.ValueRanks[i] = scratch.GetRank(scratch.Values[i]);
-            }
-
-            var orderedCount = bindings.ReferenceFileSummaryRanks(
-                scratch.ValueRanks,
-                scratch.UniqueValueCount,
-                scratch.CountsByRank,
-                scratch.ResultRanks);
-
-            if (orderedCount < 0 || orderedCount > scratch.UniqueValueCount || orderedCount > scratch.ResultRanks.Length)
-            {
-                orderedValues = Array.Empty<string>();
-                return false;
-            }
-
-            var result = new string[orderedCount];
-            for (var i = 0; i < orderedCount; i++)
-            {
-                var rank = scratch.ResultRanks[i];
-                if (rank <= 0 || rank > scratch.UniqueValueCount)
-                {
-                    orderedValues = Array.Empty<string>();
-                    return false;
-                }
-
-                result[i] = scratch.UniqueValues[rank - 1];
-            }
-
-            orderedValues = result;
-            return true;
-        }
-        catch
-        {
-            orderedValues = Array.Empty<string>();
-            return false;
-        }
-        finally
-        {
-            scratch.ClearValues(valueCount);
-            scratch.ResetValues();
         }
     }
 
@@ -708,9 +555,6 @@ internal static class NSharpCompilerDogfoodAdapter
                 CreateDelegate<TypeCreationOrderIndicesInto>(
                     programType,
                     "TypeCreationOrderIndicesInto"),
-                CreateDelegate<ReferenceFileSummaryRanksInto>(
-                    programType,
-                    "ReferenceFileSummaryRanksInto"),
                 CreateDelegate<AnonymousUnionDeclaresPublicShim>(
                     programType,
                     "AnonymousUnionDeclaresPublicShim"),
@@ -782,11 +626,6 @@ internal static class NSharpCompilerDogfoodAdapter
         int[] depthCounts,
         int[] depthOffsets,
         int[] resultIndices);
-    private delegate int ReferenceFileSummaryRanksInto(
-        int[] fileRanks,
-        int uniqueFileCount,
-        int[] countsByRank,
-        int[] resultRanks);
     private delegate int AnonymousUnionDeclaresPublicShim(int[] parameterFlags, int count);
     private delegate int OverloadSelectBestCandidate(
         int[] validFlags,
@@ -809,7 +648,6 @@ internal static class NSharpCompilerDogfoodAdapter
         DeclaredTypeUniqueSuffixValueRank DeclaredTypeUniqueSuffixValueRank,
         DeclaredTypeNameCandidateIndex DeclaredTypeNameCandidateIndex,
         TypeCreationOrderIndicesInto TypeCreationOrderIndices,
-        ReferenceFileSummaryRanksInto ReferenceFileSummaryRanks,
         AnonymousUnionDeclaresPublicShim AnonymousUnionDeclaresPublicShim,
         AnalyzerMissingMemberIndicesInto AnalyzerMissingMemberIndices,
         AnalyzerUnionMissingCaseIndicesInto AnalyzerUnionMissingCaseIndices,
@@ -934,109 +772,6 @@ internal static class NSharpCompilerDogfoodAdapter
         {
             _keyRanks.Clear();
             UniqueKeyCount = 0;
-        }
-    }
-
-    private sealed class FirstDistinctStringScratch(IEqualityComparer<string> comparer)
-    {
-        private readonly Dictionary<string, int> _keyRanks = new(comparer);
-
-        internal int[] Ranks = Array.Empty<int>();
-        internal int[] ResultIndices = Array.Empty<int>();
-        internal int[] SeenRanks = Array.Empty<int>();
-        internal int UniqueKeyCount;
-
-        internal void EnsureCapacity(int count)
-        {
-            if (Ranks.Length != count)
-            {
-                Ranks = new int[count];
-                ResultIndices = new int[count];
-            }
-
-            var rankCapacity = count + 1;
-            if (SeenRanks.Length != rankCapacity)
-            {
-                SeenRanks = new int[rankCapacity];
-            }
-        }
-
-        internal int AddKey(string key)
-        {
-            if (_keyRanks.TryGetValue(key, out var rank))
-                return rank;
-
-            rank = ++UniqueKeyCount;
-            _keyRanks.Add(key, rank);
-            return rank;
-        }
-
-        internal void ResetKeys()
-        {
-            _keyRanks.Clear();
-            UniqueKeyCount = 0;
-        }
-    }
-
-    private sealed class DistinctOrderedStringScratch
-    {
-        private readonly Dictionary<string, int> _valueRanks = new(StringComparer.Ordinal);
-
-        internal int[] CountsByRank = Array.Empty<int>();
-        internal int[] ResultRanks = Array.Empty<int>();
-        internal string[] UniqueValues = Array.Empty<string>();
-        internal int[] ValueRanks = Array.Empty<int>();
-        internal string[] Values = Array.Empty<string>();
-        internal int UniqueValueCount;
-
-        internal void EnsureCapacity(int count)
-        {
-            if (ValueRanks.Length != count)
-            {
-                ValueRanks = new int[count];
-                Values = new string[count];
-                ResultRanks = new int[count];
-                UniqueValues = new string[count];
-            }
-
-            var rankCapacity = count + 1;
-            if (CountsByRank.Length != rankCapacity)
-            {
-                CountsByRank = new int[rankCapacity];
-            }
-        }
-
-        internal void AddValue(string value)
-        {
-            if (_valueRanks.ContainsKey(value))
-                return;
-
-            _valueRanks.Add(value, 0);
-            UniqueValues[UniqueValueCount] = value;
-            UniqueValueCount++;
-        }
-
-        internal void BuildRanks()
-        {
-            Array.Sort(UniqueValues, 0, UniqueValueCount, StringComparer.Ordinal);
-            for (var i = 0; i < UniqueValueCount; i++)
-            {
-                _valueRanks[UniqueValues[i]] = i + 1;
-            }
-        }
-
-        internal int GetRank(string value) => _valueRanks[value];
-
-        internal void ClearValues(int count) => Array.Clear(Values, 0, count);
-
-        internal void ResetValues()
-        {
-            _valueRanks.Clear();
-            if (UniqueValueCount > 0)
-            {
-                Array.Clear(UniqueValues, 0, UniqueValueCount);
-                UniqueValueCount = 0;
-            }
         }
     }
 

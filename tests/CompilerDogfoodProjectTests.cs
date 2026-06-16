@@ -14001,7 +14001,7 @@ func main(): int {
     }
 
     [Fact]
-    public void CompilerDogfoodAdapter_DeduplicatesFirstStringsOrdinalIgnoreCase()
+    public void SourceFileDeduplicator_DeduplicatesFirstStringsOrdinalIgnoreCase()
     {
         var paths = new[]
         {
@@ -14011,16 +14011,7 @@ func main(): int {
             "/repo/src/Feature.nl",
             "/repo/src/shared.nl"
         };
-        var adapterType = typeof(Parser).Assembly.GetType("NSharpLang.Compiler.NSharpCompilerDogfoodAdapter")
-            ?? throw new InvalidOperationException("Compiler dogfood adapter type was not emitted.");
-
-        var tryDeduplicateFirstStringsOrdinalIgnoreCase = adapterType.GetMethod(
-                "TryDeduplicateFirstStringsOrdinalIgnoreCase",
-                BindingFlags.Static | BindingFlags.NonPublic)
-            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryDeduplicateFirstStringsOrdinalIgnoreCase.");
-        var args = new object?[] { paths, null };
-        Assert.True((bool)(tryDeduplicateFirstStringsOrdinalIgnoreCase.Invoke(null, args) ?? false));
-        var deduplicatedPaths = Assert.IsType<List<string>>(args[1]);
+        Assert.True(SourceFileDeduplicator.TryDeduplicateOrdinalIgnoreCase(paths, out var deduplicatedPaths));
 
         Assert.Equal(new[]
         {
@@ -14031,7 +14022,7 @@ func main(): int {
     }
 
     [Fact]
-    public void CompilerDogfoodAdapter_DistinctOrdersStringsOrdinal()
+    public void CompilationStubNamespaceOrderer_DistinctOrdersStringsOrdinal()
     {
         var names = new[]
         {
@@ -14041,16 +14032,7 @@ func main(): int {
             "Beta",
             "alpha"
         };
-        var adapterType = typeof(Parser).Assembly.GetType("NSharpLang.Compiler.NSharpCompilerDogfoodAdapter")
-            ?? throw new InvalidOperationException("Compiler dogfood adapter type was not emitted.");
-
-        var tryDistinctOrderStringsOrdinal = adapterType.GetMethod(
-                "TryDistinctOrderStringsOrdinal",
-                BindingFlags.Static | BindingFlags.NonPublic)
-            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryDistinctOrderStringsOrdinal.");
-        var args = new object?[] { names, null };
-        Assert.True((bool)(tryDistinctOrderStringsOrdinal.Invoke(null, args) ?? false));
-        var orderedNames = Assert.IsType<string[]>(args[1]);
+        Assert.True(CompilationStubNamespaceOrderer.TryDistinctOrderOrdinal(names, out var orderedNames));
 
         Assert.Equal(new[]
         {

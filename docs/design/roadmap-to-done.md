@@ -242,7 +242,9 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       columnar backend in `ColumnarProgramInputBuilder` instead of the general compiler adapter. Parser-token
       compaction now lives beside `Parser` in `ParserTokenCompactor`, and project source filtering now lives beside
       `ProjectConfig` in `ProjectSourceFileFilter`; formatter import ordering now lives beside `Formatter` in
-      `FormatterImportOrderer`, instead of the general compiler adapter. Product parser
+      `FormatterImportOrderer`; source-file dedup and stub namespace ordering now live beside their compiler/stub
+      consumers in `SourceFileDeduplicator` and `CompilationStubNamespaceOrderer`, instead of the general compiler
+      adapter. Product parser
       wrappers for function, constructor, property, body/local-function, enum, struct/class/record, union, and
       interface routes now compose typed N# cores directly where wrapper ownership is complete, and columnar
       tokenization now compacts parser token kind/start/value-length rows in N# instead of a C# kept-index copy loop;
