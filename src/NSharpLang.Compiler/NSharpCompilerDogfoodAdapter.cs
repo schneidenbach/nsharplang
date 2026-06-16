@@ -97,16 +97,12 @@ internal static class NSharpCompilerDogfoodAdapter
             int[] rawKinds,
             int[] rawStarts,
             int[] rawValueLengths,
-            int[] rawLines,
-            int[] rawColumns,
             int rawCount,
             int[] kinds, int[] starts, int[] valueLengths, int count)
         {
             RawKinds = rawKinds;
             RawStarts = rawStarts;
             RawValueLengths = rawValueLengths;
-            RawLines = rawLines;
-            RawColumns = rawColumns;
             RawCount = rawCount;
             Kinds = kinds;
             Starts = starts;
@@ -117,8 +113,6 @@ internal static class NSharpCompilerDogfoodAdapter
         internal int[] RawKinds { get; }
         internal int[] RawStarts { get; }
         internal int[] RawValueLengths { get; }
-        internal int[] RawLines { get; }
-        internal int[] RawColumns { get; }
         internal int RawCount { get; }
         internal int[] Kinds { get; }
         internal int[] Starts { get; }
@@ -150,7 +144,7 @@ internal static class NSharpCompilerDogfoodAdapter
                 return false;
 
             tokens = new ColumnarTokenizedSource(
-                rawKinds, rawStarts, rawValueLengths, rawLines, rawColumns, rawCount,
+                rawKinds, rawStarts, rawValueLengths, rawCount,
                 kinds, starts, valueLengths, count);
             return true;
         }

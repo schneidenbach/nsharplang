@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Columnar token transition drops unused line/column storage
+
+`NSharpCompilerDogfoodAdapter` no longer carries raw lexer line/column arrays in its
+`ColumnarTokenizedSource` product token bundle. The current N# lexer ABI still receives line/column
+scratch arrays for indentation-brace insertion, but the C# transition object now keeps only the raw
+kind/start/value-length columns needed by `TopLevelColumnarProgramDeclarationIndicesInto` plus the
+compacted parser token columns consumed by the columnar parser route.
+
 ## 2026-06-16 — Function where-owner parity ABI leaves product dogfood
 
 The flattened `FunctionSignatureWhereOwnerIndicesInto` export now lives in the parity corpus.
