@@ -348,6 +348,25 @@ interface IBad {
                 parseInterfaceDeclarationSignatureInfo,
                 parseColumnarInterfaceInfo,
                 "generic interface method");
+            AssertColumnarInterfaceInfoDeclinesOnly(
+                """
+interface IBad {
+    func Read(id: int): int
+    func Read(other: int): int
+}
+""",
+                tokenizeWithIndentation,
+                parseColumnarInterfaceInfo,
+                "duplicate interface method");
+            AssertColumnarInterfaceInfoDeclinesOnly(
+                """
+interface IBad {
+    func Read(id: int, id: int): int
+}
+""",
+                tokenizeWithIndentation,
+                parseColumnarInterfaceInfo,
+                "duplicate interface method parameter");
             AssertStructDeclarationInfo(
                 """
 class Pair<T> {
@@ -1779,6 +1798,41 @@ class B
                 new int[8]
             }) ?? -2);
         Assert.Equal(-1, actual);
+        Assert.Equal(-1, columnarActual);
+    }
+
+    private static void AssertColumnarInterfaceInfoDeclinesOnly(
+        string source,
+        MethodInfo tokenizeWithIndentation,
+        MethodInfo parseColumnarInterfaceInfo,
+        string label)
+    {
+        var (count, kinds, starts, valueLengths, compactedSource) = TokenizeSourceViaKernel(source, tokenizeWithIndentation);
+        var interfaceIndex = FirstTokenIndex(kinds, count, (int)TokenType.Interface);
+        Assert.True(interfaceIndex >= 0, $"Could not locate interface token for {label}.");
+
+        var cap = count + 1;
+        var columnarActual = (int)(parseColumnarInterfaceInfo.Invoke(
+            null,
+            new object[]
+            {
+                compactedSource,
+                kinds,
+                starts,
+                valueLengths,
+                count,
+                interfaceIndex,
+                new int[cap],
+                new string[cap],
+                new string[1],
+                new string[cap],
+                new string[cap],
+                new int[cap],
+                new int[cap],
+                new string[cap],
+                new string[cap],
+                new int[8]
+            }) ?? -2);
         Assert.Equal(-1, columnarActual);
     }
 
@@ -8306,6 +8360,9 @@ func outer(x: int): int {
         // registries now enforce uniqueness ACROSS kinds (review-found over-accept, pre-existing
         // for enum/struct/union pairs and widened by each new type family);
         Assert.False(RouteColumnarProgram("enum Color {\n    Red,\n    Green\n}\n\ninterface Color {\n    func C(): int\n}\n\nfunc f(): int {\n    return 1\n}\n").Ok);
+        // Duplicate interface method names and duplicate parameter names are rejected by the N# columnar parser before emission.
+        Assert.False(RouteColumnarProgram("interface IBad {\n    func A(): int\n    func A(x: int): int\n}\n\nfunc f(): int {\n    return 1\n}\n").Ok);
+        Assert.False(RouteColumnarProgram("interface IBad {\n    func A(x: int, x: int): int\n}\n\nfunc f(): int {\n    return 1\n}\n").Ok);
         // DECLINES — oracle-ACCEPTED (later rungs): expression-bodied default interface methods.
         Assert.False(RouteColumnarProgram("interface IExprDefault {\n    func Score(): int => 41\n}\n\nfunc f(): int {\n    return 1\n}\n").Ok);
         // Local functions inside default interface methods remain a later rung and now decline in the N#

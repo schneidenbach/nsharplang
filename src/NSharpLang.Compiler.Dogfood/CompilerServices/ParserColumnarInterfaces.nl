@@ -57,6 +57,13 @@ func ParseColumnarInterfaceInfoCore(source: string, tokens: &ColumnarInterfaceTo
         return -1
     }
 
+    if ColumnarInterfaceMethodNamesDistinct(ref outputs, methodCount) == 0 {
+        return -1
+    }
+    if ColumnarInterfaceMethodParamNamesDistinct(ref outputs, methodCount) == 0 {
+        return -1
+    }
+
     tokenValues := new ColumnarInterfaceTokenTable { Kinds: tokens.Kinds, Starts: tokens.Starts, ValueLengths: tokens.ValueLengths, Count: tokens.Count }
     outputValues := new ColumnarInterfaceOutputTable { MethodFuncIndices: outputs.MethodFuncIndices, BaseNameTexts: outputs.BaseNameTexts, InterfaceNameTexts: outputs.InterfaceNameTexts, MethodNameTexts: outputs.MethodNameTexts, MethodReturnTexts: outputs.MethodReturnTexts, MethodParamCounts: outputs.MethodParamCounts, MethodBodyFlags: outputs.MethodBodyFlags, MethodParamNameTexts: outputs.MethodParamNameTexts, MethodParamTypeTexts: outputs.MethodParamTypeTexts }
     localStatus := InterfaceDefaultMethodLocalFunctionStatus(source, tokenValues, outputValues, methodCount)
@@ -65,6 +72,76 @@ func ParseColumnarInterfaceInfoCore(source: string, tokens: &ColumnarInterfaceTo
     }
 
     return methodCount
+}
+
+func ColumnarInterfaceMethodNamesDistinct(outputs: &ColumnarInterfaceOutputTable, methodCount: int): int {
+    if methodCount < 0 {
+        return 0
+    }
+
+    i := 0
+    while i < methodCount {
+        if outputs.MethodNameTexts[i] == "" {
+            return 0
+        }
+
+        j := i + 1
+        while j < methodCount {
+            if outputs.MethodNameTexts[i] == outputs.MethodNameTexts[j] {
+                return 0
+            }
+
+            j = j + 1
+        }
+
+        i = i + 1
+    }
+
+    return 1
+}
+
+func ColumnarInterfaceMethodParamNamesDistinct(outputs: &ColumnarInterfaceOutputTable, methodCount: int): int {
+    if methodCount < 0 {
+        return 0
+    }
+
+    paramOffset := 0
+    m := 0
+    while m < methodCount {
+        paramCount := outputs.MethodParamCounts[m]
+        if paramCount < 0 {
+            return 0
+        }
+
+        i := 0
+        while i < paramCount {
+            leftIndex := paramOffset + i
+            if leftIndex < 0 || leftIndex >= outputs.MethodParamNameTexts.Length || outputs.MethodParamNameTexts[leftIndex] == "" {
+                return 0
+            }
+
+            j := i + 1
+            while j < paramCount {
+                rightIndex := paramOffset + j
+                if rightIndex < 0 || rightIndex >= outputs.MethodParamNameTexts.Length {
+                    return 0
+                }
+
+                if outputs.MethodParamNameTexts[leftIndex] == outputs.MethodParamNameTexts[rightIndex] {
+                    return 0
+                }
+
+                j = j + 1
+            }
+
+            i = i + 1
+        }
+
+        paramOffset = paramOffset + paramCount
+        m = m + 1
+    }
+
+    return 1
 }
 
 func InterfaceDefaultMethodLocalFunctionStatus(source: string, tokens: ColumnarInterfaceTokenTable, outputs: ColumnarInterfaceOutputTable, methodCount: int): int {

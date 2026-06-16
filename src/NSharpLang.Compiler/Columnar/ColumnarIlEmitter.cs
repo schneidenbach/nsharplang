@@ -2904,8 +2904,7 @@ internal sealed class ColumnarIlEmitter
                     iface.MethodNames[m],
                     methodAttributes,
                     memberReturn, memberParams);
-                if (!interfaceDef.Methods.TryAdd(iface.MethodNames[m], (abstractMethod, memberParams, memberReturn)))
-                    return false; // duplicate interface member.
+                interfaceDef.Methods[iface.MethodNames[m]] = (abstractMethod, memberParams, memberReturn);
                 if (hasDefaultBody)
                 {
                     interfaceDef.DefaultInterfaceMethodNames.Add(iface.MethodNames[m]);
@@ -2913,8 +2912,7 @@ internal sealed class ColumnarIlEmitter
                     var memberParamTypes = new Dictionary<string, Type>(StringComparer.Ordinal);
                     for (var p = 0; p < memberParams.Length; p++)
                     {
-                        if (!memberOrdinals.TryAdd(iface.MethodParamNames[m][p], p + 1))
-                            return false;
+                        memberOrdinals[iface.MethodParamNames[m][p]] = p + 1;
                         memberParamTypes[iface.MethodParamNames[m][p]] = memberParams[p];
                     }
                     interfaceMethodJobs.Add((interfaceDef, iface.MethodBodies[m]!, abstractMethod, memberReturn, memberOrdinals, memberParamTypes));
