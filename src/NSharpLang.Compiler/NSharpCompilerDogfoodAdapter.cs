@@ -278,7 +278,7 @@ internal static class NSharpCompilerDogfoodAdapter
                 var outStructNameTexts = new string[1];
                 var outResult = new int[12];
                 var fieldCount = bindings.ParseColumnarStructInfo(
-                    source, ck, cs, cv, n, structIndex, outFieldNameTexts, outFieldTypeTexts,
+                    source, ck, cs, cv, n, structIndex, isRecord ? 1 : 0, outFieldNameTexts, outFieldTypeTexts,
                     outFieldStaticFlags, outFieldInitKinds, outFieldInitTexts,
                     outMethodFuncIndices, outMethodStaticFlags, outCtorIndices, outPropIndices, outPropStaticFlags,
                     outTypeParamTexts, outBaseNameTexts, outStructNameTexts, outResult);
@@ -363,12 +363,6 @@ internal static class NSharpCompilerDogfoodAdapter
                 // like a nameless, void-returning function — the adapter verifies the identifier text is literally
                 // "constructor" and that there is no return type / chaining initializer (decline otherwise).
                 var ctorCount = outResult[3];
-                // A RECORD with a USER CONSTRUCTOR declines (generic or not): the pipeline silently DROPS the
-                // ctor body's field assignments (a record ctor emits only the base call — `new R(5)` yields
-                // x==0 where columnar's faithful emit yields 5; adversarial-review finding, probe-confirmed
-                // BOTH builds). Until the oracle defect is fixed, accepting would emit DIFFERENT-behavior IL.
-                if (isRecord && ctorCount > 0)
-                    return false;
                 var constructors = new System.Collections.Generic.List<Columnar.ColumnarConstructorInput>(ctorCount);
                 for (var c = 0; c < ctorCount; c++)
                 {
@@ -2027,6 +2021,7 @@ internal static class NSharpCompilerDogfoodAdapter
     private delegate int ParseColumnarStructInfoInto(
         string source,
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int structIndex,
+        int isRecord,
         string[] outFieldNameTexts, string[] outFieldTypeTexts,
         int[] outFieldStaticFlags, int[] outFieldInitKinds, string[] outFieldInitTexts,
         int[] outMethodFuncIndices, int[] outMethodStaticFlags, int[] outCtorIndices, int[] outPropIndices, int[] outPropStaticFlags,

@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Record constructor decline moves into N# struct parser
+
+`ParseColumnarStructInfoInto` now receives the declaration's record flag and
+`ParseColumnarStructInfoCore` rejects record declarations that include user constructors before rows
+return to the C# transition adapter. The adapter no longer performs the duplicate
+`isRecord && ctorCount > 0` check after the constructor rowset has been materialized; record
+constructors remain unsupported until the oracle stops dropping their field assignments, but the
+product N# parser wrapper now owns that route-safety decision.
+
 ## 2026-06-16 — Generic base-chain decline moves into N# struct parser
 
 `ParseColumnarStructInfoCore` now rejects generic struct/class/record declarations that also name a
