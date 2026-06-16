@@ -681,7 +681,7 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
 
     internal static PublishArgumentSummary GetPublishArgumentSummary(string[] args)
     {
-        if (NSharpCliDogfoodAdapter.TryGetPublishArgumentSummary(args, out var summary))
+        if (PublishCommandKernels.TryGetArgumentSummary(args, out var summary))
             return summary;
 
         return new PublishArgumentSummary(

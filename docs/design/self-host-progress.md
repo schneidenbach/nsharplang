@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Publish no-argument summary leaves the CLI dogfood adapter
+
+`nlc publish` no-argument option summary now routes the accepted N# `CliPublishOptionsInto` kernel
+through `PublishCommandKernels`, an owner-local helper beside the publish command path in `Program`.
+The broad CLI dogfood adapter no longer owns the publish entry point, delegate binding, or option
+index scratch array. Option-bearing publish invocations still use the C# parser fallback because
+their benchmark evidence remains below the production speed gate.
+Focused evidence: `dotnet build src/NSharpLang.Cli/Cli.csproj --no-restore`; `dotnet test
+tests/Tests.csproj --filter "FullyQualifiedName~CliCommandTests.PublishCommandKernels_NormalizesDefaultOptionsAndFallbackValidation"`;
+`./scripts/dev.sh --since`.
+
 ## 2026-06-16 — Run source operand selection leaves the CLI dogfood adapter
 
 `nlc run` source operand discovery now routes the accepted N# `CliRunFirstOperandIndex` kernel

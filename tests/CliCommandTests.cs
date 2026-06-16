@@ -1071,9 +1071,9 @@ func Main() {
     }
 
     [Fact]
-    public void PublishCommand_DogfoodAdapter_NormalizesDefaultOptionsAndFallbackValidation()
+    public void PublishCommandKernels_NormalizesDefaultOptionsAndFallbackValidation()
     {
-        Assert.True(NSharpCliDogfoodAdapter.TryGetPublishArgumentSummary(
+        Assert.True(PublishCommandKernels.TryGetArgumentSummary(
             Array.Empty<string>(),
             out var defaultSummary));
         Assert.Null(defaultSummary.ValidationError);
@@ -1084,6 +1084,7 @@ func Main() {
         Assert.Null(defaultSummary.Runtime);
         Assert.False(defaultSummary.SelfContained);
         Assert.False(defaultSummary.Aot);
+        Assert.False(PublishCommandKernels.TryGetArgumentSummary(new[] { "-c", "Debug" }, out _));
 
         var args = new[]
         {

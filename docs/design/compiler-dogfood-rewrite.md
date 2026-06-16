@@ -1487,10 +1487,10 @@ about 358x faster on the representative argument corpus (4.988 ns vs 1,786.022 n
 BenchmarkDotNet evidence tier for the default no-argument `nlc publish` option summary. It ran
 about 12.0x faster than the previous C# parser shape (9.550 ns vs 114.938 ns, 0 B vs 936 B), which
 allocated validation sets before discovering there were no options. `PublishCommand` now routes only
-this no-argument path through `NSharpCliDogfoodAdapter.TryGetPublishArgumentSummary`; option-bearing
-publish invocations remain on the exact C# fallback because the same benchmark measured only about
-4.1x for a realistic 18-token publish command (53.578 ns vs 220.507 ns) and about 2.6x at 64
-tokens (140.409 ns vs 368.786 ns), below the production speed gate.
+this no-argument path through `PublishCommandKernels`; option-bearing publish invocations remain on
+the exact C# fallback because the same benchmark measured only about 4.1x for a realistic 18-token
+publish command (53.578 ns vs 220.507 ns) and about 2.6x at 64 tokens (140.409 ns vs 368.786 ns),
+below the production speed gate.
 
 `CliExportCSharpFirstOperandIndexInto` passed parity and reported zero managed allocation in the
 short BenchmarkDotNet evidence tier for source-first `nlc export csharp` input operand discovery.
