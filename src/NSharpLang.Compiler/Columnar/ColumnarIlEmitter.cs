@@ -3138,8 +3138,6 @@ internal sealed class ColumnarIlEmitter
                     structMethodJobs.Add((def, m, smb, sReturn, sOrdinals, sParamTypeMap, true));
                     continue;
                 }
-                if (m.ReturnCanonical == "void")
-                    return false; // void instance methods are a later slice.
                 // An instance method sharing its name with a STATIC method is NL306 — decline (the static may have
                 // been declared first when source order is static-then-instance).
                 if (def.StaticMethods.ContainsKey(m.Name))

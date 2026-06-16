@@ -11,6 +11,12 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Void instance-method decline moves into N# struct parser
+
+`ParseColumnarStructInfoCore` now rejects non-static member methods whose composed function signature
+returns `void`, while leaving static void methods on the accepted route. The emitter-side void instance
+method guard was removed.
+
 ## 2026-06-16 — Constructor local-function decline moves into N# struct parser
 
 `ParseColumnarStructInfoCore` now composes the constructor parser with direct local-function discovery and

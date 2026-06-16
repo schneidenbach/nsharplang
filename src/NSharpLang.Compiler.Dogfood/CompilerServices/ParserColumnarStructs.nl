@@ -245,6 +245,9 @@ func ColumnarStructMethodUnsupportedStatus(source: string, tokens: ColumnarStruc
         if paramCount < 0 {
             return -1
         }
+        if outputs.MethodStaticFlags[i] == 0 && signatureOutputs.ReturnTypeTexts[0] == "void" {
+            return 1
+        }
         if result.Values[2] > 0 {
             return 1
         }
