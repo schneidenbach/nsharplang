@@ -111,16 +111,6 @@ struct TypeReferenceCanonicalTable {
     ChildIndices: int[]
 }
 
-func TypeReferenceCanonicalTextInto(source: string, nodeKinds: int[], valueStarts: int[], valueLengths: int[], childStart: int[], childCount: int[], childIndices: int[], root: int): string {
-    nodes := new TypeReferenceCanonicalTable { Kinds: nodeKinds, ValueStarts: valueStarts, ValueLengths: valueLengths, ChildStart: childStart, ChildCount: childCount, ChildIndices: childIndices }
-    return TypeReferenceCanonicalTextCore(source, ref nodes, root)
-}
-
-func TypeReferenceTupleElementNamesInto(source: string, nodeKinds: int[], valueStarts: int[], valueLengths: int[], childStart: int[], childCount: int[], childIndices: int[], root: int, outNames: string[]): int {
-    nodes := new TypeReferenceCanonicalTable { Kinds: nodeKinds, ValueStarts: valueStarts, ValueLengths: valueLengths, ChildStart: childStart, ChildCount: childCount, ChildIndices: childIndices }
-    return TypeReferenceTupleElementNamesCore(source, ref nodes, root, outNames)
-}
-
 func TypeReferenceCanonicalTextCore(source: string, nodes: &TypeReferenceCanonicalTable, root: int): string {
     if root < 0 || root >= nodes.Kinds.Length {
         return "?"

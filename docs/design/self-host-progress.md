@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Type-reference canonicalization parity ABIs leave product dogfood
+
+The flattened `TypeReferenceCanonicalTextInto` and `TypeReferenceTupleElementNamesInto` exports now
+live in the parity corpus with `ParseTypeReferenceNodesInto`. Product parser composition keeps
+`TypeReferenceCanonicalTextCore` and `TypeReferenceTupleElementNamesCore` in `ParserTypeReferences.nl`,
+and function, constructor, and interface signature parsing call those table-shaped cores directly.
+
 ## 2026-06-15 — Local-function discovery parity ABI leaves product dogfood
 
 The flattened `DirectLocalFunctionTokenIndicesInto` export now lives in the parity corpus instead of

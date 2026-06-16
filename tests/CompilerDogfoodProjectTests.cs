@@ -10908,6 +10908,8 @@ func outer(x: int): int {
         Assert.Contains("ParseConstructorSignatureInfoCore", methodNames!); // ParserConstructorSignatures -> declarations/signatures/types
         Assert.Contains("ParseInterfaceDeclarationSignatureInfoCore", methodNames!); // ParserInterfaceSignatures -> declarations/signatures/types
         Assert.Contains("DirectLocalFunctionTokenIndicesCore", methodNames!); // ParserLocalFunctions -> declarations/statements
+        Assert.Contains("TypeReferenceCanonicalTextCore", methodNames!); // ParserTypeReferences -> signature text canonicalization
+        Assert.Contains("TypeReferenceTupleElementNamesCore", methodNames!); // ParserTypeReferences -> tuple parameter names
         Assert.Contains("ParsePrimaryExpressionNode", methodNames!); // ParserExpressions
         Assert.Contains("ParseStatementNodesInto", methodNames!);    // ParserStatements -> ParserExpressions
     }
@@ -10992,6 +10994,8 @@ func outer(x: int): int {
             ("ParserLocalFunctions.nl", "DirectLocalFunctionTokenIndicesInto"),
             ("ParserExpressions.nl", "ParseExpressionNodesInto"),
             ("ParserTypeReferences.nl", "ParseTypeReferenceNodesInto"),
+            ("ParserTypeReferences.nl", "TypeReferenceCanonicalTextInto"),
+            ("ParserTypeReferences.nl", "TypeReferenceTupleElementNamesInto"),
         })
         {
             var functionDeclaration = $"func {functionName}(";

@@ -13,6 +13,18 @@ func ParseTypeReferenceNodesInto(tokenKinds: int[], tokenStarts: int[], tokenVal
     return ParseTypeReferenceNodesCore(ref tokens, count, start, ref stack, ref nodes, ref children, ref result)
 }
 
+// Flattened canonicalization ABIs retained for parser parity tests only. Product signature,
+// constructor, and interface parsing compose the table-shaped cores directly.
+func TypeReferenceCanonicalTextInto(source: string, nodeKinds: int[], valueStarts: int[], valueLengths: int[], childStart: int[], childCount: int[], childIndices: int[], root: int): string {
+    nodes := new TypeReferenceCanonicalTable { Kinds: nodeKinds, ValueStarts: valueStarts, ValueLengths: valueLengths, ChildStart: childStart, ChildCount: childCount, ChildIndices: childIndices }
+    return TypeReferenceCanonicalTextCore(source, ref nodes, root)
+}
+
+func TypeReferenceTupleElementNamesInto(source: string, nodeKinds: int[], valueStarts: int[], valueLengths: int[], childStart: int[], childCount: int[], childIndices: int[], root: int, outNames: string[]): int {
+    nodes := new TypeReferenceCanonicalTable { Kinds: nodeKinds, ValueStarts: valueStarts, ValueLengths: valueLengths, ChildStart: childStart, ChildCount: childCount, ChildIndices: childIndices }
+    return TypeReferenceTupleElementNamesCore(source, ref nodes, root, outNames)
+}
+
 func ParseTypeReferenceNodesCore(
     tokens: &ParserTokenTable,
     count: int,

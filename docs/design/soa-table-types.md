@@ -559,9 +559,9 @@ ownership lands.
    struct/class/record product core while preserving its flattened adapter ABI; that product core now
    composes the struct/class/record declaration core directly. The lower flattened function
    signature, constructor signature/chain, property accessor, local-function discovery,
-   enum/interface/struct/union declaration span/text wrappers, and the flattened interface-signature
-   wrapper are no longer shipped product dogfood files; they live in the parity corpus because no
-   product route calls them after the wrapper-aware cores took ownership.
+   type-reference canonicalization, enum/interface/struct/union declaration span/text wrappers, and
+   the flattened interface-signature wrapper are no longer shipped product dogfood files; they live in
+   the parity corpus because no product route calls them after the wrapper-aware cores took ownership.
    `ParserTypeReferences.nl` has started the parser token-stream
    cleanup by wrapping token metadata, recursive argument stacks, child-index outputs, and result
    slots for the type-reference recursive cores; its base, greater-consumption, postfix, and union
