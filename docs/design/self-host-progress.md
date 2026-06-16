@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Tree dependency deduplication leaves the CLI dogfood adapter
+
+`nlc tree` dependency deduplication and kind/name ordering now route the accepted N# counting-sort
+kernel through `TreeDependencyDeduplicator`, an owner-local helper beside `TreeCommand`. The broad
+CLI dogfood adapter no longer owns the tree dependency entry point, delegate binding, rank projection,
+or bucket/index scratch arrays; the existing LINQ grouping/order fallback remains in the command.
+Focused evidence: `dotnet build src/NSharpLang.Cli/Cli.csproj --no-restore`; `dotnet test
+tests/Tests.csproj --filter "FullyQualifiedName~CliCommandTests.TreeDependencyDeduplicator_DeduplicatesAndOrdersDependencies"`.
+
 ## 2026-06-16 — Doc generation kernels leave the CLI dogfood adapter
 
 `nlc doc` symbol filtering/order, member ordering, and slug generation now route the accepted N#

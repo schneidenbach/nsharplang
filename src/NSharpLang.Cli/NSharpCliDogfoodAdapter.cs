@@ -12,8 +12,6 @@ internal static class NSharpCliDogfoodAdapter
 
     private static BuildOperandScratch? t_buildOperandScratch;
     [ThreadStatic]
-    private static TreeDependencyDeduplicateScratch? t_treeDependencyDeduplicateScratch;
-    [ThreadStatic]
     private static ReferenceTypeFilterScratch? t_referenceTypeFilterScratch;
     [ThreadStatic]
     private static StableDistinctScratch? t_stableDistinctScratch;
@@ -309,56 +307,6 @@ internal static class NSharpCliDogfoodAdapter
         catch
         {
             operand = null;
-            return false;
-        }
-    }
-
-    internal static bool TryDeduplicateTreeDependencyIndices(
-        int[] kindRanks,
-        int[] nameRanks,
-        int uniqueKindCount,
-        int uniqueNameCount,
-        out int[] orderedSourceIndices)
-    {
-        orderedSourceIndices = Array.Empty<int>();
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        if (kindRanks.Length != nameRanks.Length)
-            return false;
-
-        var dependencyCount = kindRanks.Length;
-        if (dependencyCount == 0)
-            return true;
-
-        var scratch = t_treeDependencyDeduplicateScratch ??= new TreeDependencyDeduplicateScratch();
-        scratch.EnsureCapacity(dependencyCount, uniqueKindCount, uniqueNameCount);
-
-        try
-        {
-            var orderedCount = bindings.CliTreeDependencyDeduplicateIndices(
-                kindRanks,
-                nameRanks,
-                scratch.NameCounts,
-                scratch.NameOffsets,
-                scratch.KindCounts,
-                scratch.KindOffsets,
-                scratch.TempIndices,
-                scratch.SortedIndices,
-                scratch.ResultIndices);
-
-            if (orderedCount < 0 || orderedCount > dependencyCount || orderedCount > scratch.ResultIndices.Length)
-                return false;
-
-            orderedSourceIndices = new int[orderedCount];
-            Array.Copy(scratch.ResultIndices, orderedSourceIndices, orderedCount);
-            return true;
-        }
-        catch
-        {
-            orderedSourceIndices = Array.Empty<int>();
             return false;
         }
     }
@@ -850,7 +798,6 @@ internal static class NSharpCliDogfoodAdapter
                 CreateDelegate<CliPublishOptionsInto>(programType, "CliPublishOptionsInto"),
                 CreateDelegate<CliFirstPositionalArgIndex>(programType, "CliFirstPositionalArgIndex"),
                 CreateDelegate<CliLintFileArgIndicesInto>(programType, "CliLintFileArgIndicesInto"),
-                CreateDelegate<CliTreeDependencyDeduplicateIndicesInto>(programType, "CliTreeDependencyDeduplicateIndicesInto"),
                 CreateDelegate<DiagnosticSeverityFilterIndicesInto>(programType, "DiagnosticSeverityFilterIndicesInto"),
                 CreateDelegate<CliReferenceTypeFilterIndicesInto>(programType, "CliReferenceTypeFilterIndicesInto"),
                 CreateDelegate<CliTidyDependencyStatusSummaryInto>(programType, "CliTidyDependencyStatusSummaryInto"),
@@ -920,17 +867,6 @@ internal static class NSharpCliDogfoodAdapter
         int[] projectValueIndices,
         int[] resultIndices);
 
-    private delegate int CliTreeDependencyDeduplicateIndicesInto(
-        int[] kindRanks,
-        int[] nameRanks,
-        int[] nameCounts,
-        int[] nameOffsets,
-        int[] kindCounts,
-        int[] kindOffsets,
-        int[] tempIndices,
-        int[] sortedIndices,
-        int[] resultIndices);
-
     private delegate int DiagnosticSeverityFilterIndicesInto(
         int[] severityRanks,
         int targetRank,
@@ -973,7 +909,6 @@ internal static class NSharpCliDogfoodAdapter
         CliPublishOptionsInto CliPublishOptionsInto,
         CliFirstPositionalArgIndex CliFirstPositionalArgIndex,
         CliLintFileArgIndicesInto CliLintFileArgIndices,
-        CliTreeDependencyDeduplicateIndicesInto CliTreeDependencyDeduplicateIndices,
         DiagnosticSeverityFilterIndicesInto DiagnosticSeverityFilter,
         CliReferenceTypeFilterIndicesInto CliReferenceTypeFilterIndices,
         CliTidyDependencyStatusSummaryInto CliTidyDependencyStatusSummary,
@@ -1046,41 +981,6 @@ internal static class NSharpCliDogfoodAdapter
             {
                 ProjectValueIndices = new int[count];
                 ResultIndices = new int[count];
-            }
-        }
-    }
-
-    private sealed class TreeDependencyDeduplicateScratch
-    {
-        internal int[] KindCounts = Array.Empty<int>();
-        internal int[] KindOffsets = Array.Empty<int>();
-        internal int[] NameCounts = Array.Empty<int>();
-        internal int[] NameOffsets = Array.Empty<int>();
-        internal int[] ResultIndices = Array.Empty<int>();
-        internal int[] SortedIndices = Array.Empty<int>();
-        internal int[] TempIndices = Array.Empty<int>();
-
-        internal void EnsureCapacity(int dependencyCount, int uniqueKindCount, int uniqueNameCount)
-        {
-            if (TempIndices.Length != dependencyCount)
-            {
-                TempIndices = new int[dependencyCount];
-                SortedIndices = new int[dependencyCount];
-                ResultIndices = new int[dependencyCount];
-            }
-
-            var kindBucketCapacity = uniqueKindCount + 1;
-            if (KindCounts.Length != kindBucketCapacity)
-            {
-                KindCounts = new int[kindBucketCapacity];
-                KindOffsets = new int[kindBucketCapacity];
-            }
-
-            var nameBucketCapacity = uniqueNameCount + 1;
-            if (NameCounts.Length != nameBucketCapacity)
-            {
-                NameCounts = new int[nameBucketCapacity];
-                NameOffsets = new int[nameBucketCapacity];
             }
         }
     }

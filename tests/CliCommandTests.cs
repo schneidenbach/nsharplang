@@ -166,7 +166,7 @@ func Main() {
     }
 
     [Fact]
-    public void TreeCommand_Deduplicate_UsesDogfoodOrdering()
+    public void TreeDependencyDeduplicator_DeduplicatesAndOrdersDependencies()
     {
         var emptyDependencies = Array.Empty<TreeCommand.TreeDependency>();
         var dependencies = new[]
@@ -179,15 +179,18 @@ func Main() {
             NewDependency("microsoft.aspnetcore.app", "framework", null)
         };
 
-        var actual = TreeCommand.Deduplicate(dependencies);
+        Assert.True(TreeDependencyDeduplicator.TryDeduplicate(dependencies, out var helperActual));
+        var commandActual = TreeCommand.Deduplicate(dependencies);
 
-        Assert.Equal(new[]
+        var expected = new[]
         {
             "framework:Microsoft.AspNetCore.App:",
             "nuget:Newtonsoft.Json:13.0.3",
             "nuget:Serilog:3.1.1",
             "project:../Shared/Shared.csproj:"
-        }, actual.Select(FormatDependency));
+        };
+        Assert.Equal(expected, helperActual.Select(FormatDependency));
+        Assert.Equal(expected, commandActual.Select(FormatDependency));
 
         TreeCommand.TreeDependency NewDependency(string name, string kind, string? version) =>
             new(name, kind, version, "runtime", false, emptyDependencies);

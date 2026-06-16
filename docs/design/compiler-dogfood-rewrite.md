@@ -1711,6 +1711,9 @@ normal BenchmarkDotNet evidence tier for `nlc tree` dependency deduplication and
 about 61.5x faster on the large generated dependency corpus (35.635 us vs 2,192.579 us, 0 B vs
 1,168,344 B). This is acceptance-grade benchmark evidence for `nlc tree` dependency deduplication
 after the host has assigned compact ordinal kind ranks and case-insensitive name ranks.
+Production `nlc tree` now routes this kernel through the owner-local
+`TreeDependencyDeduplicator` helper when the dogfood assembly is available, with the previous C#
+grouping/order path retained as the fallback.
 
 `CliCleanArtifactDirectoryIndicesInto` passed parity and reported zero managed allocation in the
 short BenchmarkDotNet evidence tier for `nlc clean` artifact directory selection after directory IO.
@@ -1978,10 +1981,11 @@ Generated `nlc doc` symbol-page slug generation now batches raw kind/name/file s
 `DocCommandKernels` and the compiled N# `CliDocSlugsInto` route when the dogfood assembly is
 available, preserving the previous lower-case letter/digit-only slug text, with the previous
 LINQ/split/join slugifier kept as the fallback.
-`nlc tree` dependency deduplication and kind/name ordering now routes through the compiled N#
-stable counting-sort kernel when the dogfood assembly is available, preserving the previous
-first-source dependency selection for each ordinal-kind/case-insensitive-name key, with the previous
-LINQ grouping/order path kept as the fallback.
+`nlc tree` dependency deduplication and kind/name ordering now routes through
+`TreeDependencyDeduplicator`, which calls the compiled N# stable counting-sort kernel when the
+dogfood assembly is available, preserving the previous first-source dependency selection for each
+ordinal-kind/case-insensitive-name key, with the previous LINQ grouping/order path kept as the
+fallback.
 `FixApplicator.ValidateAndSortEdits` now routes edit application ordering through the compiled N#
 two-pass stable counting kernel when the dogfood assembly is available, preserving the previous
 bottom-to-top, right-to-left, end-position, and same-position reverse-input ordering, with the

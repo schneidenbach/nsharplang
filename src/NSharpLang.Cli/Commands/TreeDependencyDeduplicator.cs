@@ -1,0 +1,255 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Reflection;
+
+namespace NSharpLang.Cli.Commands;
+
+internal static class TreeDependencyDeduplicator
+{
+    private const string DogfoodAssemblyName = "NSharpLang.Compiler.Dogfood";
+
+    [ThreadStatic]
+    private static Scratch? t_scratch;
+
+    private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
+
+    internal static bool TryDeduplicate(
+        TreeCommand.TreeDependency[] dependencies,
+        out TreeCommand.TreeDependency[] orderedDependencies)
+    {
+        orderedDependencies = Array.Empty<TreeCommand.TreeDependency>();
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        if (dependencies.Length == 0)
+            return true;
+
+        var dependencyCount = dependencies.Length;
+        var scratch = t_scratch ??= new Scratch();
+        scratch.EnsureInputCapacity(dependencyCount);
+        scratch.ResetRanks();
+
+        try
+        {
+            BuildRanks(dependencies, scratch, out var uniqueKindCount, out var uniqueNameCount);
+            scratch.EnsureScratchCapacity(dependencyCount, uniqueKindCount, uniqueNameCount);
+
+            var orderedCount = bindings.DeduplicateIndices(
+                scratch.KindRanks,
+                scratch.NameRanks,
+                scratch.NameCounts,
+                scratch.NameOffsets,
+                scratch.KindCounts,
+                scratch.KindOffsets,
+                scratch.TempIndices,
+                scratch.SortedIndices,
+                scratch.ResultIndices);
+
+            if (orderedCount < 0 || orderedCount > dependencyCount || orderedCount > scratch.ResultIndices.Length)
+                return false;
+
+            orderedDependencies = new TreeCommand.TreeDependency[orderedCount];
+            for (var i = 0; i < orderedCount; i++)
+            {
+                var sourceIndex = scratch.ResultIndices[i];
+                if (sourceIndex < 0 || sourceIndex >= dependencyCount)
+                {
+                    orderedDependencies = Array.Empty<TreeCommand.TreeDependency>();
+                    return false;
+                }
+
+                orderedDependencies[i] = dependencies[sourceIndex];
+            }
+
+            return true;
+        }
+        catch
+        {
+            orderedDependencies = Array.Empty<TreeCommand.TreeDependency>();
+            return false;
+        }
+        finally
+        {
+            scratch.ResetRanks();
+        }
+    }
+
+    private static void BuildRanks(
+        TreeCommand.TreeDependency[] dependencies,
+        Scratch scratch,
+        out int uniqueKindCount,
+        out int uniqueNameCount)
+    {
+        for (var i = 0; i < dependencies.Length; i++)
+        {
+            var dependency = dependencies[i];
+            if (!scratch.KindRankMap.ContainsKey(dependency.Kind))
+            {
+                scratch.KindRankMap.Add(dependency.Kind, 0);
+                scratch.UniqueKinds[scratch.UniqueKindCount] = dependency.Kind;
+                scratch.UniqueKindCount++;
+            }
+
+            if (!scratch.NameRankMap.ContainsKey(dependency.Name))
+            {
+                scratch.NameRankMap.Add(dependency.Name, 0);
+                scratch.UniqueNames[scratch.UniqueNameCount] = dependency.Name;
+                scratch.UniqueNameCount++;
+            }
+        }
+
+        uniqueKindCount = scratch.UniqueKindCount;
+        uniqueNameCount = scratch.UniqueNameCount;
+        Array.Sort(scratch.UniqueKinds, 0, uniqueKindCount, StringComparer.Ordinal);
+        for (var i = 0; i < uniqueKindCount; i++)
+        {
+            scratch.KindRankMap[scratch.UniqueKinds[i]] = i + 1;
+        }
+
+        Array.Sort(scratch.UniqueNames, 0, uniqueNameCount, StringComparer.OrdinalIgnoreCase);
+        for (var i = 0; i < uniqueNameCount; i++)
+        {
+            scratch.NameRankMap[scratch.UniqueNames[i]] = i + 1;
+        }
+
+        for (var i = 0; i < dependencies.Length; i++)
+        {
+            scratch.KindRanks[i] = scratch.KindRankMap[dependencies[i].Kind];
+            scratch.NameRanks[i] = scratch.NameRankMap[dependencies[i].Name];
+        }
+    }
+
+    private static Bindings? LoadBindings()
+    {
+        try
+        {
+            var assembly = TryLoadDogfoodAssembly();
+            var programType = assembly?.GetType("Program");
+            if (programType == null)
+                return null;
+
+            return new Bindings(
+                CreateDelegate<CliTreeDependencyDeduplicateIndicesInto>(
+                    programType,
+                    "CliTreeDependencyDeduplicateIndicesInto"));
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static Assembly? TryLoadDogfoodAssembly()
+    {
+        try
+        {
+            return Assembly.Load(new AssemblyName(DogfoodAssemblyName));
+        }
+        catch
+        {
+            var assemblyPath = Path.Combine(AppContext.BaseDirectory, $"{DogfoodAssemblyName}.dll");
+            return File.Exists(assemblyPath)
+                ? Assembly.LoadFrom(assemblyPath)
+                : null;
+        }
+    }
+
+    private static TDelegate CreateDelegate<TDelegate>(Type programType, string methodName)
+        where TDelegate : Delegate
+    {
+        var method = programType.GetMethod(
+                methodName,
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+            ?? throw new MissingMethodException(programType.FullName, methodName);
+
+        return (TDelegate)Delegate.CreateDelegate(typeof(TDelegate), method);
+    }
+
+    private delegate int CliTreeDependencyDeduplicateIndicesInto(
+        int[] kindRanks,
+        int[] nameRanks,
+        int[] nameCounts,
+        int[] nameOffsets,
+        int[] kindCounts,
+        int[] kindOffsets,
+        int[] tempIndices,
+        int[] sortedIndices,
+        int[] resultIndices);
+
+    private sealed record Bindings(CliTreeDependencyDeduplicateIndicesInto DeduplicateIndices);
+
+    private sealed class Scratch
+    {
+        internal readonly Dictionary<string, int> KindRankMap = new(StringComparer.Ordinal);
+        internal readonly Dictionary<string, int> NameRankMap = new(StringComparer.OrdinalIgnoreCase);
+
+        internal int[] KindCounts = Array.Empty<int>();
+        internal int[] KindOffsets = Array.Empty<int>();
+        internal int[] KindRanks = Array.Empty<int>();
+        internal int[] NameCounts = Array.Empty<int>();
+        internal int[] NameOffsets = Array.Empty<int>();
+        internal int[] NameRanks = Array.Empty<int>();
+        internal int[] ResultIndices = Array.Empty<int>();
+        internal int[] SortedIndices = Array.Empty<int>();
+        internal int[] TempIndices = Array.Empty<int>();
+        internal string[] UniqueKinds = Array.Empty<string>();
+        internal string[] UniqueNames = Array.Empty<string>();
+        internal int UniqueKindCount;
+        internal int UniqueNameCount;
+
+        internal void EnsureInputCapacity(int dependencyCount)
+        {
+            if (KindRanks.Length != dependencyCount)
+            {
+                KindRanks = new int[dependencyCount];
+                NameRanks = new int[dependencyCount];
+                UniqueKinds = new string[dependencyCount];
+                UniqueNames = new string[dependencyCount];
+            }
+        }
+
+        internal void EnsureScratchCapacity(int dependencyCount, int uniqueKindCount, int uniqueNameCount)
+        {
+            if (TempIndices.Length != dependencyCount)
+            {
+                TempIndices = new int[dependencyCount];
+                SortedIndices = new int[dependencyCount];
+                ResultIndices = new int[dependencyCount];
+            }
+
+            var kindBucketCapacity = uniqueKindCount + 1;
+            if (KindCounts.Length != kindBucketCapacity)
+            {
+                KindCounts = new int[kindBucketCapacity];
+                KindOffsets = new int[kindBucketCapacity];
+            }
+
+            var nameBucketCapacity = uniqueNameCount + 1;
+            if (NameCounts.Length != nameBucketCapacity)
+            {
+                NameCounts = new int[nameBucketCapacity];
+                NameOffsets = new int[nameBucketCapacity];
+            }
+        }
+
+        internal void ResetRanks()
+        {
+            KindRankMap.Clear();
+            NameRankMap.Clear();
+            if (UniqueKindCount > 0)
+            {
+                Array.Clear(UniqueKinds, 0, UniqueKindCount);
+                UniqueKindCount = 0;
+            }
+
+            if (UniqueNameCount > 0)
+            {
+                Array.Clear(UniqueNames, 0, UniqueNameCount);
+                UniqueNameCount = 0;
+            }
+        }
+    }
+}
