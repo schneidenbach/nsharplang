@@ -11033,6 +11033,7 @@ func outer(x: int): int {
         var (lexerOk, _, _, lexerProductMethods) = RouteColumnarProgram(lexerProduct);
         Assert.True(lexerOk, "LexerTokenKindScanner.nl product source should still compile without raw lexer parity wrappers.");
         Assert.Contains("TokenizeMetadataWithIndentationInto", lexerProductMethods!);
+        Assert.Contains("ParserTokenCompactedMetadataInto", lexerProductMethods!);
         Assert.DoesNotContain("TokenizeKinds", lexerProductMethods!);
         Assert.DoesNotContain("TokenizeKindsInto", lexerProductMethods!);
         Assert.DoesNotContain("TokenizeMetadataInto", lexerProductMethods!);
@@ -13599,6 +13600,10 @@ class OtherZetaType {
                     "ParserTokenCompactionIndicesCountedInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit ParserTokenCompactionIndicesCountedInto.");
+            var parserTokenCompactedMetadataInto = programType.GetMethod(
+                    "ParserTokenCompactedMetadataInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit ParserTokenCompactedMetadataInto.");
             var parserTokenCompactionChecksumInto = programType.GetMethod(
                     "ParserTokenCompactionChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -14327,6 +14332,7 @@ world
                 source,
                 parserTokenCompactionIndicesInto,
                 parserTokenCompactionIndicesCountedInto,
+                parserTokenCompactedMetadataInto,
                 parserTokenCompactionChecksumInto);
 
             const string keywordSource = """
@@ -14343,6 +14349,7 @@ throws
                 keywordSource,
                 parserTokenCompactionIndicesInto,
                 parserTokenCompactionIndicesCountedInto,
+                parserTokenCompactedMetadataInto,
                 parserTokenCompactionChecksumInto);
 
             // Systems-language keywords: the N# scanner's KeywordKind must recognize the five systems
@@ -14362,6 +14369,7 @@ struct unsafe scoped
                 systemsKeywordSource,
                 parserTokenCompactionIndicesInto,
                 parserTokenCompactionIndicesCountedInto,
+                parserTokenCompactedMetadataInto,
                 parserTokenCompactionChecksumInto);
 
             // Lifetime tokens: at an apostrophe the C# lexer emits a single Lifetime token (142) instead
@@ -14385,6 +14393,7 @@ func NextFrame<'a>(reader: scoped 'a): Result returns 'a {
                 lifetimeSource,
                 parserTokenCompactionIndicesInto,
                 parserTokenCompactionIndicesCountedInto,
+                parserTokenCompactedMetadataInto,
                 parserTokenCompactionChecksumInto);
 
             // Unicode character classification: the scanner uses the BCL Unicode predicates
@@ -14399,6 +14408,7 @@ func NextFrame<'a>(reader: scoped 'a): Result returns 'a {
                 unicodeSource,
                 parserTokenCompactionIndicesInto,
                 parserTokenCompactionIndicesCountedInto,
+                parserTokenCompactedMetadataInto,
                 parserTokenCompactionChecksumInto);
 
             // Char literal whose escaped body runs into a line break (`'\<CR>`): C# ReadCharLiteral does
@@ -14420,6 +14430,7 @@ func NextFrame<'a>(reader: scoped 'a): Result returns 'a {
                 malformedNumberSource,
                 parserTokenCompactionIndicesInto,
                 parserTokenCompactionIndicesCountedInto,
+                parserTokenCompactedMetadataInto,
                 parserTokenCompactionChecksumInto);
 
             // Comment trivia: the N# CommentsInto kernel must reproduce C# Lexer.Comments. This corpus
@@ -14460,6 +14471,7 @@ func values(): int {
                 metadataSource,
                 parserTokenCompactionIndicesInto,
                 parserTokenCompactionIndicesCountedInto,
+                parserTokenCompactedMetadataInto,
                 parserTokenCompactionChecksumInto);
 
             // Self-host Phase 1 evidence: the N# metadata scanner must reach full token-stream parity
@@ -14498,6 +14510,7 @@ func classify(value: int, name: string): string {
                 representativeSource,
                 parserTokenCompactionIndicesInto,
                 parserTokenCompactionIndicesCountedInto,
+                parserTokenCompactedMetadataInto,
                 parserTokenCompactionChecksumInto);
             AssertCommentsLikeProductionLexer(representativeSource, commentsInto);
             AssertCommentsLikeProductionLexer(metadataSource, commentsInto);
@@ -15131,12 +15144,16 @@ func main() {
         string source,
         MethodInfo parserTokenCompactionIndicesInto,
         MethodInfo parserTokenCompactionIndicesCountedInto,
+        MethodInfo parserTokenCompactedMetadataInto,
         MethodInfo parserTokenCompactionChecksumInto)
     {
-        var tokenKinds = new Lexer(source, "dogfood-test.nl")
-            .Tokenize()
-            .Select(static token => (int)token.Type)
+        var tokens = new Lexer(source, "dogfood-test.nl").Tokenize();
+        var tokenKinds = tokens.Select(static token => (int)token.Type).ToArray();
+        var lineStarts = BuildLineStarts(source);
+        var tokenStarts = tokens
+            .Select(token => TokenStartFromLineColumn(lineStarts, token.Line, token.Column, source.Length))
             .ToArray();
+        var tokenValueLengths = tokens.Select(static token => token.Value.Length).ToArray();
         var expectedIndices = tokenKinds
             .Select((kind, index) => (kind, index))
             .Where(static item => item.kind != (int)TokenType.Newline)
@@ -15161,6 +15178,31 @@ func main() {
 
         Assert.Equal(expectedIndices.Length, countedCount);
         Assert.Equal(expectedIndices, countedIndices.Take(countedCount).ToArray());
+
+        var paddedStarts = new int[tokenStarts.Length + 5];
+        var paddedValueLengths = new int[tokenValueLengths.Length + 5];
+        Array.Copy(tokenStarts, paddedStarts, tokenStarts.Length);
+        Array.Copy(tokenValueLengths, paddedValueLengths, tokenValueLengths.Length);
+        var compactKinds = new int[tokenKinds.Length];
+        var compactStarts = new int[tokenKinds.Length];
+        var compactValueLengths = new int[tokenKinds.Length];
+        var compactCount = (int)(parserTokenCompactedMetadataInto.Invoke(
+            null,
+            new object[]
+            {
+                paddedTokenKinds,
+                paddedStarts,
+                paddedValueLengths,
+                tokenKinds.Length,
+                compactKinds,
+                compactStarts,
+                compactValueLengths
+            }) ?? -1);
+
+        Assert.Equal(expectedIndices.Length, compactCount);
+        Assert.Equal(expectedIndices.Select(index => tokenKinds[index]).ToArray(), compactKinds.Take(compactCount).ToArray());
+        Assert.Equal(expectedIndices.Select(index => tokenStarts[index]).ToArray(), compactStarts.Take(compactCount).ToArray());
+        Assert.Equal(expectedIndices.Select(index => tokenValueLengths[index]).ToArray(), compactValueLengths.Take(compactCount).ToArray());
 
         var checksumIndices = new int[tokenKinds.Length];
         var actualChecksum = (int)(parserTokenCompactionChecksumInto.Invoke(

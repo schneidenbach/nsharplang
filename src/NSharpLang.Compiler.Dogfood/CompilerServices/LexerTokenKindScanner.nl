@@ -14,6 +14,12 @@ struct LexerTokenMetadataTable {
     Columns: int[]
 }
 
+struct LexerCompactTokenMetadataTable {
+    Kinds: int[]
+    Starts: int[]
+    ValueLengths: int[]
+}
+
 struct LexerIndentStackTable {
     Indents: int[]
 }
@@ -114,6 +120,42 @@ func ParserTokenCompactionIndicesCore(tokens: &LexerTokenKindTable, result: &Lex
             }
 
             result.Indices[count] = i
+            count = count + 1
+        }
+
+        i = i + 1
+    }
+
+    return count
+}
+
+func ParserTokenCompactedMetadataInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], tokenCount: int, resultKinds: int[], resultStarts: int[], resultValueLengths: int[]): int {
+    if tokenCount < 0 {
+        return -1
+    }
+
+    if tokenCount > tokenKinds.Length || tokenCount > tokenStarts.Length || tokenCount > tokenValueLengths.Length {
+        return -1
+    }
+
+    if resultKinds.Length < tokenCount || resultStarts.Length < tokenCount || resultValueLengths.Length < tokenCount {
+        return -1
+    }
+
+    tokens := new LexerCompactTokenMetadataTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
+    result := new LexerCompactTokenMetadataTable { Kinds: resultKinds, Starts: resultStarts, ValueLengths: resultValueLengths }
+    return ParserTokenCompactedMetadataCore(ref tokens, tokenCount, ref result)
+}
+
+func ParserTokenCompactedMetadataCore(tokens: &LexerCompactTokenMetadataTable, length: int, result: &LexerCompactTokenMetadataTable): int {
+    count := 0
+    i := 0
+
+    while i < length {
+        if tokens.Kinds[i] != 136 {
+            result.Kinds[count] = tokens.Kinds[i]
+            result.Starts[count] = tokens.Starts[i]
+            result.ValueLengths[count] = tokens.ValueLengths[i]
             count = count + 1
         }
 

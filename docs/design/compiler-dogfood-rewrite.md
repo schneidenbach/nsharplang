@@ -103,9 +103,10 @@ Current lexer dogfood benchmarks:
   The N# candidate runs after the host projects token kinds into compact ids and writes kept source
   indices through `ParserTokenCompactionIndicesInto`. Token objects and the final parser token list
   remain C# host boundaries until the compact parser token table is ported. The product adapter now
-  binds the counted-prefix `ParserTokenCompactionIndicesCountedInto` ABI for both columnar
-  tokenization and parser-constructor compaction; the full-array export is retained for benchmark
-  and parity evidence.
+  binds `ParserTokenCompactedMetadataInto` for columnar tokenization so N# writes compact
+  kind/start/value-length rows directly; parser-constructor token-object compaction still binds the
+  counted-prefix `ParserTokenCompactionIndicesCountedInto` ABI. The full-array export is retained
+  for benchmark and parity evidence.
 
 The lexer scanner candidate now lives in `src/NSharpLang.Compiler.Dogfood` as an ordinary N# SDK
 project. Benchmarks embed `CompilerServices/LexerTokenKindScanner.nl` as source input and compile it

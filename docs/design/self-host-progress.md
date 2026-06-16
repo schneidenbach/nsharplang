@@ -11,6 +11,20 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Columnar tokenization compacts metadata rows in N#
+
+`LexerTokenKindScanner.nl` now exposes `ParserTokenCompactedMetadataInto`, a counted product-shaped
+compaction export that writes compact parser token kind/start/value-length columns directly from the
+raw tokenizer output. `NSharpCompilerDogfoodAdapter.TryTokenizeColumnarSource` binds that export and
+no longer owns the kept-index copy loop for the columnar compiler route; the older
+`ParserTokenCompactionIndicesCountedInto` export remains in use for token-object parser
+construction and parity/benchmark surfaces. Focused evidence:
+`./scripts/dev.sh LexerTokenKindScanner_ProjectCompilesAndMatchesProductionLexer`,
+`./scripts/dev.sh ColumnarCodegen_ParityOnlyFiles_AreAbsentFromProductCoverage`,
+`./scripts/dev.sh ParserTokenCompaction`,
+`./scripts/dev.sh ColumnarCodegen_MultiFile_RealParserCluster`, and
+`./scripts/dev.sh ColumnarCodegen_CompilesRealDogfoodCorpus_Coverage`.
+
 ## 2026-06-15 — Struct and union parsers compose declaration cores directly
 
 `ParserColumnarStructs.nl` now routes product struct/class/record declaration parsing through

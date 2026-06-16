@@ -510,8 +510,9 @@ ownership lands.
    columns plus member-order rank/bucket/index tables, and `CliQueryParsing.nl` wraps CLI query position inputs/results,
    duplicate-id rank/count/result tables, packed result words, and integer parse result storage
    without using the experimental `soa record` surface. `LexerTokenKindScanner.nl` now wraps
-   token-kind buffers, parser-compaction indexes, token metadata streams, indentation post-pass
-   inputs/outputs, indentation stacks, and comment-trivia output tables. The remaining small service
+   token-kind buffers, parser-compaction indexes, compact parser-token metadata rows, token metadata
+   streams, indentation post-pass inputs/outputs, indentation stacks, and comment-trivia output
+   tables. The remaining small service
    kernels now wrap formatter safety diagnostics, path matching batches, typo-suggestion scratch and
    result tables, AOT requirement grouping columns, completion receiver/grouping tables, and CLI tree
    dependency deduplication buffers. `CliArguments.nl` has begun its large-file migration by wrapping
