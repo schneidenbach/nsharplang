@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Project source filtering leaves the general dogfood adapter
+
+`ProjectConfig.GetSourceFiles` now routes exclude/test-file classification through
+`ProjectSourceFileFilter`, which binds the N# `ProjectSourceFilterKeptIndicesInto` kernel beside the
+project-file code that consumes it. The general `NSharpCompilerDogfoodAdapter` no longer owns this
+delegate, the relative-path scratch storage, or the filtering entry point. The fallback C# glob path
+is unchanged for no-exclude projects, unavailable dogfood assemblies, and the newline-in-path parity
+edge case.
+Focused evidence: `dotnet build src/NSharpLang.Compiler/Compiler.csproj --no-restore` and
+`dotnet test tests/Tests.csproj --filter "FullyQualifiedName~ProjectSourceFileFilter_FiltersSourceFilesThroughDogfoodKernel|FullyQualifiedName~TestGetSourceFilesAppliesExcludeGlobPatterns"`.
+
 ## 2026-06-16 — Parser token compaction leaves the general dogfood adapter
 
 `Parser` now routes newline-token filtering through `ParserTokenCompactor`, a parser-owned host

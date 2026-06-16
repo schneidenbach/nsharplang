@@ -240,7 +240,8 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       compiler tables. The production emit entry has moved from `NSharpCompilerDogfoodAdapter.TryEmitColumnarProgram*`
       to `ColumnarCompiler.TryEmitProgram*`, and typed `ColumnarProgramInput` construction now lives beside the
       columnar backend in `ColumnarProgramInputBuilder` instead of the general compiler adapter. Parser-token
-      compaction now lives beside `Parser` in `ParserTokenCompactor` instead of the general compiler adapter. Product parser
+      compaction now lives beside `Parser` in `ParserTokenCompactor`, and project source filtering now lives beside
+      `ProjectConfig` in `ProjectSourceFileFilter`, instead of the general compiler adapter. Product parser
       wrappers for function, constructor, property, body/local-function, enum, struct/class/record, union, and
       interface routes now compose typed N# cores directly where wrapper ownership is complete, and columnar
       tokenization now compacts parser token kind/start/value-length rows in N# instead of a C# kept-index copy loop;

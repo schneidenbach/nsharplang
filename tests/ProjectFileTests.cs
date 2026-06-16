@@ -799,6 +799,42 @@ testFramework: nunit
     }
 
     [Fact]
+    public void ProjectSourceFileFilter_FiltersSourceFilesThroughDogfoodKernel()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        try
+        {
+            Directory.CreateDirectory(tempDir);
+            var programFile = Path.Combine(tempDir, "Program.nl");
+            var testFile = Path.Combine(tempDir, "Program.tests.nl");
+            var generatedDir = Path.Combine(tempDir, "Generated");
+            Directory.CreateDirectory(generatedDir);
+            var generatedFile = Path.Combine(generatedDir, "Api.nl");
+            var coreDir = Path.Combine(tempDir, "Core");
+            Directory.CreateDirectory(coreDir);
+            var serviceFile = Path.Combine(coreDir, "Service.nl");
+
+            File.WriteAllText(programFile, "func main() {}\n");
+            File.WriteAllText(testFile, "func test_main() {}\n");
+            File.WriteAllText(generatedFile, "func api() {}\n");
+            File.WriteAllText(serviceFile, "func service() {}\n");
+
+            var files = new[] { programFile, testFile, generatedFile, serviceFile };
+            var excludes = new[] { "Generated/*.nl" };
+
+            Assert.True(ProjectSourceFileFilter.TryFilter(files, tempDir, excludes, includeTests: false, out var filteredFiles));
+            Assert.Equal(new[] { programFile, serviceFile }, filteredFiles);
+
+            Assert.True(ProjectSourceFileFilter.TryFilter(files, tempDir, excludes, includeTests: true, out var filteredWithTests));
+            Assert.Equal(new[] { programFile, testFile, serviceFile }, filteredWithTests);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void TestParseTestFrameworkInvalid()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());

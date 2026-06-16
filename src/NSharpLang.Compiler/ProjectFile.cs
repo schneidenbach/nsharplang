@@ -126,10 +126,9 @@ public class ProjectConfig
         // MatchesPattern below. With no excludes there is no regex to avoid, so the cheap LINQ
         // suffix filter below stays on the C# path (and skips per-file Path.GetRelativePath).
         if (Exclude.Count > 0 &&
-            NSharpCompilerDogfoodAdapter.TryFilterSourceFiles(
+            ProjectSourceFileFilter.TryFilter(
                 allFiles,
                 projectRoot,
-                static (root, file) => Path.GetRelativePath(root, file),
                 Exclude.ToArray(),
                 includeTests,
                 out var dogfoodFiles))
