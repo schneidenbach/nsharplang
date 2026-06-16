@@ -3638,6 +3638,21 @@ public class SoaRecordTests : ILCompilerTestBase
             [TypeMarker(typeof(Func<int, NodeTable.Row>))]
             class Holder {
             }
+            """, RowType: "NodeTable.Row"),
+            (Source: """
+            class TypeMarkerAttribute: Attribute {
+                constructor(valueType: Type) {
+                }
+            }
+
+            soa record NodeTable {
+                kind: int
+            }
+
+            test "bad table attribute" with ([TypeMarker(typeof(NodeTable.Row))] value: int) [
+                (0)
+            ] {
+            }
             """, RowType: "NodeTable.Row")
         };
 

@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — SoA row types reject in table test parameter attributes
+
+Table-driven test headers now participate in parameter-attribute validation. Their parsed
+`Parameter` list already flowed through declared-type and default-value checks, but
+`ValidateDeclarationAttributeArguments` skipped `TestDeclaration`, allowing a header such as
+`test "x" with ([TypeMarker(typeof(NodeTable.Row))] value: int)` to avoid the attribute `typeof`
+row-type scan. The analyzer now validates test table parameter attributes through the same helper
+used for function, constructor, primary-constructor, and indexer parameters.
+Focused evidence: targeted regression failed before the analyzer change and then passed with
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~SoaRecordTests.Analyzer_SoaRowTypeCannotBeUsedInAttributeTypeofArguments"`;
+`./scripts/dev.sh SoaRecord`; `./scripts/dev.sh --since`.
+
 ## 2026-06-16 — SoA defaults reject in table-driven test headers
 
 Table-driven test headers now route their parsed parameter list through the shared parameter

@@ -551,6 +551,9 @@ public class Analyzer : IDisposable
     {
         switch (decl)
         {
+            case TestDeclaration test:
+                ValidateParameterAttributeArguments(test.TableParameters);
+                break;
             case FunctionDeclaration func:
                 ValidateAttributeArguments(func.Attributes);
                 ValidateParameterAttributeArguments(func.Parameters);
