@@ -880,8 +880,6 @@ internal static class NSharpCompilerDogfoodAdapter
                     {
                         if (!TryParseColumnarFunctionAt(bindings, ck, cs, cv, n, outMethodFuncIndices[m], source, out var bodyInput))
                             return false;
-                        if (bodyInput.LocalFunctions != null)
-                            return false;
                         methodBodies[m] = bodyInput;
                     }
                     else if (outMethodBodyFlags[m] != 0)

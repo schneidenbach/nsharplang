@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Default-interface local-function decline moves into N# parser
+
+`ParseColumnarInterfaceInfoCore` now checks default interface method bodies with the composed
+function parser and rejects methods that contain direct local functions before rows cross the C#
+dogfood boundary. `NSharpCompilerDogfoodAdapter.TryGetColumnarInterfaceInputs` no longer performs
+that local-function route-safety check after materializing `ColumnarFunctionInput`; accepted default
+interface methods still route through the composed product parser, while local functions in member
+bodies remain a later rung.
+
 ## 2026-06-16 — Enum declaration value helpers stop looking like host ABIs
 
 `ParseEnumMemberValuesCore` and `ParserDeclarationTryParseIntLiteralCore` now carry the enum value

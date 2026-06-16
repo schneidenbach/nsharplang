@@ -7947,6 +7947,9 @@ func outer(x: int): int {
         Assert.False(RouteColumnarProgram("enum Color {\n    Red,\n    Green\n}\n\ninterface Color {\n    func C(): int\n}\n\nfunc f(): int {\n    return 1\n}\n").Ok);
         // DECLINES — oracle-ACCEPTED (later rungs): expression-bodied default interface methods.
         Assert.False(RouteColumnarProgram("interface IExprDefault {\n    func Score(): int => 41\n}\n\nfunc f(): int {\n    return 1\n}\n").Ok);
+        // Local functions inside default interface methods remain a later rung and now decline in the N#
+        // interface parser wrapper before the C# adapter materializes a default body input.
+        Assert.False(RouteColumnarProgram("interface ILocalDefault {\n    func Score(): int {\n        func inner(): int {\n            return 1\n        }\n        return inner()\n    }\n}\n\nfunc f(): int {\n    return 1\n}\n").Ok);
         // Multi-interface implementation refuses duplicate direct interfaces, multiple class bases,
         // and missing members from any directly named interface.
         Assert.False(RouteColumnarProgram("interface IA {\n    func A(): int\n}\n\nclass Dup: IA, IA {\n    func A(): int {\n        return 1\n    }\n}\n\nfunc f(): int {\n    return 1\n}\n").Ok);

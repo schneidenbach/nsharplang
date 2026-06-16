@@ -1,5 +1,6 @@
-// Product columnar interface parser wrapper. It keeps base-name span scratch columns inside N# and exposes only
-// the interface/base text plus method signature rows needed by the C# transition materializer.
+// Product columnar interface parser wrapper. It keeps base-name span scratch columns inside N#,
+// rejects unsupported default-method local functions, and exposes only the interface/base text
+// plus method signature rows needed by the C# transition materializer.
 
 struct ColumnarInterfaceTokenTable {
     Kinds: int[]
@@ -51,5 +52,67 @@ func ParseColumnarInterfaceInfoCore(source: string, tokens: &ColumnarInterfaceTo
     whereItems := new ParserFunctionWhereTable { NameStarts: new int[](tokens.Count + 1), NameLengths: new int[](tokens.Count + 1), ItemCodes: new int[](tokens.Count + 1) }
     signatureResult := new ParserResultTable { Values: new int[](8) }
     interfaceResult := new ParserResultTable { Values: result.Values }
-    return ParseInterfaceDeclarationSignatureInfoCore(source, ref signatureTokens, tokens.Count, interfaceIndex, ref baseOutputs, ref methodOutputs, ref typeStack, ref nodes, ref children, ref canonicalNodes, ref tupleNodes, ref parameters, ref typeParams, ref whereItems, ref signatureResult, ref interfaceResult)
+    methodCount := ParseInterfaceDeclarationSignatureInfoCore(source, ref signatureTokens, tokens.Count, interfaceIndex, ref baseOutputs, ref methodOutputs, ref typeStack, ref nodes, ref children, ref canonicalNodes, ref tupleNodes, ref parameters, ref typeParams, ref whereItems, ref signatureResult, ref interfaceResult)
+    if methodCount < 0 {
+        return -1
+    }
+
+    tokenValues := new ColumnarInterfaceTokenTable { Kinds: tokens.Kinds, Starts: tokens.Starts, ValueLengths: tokens.ValueLengths, Count: tokens.Count }
+    outputValues := new ColumnarInterfaceOutputTable { MethodFuncIndices: outputs.MethodFuncIndices, BaseNameTexts: outputs.BaseNameTexts, InterfaceNameTexts: outputs.InterfaceNameTexts, MethodNameTexts: outputs.MethodNameTexts, MethodReturnTexts: outputs.MethodReturnTexts, MethodParamCounts: outputs.MethodParamCounts, MethodBodyFlags: outputs.MethodBodyFlags, MethodParamNameTexts: outputs.MethodParamNameTexts, MethodParamTypeTexts: outputs.MethodParamTypeTexts }
+    localStatus := InterfaceDefaultMethodLocalFunctionStatus(source, tokenValues, outputValues, methodCount)
+    if localStatus != 0 {
+        return -1
+    }
+
+    return methodCount
+}
+
+func InterfaceDefaultMethodLocalFunctionStatus(source: string, tokens: ColumnarInterfaceTokenTable, outputs: ColumnarInterfaceOutputTable, methodCount: int): int {
+    functionTokens := new ColumnarFunctionTokenTable { Kinds: tokens.Kinds, Starts: tokens.Starts, ValueLengths: tokens.ValueLengths, Count: tokens.Count }
+    cap := tokens.Count + 1
+    signatureOutputs := new ColumnarFunctionSignatureOutputTable {
+        FunctionNameTexts: new string[](1),
+        ReturnTypeTexts: new string[](1),
+        ParamNameTexts: new string[](cap),
+        ParamTypeTexts: new string[](cap),
+        ParamTupleNameCounts: new int[](cap),
+        ParamTupleNameTexts: new string[](cap),
+        ReturnTupleNameTexts: new string[](cap),
+        TypeParamTexts: new string[](cap),
+        TypeParamSpecials: new int[](cap),
+        TypeParamConstraintCounts: new int[](cap),
+        TypeParamConstraintTypeTexts: new string[](cap)
+    }
+    body := new ColumnarFunctionBodyTable {
+        NodeKinds: new int[](cap),
+        ValueStarts: new int[](cap),
+        ValueLengths: new int[](cap),
+        ChildStart: new int[](cap),
+        ChildCount: new int[](cap),
+        ChildIndices: new int[](cap),
+        SpanStarts: new int[](cap),
+        SpanLengths: new int[](cap)
+    }
+    locals := new ColumnarFunctionLocalTable { NodeIndices: new int[](cap), TokenIndices: new int[](cap) }
+    result := new ColumnarFunctionResultTable { Values: new int[](9) }
+
+    for i := 0; i < methodCount; i++ {
+        bodyFlag := outputs.MethodBodyFlags[i]
+        if bodyFlag == 0 {
+            continue
+        }
+        if bodyFlag != 1 {
+            return -1
+        }
+
+        paramCount := ParseColumnarFunctionInfoCore(source, ref functionTokens, outputs.MethodFuncIndices[i], ref signatureOutputs, ref body, ref locals, ref result)
+        if paramCount < 0 {
+            return -1
+        }
+        if result.Values[8] > 0 {
+            return 1
+        }
+    }
+
+    return 0
 }
