@@ -219,7 +219,7 @@ internal static class ProjectDocGenerator
 
     internal static List<SymbolResult> OrderSymbolsForGeneration(IReadOnlyList<SymbolResult> symbols)
     {
-        if (NSharpCliDogfoodAdapter.TryOrderDocSymbolsForGeneration(symbols, out var orderedSymbols))
+        if (DocCommandKernels.TryOrderSymbolsForGeneration(symbols, out var orderedSymbols))
             return orderedSymbols;
 
         return symbols
@@ -308,7 +308,7 @@ internal static class ProjectDocGenerator
         if (members == null || members.Length == 0)
             return new List<SymbolResult>();
 
-        if (NSharpCliDogfoodAdapter.TryOrderDocMembersForGeneration(members, out var orderedMembers))
+        if (DocCommandKernels.TryOrderMembersForGeneration(members, out var orderedMembers))
             return orderedMembers;
 
         return members
@@ -438,7 +438,7 @@ internal static class ProjectDocGenerator
         for (var i = 0; i < symbols.Count; i++)
             rawSlugs[i] = CreateRawSlug(symbols[i]);
 
-        if (NSharpCliDogfoodAdapter.TryCreateDocSlugs(rawSlugs, out var dogfoodSlugs))
+        if (DocCommandKernels.TryCreateSlugs(rawSlugs, out var dogfoodSlugs))
             return dogfoodSlugs;
 
         var slugs = new string[rawSlugs.Length];

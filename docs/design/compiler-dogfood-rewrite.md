@@ -1701,6 +1701,9 @@ the representative slug corpus (36.179 us vs 184.292 us, 94.55 KB vs 803.74 KB) 
 faster on the large generated slug corpus (306.967 us vs 1.760 ms, 754.95 KB vs 6,431.67 KB). This
 is acceptance-grade benchmark evidence for `nlc doc` slug generation after the host has built the
 raw kind/name/file slug strings.
+Production `nlc doc` now routes symbol ordering, member ordering, and slug generation through the
+owner-local `DocCommandKernels` helper when the dogfood assembly is available, with the previous C#
+ordering and slugifier paths retained as fallbacks.
 
 `CliTreeDependencyDeduplicateIndicesInto` passed parity and reported zero managed allocation in the
 normal BenchmarkDotNet evidence tier for `nlc tree` dependency deduplication and order. It ran about
@@ -1963,18 +1966,18 @@ with the previous LINQ grouping path kept as the fallback.
 are created, then routes success-count calculation through `BatchQueryKernels`, which calls the
 compiled N# packed popcount kernel when the dogfood assembly is available, with the previous C#
 `items.Count(item => item.Ok)` count kept as the fallback.
-`nlc doc` symbol filtering and kind/name ordering now routes through the compiled N# stable
-counting-sort kernel when the dogfood assembly is available, preserving the previous
-`SymbolKind.ToString()`/ordinal name order and variable/parameter filtering, with the previous LINQ
-ordering path kept as the fallback.
-Generated `nlc doc` symbol-page member ordering also routes through the same compiled N# stable
-counting-sort kernel when the dogfood assembly is available, preserving the previous full member
-inclusion and `SymbolKind.ToString()`/ordinal name order, with the previous LINQ ordering path kept
-as the fallback.
+`nlc doc` symbol filtering and kind/name ordering now routes through `DocCommandKernels`, which
+calls the compiled N# stable counting-sort kernel when the dogfood assembly is available, preserving
+the previous `SymbolKind.ToString()`/ordinal name order and variable/parameter filtering, with the
+previous LINQ ordering path kept as the fallback.
+Generated `nlc doc` symbol-page member ordering also routes through `DocCommandKernels` and the same
+compiled N# stable counting-sort kernel when the dogfood assembly is available, preserving the
+previous full member inclusion and `SymbolKind.ToString()`/ordinal name order, with the previous
+LINQ ordering path kept as the fallback.
 Generated `nlc doc` symbol-page slug generation now batches raw kind/name/file slug strings through
-the compiled N# `CliDocSlugsInto` route when the dogfood assembly is available, preserving the
-previous lower-case letter/digit-only slug text, with the previous LINQ/split/join slugifier kept
-as the fallback.
+`DocCommandKernels` and the compiled N# `CliDocSlugsInto` route when the dogfood assembly is
+available, preserving the previous lower-case letter/digit-only slug text, with the previous
+LINQ/split/join slugifier kept as the fallback.
 `nlc tree` dependency deduplication and kind/name ordering now routes through the compiled N#
 stable counting-sort kernel when the dogfood assembly is available, preserving the previous
 first-source dependency selection for each ordinal-kind/case-insensitive-name key, with the previous

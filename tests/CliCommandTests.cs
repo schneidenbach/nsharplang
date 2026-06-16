@@ -1569,7 +1569,7 @@ dependencies:
     }
 
     [Fact]
-    public void DocCommand_DogfoodAdapter_OrdersSymbolsForGeneration()
+    public void DocCommandKernels_OrdersSymbolsForGeneration()
     {
         var symbols = new[]
         {
@@ -1592,7 +1592,7 @@ dependencies:
             .ThenBy(symbol => symbol.Name, StringComparer.Ordinal)
             .ToList();
 
-        Assert.True(NSharpCliDogfoodAdapter.TryOrderDocSymbolsForGeneration(symbols, out var actual));
+        Assert.True(DocCommandKernels.TryOrderSymbolsForGeneration(symbols, out var actual));
         Assert.Equal(expected, actual);
 
         static SymbolResult NewSymbol(string name, SymbolKind kind) =>
@@ -1600,7 +1600,7 @@ dependencies:
     }
 
     [Fact]
-    public void DocCommand_DogfoodAdapter_OrdersMembersForGeneration()
+    public void DocCommandKernels_OrdersMembersForGeneration()
     {
         var members = new[]
         {
@@ -1619,7 +1619,7 @@ dependencies:
             .ThenBy(member => member.Name, StringComparer.Ordinal)
             .ToList();
 
-        Assert.True(NSharpCliDogfoodAdapter.TryOrderDocMembersForGeneration(members, out var actual));
+        Assert.True(DocCommandKernels.TryOrderMembersForGeneration(members, out var actual));
         Assert.Equal(expected, actual);
 
         static SymbolResult NewSymbol(string name, SymbolKind kind) =>
@@ -1627,7 +1627,7 @@ dependencies:
     }
 
     [Fact]
-    public void DocCommand_DogfoodAdapter_CreatesSlugs()
+    public void DocCommandKernels_CreatesSlugs()
     {
         var rawSlugs = new[]
         {
@@ -1638,7 +1638,7 @@ dependencies:
             "Property-HTTPClient2-API.Client.nl"
         };
 
-        Assert.True(NSharpCliDogfoodAdapter.TryCreateDocSlugs(rawSlugs, out var actual));
+        Assert.True(DocCommandKernels.TryCreateSlugs(rawSlugs, out var actual));
         Assert.Equal(rawSlugs.Select(CreateExpectedDocSlug).ToArray(), actual);
 
         static string CreateExpectedDocSlug(string raw)

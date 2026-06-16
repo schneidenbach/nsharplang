@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Doc generation kernels leave the CLI dogfood adapter
+
+`nlc doc` symbol filtering/order, member ordering, and slug generation now route the accepted N#
+kernels through `DocCommandKernels`, an owner-local helper beside `DocCommand`. The broad CLI
+dogfood adapter no longer owns the doc ordering/slug entry points, delegate bindings, kind-rank
+projection, or sorted name-rank scratch state; the existing LINQ ordering and slugifier fallbacks
+remain in the command.
+Focused evidence: `dotnet build src/NSharpLang.Cli/Cli.csproj --no-restore`; `dotnet test
+tests/Tests.csproj --filter "FullyQualifiedName~CliCommandTests.DocCommandKernels_OrdersSymbolsForGeneration|FullyQualifiedName~CliCommandTests.DocCommandKernels_OrdersMembersForGeneration|FullyQualifiedName~CliCommandTests.DocCommandKernels_CreatesSlugs"`.
+
 ## 2026-06-16 — Update dependency filtering leaves the CLI dogfood adapter
 
 `nlc update` all-NuGet dependency selection and target-package narrowing now route the accepted N#
