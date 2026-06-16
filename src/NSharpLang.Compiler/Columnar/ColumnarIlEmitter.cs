@@ -3109,11 +3109,6 @@ internal sealed class ColumnarIlEmitter
                     // A static method sharing its name with an INSTANCE method (NL306) declines; vice versa below.
                     if (def.Methods.ContainsKey(m.Name))
                         return false;
-                    // STATIC methods on a GENERIC type decline this slice: a static member's CLR identity is
-                    // per-INSTANTIATION (Box<int>.M vs Box<string>.M), and the columnar static chain-walk
-                    // machinery is keyed by open builders — closed-static semantics are unprobed.
-                    if (def.GenericParameters != null)
-                        return false;
                     Type sReturn;
                     if (m.ReturnCanonical == "void")
                         sReturn = typeof(void);
@@ -3249,10 +3244,6 @@ internal sealed class ColumnarIlEmitter
                     || (prop.Setter != null && (def.Methods.ContainsKey("set_" + prop.Name) || def.StaticMethods.ContainsKey("set_" + prop.Name))))
                     return false;
                 if (!TryResolveMemberType(prop.TypeCanonical, def, enumRegistry, structRegistry, unionRegistry, out var propType) || !IsSupportedType(propType))
-                    return false;
-                // STATIC properties on a GENERIC type decline (per-instantiation static semantics, unprobed —
-                // same rule as static methods/fields above).
-                if (prop.IsStatic && def.GenericParameters != null)
                     return false;
                 if (prop.IsStatic)
                 {

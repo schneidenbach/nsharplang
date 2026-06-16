@@ -11541,6 +11541,7 @@ func outer(x: int): int {
         Assert.False(RouteColumnarProgram("class Box<T> {\n    item: T\n\n    constructor(v: T) {\n        item = v\n    }\n}\n\nfunc f(): int {\n    b := new Box<int, string>(1)\n    return b.item\n}\n").Ok);
         // STATIC members on a generic type: per-instantiation static semantics are unprobed — decline.
         Assert.False(RouteColumnarProgram("class Box<T> {\n    item: T\n    static func Mk(): int {\n        return 1\n    }\n}\n\nfunc f(): int {\n    return 1\n}\n").Ok);
+        Assert.False(RouteColumnarProgram("class Box<T> {\n    item: T\n    static Value: int {\n        get {\n            return 1\n        }\n    }\n}\n\nfunc f(): int {\n    return 1\n}\n").Ok);
         // (Generic VALUE-STRUCT construction is now supported — see
         // ColumnarCodegen_Parity_ValueStructConstructors.)
         // A VALUE-TYPE ctor with a `: this(...)` chain declines: probing the oracle showed `new S()`

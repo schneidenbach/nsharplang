@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Generic static member declines move into N# struct parser
+
+`ParseColumnarStructInfoCore` now rejects static methods and static properties on generic
+class/record/struct declarations alongside the existing generic static-field decline. The emitter no
+longer carries the generic-static method/property guards; the generic class instance field/method/property
+path remains accepted.
+
 ## 2026-06-16 — Value-struct instance-storage decline moves into N# parser
 
 `ParseColumnarStructInfoCore` now rejects value structs that have no instance fields, including

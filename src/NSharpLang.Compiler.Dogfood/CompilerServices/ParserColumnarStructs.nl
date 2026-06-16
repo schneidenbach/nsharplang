@@ -108,6 +108,10 @@ func ParseColumnarStructInfoCore(source: string, tokens: &ColumnarStructTokenTab
 
         i = 0
         while i < methodCount {
+            if outputs.MethodStaticFlags[i] == 1 {
+                return -1
+            }
+
             methodNameIndex := outputs.MethodFuncIndices[i] + 1
             if methodNameIndex < 0 || methodNameIndex >= tokens.Count || tokens.Kinds[methodNameIndex] != 0 {
                 return -1
@@ -122,6 +126,10 @@ func ParseColumnarStructInfoCore(source: string, tokens: &ColumnarStructTokenTab
 
         i = 0
         while i < propCount {
+            if outputs.PropStaticFlags[i] == 1 {
+                return -1
+            }
+
             propNameIndex := outputs.PropIndices[i]
             if propNameIndex < 0 || propNameIndex >= tokens.Count || tokens.Kinds[propNameIndex] != 0 {
                 return -1
