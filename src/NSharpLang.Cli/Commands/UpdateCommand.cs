@@ -162,14 +162,14 @@ Exit codes:
     {
         if (targetPackage == null)
         {
-            return NSharpLang.Cli.NSharpCliDogfoodAdapter.TryFilterUpdateNuGetDependencies(
+            return UpdateDependencyFilter.TryFilterAllNuGetDependencies(
                 dependencies,
                 out var allNuGetDependencies)
                 ? allNuGetDependencies
                 : FilterNuGetDependenciesWithCSharp(dependencies, targetPackage);
         }
 
-        return NSharpLang.Cli.NSharpCliDogfoodAdapter.TryFilterUpdateTargetNuGetDependencies(
+        return UpdateDependencyFilter.TryFilterTargetNuGetDependencies(
             dependencies,
             targetPackage,
             out var filteredDependencies)

@@ -16,7 +16,6 @@ internal static class NSharpCliDogfoodAdapter
     private static DocSymbolOrderScratch? t_docSymbolOrderScratch;
     [ThreadStatic]
     private static TreeDependencyDeduplicateScratch? t_treeDependencyDeduplicateScratch;
-    private static UpdateDependencyFilterScratch? t_updateDependencyFilterScratch;
     [ThreadStatic]
     private static ReferenceTypeFilterScratch? t_referenceTypeFilterScratch;
     [ThreadStatic]
@@ -398,140 +397,6 @@ internal static class NSharpCliDogfoodAdapter
         catch
         {
             orderedSourceIndices = Array.Empty<int>();
-            return false;
-        }
-    }
-
-    internal static bool TryFilterUpdateTargetNuGetDependencies(
-        IReadOnlyList<Reference> dependencies,
-        string targetPackage,
-        out List<Reference> filteredDependencies)
-    {
-        filteredDependencies = new List<Reference>();
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        var dependencyCount = dependencies.Count;
-        if (dependencyCount == 0)
-            return true;
-
-        var scratch = t_updateDependencyFilterScratch ??= new UpdateDependencyFilterScratch();
-        scratch.EnsureCapacity(dependencyCount);
-
-        try
-        {
-            scratch.ResetNames();
-            for (var i = 0; i < dependencyCount; i++)
-            {
-                var packageName = dependencies[i].Nuget;
-                if (packageName != null)
-                    scratch.AddName(packageName);
-            }
-
-            if (!scratch.TryGetNameRank(targetPackage, out var targetNameRank))
-            {
-                filteredDependencies = new List<Reference>();
-                return true;
-            }
-
-            for (var i = 0; i < dependencyCount; i++)
-            {
-                var packageName = dependencies[i].Nuget;
-                scratch.NameRanks[i] = packageName == null
-                    ? 0
-                    : scratch.GetNameRank(packageName);
-            }
-
-            var filteredCount = bindings.CliUpdateTargetNuGetDependencyIndices(
-                scratch.NameRanks,
-                targetNameRank,
-                scratch.ResultIndices);
-
-            if (filteredCount < 0 || filteredCount > dependencyCount || filteredCount > scratch.ResultIndices.Length)
-                return false;
-
-            filteredDependencies = new List<Reference>(filteredCount);
-            for (var i = 0; i < filteredCount; i++)
-            {
-                var sourceIndex = scratch.ResultIndices[i];
-                if (sourceIndex < 0 || sourceIndex >= dependencyCount)
-                {
-                    filteredDependencies = new List<Reference>();
-                    return false;
-                }
-
-                filteredDependencies.Add(dependencies[sourceIndex]);
-            }
-
-            return true;
-        }
-        catch
-        {
-            filteredDependencies = new List<Reference>();
-            return false;
-        }
-        finally
-        {
-            scratch.ResetNames();
-        }
-    }
-
-    internal static bool TryFilterUpdateNuGetDependencies(
-        IReadOnlyList<Reference> dependencies,
-        out List<Reference> filteredDependencies)
-    {
-        filteredDependencies = new List<Reference>();
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        var dependencyCount = dependencies.Count;
-        if (dependencyCount == 0)
-            return true;
-
-        var scratch = t_updateDependencyFilterScratch ??= new UpdateDependencyFilterScratch();
-        scratch.EnsureCapacity(dependencyCount);
-
-        try
-        {
-            for (var i = 0; i < dependencyCount; i++)
-                scratch.NuGetFlags[i] = dependencies[i].Nuget == null ? 0 : 1;
-
-            var filteredCount = bindings.CliUpdateAllNuGetDependencyIndices(
-                scratch.NuGetFlags,
-                scratch.ResultIndices);
-
-            if (filteredCount < 0 || filteredCount > dependencyCount || filteredCount > scratch.ResultIndices.Length)
-                return false;
-
-            filteredDependencies = new List<Reference>(filteredCount);
-            for (var i = 0; i < filteredCount; i++)
-            {
-                var sourceIndex = scratch.ResultIndices[i];
-                if (sourceIndex < 0 || sourceIndex >= dependencyCount)
-                {
-                    filteredDependencies = new List<Reference>();
-                    return false;
-                }
-
-                var dependency = dependencies[sourceIndex];
-                if (dependency.Nuget == null)
-                {
-                    filteredDependencies = new List<Reference>();
-                    return false;
-                }
-
-                filteredDependencies.Add(dependency);
-            }
-
-            return true;
-        }
-        catch
-        {
-            filteredDependencies = new List<Reference>();
             return false;
         }
     }
@@ -1102,8 +967,6 @@ internal static class NSharpCliDogfoodAdapter
                 CreateDelegate<CliDocSlugsInto>(programType, "CliDocSlugsInto"),
                 CreateDelegate<CliTreeDependencyDeduplicateIndicesInto>(programType, "CliTreeDependencyDeduplicateIndicesInto"),
                 CreateDelegate<DiagnosticSeverityFilterIndicesInto>(programType, "DiagnosticSeverityFilterIndicesInto"),
-                CreateDelegate<CliUpdateAllNuGetDependencyIndicesInto>(programType, "CliUpdateAllNuGetDependencyIndicesInto"),
-                CreateDelegate<CliUpdateTargetNuGetDependencyIndicesInto>(programType, "CliUpdateTargetNuGetDependencyIndicesInto"),
                 CreateDelegate<CliReferenceTypeFilterIndicesInto>(programType, "CliReferenceTypeFilterIndicesInto"),
                 CreateDelegate<CliTidyDependencyStatusSummaryInto>(programType, "CliTidyDependencyStatusSummaryInto"),
                 CreateDelegate<CliTestOutcomeSummaryInto>(programType, "CliTestOutcomeSummaryInto"),
@@ -1201,15 +1064,6 @@ internal static class NSharpCliDogfoodAdapter
         int targetRank,
         int[] resultIndices);
 
-    private delegate int CliUpdateAllNuGetDependencyIndicesInto(
-        int[] nugetFlags,
-        int[] resultIndices);
-
-    private delegate int CliUpdateTargetNuGetDependencyIndicesInto(
-        int[] nameRanks,
-        int targetNameRank,
-        int[] resultIndices);
-
     private delegate int CliReferenceTypeFilterIndicesInto(
         int[] typeRanks,
         int targetTypeRank,
@@ -1251,8 +1105,6 @@ internal static class NSharpCliDogfoodAdapter
         CliDocSlugsInto CliDocSlugs,
         CliTreeDependencyDeduplicateIndicesInto CliTreeDependencyDeduplicateIndices,
         DiagnosticSeverityFilterIndicesInto DiagnosticSeverityFilter,
-        CliUpdateAllNuGetDependencyIndicesInto CliUpdateAllNuGetDependencyIndices,
-        CliUpdateTargetNuGetDependencyIndicesInto CliUpdateTargetNuGetDependencyIndices,
         CliReferenceTypeFilterIndicesInto CliReferenceTypeFilterIndices,
         CliTidyDependencyStatusSummaryInto CliTidyDependencyStatusSummary,
         CliTestOutcomeSummaryInto CliTestOutcomeSummary,
@@ -1459,47 +1311,6 @@ internal static class NSharpCliDogfoodAdapter
                 NameCounts = new int[nameBucketCapacity];
                 NameOffsets = new int[nameBucketCapacity];
             }
-        }
-    }
-
-    private sealed class UpdateDependencyFilterScratch
-    {
-        private readonly Dictionary<string, int> _nameRanks = new(StringComparer.OrdinalIgnoreCase);
-
-        internal int[] NuGetFlags = Array.Empty<int>();
-        internal int[] NameRanks = Array.Empty<int>();
-        internal int[] ResultIndices = Array.Empty<int>();
-        internal int UniqueNameCount;
-
-        internal void EnsureCapacity(int dependencyCount)
-        {
-            if (NuGetFlags.Length != dependencyCount
-                || NameRanks.Length != dependencyCount
-                || ResultIndices.Length != dependencyCount)
-            {
-                NuGetFlags = new int[dependencyCount];
-                NameRanks = new int[dependencyCount];
-                ResultIndices = new int[dependencyCount];
-            }
-        }
-
-        internal void AddName(string name)
-        {
-            if (_nameRanks.ContainsKey(name))
-                return;
-
-            UniqueNameCount++;
-            _nameRanks.Add(name, UniqueNameCount);
-        }
-
-        internal int GetNameRank(string name) => _nameRanks[name];
-
-        internal bool TryGetNameRank(string name, out int rank) => _nameRanks.TryGetValue(name, out rank);
-
-        internal void ResetNames()
-        {
-            _nameRanks.Clear();
-            UniqueNameCount = 0;
         }
     }
 

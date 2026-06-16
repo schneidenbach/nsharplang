@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Update dependency filtering leaves the CLI dogfood adapter
+
+`nlc update` all-NuGet dependency selection and target-package narrowing now route the accepted N#
+kernels through `UpdateDependencyFilter`, an owner-local helper beside `UpdateCommand`. The broad
+CLI dogfood adapter no longer owns the update dependency filter entry points, delegate bindings, or
+case-insensitive name-rank scratch state; the existing C# dependency filter fallback remains in the
+command.
+Focused evidence: `dotnet build src/NSharpLang.Cli/Cli.csproj --no-restore`; `dotnet test
+tests/Tests.csproj --filter "FullyQualifiedName~CliCommandTests.UpdateDependencyFilter_FiltersTargetNuGetDependencies"`.
+
 ## 2026-06-16 — Clean artifact ordering leaves the CLI dogfood adapter
 
 `nlc clean` post-enumeration artifact directory selection now routes the accepted N# directory-order

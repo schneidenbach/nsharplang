@@ -1736,6 +1736,9 @@ missing-target row measured 0.397 ns vs 1.945 us, and the large generated missin
 measured 0.401 ns vs 15.558 us. This is acceptance-grade benchmark evidence for named-package
 `nlc update` narrowing after the host has assigned case-insensitive package-name ranks with rank 0
 reserved for non-NuGet dependencies.
+Production `nlc update` now routes both accepted kernels through the owner-local
+`UpdateDependencyFilter` helper when the dogfood assembly is available, with the previous C#
+dependency-filter path retained as the fallback.
 
 `CliReferenceTypeFilterIndicesInto` passed parity and reported zero managed allocation in the short
 BenchmarkDotNet evidence tier for CLI dependency reference-type selection. The

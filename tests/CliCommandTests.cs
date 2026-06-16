@@ -279,7 +279,7 @@ func Main() {
     }
 
     [Fact]
-    public void UpdateCommand_DogfoodAdapter_FiltersTargetNuGetDependencies()
+    public void UpdateDependencyFilter_FiltersTargetNuGetDependencies()
     {
         var dependencies = new[]
         {
@@ -292,7 +292,7 @@ func Main() {
             new Reference { Nuget = "System.Text.Json", Version = "10.0.0" }
         };
 
-        Assert.True(NSharpCliDogfoodAdapter.TryFilterUpdateNuGetDependencies(
+        Assert.True(UpdateDependencyFilter.TryFilterAllNuGetDependencies(
             dependencies,
             out var adapterAllNuGet));
         Assert.Equal(new[] { "Serilog", "Newtonsoft.Json", "serilog", "System.Text.Json" },
@@ -302,14 +302,14 @@ func Main() {
         Assert.Equal(new[] { "Serilog", "Newtonsoft.Json", "serilog", "System.Text.Json" },
             allNuGet.Select(reference => reference.Nuget));
 
-        Assert.True(NSharpCliDogfoodAdapter.TryFilterUpdateTargetNuGetDependencies(
+        Assert.True(UpdateDependencyFilter.TryFilterTargetNuGetDependencies(
             dependencies,
             "SERILOG",
             out var serilog));
         Assert.Equal(new[] { "Serilog", "serilog" },
             serilog.Select(reference => reference.Nuget));
 
-        Assert.True(NSharpCliDogfoodAdapter.TryFilterUpdateTargetNuGetDependencies(
+        Assert.True(UpdateDependencyFilter.TryFilterTargetNuGetDependencies(
             dependencies,
             "Missing.Package",
             out var missing));

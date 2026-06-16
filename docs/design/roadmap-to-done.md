@@ -256,7 +256,8 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       success counting now live beside `BatchQueryRunner` in `BatchQueryKernels`; unified-diff hunk range
       construction now lives beside `UnifiedDiff` in `UnifiedDiffHunkRangeBuilder`; fix safety/skipped/applied
       grouping routes now live beside `FixCommand` in `FixCommandKernels`; clean artifact directory ordering
-      now lives beside `CleanCommand` in `CleanArtifactDirectoryOrderer`. Product parser
+      now lives beside `CleanCommand` in `CleanArtifactDirectoryOrderer`; update all-NuGet and target-package
+      dependency filtering now lives beside `UpdateCommand` in `UpdateDependencyFilter`. Product parser
       wrappers for function, constructor, property, body/local-function, enum, struct/class/record, union, and
       interface routes now compose typed N# cores directly where wrapper ownership is complete, and columnar
       tokenization now compacts parser token kind/start/value-length rows in N# instead of a C# kept-index copy loop;
