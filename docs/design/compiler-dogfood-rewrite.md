@@ -1912,8 +1912,8 @@ framework references now routes through `ExportCommandKernels`, which calls the 
 compact-rank filter when the dogfood assembly is available, preserving source order and
 invalid-reference fallback behavior, with the previous C# `Where(...).ToList()` filters kept as the
 fallback. `nlc restore` now routes the same accepted kernel through `RestoreCommandKernels`; native
-CLI compilation reference resolution still routes it through
-`NSharpCliDogfoodAdapter.TryFilterReferencesByType` while that owner keeps its transition boundary.
+CLI compilation reference resolution now routes it through `CompilationReferenceResolverKernels`,
+with the previous C# filters kept as the fallback.
 `nlc export csharp` now routes stable post-resolution reference de-duplication for project,
 framework, package, and DLL references through `ExportCommandKernels`, which calls the compiled N#
 compact-rank stable distinct kernel when the dogfood assembly is available, with the previous C#

@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Compilation reference filtering leaves the CLI dogfood adapter
+
+Native CLI compilation reference resolution now routes the accepted N#
+`CliReferenceTypeFilterIndicesInto` kernel through `CompilationReferenceResolverKernels`, beside
+`CompilationReferenceResolver`. The broad CLI dogfood adapter no longer owns reference-type filter
+entry points, delegate bindings, or scratch arrays, and now contains only the shared first-positional
+argument scanner.
+Focused evidence: `dotnet build src/NSharpLang.Cli/Cli.csproj --no-restore`; `dotnet test
+tests/Tests.csproj --filter "FullyQualifiedName~CliCommandTests.CompilationReferenceResolverKernels_FiltersReferenceValuesByType"`;
+`./scripts/dev.sh --since`.
+
 ## 2026-06-16 — Stable distinct routes leave the CLI dogfood adapter
 
 CLI stable string de-duplication now routes through owner-local helpers: stale generated-output
@@ -28,8 +39,8 @@ tests/Tests.csproj --filter "FullyQualifiedName~CliCommandTests.GeneratedOutputD
 `nlc export csharp` reference-type filtering and stable post-resolution reference de-duplication now
 route the accepted N# compact-rank kernels through `ExportCommandKernels`, beside the existing export
 input operand route. The broad CLI dogfood adapter no longer owns the export-only deduplication
-entry point, and export reference filtering no longer reaches through the adapter; restore and native
-CLI reference resolution keep their current adapter fallback until their owners are split.
+entry point, and export reference filtering no longer reaches through the adapter; later restore and
+native CLI reference-resolution slices split their owners too.
 Focused evidence: `dotnet build src/NSharpLang.Cli/Cli.csproj --no-restore`; `dotnet test
 tests/Tests.csproj --filter "FullyQualifiedName~CliCommandTests.ExportCommandKernels_FiltersReferenceValuesByType|FullyQualifiedName~CliCommandTests.ExportCommandKernels_DeduplicatesReferenceValues"`;
 `./scripts/dev.sh --since`.

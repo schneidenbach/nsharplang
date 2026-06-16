@@ -262,7 +262,9 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       target-framework deduplication now live beside `TreeCommand` in `TreeDependencyDeduplicator`;
       restore reference filtering and project-reference deduplication now live beside `RestoreCommand`
       in `RestoreCommandKernels`; stale generated-output directory de-duplication now lives beside
-      `Program.CleanStaleGeneratedFiles` in `GeneratedOutputDirectoryDeduplicator`; tidy
+      `Program.CleanStaleGeneratedFiles` in `GeneratedOutputDirectoryDeduplicator`; native
+      compilation-reference filtering now lives beside `CompilationReferenceResolver` in
+      `CompilationReferenceResolverKernels`; tidy
       classification/summary/fix filtering now live beside `TidyCommand` in `TidyCommandKernels`;
       lint file-argument extraction now lives beside `LintCommand` in `LintCommandKernels`; export
       csharp input selection, reference filtering, and

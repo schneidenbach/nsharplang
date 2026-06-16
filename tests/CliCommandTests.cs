@@ -1290,6 +1290,25 @@ func Main() {
     }
 
     [Fact]
+    public void CompilationReferenceResolverKernels_FiltersReferenceValuesByType()
+    {
+        var references = new[]
+        {
+            new Reference { Nuget = "Serilog", Version = "3.1.1" },
+            new Reference { Framework = "Microsoft.AspNetCore.App" },
+            new Reference { Dll = "lib/Analyzer.dll" },
+            new Reference { Project = "../Shared/project.yml" },
+            new Reference { Nuget = "YamlDotNet", Version = "16.0.0" }
+        };
+
+        Assert.True(CompilationReferenceResolverKernels.TryFilterReferencesByType(
+            references,
+            ReferenceType.NuGet,
+            out var packageReferences));
+        Assert.Equal(new[] { "Serilog", "YamlDotNet" }, packageReferences.Select(reference => reference.Nuget).ToArray());
+    }
+
+    [Fact]
     public void RestoreCommand_DeduplicatesProjectReferencesInGeneratedProps()
     {
         static int CountOccurrences(string text, string value)

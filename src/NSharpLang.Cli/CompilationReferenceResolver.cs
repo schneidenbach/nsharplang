@@ -734,7 +734,7 @@ internal static class CompilationReferenceResolver
         IReadOnlyList<Reference> references,
         ReferenceType referenceType)
     {
-        return NSharpCliDogfoodAdapter.TryFilterReferencesByType(references, referenceType, out var dogfoodReferences)
+        return CompilationReferenceResolverKernels.TryFilterReferencesByType(references, referenceType, out var dogfoodReferences)
             ? dogfoodReferences
             : references.Where(reference => reference.Type == referenceType).ToList();
     }
