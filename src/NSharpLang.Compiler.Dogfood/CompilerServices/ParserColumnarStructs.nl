@@ -1,6 +1,6 @@
 // Product columnar struct/class/record parser wrapper. It keeps declaration span scratch columns inside N#,
-// rejects unsupported value-type properties and member-method local functions, and exposes only text, flag, and
-// member-index rows needed by the C# transition materializer.
+// rejects unsupported value-type storage/property shapes and member-method local functions, and exposes only text,
+// flag, and member-index rows needed by the C# transition materializer.
 
 struct ColumnarStructTokenTable {
     Kinds: int[]
@@ -64,8 +64,20 @@ func ParseColumnarStructInfoCore(source: string, tokens: &ColumnarStructTokenTab
         return -1
     }
 
-    if fieldCount == 0 && isReference == 0 {
-        return -1
+    if isReference == 0 {
+        instanceFieldCount := 0
+        fieldSlot := 0
+        while fieldSlot < fieldCount {
+            if outputs.FieldStaticFlags[fieldSlot] == 0 {
+                instanceFieldCount = instanceFieldCount + 1
+            }
+
+            fieldSlot = fieldSlot + 1
+        }
+
+        if instanceFieldCount == 0 {
+            return -1
+        }
     }
 
     if isRecord == 1 && ctorCount > 0 {

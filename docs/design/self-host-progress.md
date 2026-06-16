@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Value-struct instance-storage decline moves into N# parser
+
+`ParseColumnarStructInfoCore` now rejects value structs that have no instance fields, including
+static-only value structs, before the columnar emitter defines a zero-instance-field value type. The
+emitter-side storage guard was removed; static fields on classes/records and value structs with real
+instance storage remain on the accepted path.
+
 ## 2026-06-16 — Value-type property decline moves into N# struct parser
 
 `ParseColumnarStructInfoCore` now rejects property declarations on value structs before the C#

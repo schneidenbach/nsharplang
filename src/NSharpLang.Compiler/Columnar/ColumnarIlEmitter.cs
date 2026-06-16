@@ -2994,10 +2994,6 @@ internal sealed class ColumnarIlEmitter
                 fields[st.FieldNames[fi]] = fb;
                 instanceFieldNames.Add(st.FieldNames[fi]);
             }
-            // A value-type struct needs at least one INSTANCE field (a zero-size value type is a CLR layout edge
-            // case — the same rule the adapter applies to fully fieldless structs; statics do not give it a size).
-            if (!st.IsReference && instanceFieldNames.Count == 0)
-                return false;
             // STATIC FIELD INITIALIZERS run in the type's .cctor, in declaration order (C# static-initializer
             // semantics). Only single-token literals are modelled (the kernel guarantees it); the literal must
             // agree with the declared field type — a mismatch declines (the oracle's implicit conversions are not
