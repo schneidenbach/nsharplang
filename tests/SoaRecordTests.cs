@@ -9916,6 +9916,64 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void ILCompiler_SoaRecordDirectColumnRefOutArguments_UseColumnElementAddresses()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var source = """
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bump(ref value: int) {
+                value += 5
+            }
+
+            func reset(out value: int) {
+                value = 11
+            }
+
+            func columnRefOut(nodes: NodeTable): int {
+                first := nodes.add()
+                second := nodes.add()
+                nodes.kind[first] = 3
+                nodes.kind[second] = 7
+                bump(ref nodes.kind[first])
+                reset(out nodes.kind[^1])
+                idx := ^1
+                bump(ref (nodes.kind)[idx])
+                return nodes.kind[first] * 100 + nodes.kind[second]
+            }
+
+            func main(): int {
+                nodes := new NodeTable(2)
+                return columnRefOut(nodes)
+            }
+            """;
+
+        Assert.Equal(816, Assert.IsType<int>(CompileAndInvoke(source)));
+
+        var opCodes = CompileAndInspect(source, assembly =>
+        {
+            var columnRefOut = assembly.GetType("Program")!.GetMethod(
+                "columnRefOut",
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(columnRefOut);
+            return GetMethodOpCodes(columnRefOut!);
+        });
+
+        Assert.Contains(OpCodes.Ldfld, opCodes);
+        Assert.Contains(OpCodes.Ldelema, opCodes);
+        Assert.Contains(opCodes, IsArrayElementLoad);
+        Assert.Contains(opCodes, IsArrayElementStore);
+        Assert.Contains(OpCodes.Ldlen, opCodes);
+        Assert.DoesNotContain(OpCodes.Newarr, opCodes);
+        Assert.DoesNotContain(OpCodes.Box, opCodes);
+        Assert.DoesNotContain(OpCodes.Ldftn, opCodes);
+        Assert.DoesNotContain(OpCodes.Callvirt, opCodes);
+    }
+
+    [Fact]
     public void ILCompiler_SoaRecordParenthesizedVariableFromEndDirectColumnNullCoalesceRead_UsesColumnElementILShape()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
