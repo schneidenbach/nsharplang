@@ -215,13 +215,6 @@ func ParseFunctionSignatureInfoCore(source: string, tokens: &ParserTokenTable, c
     return paramCount
 }
 
-func FunctionSignatureWhereOwnerIndicesInto(source: string, typeParamStarts: int[], typeParamLengths: int[], typeParamCount: int, whereNameStarts: int[], whereNameLengths: int[], whereItemCount: int, outOwnerIndices: int[]): int {
-    typeParams := new FunctionSignatureNameSpanTable { Starts: typeParamStarts, Lengths: typeParamLengths }
-    whereNames := new FunctionSignatureNameSpanTable { Starts: whereNameStarts, Lengths: whereNameLengths }
-    result := new FunctionSignatureOwnerIndexTable { Indices: outOwnerIndices }
-    return FunctionSignatureWhereOwnerIndicesCore(source, ref typeParams, typeParamCount, ref whereNames, whereItemCount, ref result)
-}
-
 func FunctionSignatureWhereOwnerIndicesCore(source: string, typeParams: &FunctionSignatureNameSpanTable, typeParamCount: int, whereNames: &FunctionSignatureNameSpanTable, whereItemCount: int, result: &FunctionSignatureOwnerIndexTable): int {
     if typeParamCount < 0 || whereItemCount < 0 || whereItemCount > result.Indices.Length {
         return -1

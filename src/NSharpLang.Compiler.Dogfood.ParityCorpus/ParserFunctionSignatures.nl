@@ -103,3 +103,10 @@ func ParseFunctionSignatureInfoInto(source: string, tokenKinds: int[], tokenStar
     result := new ParserResultTable { Values: outResult }
     return ParseFunctionSignatureInfoCore(source, ref tokens, count, funcIndex, ref outputs, ref typeStack, ref nodes, ref children, ref canonicalNodes, ref parameters, ref typeParams, ref whereItems, ref signatureResult, ref ownerIndices, ref tupleNames, ref result)
 }
+
+func FunctionSignatureWhereOwnerIndicesInto(source: string, typeParamStarts: int[], typeParamLengths: int[], typeParamCount: int, whereNameStarts: int[], whereNameLengths: int[], whereItemCount: int, outOwnerIndices: int[]): int {
+    typeParams := new FunctionSignatureNameSpanTable { Starts: typeParamStarts, Lengths: typeParamLengths }
+    whereNames := new FunctionSignatureNameSpanTable { Starts: whereNameStarts, Lengths: whereNameLengths }
+    result := new FunctionSignatureOwnerIndexTable { Indices: outOwnerIndices }
+    return FunctionSignatureWhereOwnerIndicesCore(source, ref typeParams, typeParamCount, ref whereNames, whereItemCount, ref result)
+}

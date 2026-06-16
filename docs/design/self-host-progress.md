@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Function where-owner parity ABI leaves product dogfood
+
+The flattened `FunctionSignatureWhereOwnerIndicesInto` export now lives in the parity corpus.
+Product function signature-info parsing keeps `FunctionSignatureWhereOwnerIndicesCore` in
+`ParserFunctionSignatures.nl` and calls it directly while grouping generic constraint owners.
+Parser parity tests still bind the flattened ABI from the merged parity corpus.
+
 ## 2026-06-16 — Full-array token-compaction ABI leaves product dogfood
 
 The flattened `ParserTokenCompactionIndicesInto` export now lives in the parity corpus. The shipped
@@ -551,8 +558,8 @@ body-brace token in one call.
 
 `NSharpCompilerDogfoodAdapter.TryParseColumnarFunctionAt` no longer binds
 `ParseFunctionSignatureTextInfoInto`, `TypeReferenceCanonicalTextInto`,
-`TypeReferenceTupleElementNamesInto`, or `FunctionSignatureWhereOwnerIndicesInto` for production
-function parsing. It consumes the N# signature-info rowset and only materializes
+`TypeReferenceTupleElementNamesInto`, or the flattened where-owner wrapper for production function
+parsing. It consumes the N# signature-info rowset and only materializes
 `ColumnarFunctionInput`. The lower-level parser/type ABIs remain emitted for direct parser parity tests
 and for N# product wrappers that compose them. Focused evidence:
 `./scripts/dev.sh Parser_FunctionSignature_MatchesProductionParser`,
@@ -849,10 +856,11 @@ Focused evidence: `./scripts/dev.sh Parser_TypeReference_MatchesProductionParser
 
 ## 2026-06-15 — Generic constraint owner lookup moves into N#
 
-`ParserFunctionSignatures.nl` now exports `FunctionSignatureWhereOwnerIndicesInto`, a span-based
-helper that resolves each `where` constraint row's owner name to the matching generic type-parameter
-index without materializing strings. Unknown owners return `-1`, preserving the adapter's safe
-decline behavior for malformed constraints.
+`ParserFunctionSignatures.nl` now owns `FunctionSignatureWhereOwnerIndicesCore`, a span-based helper
+that resolves each `where` constraint row's owner name to the matching generic type-parameter index
+without materializing strings. Unknown owners return `-1`, preserving the adapter's safe decline
+behavior for malformed constraints. The flattened `FunctionSignatureWhereOwnerIndicesInto` parity
+ABI now lives in the parity corpus.
 
 `NSharpCompilerDogfoodAdapter.TryParseColumnarFunctionAt` no longer builds an owner substring or
 uses `Array.IndexOf` over materialized type-parameter names while grouping constraints. It receives
