@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Struct base-list duplicate decline moves into N# parser
+
+`ParseColumnarStructInfoCore` now rejects duplicate class/record/struct colon-list base names by
+comparing base-name declaration spans before text rows cross into the C# transition materializer. The
+columnar emitter no longer carries the duplicate direct-interface guard; semantic base resolution,
+class/interface validation, inherited-interface metadata dedupe, multiple distinct class bases, and
+cycle checks remain in emission.
+
 ## 2026-06-16 — Struct duplicate field decline moves into N# parser
 
 `ParseColumnarStructInfoCore` now rejects duplicate class/record/struct field names by comparing field

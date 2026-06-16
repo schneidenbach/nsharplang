@@ -3012,12 +3012,11 @@ internal sealed class ColumnarIlEmitter
         // PASS 0a' (base/interface lists): resolve each colon-list name. Any interface becomes a directly
         // implemented interface (and contributes its inherited interfaces to metadata); at most one class may
         // become the parent, and only for a CLASS. A base on a value type, record inheritance, a record
-        // base, an unknown/non-type name, duplicate direct interfaces, multiple class bases, and inheritance
+        // base, an unknown/non-type name, multiple class bases, and inheritance
         // cycles all decline rather than silently changing type identity or emitting unloadable IL.
         for (var s = 0; s < structs.Count; s++)
         {
             var def = structRegistry[structs[s].Name];
-            var seenDirectInterfaces = new HashSet<ColumnarStructDef>();
             var seenImplementedInterfaces = new HashSet<TypeBuilder>();
             foreach (var baseName in structs[s].BaseNames)
             {
@@ -3025,8 +3024,6 @@ internal sealed class ColumnarIlEmitter
                     return false;
                 if (baseDef.IsInterface)
                 {
-                    if (!seenDirectInterfaces.Add(baseDef))
-                        return false;
                     def.ImplementedInterfaces.Add(baseDef);
                     foreach (var implemented in EnumerateInterfaceAndBases(baseDef))
                     {

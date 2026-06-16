@@ -421,6 +421,26 @@ class DuplicateField {
                 expectColumnarDecline: true);
             AssertStructDeclarationInfo(
                 """
+class DuplicateBase: IFace, IFace {
+    Value: int
+}
+""",
+                (int)TokenType.Class,
+                "DuplicateBase",
+                Array.Empty<string>(),
+                new[] { "IFace", "IFace" },
+                new[] { "Value" },
+                new[] { "int" },
+                new[] { 0 },
+                new string?[] { null },
+                tokenizeWithIndentation,
+                parseStructDeclaration,
+                parseStructDeclarationInfo,
+                parseColumnarStructInfo,
+                "duplicate class base name",
+                expectColumnarDecline: true);
+            AssertStructDeclarationInfo(
+                """
 record Duplicate<T, T> {
     Value: int
 }
@@ -8401,9 +8421,11 @@ func outer(x: int): int {
         // Local functions inside default interface methods remain a later rung and now decline in the N#
         // interface parser wrapper before the C# adapter materializes a default body input.
         Assert.False(RouteColumnarProgram("interface ILocalDefault {\n    func Score(): int {\n        func inner(): int {\n            return 1\n        }\n        return inner()\n    }\n}\n\nfunc f(): int {\n    return 1\n}\n").Ok);
-        // Multi-interface implementation refuses duplicate direct interfaces, multiple class bases,
-        // and missing members from any directly named interface.
+        // Class/struct base-list duplicate names are parser-owned; distinct semantic failures still
+        // decline in the emitter/resolution layer.
         Assert.False(RouteColumnarProgram("interface IA {\n    func A(): int\n}\n\nclass Dup: IA, IA {\n    func A(): int {\n        return 1\n    }\n}\n\nfunc f(): int {\n    return 1\n}\n").Ok);
+        // Multi-interface implementation refuses multiple class bases and missing members from any
+        // directly named interface.
         Assert.False(RouteColumnarProgram("class A {\n}\n\nclass B {\n}\n\nclass C: A, B {\n}\n\nfunc f(): int {\n    return 1\n}\n").Ok);
         Assert.False(RouteColumnarProgram("interface IA {\n    func A(): int\n}\n\ninterface IW {\n    func W(): int\n}\n\nclass Broken: IA, IW {\n    func A(): int {\n        return 1\n    }\n}\n\nfunc f(): int {\n    return 1\n}\n").Ok);
         // Interface inheritance still refuses malformed metadata: cycles and missing inherited
@@ -9577,6 +9599,8 @@ func outer(x: int): int {
         Assert.False(RouteColumnarProgram("class Base {\n    X: int\n    constructor(x: int) {\n        X = x\n    }\n}\n\nclass D: Base {\n    constructor(x: int): base(x, 99) {\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
         // `: base()` when the base has ONLY a parameterized ctor.
         Assert.False(RouteColumnarProgram("class Base {\n    X: int\n    constructor(x: int) {\n        X = x\n    }\n}\n\nclass D: Base {\n    constructor(): base() {\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
+        // Duplicate class base names are rejected by the N# struct parser before base resolution/emission.
+        Assert.False(RouteColumnarProgram("class Base {\n}\n\nclass D: Base, Base {\n}\n\nfunc f(): int { return 1 }\n").Ok);
         // a bare call that matches BOTH an instance method on the chain AND a sibling top-level function binds the
         // TOP-LEVEL function (empirically pinned against the N# pipeline by direct probes — top-level functions
         // beat every same-named type member in bare-call position; this flips the former decline to a parity case).
