@@ -11,6 +11,12 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Value-type property decline moves into N# struct parser
+
+`ParseColumnarStructInfoCore` now rejects property declarations on value structs before the C#
+materializer or columnar emitter creates any type builders. Class and record properties still route through
+the existing accepted accessor path; the emitter-side value-type property guard was removed.
+
 ## 2026-06-16 — Member-method local-function decline moves into N# struct parser
 
 `ParseColumnarStructInfoCore` now checks class/struct/record method bodies with the composed

@@ -3242,8 +3242,6 @@ internal sealed class ColumnarIlEmitter
             if (structs[s].Properties.Count == 0)
                 continue;
             var def = structRegistry[structs[s].Name];
-            if (!def.IsReference)
-                return false; // value-type properties are deferred.
             foreach (var prop in structs[s].Properties)
             {
                 if (def.Fields.ContainsKey(prop.Name) || def.StaticFields.ContainsKey(prop.Name) || def.Methods.ContainsKey(prop.Name) || def.StaticMethods.ContainsKey(prop.Name) || def.Properties.ContainsKey(prop.Name) || def.StaticProperties.ContainsKey(prop.Name))
