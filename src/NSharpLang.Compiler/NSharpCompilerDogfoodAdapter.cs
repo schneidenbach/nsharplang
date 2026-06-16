@@ -305,16 +305,11 @@ internal static class NSharpCompilerDogfoodAdapter
 
                 // Optional generic type parameters `<T, U>` (outResult[7] = count). Generic RECORDS are
                 // modelled (columnar's record fields are plain public fields — the oracle's backing-field
-                // lowering for init-only members is an oracle-internal concern, no modreq to lose here); a
-                // generic type with a BASE declines (generic base chains are unsupported in the oracle's
-                // closed-member machinery too).
+                // lowering for init-only members is an oracle-internal concern, no modreq to lose here).
                 var typeParamCount = outResult[7];
                 string[]? typeParamNames = null;
                 if (typeParamCount > 0)
                 {
-                    if (baseNames.Length > 0)
-                        return false;
-
                     typeParamNames = new string[typeParamCount];
                     for (var tp = 0; tp < typeParamCount; tp++)
                     {

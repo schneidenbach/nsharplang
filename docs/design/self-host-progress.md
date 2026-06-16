@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Generic base-chain decline moves into N# struct parser
+
+`ParseColumnarStructInfoCore` now rejects generic struct/class/record declarations that also name a
+base list (`typeParamCount > 0 && baseNameCount > 0`) before returning rows to the C# transition
+adapter. The adapter no longer materializes `baseNames` and then performs the generic-base decline
+itself; generic base chains remain unsupported, but the product N# parser wrapper owns the route
+safety decision using the declaration rowset it already has.
+
 ## 2026-06-16 — Generic static-field decline moves into N# struct parser
 
 `ParseColumnarStructInfoCore` now rejects static fields on generic struct/class/record declarations

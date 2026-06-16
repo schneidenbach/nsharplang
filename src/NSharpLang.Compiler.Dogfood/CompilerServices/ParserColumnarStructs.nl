@@ -60,6 +60,10 @@ func ParseColumnarStructInfoCore(source: string, tokens: &ColumnarStructTokenTab
         return -1
     }
 
+    if typeParamCount > 0 && baseNameCount > 0 {
+        return -1
+    }
+
     i := 0
     if typeParamCount > 0 {
         while i < fieldCount {
