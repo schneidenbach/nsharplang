@@ -1309,7 +1309,7 @@ public class CodeIntelligenceService
             return null;
 
         var candidateColumns = GetBindingCandidateColumns(snapshot, filePath, line, col);
-        if (NSharpCodeIntelligenceDogfoodAdapter.TryResolveBindingDeclaration(
+        if (BindingLookupKernels.TryResolveBindingDeclaration(
                 snapshot.Bindings,
                 filePath,
                 line,
@@ -1358,7 +1358,7 @@ public class CodeIntelligenceService
     private static int[] GetBindingCandidateColumns(ProjectSnapshot snapshot, string filePath, int line, int col)
     {
         var span = ExtractIdentifierSpanAtPosition(snapshot, filePath, line, col);
-        if (NSharpCodeIntelligenceDogfoodAdapter.TryGetBindingCandidateColumns(col, span, out var dogfoodCandidateColumns))
+        if (BindingLookupKernels.TryGetBindingCandidateColumns(col, span, out var dogfoodCandidateColumns))
             return dogfoodCandidateColumns;
 
         return GetBindingCandidateColumnsFallback(col, span);
@@ -1417,7 +1417,7 @@ public class CodeIntelligenceService
         if (snapshot.Bindings == null)
             return null;
 
-        if (NSharpCodeIntelligenceDogfoodAdapter.TryFindNearestBindingDeclarationByName(
+        if (BindingLookupKernels.TryFindNearestBindingDeclarationByName(
                 snapshot.Bindings,
                 filePath,
                 name,

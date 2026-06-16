@@ -13478,40 +13478,18 @@ func documented(): int {
                 .ToArray(),
             clusterFiles);
 
-        var tryGetBindingCandidateColumns = adapterType.GetMethod(
-                "TryGetBindingCandidateColumns",
-                BindingFlags.Static | BindingFlags.NonPublic,
-                binder: null,
-                types: new[]
-                {
-                    typeof(int),
-                    typeof(Nullable<ValueTuple<int, int>>),
-                    typeof(int[]).MakeByRefType()
-                },
-                modifiers: null)
-            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryGetBindingCandidateColumns.");
-        var candidateColumnArgs = new object?[] { 5, (ValueTuple<int, int>?)new ValueTuple<int, int>(3, 7), null };
-        Assert.True((bool)(tryGetBindingCandidateColumns.Invoke(null, candidateColumnArgs) ?? false));
-        Assert.Equal(new[] { 5, 4, 6, 3, 7 }, Assert.IsType<int[]>(candidateColumnArgs[2]));
+        Assert.True(BindingLookupKernels.TryGetBindingCandidateColumns(
+            5,
+            new ValueTuple<int, int>(3, 7),
+            out var candidateColumns));
+        Assert.Equal(new[] { 5, 4, 6, 3, 7 }, candidateColumns);
 
-        var noSpanCandidateColumnArgs = new object?[] { 1, null, null };
-        Assert.True((bool)(tryGetBindingCandidateColumns.Invoke(null, noSpanCandidateColumnArgs) ?? false));
-        Assert.Equal(new[] { 1, 2 }, Assert.IsType<int[]>(noSpanCandidateColumnArgs[2]));
+        Assert.True(BindingLookupKernels.TryGetBindingCandidateColumns(
+            1,
+            null,
+            out var noSpanCandidateColumns));
+        Assert.Equal(new[] { 1, 2 }, noSpanCandidateColumns);
 
-        var tryResolveBindingDeclaration = adapterType.GetMethod(
-                "TryResolveBindingDeclaration",
-                BindingFlags.Static | BindingFlags.NonPublic,
-                binder: null,
-                types: new[]
-                {
-                    typeof(BindingMap),
-                    typeof(string),
-                    typeof(int),
-                    typeof(int[]),
-                    typeof(SymbolDeclaration).MakeByRefType()
-                },
-                modifiers: null)
-            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryResolveBindingDeclaration.");
         var bindingMap = new BindingMap();
         var bDeclaration = new SymbolDeclaration("bValue", "B.nl", 10, 5, "variable");
         var aDeclaration = new SymbolDeclaration("aValue", "A.nl", 2, 3, "variable");
@@ -13520,32 +13498,30 @@ func documented(): int {
         bindingMap.RecordBinding("A.nl", 7, 9, 6, bDeclaration);
         bindingMap.RecordBinding("A.nl", 2, 3, 6, bDeclaration);
 
-        var bindingUsageArgs = new object?[] { bindingMap, "A.nl", 7, new[] { 9 }, null };
-        Assert.True((bool)(tryResolveBindingDeclaration.Invoke(null, bindingUsageArgs) ?? false));
-        Assert.Equal(bDeclaration, Assert.IsType<SymbolDeclaration>(bindingUsageArgs[4]));
+        Assert.True(BindingLookupKernels.TryResolveBindingDeclaration(
+            bindingMap,
+            "A.nl",
+            7,
+            new[] { 9 },
+            out var bindingUsageDeclaration));
+        Assert.Equal(bDeclaration, bindingUsageDeclaration);
 
-        var bindingDeclarationFirstArgs = new object?[] { bindingMap, "A.nl", 2, new[] { 3 }, null };
-        Assert.True((bool)(tryResolveBindingDeclaration.Invoke(null, bindingDeclarationFirstArgs) ?? false));
-        Assert.Equal(aDeclaration, Assert.IsType<SymbolDeclaration>(bindingDeclarationFirstArgs[4]));
+        Assert.True(BindingLookupKernels.TryResolveBindingDeclaration(
+            bindingMap,
+            "A.nl",
+            2,
+            new[] { 3 },
+            out var bindingDeclarationFirst));
+        Assert.Equal(aDeclaration, bindingDeclarationFirst);
 
-        var bindingMissArgs = new object?[] { bindingMap, "A.nl", 99, new[] { 1, 2, 3 }, null };
-        Assert.True((bool)(tryResolveBindingDeclaration.Invoke(null, bindingMissArgs) ?? false));
-        Assert.Null(bindingMissArgs[4]);
+        Assert.True(BindingLookupKernels.TryResolveBindingDeclaration(
+            bindingMap,
+            "A.nl",
+            99,
+            new[] { 1, 2, 3 },
+            out var bindingMiss));
+        Assert.Null(bindingMiss);
 
-        var tryFindNearestBindingDeclarationByName = adapterType.GetMethod(
-                "TryFindNearestBindingDeclarationByName",
-                BindingFlags.Static | BindingFlags.NonPublic,
-                binder: null,
-                types: new[]
-                {
-                    typeof(BindingMap),
-                    typeof(string),
-                    typeof(string),
-                    typeof(int),
-                    typeof(SymbolDeclaration).MakeByRefType()
-                },
-                modifiers: null)
-            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryFindNearestBindingDeclarationByName.");
         var firstLocal = new SymbolDeclaration("local", "A.nl", 2, 3, "variable");
         var earlierSameLineLocal = new SymbolDeclaration("local", "A.nl", 8, 1, "variable");
         var nearestLocal = new SymbolDeclaration("local", "A.nl", 8, 4, "variable");
@@ -13555,21 +13531,37 @@ func documented(): int {
         bindingMap.RecordDeclaration(nearestLocal);
         bindingMap.RecordDeclaration(otherFileLocal);
 
-        var nearestAtLineArgs = new object?[] { bindingMap, "A.nl", "local", 8, null };
-        Assert.True((bool)(tryFindNearestBindingDeclarationByName.Invoke(null, nearestAtLineArgs) ?? false));
-        Assert.Equal(nearestLocal, Assert.IsType<SymbolDeclaration>(nearestAtLineArgs[4]));
+        Assert.True(BindingLookupKernels.TryFindNearestBindingDeclarationByName(
+            bindingMap,
+            "A.nl",
+            "local",
+            8,
+            out var nearestAtLine));
+        Assert.Equal(nearestLocal, nearestAtLine);
 
-        var nearestBeforeLineArgs = new object?[] { bindingMap, "A.nl", "local", 7, null };
-        Assert.True((bool)(tryFindNearestBindingDeclarationByName.Invoke(null, nearestBeforeLineArgs) ?? false));
-        Assert.Equal(firstLocal, Assert.IsType<SymbolDeclaration>(nearestBeforeLineArgs[4]));
+        Assert.True(BindingLookupKernels.TryFindNearestBindingDeclarationByName(
+            bindingMap,
+            "A.nl",
+            "local",
+            7,
+            out var nearestBeforeLine));
+        Assert.Equal(firstLocal, nearestBeforeLine);
 
-        var nearestMissArgs = new object?[] { bindingMap, "A.nl", "local", 1, null };
-        Assert.True((bool)(tryFindNearestBindingDeclarationByName.Invoke(null, nearestMissArgs) ?? false));
-        Assert.Null(nearestMissArgs[4]);
+        Assert.True(BindingLookupKernels.TryFindNearestBindingDeclarationByName(
+            bindingMap,
+            "A.nl",
+            "local",
+            1,
+            out var nearestMiss));
+        Assert.Null(nearestMiss);
 
-        var unknownNameArgs = new object?[] { bindingMap, "A.nl", "missing", 99, null };
-        Assert.True((bool)(tryFindNearestBindingDeclarationByName.Invoke(null, unknownNameArgs) ?? false));
-        Assert.Null(unknownNameArgs[4]);
+        Assert.True(BindingLookupKernels.TryFindNearestBindingDeclarationByName(
+            bindingMap,
+            "A.nl",
+            "missing",
+            99,
+            out var unknownName));
+        Assert.Null(unknownName);
 
         var severityDiagnostics = BuildDiagnosticSeveritySummaryDiagnostics();
         Assert.True(OutputFormatterDiagnosticKernels.TrySummarizeDiagnosticSeverities(severityDiagnostics, out var summary));

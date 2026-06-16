@@ -741,7 +741,8 @@ same normal BenchmarkDotNet evidence tier for strict semantic binding position l
 5.93x faster on the representative binding corpus (41.781 us vs 247.807 us) and about 5.22x faster
 on the large generated binding corpus (646.484 us vs 3.378 ms). This is acceptance-grade benchmark
 evidence for batched declaration-first binding lookup after the host has built compact binding
-tables and slot arrays.
+tables and slot arrays. The production semantic lookup route now binds this kernel through
+`BindingLookupKernels` instead of the broad code-intelligence dogfood adapter.
 
 `BindingLookupCandidateColumnsInto` passed parity and reported zero managed allocation in the same
 normal BenchmarkDotNet evidence tier for strict binding candidate-column ordering before lookup. It
@@ -749,7 +750,8 @@ ran about 8.26x faster on the representative candidate corpus (122.958 us vs 1.0
 0 B vs 7,499,808 B) and about 7.72x faster on the large generated candidate corpus
 (1.056 ms vs 8.153 ms, 0 B vs 60,005,240 B). This is acceptance-grade benchmark evidence for the
 candidate ordering kernel after the host has identified the relevant source span and provided
-caller-owned result buffers.
+caller-owned result buffers. The production semantic lookup route now binds this kernel through
+`BindingLookupKernels` instead of the broad code-intelligence dogfood adapter.
 
 `SemanticScopeVisibleSymbolIndicesInto` passed parity and reported zero managed allocation in the
 normal BenchmarkDotNet evidence tier for scoped visible-variable selection before CLI completion
@@ -791,6 +793,8 @@ name. It ran about 231x faster on the representative declaration corpus (40.721 
 0 B vs 5,911,960 B) and about 903x faster on the large generated declaration corpus (58.794 us vs
 53.100 ms, 0 B vs 5,911,960 B). This is acceptance-grade benchmark evidence for the source-context
 definition fallback after the host has assigned stable name/file ids and sorted declaration facts.
+The production semantic lookup route now binds this kernel through `BindingLookupKernels` instead of
+the broad code-intelligence dogfood adapter.
 
 `BindingLookupBuildNearestDeclarationIndexInto` passed parity and reported zero managed allocation in
 the scoped BenchmarkDotNet run for compact `BindingMap` nearest-declaration index construction. It
@@ -799,6 +803,8 @@ ran about 6.8x faster on the representative source-ordered declaration corpus (3
 (42.249 us vs 258.197 us, 0 B vs 32,856 B). This is acceptance-grade benchmark evidence for
 replacing the C# `Array.Sort(order, CompareDeclarationOrder)` index builder when the dogfood assembly
 is available, with fallback retained for unavailable, invalid, or out-of-order same-name N# output.
+The production semantic lookup route now binds this kernel through `BindingLookupKernels` instead of
+the broad code-intelligence dogfood adapter.
 
 `CodeIntelligenceMemberReceiversCachedInto` also cleared the normal BenchmarkDotNet speed gate. It
 ran about 174x faster on the representative corpus (2.88 us vs 500.69 us, 0 B vs 4.6 MB) and about

@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Binding lookup kernels leave the code-intelligence adapter
+
+Definition lookup candidate-column generation, strict binding declaration resolution, and nearest
+same-file declaration fallback now route through `BindingLookupKernels`, beside the semantic lookup
+paths in `CodeIntelligenceService`. The broad `NSharpCodeIntelligenceDogfoodAdapter` no longer owns
+the binding lookup delegates, per-`BindingMap` cache, or candidate-column scratch arrays; the
+existing dictionary/LINQ fallback remains in `CodeIntelligenceService`.
+Focused evidence: `dotnet build src/NSharpLang.Compiler/Compiler.csproj --no-restore`; `dotnet
+test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.CodeIntelligenceDogfoodAdapter_LoadsPackagedNSharpAssembly"`;
+`./scripts/dev.sh --since`.
+
 ## 2026-06-16 — Completion grouping kernels leave the code-intelligence adapter
 
 Completion receiver classification, completion item kind grouping, and reflected method overload
@@ -4314,11 +4325,12 @@ SoA wrapper evidence or redundant adapter-surface deletion, not from the complet
 ## 2026-06-13 — Binding lookup drops unused flattened helper exports
 
 `BindingLookup.nl` no longer emits declaration-only flattened wrappers for strict lookup equality,
-hash-slot lookup, candidate-column compact sorting, or candidate-column append. The live
-code-intelligence adapter entries remain `BindingLookupBuildSlotsInto`,
+hash-slot lookup, candidate-column compact sorting, or candidate-column append. At this point, the
+live code-intelligence route kept `BindingLookupBuildSlotsInto`,
 `BindingLookupQueryDeclarationIndicesInto`, `BindingLookupCandidateColumnsInto`,
 `BindingLookupBuildNearestDeclarationIndexInto`, and `BindingLookupFindNearestDeclarationIndicesInto`;
-those still route through the table-shaped cores directly.
+those routed through the table-shaped cores directly before the later `BindingLookupKernels` adapter
+shrink.
 
 This removes the final low-reference dogfood compiler-service helper exports while leaving the
 production semantic lookup ABI unchanged.
@@ -10812,7 +10824,7 @@ or stand up the N#-native pooled `Token`/`TokenStream` so the parser can consume
   to `OutputFormatterReferenceFileKernels`, diagnostic/reference result de-duplication and lint-shadow
   suppression moved to `CodeIntelligenceResultKernels`, symbol-kind filtering moved to
   `CodeIntelligenceSymbolKernels`, completion receiver/grouping kernels moved to
-  `CompletionEngineKernels`, and DocQuery type/reference-pack
-  de-duplication, best-type selection, and member ordering moved to `DocQueryKernels`; remaining
+  `CompletionEngineKernels`, binding lookup kernels moved to `BindingLookupKernels`, and DocQuery
+  type/reference-pack de-duplication, best-type selection, and member ordering moved to `DocQueryKernels`; remaining
   routed kernels still cross the ~1.2 ns delegate-dispatch + bounds-check floor documented in the
   boundary profiling doc.
