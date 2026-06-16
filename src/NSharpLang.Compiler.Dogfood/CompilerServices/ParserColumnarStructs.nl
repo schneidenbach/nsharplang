@@ -72,6 +72,9 @@ func ParseColumnarStructInfoCore(source: string, tokens: &ColumnarStructTokenTab
     if ColumnarStructBaseNamesDistinct(source, ref scratch, baseNameCount) == 0 {
         return -1
     }
+    if ColumnarStructMethodNameModesSupported(source, ref tokens, ref outputs, methodCount) == 0 {
+        return -1
+    }
 
     if isReference == 0 {
         instanceFieldCount := 0
@@ -371,6 +374,48 @@ func ColumnarStructBaseNamesDistinct(source: string, scratch: &ColumnarStructScr
         while j < baseNameCount {
             if ParserDeclarationSourceSpansEqual(source, scratch.BaseNameStarts[i], scratch.BaseNameLengths[i], scratch.BaseNameStarts[j], scratch.BaseNameLengths[j]) {
                 return 0
+            }
+
+            j = j + 1
+        }
+
+        i = i + 1
+    }
+
+    return 1
+}
+
+func ColumnarStructMethodNameModesSupported(source: string, tokens: &ColumnarStructTokenTable, outputs: &ColumnarStructOutputTable, methodCount: int): int {
+    if methodCount < 0 {
+        return 0
+    }
+
+    i := 0
+    while i < methodCount {
+        if outputs.MethodStaticFlags[i] != 0 && outputs.MethodStaticFlags[i] != 1 {
+            return 0
+        }
+
+        methodNameIndex := outputs.MethodFuncIndices[i] + 1
+        if methodNameIndex < 0 || methodNameIndex >= tokens.Count || tokens.Kinds[methodNameIndex] != 0 {
+            return 0
+        }
+
+        j := i + 1
+        while j < methodCount {
+            if outputs.MethodStaticFlags[j] != 0 && outputs.MethodStaticFlags[j] != 1 {
+                return 0
+            }
+
+            otherNameIndex := outputs.MethodFuncIndices[j] + 1
+            if otherNameIndex < 0 || otherNameIndex >= tokens.Count || tokens.Kinds[otherNameIndex] != 0 {
+                return 0
+            }
+
+            if ParserDeclarationSourceSpansEqual(source, tokens.Starts[methodNameIndex], tokens.ValueLengths[methodNameIndex], tokens.Starts[otherNameIndex], tokens.ValueLengths[otherNameIndex]) {
+                if outputs.MethodStaticFlags[i] == 0 || outputs.MethodStaticFlags[j] == 0 {
+                    return 0
+                }
             }
 
             j = j + 1

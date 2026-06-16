@@ -441,6 +441,32 @@ class DuplicateBase: IFace, IFace {
                 expectColumnarDecline: true);
             AssertStructDeclarationInfo(
                 """
+class DuplicateMethod {
+    Value: int
+    func Score(): int {
+        return Value
+    }
+    func Score(extra: int): int {
+        return extra
+    }
+}
+""",
+                (int)TokenType.Class,
+                "DuplicateMethod",
+                Array.Empty<string>(),
+                Array.Empty<string>(),
+                new[] { "Value" },
+                new[] { "int" },
+                new[] { 0 },
+                new string?[] { null },
+                tokenizeWithIndentation,
+                parseStructDeclaration,
+                parseStructDeclarationInfo,
+                parseColumnarStructInfo,
+                "duplicate class instance method",
+                expectColumnarDecline: true);
+            AssertStructDeclarationInfo(
+                """
 record Duplicate<T, T> {
     Value: int
 }
@@ -9770,7 +9796,9 @@ func outer(x: int): int {
         Assert.False(RouteColumnarProgram("class C {\n    n: int\n    static func S(): int {\n        return n\n    }\n}\n\nfunc f(): int {\n    return C.S()\n}\n").Ok);
         // `this` inside a static method (now a compile-time error in the N# pipeline too).
         Assert.False(RouteColumnarProgram("class C {\n    n: int\n    static func S(): int {\n        return this.n\n    }\n}\n\nfunc f(): int {\n    return C.S()\n}\n").Ok);
-        // a STATIC and an INSTANCE method sharing a name (NL306), and a static method sharing a PROPERTY's name.
+        // Duplicate instance method names and static/instance method name collisions are rejected by the
+        // N# struct parser before method builders are declared; property collisions stay in the emitter.
+        Assert.False(RouteColumnarProgram("class C {\n    n: int\n    func V(): int {\n        return n\n    }\n    func V(x: int): int {\n        return x\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
         Assert.False(RouteColumnarProgram("class C {\n    n: int\n    func V(): int {\n        return n\n    }\n    static func V(x: int): int {\n        return x\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
         Assert.False(RouteColumnarProgram("class C {\n    n: int\n    V: int {\n        get {\n            return n\n        }\n    }\n    static func V(): int {\n        return 1\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
         // SAME-ARITY type-distinguished static overloads (resolution is by arg count — the C# path handles these).

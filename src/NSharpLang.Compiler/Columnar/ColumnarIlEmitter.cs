@@ -3068,8 +3068,9 @@ internal sealed class ColumnarIlEmitter
         // `this` (ordinals unshifted), void allowed (the body emits exactly like a top-level procedure), and
         // OVERLOADS by distinct PARAM COUNT (a same-arity static overload set declines — same rule as constructor
         // overloads; the N# pipeline accepts type-distinguished same-arity sets, so declining is the safe side).
-        // A static and an instance member sharing a name is NL306 in the N# binder — decline. The builders + param
-        // types are stored for call resolution; bodies are emitted in PASS 2.
+        // The N# struct parser wrapper rejects duplicate instance method names and static/instance method name
+        // collisions before rows reach this pass. The builders + param types are stored for call resolution; bodies
+        // are emitted in PASS 2.
         var structMethodJobs = new List<(ColumnarStructDef Struct, ColumnarFunctionInput Method, MethodBuilder Builder, Type ReturnType, Dictionary<string, int> Ordinals, Dictionary<string, Type> ParamTypes, bool IsStatic)>();
         for (var s = 0; s < structs.Count; s++)
         {
@@ -3087,9 +3088,6 @@ internal sealed class ColumnarIlEmitter
                     return false;
                 if (m.IsStatic)
                 {
-                    // A static method sharing its name with an INSTANCE method (NL306) declines; vice versa below.
-                    if (def.Methods.ContainsKey(m.Name))
-                        return false;
                     Type sReturn;
                     if (m.ReturnCanonical == "void")
                         sReturn = typeof(void);
@@ -3124,10 +3122,6 @@ internal sealed class ColumnarIlEmitter
                     structMethodJobs.Add((def, m, smb, sReturn, sOrdinals, sParamTypeMap, true));
                     continue;
                 }
-                // An instance method sharing its name with a STATIC method is NL306 — decline (the static may have
-                // been declared first when source order is static-then-instance).
-                if (def.StaticMethods.ContainsKey(m.Name))
-                    return false;
                 if (!TryResolveMemberType(m.ReturnCanonical, def, enumRegistry, structRegistry, unionRegistry, out var mReturn) || !IsSupportedType(mReturn))
                     return false;
                 // Resolve param types; ordinals shift by +1 because arg 0 is the value-type `this`.
@@ -3165,8 +3159,7 @@ internal sealed class ColumnarIlEmitter
                     foreach (var overriddenInterfaceMethod in overriddenInterfaceMethods)
                         def.Builder.DefineMethodOverride(mb, overriddenInterfaceMethod);
                 }
-                if (!def.Methods.TryAdd(m.Name, (mb, mParamTypes, mReturn)))
-                    return false; // a duplicate method name on one struct is an overload set the slice does not model.
+                def.Methods[m.Name] = (mb, mParamTypes, mReturn);
                 structMethodJobs.Add((def, m, mb, mReturn, mOrdinals, mParamTypeMap, false));
             }
         }

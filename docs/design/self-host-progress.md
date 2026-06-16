@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Struct instance-method duplicate declines move into N# parser
+
+`ParseColumnarStructInfoCore` now rejects duplicate instance method names and static/instance method
+name collisions for class/record/struct declarations while it still has method name spans. Static
+method overloads by distinct arity remain supported; same-arity static overload ambiguity still declines
+in emission after parameter rows are resolved. The columnar emitter no longer carries the same-type
+instance-method duplicate or static/instance method-name guards.
+
 ## 2026-06-16 — Struct base-list duplicate decline moves into N# parser
 
 `ParseColumnarStructInfoCore` now rejects duplicate class/record/struct colon-list base names by
