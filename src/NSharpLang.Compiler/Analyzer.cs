@@ -524,6 +524,9 @@ public class Analyzer : IDisposable
             case ConstructorDeclaration ctor:
                 AnalyzeConstructorDeclaration(ctor);
                 break;
+            case IndexerDeclaration indexer:
+                AnalyzeIndexerDeclaration(indexer);
+                break;
             case PreprocessorDeclaration:
                 // Preprocessor directives don't need analysis - they're pass-through
                 break;
@@ -2270,6 +2273,54 @@ public class Analyzer : IDisposable
             AnalyzeStatement(prop.SetBody);
             _currentReturnType = prevReturnType;
             PopScope();
+        }
+    }
+
+    private void AnalyzeIndexerDeclaration(IndexerDeclaration indexer)
+    {
+        var indexerType = ResolveDeclaredType(indexer.Type);
+        ValidateParameterDeclarations(indexer.Parameters, indexer.Line, indexer.Column);
+
+        if (indexer.GetBody != null)
+        {
+            PushScope(new Scope(ScopeKind.Function), indexer.Line, indexer.Column);
+            DeclareIndexerParameters(indexer);
+
+            var previousReturnType = _currentReturnType;
+            _currentReturnType = indexerType;
+            AnalyzeStatement(indexer.GetBody);
+            _currentReturnType = previousReturnType;
+
+            PopScope();
+        }
+
+        if (indexer.SetBody != null)
+        {
+            PushScope(new Scope(ScopeKind.Function), indexer.Line, indexer.Column);
+            DeclareIndexerParameters(indexer);
+
+            var previousReturnType = _currentReturnType;
+            _currentReturnType = BuiltInTypes.Void;
+            DeclareSymbol("value", indexerType, indexer.Line, indexer.Column, recordBindingDeclaration: false);
+            RecordVariableInCurrentScope("value", indexerType);
+            AnalyzeStatement(indexer.SetBody);
+            _currentReturnType = previousReturnType;
+
+            PopScope();
+        }
+    }
+
+    private void DeclareIndexerParameters(IndexerDeclaration indexer)
+    {
+        foreach (var parameter in indexer.Parameters)
+        {
+            var parameterType = ResolveDeclaredType(parameter.Type);
+            var (parameterLine, parameterColumn) = GetParameterDeclarationPosition(
+                parameter,
+                indexer.Line,
+                indexer.Column);
+            DeclareSymbol(parameter.Name, parameterType, parameterLine, parameterColumn);
+            RecordVariableInCurrentScope(parameter.Name, parameterType);
         }
     }
 

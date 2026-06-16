@@ -11,6 +11,19 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Indexer declarations enter analyzer member validation
+
+Indexer members now have an explicit analyzer path instead of stopping after attribute argument
+validation. Their return type and parameter types are resolved, parameters use the shared
+declaration validator, getter bodies analyze with the indexer return type, and setter bodies analyze
+with the implicit `value` parameter in scope. This closes a SoA pre-emission gap where
+`func this[row: NodeTable.Row]: int` or `func this[index: int]: NodeTable.Row` could avoid the
+row-type diagnostic and reach later compiler stages.
+Focused evidence: targeted regression failed before the analyzer change and then passed with
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~SoaRecordTests.Analyzer_SoaRowTypeCannotBeUsedInIndexerDeclarations|FullyQualifiedName~SoaRecordTests.Analyzer_SoaTableCannotUseDefaultParameterValueOutsideTopLevelFunctions"`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~ILCompiler_CanExecuteIndexerDeclaration"`;
+`./scripts/dev.sh SoaRecord`; `./scripts/dev.sh --since`.
+
 ## 2026-06-16 — SoA row types reject inside attribute typeof arguments
 
 Attribute argument validation now scans `typeof(...)` type-reference trees for unsupported SoA row

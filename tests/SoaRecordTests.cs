@@ -3632,6 +3632,68 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaRowTypeCannotBeUsedInIndexerDeclarations()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var cases = new[]
+        {
+            (Source: """
+            soa record NodeTable {
+                kind: int
+            }
+
+            class Holder {
+                func this[row: NodeTable.Row]: int {
+                    get {
+                        return 0
+                    }
+                }
+            }
+            """, RowType: "NodeTable.Row"),
+            (Source: """
+            soa record NodeTable {
+                kind: int
+            }
+
+            class Holder {
+                func this[index: int]: NodeTable.Row {
+                    get {
+                        return 0
+                    }
+                }
+            }
+            """, RowType: "NodeTable.Row"),
+            (Source: """
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
+            class Holder {
+                func this[index: int]: Nodes.Row {
+                    get {
+                        return 0
+                    }
+                }
+            }
+            """, RowType: "Nodes.Row")
+        };
+
+        foreach (var (source, rowType) in cases)
+        {
+            var result = Analyze(source);
+            var error = Assert.Single(
+                result.Errors,
+                e => e.Code == ErrorCode.InvalidSyntax
+                    && e.Message.Contains($"SoA row type '{rowType}' is not part of this lowering"));
+            Assert.Contains("table and an int row index", error.Suggestion);
+            Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.TypeNotFound);
+        }
+    }
+
+    [Fact]
     public void Analyzer_SoaRowTypeThroughTableAliasCannotBeUsedInTypeExpressions()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
