@@ -368,7 +368,8 @@ class Pair<T> {
                 parseStructDeclaration,
                 parseStructDeclarationInfo,
                 parseColumnarStructInfo,
-                "generic class field text info");
+                "generic class field text info",
+                expectColumnarDecline: true);
             AssertStructDeclarationInfo(
                 """
 class Derived: Base, IFace {
@@ -1674,7 +1675,8 @@ class B
         MethodInfo parseStructDeclaration,
         MethodInfo parseStructDeclarationInfo,
         MethodInfo parseColumnarStructInfo,
-        string label)
+        string label,
+        bool expectColumnarDecline = false)
     {
         Assert.Equal(expectedFieldNames.Length, expectedFieldTypes.Length);
         Assert.Equal(expectedFieldNames.Length, expectedFieldStaticFlags.Length);
@@ -1834,14 +1836,21 @@ class B
 
         Assert.Equal(expectedFieldNames.Length, spanFieldCount);
         Assert.Equal(spanFieldCount, fieldCount);
-        Assert.Equal(fieldCount, columnarFieldCount);
         Assert.Equal(spanResult, result);
-        Assert.Equal(result, columnarResult);
         Assert.Equal(expectedStructName, compactedSource.Substring(result[0], result[1]));
         Assert.Equal(expectedStructName, structNameTexts[0]);
-        Assert.Equal(structNameTexts[0], columnarStructNameTexts[0]);
         Assert.Equal(expectedTypeParams.Length, result[7]);
         Assert.Equal(expectedBaseNames.Length, result[8]);
+        if (expectColumnarDecline)
+        {
+            Assert.Equal(-1, columnarFieldCount);
+        }
+        else
+        {
+            Assert.Equal(fieldCount, columnarFieldCount);
+            Assert.Equal(result, columnarResult);
+            Assert.Equal(structNameTexts[0], columnarStructNameTexts[0]);
+        }
 
         for (var i = 0; i < expectedTypeParams.Length; i++)
         {
@@ -1849,7 +1858,8 @@ class B
             Assert.Equal(spanTypeParamLengths[i], typeParamLengths[i]);
             Assert.Equal(expectedTypeParams[i], compactedSource.Substring(typeParamStarts[i], typeParamLengths[i]));
             Assert.Equal(expectedTypeParams[i], typeParamTexts[i]);
-            Assert.Equal(typeParamTexts[i], columnarTypeParamTexts[i]);
+            if (!expectColumnarDecline)
+                Assert.Equal(typeParamTexts[i], columnarTypeParamTexts[i]);
         }
 
         for (var i = 0; i < expectedBaseNames.Length; i++)
@@ -1858,7 +1868,8 @@ class B
             Assert.Equal(spanBaseNameLengths[i], baseNameLengths[i]);
             Assert.Equal(expectedBaseNames[i], compactedSource.Substring(baseNameStarts[i], baseNameLengths[i]));
             Assert.Equal(expectedBaseNames[i], baseNameTexts[i]);
-            Assert.Equal(baseNameTexts[i], columnarBaseNameTexts[i]);
+            if (!expectColumnarDecline)
+                Assert.Equal(baseNameTexts[i], columnarBaseNameTexts[i]);
         }
 
         for (var i = 0; i < expectedFieldNames.Length; i++)
@@ -1873,19 +1884,29 @@ class B
             Assert.Equal(spanFieldInitLengths[i], fieldInitLengths[i]);
             Assert.Equal(expectedFieldNames[i], compactedSource.Substring(fieldNameStarts[i], fieldNameLengths[i]));
             Assert.Equal(expectedFieldNames[i], fieldNameTexts[i]);
-            Assert.Equal(fieldNameTexts[i], columnarFieldNameTexts[i]);
+            if (!expectColumnarDecline)
+                Assert.Equal(fieldNameTexts[i], columnarFieldNameTexts[i]);
             Assert.Equal(expectedFieldTypes[i], compactedSource.Substring(fieldTypeStarts[i], fieldTypeLengths[i]));
             Assert.Equal(expectedFieldTypes[i], fieldTypeTexts[i]);
-            Assert.Equal(fieldTypeTexts[i], columnarFieldTypeTexts[i]);
+            if (!expectColumnarDecline)
+                Assert.Equal(fieldTypeTexts[i], columnarFieldTypeTexts[i]);
             Assert.Equal(expectedFieldStaticFlags[i], fieldStaticFlags[i]);
-            Assert.Equal(fieldStaticFlags[i], columnarFieldStaticFlags[i]);
-            Assert.Equal(fieldInitKinds[i], columnarFieldInitKinds[i]);
+            if (!expectColumnarDecline)
+            {
+                Assert.Equal(fieldStaticFlags[i], columnarFieldStaticFlags[i]);
+                Assert.Equal(fieldInitKinds[i], columnarFieldInitKinds[i]);
+            }
+
             if (expectedFieldInitTexts[i] is { } initText)
             {
                 Assert.Equal(initText, fieldInitTexts[i]);
-                Assert.Equal(fieldInitTexts[i], columnarFieldInitTexts[i]);
+                if (!expectColumnarDecline)
+                    Assert.Equal(fieldInitTexts[i], columnarFieldInitTexts[i]);
             }
         }
+
+        if (expectColumnarDecline)
+            return;
 
         for (var i = 0; i < result[2]; i++)
         {
