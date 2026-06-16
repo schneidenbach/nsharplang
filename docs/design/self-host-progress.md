@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Run source operand selection leaves the CLI dogfood adapter
+
+`nlc run` source operand discovery now routes the accepted N# `CliRunFirstOperandIndex` kernel
+through `RunCommandKernels`, an owner-local helper beside the run command path in `Program`. The
+broad CLI dogfood adapter no longer owns the run source operand entry point or delegate binding; the
+existing `--backend` strip fallback remains in the command.
+Focused evidence: `dotnet build src/NSharpLang.Cli/Cli.csproj --no-restore`; `dotnet test
+tests/Tests.csproj --filter "FullyQualifiedName~CliCommandTests.RunCommandKernels_SelectsSourceOperandAfterBackendStripping"`;
+`./scripts/dev.sh --since`.
+
 ## 2026-06-16 — Export csharp input selection leaves the CLI dogfood adapter
 
 `nlc export csharp` input operand discovery now routes the accepted N#

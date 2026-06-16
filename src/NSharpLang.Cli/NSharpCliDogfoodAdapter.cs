@@ -64,33 +64,6 @@ internal static class NSharpCliDogfoodAdapter
         }
     }
 
-    internal static bool TryGetRunSourceOperand(string[] args, out string? operand)
-    {
-        operand = null;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        try
-        {
-            var index = bindings.CliRunFirstOperandIndex(args);
-            if (index == -1)
-                return true;
-
-            if (index < 0 || index >= args.Length)
-                return false;
-
-            operand = args[index];
-            return true;
-        }
-        catch
-        {
-            operand = null;
-            return false;
-        }
-    }
-
     internal static bool TryGetPublishArgumentSummary(string[] args, out PublishArgumentSummary summary)
     {
         summary = default;
@@ -430,7 +403,6 @@ internal static class NSharpCliDogfoodAdapter
 
             return new Bindings(
                 CreateDelegate<CliBuildFirstOperandIndexInto>(programType, "CliBuildFirstOperandIndexInto"),
-                CreateDelegate<CliRunFirstOperandIndex>(programType, "CliRunFirstOperandIndex"),
                 CreateDelegate<CliPublishOptionsInto>(programType, "CliPublishOptionsInto"),
                 CreateDelegate<CliFirstPositionalArgIndex>(programType, "CliFirstPositionalArgIndex"),
                 CreateDelegate<CliReferenceTypeFilterIndicesInto>(programType, "CliReferenceTypeFilterIndicesInto"),
@@ -477,8 +449,6 @@ internal static class NSharpCliDogfoodAdapter
         int[] nextOptionIndices,
         int[] resultIndices);
 
-    private delegate int CliRunFirstOperandIndex(string[] args);
-
     private delegate int CliPublishOptionsInto(string[] args, int[] resultIndices);
 
     private delegate int CliFirstPositionalArgIndex(
@@ -503,7 +473,6 @@ internal static class NSharpCliDogfoodAdapter
 
     private sealed record Bindings(
         CliBuildFirstOperandIndexInto CliBuildFirstOperandIndex,
-        CliRunFirstOperandIndex CliRunFirstOperandIndex,
         CliPublishOptionsInto CliPublishOptionsInto,
         CliFirstPositionalArgIndex CliFirstPositionalArgIndex,
         CliReferenceTypeFilterIndicesInto CliReferenceTypeFilterIndices,

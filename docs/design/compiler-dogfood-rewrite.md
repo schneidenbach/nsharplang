@@ -1481,8 +1481,7 @@ argument array, while preserving the current dangling `--backend` and unknown-fl
 about 358x faster on the representative argument corpus (4.988 ns vs 1,786.022 ns, 0 B vs
 21,216 B) and about 2,701x faster on the large generated corpus (5.152 ns vs 13,915.787 ns, 0 B vs
 168,056 B). `RunCommand` now routes source operand discovery through
-`NSharpCliDogfoodAdapter.TryGetRunSourceOperand`, with the previous C# strip path retained as the
-exact fallback.
+`RunCommandKernels`, with the previous C# strip path retained as the exact fallback.
 
 `CliPublishOptionsInto` passed parity and reported zero managed allocation in the short
 BenchmarkDotNet evidence tier for the default no-argument `nlc publish` option summary. It ran

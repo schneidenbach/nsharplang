@@ -262,7 +262,8 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       now lives beside `TreeCommand` in `TreeDependencyDeduplicator`; tidy classification/summary/fix filtering
       now live beside `TidyCommand` in `TidyCommandKernels`; lint file-argument extraction now lives beside
       `LintCommand` in `LintCommandKernels`; export csharp input selection now lives beside `ExportCommand`
-      in `ExportCommandKernels`. Product parser
+      in `ExportCommandKernels`; run source operand selection now lives beside `Program.RunCommand` in
+      `RunCommandKernels`. Product parser
       wrappers for function, constructor, property, body/local-function, enum, struct/class/record, union, and
       interface routes now compose typed N# cores directly where wrapper ownership is complete, and columnar
       tokenization now compacts parser token kind/start/value-length rows in N# instead of a C# kept-index copy loop;

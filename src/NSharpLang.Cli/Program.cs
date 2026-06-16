@@ -1629,7 +1629,7 @@ Exit codes:
 
     internal static string? GetRunSourceOperand(string[] args)
     {
-        if (NSharpCliDogfoodAdapter.TryGetRunSourceOperand(args, out var operand))
+        if (RunCommandKernels.TryGetSourceOperand(args, out var operand))
             return operand;
 
         var strippedArgs = StripOptionWithValue(args, "--backend");

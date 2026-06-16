@@ -1038,29 +1038,29 @@ func Main() {
     }
 
     [Fact]
-    public void RunCommand_DogfoodAdapter_SelectsSourceOperandAfterBackendStripping()
+    public void RunCommandKernels_SelectsSourceOperandAfterBackendStripping()
     {
-        Assert.True(NSharpCliDogfoodAdapter.TryGetRunSourceOperand(
+        Assert.True(RunCommandKernels.TryGetSourceOperand(
             Array.Empty<string>(),
             out var empty));
         Assert.Null(empty);
 
-        Assert.True(NSharpCliDogfoodAdapter.TryGetRunSourceOperand(
+        Assert.True(RunCommandKernels.TryGetSourceOperand(
             new[] { "--backend", "il" },
             out var projectRun));
         Assert.Null(projectRun);
 
-        Assert.True(NSharpCliDogfoodAdapter.TryGetRunSourceOperand(
+        Assert.True(RunCommandKernels.TryGetSourceOperand(
             new[] { "--backend", "il", "Program.nl" },
             out var backendFirst));
         Assert.Equal("Program.nl", backendFirst);
 
-        Assert.True(NSharpCliDogfoodAdapter.TryGetRunSourceOperand(
+        Assert.True(RunCommandKernels.TryGetSourceOperand(
             new[] { "Program.nl", "--backend", "il" },
             out var sourceFirst));
         Assert.Equal("Program.nl", sourceFirst);
 
-        Assert.True(NSharpCliDogfoodAdapter.TryGetRunSourceOperand(
+        Assert.True(RunCommandKernels.TryGetSourceOperand(
             new[] { "--backend" },
             out var danglingBackend));
         Assert.Equal("--backend", danglingBackend);
