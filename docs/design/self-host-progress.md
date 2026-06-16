@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Struct method-field collision decline moves into N# parser
+
+`ParseColumnarStructInfoCore` now rejects method names that collide with instance or static field names
+inside the same class/record/struct declaration while it still has declaration spans. The columnar
+emitter no longer carries the same-type method/field collision guard; inherited-member shadowing,
+generated property accessor collisions, static same-arity overload ambiguity, type resolution, and
+method body lowering remain semantic emission checks.
+
 ## 2026-06-16 — Struct property source-name collisions move into N# parser
 
 `ParseColumnarStructInfoCore` now rejects class/record/struct property names that collide with fields,

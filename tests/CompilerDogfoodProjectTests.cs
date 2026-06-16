@@ -467,6 +467,29 @@ class DuplicateMethod {
                 expectColumnarDecline: true);
             AssertStructDeclarationInfo(
                 """
+class MethodFieldCollision {
+    Value: int
+    func Value(): int {
+        return 1
+    }
+}
+""",
+                (int)TokenType.Class,
+                "MethodFieldCollision",
+                Array.Empty<string>(),
+                Array.Empty<string>(),
+                new[] { "Value" },
+                new[] { "int" },
+                new[] { 0 },
+                new string?[] { null },
+                tokenizeWithIndentation,
+                parseStructDeclaration,
+                parseStructDeclarationInfo,
+                parseColumnarStructInfo,
+                "class method field collision",
+                expectColumnarDecline: true);
+            AssertStructDeclarationInfo(
+                """
 class DuplicateProperty {
     Value: int
     Value: int {
@@ -10006,7 +10029,7 @@ func outer(x: int): int {
         Assert.False(RouteColumnarProgram("class C {\n    x: int = 5\n    constructor() {\n    }\n}\n\nfunc f(): int {\n    c := new C()\n    return c.x\n}\n").Ok);
         // compound assignment on a static field (`+=` is pipeline-accepted; compound ops are not yet modelled).
         Assert.False(RouteColumnarProgram("class C {\n    static count: int = 1\n}\n\nfunc f(): int {\n    C.count += 1\n    return C.count\n}\n").Ok);
-        // NL306 collisions: static field vs instance field; static field vs static method.
+        // Source-name collisions with same-type fields/methods are rejected by the N# struct parser.
         Assert.False(RouteColumnarProgram("class C {\n    static V: int = 1\n    V: int\n}\n\nfunc f(): int {\n    return C.V\n}\n").Ok);
         Assert.False(RouteColumnarProgram("class C {\n    static V: int = 1\n    static func V(): int {\n        return 2\n    }\n}\n\nfunc f(): int {\n    return C.V\n}\n").Ok);
         // a literal initializer whose type does not match the declared field type (the pipeline converts; the

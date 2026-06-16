@@ -3068,9 +3068,9 @@ internal sealed class ColumnarIlEmitter
         // `this` (ordinals unshifted), void allowed (the body emits exactly like a top-level procedure), and
         // OVERLOADS by distinct PARAM COUNT (a same-arity static overload set declines — same rule as constructor
         // overloads; the N# pipeline accepts type-distinguished same-arity sets, so declining is the safe side).
-        // The N# struct parser wrapper rejects duplicate instance method names and static/instance method name
-        // collisions before rows reach this pass. The builders + param types are stored for call resolution; bodies
-        // are emitted in PASS 2.
+        // The N# struct parser wrapper rejects method names that collide with fields, duplicate instance method
+        // names, and static/instance method name collisions before rows reach this pass. The builders + param types
+        // are stored for call resolution; bodies are emitted in PASS 2.
         var structMethodJobs = new List<(ColumnarStructDef Struct, ColumnarFunctionInput Method, MethodBuilder Builder, Type ReturnType, Dictionary<string, int> Ordinals, Dictionary<string, Type> ParamTypes, bool IsStatic)>();
         for (var s = 0; s < structs.Count; s++)
         {
@@ -3081,11 +3081,6 @@ internal sealed class ColumnarIlEmitter
             // value receiver) — see TryEmitInstanceCall. Slice-1a methods READ fields (no field WRITE in a body yet).
             foreach (var m in structs[s].Methods)
             {
-                // A method whose name collides with a FIELD (instance or static) is rejected by the N# binder
-                // (NL306 — a name must be unique within the struct scope), so decline to keep the columnar path
-                // from accepting a program the language refuses.
-                if (def.Fields.ContainsKey(m.Name) || def.StaticFields.ContainsKey(m.Name))
-                    return false;
                 if (m.IsStatic)
                 {
                     Type sReturn;

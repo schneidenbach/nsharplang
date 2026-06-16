@@ -72,7 +72,7 @@ func ParseColumnarStructInfoCore(source: string, tokens: &ColumnarStructTokenTab
     if ColumnarStructBaseNamesDistinct(source, ref scratch, baseNameCount) == 0 {
         return -1
     }
-    if ColumnarStructMethodNameModesSupported(source, ref tokens, ref outputs, methodCount) == 0 {
+    if ColumnarStructMethodMemberNamesSupported(source, ref tokens, ref scratch, ref outputs, fieldCount, methodCount) == 0 {
         return -1
     }
     if ColumnarStructPropertyMemberNamesDistinct(source, ref tokens, ref scratch, ref outputs, fieldCount, methodCount, propCount) == 0 {
@@ -388,7 +388,7 @@ func ColumnarStructBaseNamesDistinct(source: string, scratch: &ColumnarStructScr
     return 1
 }
 
-func ColumnarStructMethodNameModesSupported(source: string, tokens: &ColumnarStructTokenTable, outputs: &ColumnarStructOutputTable, methodCount: int): int {
+func ColumnarStructMethodMemberNamesSupported(source: string, tokens: &ColumnarStructTokenTable, scratch: &ColumnarStructScratchTable, outputs: &ColumnarStructOutputTable, fieldCount: int, methodCount: int): int {
     if methodCount < 0 {
         return 0
     }
@@ -402,6 +402,19 @@ func ColumnarStructMethodNameModesSupported(source: string, tokens: &ColumnarStr
         methodNameIndex := outputs.MethodFuncIndices[i] + 1
         if methodNameIndex < 0 || methodNameIndex >= tokens.Count || tokens.Kinds[methodNameIndex] != 0 {
             return 0
+        }
+
+        f := 0
+        while f < fieldCount {
+            if scratch.FieldNameStarts[f] < 0 || scratch.FieldNameLengths[f] <= 0 {
+                return 0
+            }
+
+            if ParserDeclarationSourceSpansEqual(source, tokens.Starts[methodNameIndex], tokens.ValueLengths[methodNameIndex], scratch.FieldNameStarts[f], scratch.FieldNameLengths[f]) {
+                return 0
+            }
+
+            f = f + 1
         }
 
         j := i + 1
