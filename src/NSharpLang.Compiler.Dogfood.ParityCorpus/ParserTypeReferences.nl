@@ -22,7 +22,8 @@ func TypeReferenceCanonicalTextInto(source: string, nodeKinds: int[], valueStart
 
 func TypeReferenceTupleElementNamesInto(source: string, nodeKinds: int[], valueStarts: int[], valueLengths: int[], childStart: int[], childCount: int[], childIndices: int[], root: int, outNames: string[]): int {
     nodes := new TypeReferenceCanonicalTable { Kinds: nodeKinds, ValueStarts: valueStarts, ValueLengths: valueLengths, ChildStart: childStart, ChildCount: childCount, ChildIndices: childIndices }
-    return TypeReferenceTupleElementNamesCore(source, ref nodes, root, outNames)
+    names := new TypeReferenceTupleNameTable { Names: outNames }
+    return TypeReferenceTupleElementNamesCore(source, ref nodes, root, ref names)
 }
 
 func ParseTypeReferenceNodesCore(

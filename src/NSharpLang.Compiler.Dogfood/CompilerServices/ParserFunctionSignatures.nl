@@ -116,7 +116,8 @@ func ParseFunctionSignatureInfoCore(source: string, tokens: &ParserTokenTable, c
     returnRoot := signatureResult.Values[1]
     if returnRoot >= 0 {
         outputs.ReturnTypeTexts[0] = TypeReferenceCanonicalTextCore(source, ref canonicalNodes, returnRoot)
-        returnTupleNameCount = TypeReferenceTupleElementNamesCore(source, ref canonicalNodes, returnRoot, outputs.ReturnTupleNameTexts)
+        returnTupleNames := new TypeReferenceTupleNameTable { Names: outputs.ReturnTupleNameTexts }
+        returnTupleNameCount = TypeReferenceTupleElementNamesCore(source, ref canonicalNodes, returnRoot, ref returnTupleNames)
         if returnTupleNameCount < 0 {
             return -1
         }
@@ -136,7 +137,8 @@ func ParseFunctionSignatureInfoCore(source: string, tokens: &ParserTokenTable, c
         outputs.ParamNameTexts[paramIndex] = paramName
         outputs.ParamTypeTexts[paramIndex] = TypeReferenceCanonicalTextCore(source, ref canonicalNodes, paramRoot)
 
-        tupleNameCount := TypeReferenceTupleElementNamesCore(source, ref canonicalNodes, paramRoot, tupleNames.Names)
+        paramTupleNames := new TypeReferenceTupleNameTable { Names: tupleNames.Names }
+        tupleNameCount := TypeReferenceTupleElementNamesCore(source, ref canonicalNodes, paramRoot, ref paramTupleNames)
         if tupleNameCount < 0 || flatParamTupleNameCount + tupleNameCount > outputs.ParamTupleNameTexts.Length {
             return -1
         }

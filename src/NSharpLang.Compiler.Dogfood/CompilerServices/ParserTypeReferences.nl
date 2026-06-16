@@ -111,6 +111,10 @@ struct TypeReferenceCanonicalTable {
     ChildIndices: int[]
 }
 
+struct TypeReferenceTupleNameTable {
+    Names: string[]
+}
+
 func TypeReferenceCanonicalTextCore(source: string, nodes: &TypeReferenceCanonicalTable, root: int): string {
     if root < 0 || root >= nodes.Kinds.Length {
         return "?"
@@ -194,7 +198,7 @@ func TypeReferenceCanonicalTextCore(source: string, nodes: &TypeReferenceCanonic
     return "?"
 }
 
-func TypeReferenceTupleElementNamesCore(source: string, nodes: &TypeReferenceCanonicalTable, root: int, outNames: string[]): int {
+func TypeReferenceTupleElementNamesCore(source: string, nodes: &TypeReferenceCanonicalTable, root: int, names: &TypeReferenceTupleNameTable): int {
     if root < 0 || root >= nodes.Kinds.Length || nodes.Kinds[root] != 6 || nodes.ChildCount[root] == 0 {
         return 0
     }
@@ -212,7 +216,7 @@ func TypeReferenceTupleElementNamesCore(source: string, nodes: &TypeReferenceCan
             return -1
         }
 
-        outNames[i] = source.Substring(nodes.ValueStarts[elem], nodes.ValueLengths[elem])
+        names.Names[i] = source.Substring(nodes.ValueStarts[elem], nodes.ValueLengths[elem])
         i = i + 1
     }
 

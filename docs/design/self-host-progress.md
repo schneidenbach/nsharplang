@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Tuple type-name extraction keeps output storage table-shaped
+
+`TypeReferenceTupleElementNamesCore` now writes through a `TypeReferenceTupleNameTable` instead of
+accepting a loose `string[]` output column. Product function-signature parsing wraps return and
+parameter tuple-name storage before calling the core, while the flattened
+`TypeReferenceTupleElementNamesInto` compatibility ABI remains only in the parity corpus.
+Focused evidence: `./scripts/dev.sh ParserFunctionSignatures`.
+
 ## 2026-06-16 — Enum value parsing keeps output storage table-shaped
 
 `ParseEnumMemberValuesCore` now writes through an `EnumMemberValueTable` wrapper instead of receiving
