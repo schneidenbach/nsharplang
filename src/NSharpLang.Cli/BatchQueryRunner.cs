@@ -117,7 +117,7 @@ internal static class BatchQueryRunner
 
     private static string[] FindDuplicateRequestIds(IReadOnlyList<BatchQueryRequest> requests)
     {
-        if (NSharpCliDogfoodAdapter.TryFindDuplicateBatchRequestIds(requests, out var duplicateIds))
+        if (BatchQueryKernels.TryFindDuplicateRequestIds(requests, out var duplicateIds))
             return duplicateIds;
 
         return requests
@@ -153,7 +153,7 @@ internal static class BatchQueryRunner
             items.Add(new BatchQueryItemResult(i, request, ok, response));
         }
 
-        var successCount = NSharpCliDogfoodAdapter.TryCountBatchResultSuccesses(
+        var successCount = BatchQueryKernels.TryCountResultSuccesses(
             okWords,
             items.Count,
             out var dogfoodSuccessCount)

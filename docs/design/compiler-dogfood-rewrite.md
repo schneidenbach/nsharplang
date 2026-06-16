@@ -1946,13 +1946,14 @@ compiled N# grouping kernel when the dogfood assembly is available, with the pre
 CLI/daemon member-access completion also routes reflected CLR method overload grouping through the
 compiled N# grouping kernel when the dogfood assembly is available, with reflection enumeration and
 final completion item construction still handled by the C# host boundary.
-`nlc query batch` duplicate request-id validation now routes through the compiled N# compact-rank
-duplicate detector when the dogfood assembly is available, preserving the previous sorted ordinal
-duplicate-id error output, with the previous LINQ grouping path kept as the fallback.
+`nlc query batch` duplicate request-id validation now routes through the owner-local
+`BatchQueryKernels` helper, which calls the compiled N# compact-rank duplicate detector when the
+dogfood assembly is available, preserving the previous sorted ordinal duplicate-id error output,
+with the previous LINQ grouping path kept as the fallback.
 `nlc query batch` result summary counting now retains compact ok bitsets while public item results
-are created, then routes success-count calculation through the compiled N# packed popcount kernel
-when the dogfood assembly is available, with the previous C# `items.Count(item => item.Ok)` count
-kept as the fallback.
+are created, then routes success-count calculation through `BatchQueryKernels`, which calls the
+compiled N# packed popcount kernel when the dogfood assembly is available, with the previous C#
+`items.Count(item => item.Ok)` count kept as the fallback.
 `nlc doc` symbol filtering and kind/name ordering now routes through the compiled N# stable
 counting-sort kernel when the dogfood assembly is available, preserving the previous
 `SymbolKind.ToString()`/ordinal name order and variable/parameter filtering, with the previous LINQ
@@ -2056,7 +2057,7 @@ and the accepted batch result packed-count kernel through the compiled N# method
 also compiles and exercises the pressure-only path-matching, all-positionals CLI argument, build
 option summary, and watch forwarded-argument parity kernels from the parity corpus without routing
 them through product adapters; `CliCommandTests` verifies both
-packaged CLI dogfood adapter routes for duplicate batch request ids, `nlc update` target package
+packaged CLI dogfood routes for duplicate batch request ids, `nlc update` target package
 selection, `nlc doc` symbol/member ordering and slug generation, `nlc tree` dependency deduplication, and
 `nlc query diagnostics --severity` filtering plus compiler-error severity filtering, skipped-fix
 selection, applied-fix file grouping, clean artifact directory ordering, `nlc export csharp` reference de-duplication,

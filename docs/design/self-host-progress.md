@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Batch query kernels leave the CLI dogfood adapter
+
+`nlc query batch` duplicate request-id validation and packed success-count summarization now route
+through `BatchQueryKernels`, an owner-local helper beside `BatchQueryRunner`. The broad CLI dogfood
+adapter no longer owns the batch duplicate-id entry point, packed result-count entry point, delegate
+bindings, or rank scratch arrays; the existing LINQ/grouping and `items.Count(item => item.Ok)`
+fallbacks remain in the runner.
+Focused evidence: `dotnet build src/NSharpLang.Cli/Cli.csproj --no-restore`; `dotnet test
+tests/Tests.csproj --filter "FullyQualifiedName~CliCommandTests.BatchCommand_DuplicateRequestIds_AreRejectedInOrdinalOrder"`.
+
 ## 2026-06-16 — Compiler-error severity filtering leaves the CLI dogfood adapter
 
 `nlc check` backend verification and `nlc lint` parse-error reporting now route the N# compact

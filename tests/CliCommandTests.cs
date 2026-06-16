@@ -926,14 +926,14 @@ func Main() {
                 new("symbols", Id: "alpha")
             };
 
-            Assert.True(NSharpCliDogfoodAdapter.TryFindDuplicateBatchRequestIds(requests, out var duplicateIds));
+            Assert.True(BatchQueryKernels.TryFindDuplicateRequestIds(requests, out var duplicateIds));
             Assert.Equal(new[] { "alpha", "zeta" }, duplicateIds);
 
             var okWords = new[] { 1UL | (1UL << 2) | (1UL << 5) | (1UL << 63) };
-            Assert.True(NSharpCliDogfoodAdapter.TryCountBatchResultSuccesses(okWords, 6, out var successCount));
+            Assert.True(BatchQueryKernels.TryCountResultSuccesses(okWords, 6, out var successCount));
             Assert.Equal(3, successCount);
 
-            Assert.True(NSharpCliDogfoodAdapter.TryCountBatchResultSuccesses(Array.Empty<ulong>(), 0, out successCount));
+            Assert.True(BatchQueryKernels.TryCountResultSuccesses(Array.Empty<ulong>(), 0, out successCount));
             Assert.Equal(0, successCount);
         }
         finally
