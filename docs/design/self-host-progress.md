@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Union duplicate case/field declines move into N# parser
+
+`ParseColumnarUnionInfoCore` now rejects duplicate union case names and duplicate field names within a
+single case while it still has declaration spans and per-case field counts. The union emitter no longer
+has fallback duplicate case/field guards; cross-declaration union/type name collisions remain semantic
+registry checks.
+
 ## 2026-06-16 — Enum duplicate member decline moves into N# parser
 
 `ParseColumnarEnumInfoCore` now rejects duplicate enum member names by comparing declaration spans before

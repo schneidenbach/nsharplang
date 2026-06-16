@@ -63,6 +63,12 @@ func ParseColumnarUnionInfoCore(source: string, tokens: &ColumnarUnionTokenTable
     if ColumnarUnionTypeParameterNamesDistinct(source, ref scratch, typeParamCount) == 0 {
         return -1
     }
+    if ColumnarUnionCaseNamesDistinct(source, ref scratch, caseCount) == 0 {
+        return -1
+    }
+    if ColumnarUnionCaseFieldNamesDistinct(source, ref scratch, outputs.CaseFieldCounts, caseCount) == 0 {
+        return -1
+    }
 
     unionName := ParserDeclarationSpanText(source, result.Values[0], result.Values[1])
     if unionName == "" {
@@ -110,6 +116,76 @@ func ParseColumnarUnionInfoCore(source: string, tokens: &ColumnarUnionTokenTable
     }
 
     return caseCount
+}
+
+func ColumnarUnionCaseNamesDistinct(source: string, scratch: &ColumnarUnionScratchTable, caseCount: int): int {
+    if caseCount < 0 {
+        return 0
+    }
+
+    i := 0
+    while i < caseCount {
+        if scratch.CaseNameStarts[i] < 0 || scratch.CaseNameLengths[i] <= 0 {
+            return 0
+        }
+
+        j := i + 1
+        while j < caseCount {
+            if ParserDeclarationSourceSpansEqual(source, scratch.CaseNameStarts[i], scratch.CaseNameLengths[i], scratch.CaseNameStarts[j], scratch.CaseNameLengths[j]) {
+                return 0
+            }
+
+            j = j + 1
+        }
+
+        i = i + 1
+    }
+
+    return 1
+}
+
+func ColumnarUnionCaseFieldNamesDistinct(source: string, scratch: &ColumnarUnionScratchTable, caseFieldCounts: int[], caseCount: int): int {
+    if caseCount < 0 {
+        return 0
+    }
+
+    fieldOffset := 0
+    c := 0
+    while c < caseCount {
+        caseFieldCount := caseFieldCounts[c]
+        if caseFieldCount < 0 {
+            return 0
+        }
+
+        i := 0
+        while i < caseFieldCount {
+            leftIndex := fieldOffset + i
+            if leftIndex < 0 || leftIndex >= scratch.FieldNameStarts.Length || scratch.FieldNameStarts[leftIndex] < 0 || scratch.FieldNameLengths[leftIndex] <= 0 {
+                return 0
+            }
+
+            j := i + 1
+            while j < caseFieldCount {
+                rightIndex := fieldOffset + j
+                if rightIndex < 0 || rightIndex >= scratch.FieldNameStarts.Length {
+                    return 0
+                }
+
+                if ParserDeclarationSourceSpansEqual(source, scratch.FieldNameStarts[leftIndex], scratch.FieldNameLengths[leftIndex], scratch.FieldNameStarts[rightIndex], scratch.FieldNameLengths[rightIndex]) {
+                    return 0
+                }
+
+                j = j + 1
+            }
+
+            i = i + 1
+        }
+
+        fieldOffset = fieldOffset + caseFieldCount
+        c = c + 1
+    }
+
+    return 1
 }
 
 func ColumnarUnionTypeParameterNamesDistinct(source: string, scratch: &ColumnarUnionScratchTable, typeParamCount: int): int {

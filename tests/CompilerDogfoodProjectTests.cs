@@ -471,6 +471,25 @@ union Duplicate<T, T> {
                 tokenizeWithIndentation,
                 parseColumnarUnionInfo,
                 "duplicate union type parameter");
+            AssertColumnarUnionInfoDeclinesOnly(
+                """
+union DuplicateCase {
+    Some { value: int }
+    Some { other: int }
+}
+""",
+                tokenizeWithIndentation,
+                parseColumnarUnionInfo,
+                "duplicate union case");
+            AssertColumnarUnionInfoDeclinesOnly(
+                """
+union DuplicateField {
+    Some { value: int, value: string }
+}
+""",
+                tokenizeWithIndentation,
+                parseColumnarUnionInfo,
+                "duplicate union case field");
             AssertUnionDeclarationInfoDeclines(
                 "union Bad { A { items: List<int> } }",
                 tokenizeWithIndentation,
@@ -7313,6 +7332,9 @@ func outer(x: int): int {
         Assert.Equal(resultType, successType.BaseType);
         var valueField = successType.GetField("value", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance)!;
         Assert.Equal(typeof(int), valueField.FieldType);
+        // Duplicate cases and duplicate fields within one case are rejected by the N# columnar parser before union emission.
+        Assert.False(RouteColumnarProgram("union Bad { Some { value: int } Some { other: int } }\n\nfunc f(): int { return 0 }\n").Ok);
+        Assert.False(RouteColumnarProgram("union Bad { Some { value: int, value: string } }\n\nfunc f(): int { return 0 }\n").Ok);
 
         // DECLINES (slice scope / forms C# rejects):
         // a NON-EXHAUSTIVE union match with no catch-all (C# reports NL501 — columnar must decline).

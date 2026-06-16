@@ -3507,8 +3507,7 @@ internal sealed class ColumnarIlEmitter
                     if (!fieldResolved || !IsSupportedType(caseFieldType))
                         return false;
                     var cfb = caseTb.DefineField(caseFieldNames[fi], caseFieldType, FieldAttributes.Public);
-                    if (!caseFields.TryAdd(caseFieldNames[fi], cfb))
-                        return false; // a duplicate field name within one case is malformed.
+                    caseFields[caseFieldNames[fi]] = cfb;
                 }
                 var caseCtor = caseTb.DefineConstructor(MethodAttributes.Public, CallingConventions.Standard, Type.EmptyTypes);
                 var ccil = caseCtor.GetILGenerator();
@@ -3521,8 +3520,8 @@ internal sealed class ColumnarIlEmitter
 
                 var caseDef = new ColumnarUnionCaseDef(caseTb, caseCtor, caseFieldNames, caseFields, baseTb);
                 var qualified = un.Name + "." + caseName;
-                if (!unionDef.Cases.TryAdd(qualified, caseDef) || !unionCaseRegistry.TryAdd(qualified, caseDef))
-                    return false; // a duplicate case name within one union is malformed.
+                unionDef.Cases[qualified] = caseDef;
+                unionCaseRegistry[qualified] = caseDef;
                 unionCaseBuilders.Add(caseTb);
             }
         }
