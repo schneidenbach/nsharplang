@@ -1,5 +1,6 @@
-// Product columnar struct/class/record parser wrapper. It keeps declaration span scratch columns inside N# and
-// exposes only text, flag, and member-index rows needed by the C# transition materializer.
+// Product columnar struct/class/record parser wrapper. It keeps declaration span scratch columns inside N#,
+// rejects unsupported member-method local functions, and exposes only text, flag, and member-index rows needed
+// by the C# transition materializer.
 
 struct ColumnarStructTokenTable {
     Kinds: int[]
@@ -118,6 +119,13 @@ func ParseColumnarStructInfoCore(source: string, tokens: &ColumnarStructTokenTab
         }
     }
 
+    tokenValues := new ColumnarStructTokenTable { Kinds: tokens.Kinds, Starts: tokens.Starts, ValueLengths: tokens.ValueLengths, Count: tokens.Count }
+    outputValues := new ColumnarStructOutputTable { FieldNameTexts: outputs.FieldNameTexts, FieldTypeTexts: outputs.FieldTypeTexts, FieldStaticFlags: outputs.FieldStaticFlags, FieldInitKinds: outputs.FieldInitKinds, FieldInitTexts: outputs.FieldInitTexts, MethodFuncIndices: outputs.MethodFuncIndices, MethodStaticFlags: outputs.MethodStaticFlags, CtorIndices: outputs.CtorIndices, PropIndices: outputs.PropIndices, PropStaticFlags: outputs.PropStaticFlags, TypeParamTexts: outputs.TypeParamTexts, BaseNameTexts: outputs.BaseNameTexts, StructNameTexts: outputs.StructNameTexts }
+    localStatus := ColumnarStructMethodLocalFunctionStatus(source, tokenValues, outputValues, methodCount)
+    if localStatus != 0 {
+        return -1
+    }
+
     structName := ParserDeclarationSpanText(source, result.Values[0], result.Values[1])
     if structName == "" {
         return -1
@@ -173,6 +181,48 @@ func ParseColumnarStructInfoCore(source: string, tokens: &ColumnarStructTokenTab
     }
 
     return fieldCount
+}
+
+func ColumnarStructMethodLocalFunctionStatus(source: string, tokens: ColumnarStructTokenTable, outputs: ColumnarStructOutputTable, methodCount: int): int {
+    functionTokens := new ColumnarFunctionTokenTable { Kinds: tokens.Kinds, Starts: tokens.Starts, ValueLengths: tokens.ValueLengths, Count: tokens.Count }
+    cap := tokens.Count + 1
+    signatureOutputs := new ColumnarFunctionSignatureOutputTable {
+        FunctionNameTexts: new string[](1),
+        ReturnTypeTexts: new string[](1),
+        ParamNameTexts: new string[](cap),
+        ParamTypeTexts: new string[](cap),
+        ParamTupleNameCounts: new int[](cap),
+        ParamTupleNameTexts: new string[](cap),
+        ReturnTupleNameTexts: new string[](cap),
+        TypeParamTexts: new string[](cap),
+        TypeParamSpecials: new int[](cap),
+        TypeParamConstraintCounts: new int[](cap),
+        TypeParamConstraintTypeTexts: new string[](cap)
+    }
+    body := new ColumnarFunctionBodyTable {
+        NodeKinds: new int[](cap),
+        ValueStarts: new int[](cap),
+        ValueLengths: new int[](cap),
+        ChildStart: new int[](cap),
+        ChildCount: new int[](cap),
+        ChildIndices: new int[](cap),
+        SpanStarts: new int[](cap),
+        SpanLengths: new int[](cap)
+    }
+    locals := new ColumnarFunctionLocalTable { NodeIndices: new int[](cap), TokenIndices: new int[](cap) }
+    result := new ColumnarFunctionResultTable { Values: new int[](9) }
+
+    for i := 0; i < methodCount; i++ {
+        paramCount := ParseColumnarFunctionInfoCore(source, ref functionTokens, outputs.MethodFuncIndices[i], ref signatureOutputs, ref body, ref locals, ref result)
+        if paramCount < 0 {
+            return -1
+        }
+        if result.Values[8] > 0 {
+            return 1
+        }
+    }
+
+    return 0
 }
 
 func ColumnarStructNameMatchesTypeParam(source: string, scratch: &ColumnarStructScratchTable, typeParamCount: int, nameStart: int, nameLength: int): bool {

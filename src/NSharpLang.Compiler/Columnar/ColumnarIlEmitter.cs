@@ -3894,8 +3894,6 @@ internal sealed class ColumnarIlEmitter
         // `call` top-level funcs (siblings); a forward `call` to any MethodBuilder resolves at Save.
         foreach (var job in structMethodJobs)
         {
-            if (job.Method.LocalFunctions != null)
-                return false; // local functions in MEMBER bodies — a later rung (L4-i is top-level only).
             var mil = job.Builder.GetILGenerator();
             var emitter = new ColumnarIlEmitter(
                 job.Method.BodyNodes, source, job.Ordinals, job.ParamTypes, job.ReturnType, mil, siblings,

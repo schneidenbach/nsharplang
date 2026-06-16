@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Member-method local-function decline moves into N# struct parser
+
+`ParseColumnarStructInfoCore` now checks class/struct/record method bodies with the composed
+function parser and rejects direct local functions before the columnar emitter sees member jobs.
+The emitter no longer performs that method-body local-function guard; constructor bodies still keep
+their later protection until constructor parsing exposes local-function rows.
+
 ## 2026-06-16 — Default-interface local-function decline moves into N# parser
 
 `ParseColumnarInterfaceInfoCore` now checks default interface method bodies with the composed
