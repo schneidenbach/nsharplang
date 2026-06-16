@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Columnar tokenization composes compaction inside N#
+
+`LexerTokenKindScanner.nl` now exposes `TokenizeColumnarSourceInto` as the product columnar lexer
+ABI. The wrapper tokenizes source, inserts indentation braces, compacts parser metadata, and returns
+both raw and compact token counts in one dogfood call. `NSharpCompilerDogfoodAdapter.TryTokenizeColumnarSource`
+now binds that composed entry directly instead of calling `TokenizeParserMetadataWithIndentationInto`
+and then crossing the boundary again for `ParserTokenCompactedMetadataInto`. The standalone
+`ParserTokenCompactedMetadataInto` wrapper moved to the parity corpus; `ParserTokenCompactedMetadataCore`
+stays in the product lexer file for the composed route.
+
 ## 2026-06-16 — Fieldless value-struct decline moves into N# struct parser
 
 `ParseColumnarStructInfoInto` now receives the declaration reference/value flag, and
@@ -82,9 +92,10 @@ Parser parity tests still bind the flattened ABI from the merged parity corpus.
 
 The flattened `ParserTokenCompactionIndicesInto` export now lives in the parity corpus. The shipped
 lexer dogfood file keeps `ParserTokenCompactionIndicesCore`,
-`ParserTokenCompactionIndicesCountedInto`, and `ParserTokenCompactedMetadataInto` for the real
-parser-constructor and columnar-tokenization routes, while parser-token compaction benchmarks and
-legacy parity checks still bind the full-array wrapper from the merged parity corpus.
+`ParserTokenCompactionIndicesCountedInto`, and the compact-metadata core for the real
+parser-constructor and columnar-tokenization routes; the standalone compact-metadata wrapper has
+since moved to the parity corpus. Parser-token compaction benchmarks and legacy parity checks still
+bind flattened wrappers from the merged parity corpus.
 
 ## 2026-06-16 — Declaration utility parity ABIs leave product dogfood
 
@@ -176,12 +187,12 @@ that product/parity boundary.
 
 ## 2026-06-15 — Columnar tokenization compacts metadata rows in N#
 
-`LexerTokenKindScanner.nl` now exposes `ParserTokenCompactedMetadataInto`, a counted product-shaped
-compaction export that writes compact parser token kind/start/value-length columns directly from the
-raw tokenizer output. `NSharpCompilerDogfoodAdapter.TryTokenizeColumnarSource` binds that export and
-no longer owns the kept-index copy loop for the columnar compiler route; the older
-`ParserTokenCompactionIndicesCountedInto` export remains in use for token-object parser
-construction and parity/benchmark surfaces. Focused evidence:
+This step introduced the counted compact-metadata row copy that writes compact parser token
+kind/start/value-length columns directly from the raw tokenizer output. The adapter no longer owns
+the kept-index copy loop for the columnar compiler route; the later composed
+`TokenizeColumnarSourceInto` product entry now calls the compact-metadata core directly, while
+`ParserTokenCompactionIndicesCountedInto` remains in use for token-object parser construction and
+parity/benchmark surfaces. Focused evidence:
 `./scripts/dev.sh LexerTokenKindScanner_ProjectCompilesAndMatchesProductionLexer`,
 `./scripts/dev.sh ColumnarCodegen_ParityOnlyFiles_AreAbsentFromProductCoverage`,
 `./scripts/dev.sh ParserTokenCompaction`,

@@ -123,24 +123,6 @@ func ParserTokenCompactionIndicesCore(tokens: &LexerTokenKindTable, result: &Lex
     return count
 }
 
-func ParserTokenCompactedMetadataInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], tokenCount: int, resultKinds: int[], resultStarts: int[], resultValueLengths: int[]): int {
-    if tokenCount < 0 {
-        return -1
-    }
-
-    if tokenCount > tokenKinds.Length || tokenCount > tokenStarts.Length || tokenCount > tokenValueLengths.Length {
-        return -1
-    }
-
-    if resultKinds.Length < tokenCount || resultStarts.Length < tokenCount || resultValueLengths.Length < tokenCount {
-        return -1
-    }
-
-    tokens := new LexerCompactTokenMetadataTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
-    result := new LexerCompactTokenMetadataTable { Kinds: resultKinds, Starts: resultStarts, ValueLengths: resultValueLengths }
-    return ParserTokenCompactedMetadataCore(ref tokens, tokenCount, ref result)
-}
-
 func ParserTokenCompactedMetadataCore(tokens: &LexerCompactTokenMetadataTable, length: int, result: &LexerCompactTokenMetadataTable): int {
     count := 0
     i := 0
@@ -575,6 +557,31 @@ func TokenizeParserMetadataWithIndentationInto(source: string, kinds: int[], sta
     rawCount := TokenizeMetadataCore(source, ref raw)
     indentStack := new LexerIndentStackTable { Indents: new int[](source.Length + 2) }
     return InsertIndentationParserMetadataCore(ref raw, rawCount, ref target, ref indentStack)
+}
+
+// Product columnar lexer entry: tokenize, insert indentation braces, and compact parser metadata before
+// crossing back to C#. resultCounts[0] is the raw indentation-expanded count; resultCounts[1] is the
+// compact parser-token count. This keeps the transition adapter from binding the standalone compaction ABI.
+func TokenizeColumnarSourceInto(source: string, rawKinds: int[], rawStarts: int[], rawValueLengths: int[], compactKinds: int[], compactStarts: int[], compactValueLengths: int[], resultCounts: int[]): int {
+    if resultCounts.Length < 2 {
+        return -1
+    }
+
+    rawCount := TokenizeParserMetadataWithIndentationInto(source, rawKinds, rawStarts, rawValueLengths)
+    if rawCount < 0 {
+        return -1
+    }
+
+    raw := new LexerCompactTokenMetadataTable { Kinds: rawKinds, Starts: rawStarts, ValueLengths: rawValueLengths }
+    compact := new LexerCompactTokenMetadataTable { Kinds: compactKinds, Starts: compactStarts, ValueLengths: compactValueLengths }
+    compactCount := ParserTokenCompactedMetadataCore(ref raw, rawCount, ref compact)
+    if compactCount < 0 {
+        return -1
+    }
+
+    resultCounts[0] = rawCount
+    resultCounts[1] = compactCount
+    return compactCount
 }
 
 func ScanString(source: string, position: int, length: int, isInterpolated: bool): int {

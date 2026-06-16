@@ -740,6 +740,24 @@ func ParserTokenCompactionIndicesInto(tokenKinds: int[], resultIndices: int[]): 
     return ParserTokenCompactionIndicesCore(ref tokens, ref result, tokenKinds.Length)
 }
 
+func ParserTokenCompactedMetadataInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], tokenCount: int, resultKinds: int[], resultStarts: int[], resultValueLengths: int[]): int {
+    if tokenCount < 0 {
+        return -1
+    }
+
+    if tokenCount > tokenKinds.Length || tokenCount > tokenStarts.Length || tokenCount > tokenValueLengths.Length {
+        return -1
+    }
+
+    if resultKinds.Length < tokenCount || resultStarts.Length < tokenCount || resultValueLengths.Length < tokenCount {
+        return -1
+    }
+
+    tokens := new LexerCompactTokenMetadataTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
+    result := new LexerCompactTokenMetadataTable { Kinds: resultKinds, Starts: resultStarts, ValueLengths: resultValueLengths }
+    return ParserTokenCompactedMetadataCore(ref tokens, tokenCount, ref result)
+}
+
 func ParserTokenCompactionChecksumInto(tokenKinds: int[], resultIndices: int[]): int {
     length := tokenKinds.Length
     if resultIndices.Length < length {

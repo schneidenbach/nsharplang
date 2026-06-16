@@ -10920,6 +10920,7 @@ func outer(x: int): int {
         Assert.NotNull(loadScope.Assembly);
         // Files eligible ONLY via cross-file resolution must contribute their public functions —
         // i.e. the merge actually emitted them (single-file each declines; see ColumnarCodegen_MultiFile_*).
+        Assert.Contains("TokenizeColumnarSourceInto", methodNames!); // composed lexer metadata + parser-token compaction routing
         Assert.Contains("TopLevelColumnarProgramDeclarationIndicesInto", methodNames!); // ParserDeclarations composed routing
         Assert.Contains("TopLevelColumnarFunctionDeclarationIndicesCore", methodNames!); // product function index routing
         Assert.Contains("TopLevelColumnarNominalDeclarationIndicesCore", methodNames!); // product nominal index routing
@@ -11102,9 +11103,10 @@ func outer(x: int): int {
         var lexerProduct = ReadDogfoodProductFile("LexerTokenKindScanner.nl");
         var (lexerOk, _, _, lexerProductMethods) = RouteColumnarProgram(lexerProduct);
         Assert.True(lexerOk, "LexerTokenKindScanner.nl product source should still compile without raw lexer parity wrappers.");
+        Assert.Contains("TokenizeColumnarSourceInto", lexerProductMethods!);
         Assert.Contains("TokenizeParserMetadataWithIndentationInto", lexerProductMethods!);
         Assert.Contains("ParserTokenCompactionIndicesCountedInto", lexerProductMethods!);
-        Assert.Contains("ParserTokenCompactedMetadataInto", lexerProductMethods!);
+        Assert.DoesNotContain("ParserTokenCompactedMetadataInto", lexerProductMethods!);
         Assert.DoesNotContain("TokenizeMetadataWithIndentationInto", lexerProductMethods!);
         Assert.DoesNotContain("ParserTokenCompactionIndicesInto", lexerProductMethods!);
         Assert.DoesNotContain("TokenizeKinds", lexerProductMethods!);
@@ -11121,6 +11123,7 @@ func outer(x: int): int {
         Assert.True(lexerParityOk, "LexerTokenKindScanner.nl parity corpus should still compile with raw lexer parity wrappers.");
         Assert.Contains("TokenizeMetadataWithIndentationInto", lexerParityMethods!);
         Assert.Contains("ParserTokenCompactionIndicesInto", lexerParityMethods!);
+        Assert.Contains("ParserTokenCompactedMetadataInto", lexerParityMethods!);
         Assert.Contains("TokenizeKinds", lexerParityMethods!);
         Assert.Contains("TokenizeKindsInto", lexerParityMethods!);
         Assert.Contains("TokenizeMetadataInto", lexerParityMethods!);
@@ -13668,6 +13671,10 @@ class OtherZetaType {
                     "TokenizeParserMetadataWithIndentationInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit TokenizeParserMetadataWithIndentationInto.");
+            var tokenizeColumnarSourceInto = programType.GetMethod(
+                    "TokenizeColumnarSourceInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit TokenizeColumnarSourceInto.");
             var commentsInto = programType.GetMethod(
                     "CommentsInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -14605,6 +14612,7 @@ func classify(value: int, name: string): string {
             AssertTokenMetadataWithIndentationLikeProductionLexer(metadataSource, tokenizeMetadataWithIndentationInto);
             AssertTokenMetadataWithIndentationLikeProductionLexer(representativeSource, tokenizeMetadataWithIndentationInto);
             AssertParserMetadataWithIndentationLikeProductionLexer(representativeSource, tokenizeParserMetadataWithIndentationInto);
+            AssertColumnarSourceTokenizationLikeProductionLexer(representativeSource, tokenizeColumnarSourceInto);
 
             // Then prove it on indentation-style (brace-free) source, where InsertIndentationBraces
             // actively inserts virtual { } tokens -- the remaining lexer kind-stream gap this slice closes.
@@ -14628,6 +14636,7 @@ func outer(): int
 """;
             AssertTokenMetadataWithIndentationLikeProductionLexer(indentNestedSource, tokenizeMetadataWithIndentationInto);
             AssertParserMetadataWithIndentationLikeProductionLexer(indentNestedSource, tokenizeParserMetadataWithIndentationInto);
+            AssertColumnarSourceTokenizationLikeProductionLexer(indentNestedSource, tokenizeColumnarSourceInto);
 
             // Globally-indented source (the leading whitespace becomes the base indent, common in test
             // strings) plus blank lines inside a block (must not perturb indentation tracking).
@@ -14677,6 +14686,7 @@ func k(): int
             AssertTokenMetadataWithIndentationLikeProductionLexer("", tokenizeMetadataWithIndentationInto);
             AssertTokenMetadataWithIndentationLikeProductionLexer("   \n  \n", tokenizeMetadataWithIndentationInto);
             AssertParserMetadataWithIndentationLikeProductionLexer("", tokenizeParserMetadataWithIndentationInto);
+            AssertColumnarSourceTokenizationLikeProductionLexer("", tokenizeColumnarSourceInto);
             AssertParserMetadataWithIndentationLikeProductionLexer("   \n  \n", tokenizeParserMetadataWithIndentationInto);
 
             // Composed-path coverage for the flat lifetime/unicode/char-literal/malformed-number corpora
@@ -15223,6 +15233,59 @@ func main() {
             Assert.Equal((int)token.Type, kinds[i]);
             Assert.Equal(TokenStartFromLineColumn(lineStarts, token.Line, token.Column, source.Length), starts[i]);
             Assert.Equal(token.Value.Length, valueLengths[i]);
+        }
+    }
+
+    private static void AssertColumnarSourceTokenizationLikeProductionLexer(
+        string source,
+        MethodInfo tokenizeColumnarSourceInto)
+    {
+        var expectedRawTokens = new Lexer(source, "dogfood-test.nl").Tokenize();
+        var expectedCompactTokens = expectedRawTokens
+            .Where(static token => token.Type != TokenType.Newline)
+            .ToArray();
+        var capacity = 3 * (source.Length + 1) + 8;
+        var rawKinds = new int[capacity];
+        var rawStarts = new int[capacity];
+        var rawValueLengths = new int[capacity];
+        var compactKinds = new int[capacity];
+        var compactStarts = new int[capacity];
+        var compactValueLengths = new int[capacity];
+        var resultCounts = new int[2];
+
+        var compactCount = (int)(tokenizeColumnarSourceInto.Invoke(
+            null,
+            new object[]
+            {
+                source,
+                rawKinds,
+                rawStarts,
+                rawValueLengths,
+                compactKinds,
+                compactStarts,
+                compactValueLengths,
+                resultCounts
+            }) ?? -1);
+
+        Assert.Equal(expectedRawTokens.Count, resultCounts[0]);
+        Assert.Equal(expectedCompactTokens.Length, resultCounts[1]);
+        Assert.Equal(expectedCompactTokens.Length, compactCount);
+
+        var lineStarts = BuildLineStarts(source);
+        for (var i = 0; i < expectedRawTokens.Count; i++)
+        {
+            var token = expectedRawTokens[i];
+            Assert.Equal((int)token.Type, rawKinds[i]);
+            Assert.Equal(TokenStartFromLineColumn(lineStarts, token.Line, token.Column, source.Length), rawStarts[i]);
+            Assert.Equal(token.Value.Length, rawValueLengths[i]);
+        }
+
+        for (var i = 0; i < expectedCompactTokens.Length; i++)
+        {
+            var token = expectedCompactTokens[i];
+            Assert.Equal((int)token.Type, compactKinds[i]);
+            Assert.Equal(TokenStartFromLineColumn(lineStarts, token.Line, token.Column, source.Length), compactStarts[i]);
+            Assert.Equal(token.Value.Length, compactValueLengths[i]);
         }
     }
 

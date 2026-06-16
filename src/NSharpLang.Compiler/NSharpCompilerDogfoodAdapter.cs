@@ -129,16 +129,21 @@ internal static class NSharpCompilerDogfoodAdapter
             var rawKinds = new int[capacity];
             var rawStarts = new int[capacity];
             var rawValueLengths = new int[capacity];
-            var rawCount = bindings.TokenizeParserMetadataWithIndentation(
-                source, rawKinds, rawStarts, rawValueLengths);
-            if (rawCount < 0 || rawCount > capacity)
-                return false;
-
-            var kinds = new int[rawCount];
-            var starts = new int[rawCount];
-            var valueLengths = new int[rawCount];
-            var count = bindings.ParserTokenCompactedMetadata(rawKinds, rawStarts, rawValueLengths, rawCount, kinds, starts, valueLengths);
-            if (count < 0 || count > rawCount)
+            var kinds = new int[capacity];
+            var starts = new int[capacity];
+            var valueLengths = new int[capacity];
+            var resultCounts = new int[2];
+            var count = bindings.TokenizeColumnarSource(
+                source,
+                rawKinds,
+                rawStarts,
+                rawValueLengths,
+                kinds,
+                starts,
+                valueLengths,
+                resultCounts);
+            var rawCount = resultCounts[0];
+            if (rawCount < 0 || rawCount > capacity || count < 0 || count > rawCount || count != resultCounts[1])
                 return false;
 
             tokens = new ColumnarTokenizedSource(
@@ -1786,9 +1791,6 @@ internal static class NSharpCompilerDogfoodAdapter
                 CreateDelegate<ParserTokenCompactionIndicesCountedInto>(
                     programType,
                     "ParserTokenCompactionIndicesCountedInto"),
-                CreateDelegate<ParserTokenCompactedMetadataInto>(
-                    programType,
-                    "ParserTokenCompactedMetadataInto"),
                 CreateDelegate<FormatterImportOrderIndicesInto>(
                     programType,
                     "FormatterImportOrderIndicesInto"),
@@ -1822,9 +1824,9 @@ internal static class NSharpCompilerDogfoodAdapter
                 CreateDelegate<OverloadSelectBestCandidate>(
                     programType,
                     "OverloadSelectBestCandidate"),
-                CreateDelegate<TokenizeParserMetadataWithIndentationInto>(
+                CreateDelegate<TokenizeColumnarSourceInto>(
                     programType,
-                    "TokenizeParserMetadataWithIndentationInto"),
+                    "TokenizeColumnarSourceInto"),
                 CreateDelegate<TopLevelColumnarProgramDeclarationIndicesInto>(
                     programType,
                     "TopLevelColumnarProgramDeclarationIndicesInto"),
@@ -1883,14 +1885,6 @@ internal static class NSharpCompilerDogfoodAdapter
     }
 
     private delegate int ParserTokenCompactionIndicesCountedInto(int[] tokenKinds, int tokenCount, int[] resultIndices);
-    private delegate int ParserTokenCompactedMetadataInto(
-        int[] tokenKinds,
-        int[] tokenStarts,
-        int[] tokenValueLengths,
-        int tokenCount,
-        int[] resultKinds,
-        int[] resultStarts,
-        int[] resultValueLengths);
     private delegate int FormatterImportOrderIndicesInto(
         int[] systemFlags,
         int[] nameRanks,
@@ -1955,8 +1949,15 @@ internal static class NSharpCompilerDogfoodAdapter
     // Parser front-end kernels (slices 1-23): the N#-native columnar parser, loaded from the dogfood assembly.
     // These feed the columnar symbol/name/type/diagnostic services and the standalone columnar emit backend
     // (TryGetColumnarFunctionInputs -> ColumnarIlEmitter), consuming the columnar node tables directly.
-    private delegate int TokenizeParserMetadataWithIndentationInto(
-        string source, int[] kinds, int[] starts, int[] valueLengths);
+    private delegate int TokenizeColumnarSourceInto(
+        string source,
+        int[] rawKinds,
+        int[] rawStarts,
+        int[] rawValueLengths,
+        int[] compactKinds,
+        int[] compactStarts,
+        int[] compactValueLengths,
+        int[] resultCounts);
     private delegate int TopLevelColumnarProgramDeclarationIndicesInto(
         string source,
         int[] rawTokenKinds, int[] rawTokenStarts, int[] rawTokenValueLengths, int rawCount,
@@ -2020,7 +2021,6 @@ internal static class NSharpCompilerDogfoodAdapter
 
     private sealed record Bindings(
         ParserTokenCompactionIndicesCountedInto ParserTokenCompactionCounted,
-        ParserTokenCompactedMetadataInto ParserTokenCompactedMetadata,
         FormatterImportOrderIndicesInto FormatterImportOrderIndices,
         FirstDistinctRankIndicesInto FirstDistinctRankIndices,
         DeclaredTypeUniqueSuffixValueRank DeclaredTypeUniqueSuffixValueRank,
@@ -2032,7 +2032,7 @@ internal static class NSharpCompilerDogfoodAdapter
         AnalyzerMissingMemberIndicesInto AnalyzerMissingMemberIndices,
         AnalyzerUnionMissingCaseIndicesInto AnalyzerUnionMissingCaseIndices,
         OverloadSelectBestCandidate OverloadSelectBestCandidate,
-        TokenizeParserMetadataWithIndentationInto TokenizeParserMetadataWithIndentation,
+        TokenizeColumnarSourceInto TokenizeColumnarSource,
         TopLevelColumnarProgramDeclarationIndicesInto TopLevelColumnarProgramDeclarationIndices,
         ParseColumnarFunctionInfoInto ParseColumnarFunctionInfo,
         ParseColumnarPropertyInfoInto ParseColumnarPropertyInfo,
