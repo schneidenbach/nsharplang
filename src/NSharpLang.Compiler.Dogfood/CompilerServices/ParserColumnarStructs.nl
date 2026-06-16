@@ -158,13 +158,11 @@ func ParseColumnarStructInfoCore(source: string, tokens: &ColumnarStructTokenTab
         }
     }
 
-    tokenValues := new ColumnarStructTokenTable { Kinds: tokens.Kinds, Starts: tokens.Starts, ValueLengths: tokens.ValueLengths, Count: tokens.Count }
-    outputValues := new ColumnarStructOutputTable { FieldNameTexts: outputs.FieldNameTexts, FieldTypeTexts: outputs.FieldTypeTexts, FieldStaticFlags: outputs.FieldStaticFlags, FieldInitKinds: outputs.FieldInitKinds, FieldInitTexts: outputs.FieldInitTexts, MethodFuncIndices: outputs.MethodFuncIndices, MethodStaticFlags: outputs.MethodStaticFlags, CtorIndices: outputs.CtorIndices, PropIndices: outputs.PropIndices, PropStaticFlags: outputs.PropStaticFlags, TypeParamTexts: outputs.TypeParamTexts, BaseNameTexts: outputs.BaseNameTexts, StructNameTexts: outputs.StructNameTexts }
-    methodStatus := ColumnarStructMethodUnsupportedStatus(source, tokenValues, outputValues, methodCount)
+    methodStatus := ColumnarStructMethodUnsupportedStatus(source, ref tokens, ref outputs, methodCount)
     if methodStatus != 0 {
         return -1
     }
-    ctorStatus := ColumnarStructConstructorUnsupportedStatus(source, tokenValues, outputValues, ctorCount, isReference)
+    ctorStatus := ColumnarStructConstructorUnsupportedStatus(source, ref tokens, ref outputs, ctorCount, isReference)
     if ctorStatus != 0 {
         return -1
     }
@@ -226,7 +224,7 @@ func ParseColumnarStructInfoCore(source: string, tokens: &ColumnarStructTokenTab
     return fieldCount
 }
 
-func ColumnarStructMethodUnsupportedStatus(source: string, tokens: ColumnarStructTokenTable, outputs: ColumnarStructOutputTable, methodCount: int): int {
+func ColumnarStructMethodUnsupportedStatus(source: string, tokens: &ColumnarStructTokenTable, outputs: &ColumnarStructOutputTable, methodCount: int): int {
     functionTokens := new ColumnarFunctionTokenTable { Kinds: tokens.Kinds, Starts: tokens.Starts, ValueLengths: tokens.ValueLengths, Count: tokens.Count }
     cap := tokens.Count + 1
     signatureOutputs := new ColumnarFunctionSignatureOutputTable {
@@ -298,7 +296,7 @@ func ColumnarStructMethodUnsupportedStatus(source: string, tokens: ColumnarStruc
     return 0
 }
 
-func ColumnarStructConstructorUnsupportedStatus(source: string, tokens: ColumnarStructTokenTable, outputs: ColumnarStructOutputTable, ctorCount: int, isReference: int): int {
+func ColumnarStructConstructorUnsupportedStatus(source: string, tokens: &ColumnarStructTokenTable, outputs: &ColumnarStructOutputTable, ctorCount: int, isReference: int): int {
     constructorTokens := new ColumnarConstructorTokenTable { Kinds: tokens.Kinds, Starts: tokens.Starts, ValueLengths: tokens.ValueLengths, Count: tokens.Count }
     cap := tokens.Count + 1
     signatureOutputs := new ColumnarConstructorSignatureOutputTable {

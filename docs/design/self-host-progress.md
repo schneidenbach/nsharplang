@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Struct route-safety checks reuse product table refs
+
+`ColumnarStructMethodUnsupportedStatus` and `ColumnarStructConstructorUnsupportedStatus` now consume
+the existing `ColumnarStructTokenTable` and `ColumnarStructOutputTable` refs instead of rebuilding
+duplicate table values before method and constructor validation. The adapter-facing ABI is unchanged,
+but the product struct parser keeps route-safety validation on the same table instances that
+declaration composition produced.
+Focused evidence: `./scripts/dev.sh ParserColumnarStructs`.
+
 ## 2026-06-16 — Enum literal parsing writes through the value table
 
 `ParserDeclarationTryParseIntLiteralCore` now receives `EnumMemberValueTable` by ref instead of a
