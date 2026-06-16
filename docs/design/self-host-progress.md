@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Local-function discovery parity ABI leaves product dogfood
+
+The flattened `DirectLocalFunctionTokenIndicesInto` export now lives in the parity corpus instead of
+`ParserLocalFunctions.nl`. Product function parsing already routes through
+`ParseColumnarFunctionInfoInto`, which composes `DirectLocalFunctionTokenIndicesCore` directly after
+body parsing. The product cluster now pins the core while statement/parser parity tests keep direct
+coverage through the parity wrapper.
+
 ## 2026-06-15 — Property accessor parity ABIs leave product dogfood
 
 The flattened `ParsePropertyAccessorInfoInto` and `ParsePropertyAccessorTypeInfoInto` exports now

@@ -1,6 +1,7 @@
-// Local-function discovery wrapper for product columnar routing. ParseStatementNodesInto already marks a local
-// function declaration as statement kind 41 with the `func` keyword's source span; this wrapper maps direct children
+// Local-function discovery core for product columnar routing. ParseStatementNodesCore already marks a local
+// function declaration as statement kind 41 with the `func` keyword's source span; this core maps direct children
 // of a function body block to their compact token indices in N#, keeping the adapter out of statement-table scans.
+// The flattened DirectLocalFunctionTokenIndicesInto ABI lives in the parity corpus.
 
 struct LocalFunctionTokenTable {
     Kinds: int[]
@@ -19,13 +20,6 @@ struct LocalFunctionNodeTable {
 struct LocalFunctionResultTable {
     NodeIndices: int[]
     FuncTokenIndices: int[]
-}
-
-func DirectLocalFunctionTokenIndicesInto(tokenKinds: int[], tokenStarts: int[], tokenCount: int, nodeKinds: int[], nodeValueStarts: int[], nodeChildStart: int[], nodeChildCount: int[], nodeChildIndices: int[], rootBlock: int, outNodeIndices: int[], outFuncTokenIndices: int[]): int {
-    tokens := new LocalFunctionTokenTable { Kinds: tokenKinds, Starts: tokenStarts, Count: tokenCount }
-    nodes := new LocalFunctionNodeTable { Kinds: nodeKinds, ValueStarts: nodeValueStarts, ChildStart: nodeChildStart, ChildCount: nodeChildCount, ChildIndices: nodeChildIndices }
-    results := new LocalFunctionResultTable { NodeIndices: outNodeIndices, FuncTokenIndices: outFuncTokenIndices }
-    return DirectLocalFunctionTokenIndicesCore(ref tokens, ref nodes, rootBlock, ref results)
 }
 
 func DirectLocalFunctionTokenIndicesCore(tokens: &LocalFunctionTokenTable, nodes: &LocalFunctionNodeTable, rootBlock: int, results: &LocalFunctionResultTable): int {

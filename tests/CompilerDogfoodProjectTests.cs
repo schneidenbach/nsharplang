@@ -10907,7 +10907,7 @@ func outer(x: int): int {
         Assert.Contains("ParseColumnarUnionInfoInto", methodNames!); // composed union text/type routing
         Assert.Contains("ParseConstructorSignatureInfoCore", methodNames!); // ParserConstructorSignatures -> declarations/signatures/types
         Assert.Contains("ParseInterfaceDeclarationSignatureInfoCore", methodNames!); // ParserInterfaceSignatures -> declarations/signatures/types
-        Assert.Contains("DirectLocalFunctionTokenIndicesInto", methodNames!); // ParserLocalFunctions -> declarations/statements
+        Assert.Contains("DirectLocalFunctionTokenIndicesCore", methodNames!); // ParserLocalFunctions -> declarations/statements
         Assert.Contains("ParsePrimaryExpressionNode", methodNames!); // ParserExpressions
         Assert.Contains("ParseStatementNodesInto", methodNames!);    // ParserStatements -> ParserExpressions
     }
@@ -10989,6 +10989,7 @@ func outer(x: int): int {
             ("ParserFunctionSignatures.nl", "ParseFunctionSignatureInfoInto"),
             ("ParserConstructorSignatures.nl", "ParseConstructorSignatureInfoInto"),
             ("ParserInterfaceSignatures.nl", "ParseInterfaceDeclarationSignatureInfoInto"),
+            ("ParserLocalFunctions.nl", "DirectLocalFunctionTokenIndicesInto"),
             ("ParserExpressions.nl", "ParseExpressionNodesInto"),
             ("ParserTypeReferences.nl", "ParseTypeReferenceNodesInto"),
         })
