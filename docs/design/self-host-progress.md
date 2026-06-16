@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Stable distinct routes leave the CLI dogfood adapter
+
+CLI stable string de-duplication now routes through owner-local helpers: stale generated-output
+directory cleanup uses `GeneratedOutputDirectoryDeduplicator`, `nlc restore` project-reference
+de-duplication uses `RestoreCommandKernels`, and `nlc tree` target-framework summaries use
+`TreeDependencyDeduplicator`. `nlc restore` reference-type filtering also moved to
+`RestoreCommandKernels`, leaving the broad CLI dogfood adapter without the stable-distinct entry
+point, delegate binding, or scratch arrays; the existing command fallbacks remain in place.
+Focused evidence: `dotnet build src/NSharpLang.Cli/Cli.csproj --no-restore`; `dotnet test
+tests/Tests.csproj --filter "FullyQualifiedName~CliCommandTests.GeneratedOutputDirectoryDeduplicator_DeduplicatesStaleGeneratedDirectories|FullyQualifiedName~CliCommandTests.RestoreCommandKernels_DeduplicatesProjectReferences|FullyQualifiedName~CliCommandTests.RestoreCommandKernels_FiltersProjectReferences|FullyQualifiedName~CliCommandTests.TreeDependencyDeduplicator_DeduplicatesTargetFrameworks"`;
+`./scripts/dev.sh --since`.
+
 ## 2026-06-16 — Export reference kernels leave the CLI dogfood adapter
 
 `nlc export csharp` reference-type filtering and stable post-resolution reference de-duplication now

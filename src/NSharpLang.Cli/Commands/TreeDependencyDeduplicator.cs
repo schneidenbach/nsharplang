@@ -11,6 +11,8 @@ internal static class TreeDependencyDeduplicator
 
     [ThreadStatic]
     private static Scratch? t_scratch;
+    [ThreadStatic]
+    private static StableDistinctScratch? t_stableDistinctScratch;
 
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
 
@@ -77,6 +79,77 @@ internal static class TreeDependencyDeduplicator
         }
     }
 
+    internal static bool TryDeduplicateTargetFrameworks(
+        IReadOnlyList<string> targetFrameworks,
+        out string[] distinctFrameworks)
+    {
+        distinctFrameworks = Array.Empty<string>();
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        var frameworkCount = targetFrameworks.Count;
+        if (frameworkCount == 0)
+            return true;
+
+        var scratch = t_stableDistinctScratch ??= new StableDistinctScratch();
+        scratch.EnsureCapacity(frameworkCount);
+
+        try
+        {
+            var uniqueRankCount = 0;
+            for (var i = 0; i < frameworkCount; i++)
+            {
+                var framework = targetFrameworks[i];
+                if (!scratch.RanksByFramework.TryGetValue(framework, out var rank))
+                {
+                    rank = ++uniqueRankCount;
+                    scratch.RanksByFramework.Add(framework, rank);
+                }
+
+                scratch.Ranks[i] = rank;
+            }
+
+            scratch.EnsureRankCapacity(uniqueRankCount);
+            var resultCount = bindings.StableDistinctRankIndices(
+                scratch.Ranks,
+                uniqueRankCount,
+                scratch.SeenRanks,
+                scratch.ResultIndices);
+
+            if (resultCount < 0 || resultCount > frameworkCount || resultCount > scratch.ResultIndices.Length)
+            {
+                distinctFrameworks = Array.Empty<string>();
+                return false;
+            }
+
+            distinctFrameworks = new string[resultCount];
+            for (var i = 0; i < resultCount; i++)
+            {
+                var sourceIndex = scratch.ResultIndices[i];
+                if (sourceIndex < 0 || sourceIndex >= frameworkCount)
+                {
+                    distinctFrameworks = Array.Empty<string>();
+                    return false;
+                }
+
+                distinctFrameworks[i] = targetFrameworks[sourceIndex];
+            }
+
+            return true;
+        }
+        catch
+        {
+            distinctFrameworks = Array.Empty<string>();
+            return false;
+        }
+        finally
+        {
+            scratch.RanksByFramework.Clear();
+        }
+    }
+
     private static void BuildRanks(
         TreeCommand.TreeDependency[] dependencies,
         Scratch scratch,
@@ -134,7 +207,10 @@ internal static class TreeDependencyDeduplicator
             return new Bindings(
                 CreateDelegate<CliTreeDependencyDeduplicateIndicesInto>(
                     programType,
-                    "CliTreeDependencyDeduplicateIndicesInto"));
+                    "CliTreeDependencyDeduplicateIndicesInto"),
+                CreateDelegate<CliStableDistinctRankIndicesInto>(
+                    programType,
+                    "CliStableDistinctRankIndicesInto"));
         }
         catch
         {
@@ -179,7 +255,15 @@ internal static class TreeDependencyDeduplicator
         int[] sortedIndices,
         int[] resultIndices);
 
-    private sealed record Bindings(CliTreeDependencyDeduplicateIndicesInto DeduplicateIndices);
+    private delegate int CliStableDistinctRankIndicesInto(
+        int[] ranks,
+        int uniqueRankCount,
+        int[] seenRanks,
+        int[] resultIndices);
+
+    private sealed record Bindings(
+        CliTreeDependencyDeduplicateIndicesInto DeduplicateIndices,
+        CliStableDistinctRankIndicesInto StableDistinctRankIndices);
 
     private sealed class Scratch
     {
@@ -250,6 +334,30 @@ internal static class TreeDependencyDeduplicator
                 Array.Clear(UniqueNames, 0, UniqueNameCount);
                 UniqueNameCount = 0;
             }
+        }
+    }
+
+    private sealed class StableDistinctScratch
+    {
+        internal readonly Dictionary<string, int> RanksByFramework = new(StringComparer.OrdinalIgnoreCase);
+        internal int[] Ranks = Array.Empty<int>();
+        internal int[] ResultIndices = Array.Empty<int>();
+        internal int[] SeenRanks = Array.Empty<int>();
+
+        internal void EnsureCapacity(int count)
+        {
+            if (Ranks.Length != count)
+                Ranks = new int[count];
+
+            if (ResultIndices.Length != count)
+                ResultIndices = new int[count];
+        }
+
+        internal void EnsureRankCapacity(int uniqueRankCount)
+        {
+            var rankCapacity = uniqueRankCount + 1;
+            if (SeenRanks.Length != rankCapacity)
+                SeenRanks = new int[rankCapacity];
         }
     }
 }

@@ -154,11 +154,10 @@ Options:
 
     internal static string[] DeduplicateProjectReferences(IReadOnlyList<string> projectReferences)
     {
-        return NSharpCliDogfoodAdapter.TryDeduplicateStable(
+        return RestoreCommandKernels.TryDeduplicateProjectReferences(
             projectReferences,
-            StringComparer.OrdinalIgnoreCase,
             out var dogfoodProjectReferences)
-            ? dogfoodProjectReferences.ToArray()
+            ? dogfoodProjectReferences
             : projectReferences.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
     }
 
@@ -166,7 +165,7 @@ Options:
         IReadOnlyList<Reference> references,
         ReferenceType referenceType)
     {
-        return NSharpCliDogfoodAdapter.TryFilterReferencesByType(references, referenceType, out var dogfoodReferences)
+        return RestoreCommandKernels.TryFilterReferencesByType(references, referenceType, out var dogfoodReferences)
             ? dogfoodReferences
             : references.Where(reference => reference.Type == referenceType).ToList();
     }

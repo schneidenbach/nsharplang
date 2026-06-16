@@ -12,8 +12,6 @@ internal static class NSharpCliDogfoodAdapter
 
     [ThreadStatic]
     private static ReferenceTypeFilterScratch? t_referenceTypeFilterScratch;
-    [ThreadStatic]
-    private static StableDistinctScratch? t_stableDistinctScratch;
 
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings);
 
@@ -111,80 +109,6 @@ internal static class NSharpCliDogfoodAdapter
         }
     }
 
-    internal static bool TryDeduplicateStable<T>(
-        IReadOnlyList<T> values,
-        IEqualityComparer<T>? comparer,
-        out List<T> deduplicatedValues)
-        where T : notnull
-    {
-        deduplicatedValues = new List<T>();
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        var valueCount = values.Count;
-        if (valueCount == 0)
-            return true;
-
-        var scratch = t_stableDistinctScratch ??= new StableDistinctScratch();
-        scratch.EnsureCapacity(valueCount);
-
-        try
-        {
-            var ranksByValue = comparer == null
-                ? new Dictionary<T, int>()
-                : new Dictionary<T, int>(comparer);
-            var uniqueRankCount = 0;
-
-            for (var i = 0; i < valueCount; i++)
-            {
-                var value = values[i];
-                if (!ranksByValue.TryGetValue(value, out var rank))
-                {
-                    rank = ++uniqueRankCount;
-                    ranksByValue.Add(value, rank);
-                }
-
-                scratch.Ranks[i] = rank;
-            }
-
-            scratch.EnsureRankCapacity(uniqueRankCount);
-            var resultCount = bindings.CliStableDistinctRankIndices(
-                scratch.Ranks,
-                uniqueRankCount,
-                scratch.SeenRanks,
-                scratch.ResultIndices);
-
-            if (resultCount < 0 || resultCount > valueCount || resultCount > scratch.ResultIndices.Length)
-            {
-                deduplicatedValues = new List<T>();
-                return false;
-            }
-
-            var result = new List<T>(resultCount);
-            for (var i = 0; i < resultCount; i++)
-            {
-                var sourceIndex = scratch.ResultIndices[i];
-                if (sourceIndex < 0 || sourceIndex >= valueCount)
-                {
-                    deduplicatedValues = new List<T>();
-                    return false;
-                }
-
-                result.Add(values[sourceIndex]);
-            }
-
-            deduplicatedValues = result;
-            return true;
-        }
-        catch
-        {
-            deduplicatedValues = new List<T>();
-            return false;
-        }
-    }
-
     private static Bindings? LoadBindings()
     {
         try
@@ -196,8 +120,7 @@ internal static class NSharpCliDogfoodAdapter
 
             return new Bindings(
                 CreateDelegate<CliFirstPositionalArgIndex>(programType, "CliFirstPositionalArgIndex"),
-                CreateDelegate<CliReferenceTypeFilterIndicesInto>(programType, "CliReferenceTypeFilterIndicesInto"),
-                CreateDelegate<CliStableDistinctRankIndicesInto>(programType, "CliStableDistinctRankIndicesInto"));
+                CreateDelegate<CliReferenceTypeFilterIndicesInto>(programType, "CliReferenceTypeFilterIndicesInto"));
         }
         catch
         {
@@ -240,16 +163,9 @@ internal static class NSharpCliDogfoodAdapter
         int targetTypeRank,
         int[] resultIndices);
 
-    private delegate int CliStableDistinctRankIndicesInto(
-        int[] ranks,
-        int uniqueRankCount,
-        int[] seenRanks,
-        int[] resultIndices);
-
     private sealed record Bindings(
         CliFirstPositionalArgIndex CliFirstPositionalArgIndex,
-        CliReferenceTypeFilterIndicesInto CliReferenceTypeFilterIndices,
-        CliStableDistinctRankIndicesInto CliStableDistinctRankIndices);
+        CliReferenceTypeFilterIndicesInto CliReferenceTypeFilterIndices);
 
     private static int GetReferenceTypeRank(ReferenceType type) =>
         type switch
@@ -275,30 +191,4 @@ internal static class NSharpCliDogfoodAdapter
             }
         }
     }
-
-    private sealed class StableDistinctScratch
-    {
-        internal int[] Ranks = Array.Empty<int>();
-        internal int[] ResultIndices = Array.Empty<int>();
-        internal int[] SeenRanks = Array.Empty<int>();
-
-        internal void EnsureCapacity(int count)
-        {
-            if (Ranks.Length != count || ResultIndices.Length != count)
-            {
-                Ranks = new int[count];
-                ResultIndices = new int[count];
-            }
-        }
-
-        internal void EnsureRankCapacity(int uniqueRankCount)
-        {
-            var rankCapacity = uniqueRankCount + 1;
-            if (SeenRanks.Length != rankCapacity)
-            {
-                SeenRanks = new int[rankCapacity];
-            }
-        }
-    }
-
 }

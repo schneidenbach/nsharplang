@@ -232,9 +232,8 @@ public static class TreeCommand
         if (targetFrameworks.Count == 0)
             return "unknown";
 
-        var distinctFrameworks = NSharpCliDogfoodAdapter.TryDeduplicateStable(
+        var distinctFrameworks = TreeDependencyDeduplicator.TryDeduplicateTargetFrameworks(
                 targetFrameworks,
-                StringComparer.OrdinalIgnoreCase,
                 out var dogfoodFrameworks)
             ? dogfoodFrameworks
             : targetFrameworks.Distinct(StringComparer.OrdinalIgnoreCase);

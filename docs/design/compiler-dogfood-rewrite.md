@@ -1911,21 +1911,21 @@ is available, with the previous C# build-argument normalization kept as the fall
 framework references now routes through `ExportCommandKernels`, which calls the compiled N#
 compact-rank filter when the dogfood assembly is available, preserving source order and
 invalid-reference fallback behavior, with the previous C# `Where(...).ToList()` filters kept as the
-fallback. `nlc restore` and native CLI compilation reference resolution still route the same
-accepted kernel through `NSharpCliDogfoodAdapter.TryFilterReferencesByType` while those owners keep
-their transition boundary.
+fallback. `nlc restore` now routes the same accepted kernel through `RestoreCommandKernels`; native
+CLI compilation reference resolution still routes it through
+`NSharpCliDogfoodAdapter.TryFilterReferencesByType` while that owner keeps its transition boundary.
 `nlc export csharp` now routes stable post-resolution reference de-duplication for project,
 framework, package, and DLL references through `ExportCommandKernels`, which calls the compiled N#
 compact-rank stable distinct kernel when the dogfood assembly is available, with the previous C#
 `Distinct` paths kept as the fallback.
 `nlc restore` now routes stable post-resolution project-reference de-duplication through
-`NSharpCliDogfoodAdapter.TryDeduplicateStable`, which calls the same compiled N# compact-rank stable
-distinct kernel when the dogfood assembly is available, with the previous C# `Distinct` path kept as
-the fallback.
-CLI stale generated-output cleanup and `nlc tree` target-framework summaries also route stable string
-de-duplication through `NSharpCliDogfoodAdapter.TryDeduplicateStable` when the dogfood assembly is
-available, preserving ordinal generated-directory identity, ordinal-ignore-case framework identity,
-and first-source output order, with the previous C# `Distinct` paths kept as the fallback.
+`RestoreCommandKernels`, which calls the same compiled N# compact-rank stable distinct kernel when
+the dogfood assembly is available, with the previous C# `Distinct` path kept as the fallback.
+CLI stale generated-output cleanup now routes stable generated-directory de-duplication through
+`GeneratedOutputDirectoryDeduplicator`, and `nlc tree` target-framework summaries route stable string
+de-duplication through `TreeDependencyDeduplicator` when the dogfood assembly is available,
+preserving ordinal generated-directory identity, ordinal-ignore-case framework identity, and
+first-source output order, with the previous C# `Distinct` paths kept as the fallback.
 `DocQuery` reference-pack assembly-name discovery routes stable ordinal-ignore-case de-duplication
 through `NSharpCodeIntelligenceDogfoodAdapter.TryDeduplicateStableStringsOrdinalIgnoreCase`, with the
 previous C# `Distinct(StringComparer.OrdinalIgnoreCase)` path kept as the fallback.

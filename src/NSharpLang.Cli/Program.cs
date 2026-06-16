@@ -313,9 +313,8 @@ Exit codes:
         var nsharpDirCandidates = Directory.GetDirectories(objDir, "nsharp", SearchOption.AllDirectories)
             .Concat(Directory.GetDirectories(objDir, "NSharp", SearchOption.AllDirectories))
             .ToArray();
-        var nsharpDirs = NSharpCliDogfoodAdapter.TryDeduplicateStable(
+        var nsharpDirs = GeneratedOutputDirectoryDeduplicator.TryDeduplicate(
                 nsharpDirCandidates,
-                StringComparer.Ordinal,
                 out var dogfoodNsharpDirs)
             ? dogfoodNsharpDirs
             : nsharpDirCandidates.Distinct(StringComparer.Ordinal);

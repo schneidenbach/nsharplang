@@ -258,10 +258,14 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       grouping routes now live beside `FixCommand` in `FixCommandKernels`; clean artifact directory ordering
       now lives beside `CleanCommand` in `CleanArtifactDirectoryOrderer`; update all-NuGet and target-package
       dependency filtering now lives beside `UpdateCommand` in `UpdateDependencyFilter`; doc symbol/member ordering
-      and slug generation now live beside `DocCommand` in `DocCommandKernels`; tree dependency deduplication
-      now lives beside `TreeCommand` in `TreeDependencyDeduplicator`; tidy classification/summary/fix filtering
-      now live beside `TidyCommand` in `TidyCommandKernels`; lint file-argument extraction now lives beside
-      `LintCommand` in `LintCommandKernels`; export csharp input selection, reference filtering, and
+      and slug generation now live beside `DocCommand` in `DocCommandKernels`; tree dependency and
+      target-framework deduplication now live beside `TreeCommand` in `TreeDependencyDeduplicator`;
+      restore reference filtering and project-reference deduplication now live beside `RestoreCommand`
+      in `RestoreCommandKernels`; stale generated-output directory de-duplication now lives beside
+      `Program.CleanStaleGeneratedFiles` in `GeneratedOutputDirectoryDeduplicator`; tidy
+      classification/summary/fix filtering now live beside `TidyCommand` in `TidyCommandKernels`;
+      lint file-argument extraction now lives beside `LintCommand` in `LintCommandKernels`; export
+      csharp input selection, reference filtering, and
       stable reference de-duplication now live beside `ExportCommand` in `ExportCommandKernels`; run
       source operand selection now lives beside `Program.RunCommand` in `RunCommandKernels`; publish
       no-argument option summary now lives beside `Program.PublishCommand` in

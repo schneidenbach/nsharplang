@@ -200,7 +200,7 @@ func Main() {
     }
 
     [Fact]
-    public void TreeCommand_FormatTargetFrameworks_UsesDogfoodStableDistinct()
+    public void TreeDependencyDeduplicator_DeduplicatesTargetFrameworks()
     {
         var frameworks = new[]
         {
@@ -211,9 +211,8 @@ func Main() {
             "NET9.0"
         };
 
-        Assert.True(NSharpCliDogfoodAdapter.TryDeduplicateStable(
+        Assert.True(TreeDependencyDeduplicator.TryDeduplicateTargetFrameworks(
             frameworks,
-            StringComparer.OrdinalIgnoreCase,
             out var dogfoodFrameworks));
         Assert.Equal(new[] { "net10.0", "net9.0", "net8.0" }, dogfoodFrameworks);
         Assert.Equal("unknown", TreeCommand.FormatTargetFrameworks(Array.Empty<string>()));
@@ -221,12 +220,11 @@ func Main() {
     }
 
     [Fact]
-    public void Program_CleanStaleGeneratedFiles_UsesDogfoodStableDistinctDirectories()
+    public void GeneratedOutputDirectoryDeduplicator_DeduplicatesStaleGeneratedDirectories()
     {
         var duplicateDirs = new[] { "obj/Debug/net10.0/nsharp", "obj/Debug/net10.0/nsharp" };
-        Assert.True(NSharpCliDogfoodAdapter.TryDeduplicateStable(
+        Assert.True(GeneratedOutputDirectoryDeduplicator.TryDeduplicate(
             duplicateDirs,
-            StringComparer.Ordinal,
             out var distinctDirs));
         Assert.Equal(new[] { "obj/Debug/net10.0/nsharp" }, distinctDirs);
 
@@ -1246,7 +1244,7 @@ func Main() {
     }
 
     [Fact]
-    public void RestoreCommand_DogfoodAdapter_DeduplicatesProjectReferences()
+    public void RestoreCommandKernels_DeduplicatesProjectReferences()
     {
         var projectReferences = new[]
         {
@@ -1258,9 +1256,8 @@ func Main() {
             "../models/models.csproj"
         };
 
-        Assert.True(NSharpCliDogfoodAdapter.TryDeduplicateStable(
+        Assert.True(RestoreCommandKernels.TryDeduplicateProjectReferences(
             projectReferences,
-            StringComparer.OrdinalIgnoreCase,
             out var dogfoodReferences));
         Assert.Equal(new[]
         {
@@ -1269,6 +1266,27 @@ func Main() {
             "../Utilities/Utilities.csproj"
         }, dogfoodReferences);
         Assert.Equal(dogfoodReferences, RestoreCommand.DeduplicateProjectReferences(projectReferences));
+    }
+
+    [Fact]
+    public void RestoreCommandKernels_FiltersProjectReferences()
+    {
+        var references = new[]
+        {
+            new Reference { Nuget = "Serilog", Version = "3.1.1" },
+            new Reference { Project = "../Shared/project.yml" },
+            new Reference { Dll = "lib/Analyzer.dll" },
+            new Reference { Project = "../Models/project.yml" },
+            new Reference { Framework = "Microsoft.AspNetCore.App" }
+        };
+
+        Assert.True(RestoreCommandKernels.TryFilterReferencesByType(
+            references,
+            ReferenceType.Project,
+            out var projectReferences));
+        Assert.Equal(
+            new[] { "../Shared/project.yml", "../Models/project.yml" },
+            projectReferences.Select(reference => reference.Project).ToArray());
     }
 
     [Fact]
