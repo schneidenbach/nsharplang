@@ -698,6 +698,26 @@ public class SoaRecordTests : ILCompilerTestBase
                 kind: int
             }
 
+            test "bad table default" with (nodes: NodeTable = null) [
+                (null)
+            ] {
+            }
+            """, "SoA table 'NodeTable' cannot be used as a default parameter value"),
+            ("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            test "bad table default" with (nodes: NodeTable = new NodeTable(1)) [
+                (null)
+            ] {
+            }
+            """, "SoA table 'NodeTable' cannot be used as a default parameter value"),
+            ("""
+            soa record NodeTable {
+                kind: int
+            }
+
             class Holder(nodes: NodeTable = null) {
             }
             """, "SoA table 'NodeTable' cannot be used as a default parameter value"),
@@ -3626,6 +3646,49 @@ public class SoaRecordTests : ILCompilerTestBase
             var result = Analyze(source);
             var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
             Assert.Contains($"SoA row type '{rowType}' is not part of this lowering", error.Message);
+            Assert.Contains("table and an int row index", error.Suggestion);
+            Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.TypeNotFound);
+        }
+    }
+
+    [Fact]
+    public void Analyzer_SoaRowTypeCannotBeUsedInTableTestParameters()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var cases = new[]
+        {
+            (Source: """
+            soa record NodeTable {
+                kind: int
+            }
+
+            test "bad row" with (row: NodeTable.Row) [
+                (0)
+            ] {
+            }
+            """, RowType: "NodeTable.Row"),
+            (Source: """
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
+            test "bad row" with (row: Nodes.Row) [
+                (0)
+            ] {
+            }
+            """, RowType: "Nodes.Row")
+        };
+
+        foreach (var (source, rowType) in cases)
+        {
+            var result = Analyze(source);
+            var error = Assert.Single(
+                result.Errors,
+                e => e.Code == ErrorCode.InvalidSyntax
+                    && e.Message.Contains($"SoA row type '{rowType}' is not part of this lowering"));
             Assert.Contains("table and an int row index", error.Suggestion);
             Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.TypeNotFound);
         }

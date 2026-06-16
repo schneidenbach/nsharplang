@@ -1058,6 +1058,8 @@ public class Analyzer : IDisposable
         // If table-driven, declare parameters in scope
         if (test.TableParameters != null)
         {
+            ValidateParameterDeclarations(test.TableParameters, test.Line, test.Column);
+
             foreach (var param in test.TableParameters)
             {
                 var paramType = ResolveDeclaredType(param.Type);

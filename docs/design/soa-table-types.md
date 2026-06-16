@@ -94,8 +94,8 @@ call arguments typed as `Nodes`, and optional parameters declared with `Nodes`.
 Parameter declarations cannot use any SoA table as an optional-parameter default, including `null`
 or `new Table(capacity)`, because defaults are metadata constants while table wrappers require
 runtime-owned columns or caller-provided wrapped columns. The analyzer enforces this before
-emission for top-level functions, local functions, explicit constructors, and class/struct/record
-primary constructors.
+emission for top-level functions, local functions, table-driven test headers, explicit constructors,
+and class/struct/record primary constructors.
 
 ## Lowering
 

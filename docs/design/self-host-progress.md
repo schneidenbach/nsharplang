@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — SoA defaults reject in table-driven test headers
+
+Table-driven test headers now route their parsed parameter list through the shared parameter
+declaration validator before the analyzer declares those symbols. This closes the remaining SoA
+optional-default gap for test syntax: `test "x" with (nodes: NodeTable = null)` and
+`new NodeTable(capacity)` defaults now report the same metadata-constant diagnostic as function,
+local-function, constructor, and primary-constructor parameters. The row-type header path was already
+covered by declared-type resolution and is now pinned with direct and alias-qualified tests.
+Focused evidence: targeted regression failed before the analyzer change and then passed with
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~SoaRecordTests.Analyzer_SoaRowTypeCannotBeUsedInTableTestParameters|FullyQualifiedName~SoaRecordTests.Analyzer_SoaTableCannotUseDefaultParameterValueOutsideTopLevelFunctions"`;
+`./scripts/dev.sh SoaRecord`; `./scripts/dev.sh --since`.
+
 ## 2026-06-16 — Indexer declarations enter analyzer member validation
 
 Indexer members now have an explicit analyzer path instead of stopping after attribute argument
