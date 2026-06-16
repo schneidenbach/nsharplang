@@ -102,7 +102,7 @@ public static class TidyCommand
         // Apply fixes if requested
         if (fix)
         {
-            var toRemove = NSharpCliDogfoodAdapter.TrySelectTidyPossiblyUnusedDependencies(
+            var toRemove = TidyCommandKernels.TrySelectPossiblyUnusedDependencies(
                 results,
                 static result => result.Status,
                 out var dogfoodToRemove)
@@ -215,7 +215,7 @@ public static class TidyCommand
                 nugetDependencies.Add(dep);
         }
 
-        if (NSharpCliDogfoodAdapter.TryClassifyTidyDependencyStatusRanks(
+        if (TidyCommandKernels.TryClassifyDependencyStatusRanks(
                 nugetDependencies,
                 importedNamespaces,
                 out var statusRanks))
@@ -289,7 +289,7 @@ public static class TidyCommand
     private static void RemoveDependencies(string projectYml, List<string> packageNames)
     {
         var lines = File.ReadAllLines(projectYml);
-        if (NSharpCliDogfoodAdapter.TryFilterTidyRemovalLines(lines, packageNames, out var dogfoodFiltered))
+        if (TidyCommandKernels.TryFilterRemovalLines(lines, packageNames, out var dogfoodFiltered))
         {
             File.WriteAllLines(projectYml, dogfoodFiltered);
             return;
@@ -329,7 +329,7 @@ public static class TidyCommand
 
     private static TidyDependencySummary SummarizeDependencies(IReadOnlyList<DependencyStatus> results)
     {
-        if (NSharpCliDogfoodAdapter.TrySummarizeTidyDependencyStatuses(
+        if (TidyCommandKernels.TrySummarizeDependencyStatuses(
                 results,
                 static result => result.Status,
                 out var dogfoodSummary))

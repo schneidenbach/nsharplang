@@ -1561,8 +1561,8 @@ uses the current command semantics that a first-segment namespace match determin
 so it avoids the C# baseline's split/join allocation while preserving the same public status and
 reason text in the host. It ran about 10.9x faster on the representative dependency/import corpus
 (17.414 us vs 199.280 us, 0 B vs 1,485,616 B) and about 7.5x faster on the large generated corpus
-(665.013 us vs 5.001 ms, 0 B vs 38,533,472 B). The production adapter guards the ASCII-specialized
-fast path and keeps the C# classifier for non-ASCII package or import names.
+(665.013 us vs 5.001 ms, 0 B vs 38,533,472 B). The production command helper guards the
+ASCII-specialized fast path and keeps the C# classifier for non-ASCII package or import names.
 
 `CliTidyRemovalLineKeepFlagsInto` passed parity and reported zero managed allocation in the short
 BenchmarkDotNet evidence tier for `nlc tidy --fix` project.yml dependency-line removal. The accepted
@@ -1571,8 +1571,13 @@ caller-owned storage, and preserves the current C# fallback semantics including 
 prefix matching and case-insensitive `nuget: Package` containment. It ran about 8.5x faster on the
 representative tidy project corpus (92.15 us vs 779.59 us, 0 B vs 6,639,824 B) and about 8.6x
 faster on the large generated corpus (2.525 ms vs 21.848 ms, 0 B vs 203,167,904 B). The production
-adapter guards the ASCII-specialized fast path and keeps the C# line filter for non-ASCII project
-lines, non-ASCII package names, or unavailable dogfood.
+command helper guards the ASCII-specialized fast path and keeps the C# line filter for non-ASCII
+project lines, non-ASCII package names, or unavailable dogfood.
+
+Production `nlc tidy` now routes dependency classification, status summarization, possibly-unused
+selection, and removal-line filtering through the owner-local `TidyCommandKernels` helper when the
+dogfood assembly is available, with the previous C# command fallbacks retained for unavailable
+dogfood and non-ASCII classification/removal inputs.
 
 `CliFixSafetyFilterIndicesInto` passed parity and reported zero managed allocation in the normal
 BenchmarkDotNet evidence tier for `nlc fix` safety filtering. The accepted N# path uses compact
@@ -2036,19 +2041,19 @@ parity and zero-allocation pressure evidence, but the best measured candidate on
 NL010 namespace unused-import checking also remains on the current C# path: the dense N# ranked
 kernel has parity and strong large-batch pressure evidence, but the production-shaped route that must
 project linter identifiers/member names into namespace ranks does not clear the 5x gate.
-`nlc tidy` dependency usage classification now routes through the compiled N#
-`CliTidyDependencyStatusRanksInto` kernel for ASCII package and import names, preserving the current
-single-segment unknown rule, first-segment namespace match semantics, public status strings, and
-reason text, with the previous C# classifier kept as the fallback for non-ASCII names or unavailable
-dogfood.
-`nlc tidy --fix` possibly-unused dependency selection now routes through the compiled N# compact
-rank filter when the dogfood assembly is available, preserving exact status matching and source
-order after dependency classification, with the previous C# `Where(...).ToList()` path kept as the
-fallback.
-`nlc tidy --fix` project.yml dependency-line removal now routes through the compiled N#
-`CliTidyRemovalLineKeepFlagsInto` kernel for ASCII project lines and package names, preserving
-current broad dependency-prefix removal and case-insensitive `nuget:` matching, with the previous C#
-line filter kept as the fallback for non-ASCII input or unavailable dogfood.
+`nlc tidy` dependency usage classification now routes through `TidyCommandKernels`, which calls the
+compiled N# `CliTidyDependencyStatusRanksInto` kernel for ASCII package and import names, preserving
+the current single-segment unknown rule, first-segment namespace match semantics, public status
+strings, and reason text, with the previous C# classifier kept as the fallback for non-ASCII names
+or unavailable dogfood.
+`nlc tidy --fix` possibly-unused dependency selection now routes through `TidyCommandKernels` and
+the compiled N# compact rank filter when the dogfood assembly is available, preserving exact status
+matching and source order after dependency classification, with the previous C#
+`Where(...).ToList()` path kept as the fallback.
+`nlc tidy --fix` project.yml dependency-line removal now routes through `TidyCommandKernels` and the
+compiled N# `CliTidyRemovalLineKeepFlagsInto` kernel for ASCII project lines and package names,
+preserving current broad dependency-prefix removal and case-insensitive `nuget:` matching, with the
+previous C# line filter kept as the fallback for non-ASCII input or unavailable dogfood.
 `CompilerDogfoodProjectTests` verifies the packaged adapter can load
 `NSharpLang.Compiler.Dogfood.dll` and answer identifier, receiver, source-context, raw source-line,
 completion-prefix, completion receiver-context, completion item grouping, reflected method overload

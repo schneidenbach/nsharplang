@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Tidy command kernels leave the CLI dogfood adapter
+
+`nlc tidy` dependency usage classification, status summarization, `--fix` possibly-unused selection,
+and project.yml removal-line filtering now route the accepted N# kernels through
+`TidyCommandKernels`, an owner-local helper beside `TidyCommand`. The broad CLI dogfood adapter no
+longer owns the tidy entry points, delegate bindings, ASCII guards, status-rank projection, or
+line/package scratch arrays; the existing C# classification, summary, selection, and line-filter
+fallbacks remain in the command.
+Focused evidence: `dotnet build src/NSharpLang.Cli/Cli.csproj --no-restore`; `dotnet test
+tests/Tests.csproj --filter "FullyQualifiedName~CliCommandTests.TidyCommandKernels_SelectsAndClassifiesDependencies|FullyQualifiedName~CliCommandTests.TidyCommandKernels_FiltersRemovalLines|FullyQualifiedName~CliCommandTests.CliDogfoodAdapter_SummarizesTestOutcomeRanks"`;
+`./scripts/dev.sh --since`.
+
 ## 2026-06-16 — Tree dependency deduplication leaves the CLI dogfood adapter
 
 `nlc tree` dependency deduplication and kind/name ordering now route the accepted N# counting-sort
@@ -83,8 +95,7 @@ tests/Tests.csproj --filter "FullyQualifiedName~CliCommandTests.BatchCommand_Dup
 `nlc check` backend verification and `nlc lint` parse-error reporting now route the N# compact
 severity filter through `CompilerErrorSeverityFilter`, an owner-local helper beside the CLI command
 implementations. The broad CLI dogfood adapter no longer owns the compiler-error severity entry
-point, scratch arrays, or enum-rank projection; tidy dependency filtering keeps its internal
-compact-rank route until that command-owned path is moved separately.
+point, scratch arrays, or enum-rank projection.
 Focused evidence: `dotnet build src/NSharpLang.Cli/Cli.csproj --no-restore`; `dotnet test
 tests/Tests.csproj --filter "FullyQualifiedName~CliCommandTests.CompilerErrorSeverityFilter_FiltersCompilerErrorsBySeverity"`.
 

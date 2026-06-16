@@ -20,10 +20,6 @@ internal static class NSharpCliDogfoodAdapter
     [ThreadStatic]
     private static int[]? t_publishOptionIndices;
     [ThreadStatic]
-    private static TidyDependencyStatusFilterScratch? t_tidyDependencyStatusFilterScratch;
-    [ThreadStatic]
-    private static TidyRemovalLineScratch? t_tidyRemovalLineScratch;
-    [ThreadStatic]
     private static TestOutcomeSummaryScratch? t_testOutcomeSummaryScratch;
 
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings);
@@ -456,118 +452,6 @@ internal static class NSharpCliDogfoodAdapter
         }
     }
 
-    internal static bool TrySelectTidyPossiblyUnusedDependencies<T>(
-        IReadOnlyList<T> results,
-        Func<T, string> statusSelector,
-        out List<T> possiblyUnused)
-    {
-        possiblyUnused = new List<T>();
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        var resultCount = results.Count;
-        if (resultCount == 0)
-            return true;
-
-        var scratch = t_tidyDependencyStatusFilterScratch ??= new TidyDependencyStatusFilterScratch();
-        scratch.EnsureCapacity(resultCount);
-
-        try
-        {
-            for (var i = 0; i < resultCount; i++)
-            {
-                scratch.StatusRanks[i] = GetTidyDependencyStatusRank(statusSelector(results[i]));
-            }
-
-            var possiblyUnusedCount = bindings.DiagnosticSeverityFilter(
-                scratch.StatusRanks,
-                TidyPossiblyUnusedStatusRank,
-                scratch.ResultIndices);
-
-            if (possiblyUnusedCount < 0 ||
-                possiblyUnusedCount > resultCount ||
-                possiblyUnusedCount > scratch.ResultIndices.Length)
-            {
-                possiblyUnused = new List<T>();
-                return false;
-            }
-
-            possiblyUnused = new List<T>(possiblyUnusedCount);
-            for (var i = 0; i < possiblyUnusedCount; i++)
-            {
-                var sourceIndex = scratch.ResultIndices[i];
-                if (sourceIndex < 0 ||
-                    sourceIndex >= resultCount ||
-                    scratch.StatusRanks[sourceIndex] != TidyPossiblyUnusedStatusRank)
-                {
-                    possiblyUnused = new List<T>();
-                    return false;
-                }
-
-                possiblyUnused.Add(results[sourceIndex]);
-            }
-
-            return true;
-        }
-        catch
-        {
-            possiblyUnused = new List<T>();
-            return false;
-        }
-    }
-
-    internal static bool TrySummarizeTidyDependencyStatuses<T>(
-        IReadOnlyList<T> results,
-        Func<T, string> statusSelector,
-        out (int PossiblyUnusedCount, int UnknownCount) summary)
-    {
-        summary = (0, 0);
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        var resultCount = results.Count;
-        if (resultCount == 0)
-            return true;
-
-        var scratch = t_tidyDependencyStatusFilterScratch ??= new TidyDependencyStatusFilterScratch();
-        scratch.EnsureCapacity(resultCount);
-
-        try
-        {
-            for (var i = 0; i < resultCount; i++)
-            {
-                scratch.StatusRanks[i] = GetTidyDependencyStatusRank(statusSelector(results[i]));
-            }
-
-            var summarizedCount = bindings.CliTidyDependencyStatusSummary(
-                scratch.StatusRanks,
-                scratch.SummaryCounts);
-
-            if (summarizedCount != resultCount ||
-                scratch.SummaryCounts[0] < 0 ||
-                scratch.SummaryCounts[1] < 0 ||
-                scratch.SummaryCounts[0] > resultCount ||
-                scratch.SummaryCounts[1] > resultCount ||
-                scratch.SummaryCounts[0] + scratch.SummaryCounts[1] > resultCount)
-            {
-                summary = (0, 0);
-                return false;
-            }
-
-            summary = (scratch.SummaryCounts[0], scratch.SummaryCounts[1]);
-            return true;
-        }
-        catch
-        {
-            summary = (0, 0);
-            return false;
-        }
-    }
-
     internal static bool TrySummarizeTestOutcomeRanks(
         int[] outcomeRanks,
         int outcomeCount,
@@ -625,163 +509,6 @@ internal static class NSharpCliDogfoodAdapter
         }
     }
 
-    internal static bool TryClassifyTidyDependencyStatusRanks(
-        IReadOnlyList<Reference> dependencies,
-        IReadOnlyCollection<string> importedNamespaces,
-        out int[] statusRanks)
-    {
-        statusRanks = Array.Empty<int>();
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        var dependencyCount = dependencies.Count;
-        if (dependencyCount == 0)
-            return true;
-
-        var scratch = t_tidyDependencyStatusFilterScratch ??= new TidyDependencyStatusFilterScratch();
-        scratch.EnsureClassificationCapacity(dependencyCount, importedNamespaces.Count);
-
-        try
-        {
-            for (var i = 0; i < dependencyCount; i++)
-            {
-                var packageName = dependencies[i].Nuget;
-                if (packageName == null || !IsAscii(packageName))
-                    return false;
-
-                scratch.PackageNames[i] = packageName;
-            }
-
-            var importIndex = 0;
-            foreach (var importedNamespace in importedNamespaces)
-            {
-                if (!IsAscii(importedNamespace))
-                    return false;
-
-                scratch.ImportNamespaces[importIndex] = importedNamespace;
-                importIndex++;
-            }
-
-            var classifiedCount = bindings.CliTidyDependencyStatusRanks(
-                scratch.PackageNames,
-                scratch.ImportNamespaces,
-                scratch.StatusRanks);
-
-            if (classifiedCount != dependencyCount)
-            {
-                return false;
-            }
-
-            statusRanks = new int[dependencyCount];
-            for (var i = 0; i < dependencyCount; i++)
-            {
-                var rank = scratch.StatusRanks[i];
-                if (rank is < 1 or > 3)
-                {
-                    statusRanks = Array.Empty<int>();
-                    return false;
-                }
-
-                statusRanks[i] = rank;
-            }
-
-            return true;
-        }
-        catch
-        {
-            statusRanks = Array.Empty<int>();
-            return false;
-        }
-        finally
-        {
-            scratch.ClearClassificationInputs(dependencyCount, importedNamespaces.Count);
-        }
-    }
-
-    internal static bool TryFilterTidyRemovalLines(
-        IReadOnlyList<string> lines,
-        IReadOnlyList<string> packageNames,
-        out string[] filteredLines)
-    {
-        filteredLines = Array.Empty<string>();
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        var lineCount = lines.Count;
-        if (lineCount == 0)
-            return true;
-
-        var packageCount = packageNames.Count;
-        var scratch = t_tidyRemovalLineScratch ??= new TidyRemovalLineScratch();
-        scratch.EnsureCapacity(lineCount, packageCount);
-
-        try
-        {
-            for (var i = 0; i < lineCount; i++)
-            {
-                var line = lines[i];
-                if (line == null || !IsAscii(line))
-                    return false;
-
-                scratch.Lines[i] = line;
-            }
-
-            for (var i = 0; i < packageCount; i++)
-            {
-                var packageName = packageNames[i];
-                if (packageName == null || !IsAscii(packageName))
-                    return false;
-
-                scratch.PackageNames[i] = packageName;
-            }
-
-            var processedCount = bindings.CliTidyRemovalLineKeepFlags(
-                scratch.Lines,
-                scratch.PackageNames,
-                scratch.KeepFlags);
-
-            if (processedCount != lineCount)
-                return false;
-
-            var keptCount = 0;
-            for (var i = 0; i < lineCount; i++)
-            {
-                var flag = scratch.KeepFlags[i];
-                if (flag is not 0 and not 1)
-                    return false;
-
-                keptCount += flag;
-            }
-
-            var result = new string[keptCount];
-            var resultIndex = 0;
-            for (var i = 0; i < lineCount; i++)
-            {
-                if (scratch.KeepFlags[i] == 0)
-                    continue;
-
-                result[resultIndex] = scratch.Lines[i];
-                resultIndex++;
-            }
-
-            filteredLines = result;
-            return true;
-        }
-        catch
-        {
-            filteredLines = Array.Empty<string>();
-            return false;
-        }
-        finally
-        {
-            scratch.ClearInputs(lineCount, packageCount);
-        }
-    }
-
     private static Bindings? LoadBindings()
     {
         try
@@ -798,12 +525,8 @@ internal static class NSharpCliDogfoodAdapter
                 CreateDelegate<CliPublishOptionsInto>(programType, "CliPublishOptionsInto"),
                 CreateDelegate<CliFirstPositionalArgIndex>(programType, "CliFirstPositionalArgIndex"),
                 CreateDelegate<CliLintFileArgIndicesInto>(programType, "CliLintFileArgIndicesInto"),
-                CreateDelegate<DiagnosticSeverityFilterIndicesInto>(programType, "DiagnosticSeverityFilterIndicesInto"),
                 CreateDelegate<CliReferenceTypeFilterIndicesInto>(programType, "CliReferenceTypeFilterIndicesInto"),
-                CreateDelegate<CliTidyDependencyStatusSummaryInto>(programType, "CliTidyDependencyStatusSummaryInto"),
                 CreateDelegate<CliTestOutcomeSummaryInto>(programType, "CliTestOutcomeSummaryInto"),
-                CreateDelegate<CliTidyDependencyStatusRanksInto>(programType, "CliTidyDependencyStatusRanksInto"),
-                CreateDelegate<CliTidyRemovalLineKeepFlagsInto>(programType, "CliTidyRemovalLineKeepFlagsInto"),
                 CreateDelegate<CliStableDistinctRankIndicesInto>(programType, "CliStableDistinctRankIndicesInto"));
         }
         catch
@@ -867,11 +590,6 @@ internal static class NSharpCliDogfoodAdapter
         int[] projectValueIndices,
         int[] resultIndices);
 
-    private delegate int DiagnosticSeverityFilterIndicesInto(
-        int[] severityRanks,
-        int targetRank,
-        int[] resultIndices);
-
     private delegate int CliReferenceTypeFilterIndicesInto(
         int[] typeRanks,
         int targetTypeRank,
@@ -883,24 +601,10 @@ internal static class NSharpCliDogfoodAdapter
         int[] seenRanks,
         int[] resultIndices);
 
-    private delegate int CliTidyDependencyStatusSummaryInto(
-        int[] statusRanks,
-        int[] resultCounts);
-
     private delegate int CliTestOutcomeSummaryInto(
         int[] outcomeRanks,
         int count,
         int[] resultCounts);
-
-    private delegate int CliTidyDependencyStatusRanksInto(
-        string[] packageNames,
-        string[] importNamespaces,
-        int[] resultStatusRanks);
-
-    private delegate int CliTidyRemovalLineKeepFlagsInto(
-        string[] lines,
-        string[] packageNames,
-        int[] resultFlags);
 
     private sealed record Bindings(
         CliBuildFirstOperandIndexInto CliBuildFirstOperandIndex,
@@ -909,24 +613,9 @@ internal static class NSharpCliDogfoodAdapter
         CliPublishOptionsInto CliPublishOptionsInto,
         CliFirstPositionalArgIndex CliFirstPositionalArgIndex,
         CliLintFileArgIndicesInto CliLintFileArgIndices,
-        DiagnosticSeverityFilterIndicesInto DiagnosticSeverityFilter,
         CliReferenceTypeFilterIndicesInto CliReferenceTypeFilterIndices,
-        CliTidyDependencyStatusSummaryInto CliTidyDependencyStatusSummary,
         CliTestOutcomeSummaryInto CliTestOutcomeSummary,
-        CliTidyDependencyStatusRanksInto CliTidyDependencyStatusRanks,
-        CliTidyRemovalLineKeepFlagsInto CliTidyRemovalLineKeepFlags,
         CliStableDistinctRankIndicesInto CliStableDistinctRankIndices);
-
-    private static bool IsAscii(string value)
-    {
-        for (var i = 0; i < value.Length; i++)
-        {
-            if (value[i] > 0x7f)
-                return false;
-        }
-
-        return true;
-    }
 
     private static int GetReferenceTypeRank(ReferenceType type) =>
         type switch
@@ -935,17 +624,6 @@ internal static class NSharpCliDogfoodAdapter
             ReferenceType.Dll => 2,
             ReferenceType.Project => 3,
             ReferenceType.Framework => 4,
-            _ => 0
-        };
-
-    private const int TidyPossiblyUnusedStatusRank = 1;
-
-    private static int GetTidyDependencyStatusRank(string status) =>
-        status switch
-        {
-            "possibly-unused" => TidyPossiblyUnusedStatusRank,
-            "used" => 2,
-            "unknown" => 3,
             _ => 0
         };
 
@@ -1022,78 +700,6 @@ internal static class NSharpCliDogfoodAdapter
             {
                 SeenRanks = new int[rankCapacity];
             }
-        }
-    }
-
-    private sealed class TidyDependencyStatusFilterScratch
-    {
-        internal string[] ImportNamespaces = Array.Empty<string>();
-        internal string[] PackageNames = Array.Empty<string>();
-        internal int[] ResultIndices = Array.Empty<int>();
-        internal int[] StatusRanks = Array.Empty<int>();
-        internal int[] SummaryCounts = Array.Empty<int>();
-
-        internal void EnsureCapacity(int count)
-        {
-            if (StatusRanks.Length != count)
-            {
-                StatusRanks = new int[count];
-                ResultIndices = new int[count];
-            }
-
-            if (SummaryCounts.Length != 2)
-            {
-                SummaryCounts = new int[2];
-            }
-        }
-
-        internal void EnsureClassificationCapacity(int dependencyCount, int importCount)
-        {
-            if (PackageNames.Length != dependencyCount)
-                PackageNames = new string[dependencyCount];
-
-            if (StatusRanks.Length != dependencyCount)
-                StatusRanks = new int[dependencyCount];
-
-            if (ImportNamespaces.Length != importCount)
-                ImportNamespaces = new string[importCount];
-        }
-
-        internal void ClearClassificationInputs(int dependencyCount, int importCount)
-        {
-            if (dependencyCount > 0 && dependencyCount <= PackageNames.Length)
-                Array.Clear(PackageNames, 0, dependencyCount);
-
-            if (importCount > 0 && importCount <= ImportNamespaces.Length)
-                Array.Clear(ImportNamespaces, 0, importCount);
-        }
-    }
-
-    private sealed class TidyRemovalLineScratch
-    {
-        internal int[] KeepFlags = Array.Empty<int>();
-        internal string[] Lines = Array.Empty<string>();
-        internal string[] PackageNames = Array.Empty<string>();
-
-        internal void EnsureCapacity(int lineCount, int packageCount)
-        {
-            if (Lines.Length != lineCount)
-            {
-                Lines = new string[lineCount];
-                KeepFlags = new int[lineCount];
-            }
-
-            if (PackageNames.Length != packageCount)
-                PackageNames = new string[packageCount];
-        }
-
-        internal void ClearInputs(int lineCount, int packageCount)
-        {
-            if (lineCount > 0 && lineCount <= Lines.Length)
-                Array.Clear(Lines, 0, lineCount);
-
-            if (packageCount > 0 && packageCount <= PackageNames.Length)
-                Array.Clear(PackageNames, 0, packageCount);
         }
     }
 

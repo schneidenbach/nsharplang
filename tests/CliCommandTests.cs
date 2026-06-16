@@ -1457,7 +1457,7 @@ dependencies:
     }
 
     [Fact]
-    public void CliDogfoodAdapter_SelectsTidyPossiblyUnusedDependencies()
+    public void TidyCommandKernels_SelectsAndClassifiesDependencies()
     {
         var dependencies = new[]
         {
@@ -1468,36 +1468,13 @@ dependencies:
             NewDependency("Custom.Package", "custom")
         };
 
-        Assert.True(NSharpCliDogfoodAdapter.TrySelectTidyPossiblyUnusedDependencies(
-            dependencies,
-            static dependency => dependency.Status,
-            out var actual));
-        Assert.Equal(
-            dependencies.Where(dependency => dependency.Status == "possibly-unused"),
-            actual);
-
-        Assert.True(NSharpCliDogfoodAdapter.TrySummarizeTidyDependencyStatuses(
-            dependencies,
-            static dependency => dependency.Status,
-            out var summary));
-        Assert.Equal(2, summary.PossiblyUnusedCount);
-        Assert.Equal(1, summary.UnknownCount);
-
-        Assert.True(NSharpCliDogfoodAdapter.TrySummarizeTestOutcomeRanks(
-            new[] { 1, 1, 3, 2, 0, 1 },
-            6,
-            out var testSummary));
-        Assert.False(testSummary.Ok);
-        Assert.Equal(3, testSummary.Passed);
-        Assert.Equal(1, testSummary.Failed);
-        Assert.Equal(1, testSummary.Skipped);
-
         var references = new[]
         {
             new Reference { Nuget = "Newtonsoft.Json", Version = "13.0.3" },
             new Reference { Nuget = "Serilog.Sinks.Console", Version = "5.0.1" },
             new Reference { Nuget = "Polly", Version = "8.0.0" },
-            new Reference { Nuget = "Microsoft.Extensions.Logging", Version = "10.0.0" }
+            new Reference { Nuget = "Microsoft.Extensions.Logging", Version = "10.0.0" },
+            new Reference { Nuget = "Custom.Package", Version = "1.0.0" }
         };
         var imports = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
@@ -1505,17 +1482,32 @@ dependencies:
             "Microsoft.Extensions.Logging"
         };
 
-        Assert.True(NSharpCliDogfoodAdapter.TryClassifyTidyDependencyStatusRanks(
+        Assert.True(TidyCommandKernels.TryClassifyDependencyStatusRanks(
             references,
             imports,
             out var statusRanks));
-        Assert.Equal(new[] { 2, 1, 3, 2 }, statusRanks);
+        Assert.Equal(new[] { 2, 1, 3, 2, 1 }, statusRanks);
+
+        Assert.True(TidyCommandKernels.TrySelectPossiblyUnusedDependencies(
+            dependencies,
+            static dependency => dependency.Status,
+            out var actual));
+        Assert.Equal(
+            dependencies.Where(dependency => dependency.Status == "possibly-unused"),
+            actual);
+
+        Assert.True(TidyCommandKernels.TrySummarizeDependencyStatuses(
+            dependencies,
+            static dependency => dependency.Status,
+            out var summary));
+        Assert.Equal(2, summary.PossiblyUnusedCount);
+        Assert.Equal(1, summary.UnknownCount);
 
         var nonAsciiReferences = new[]
         {
             new Reference { Nuget = "Résumé.Json", Version = "1.0.0" }
         };
-        Assert.False(NSharpCliDogfoodAdapter.TryClassifyTidyDependencyStatusRanks(
+        Assert.False(TidyCommandKernels.TryClassifyDependencyStatusRanks(
             nonAsciiReferences,
             imports,
             out _));
@@ -1524,7 +1516,20 @@ dependencies:
     }
 
     [Fact]
-    public void CliDogfoodAdapter_FiltersTidyRemovalLines()
+    public void CliDogfoodAdapter_SummarizesTestOutcomeRanks()
+    {
+        Assert.True(NSharpCliDogfoodAdapter.TrySummarizeTestOutcomeRanks(
+            new[] { 1, 1, 3, 2, 0, 1 },
+            6,
+            out var testSummary));
+        Assert.False(testSummary.Ok);
+        Assert.Equal(3, testSummary.Passed);
+        Assert.Equal(1, testSummary.Failed);
+        Assert.Equal(1, testSummary.Skipped);
+    }
+
+    [Fact]
+    public void TidyCommandKernels_FiltersRemovalLines()
     {
         var lines = new[]
         {
@@ -1545,7 +1550,7 @@ dependencies:
             "Unused.Package"
         };
 
-        Assert.True(NSharpCliDogfoodAdapter.TryFilterTidyRemovalLines(
+        Assert.True(TidyCommandKernels.TryFilterRemovalLines(
             lines,
             packageNames,
             out var filteredLines));
@@ -1561,11 +1566,11 @@ dependencies:
             },
             filteredLines);
 
-        Assert.False(NSharpCliDogfoodAdapter.TryFilterTidyRemovalLines(
+        Assert.False(TidyCommandKernels.TryFilterRemovalLines(
             new[] { "  - R\u00e9sum\u00e9.Package" },
             packageNames,
             out _));
-        Assert.False(NSharpCliDogfoodAdapter.TryFilterTidyRemovalLines(
+        Assert.False(TidyCommandKernels.TryFilterRemovalLines(
             lines,
             new[] { "R\u00e9sum\u00e9.Package" },
             out _));
