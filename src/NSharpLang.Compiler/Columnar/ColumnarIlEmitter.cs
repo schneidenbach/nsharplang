@@ -2825,9 +2825,7 @@ internal sealed class ColumnarIlEmitter
             for (var m = 0; m < en.MemberNames.Length; m++)
             {
                 eb.DefineLiteral(en.MemberNames[m], en.MemberValues[m]);
-                // A duplicate member name within one enum is malformed — decline the whole program.
-                if (!constants.TryAdd(en.MemberNames[m], en.MemberValues[m]))
-                    return false;
+                constants[en.MemberNames[m]] = en.MemberValues[m];
             }
             enumBuilders[e] = eb;
             // A duplicate enum name is an ambiguous type — decline rather than silently pick one.

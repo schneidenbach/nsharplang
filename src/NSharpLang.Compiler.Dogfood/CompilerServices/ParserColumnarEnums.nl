@@ -43,6 +43,10 @@ func ParseColumnarEnumInfoCore(source: string, tokens: &ColumnarEnumTokenTable, 
         return -1
     }
 
+    if ColumnarEnumMemberNamesDistinct(source, ref scratch, memberCount) == 0 {
+        return -1
+    }
+
     if !ParseEnumMemberValuesCore(source, ref members, memberCount, outputs.MemberValues) {
         return -1
     }
@@ -69,4 +73,30 @@ func ParseColumnarEnumInfoCore(source: string, tokens: &ColumnarEnumTokenTable, 
     }
 
     return memberCount
+}
+
+func ColumnarEnumMemberNamesDistinct(source: string, scratch: &ColumnarEnumMemberScratchTable, memberCount: int): int {
+    if memberCount < 0 {
+        return 0
+    }
+
+    i := 0
+    while i < memberCount {
+        if scratch.NameStarts[i] < 0 || scratch.NameLengths[i] <= 0 {
+            return 0
+        }
+
+        j := i + 1
+        while j < memberCount {
+            if ParserDeclarationSourceSpansEqual(source, scratch.NameStarts[i], scratch.NameLengths[i], scratch.NameStarts[j], scratch.NameLengths[j]) {
+                return 0
+            }
+
+            j = j + 1
+        }
+
+        i = i + 1
+    }
+
+    return 1
 }

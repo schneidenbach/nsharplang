@@ -438,6 +438,11 @@ class Derived: Base, IFace {
                 parseEnumDeclarationTextInfo,
                 parseColumnarEnumInfo,
                 "non-decimal explicit value");
+            AssertColumnarEnumInfoDeclinesOnly(
+                "enum E { A, A }",
+                tokenizeWithIndentation,
+                parseColumnarEnumInfo,
+                "duplicate enum member");
             AssertUnionDeclarationInfo(
                 """
 union Result<T> {
@@ -1465,6 +1470,35 @@ class B
             }) ?? -2);
         Assert.Equal(-1, infoActual);
         Assert.Equal(-1, textActual);
+        Assert.Equal(-1, columnarActual);
+    }
+
+    private static void AssertColumnarEnumInfoDeclinesOnly(
+        string source,
+        MethodInfo tokenizeWithIndentation,
+        MethodInfo parseColumnarEnumInfo,
+        string label)
+    {
+        var (count, kinds, starts, valueLengths, compactedSource) = TokenizeSourceViaKernel(source, tokenizeWithIndentation);
+        var enumIndex = FirstTokenIndex(kinds, count, (int)TokenType.Enum);
+        Assert.True(enumIndex >= 0, $"Could not locate enum token for {label}.");
+
+        var cap = count + 1;
+        var columnarActual = (int)(parseColumnarEnumInfo.Invoke(
+            null,
+            new object[]
+            {
+                compactedSource,
+                kinds,
+                starts,
+                valueLengths,
+                count,
+                enumIndex,
+                new string[cap],
+                new int[cap],
+                new string[1],
+                new int[2]
+            }) ?? -2);
         Assert.Equal(-1, columnarActual);
     }
 
@@ -6936,6 +6970,8 @@ func outer(x: int): int {
 
         // Explicit member values are now supported (see ColumnarCodegen_Parity_EnumIntCastAndExplicitValues).
         Assert.True(RouteColumnarProgram("enum E { A = 5, B }\n\nfunc f(): E { return E.A }\n").Ok);
+        // Duplicate enum members are rejected in the N# columnar parser before enum emission.
+        Assert.False(RouteColumnarProgram("enum E { A, A }\n\nfunc f(): int { return 0 }\n").Ok);
         // (INTERFACE declarations FLIPPED — the IF-1 slice; parity lives in
         // ColumnarCodegen_Parity_Interfaces.)
         // An enum element inside a TUPLE is not modelled (ValueTuple over a TypeBuilder cannot reflect its members)

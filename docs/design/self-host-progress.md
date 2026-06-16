@@ -11,6 +11,12 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Enum duplicate member decline moves into N# parser
+
+`ParseColumnarEnumInfoCore` now rejects duplicate enum member names by comparing declaration spans before
+member text/value rows are materialized for the C# transition boundary. The redundant enum-emission
+duplicate-member guard was removed; duplicate enum type names remain a semantic registry check.
+
 ## 2026-06-16 — Nominal duplicate type-parameter declines move into N# parser
 
 `ParseColumnarStructInfoCore` and `ParseColumnarUnionInfoCore` now reject duplicate generic
