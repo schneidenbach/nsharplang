@@ -1179,7 +1179,7 @@ func ParseEnumMemberValuesCore(source: string, members: &EnumMemberTable, member
     while i < memberCount {
         value := nextValue
         if members.HasValue[i] != 0 {
-            if !ParserDeclarationTryParseIntLiteralCore(source, members.ValueStarts[i], members.ValueLengths[i], values.Values, i) {
+            if !ParserDeclarationTryParseIntLiteralCore(source, members.ValueStarts[i], members.ValueLengths[i], ref values, i) {
                 return false
             }
             value = values.Values[i]
@@ -1231,8 +1231,8 @@ func ParserDeclarationNextEnumValue(value: int): int {
     return value + 1
 }
 
-func ParserDeclarationTryParseIntLiteralCore(source: string, start: int, length: int, result: int[], resultIndex: int): bool {
-    if start < 0 || length <= 0 || start + length > source.Length || resultIndex < 0 || resultIndex >= result.Length {
+func ParserDeclarationTryParseIntLiteralCore(source: string, start: int, length: int, result: &EnumMemberValueTable, resultIndex: int): bool {
+    if start < 0 || length <= 0 || start + length > source.Length || resultIndex < 0 || resultIndex >= result.Values.Length {
         return false
     }
 
@@ -1262,7 +1262,7 @@ func ParserDeclarationTryParseIntLiteralCore(source: string, start: int, length:
         if value == 214748364 {
             if negative {
                 if digit == 8 && index == end - 1 {
-                    result[resultIndex] = 0 - 2147483647 - 1
+                    result.Values[resultIndex] = 0 - 2147483647 - 1
                     return true
                 }
 
@@ -1279,9 +1279,9 @@ func ParserDeclarationTryParseIntLiteralCore(source: string, start: int, length:
     }
 
     if negative {
-        result[resultIndex] = 0 - value
+        result.Values[resultIndex] = 0 - value
     } else {
-        result[resultIndex] = value
+        result.Values[resultIndex] = value
     }
 
     return true

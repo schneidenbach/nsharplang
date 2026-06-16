@@ -149,7 +149,8 @@ func ParseEnumDeclarationInfoInto(source: string, tokenKinds: int[], tokenStarts
         return -1
     }
 
-    if !ParseEnumMemberValuesCore(source, ref members, memberCount, outMemberValues) {
+    memberValues := new EnumMemberValueTable { Values: outMemberValues }
+    if !ParseEnumMemberValuesCore(source, ref members, memberCount, ref memberValues) {
         return -1
     }
 

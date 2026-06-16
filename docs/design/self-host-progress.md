@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Enum literal parsing writes through the value table
+
+`ParserDeclarationTryParseIntLiteralCore` now receives `EnumMemberValueTable` by ref instead of a
+loose `int[]` plus index. Product enum parsing and the parity-only flattened declaration wrapper
+both build the same table shape before parsing explicit enum values, removing the last raw-array
+parameter from product declaration `Core` helpers.
+Focused evidence: `./scripts/dev.sh ParserColumnarEnums`.
+
 ## 2026-06-16 — Tuple type-name extraction keeps output storage table-shaped
 
 `TypeReferenceTupleElementNamesCore` now writes through a `TypeReferenceTupleNameTable` instead of
