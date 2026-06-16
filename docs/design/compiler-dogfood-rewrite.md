@@ -1905,9 +1905,8 @@ now route first positional project/operand/package discovery through
 when the dogfood assembly is available, with command-local C# positional scans kept as the
 fallback.
 `nlc build` now routes source-file operand discovery through
-`NSharpCliDogfoodAdapter.TryGetBuildOperandSummary`, which calls the compiled N# first-operand
-scanner when the dogfood assembly is available, with the previous C# build-argument normalization
-kept as the fallback.
+`BuildCommandKernels`, which calls the compiled N# first-operand scanner when the dogfood assembly
+is available, with the previous C# build-argument normalization kept as the fallback.
 `nlc export csharp`, `nlc restore`, and native CLI compilation reference resolution now route
 dependency reference-type selection for project, DLL, NuGet package, and framework references through
 `NSharpCliDogfoodAdapter.TryFilterReferencesByType`, which calls the compiled N# compact-rank filter

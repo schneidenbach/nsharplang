@@ -1038,6 +1038,42 @@ func Main() {
     }
 
     [Fact]
+    public void BuildCommandKernels_SelectsFirstOperandAfterOptionStripping()
+    {
+        Assert.True(BuildCommandKernels.TryGetOperandSummary(
+            Array.Empty<string>(),
+            out var emptyCount,
+            out var emptyIndex));
+        Assert.Equal(0, emptyCount);
+        Assert.Equal(-1, emptyIndex);
+
+        var args = new[]
+        {
+            "--release",
+            "--output",
+            "bin/app",
+            "--backend",
+            "il",
+            "--project",
+            "samples/demo",
+            "--timings",
+            "Program.nl"
+        };
+
+        Assert.True(BuildCommandKernels.TryGetOperandSummary(args, out var count, out var firstOperandIndex));
+        Assert.Equal(1, count);
+        Assert.Equal(8, firstOperandIndex);
+        Assert.Equal("Program.nl", args[firstOperandIndex]);
+
+        Assert.True(BuildCommandKernels.TryGetOperandSummary(
+            new[] { "Main.nl", "--backend", "il" },
+            out var sourceFirstCount,
+            out var sourceFirstIndex));
+        Assert.Equal(1, sourceFirstCount);
+        Assert.Equal(0, sourceFirstIndex);
+    }
+
+    [Fact]
     public void RunCommandKernels_SelectsSourceOperandAfterBackendStripping()
     {
         Assert.True(RunCommandKernels.TryGetSourceOperand(

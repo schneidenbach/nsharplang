@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Build operand summary leaves the CLI dogfood adapter
+
+`nlc build` source-file operand discovery now routes the accepted N#
+`CliBuildFirstOperandIndexInto` kernel through `BuildCommandKernels`, an owner-local helper beside
+the build command path in `Program`. The broad CLI dogfood adapter no longer owns the build operand
+entry point, delegate binding, or build-argument scratch arrays; the existing build argument
+normalization fallback remains in the command.
+Focused evidence: `dotnet build src/NSharpLang.Cli/Cli.csproj --no-restore`; `dotnet test
+tests/Tests.csproj --filter "FullyQualifiedName~CliCommandTests.BuildCommandKernels_SelectsFirstOperandAfterOptionStripping"`;
+`./scripts/dev.sh --since`.
+
 ## 2026-06-16 — Publish no-argument summary leaves the CLI dogfood adapter
 
 `nlc publish` no-argument option summary now routes the accepted N# `CliPublishOptionsInto` kernel
@@ -3974,7 +3985,7 @@ the benchmark-only `nlc query --pos` pressure path no longer ships in the produc
 
 `CliBuildOperandSummaryInto`, `CliBuildOperandIndicesInto`, and the batch index core moved to the
 parity corpus. The product dogfood file keeps `CliBuildOperandSummaryCore` because the accepted
-`CliBuildFirstOperandIndexInto` adapter route still calls it for leading-option fallback cases, but
+`CliBuildFirstOperandIndexInto` build-helper route still calls it for leading-option fallback cases, but
 the direct batch wrappers no longer ship in the product dogfood assembly.
 
 ## 2026-06-14 — Fix-edit flattening probe leaves product dogfood

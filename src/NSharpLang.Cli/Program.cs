@@ -1602,7 +1602,7 @@ Exit codes:
 
     static BuildOperandSummary GetBuildOperandSummary(string[] args)
     {
-        if (NSharpCliDogfoodAdapter.TryGetBuildOperandSummary(args, out var count, out var firstOperandIndex))
+        if (BuildCommandKernels.TryGetOperandSummary(args, out var count, out var firstOperandIndex))
         {
             return new BuildOperandSummary(
                 count,

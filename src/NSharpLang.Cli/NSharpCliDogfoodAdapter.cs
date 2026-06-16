@@ -10,7 +10,6 @@ internal static class NSharpCliDogfoodAdapter
 {
     private const string DogfoodAssemblyName = "NSharpLang.Compiler.Dogfood";
 
-    private static BuildOperandScratch? t_buildOperandScratch;
     [ThreadStatic]
     private static ReferenceTypeFilterScratch? t_referenceTypeFilterScratch;
     [ThreadStatic]
@@ -19,48 +18,6 @@ internal static class NSharpCliDogfoodAdapter
     private static TestOutcomeSummaryScratch? t_testOutcomeSummaryScratch;
 
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings);
-
-    internal static bool TryGetBuildOperandSummary(string[] args, out int count, out int firstOperandIndex)
-    {
-        count = 0;
-        firstOperandIndex = -1;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        if (args.Length == 0)
-            return true;
-
-        var scratch = t_buildOperandScratch ??= new BuildOperandScratch();
-        scratch.EnsureCapacity(args.Length);
-
-        try
-        {
-            firstOperandIndex = bindings.CliBuildFirstOperandIndex(
-                args,
-                scratch.KindIds,
-                scratch.NextIndices,
-                scratch.PreviousIndices,
-                scratch.NextOptionIndices,
-                scratch.ResultIndices);
-            if (firstOperandIndex < -1 || firstOperandIndex >= args.Length)
-            {
-                count = 0;
-                firstOperandIndex = -1;
-                return false;
-            }
-
-            count = firstOperandIndex >= 0 ? 1 : 0;
-            return true;
-        }
-        catch
-        {
-            count = 0;
-            firstOperandIndex = -1;
-            return false;
-        }
-    }
 
     internal static bool TryGetFirstPositionalArg(
         string[] args,
@@ -304,7 +261,6 @@ internal static class NSharpCliDogfoodAdapter
                 return null;
 
             return new Bindings(
-                CreateDelegate<CliBuildFirstOperandIndexInto>(programType, "CliBuildFirstOperandIndexInto"),
                 CreateDelegate<CliFirstPositionalArgIndex>(programType, "CliFirstPositionalArgIndex"),
                 CreateDelegate<CliReferenceTypeFilterIndicesInto>(programType, "CliReferenceTypeFilterIndicesInto"),
                 CreateDelegate<CliTestOutcomeSummaryInto>(programType, "CliTestOutcomeSummaryInto"),
@@ -342,14 +298,6 @@ internal static class NSharpCliDogfoodAdapter
         return (TDelegate)Delegate.CreateDelegate(typeof(TDelegate), method);
     }
 
-    private delegate int CliBuildFirstOperandIndexInto(
-        string[] args,
-        int[] kindIds,
-        int[] nextIndices,
-        int[] previousIndices,
-        int[] nextOptionIndices,
-        int[] resultIndices);
-
     private delegate int CliFirstPositionalArgIndex(
         string[] args,
         string[] optionsWithValues);
@@ -371,7 +319,6 @@ internal static class NSharpCliDogfoodAdapter
         int[] resultCounts);
 
     private sealed record Bindings(
-        CliBuildFirstOperandIndexInto CliBuildFirstOperandIndex,
         CliFirstPositionalArgIndex CliFirstPositionalArgIndex,
         CliReferenceTypeFilterIndicesInto CliReferenceTypeFilterIndices,
         CliTestOutcomeSummaryInto CliTestOutcomeSummary,
@@ -386,27 +333,6 @@ internal static class NSharpCliDogfoodAdapter
             ReferenceType.Framework => 4,
             _ => 0
         };
-
-    private sealed class BuildOperandScratch
-    {
-        internal int[] KindIds = Array.Empty<int>();
-        internal int[] NextIndices = Array.Empty<int>();
-        internal int[] NextOptionIndices = Array.Empty<int>();
-        internal int[] PreviousIndices = Array.Empty<int>();
-        internal int[] ResultIndices = Array.Empty<int>();
-
-        internal void EnsureCapacity(int count)
-        {
-            if (KindIds.Length != count)
-            {
-                KindIds = new int[count];
-                NextIndices = new int[count];
-                NextOptionIndices = new int[count];
-                PreviousIndices = new int[count];
-                ResultIndices = new int[count];
-            }
-        }
-    }
 
     private sealed class ReferenceTypeFilterScratch
     {
