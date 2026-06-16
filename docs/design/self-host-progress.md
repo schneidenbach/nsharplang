@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Fix applicator text-edit ordering leaves the code-intelligence adapter
+
+`FixApplicator.ValidateAndSortEdits` now routes the accepted N# `TextEditOrderIndicesInto`
+kernel through `FixApplicatorTextEditOrderer`, beside the edit application code that consumes the
+ordered results. The broad `NSharpCodeIntelligenceDogfoodAdapter` no longer owns text-edit ordering,
+the delegate binding, or the start/end position rank scratch arrays; the existing LINQ ordering
+fallback remains in `FixApplicator`.
+Focused evidence: `dotnet build src/NSharpLang.Compiler/Compiler.csproj --no-restore`; `dotnet
+test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~FixApplicatorTests.DogfoodTextEditOrdering"`.
+
 ## 2026-06-16 — CLI dogfood adapter deleted
 
 The last shared `NSharpCliDogfoodAdapter` route, first positional argument discovery, now lives
@@ -4296,6 +4306,8 @@ are gone; their adapter-bound entry points already route through the wrapper-awa
 
 The stable host ABIs remain unchanged: `TokenizeKinds`, `TokenizeKindsInto`,
 `TextEditOrderIndicesInto`, and `FormatterImportOrderIndicesInto` still own the external boundary.
+`TextEditOrderIndicesInto` later moved from the broad code-intelligence adapter to the
+`FixApplicatorTextEditOrderer` owner-local host helper.
 
 ## 2026-06-13 — Parser kernels drop unused flattened compatibility wrappers
 
@@ -10712,6 +10724,6 @@ or stand up the N#-native pooled `Token`/`TokenStream` so the parser can consume
   `AotRequirementSelector` and `StructCopyInitOnlySelector` beside their consuming analyses.
 - `NSharpCliDogfoodAdapter` — removed 2026-06-16. CLI product routes now use owner-local helpers
   beside the consuming command or resolver.
-- `NSharpCodeIntelligenceDogfoodAdapter` — still present as a temporary transition boundary. Each routed kernel
-  still crosses the ~1.2 ns delegate-dispatch + bounds-check floor documented in the boundary
-  profiling doc.
+- `NSharpCodeIntelligenceDogfoodAdapter` — still present as a temporary transition boundary. Text-edit ordering
+  moved to `FixApplicatorTextEditOrderer` on 2026-06-16; remaining routed kernels still cross the
+  ~1.2 ns delegate-dispatch + bounds-check floor documented in the boundary profiling doc.

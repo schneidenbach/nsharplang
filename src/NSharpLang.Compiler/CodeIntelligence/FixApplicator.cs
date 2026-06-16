@@ -48,7 +48,7 @@ public static class FixApplicator
         // Sort edits bottom-to-top, right-to-left so applying them doesn't shift earlier positions.
         // Same-position zero-width inserts are applied in reverse input order so the final text
         // preserves the caller's input order.
-        var sortedEdits = NSharpCodeIntelligenceDogfoodAdapter.TryOrderTextEdits(edits, out var dogfoodSortedEdits)
+        var sortedEdits = FixApplicatorTextEditOrderer.TryOrderTextEdits(edits, out var dogfoodSortedEdits)
             ? dogfoodSortedEdits
             : edits
                 .Select((edit, index) => new { Edit = edit, Index = index })

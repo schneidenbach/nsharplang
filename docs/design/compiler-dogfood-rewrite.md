@@ -965,7 +965,9 @@ BenchmarkDotNet evidence tier for edit application ordering. It ran about 6.7x f
 representative edit corpus (5.177 us vs 34.476 us, 0 B vs 70,808 B) and about 11.6x faster on the
 large generated edit corpus (40.948 us vs 476.531 us, 0 B vs 558,232 B). This is
 acceptance-grade benchmark evidence for `FixApplicator` text-edit ordering after the host has
-assigned compact start/end position ranks.
+assigned compact start/end position ranks. The production route now binds this kernel through
+`FixApplicatorTextEditOrderer` beside the edit application code instead of through the broad
+code-intelligence dogfood adapter.
 
 `TypoSuggestionIndicesInto` passed parity against `SmartSuggester.SuggestSimilarNames` and reported
 zero managed allocation, but missed the normal BenchmarkDotNet speed gate for typo-suggestion

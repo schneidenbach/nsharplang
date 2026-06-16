@@ -18,7 +18,7 @@ public class FixApplicatorTests
         // availability probe.
         var edits = new[] { new TextEdit(1, 0, 1, 1, "x") };
         Assert.True(
-            NSharpCodeIntelligenceDogfoodAdapter.TryOrderTextEdits(edits, out var ordered),
+            FixApplicatorTextEditOrderer.TryOrderTextEdits(edits, out var ordered),
             "The N# dogfood compiler-services DLL must be loaded in the test run so dogfood paths are exercised.");
         Assert.Equal(edits, ordered);
     }
@@ -62,7 +62,7 @@ public class FixApplicatorTests
                 .ToList();
 
             Assert.True(
-                NSharpCodeIntelligenceDogfoodAdapter.TryOrderTextEdits(edits, out var dogfoodOrdered),
+                FixApplicatorTextEditOrderer.TryOrderTextEdits(edits, out var dogfoodOrdered),
                 $"dogfood ordering should be available (seed {seed})");
             Assert.Equal(expected, dogfoodOrdered);
         }

@@ -277,7 +277,8 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       no-argument option summary now lives beside `Program.PublishCommand` in
       `PublishCommandKernels`; build operand summary now lives beside `Program.BuildCommand` in
       `BuildCommandKernels`; test outcome summary now lives beside `Program.TestCommand` in
-      `TestCommandKernels`. Product parser
+      `TestCommandKernels`; fix-applicator text-edit ordering now lives beside `FixApplicator` in
+      `FixApplicatorTextEditOrderer`. Product parser
       wrappers for function, constructor, property, body/local-function, enum, struct/class/record, union, and
       interface routes now compose typed N# cores directly where wrapper ownership is complete, and columnar
       tokenization now compacts parser token kind/start/value-length rows in N# instead of a C# kept-index copy loop;
