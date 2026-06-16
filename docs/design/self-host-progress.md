@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Union parser field-count validation stays table-shaped
+
+`ColumnarUnionCaseFieldNamesDistinct` now consumes the existing
+`ColumnarUnionTextOutputTable` wrapper instead of receiving the raw `CaseFieldCounts` column as a
+separate helper parameter. The adapter-facing ABI remains flattened, but the accepted product union
+parser core keeps the case-count output grouped behind its table wrapper through validation.
+Focused evidence: `./scripts/dev.sh ParserColumnarUnions`.
+
 ## 2026-06-16 — Property accessor-name collision decline moves into N# parser
 
 `ColumnarStructPropertyMemberNamesDistinct` now rejects synthesized `get_`/`set_`

@@ -66,7 +66,7 @@ func ParseColumnarUnionInfoCore(source: string, tokens: &ColumnarUnionTokenTable
     if ColumnarUnionCaseNamesDistinct(source, ref scratch, caseCount) == 0 {
         return -1
     }
-    if ColumnarUnionCaseFieldNamesDistinct(source, ref scratch, outputs.CaseFieldCounts, caseCount) == 0 {
+    if ColumnarUnionCaseFieldNamesDistinct(source, ref scratch, ref outputs, caseCount) == 0 {
         return -1
     }
 
@@ -144,7 +144,7 @@ func ColumnarUnionCaseNamesDistinct(source: string, scratch: &ColumnarUnionScrat
     return 1
 }
 
-func ColumnarUnionCaseFieldNamesDistinct(source: string, scratch: &ColumnarUnionScratchTable, caseFieldCounts: int[], caseCount: int): int {
+func ColumnarUnionCaseFieldNamesDistinct(source: string, scratch: &ColumnarUnionScratchTable, outputs: &ColumnarUnionTextOutputTable, caseCount: int): int {
     if caseCount < 0 {
         return 0
     }
@@ -152,7 +152,7 @@ func ColumnarUnionCaseFieldNamesDistinct(source: string, scratch: &ColumnarUnion
     fieldOffset := 0
     c := 0
     while c < caseCount {
-        caseFieldCount := caseFieldCounts[c]
+        caseFieldCount := outputs.CaseFieldCounts[c]
         if caseFieldCount < 0 {
             return 0
         }
