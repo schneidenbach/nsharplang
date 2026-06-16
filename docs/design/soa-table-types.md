@@ -313,6 +313,8 @@ The compiler must produce direct diagnostics for common misuse:
   overflow throws "length for NodeTable.add is too large", and dynamic `copyRow` sources at or beyond
   `length` throw "source row for NodeTable.copyRow must be less than length";
   target rows too large to extend throw "target row for NodeTable.copyRow is too large";
+  generated operations cannot be materialized as function/delegate values, including `wrap` and alias
+  receivers: "SoA table generated operation 'X' cannot be used as a value";
 - unsupported element type, including direct or aliased arrays, nullable non-string columns,
   string-enum columns, and nested SoA-table columns:
   "SoA column type X is not supported in this lowering";
@@ -455,7 +457,8 @@ aliases to that set. Calls to generated operations through an alias-typed table 
 too: `nodes.ensureCapacity(...)`, `nodes.add()`, `nodes.copyRow(...)`, and `nodes.clear()` where
 `nodes: Nodes` and `type Nodes = NodeTable` route through the underlying generated table methods
 without caller-side row allocation, boxing, delegate construction, array allocation, or virtual
-dispatch.
+dispatch. The analyzer rejects materializing those generated operations, including `wrap`, as
+function/delegate values before IL emission.
 Construction allocates exactly one array per column and stores column/metadata fields; `wrap` stores
 incoming column references without
 allocating arrays or copying elements; `add` updates only length metadata after calling

@@ -185,6 +185,7 @@ public class Analyzer : IDisposable
     private bool _suppressNullabilityFlowType;
     private bool _suppressErrorTupleResultUse;
     private bool _allowUnboundCallableReference;
+    private bool _allowSyntheticSoaOperationReference;
     // When false (the default), a bare reference to a .NET event is an error — events may only
     // be used with `on`/`off`. AnalyzeOnSubscription and AnalyzeAssignment flip this while
     // resolving the event member so they can emit their own, more specific diagnostics.
@@ -5285,6 +5286,13 @@ public class Analyzer : IDisposable
         if (_assignmentTargetExpressionTypes != null)
             _assignmentTargetExpressionTypes[expr] = flowType;
 
+        if (!_allowSyntheticSoaOperationReference
+            && flowType is FunctionTypeInfo { Declaration: null, SyntheticName: { Length: > 0 } } syntheticSoaOperation)
+        {
+            ReportSyntheticSoaOperationUsedAsValue(expr, syntheticSoaOperation);
+            return BuiltInTypes.Unknown;
+        }
+
         if (!_allowUnboundCallableReference && IsUnboundCallableReference(expr, flowType))
         {
             ReportMethodGroupUsedAsValue(expr, flowType);
@@ -5314,6 +5322,23 @@ public class Analyzer : IDisposable
         finally
         {
             _allowUnboundCallableReference = previous;
+        }
+    }
+
+    private TypeInfo AnalyzeCallCalleeExpression(Expression expression)
+    {
+        var previousAllowUnbound = _allowUnboundCallableReference;
+        var previousAllowSyntheticSoaOperation = _allowSyntheticSoaOperationReference;
+        _allowUnboundCallableReference = true;
+        _allowSyntheticSoaOperationReference = true;
+        try
+        {
+            return AnalyzeExpression(expression);
+        }
+        finally
+        {
+            _allowSyntheticSoaOperationReference = previousAllowSyntheticSoaOperation;
+            _allowUnboundCallableReference = previousAllowUnbound;
         }
     }
 
@@ -5351,6 +5376,35 @@ public class Analyzer : IDisposable
         => type is ReflectionMethodInfo
             or ReflectionMethodGroupInfo
             or NSharpMethodGroupInfo;
+
+    private void ReportSyntheticSoaOperationUsedAsValue(Expression expression, FunctionTypeInfo operation)
+    {
+        var (line, column, length) = GetExpressionDiagnosticSpan(expression);
+        var operationName = operation.SyntheticName ?? "operation";
+        var callTarget = RenderSyntheticSoaOperationTarget(expression, operationName);
+        var callShape = operation.ParameterTypes is { Count: 0 }
+            ? $"{callTarget}()"
+            : $"{callTarget}(...)";
+        Error(
+            ErrorCode.InvalidSyntax,
+            $"SoA table generated operation '{operationName}' cannot be used as a value",
+            line,
+            column,
+            $"Call {callShape} directly; generated SoA operations mutate table storage and are not delegate values.",
+            length);
+    }
+
+    private static string RenderSyntheticSoaOperationTarget(Expression expression, string fallbackName)
+    {
+        return expression switch
+        {
+            MemberAccessExpression memberAccess => RenderEventTarget(memberAccess),
+            ParenthesizedExpression parenthesized => RenderSyntheticSoaOperationTarget(parenthesized.Inner, fallbackName),
+            CheckedExpression checkedExpression => RenderSyntheticSoaOperationTarget(checkedExpression.Expression, fallbackName),
+            UncheckedExpression uncheckedExpression => RenderSyntheticSoaOperationTarget(uncheckedExpression.Expression, fallbackName),
+            _ => fallbackName
+        };
+    }
 
     private bool CanBindCallableReferenceToExpectedType(TypeInfo expectedType)
     {
@@ -10059,7 +10113,7 @@ public class Analyzer : IDisposable
         if (callee is IdentifierExpression identifier)
             return AnalyzeIdentifierCallTarget(identifier);
 
-        return AnalyzeExpressionAllowingUnboundCallableReference(callee);
+        return AnalyzeCallCalleeExpression(callee);
     }
 
     private TypeInfo AnalyzeIdentifierCallTarget(IdentifierExpression identifier)

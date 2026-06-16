@@ -7504,6 +7504,64 @@ public class SoaRecordTests : ILCompilerTestBase
             $"Expected no errors but got: {string.Join(", ", result.Errors.Select(e => $"{e.DiagnosticId}:{e.Message}"))}");
     }
 
+    [Theory]
+    [InlineData("op := nodes.add", "add", "nodes.add()")]
+    [InlineData("op := nodes.clear", "clear", "nodes.clear()")]
+    [InlineData("op := nodes.ensureCapacity", "ensureCapacity", "nodes.ensureCapacity(...)")]
+    [InlineData("op := nodes.copyRow", "copyRow", "nodes.copyRow(...)")]
+    [InlineData("let op: Func<int> = nodes.add", "add", "nodes.add()")]
+    [InlineData("let op: Action = nodes.clear", "clear", "nodes.clear()")]
+    [InlineData("pull(nodes.add)", "add", "nodes.add()")]
+    public void Analyzer_SoaTableGeneratedOperationsCannotBeUsedAsValues(
+        string statement,
+        string operation,
+        string expectedCall)
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze($$"""
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
+            func pull(p: Func<int>): int {
+                return p()
+            }
+
+            func bad(nodes: Nodes) {
+                {{statement}}
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains($"SoA table generated operation '{operation}' cannot be used as a value", error.Message);
+        Assert.Contains(expectedCall, error.Suggestion);
+    }
+
+    [Fact]
+    public void Analyzer_SoaTableWrapCannotBeUsedAsValue()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
+            func bad() {
+                let wrap: Func<int[], int, Nodes> = Nodes.wrap
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("SoA table generated operation 'wrap' cannot be used as a value", error.Message);
+        Assert.Contains("Nodes.wrap(...)", error.Suggestion);
+    }
+
     [Fact]
     public void Analyzer_SoaTableCopyRowNamedArgumentTypeUsesParameterBinding()
     {
