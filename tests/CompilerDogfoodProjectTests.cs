@@ -350,6 +350,15 @@ interface IBad {
                 "generic interface method");
             AssertColumnarInterfaceInfoDeclinesOnly(
                 """
+interface IBad: IA, IA {
+    func Read(): int
+}
+""",
+                tokenizeWithIndentation,
+                parseColumnarInterfaceInfo,
+                "duplicate interface base");
+            AssertColumnarInterfaceInfoDeclinesOnly(
+                """
 interface IBad {
     func Read(id: int): int
     func Read(other: int): int
@@ -8360,7 +8369,8 @@ func outer(x: int): int {
         // registries now enforce uniqueness ACROSS kinds (review-found over-accept, pre-existing
         // for enum/struct/union pairs and widened by each new type family);
         Assert.False(RouteColumnarProgram("enum Color {\n    Red,\n    Green\n}\n\ninterface Color {\n    func C(): int\n}\n\nfunc f(): int {\n    return 1\n}\n").Ok);
-        // Duplicate interface method names and duplicate parameter names are rejected by the N# columnar parser before emission.
+        // Duplicate interface base names, method names, and parameter names are rejected by the N# columnar parser before emission.
+        Assert.False(RouteColumnarProgram("interface IA {\n    func A(): int\n}\n\ninterface IBad: IA, IA {\n    func B(): int\n}\n\nfunc f(): int {\n    return 1\n}\n").Ok);
         Assert.False(RouteColumnarProgram("interface IBad {\n    func A(): int\n    func A(x: int): int\n}\n\nfunc f(): int {\n    return 1\n}\n").Ok);
         Assert.False(RouteColumnarProgram("interface IBad {\n    func A(x: int, x: int): int\n}\n\nfunc f(): int {\n    return 1\n}\n").Ok);
         // DECLINES — oracle-ACCEPTED (later rungs): expression-bodied default interface methods.

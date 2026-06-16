@@ -11,12 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
-## 2026-06-16 — Interface duplicate method/parameter declines move into N# parser
+## 2026-06-16 — Interface duplicate base/member/parameter declines move into N# parser
 
-`ParseColumnarInterfaceInfoCore` now rejects duplicate interface method names and duplicate parameter
-names within an interface method before returning method rows to the C# transition boundary. The interface
-emitter no longer carries those duplicate-member/parameter fallback guards; cross-type interface name
-collisions and base-interface validation remain semantic registry checks.
+`ParseColumnarInterfaceInfoCore` now rejects duplicate base-interface names, duplicate interface method
+names, and duplicate parameter names within an interface method before returning rows to the C# transition
+boundary. The interface emitter no longer carries those duplicate-base/member/parameter fallback guards;
+cross-type interface name collisions and base-interface resolution/self validation remain semantic
+registry checks.
 
 ## 2026-06-16 — Union duplicate case/field declines move into N# parser
 

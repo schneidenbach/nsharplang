@@ -57,6 +57,9 @@ func ParseColumnarInterfaceInfoCore(source: string, tokens: &ColumnarInterfaceTo
         return -1
     }
 
+    if ColumnarInterfaceBaseNamesDistinct(ref outputs, result.Values[2]) == 0 {
+        return -1
+    }
     if ColumnarInterfaceMethodNamesDistinct(ref outputs, methodCount) == 0 {
         return -1
     }
@@ -72,6 +75,32 @@ func ParseColumnarInterfaceInfoCore(source: string, tokens: &ColumnarInterfaceTo
     }
 
     return methodCount
+}
+
+func ColumnarInterfaceBaseNamesDistinct(outputs: &ColumnarInterfaceOutputTable, baseCount: int): int {
+    if baseCount < 0 {
+        return 0
+    }
+
+    i := 0
+    while i < baseCount {
+        if outputs.BaseNameTexts[i] == "" {
+            return 0
+        }
+
+        j := i + 1
+        while j < baseCount {
+            if outputs.BaseNameTexts[i] == outputs.BaseNameTexts[j] {
+                return 0
+            }
+
+            j = j + 1
+        }
+
+        i = i + 1
+    }
+
+    return 1
 }
 
 func ColumnarInterfaceMethodNamesDistinct(outputs: &ColumnarInterfaceOutputTable, methodCount: int): int {

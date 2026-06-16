@@ -2869,11 +2869,9 @@ internal sealed class ColumnarIlEmitter
         {
             var iface = interfaces[i];
             var interfaceDef = interfaceDefsInOrder[i];
-            var seenBases = new HashSet<string>(StringComparer.Ordinal);
             foreach (var baseInterfaceName in iface.BaseInterfaceNames)
             {
-                if (!seenBases.Add(baseInterfaceName)
-                    || !structRegistry.TryGetValue(baseInterfaceName, out var baseInterface)
+                if (!structRegistry.TryGetValue(baseInterfaceName, out var baseInterface)
                     || !baseInterface.IsInterface
                     || ReferenceEquals(baseInterface, interfaceDef))
                     return false;
