@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Interface default-method checks reuse product table refs
+
+`InterfaceDefaultMethodLocalFunctionStatus` now consumes the existing
+`ColumnarInterfaceTokenTable` and `ColumnarInterfaceOutputTable` refs instead of rebuilding duplicate
+table values before scanning default interface method bodies. The flattened adapter ABI stays in
+place, while product interface route-safety validation remains on the composed table instances.
+Focused evidence: `./scripts/dev.sh ParserColumnarInterfaces`.
+
 ## 2026-06-16 — Struct route-safety checks reuse product table refs
 
 `ColumnarStructMethodUnsupportedStatus` and `ColumnarStructConstructorUnsupportedStatus` now consume

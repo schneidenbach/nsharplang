@@ -67,9 +67,7 @@ func ParseColumnarInterfaceInfoCore(source: string, tokens: &ColumnarInterfaceTo
         return -1
     }
 
-    tokenValues := new ColumnarInterfaceTokenTable { Kinds: tokens.Kinds, Starts: tokens.Starts, ValueLengths: tokens.ValueLengths, Count: tokens.Count }
-    outputValues := new ColumnarInterfaceOutputTable { MethodFuncIndices: outputs.MethodFuncIndices, BaseNameTexts: outputs.BaseNameTexts, InterfaceNameTexts: outputs.InterfaceNameTexts, MethodNameTexts: outputs.MethodNameTexts, MethodReturnTexts: outputs.MethodReturnTexts, MethodParamCounts: outputs.MethodParamCounts, MethodBodyFlags: outputs.MethodBodyFlags, MethodParamNameTexts: outputs.MethodParamNameTexts, MethodParamTypeTexts: outputs.MethodParamTypeTexts }
-    localStatus := InterfaceDefaultMethodLocalFunctionStatus(source, tokenValues, outputValues, methodCount)
+    localStatus := InterfaceDefaultMethodLocalFunctionStatus(source, ref tokens, ref outputs, methodCount)
     if localStatus != 0 {
         return -1
     }
@@ -173,7 +171,7 @@ func ColumnarInterfaceMethodParamNamesDistinct(outputs: &ColumnarInterfaceOutput
     return 1
 }
 
-func InterfaceDefaultMethodLocalFunctionStatus(source: string, tokens: ColumnarInterfaceTokenTable, outputs: ColumnarInterfaceOutputTable, methodCount: int): int {
+func InterfaceDefaultMethodLocalFunctionStatus(source: string, tokens: &ColumnarInterfaceTokenTable, outputs: &ColumnarInterfaceOutputTable, methodCount: int): int {
     functionTokens := new ColumnarFunctionTokenTable { Kinds: tokens.Kinds, Starts: tokens.Starts, ValueLengths: tokens.ValueLengths, Count: tokens.Count }
     cap := tokens.Count + 1
     signatureOutputs := new ColumnarFunctionSignatureOutputTable {
