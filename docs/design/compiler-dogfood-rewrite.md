@@ -1790,12 +1790,12 @@ as `nlc lint` and IDE open-buffer utilities that do not carry a `ProjectSnapshot
 `MultiFileCompiler` circular-import and AOT diagnostic snippets now route LF-only source texts
 through the same source-only cached raw-line adapter, with the previous CR/CRLF split fallback kept
 for files where the raw-line LF semantics would otherwise preserve carriage returns.
-Public AOT requirement construction now routes `AotRequirements.FromBlockers` through
-`NSharpPerformanceDogfoodAdapter.TryBuildAotRequirements` when the dogfood assembly is available,
+Public AOT requirement construction now routes `AotRequirements.FromBlockers` through the
+owner-local `AotRequirementSelector` when the dogfood assembly is available,
 preserving the previous public-surface filter, per-declaration flag combination, sorted construct
 names, and annotation message text, with the previous C# LINQ grouping path kept as the fallback.
 Struct-copy declared-field readonly gating now routes `AllInstanceFieldsAreInitOnly` through
-`NSharpPerformanceDogfoodAdapter.TryAllInstanceFieldsAreInitOnly` when the dogfood assembly is
+the owner-local `StructCopyInitOnlySelector` when the dogfood assembly is
 available, preserving static-field exclusion and instance init-only semantics, with the previous C#
 LINQ `Where(...).ToList().All(...)` path kept as the fallback.
 Anonymous-union overload-shim eligibility now routes `DeclaresAnonymousUnionShims` through

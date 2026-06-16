@@ -5,57 +5,16 @@ using System.Reflection;
 
 namespace NSharpLang.Compiler.Performance;
 
-internal static class NSharpPerformanceDogfoodAdapter
+internal static class AotRequirementSelector
 {
     private const string DogfoodAssemblyName = "NSharpLang.Compiler.Dogfood";
 
     [ThreadStatic]
-    private static AotRequirementScratch? t_aotRequirementScratch;
+    private static Scratch? t_scratch;
 
-    [ThreadStatic]
-    private static StructCopyScratch? t_structCopyScratch;
+    private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
 
-    private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings);
-
-    internal static bool TryAllInstanceFieldsAreInitOnly(
-        IReadOnlyList<StructCopyAnalysis.StructFieldDescriptor> fields,
-        out bool allInitOnly)
-    {
-        allInitOnly = false;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        var fieldCount = fields.Count;
-        var scratch = t_structCopyScratch ??= new StructCopyScratch();
-        scratch.EnsureFieldCapacity(fieldCount);
-
-        try
-        {
-            for (var i = 0; i < fieldCount; i++)
-            {
-                var field = fields[i];
-                scratch.FieldReadonlyFlags[i] = field.IsStatic || field.IsInitOnly ? 1 : 0;
-            }
-
-            var result = bindings.StructCopyAllInstanceFieldsInitOnly(
-                scratch.FieldReadonlyFlags,
-                fieldCount);
-            if (result is not 0 and not 1)
-                return false;
-
-            allInitOnly = result != 0;
-            return true;
-        }
-        catch
-        {
-            allInitOnly = false;
-            return false;
-        }
-    }
-
-    internal static bool TryBuildAotRequirements(
+    internal static bool TryBuildRequirements(
         IReadOnlyList<AotBlocker> blockers,
         out AotRequirements requirements)
     {
@@ -69,7 +28,7 @@ internal static class NSharpPerformanceDogfoodAdapter
         if (blockerCount == 0)
             return true;
 
-        var scratch = t_aotRequirementScratch ??= new AotRequirementScratch();
+        var scratch = t_scratch ??= new Scratch();
         scratch.EnsureBlockerCapacity(blockerCount);
 
         try
@@ -182,10 +141,9 @@ internal static class NSharpPerformanceDogfoodAdapter
                 return null;
 
             return new Bindings(
-                CreateDelegate<AotRequirementGroupsInto>(programType, "AotRequirementGroupsInto"),
-                CreateDelegate<StructCopyAllInstanceFieldsInitOnly>(
+                CreateDelegate<AotRequirementGroupsInto>(
                     programType,
-                    "StructCopyAllInstanceFieldsInitOnly"));
+                    "AotRequirementGroupsInto"));
         }
         catch
         {
@@ -245,26 +203,9 @@ internal static class NSharpPerformanceDogfoodAdapter
         int[] resultConstructCounts,
         int[] resultConstructRanks);
 
-    private delegate int StructCopyAllInstanceFieldsInitOnly(int[] fieldFlags, int count);
+    private sealed record Bindings(AotRequirementGroupsInto AotRequirementGroups);
 
-    private sealed record Bindings(
-        AotRequirementGroupsInto AotRequirementGroups,
-        StructCopyAllInstanceFieldsInitOnly StructCopyAllInstanceFieldsInitOnly);
-
-    private sealed class StructCopyScratch
-    {
-        internal int[] FieldReadonlyFlags = Array.Empty<int>();
-
-        internal void EnsureFieldCapacity(int fieldCount)
-        {
-            if (FieldReadonlyFlags.Length < fieldCount)
-            {
-                FieldReadonlyFlags = new int[fieldCount];
-            }
-        }
-    }
-
-    private sealed class AotRequirementScratch
+    private sealed class Scratch
     {
         private readonly Dictionary<string, int> _constructRanks = new(StringComparer.Ordinal);
         private readonly Dictionary<string, int> _declarationRanks = new(StringComparer.Ordinal);

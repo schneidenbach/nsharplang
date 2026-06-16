@@ -13705,17 +13705,8 @@ func documented(): int {
     }
 
     [Fact]
-    public void PerformanceDogfoodAdapter_ChecksStructCopyFieldReadonlyShape()
+    public void StructCopyInitOnlySelector_ChecksStructCopyFieldReadonlyShape()
     {
-        var adapterType = typeof(NSharpLang.Compiler.Performance.StructCopyAnalysis).Assembly.GetType(
-                "NSharpLang.Compiler.Performance.NSharpPerformanceDogfoodAdapter")
-            ?? throw new InvalidOperationException("Performance dogfood adapter type was not emitted.");
-
-        var tryAllInstanceFieldsAreInitOnly = adapterType.GetMethod(
-                "TryAllInstanceFieldsAreInitOnly",
-                BindingFlags.Static | BindingFlags.NonPublic)
-            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryAllInstanceFieldsAreInitOnly.");
-
         var readonlyFields = new[]
         {
             new NSharpLang.Compiler.Performance.StructCopyAnalysis.StructFieldDescriptor(
@@ -13731,9 +13722,10 @@ func documented(): int {
                 IsInitOnly: true,
                 IsStatic: false)
         };
-        var readonlyArgs = new object?[] { readonlyFields, false };
-        Assert.True((bool)(tryAllInstanceFieldsAreInitOnly.Invoke(null, readonlyArgs) ?? false));
-        Assert.Equal(true, readonlyArgs[1]);
+        Assert.True(NSharpLang.Compiler.Performance.StructCopyInitOnlySelector.TryAllInstanceFieldsAreInitOnly(
+            readonlyFields,
+            out var readonlyResult));
+        Assert.True(readonlyResult);
 
         var mutableFields = new[]
         {
@@ -13746,9 +13738,10 @@ func documented(): int {
                 IsInitOnly: false,
                 IsStatic: false)
         };
-        var mutableArgs = new object?[] { mutableFields, true };
-        Assert.True((bool)(tryAllInstanceFieldsAreInitOnly.Invoke(null, mutableArgs) ?? false));
-        Assert.Equal(false, mutableArgs[1]);
+        Assert.True(NSharpLang.Compiler.Performance.StructCopyInitOnlySelector.TryAllInstanceFieldsAreInitOnly(
+            mutableFields,
+            out var mutableResult));
+        Assert.False(mutableResult);
     }
 
     [Fact]

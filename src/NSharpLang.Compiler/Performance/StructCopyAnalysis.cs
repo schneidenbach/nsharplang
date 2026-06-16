@@ -361,7 +361,7 @@ public static class StructCopyAnalysis
 
     private static bool AllInstanceFieldsAreInitOnly(IReadOnlyList<StructFieldDescriptor> fields)
     {
-        if (NSharpPerformanceDogfoodAdapter.TryAllInstanceFieldsAreInitOnly(fields, out var dogfoodResult))
+        if (StructCopyInitOnlySelector.TryAllInstanceFieldsAreInitOnly(fields, out var dogfoodResult))
         {
             return dogfoodResult;
         }

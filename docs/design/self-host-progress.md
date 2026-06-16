@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Performance routes leave the performance dogfood adapter
+
+`AotRequirements.FromBlockers` now routes the N# AOT requirement grouping kernel through
+`AotRequirementSelector`, and `StructCopyAnalysis` now routes declared-field readonly gating through
+`StructCopyInitOnlySelector`. Both helpers live beside the compiler performance consumers that own
+their scratch columns and fallback paths, and the source `NSharpPerformanceDogfoodAdapter` type is
+deleted. The remaining broad adapter boundaries are CLI and code-intelligence.
+Focused evidence: `dotnet build src/NSharpLang.Compiler/Compiler.csproj --no-restore`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.StructCopyInitOnlySelector_ChecksStructCopyFieldReadonlyShape"`;
+`dotnet test tests/Tests.csproj --no-build --filter "FullyQualifiedName~AotBlockerAnalyzerTests.Requirements_|FullyQualifiedName~StructCopyAnalysisTests"`.
+
 ## 2026-06-16 — Final IL type-table helpers leave the general dogfood adapter
 
 The last live product routes in `NSharpCompilerDogfoodAdapter` moved beside IL emission as
@@ -10490,7 +10501,9 @@ or stand up the N#-native pooled `Token`/`TokenStream` so the parser can consume
 
 - `NSharpCompilerDogfoodAdapter` — removed 2026-06-16. Compiler product routes now use owner-local
   host helpers beside the consuming subsystem while the N# kernels remain pre-bootstrap services.
-- `NSharpCodeIntelligenceDogfoodAdapter`, `NSharpPerformanceDogfoodAdapter`,
-  `NSharpCliDogfoodAdapter` — still present as temporary transition boundaries. Each routed kernel
+- `NSharpPerformanceDogfoodAdapter` — removed 2026-06-16. Performance product routes now use
+  `AotRequirementSelector` and `StructCopyInitOnlySelector` beside their consuming analyses.
+- `NSharpCodeIntelligenceDogfoodAdapter`, `NSharpCliDogfoodAdapter` — still present as temporary
+  transition boundaries. Each routed kernel
   still crosses the ~1.2 ns delegate-dispatch + bounds-check floor documented in the boundary
   profiling doc.

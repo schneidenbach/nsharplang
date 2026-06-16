@@ -247,7 +247,9 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       selection now lives beside `Analyzer` in `AnalyzerExhaustivenessSelector`; anonymous-union shim eligibility
       and overload candidate ranking now live beside IL emission in `AnonymousUnionShimSelector` and
       `OverloadCandidateSelector`, and declared-type lookup/order/dedup now lives beside IL emission in
-      `ILTypeTableSelector`. The source `NSharpCompilerDogfoodAdapter` type has been deleted. Product parser
+      `ILTypeTableSelector`. AOT requirement grouping and struct-copy readonly gating now live beside compiler
+      performance consumers in `AotRequirementSelector` and `StructCopyInitOnlySelector`. The source
+      `NSharpCompilerDogfoodAdapter` and `NSharpPerformanceDogfoodAdapter` types have been deleted. Product parser
       wrappers for function, constructor, property, body/local-function, enum, struct/class/record, union, and
       interface routes now compose typed N# cores directly where wrapper ownership is complete, and columnar
       tokenization now compacts parser token kind/start/value-length rows in N# instead of a C# kept-index copy loop;

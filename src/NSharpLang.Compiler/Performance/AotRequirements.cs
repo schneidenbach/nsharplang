@@ -53,7 +53,7 @@ public sealed class AotRequirements
     public static AotRequirements FromBlockers(IEnumerable<AotBlocker> blockers)
     {
         var blockerList = blockers as IReadOnlyList<AotBlocker> ?? blockers.ToArray();
-        if (NSharpPerformanceDogfoodAdapter.TryBuildAotRequirements(blockerList, out var dogfoodRequirements))
+        if (AotRequirementSelector.TryBuildRequirements(blockerList, out var dogfoodRequirements))
             return dogfoodRequirements;
 
         var grouped = blockerList
