@@ -149,7 +149,7 @@ func ParseColumnarStructInfoCore(source: string, tokens: &ColumnarStructTokenTab
     if methodStatus != 0 {
         return -1
     }
-    ctorStatus := ColumnarStructConstructorUnsupportedStatus(source, tokenValues, outputValues, ctorCount)
+    ctorStatus := ColumnarStructConstructorUnsupportedStatus(source, tokenValues, outputValues, ctorCount, isReference)
     if ctorStatus != 0 {
         return -1
     }
@@ -259,7 +259,7 @@ func ColumnarStructMethodUnsupportedStatus(source: string, tokens: ColumnarStruc
     return 0
 }
 
-func ColumnarStructConstructorUnsupportedStatus(source: string, tokens: ColumnarStructTokenTable, outputs: ColumnarStructOutputTable, ctorCount: int): int {
+func ColumnarStructConstructorUnsupportedStatus(source: string, tokens: ColumnarStructTokenTable, outputs: ColumnarStructOutputTable, ctorCount: int, isReference: int): int {
     constructorTokens := new ColumnarConstructorTokenTable { Kinds: tokens.Kinds, Starts: tokens.Starts, ValueLengths: tokens.ValueLengths, Count: tokens.Count }
     cap := tokens.Count + 1
     signatureOutputs := new ColumnarConstructorSignatureOutputTable {
@@ -287,6 +287,11 @@ func ColumnarStructConstructorUnsupportedStatus(source: string, tokens: Columnar
         paramCount := ParseColumnarConstructorInfoCore(source, ref constructorTokens, outputs.CtorIndices[i], ref signatureOutputs, ref body, ref result)
         if paramCount < 0 {
             return -1
+        }
+        if isReference == 0 {
+            if result.Values[0] != 0 || paramCount == 0 {
+                return 1
+            }
         }
 
         localTokens := new LocalFunctionTokenTable { Kinds: tokens.Kinds, Starts: tokens.Starts, Count: tokens.Count }

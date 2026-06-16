@@ -3323,13 +3323,13 @@ internal sealed class ColumnarIlEmitter
             }
         }
 
-        // PASS 0c (constructors): declare each reference-type's user constructor(s). A constructor is a nameless,
+        // PASS 0c (constructors): declare each user constructor. A constructor is a nameless,
         // void-returning member whose body assigns fields; `this` is arg 0 so user param ordinals shift by +1. Slice
         // scope: one or more OVERLOADED constructors on a REFERENCE type (class/record), optionally with a `: this(...)`
         // (same-type) or `: base(...)` (declared base class) chaining initializer. Overload resolution at construction
-        // is by PARAM COUNT (see case 15). A value-type struct constructor declines. The ConstructorBuilder + its
-        // param types are stored for positional-construction resolution; the body (+ chained call) is emitted
-        // (+ validated) in PASS 2.
+        // is by PARAM COUNT (see case 15). Value-type constructors arrive only for the parser-accepted positional
+        // shape: non-parameterless and without chain initializers. The ConstructorBuilder + its param types are stored
+        // for positional-construction resolution; the body (+ chained call) is emitted (+ validated) in PASS 2.
         var structCtorJobs = new List<(ColumnarStructDef Struct, ColumnarConstructorInput Ctor, ConstructorBuilder Builder, Dictionary<string, int> Ordinals, Dictionary<string, Type> ParamTypes)>();
         for (var s = 0; s < structs.Count; s++)
         {
@@ -3340,16 +3340,6 @@ internal sealed class ColumnarIlEmitter
             {
                 if (ctor.ChainInitKind == 2 && def.BaseDef == null)
                     return false; // a `: base(...)` initializer requires a declared (modelled) base class.
-                // VALUE-TYPE ctor chains decline: probing the oracle showed `new S()` with a declared
-                // parameterless `: this(...)` ctor ZERO-INITS instead of running the user ctor (an oracle
-                // defect recorded for a future fix bundle) — decline-safe until those semantics are fixed
-                // and pinned. Positional value-type ctors (the supported shape) have no chain.
-                if (!def.IsReference && ctor.ChainInitKind != 0)
-                    return false;
-                // A PARAMETERLESS value-type user ctor is the same hazard (`new S()` zero-inits, bypassing
-                // it) — decline so columnar never emits a ctor the construction site won't call.
-                if (!def.IsReference && ctor.Body.ParamNames.Length == 0)
-                    return false;
                 var cParamTypes = new Type[ctor.Body.ParamNames.Length];
                 var cOrdinals = new Dictionary<string, int>(StringComparer.Ordinal);
                 var cParamTypeMap = new Dictionary<string, Type>(StringComparer.Ordinal);

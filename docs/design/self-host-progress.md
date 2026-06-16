@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Value-struct constructor hazards move into N# parser
+
+`ParseColumnarStructInfoCore` now rejects value-type constructors with chain initializers and parameterless
+value-type user constructors while it is already composing constructor signatures and bodies. The redundant
+PASS 0c emitter guards were removed; accepted value-struct constructors remain the positional non-chaining
+shape pinned by the parity tests.
+
 ## 2026-06-16 — Void instance-method decline moves into N# struct parser
 
 `ParseColumnarStructInfoCore` now rejects non-static member methods whose composed function signature
