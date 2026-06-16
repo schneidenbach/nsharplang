@@ -1,6 +1,6 @@
 // Product columnar struct/class/record parser wrapper. It keeps declaration span scratch columns inside N#,
-// rejects unsupported value-type storage/property shapes and member-method generic/local functions, and exposes
-// only text, flag, and member-index rows needed by the C# transition materializer.
+// rejects unsupported value-type storage/property shapes and member generic/local functions, and exposes only text,
+// flag, and member-index rows needed by the C# transition materializer.
 
 struct ColumnarStructTokenTable {
     Kinds: int[]
@@ -149,6 +149,10 @@ func ParseColumnarStructInfoCore(source: string, tokens: &ColumnarStructTokenTab
     if methodStatus != 0 {
         return -1
     }
+    ctorStatus := ColumnarStructConstructorUnsupportedStatus(source, tokenValues, outputValues, ctorCount)
+    if ctorStatus != 0 {
+        return -1
+    }
 
     structName := ParserDeclarationSpanText(source, result.Values[0], result.Values[1])
     if structName == "" {
@@ -245,6 +249,50 @@ func ColumnarStructMethodUnsupportedStatus(source: string, tokens: ColumnarStruc
             return 1
         }
         if result.Values[8] > 0 {
+            return 1
+        }
+    }
+
+    return 0
+}
+
+func ColumnarStructConstructorUnsupportedStatus(source: string, tokens: ColumnarStructTokenTable, outputs: ColumnarStructOutputTable, ctorCount: int): int {
+    constructorTokens := new ColumnarConstructorTokenTable { Kinds: tokens.Kinds, Starts: tokens.Starts, ValueLengths: tokens.ValueLengths, Count: tokens.Count }
+    cap := tokens.Count + 1
+    signatureOutputs := new ColumnarConstructorSignatureOutputTable {
+        ParamNameTexts: new string[](cap),
+        ParamTypeTexts: new string[](cap),
+        ArgKinds: new int[](cap),
+        ArgStarts: new int[](cap),
+        ArgLengths: new int[](cap),
+        ArgTexts: new string[](cap)
+    }
+    body := new ColumnarConstructorBodyTable {
+        NodeKinds: new int[](cap),
+        ValueStarts: new int[](cap),
+        ValueLengths: new int[](cap),
+        ChildStart: new int[](cap),
+        ChildCount: new int[](cap),
+        ChildIndices: new int[](cap),
+        SpanStarts: new int[](cap),
+        SpanLengths: new int[](cap)
+    }
+    result := new ColumnarConstructorResultTable { Values: new int[](6) }
+    localResults := new LocalFunctionResultTable { NodeIndices: new int[](cap), FuncTokenIndices: new int[](cap) }
+
+    for i := 0; i < ctorCount; i++ {
+        paramCount := ParseColumnarConstructorInfoCore(source, ref constructorTokens, outputs.CtorIndices[i], ref signatureOutputs, ref body, ref result)
+        if paramCount < 0 {
+            return -1
+        }
+
+        localTokens := new LocalFunctionTokenTable { Kinds: tokens.Kinds, Starts: tokens.Starts, Count: tokens.Count }
+        localNodes := new LocalFunctionNodeTable { Kinds: body.NodeKinds, ValueStarts: body.ValueStarts, ChildStart: body.ChildStart, ChildCount: body.ChildCount, ChildIndices: body.ChildIndices }
+        localFunctionCount := DirectLocalFunctionTokenIndicesCore(ref localTokens, ref localNodes, result.Values[4], ref localResults)
+        if localFunctionCount < 0 {
+            return -1
+        }
+        if localFunctionCount > 0 {
             return 1
         }
     }

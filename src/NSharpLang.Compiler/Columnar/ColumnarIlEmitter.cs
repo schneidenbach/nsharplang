@@ -3893,8 +3893,6 @@ internal sealed class ColumnarIlEmitter
         var objectCtor = typeof(object).GetConstructor(Type.EmptyTypes)!;
         foreach (var job in structCtorJobs)
         {
-            if (job.Ctor.Body.LocalFunctions != null)
-                return false; // local functions in CONSTRUCTOR bodies — a later rung.
             var cil = job.Builder.GetILGenerator();
             var emitter = new ColumnarIlEmitter(
                 job.Ctor.Body.BodyNodes, source, job.Ordinals, job.ParamTypes, typeof(void), cil, siblings,

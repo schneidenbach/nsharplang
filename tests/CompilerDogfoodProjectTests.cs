@@ -10148,6 +10148,7 @@ func outer(x: int): int {
         Assert.False(RouteColumnarProgram("func pull(p: Func<int>): int {\n    return p()\n}\n\nfunc f(): int {\n    func nine(): int {\n        return 9\n    }\n    return pull(nine)\n}\n").Ok);
         // a local function in a MEMBER body.
         Assert.False(RouteColumnarProgram("class C {\n    n: int\n    func M(v: int): int {\n        func g(x: int): int {\n            return x + 1\n        }\n        return g(v)\n    }\n}\n\nfunc f(): int {\n    return 2\n}\n").Ok);
+        Assert.False(RouteColumnarProgram("class C {\n    n: int\n    constructor(v: int) {\n        func g(x: int): int {\n            return x + 1\n        }\n        n = g(v)\n    }\n}\n\nfunc f(): int {\n    return 2\n}\n").Ok);
         // a LAMBDA argument to a local function — ORACLE DEFECT (NL103 "No matching overload for local
         // function use", found by parity; lambda-to-SIBLING works): columnar declines to avoid an
         // acceptance divergence until the oracle's local-function lambda binding is fixed.

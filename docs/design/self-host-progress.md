@@ -11,6 +11,12 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Constructor local-function decline moves into N# struct parser
+
+`ParseColumnarStructInfoCore` now composes the constructor parser with direct local-function discovery and
+rejects constructor bodies that declare local functions before C# materializes constructor inputs. The
+emitter-side constructor local-function guard was removed without widening the constructor parser ABI.
+
 ## 2026-06-16 — Member generic-method decline moves into N# struct parser
 
 `ParseColumnarStructInfoCore` now rejects generic methods declared inside class/record/struct bodies by
