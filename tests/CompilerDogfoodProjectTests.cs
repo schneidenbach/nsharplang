@@ -13346,20 +13346,14 @@ func documented(): int {
         Assert.True((bool)(tryExtractVariableDeclarationName.Invoke(null, noVariableNameArgs) ?? false));
         Assert.Null(noVariableNameArgs[4]);
 
-        var tryClassifyDiagnosticClusterTraits = adapterType.GetMethod(
-                "TryClassifyDiagnosticClusterTraits",
-                BindingFlags.Static | BindingFlags.NonPublic)
-            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryClassifyDiagnosticClusterTraits.");
         var diagnostics = BuildDiagnosticClusterTraitDiagnostics();
-        var classificationArgs = new object?[] { diagnostics, null, null };
-        Assert.True((bool)(tryClassifyDiagnosticClusterTraits.Invoke(null, classificationArgs) ?? false));
-        Assert.Equal(new[] { 1, 0, 2, 3, 4, 5, 6, 7 }, Assert.IsType<int[]>(classificationArgs[1]));
-        Assert.Equal(new[] { 1, 0, 4, 0, 2, 5, 7, 8 }, Assert.IsType<int[]>(classificationArgs[2]));
+        Assert.True(OutputFormatterDiagnosticClusterKernels.TryClassifyDiagnosticClusterTraits(
+            diagnostics,
+            out var categories,
+            out var sourceConstructs));
+        Assert.Equal(new[] { 1, 0, 2, 3, 4, 5, 6, 7 }, categories);
+        Assert.Equal(new[] { 1, 0, 4, 0, 2, 5, 7, 8 }, sourceConstructs);
 
-        var tryGroupDiagnosticClusters = adapterType.GetMethod(
-                "TryGroupDiagnosticClusters",
-                BindingFlags.Static | BindingFlags.NonPublic)
-            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryGroupDiagnosticClusters.");
         var groupingDiagnostics = new List<DiagnosticResult>
         {
             BuildDiagnosticWithSeverity("error", 10) with
@@ -13384,22 +13378,18 @@ func documented(): int {
                 Message = "Undefined variable 'value'"
             }
         };
-        var groupingArgs = new object?[]
-        {
+        Assert.True(OutputFormatterDiagnosticClusterKernels.TryGroupDiagnosticClusters(
             groupingDiagnostics,
             new[] { 1, 1, 3 },
             new[] { 0, 0, 0 },
             new[] { "Expected token {value}", "Expected token {value}", "Undefined variable {value}" },
-            null
-        };
-        Assert.True((bool)(tryGroupDiagnosticClusters.Invoke(null, groupingArgs) ?? false));
-        var grouping = groupingArgs[4] ?? throw new InvalidOperationException("Dogfood adapter did not return a grouping result.");
-        var groupingType = grouping.GetType();
-        Assert.Equal(2, (int)(groupingType.GetProperty("GroupCount")?.GetValue(grouping) ?? -1));
-        Assert.Equal(new[] { 1, 2 }, Assert.IsType<int[]>(groupingType.GetProperty("RootIndices")?.GetValue(grouping)).Take(2));
-        Assert.Equal(new[] { 2, 1 }, Assert.IsType<int[]>(groupingType.GetProperty("Counts")?.GetValue(grouping)).Take(2));
-        Assert.Equal(new[] { 0, 2 }, Assert.IsType<int[]>(groupingType.GetProperty("MemberStarts")?.GetValue(grouping)).Take(2));
-        Assert.Equal(new[] { 1, 0, 2 }, Assert.IsType<int[]>(groupingType.GetProperty("MemberIndices")?.GetValue(grouping)).Take(3));
+            out var grouping));
+        Assert.NotNull(grouping);
+        Assert.Equal(2, grouping.GroupCount);
+        Assert.Equal(new[] { 1, 2 }, grouping.RootIndices.Take(2));
+        Assert.Equal(new[] { 2, 1 }, grouping.Counts.Take(2));
+        Assert.Equal(new[] { 0, 2 }, grouping.MemberStarts.Take(2));
+        Assert.Equal(new[] { 1, 0, 2 }, grouping.MemberIndices.Take(3));
 
         var tryDeduplicateDiagnostics = adapterType.GetMethod(
                 "TryDeduplicateDiagnostics",

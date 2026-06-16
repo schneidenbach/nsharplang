@@ -1090,7 +1090,7 @@ public static class OutputFormatter
         if (classified.CategoryIds == null
             || classified.SourceConstructIds == null
             || classified.MessagePatterns == null
-            || !NSharpCodeIntelligenceDogfoodAdapter.TryGroupDiagnosticClusters(
+            || !OutputFormatterDiagnosticClusterKernels.TryGroupDiagnosticClusters(
                 classified.Diagnostics,
                 classified.CategoryIds,
                 classified.SourceConstructIds,
@@ -1202,7 +1202,7 @@ public static class OutputFormatter
     {
         var classified = new List<ClassifiedDiagnostic>(results.Count);
         var diagnostics = new DiagnosticResult[results.Count];
-        if (NSharpCodeIntelligenceDogfoodAdapter.TryClassifyDiagnosticClusterTraits(
+        if (OutputFormatterDiagnosticClusterKernels.TryClassifyDiagnosticClusterTraits(
                 results,
                 out var categories,
                 out var sourceConstructs))

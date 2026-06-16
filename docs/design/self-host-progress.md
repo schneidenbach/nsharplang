@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Output formatter diagnostic-cluster kernels leave the code-intelligence adapter
+
+Diagnostic-cluster trait classification, compact group construction, and compact group-member
+materialization now route through `OutputFormatterDiagnosticClusterKernels`, beside the output
+formatter that builds clustered diagnostic JSON/text. The broad
+`NSharpCodeIntelligenceDogfoodAdapter` no longer owns the diagnostic-cluster trait/group delegates,
+grouping DTO, or scratch arrays; the existing C# classification/grouping fallback remains in
+`OutputFormatter`.
+Focused evidence: `dotnet build src/NSharpLang.Compiler/Compiler.csproj --no-restore`; `dotnet
+test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.CodeIntelligenceDogfoodAdapter_LoadsPackagedNSharpAssembly"`;
+`./scripts/dev.sh --since`.
+
 ## 2026-06-16 — Output formatter reference-file summaries leave the code-intelligence adapter
 
 Inspect-summary reference-file lists and diagnostic-cluster file lists now route through
@@ -10761,7 +10773,8 @@ or stand up the N#-native pooled `Token`/`TokenStream` so the parser can consume
   beside the consuming command or resolver.
 - `NSharpCodeIntelligenceDogfoodAdapter` — still present as a temporary transition boundary. Text-edit ordering
   moved to `FixApplicatorTextEditOrderer` on 2026-06-16, output-format severity summary/filtering
-  moved to `OutputFormatterDiagnosticKernels`, output-format reference-file summaries moved to
-  `OutputFormatterReferenceFileKernels`, and DocQuery type/reference-pack de-duplication, best-type
-  selection, and member ordering moved to `DocQueryKernels`; remaining routed kernels still cross
-  the ~1.2 ns delegate-dispatch + bounds-check floor documented in the boundary profiling doc.
+  moved to `OutputFormatterDiagnosticKernels`, output-format diagnostic-cluster trait/group kernels
+  moved to `OutputFormatterDiagnosticClusterKernels`, output-format reference-file summaries moved
+  to `OutputFormatterReferenceFileKernels`, and DocQuery type/reference-pack de-duplication,
+  best-type selection, and member ordering moved to `DocQueryKernels`; remaining routed kernels
+  still cross the ~1.2 ns delegate-dispatch + bounds-check floor documented in the boundary profiling doc.

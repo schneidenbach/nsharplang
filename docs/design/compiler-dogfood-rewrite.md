@@ -869,7 +869,9 @@ ran about 5.82x faster on the representative diagnostic corpus (79.627 us vs 463
 2,216,992 B) and about 5.89x faster on the large generated diagnostic corpus (635.812 us vs
 3.746 ms, 0 B vs 17,838,904 B). This is acceptance-grade benchmark evidence for the CLI/query
 diagnostic clustering trait pass; message-pattern materialization intentionally remains in the
-formatter boundary for the public JSON schema.
+formatter boundary for the public JSON schema. The production output-format route now binds this
+kernel through `OutputFormatterDiagnosticClusterKernels` instead of the broad code-intelligence
+dogfood adapter.
 
 `DiagnosticClusterTraitsAndPatternsInto` passed parity through the checksum wrapper, but missed the
 normal BenchmarkDotNet speed gate for combined trait and public message-pattern materialization. The
@@ -925,7 +927,9 @@ normal BenchmarkDotNet evidence tier for the clustered diagnostic grouping kerne
 faster on the representative diagnostic cluster corpus (16.570 us vs 111.999 us, 0 B vs 141,136 B)
 and about 10.59x faster on the large generated diagnostic cluster corpus (77.336 us vs 819.389 us,
 0 B vs 719,184 B). This is acceptance-grade benchmark evidence for the compact integer grouping
-shape after category/source/rewrite/message dimensions have been classified.
+shape after category/source/rewrite/message dimensions have been classified. The production
+output-format route now binds this kernel through `OutputFormatterDiagnosticClusterKernels` instead
+of the broad code-intelligence dogfood adapter.
 
 `DiagnosticClusterCompactGroupMembersInto` passed parity and reported zero managed allocation in the
 same normal BenchmarkDotNet evidence tier for post-group diagnostic member indexing. The first
@@ -935,7 +939,8 @@ ordered by root location, and flattens member indices into caller-owned buffers.
 faster on the representative diagnostic cluster corpus (11.179 us vs 487.282 us, 0 B vs 32,840 B)
 and about 66.8x faster on the large generated diagnostic cluster corpus (115.806 us vs 7.741 ms,
 0 B vs 65,664 B). The production clustered-diagnostic formatter now consumes those N# member spans
-instead of running the former C# per-group scan and sort.
+through `OutputFormatterDiagnosticClusterKernels` instead of running the former C# per-group scan
+and sort through the broad code-intelligence dogfood adapter.
 
 `DiagnosticClusterIdsInto` passed parity but missed the normal BenchmarkDotNet speed gate for public
 cluster id string materialization. After replacing per-id hex `ToString("x")` and final string
