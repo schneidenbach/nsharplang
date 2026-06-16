@@ -1106,6 +1106,27 @@ func ParserDeclarationSpanText(source: string, start: int, length: int): string 
     return source.Substring(start, length)
 }
 
+func ParserDeclarationSourceSpansEqual(source: string, leftStart: int, leftLength: int, rightStart: int, rightLength: int): bool {
+    if leftStart < 0 || rightStart < 0 || leftLength != rightLength {
+        return false
+    }
+
+    if leftStart + leftLength > source.Length || rightStart + rightLength > source.Length {
+        return false
+    }
+
+    i := 0
+    while i < leftLength {
+        if source[leftStart + i] != source[rightStart + i] {
+            return false
+        }
+
+        i = i + 1
+    }
+
+    return true
+}
+
 func ParserDeclarationNextEnumValue(value: int): int {
     if value == 2147483647 {
         return 0 - 2147483647 - 1

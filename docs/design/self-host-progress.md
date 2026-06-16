@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Generic member-name collision decline moves into N# struct parser
+
+`ParseColumnarStructInfoCore` now compares generic type-parameter spans against field, method, and
+property member-name spans and rejects collisions before handing rows to C#. This removes the
+adapter-side `HashSet<string>` check over materialized member names while preserving the NL306 parity
+decline for shapes like `record W<T> { T: int }`, `func T()`, and property `T`.
+
 ## 2026-06-16 — Record constructor decline moves into N# struct parser
 
 `ParseColumnarStructInfoInto` now receives the declaration's record flag and

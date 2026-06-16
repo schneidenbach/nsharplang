@@ -382,29 +382,6 @@ internal static class NSharpCompilerDogfoodAdapter
                     properties.Add(propInput);
                 }
 
-                if (typeParamNames != null)
-                {
-                    // Pipeline NL306 parity: a MEMBER name colliding with a TYPE-PARAMETER name is "already
-                    // declared in this scope" — decline (adversarial-review finding: columnar accepted
-                    // `record W<T> { T: int }` shapes the pipeline rejects).
-                    var typeParamSet = new System.Collections.Generic.HashSet<string>(typeParamNames, System.StringComparer.Ordinal);
-                    foreach (var fn in fieldNames)
-                    {
-                        if (typeParamSet.Contains(fn))
-                            return false;
-                    }
-                    foreach (var m in methods)
-                    {
-                        if (typeParamSet.Contains(m.Name))
-                            return false;
-                    }
-                    foreach (var p in properties)
-                    {
-                        if (typeParamSet.Contains(p.Name))
-                            return false;
-                    }
-                }
-
                 structs.Add(new Columnar.ColumnarStructInput(structName, fieldNames, fieldTypes, methods, constructors, properties, isReference, baseNames, fieldStatics, fieldInitKinds, fieldInitTexts, isRecord, typeParamNames));
             }
             return true;
