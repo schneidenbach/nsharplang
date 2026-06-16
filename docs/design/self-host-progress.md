@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — SoA row types reject inside attribute typeof arguments
+
+Attribute argument validation now scans `typeof(...)` type-reference trees for unsupported SoA row
+types before the emitter resolves custom-attribute arguments. This closes an attribute-only escape
+where `[TypeMarker(typeof(NodeTable.Row))]` or a parameter attribute could bypass the normal
+`typeof` expression analyzer and reach IL emission. The scan also covers aliases such as `Nodes.Row`
+and nested generic references like `Func<int, NodeTable.Row>` without changing ordinary generic
+attribute type resolution.
+Focused evidence: targeted regression failed before the analyzer change and then passed with
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~SoaRecordTests.Analyzer_SoaRowTypeCannotBeUsedInAttributeTypeofArguments"`.
+
 ## 2026-06-16 — SoA defaults reject across parameter sites
 
 SoA table optional-parameter defaults now use the shared parameter validator everywhere parsed

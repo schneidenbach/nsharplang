@@ -3555,6 +3555,83 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaRowTypeCannotBeUsedInAttributeTypeofArguments()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var cases = new[]
+        {
+            (Source: """
+            class TypeMarkerAttribute: Attribute {
+                constructor(valueType: Type) {
+                }
+            }
+
+            soa record NodeTable {
+                kind: int
+            }
+
+            [TypeMarker(typeof(NodeTable.Row))]
+            class Holder {
+            }
+            """, RowType: "NodeTable.Row"),
+            (Source: """
+            class TypeMarkerAttribute: Attribute {
+                constructor(valueType: Type) {
+                }
+            }
+
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad([TypeMarker(typeof(NodeTable.Row))] value: int): int {
+                return value
+            }
+            """, RowType: "NodeTable.Row"),
+            (Source: """
+            class TypeMarkerAttribute: Attribute {
+                constructor(valueType: Type) {
+                }
+            }
+
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
+            [TypeMarker(typeof(Nodes.Row))]
+            class Holder {
+            }
+            """, RowType: "Nodes.Row"),
+            (Source: """
+            class TypeMarkerAttribute: Attribute {
+                constructor(valueType: Type) {
+                }
+            }
+
+            soa record NodeTable {
+                kind: int
+            }
+
+            [TypeMarker(typeof(Func<int, NodeTable.Row>))]
+            class Holder {
+            }
+            """, RowType: "NodeTable.Row")
+        };
+
+        foreach (var (source, rowType) in cases)
+        {
+            var result = Analyze(source);
+            var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+            Assert.Contains($"SoA row type '{rowType}' is not part of this lowering", error.Message);
+            Assert.Contains("table and an int row index", error.Suggestion);
+            Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.TypeNotFound);
+        }
+    }
+
+    [Fact]
     public void Analyzer_SoaRowTypeThroughTableAliasCannotBeUsedInTypeExpressions()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

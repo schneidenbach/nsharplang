@@ -683,7 +683,8 @@ public class Analyzer : IDisposable
             case NullLiteralExpression:
                 kind = AttributeArgumentConstantKind.Null;
                 return true;
-            case TypeOfExpression:
+            case TypeOfExpression typeOfExpression:
+                ReportSoaRowTypeReferencesInAttributeTypeof(typeOfExpression.Type);
                 kind = AttributeArgumentConstantKind.Type;
                 return true;
             case NameofExpression nameofExpression:
@@ -716,6 +717,52 @@ public class Analyzer : IDisposable
                 ReportUnsupportedAttributeArgument(expression, DescribeAttributeArgumentForDiagnostic(expression));
                 kind = AttributeArgumentConstantKind.UnknownStaticMember;
                 return false;
+        }
+    }
+
+    private void ReportSoaRowTypeReferencesInAttributeTypeof(TypeReference typeReference)
+    {
+        switch (typeReference)
+        {
+            case SimpleTypeReference simple:
+                ReportSoaRowTypeReferenceIfNeeded(simple.Name, simple.Line, simple.Column);
+                break;
+            case GenericTypeReference generic:
+                ReportSoaRowTypeReferenceIfNeeded(generic.Name, generic.Line, generic.Column);
+                foreach (var argument in generic.TypeArguments)
+                {
+                    ReportSoaRowTypeReferencesInAttributeTypeof(argument);
+                }
+                break;
+            case ArrayTypeReference array:
+                ReportSoaRowTypeReferencesInAttributeTypeof(array.ElementType);
+                break;
+            case NullableTypeReference nullable:
+                ReportSoaRowTypeReferencesInAttributeTypeof(nullable.InnerType);
+                break;
+            case UnionTypeReference union:
+                foreach (var arm in union.Arms)
+                {
+                    ReportSoaRowTypeReferencesInAttributeTypeof(arm);
+                }
+                break;
+            case TupleTypeReference tuple:
+                foreach (var element in tuple.Elements)
+                {
+                    ReportSoaRowTypeReferencesInAttributeTypeof(element.Type);
+                }
+                break;
+            case FunctionTypeReference function:
+                foreach (var parameterType in function.ParameterTypes)
+                {
+                    ReportSoaRowTypeReferencesInAttributeTypeof(parameterType);
+                }
+
+                ReportSoaRowTypeReferencesInAttributeTypeof(function.ReturnType);
+                break;
+            case ByRefTypeReference byRef:
+                ReportSoaRowTypeReferencesInAttributeTypeof(byRef.InnerType);
+                break;
         }
     }
 

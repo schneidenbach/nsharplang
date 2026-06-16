@@ -288,8 +288,8 @@ The compiler must produce direct diagnostics for common misuse:
 - row type annotations/type expressions: "SoA row type 'NodeTable.Row' is not part of this lowering"
   for direct table names and aliases to SoA tables in parameter, return, local, generic constraint,
   base/interface, function-type, type-pattern, hard-cast and safe-cast targets, composed nullable,
-  tuple, anonymous-union, nested generic/array references, other declared-type positions, `typeof`,
-  and `sizeof`;
+  tuple, anonymous-union, nested generic/array references, other declared-type positions, ordinary
+  and attribute `typeof`, and `sizeof`;
 - mismatched `wrap` columns: "column lengths for NodeTable do not match";
 - null `wrap` columns: "SoA table wrap column 'X' cannot be null" for literal null/default column
   arguments, including parenthesized, checked/unchecked default, and typed array-cast null/default
