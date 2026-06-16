@@ -149,7 +149,7 @@ func ParseEnumDeclarationInfoInto(source: string, tokenKinds: int[], tokenStarts
         return -1
     }
 
-    if !ParseEnumMemberValuesInto(source, ref members, memberCount, outMemberValues) {
+    if !ParseEnumMemberValuesCore(source, ref members, memberCount, outMemberValues) {
         return -1
     }
 

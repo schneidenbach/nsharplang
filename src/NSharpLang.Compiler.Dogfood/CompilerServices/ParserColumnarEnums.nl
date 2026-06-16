@@ -43,7 +43,7 @@ func ParseColumnarEnumInfoCore(source: string, tokens: &ColumnarEnumTokenTable, 
         return -1
     }
 
-    if !ParseEnumMemberValuesInto(source, ref members, memberCount, outputs.MemberValues) {
+    if !ParseEnumMemberValuesCore(source, ref members, memberCount, outputs.MemberValues) {
         return -1
     }
 

@@ -10932,6 +10932,9 @@ func outer(x: int): int {
         Assert.Contains("ParseColumnarFunctionInfoInto", methodNames!); // composed signature + body + local-function routing
         Assert.Contains("ParseColumnarConstructorInfoInto", methodNames!); // composed constructor signature + body routing
         Assert.Contains("ParseColumnarEnumInfoInto", methodNames!); // composed enum text/value routing
+        Assert.Contains("ParseEnumMemberValuesCore", methodNames!); // product enum value parsing helper
+        Assert.DoesNotContain("ParseEnumMemberValuesInto", methodNames!);
+        Assert.DoesNotContain("ParserDeclarationTryParseIntLiteralInto", methodNames!);
         Assert.Contains("ParseColumnarInterfaceInfoInto", methodNames!); // composed interface signature/text routing
         Assert.Contains("ParseColumnarPropertyInfoInto", methodNames!); // composed property accessor + body routing
         Assert.Contains("ParseColumnarStructInfoInto", methodNames!); // composed struct/class/record text routing

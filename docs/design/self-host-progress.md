@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Enum declaration value helpers stop looking like host ABIs
+
+`ParseEnumMemberValuesCore` and `ParserDeclarationTryParseIntLiteralCore` now carry the enum value
+composition work used by product `ParseColumnarEnumInfoInto` and the parity declaration wrappers.
+The old `ParseEnumMemberValuesInto` / `ParserDeclarationTryParseIntLiteralInto` names were internal
+table helpers, not C# adapter boundaries, and the product-cluster test now pins those names absent
+from shipped compiler-service methods.
+
 ## 2026-06-16 — Columnar body parser helpers stop looking like host ABIs
 
 The function, property, and constructor body-node helpers in `ParserColumnarFunctions.nl`,
@@ -182,7 +190,7 @@ The flattened `ParseEnumDeclarationInto`, `ParseEnumDeclarationInfoInto`,
 live in the parity corpus instead of shipped compiler-service product files. Product enum and
 interface parsing already routes through `ParseColumnarEnumInfoInto` /
 `ParseColumnarInterfaceInfoInto`, which compose the typed `ParseEnumDeclarationCore`,
-`ParseEnumMemberValuesInto`, and `ParseInterfaceDeclarationSignatureInfoCore` routes directly. The
+`ParseEnumMemberValuesCore`, and `ParseInterfaceDeclarationSignatureInfoCore` routes directly. The
 product coverage boundary test now pins these ABIs as parity-only while the parity-corpus merge gate
 continues to compile them with the product cores.
 
@@ -282,7 +290,7 @@ adapter and parser parity tests. Focused evidence: `./scripts/dev.sh ParserConst
 ## 2026-06-15 — Enum parser composes declaration core directly
 
 `ParserColumnarEnums.nl` now routes product enum declaration parsing through
-`ParseEnumDeclarationCore` and `ParseEnumMemberValuesInto` with named declaration-token, member, and
+`ParseEnumDeclarationCore` and `ParseEnumMemberValuesCore` with named declaration-token, member, and
 result wrappers instead of re-entering the flattened `ParseEnumDeclarationTextInfoInto`
 compatibility shim from inside N#. The public flattened ABI remains available for the current
 adapter and parser parity tests. Focused evidence:

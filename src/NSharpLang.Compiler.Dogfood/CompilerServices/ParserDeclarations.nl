@@ -1073,7 +1073,7 @@ func ParseInterfaceDeclarationCore(tokens: &ParserDeclarationTokenTable, count: 
     return methodCount
 }
 
-func ParseEnumMemberValuesInto(source: string, members: &EnumMemberTable, memberCount: int, outMemberValues: int[]): bool {
+func ParseEnumMemberValuesCore(source: string, members: &EnumMemberTable, memberCount: int, outMemberValues: int[]): bool {
     if memberCount < 0 || memberCount > outMemberValues.Length {
         return false
     }
@@ -1083,7 +1083,7 @@ func ParseEnumMemberValuesInto(source: string, members: &EnumMemberTable, member
     while i < memberCount {
         value := nextValue
         if members.HasValue[i] != 0 {
-            if !ParserDeclarationTryParseIntLiteralInto(source, members.ValueStarts[i], members.ValueLengths[i], outMemberValues, i) {
+            if !ParserDeclarationTryParseIntLiteralCore(source, members.ValueStarts[i], members.ValueLengths[i], outMemberValues, i) {
                 return false
             }
             value = outMemberValues[i]
@@ -1135,7 +1135,7 @@ func ParserDeclarationNextEnumValue(value: int): int {
     return value + 1
 }
 
-func ParserDeclarationTryParseIntLiteralInto(source: string, start: int, length: int, result: int[], resultIndex: int): bool {
+func ParserDeclarationTryParseIntLiteralCore(source: string, start: int, length: int, result: int[], resultIndex: int): bool {
     if start < 0 || length <= 0 || start + length > source.Length || resultIndex < 0 || resultIndex >= result.Length {
         return false
     }
