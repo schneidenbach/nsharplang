@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Test outcome summary leaves the CLI dogfood adapter
+
+`nlc test` native outcome summary calculation now routes the accepted N#
+`CliTestOutcomeSummaryInto` kernel through `TestCommandKernels`, an owner-local helper beside the
+test command path in `Program`. The broad CLI dogfood adapter no longer owns the test-summary entry
+point, delegate binding, or summary-count scratch array; the existing string-count fallback remains
+in the command.
+Focused evidence: `dotnet build src/NSharpLang.Cli/Cli.csproj --no-restore`; `dotnet test
+tests/Tests.csproj --filter "FullyQualifiedName~CliCommandTests.TestCommandKernels_SummarizesTestOutcomeRanks"`;
+`./scripts/dev.sh --since`.
+
 ## 2026-06-16 — Build operand summary leaves the CLI dogfood adapter
 
 `nlc build` source-file operand discovery now routes the accepted N#
@@ -74,7 +85,7 @@ longer owns the tidy entry points, delegate bindings, ASCII guards, status-rank 
 line/package scratch arrays; the existing C# classification, summary, selection, and line-filter
 fallbacks remain in the command.
 Focused evidence: `dotnet build src/NSharpLang.Cli/Cli.csproj --no-restore`; `dotnet test
-tests/Tests.csproj --filter "FullyQualifiedName~CliCommandTests.TidyCommandKernels_SelectsAndClassifiesDependencies|FullyQualifiedName~CliCommandTests.TidyCommandKernels_FiltersRemovalLines|FullyQualifiedName~CliCommandTests.CliDogfoodAdapter_SummarizesTestOutcomeRanks"`;
+tests/Tests.csproj --filter "FullyQualifiedName~CliCommandTests.TidyCommandKernels_SelectsAndClassifiesDependencies|FullyQualifiedName~CliCommandTests.TidyCommandKernels_FiltersRemovalLines|FullyQualifiedName~CliCommandTests.TestCommandKernels_SummarizesTestOutcomeRanks"`;
 `./scripts/dev.sh --since`.
 
 ## 2026-06-16 — Tree dependency deduplication leaves the CLI dogfood adapter

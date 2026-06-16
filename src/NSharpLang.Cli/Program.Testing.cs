@@ -684,7 +684,7 @@ partial class Program
 
     private static NativeTestSummary SummarizeNativeTestRun(NativeTestRun testRun)
     {
-        if (NSharpCliDogfoodAdapter.TrySummarizeTestOutcomeRanks(
+        if (TestCommandKernels.TrySummarizeOutcomeRanks(
                 testRun.OutcomeRanks,
                 testRun.OutcomeCount,
                 out var dogfoodSummary))

@@ -2030,10 +2030,10 @@ targets, with the previous C# filter kept as the fallback.
 the dogfood assembly is available, preserving exact status matching for JSON `ok` and text summary
 counts, with equivalent C# status-count scans kept as the fallback.
 `nlc test` native xUnit/reflection runs now retain compact outcome ranks as public result objects
-are created, then route text and JSON summary calculation through the compiled N#
-`CliTestOutcomeSummaryInto` kernel when the dogfood assembly is available, preserving `ok` as
-passed-or-skipped-only and preserving public passed/failed/skipped counts, with the previous C#
-string-count summary kept as the fallback.
+are created, then route text and JSON summary calculation through `TestCommandKernels`, which calls
+the compiled N# `CliTestOutcomeSummaryInto` kernel when the dogfood assembly is available,
+preserving `ok` as passed-or-skipped-only and preserving public passed/failed/skipped counts, with
+the previous C# string-count summary kept as the fallback.
 `nlc test --filter` test-case selection remains on the current C# predicates: N# filter matching has
 parity and zero-allocation pressure evidence, but the best measured candidate only reached about
 1.3x-2.0x and therefore misses the 5x production route gate.
