@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Columnar body parser helpers stop looking like host ABIs
+
+The function, property, and constructor body-node helpers in `ParserColumnarFunctions.nl`,
+`ParserColumnarProperties.nl`, and `ParserColumnarConstructors.nl` now use `Core` names instead of
+`Into` names. They are table-ref internal helpers composed by the product-routed
+`ParseColumnar*InfoInto` entries, not flattened C# dogfood adapter boundaries. The multi-file
+product-cluster test now pins the old body-helper `Into` exports absent from the shipped compiler
+service surface.
+
 ## 2026-06-16 — Columnar tokenization composes compaction inside N#
 
 `LexerTokenKindScanner.nl` now exposes `TokenizeColumnarSourceInto` as the product columnar lexer

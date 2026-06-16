@@ -10936,6 +10936,9 @@ func outer(x: int): int {
         Assert.Contains("ParseColumnarPropertyInfoInto", methodNames!); // composed property accessor + body routing
         Assert.Contains("ParseColumnarStructInfoInto", methodNames!); // composed struct/class/record text routing
         Assert.Contains("ParseColumnarUnionInfoInto", methodNames!); // composed union text/type routing
+        Assert.DoesNotContain("ParseColumnarFunctionBodyNodesInto", methodNames!);
+        Assert.DoesNotContain("ParseColumnarConstructorBodyNodesInto", methodNames!);
+        Assert.DoesNotContain("ParseColumnarPropertyBodyNodesInto", methodNames!);
         Assert.Contains("ParseConstructorSignatureInfoCore", methodNames!); // ParserConstructorSignatures -> declarations/signatures/types
         Assert.Contains("ParseInterfaceDeclarationSignatureInfoCore", methodNames!); // ParserInterfaceSignatures -> declarations/signatures/types
         Assert.Contains("DirectLocalFunctionTokenIndicesCore", methodNames!); // ParserLocalFunctions -> declarations/statements

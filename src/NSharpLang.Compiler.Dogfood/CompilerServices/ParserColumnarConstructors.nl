@@ -67,7 +67,7 @@ func ParseColumnarConstructorInfoCore(source: string, tokens: &ColumnarConstruct
     }
 
     bodyResult := new ColumnarConstructorResultTable { Values: new int[](2) }
-    bodyNodeCount := ParseColumnarConstructorBodyNodesInto(ref tokens, bodyBrace, ref body, ref bodyResult)
+    bodyNodeCount := ParseColumnarConstructorBodyNodesCore(ref tokens, bodyBrace, ref body, ref bodyResult)
     if bodyNodeCount <= 0 {
         return -1
     }
@@ -86,7 +86,7 @@ func ParseColumnarConstructorInfoCore(source: string, tokens: &ColumnarConstruct
     return paramCount
 }
 
-func ParseColumnarConstructorBodyNodesInto(tokens: &ColumnarConstructorTokenTable, bodyBrace: int, body: &ColumnarConstructorBodyTable, result: &ColumnarConstructorResultTable): int {
+func ParseColumnarConstructorBodyNodesCore(tokens: &ColumnarConstructorTokenTable, bodyBrace: int, body: &ColumnarConstructorBodyTable, result: &ColumnarConstructorResultTable): int {
     statementTokens := new ParserTokenTable { Kinds: tokens.Kinds, Starts: tokens.Starts, ValueLengths: tokens.ValueLengths }
     argStack := new ParserArgumentStack { Values: new int[](tokens.Count + 1) }
     nodes := new ParserExpressionNodeTable { Kinds: body.NodeKinds, ValueStarts: body.ValueStarts, ValueLengths: body.ValueLengths, ChildStart: body.ChildStart, ChildCount: body.ChildCount, SpanStarts: body.SpanStarts, SpanLengths: body.SpanLengths }

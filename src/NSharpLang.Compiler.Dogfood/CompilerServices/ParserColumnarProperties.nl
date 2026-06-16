@@ -72,7 +72,7 @@ func ParseColumnarPropertyInfoCore(source: string, tokens: &ColumnarPropertyToke
     }
 
     getBodyResult := new ColumnarPropertyResultTable { Values: new int[](2) }
-    getBodyNodeCount := ParseColumnarPropertyBodyNodesInto(ref tokens, getBodyBrace, ref getBody, ref getBodyResult)
+    getBodyNodeCount := ParseColumnarPropertyBodyNodesCore(ref tokens, getBodyBrace, ref getBody, ref getBodyResult)
     if getBodyNodeCount <= 0 {
         return -1
     }
@@ -91,7 +91,7 @@ func ParseColumnarPropertyInfoCore(source: string, tokens: &ColumnarPropertyToke
         }
 
         setBodyResult := new ColumnarPropertyResultTable { Values: new int[](2) }
-        setBodyNodeCount = ParseColumnarPropertyBodyNodesInto(ref tokens, setBodyBrace, ref setBody, ref setBodyResult)
+        setBodyNodeCount = ParseColumnarPropertyBodyNodesCore(ref tokens, setBodyBrace, ref setBody, ref setBodyResult)
         if setBodyNodeCount <= 0 {
             return -1
         }
@@ -117,7 +117,7 @@ func ParseColumnarPropertyInfoCore(source: string, tokens: &ColumnarPropertyToke
     return accessorKind
 }
 
-func ParseColumnarPropertyBodyNodesInto(tokens: &ColumnarPropertyTokenTable, bodyBrace: int, body: &ColumnarPropertyBodyTable, result: &ColumnarPropertyResultTable): int {
+func ParseColumnarPropertyBodyNodesCore(tokens: &ColumnarPropertyTokenTable, bodyBrace: int, body: &ColumnarPropertyBodyTable, result: &ColumnarPropertyResultTable): int {
     statementTokens := new ParserTokenTable { Kinds: tokens.Kinds, Starts: tokens.Starts, ValueLengths: tokens.ValueLengths }
     argStack := new ParserArgumentStack { Values: new int[](tokens.Count + 1) }
     nodes := new ParserExpressionNodeTable { Kinds: body.NodeKinds, ValueStarts: body.ValueStarts, ValueLengths: body.ValueLengths, ChildStart: body.ChildStart, ChildCount: body.ChildCount, SpanStarts: body.SpanStarts, SpanLengths: body.SpanLengths }

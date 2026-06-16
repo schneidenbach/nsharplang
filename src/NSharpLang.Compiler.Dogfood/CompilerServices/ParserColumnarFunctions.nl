@@ -80,7 +80,7 @@ func ParseColumnarFunctionInfoCore(source: string, tokens: &ColumnarFunctionToke
     }
 
     bodyResult := new ColumnarFunctionResultTable { Values: new int[](2) }
-    bodyNodeCount := ParseColumnarFunctionBodyNodesInto(ref tokens, bodyBrace, ref body, ref bodyResult)
+    bodyNodeCount := ParseColumnarFunctionBodyNodesCore(ref tokens, bodyBrace, ref body, ref bodyResult)
     if bodyNodeCount <= 0 {
         return -1
     }
@@ -110,7 +110,7 @@ func ParseColumnarFunctionInfoCore(source: string, tokens: &ColumnarFunctionToke
     return paramCount
 }
 
-func ParseColumnarFunctionBodyNodesInto(tokens: &ColumnarFunctionTokenTable, bodyBrace: int, body: &ColumnarFunctionBodyTable, result: &ColumnarFunctionResultTable): int {
+func ParseColumnarFunctionBodyNodesCore(tokens: &ColumnarFunctionTokenTable, bodyBrace: int, body: &ColumnarFunctionBodyTable, result: &ColumnarFunctionResultTable): int {
     statementTokens := new ParserTokenTable { Kinds: tokens.Kinds, Starts: tokens.Starts, ValueLengths: tokens.ValueLengths }
     argStack := new ParserArgumentStack { Values: new int[](tokens.Count + 1) }
     nodes := new ParserExpressionNodeTable { Kinds: body.NodeKinds, ValueStarts: body.ValueStarts, ValueLengths: body.ValueLengths, ChildStart: body.ChildStart, ChildCount: body.ChildCount, SpanStarts: body.SpanStarts, SpanLengths: body.SpanLengths }
