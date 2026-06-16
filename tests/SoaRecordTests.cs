@@ -657,6 +657,79 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaTableCannotUseDefaultParameterValueOutsideTopLevelFunctions()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var cases = new (string Source, string Message)[]
+        {
+            ("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            class Holder {
+                constructor(nodes: NodeTable = null) {
+                }
+            }
+            """, "SoA table 'NodeTable' cannot be used as a default parameter value"),
+            ("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            class Holder {
+                constructor(nodes: NodeTable = new NodeTable(1)) {
+                }
+            }
+            """, "SoA table 'NodeTable' cannot be used as a default parameter value"),
+            ("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func outer() {
+                func inner(nodes: NodeTable = null) {
+                }
+            }
+            """, "SoA table 'NodeTable' cannot be used as a default parameter value"),
+            ("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            class Holder(nodes: NodeTable = null) {
+            }
+            """, "SoA table 'NodeTable' cannot be used as a default parameter value"),
+            ("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            struct Holder(nodes: NodeTable = null) {
+            }
+            """, "SoA table 'NodeTable' cannot be used as a default parameter value"),
+            ("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            record Holder(nodes: NodeTable = null) {
+            }
+            """, "SoA table 'NodeTable' cannot be used as a default parameter value")
+        };
+
+        foreach (var (source, message) in cases)
+        {
+            var result = Analyze(source);
+            var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidDefaultParameterValue);
+            Assert.Contains(message, error.Message);
+            Assert.Contains("new NodeTable(capacity)", error.Suggestion);
+            Assert.Contains("NodeTable.wrap", error.Suggestion);
+        }
+    }
+
+    [Fact]
     public void Analyzer_SoaTableAliasCannotBeDefaultInitialized()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

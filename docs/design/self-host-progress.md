@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — SoA defaults reject across parameter sites
+
+SoA table optional-parameter defaults now use the shared parameter validator everywhere parsed
+parameter lists enter executable/member analysis: top-level functions, local functions, explicit
+constructors, and class/struct/record primary constructors. This closes a pre-emission safety gap
+where `nodes: NodeTable = null` or `new NodeTable(capacity)` outside a top-level function could
+reach later analysis/emission without the SoA-specific metadata-constant diagnostic. The SoA design
+note now records the covered parameter surfaces.
+Focused evidence: targeted regression failed before the analyzer change and then passed with
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~SoaRecordTests.Analyzer_SoaTableCannotUseDefaultParameterValueOutsideTopLevelFunctions"`;
+`./scripts/dev.sh SoaRecord`; `./scripts/dev.sh --since`.
+
 ## 2026-06-16 — Code-intelligence dogfood adapter removed
 
 The remaining source/text extraction routes now live in `CodeIntelligenceSourceTextKernels`:

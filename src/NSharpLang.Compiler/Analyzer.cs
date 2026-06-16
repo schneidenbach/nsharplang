@@ -1152,11 +1152,7 @@ public class Analyzer : IDisposable
         ResolveGenericConstraintTypes(func.Constraints);
         CheckCircularGenericConstraints(func.TypeParameters, func.Constraints, func.Name, func.Line, func.Column);
 
-        // Validate params parameters
-        ValidateParamsParameters(func.Parameters, func.Line, func.Column);
-
-        // Validate default parameters
-        ValidateDefaultParameters(func.Parameters, func.Line, func.Column);
+        ValidateParameterDeclarations(func.Parameters, func.Line, func.Column);
 
         // Add parameters to scope
         foreach (var param in func.Parameters)
@@ -1664,6 +1660,8 @@ public class Analyzer : IDisposable
         // Add primary constructor parameters to scope (C# 12 feature)
         if (classDecl.PrimaryConstructorParameters != null)
         {
+            ValidateParameterDeclarations(classDecl.PrimaryConstructorParameters, classDecl.Line, classDecl.Column);
+
             foreach (var param in classDecl.PrimaryConstructorParameters)
             {
                 var paramType = ResolveDeclaredType(param.Type);
@@ -1725,6 +1723,8 @@ public class Analyzer : IDisposable
         // Add primary constructor parameters to scope (C# 12 feature)
         if (structDecl.PrimaryConstructorParameters != null)
         {
+            ValidateParameterDeclarations(structDecl.PrimaryConstructorParameters, structDecl.Line, structDecl.Column);
+
             foreach (var param in structDecl.PrimaryConstructorParameters)
             {
                 var paramType = ResolveDeclaredType(param.Type);
@@ -1771,6 +1771,8 @@ public class Analyzer : IDisposable
         // Add primary constructor parameters to scope (C# 12 feature)
         if (recordDecl.PrimaryConstructorParameters != null)
         {
+            ValidateParameterDeclarations(recordDecl.PrimaryConstructorParameters, recordDecl.Line, recordDecl.Column);
+
             foreach (var param in recordDecl.PrimaryConstructorParameters)
             {
                 var paramType = ResolveDeclaredType(param.Type);
@@ -2228,6 +2230,8 @@ public class Analyzer : IDisposable
     {
         _inConstructor = true;
         PushScope(new Scope(ScopeKind.Function), ctor.Line, ctor.Column);
+
+        ValidateParameterDeclarations(ctor.Parameters, ctor.Line, ctor.Column);
 
         // Add parameters to scope
         foreach (var param in ctor.Parameters)
@@ -3701,6 +3705,8 @@ public class Analyzer : IDisposable
                 _scopes.Peek().Symbols[tp.Name] = typeParamInfo;
             }
         }
+
+        ValidateParameterDeclarations(func.Parameters, localFunc.Line, localFunc.Column);
 
         // Add parameters to scope
         foreach (var param in func.Parameters)
@@ -18980,6 +18986,12 @@ public class Analyzer : IDisposable
                 }
             }
         }
+    }
+
+    private void ValidateParameterDeclarations(List<Parameter> parameters, int line, int column)
+    {
+        ValidateParamsParameters(parameters, line, column);
+        ValidateDefaultParameters(parameters, line, column);
     }
 
     private void ValidateDefaultParameters(List<Parameter> parameters, int line, int column)
