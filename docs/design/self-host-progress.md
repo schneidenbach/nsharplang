@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Function parser compatibility wrapper moves to parity corpus
+
+The flattened `ParseColumnarFunctionInfoInto` wrapper moved from the shipped
+`ParserColumnarFunctions.nl` product file to `NSharpLang.Compiler.Dogfood.ParityCorpus`. Production
+still binds `ParseColumnarProductFunctionInfoInto`, which carries the explicit local-function
+context bit for accepted routing, while parser parity tests can still merge the old wrapper back for
+direct compatibility probes.
+Focused evidence: `./scripts/dev.sh ColumnarCodegen_MultiFile_EligibleClusterCompiles` and
+`dotnet test tests/Tests.csproj --filter "FullyQualifiedName~Parser_FunctionSignature_MatchesProductionParser|FullyQualifiedName~ColumnarCodegen_ParityOnlyFiles_AreAbsentFromProductCoverage"`.
+
 ## 2026-06-16 — Interface default-method checks reuse product table refs
 
 `InterfaceDefaultMethodLocalFunctionStatus` now consumes the existing

@@ -11711,8 +11711,8 @@ func outer(x: int): int {
         Assert.Contains("TokenIndexByKindStartCore", methodNames!); // product local-function routing
         Assert.Contains("ParseFunctionSignatureCore", methodNames!); // ParserFunctionSignatures -> ParserTypeReferences
         Assert.Contains("ParseFunctionSignatureInfoCore", methodNames!); // ParserFunctionSignatures -> ParserTypeReferences
-        Assert.Contains("ParseColumnarFunctionInfoInto", methodNames!); // parity-shaped compatibility wrapper
         Assert.Contains("ParseColumnarProductFunctionInfoInto", methodNames!); // product signature + body + local-function routing
+        Assert.DoesNotContain("ParseColumnarFunctionInfoInto", methodNames!);
         Assert.Contains("ParseColumnarConstructorInfoInto", methodNames!); // composed constructor signature + body routing
         Assert.Contains("ParseColumnarEnumInfoInto", methodNames!); // composed enum text/value routing
         Assert.Contains("ParseEnumMemberValuesCore", methodNames!); // product enum value parsing helper
@@ -11823,6 +11823,7 @@ func outer(x: int): int {
             ("ParserFunctionSignatures.nl", "ParseFunctionSignatureTextInfoInto"),
             ("ParserFunctionSignatures.nl", "ParseFunctionSignatureInfoInto"),
             ("ParserFunctionSignatures.nl", "FunctionSignatureWhereOwnerIndicesInto"),
+            ("ParserColumnarFunctions.nl", "ParseColumnarFunctionInfoInto"),
             ("ParserConstructorSignatures.nl", "ParseConstructorSignatureInfoInto"),
             ("ParserInterfaceSignatures.nl", "ParseInterfaceDeclarationSignatureInfoInto"),
             ("ParserLocalFunctions.nl", "DirectLocalFunctionTokenIndicesInto"),
