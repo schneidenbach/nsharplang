@@ -1353,7 +1353,7 @@ dependencies:
     }
 
     [Fact]
-    public void CliDogfoodAdapter_FiltersFixesBySafety()
+    public void FixCommandKernels_FiltersFixesBySafety()
     {
         var fixes = new[]
         {
@@ -1364,7 +1364,7 @@ dependencies:
             NewFix("review null access", FixSafety.ReviewNeeded)
         };
 
-        Assert.True(NSharpCliDogfoodAdapter.TryFilterFixesBySafety(
+        Assert.True(FixCommandKernels.TryFilterBySafety(
             fixes,
             includeReviewNeeded: false,
             out var defaultSafeActions));
@@ -1372,7 +1372,7 @@ dependencies:
             fixes.Where(fix => fix.Safety == FixSafety.Safe),
             defaultSafeActions);
 
-        Assert.True(NSharpCliDogfoodAdapter.TryFilterFixesBySafety(
+        Assert.True(FixCommandKernels.TryFilterBySafety(
             fixes,
             includeReviewNeeded: true,
             out var reviewSafeActions));
@@ -1385,7 +1385,7 @@ dependencies:
     }
 
     [Fact]
-    public void CliDogfoodAdapter_SelectsSkippedFixEntries()
+    public void FixCommandKernels_SelectsSkippedFixEntries()
     {
         var entries = new[]
         {
@@ -1397,7 +1397,7 @@ dependencies:
             NewEntry("review null access", "reviewNeeded")
         };
 
-        Assert.True(NSharpCliDogfoodAdapter.TrySelectSkippedFixEntries(
+        Assert.True(FixCommandKernels.TrySelectSkippedEntries(
             entries,
             includeReviewNeeded: false,
             out var defaultSkipped));
@@ -1405,7 +1405,7 @@ dependencies:
             entries.Where(entry => entry.Safety is not "safe"),
             defaultSkipped);
 
-        Assert.True(NSharpCliDogfoodAdapter.TrySelectSkippedFixEntries(
+        Assert.True(FixCommandKernels.TrySelectSkippedEntries(
             entries,
             includeReviewNeeded: true,
             out var reviewSkipped));
@@ -1418,7 +1418,7 @@ dependencies:
     }
 
     [Fact]
-    public void CliDogfoodAdapter_GroupsAppliedFixEntriesByFile()
+    public void FixCommandKernels_GroupsAppliedFixEntriesByFile()
     {
         var entries = new[]
         {
@@ -1429,7 +1429,7 @@ dependencies:
             NewEntry("src/A.nl", "NL005", "second a")
         };
 
-        Assert.True(NSharpCliDogfoodAdapter.TryGroupAppliedFixEntriesByFile(entries, out var grouping));
+        Assert.True(FixCommandKernels.TryGroupAppliedEntriesByFile(entries, out var grouping));
 
         var actual = new List<(string File, string Code, string Title)>();
         for (var groupIndex = 0; groupIndex < grouping.GroupCount; groupIndex++)

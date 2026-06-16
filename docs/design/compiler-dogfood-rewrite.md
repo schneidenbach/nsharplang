@@ -1604,6 +1604,9 @@ faster on the representative applied-fix corpus (2.081 us vs 27.244 us, 0 B vs 4
 12.8x faster on the large generated corpus (15.710 us vs 200.511 us, 0 B vs 233,952 B). This is
 acceptance-grade benchmark evidence for `nlc fix --text` applied-fix output after the host has
 projected file names into compact integer ranks.
+Production `nlc fix` now routes the accepted safety filter, skipped-fix selector, and applied-file
+grouping kernels through the owner-local `FixCommandKernels` helper when the dogfood assembly is
+available, with the previous LINQ and `GroupBy` paths retained as exact fallbacks.
 
 `CliUnifiedDiffHunkRangesInto` passed parity and reported zero managed allocation in the short
 BenchmarkDotNet evidence tier for `nlc format --diff` hunk range construction after line diffing.

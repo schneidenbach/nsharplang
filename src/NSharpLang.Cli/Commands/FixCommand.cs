@@ -111,7 +111,7 @@ public static class FixCommand
                 {
                     // Collect only edits from fixes that passed the safety gate. Validate in dry-run too so
                     // the JSON never promises a write plan that would later fail or corrupt a file.
-                    var safeActions = NSharpLang.Cli.NSharpCliDogfoodAdapter.TryFilterFixesBySafety(
+                    var safeActions = FixCommandKernels.TryFilterBySafety(
                         fixes,
                         includeReviewNeeded,
                         out var dogfoodSafeActions)
@@ -227,7 +227,7 @@ Examples:
             var fileWord = filesModified == 1 ? "file" : "files";
             Console.Error.WriteLine($"{verb} {applied.Count} issue{(applied.Count == 1 ? "" : "s")} in {filesModified} {fileWord}:");
 
-            if (NSharpLang.Cli.NSharpCliDogfoodAdapter.TryGroupAppliedFixEntriesByFile(applied, out var groupedApplied))
+            if (FixCommandKernels.TryGroupAppliedEntriesByFile(applied, out var groupedApplied))
             {
                 for (var groupIndex = 0; groupIndex < groupedApplied.GroupCount; groupIndex++)
                 {
@@ -257,7 +257,7 @@ Examples:
         }
 
         // Report skipped fixes
-        var skipped = NSharpLang.Cli.NSharpCliDogfoodAdapter.TrySelectSkippedFixEntries(
+        var skipped = FixCommandKernels.TrySelectSkippedEntries(
             results,
             includeReviewNeeded,
             out var dogfoodSkipped)

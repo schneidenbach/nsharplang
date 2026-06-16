@@ -1,0 +1,421 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Reflection;
+using NSharpLang.Compiler;
+
+namespace NSharpLang.Cli.Commands;
+
+internal static class FixCommandKernels
+{
+    private const string DogfoodAssemblyName = "NSharpLang.Compiler.Dogfood";
+
+    [ThreadStatic]
+    private static SafetyFilterScratch? t_safetyFilterScratch;
+    [ThreadStatic]
+    private static AppliedFileGroupingScratch? t_appliedFileGroupingScratch;
+
+    private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
+
+    internal static bool TryFilterBySafety(
+        IReadOnlyList<CodeAction> fixes,
+        bool includeReviewNeeded,
+        out List<CodeAction> safeActions)
+    {
+        safeActions = new List<CodeAction>();
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        var fixCount = fixes.Count;
+        if (fixCount == 0)
+            return true;
+
+        var scratch = t_safetyFilterScratch ??= new SafetyFilterScratch();
+        scratch.EnsureCapacity(fixCount);
+
+        try
+        {
+            for (var i = 0; i < fixCount; i++)
+            {
+                scratch.SafetyRanks[i] = GetFixSafetyRank(fixes[i].Safety);
+            }
+
+            var safeCount = bindings.SafetyFilter(
+                scratch.SafetyRanks,
+                includeReviewNeeded ? 1 : 0,
+                scratch.ResultIndices);
+
+            if (safeCount < 0 || safeCount > fixCount || safeCount > scratch.ResultIndices.Length)
+            {
+                safeActions = new List<CodeAction>();
+                return false;
+            }
+
+            safeActions = new List<CodeAction>(safeCount);
+            for (var i = 0; i < safeCount; i++)
+            {
+                var sourceIndex = scratch.ResultIndices[i];
+                if (sourceIndex < 0 || sourceIndex >= fixCount)
+                {
+                    safeActions = new List<CodeAction>();
+                    return false;
+                }
+
+                safeActions.Add(fixes[sourceIndex]);
+            }
+
+            return true;
+        }
+        catch
+        {
+            safeActions = new List<CodeAction>();
+            return false;
+        }
+    }
+
+    internal static bool TrySelectSkippedEntries(
+        IReadOnlyList<FixEntry> results,
+        bool includeReviewNeeded,
+        out List<FixEntry> skipped)
+    {
+        skipped = new List<FixEntry>();
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        var resultCount = results.Count;
+        if (resultCount == 0)
+            return true;
+
+        var scratch = t_safetyFilterScratch ??= new SafetyFilterScratch();
+        scratch.EnsureCapacity(resultCount);
+
+        try
+        {
+            for (var i = 0; i < resultCount; i++)
+            {
+                scratch.SafetyRanks[i] = GetFixEntrySafetyRank(results[i].Safety);
+            }
+
+            var skippedCount = bindings.SkippedIndices(
+                scratch.SafetyRanks,
+                includeReviewNeeded ? 1 : 0,
+                scratch.ResultIndices);
+
+            if (skippedCount < 0 || skippedCount > resultCount || skippedCount > scratch.ResultIndices.Length)
+            {
+                skipped = new List<FixEntry>();
+                return false;
+            }
+
+            skipped = new List<FixEntry>(skippedCount);
+            for (var i = 0; i < skippedCount; i++)
+            {
+                var sourceIndex = scratch.ResultIndices[i];
+                if (sourceIndex < 0 || sourceIndex >= resultCount)
+                {
+                    skipped = new List<FixEntry>();
+                    return false;
+                }
+
+                skipped.Add(results[sourceIndex]);
+            }
+
+            return true;
+        }
+        catch
+        {
+            skipped = new List<FixEntry>();
+            return false;
+        }
+    }
+
+    internal static bool TryGroupAppliedEntriesByFile(
+        IReadOnlyList<FixEntry> applied,
+        out FixAppliedFileGrouping grouping)
+    {
+        grouping = FixAppliedFileGrouping.Empty;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        var appliedCount = applied.Count;
+        if (appliedCount == 0)
+            return true;
+
+        var scratch = t_appliedFileGroupingScratch ??= new AppliedFileGroupingScratch();
+        scratch.EnsureCapacity(appliedCount);
+
+        try
+        {
+            scratch.Reset();
+            for (var i = 0; i < appliedCount; i++)
+            {
+                var fileRank = scratch.GetOrAddFileRank(applied[i].File);
+                scratch.FileRanks[i] = fileRank;
+            }
+
+            var groupCount = bindings.AppliedFileGroups(
+                scratch.FileRanks,
+                scratch.UniqueFileRankCount,
+                scratch.CountsByRank,
+                scratch.OffsetsByRank,
+                scratch.WriteOffsetsByRank,
+                scratch.ResultRanks,
+                scratch.ResultStarts,
+                scratch.ResultCounts,
+                scratch.ResultIndices);
+
+            if (groupCount < 0
+                || groupCount > scratch.UniqueFileRankCount
+                || groupCount > appliedCount)
+            {
+                return false;
+            }
+
+            var files = new string[groupCount];
+            var starts = new int[groupCount];
+            var counts = new int[groupCount];
+            var indices = new int[appliedCount];
+
+            for (var groupIndex = 0; groupIndex < groupCount; groupIndex++)
+            {
+                var rank = scratch.ResultRanks[groupIndex];
+                var start = scratch.ResultStarts[groupIndex];
+                var count = scratch.ResultCounts[groupIndex];
+                if (rank <= 0
+                    || rank > scratch.UniqueFileRankCount
+                    || start < 0
+                    || count < 0
+                    || start + count > appliedCount)
+                {
+                    return false;
+                }
+
+                files[groupIndex] = scratch.FilesByRank[rank] ?? string.Empty;
+                starts[groupIndex] = start;
+                counts[groupIndex] = count;
+            }
+
+            for (var i = 0; i < appliedCount; i++)
+            {
+                var sourceIndex = scratch.ResultIndices[i];
+                if (sourceIndex < 0 || sourceIndex >= appliedCount)
+                {
+                    return false;
+                }
+
+                indices[i] = sourceIndex;
+            }
+
+            grouping = new FixAppliedFileGrouping(files, starts, counts, indices);
+            return true;
+        }
+        catch
+        {
+            grouping = FixAppliedFileGrouping.Empty;
+            return false;
+        }
+        finally
+        {
+            scratch.Reset();
+        }
+    }
+
+    private static Bindings? LoadBindings()
+    {
+        try
+        {
+            var assembly = TryLoadDogfoodAssembly();
+            var programType = assembly?.GetType("Program");
+            if (programType == null)
+                return null;
+
+            return new Bindings(
+                CreateDelegate<CliFixSafetyFilterIndicesInto>(
+                    programType,
+                    "CliFixSafetyFilterIndicesInto"),
+                CreateDelegate<CliFixSkippedIndicesInto>(
+                    programType,
+                    "CliFixSkippedIndicesInto"),
+                CreateDelegate<CliFixAppliedFileGroupsInto>(
+                    programType,
+                    "CliFixAppliedFileGroupsInto"));
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static Assembly? TryLoadDogfoodAssembly()
+    {
+        try
+        {
+            return Assembly.Load(new AssemblyName(DogfoodAssemblyName));
+        }
+        catch
+        {
+            var assemblyPath = Path.Combine(AppContext.BaseDirectory, $"{DogfoodAssemblyName}.dll");
+            return File.Exists(assemblyPath)
+                ? Assembly.LoadFrom(assemblyPath)
+                : null;
+        }
+    }
+
+    private static TDelegate CreateDelegate<TDelegate>(Type programType, string methodName)
+        where TDelegate : Delegate
+    {
+        var method = programType.GetMethod(
+                methodName,
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+            ?? throw new MissingMethodException(programType.FullName, methodName);
+
+        return (TDelegate)Delegate.CreateDelegate(typeof(TDelegate), method);
+    }
+
+    private static int GetFixSafetyRank(FixSafety safety) =>
+        safety switch
+        {
+            FixSafety.Safe => 1,
+            FixSafety.ReviewNeeded => 2,
+            FixSafety.SuggestionOnly => 3,
+            _ => 0
+        };
+
+    private static int GetFixEntrySafetyRank(string safety) =>
+        safety switch
+        {
+            "safe" => 1,
+            "reviewNeeded" => 2,
+            "suggestionOnly" => 3,
+            _ => 0
+        };
+
+    private delegate int CliFixSafetyFilterIndicesInto(
+        int[] safetyRanks,
+        int includeReviewNeeded,
+        int[] resultIndices);
+
+    private delegate int CliFixSkippedIndicesInto(
+        int[] safetyRanks,
+        int includeReviewNeeded,
+        int[] resultIndices);
+
+    private delegate int CliFixAppliedFileGroupsInto(
+        int[] fileRanks,
+        int uniqueFileRankCount,
+        int[] countsByRank,
+        int[] offsetsByRank,
+        int[] writeOffsetsByRank,
+        int[] resultRanks,
+        int[] resultStarts,
+        int[] resultCounts,
+        int[] resultIndices);
+
+    private sealed record Bindings(
+        CliFixSafetyFilterIndicesInto SafetyFilter,
+        CliFixSkippedIndicesInto SkippedIndices,
+        CliFixAppliedFileGroupsInto AppliedFileGroups);
+
+    private sealed class SafetyFilterScratch
+    {
+        internal int[] ResultIndices = Array.Empty<int>();
+        internal int[] SafetyRanks = Array.Empty<int>();
+
+        internal void EnsureCapacity(int fixCount)
+        {
+            if (SafetyRanks.Length != fixCount)
+            {
+                SafetyRanks = new int[fixCount];
+                ResultIndices = new int[fixCount];
+            }
+        }
+    }
+
+    private sealed class AppliedFileGroupingScratch
+    {
+        private readonly Dictionary<string, int> _fileRanks = new(StringComparer.Ordinal);
+
+        internal int[] CountsByRank = Array.Empty<int>();
+        internal int[] FileRanks = Array.Empty<int>();
+        internal string?[] FilesByRank = Array.Empty<string?>();
+        internal int[] OffsetsByRank = Array.Empty<int>();
+        internal int[] ResultCounts = Array.Empty<int>();
+        internal int[] ResultIndices = Array.Empty<int>();
+        internal int[] ResultRanks = Array.Empty<int>();
+        internal int[] ResultStarts = Array.Empty<int>();
+        internal int UniqueFileRankCount;
+        internal int[] WriteOffsetsByRank = Array.Empty<int>();
+
+        internal void EnsureCapacity(int appliedCount)
+        {
+            if (FileRanks.Length != appliedCount)
+            {
+                FileRanks = new int[appliedCount];
+                ResultCounts = new int[appliedCount];
+                ResultIndices = new int[appliedCount];
+                ResultRanks = new int[appliedCount];
+                ResultStarts = new int[appliedCount];
+            }
+
+            var rankCapacity = appliedCount + 1;
+            if (CountsByRank.Length != rankCapacity)
+            {
+                CountsByRank = new int[rankCapacity];
+                FilesByRank = new string?[rankCapacity];
+                OffsetsByRank = new int[rankCapacity];
+                WriteOffsetsByRank = new int[rankCapacity];
+            }
+        }
+
+        internal int GetOrAddFileRank(string file)
+        {
+            if (_fileRanks.TryGetValue(file, out var rank))
+                return rank;
+
+            rank = UniqueFileRankCount + 1;
+            _fileRanks.Add(file, rank);
+            FilesByRank[rank] = file;
+            UniqueFileRankCount = rank;
+            return rank;
+        }
+
+        internal void Reset()
+        {
+            _fileRanks.Clear();
+            if (UniqueFileRankCount > 0)
+            {
+                Array.Clear(FilesByRank, 0, UniqueFileRankCount + 1);
+                UniqueFileRankCount = 0;
+            }
+        }
+    }
+}
+
+internal sealed class FixAppliedFileGrouping
+{
+    internal static readonly FixAppliedFileGrouping Empty = new(
+        Array.Empty<string>(),
+        Array.Empty<int>(),
+        Array.Empty<int>(),
+        Array.Empty<int>());
+
+    internal FixAppliedFileGrouping(string[] files, int[] starts, int[] counts, int[] indices)
+    {
+        Files = files;
+        Starts = starts;
+        Counts = counts;
+        Indices = indices;
+    }
+
+    internal string[] Files { get; }
+    internal int GroupCount => Files.Length;
+    internal int[] Starts { get; }
+    internal int[] Counts { get; }
+    internal int[] Indices { get; }
+}

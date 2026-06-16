@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Fix command kernels leave the CLI dogfood adapter
+
+`nlc fix` safety filtering, skipped-fix text selection, and applied-fix file grouping now route
+through `FixCommandKernels`, an owner-local helper beside `FixCommand`. The broad CLI dogfood
+adapter no longer owns the fix safety/skipped/applied grouping entry points, delegate bindings,
+safety-rank projection, grouping DTO, or scratch arrays; the existing LINQ and `GroupBy` fallbacks
+remain in the command.
+Focused evidence: `dotnet build src/NSharpLang.Cli/Cli.csproj --no-restore`; `dotnet test
+tests/Tests.csproj --filter "FullyQualifiedName~CliCommandTests.FixCommandKernels_FiltersFixesBySafety|FullyQualifiedName~CliCommandTests.FixCommandKernels_SelectsSkippedFixEntries|FullyQualifiedName~CliCommandTests.FixCommandKernels_GroupsAppliedFixEntriesByFile"`.
+
 ## 2026-06-16 — Unified diff hunk ranges leave the CLI dogfood adapter
 
 `UnifiedDiff.Create` now routes accepted N# hunk-range construction through
