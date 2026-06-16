@@ -11,6 +11,19 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Table-driven test case values fail before emission
+
+Table-driven test case rows now get analyzer validation before xUnit/NUnit custom attributes are
+emitted. The parser stores each row cell as an expression, but the IL backend can only materialize
+inline-data metadata for scalar literal values; unsupported cells such as `build()` previously
+survived analysis and failed inside `GetInlineDataValue`. The analyzer now reports NL310 on
+unsupported table data, accepts parenthesized and negated scalar literals, and preserves the SoA
+row-type diagnostic for `typeof(NodeTable.Row)` in table rows instead of replacing it with a generic
+constant-shape error. The IL inline-data evaluator now matches the accepted parenthesized/negated
+literal shapes.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~AnalyzerTests.TableDrivenTestCases|FullyQualifiedName~SoaRecordTests.Analyzer_SoaRowTypeCannotBeUsedInTableTestCaseTypeofValue|FullyQualifiedName~ILCompiler_EmitsTheoryMetadataForTableDrivenTests|FullyQualifiedName~ILCompiler_EmitsNUnitTestCaseMetadata"`;
+`./scripts/dev.sh SoaRecord`; `./scripts/dev.sh --since`.
+
 ## 2026-06-16 — SoA row types reject in table test parameter attributes
 
 Table-driven test headers now participate in parameter-attribute validation. Their parsed

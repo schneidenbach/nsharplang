@@ -1083,6 +1083,11 @@ public class Analyzer : IDisposable
                             $"This test case has {row.Count} values but the table header declares {test.TableParameters.Count} parameters — each row must have exactly one value per parameter",
                             test.Line, test.Column);
                     }
+
+                    foreach (var value in row)
+                    {
+                        ValidateTableCaseValue(value);
+                    }
                 }
             }
         }
@@ -1090,6 +1095,62 @@ public class Analyzer : IDisposable
         AnalyzeStatements(test.Body.Statements);
 
         PopScope();
+    }
+
+    private void ValidateTableCaseValue(Expression expression)
+    {
+        if (IsSupportedTableCaseValue(expression))
+        {
+            return;
+        }
+
+        var errorsBefore = _errors.Count;
+        if (expression is TypeOfExpression typeOfExpression)
+        {
+            ReportSoaRowTypeReferencesInAttributeTypeof(typeOfExpression.Type);
+        }
+
+        if (_errors.Count != errorsBefore)
+        {
+            return;
+        }
+
+        var (line, column, length) = GetExpressionDiagnosticSpan(expression);
+        Error(
+            ErrorCode.ConstantRequired,
+            $"Table-driven test case values must be compile-time constants; {DescribeTableCaseValueForDiagnostic(expression)} is not supported here",
+            line,
+            column,
+            "Use literal int, float, char, string, bool, or null values in table rows.",
+            length);
+    }
+
+    private static bool IsSupportedTableCaseValue(Expression expression)
+    {
+        return expression switch
+        {
+            IntLiteralExpression
+                or FloatLiteralExpression
+                or CharLiteralExpression
+                or StringLiteralExpression
+                or BoolLiteralExpression
+                or NullLiteralExpression => true,
+            ParenthesizedExpression parenthesized => IsSupportedTableCaseValue(parenthesized.Inner),
+            UnaryExpression { Operator: UnaryOperator.Negate, Operand: IntLiteralExpression or FloatLiteralExpression } => true,
+            _ => false
+        };
+    }
+
+    private string DescribeTableCaseValueForDiagnostic(Expression expression)
+    {
+        var description = DescribeExpressionForDiagnostic(expression);
+        return expression switch
+        {
+            CallExpression => "call",
+            TypeOfExpression => "typeof expression",
+            _ when description.Contains(' ', StringComparison.Ordinal) => description,
+            _ => $"{char.ToLowerInvariant(description[0])}{description[1..]} expression"
+        };
     }
 
     private void AnalyzeSetupDeclaration(SetupDeclaration setup)

@@ -289,8 +289,9 @@ The compiler must produce direct diagnostics for common misuse:
   for direct table names and aliases to SoA tables in function/indexer parameter and return
   annotations, local, generic constraint, base/interface, function-type, type-pattern, hard-cast and
   safe-cast targets, composed nullable, tuple, anonymous-union, nested generic/array references,
-  other declared-type positions, ordinary `typeof`, declaration/parameter attribute `typeof`
-  including table-driven test header parameters, and `sizeof`;
+  other declared-type positions, ordinary `typeof`, table-driven test case `typeof`,
+  declaration/parameter attribute `typeof` including table-driven test header parameters, and
+  `sizeof`;
 - mismatched `wrap` columns: "column lengths for NodeTable do not match";
 - null `wrap` columns: "SoA table wrap column 'X' cannot be null" for literal null/default column
   arguments, including parenthesized, checked/unchecked default, and typed array-cast null/default

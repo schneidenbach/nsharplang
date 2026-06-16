@@ -1327,7 +1327,34 @@ public partial class ILCompiler
             StringLiteralExpression stringLiteral => StringLiteralDecoder.Decode(stringLiteral.Value),
             BoolLiteralExpression boolLiteral => boolLiteral.Value,
             NullLiteralExpression => null,
+            ParenthesizedExpression parenthesized => GetInlineDataValue(parenthesized.Inner),
+            UnaryExpression { Operator: UnaryOperator.Negate, Operand: IntLiteralExpression intLiteral } =>
+                NegateInlineDataInteger(intLiteral.Value),
+            UnaryExpression { Operator: UnaryOperator.Negate, Operand: FloatLiteralExpression floatLiteral } =>
+                NegateInlineDataFloat(ParseFloatingLiteralObject(floatLiteral.Value)),
             _ => throw new NotSupportedException($"InlineData does not support {expression.GetType().Name} in IL compiler")
+        };
+    }
+
+    private static int NegateInlineDataInteger(string text)
+    {
+        var magnitude = NumericLiteralFacts.ParseUnsignedIntegerMagnitude(text);
+        return magnitude switch
+        {
+            2147483648UL => int.MinValue,
+            <= int.MaxValue => -(int)magnitude,
+            _ => checked(-(int)magnitude)
+        };
+    }
+
+    private static object NegateInlineDataFloat(object value)
+    {
+        return value switch
+        {
+            float floatValue => -floatValue,
+            double doubleValue => -doubleValue,
+            decimal decimalValue => -decimalValue,
+            _ => throw new NotSupportedException($"InlineData does not support negating {value.GetType().Name} in IL compiler")
         };
     }
 

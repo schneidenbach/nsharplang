@@ -10471,6 +10471,38 @@ func Main() {
     }
 
     [Fact]
+    public void TableDrivenTestCases_SupportedInlineDataConstants_AreValid()
+    {
+        AssertNoErrors("""
+            test "constants" with (a: int, b: int, ratio: double, ch: char, text: string, flag: bool, value: object) [
+                (1, -2, (-1.5), 'x', "ok", true, null),
+                (-2147483648, 2147483647, -1.5, 'm', "min", false, null)
+            ] {
+            }
+            """);
+    }
+
+    [Fact]
+    public void TableDrivenTestCases_UnsupportedExpressions_ReportConstantRequired()
+    {
+        var result = AnalyzeWithSource("""
+            func build(): int {
+                return 1
+            }
+
+            test "bad table case" with (value: int) [
+                (build())
+            ] {
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.ConstantRequired);
+        Assert.Contains("Table-driven test case values must be compile-time constants", error.Message);
+        Assert.Contains("call", error.Message);
+        Assert.Contains("literal int, float, char, string, bool, or null", error.Suggestion);
+    }
+
+    [Fact]
     public void AnonymousUnion_AllowsEitherArmAndCommonTargetAssignment()
     {
         AssertNoErrors(@"

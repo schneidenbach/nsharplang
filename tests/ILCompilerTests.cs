@@ -7246,7 +7246,9 @@ func add(a: int, b: int): int {
 
 test ""should add"" with (a: int, b: int, expected: int) [
     (1, 2, 3),
-    (0, 0, 0)
+    (0, 0, 0),
+    (-1, (2), 1),
+    (-2147483648, 2147483647, -1)
 ] {
     assert add(a, b) == expected
 }";
@@ -7264,9 +7266,11 @@ test ""should add"" with (a: int, b: int, expected: int) [
                 .OfType<NUnit.Framework.TestCaseAttribute>()
                 .ToList();
 
-            Assert.Equal(2, testCaseAttributes.Count);
+            Assert.Equal(4, testCaseAttributes.Count);
             Assert.Equal(new object?[] { 1, 2, 3 }, testCaseAttributes[0].Arguments);
             Assert.Equal(new object?[] { 0, 0, 0 }, testCaseAttributes[1].Arguments);
+            Assert.Equal(new object?[] { -1, 2, 1 }, testCaseAttributes[2].Arguments);
+            Assert.Equal(new object?[] { int.MinValue, int.MaxValue, -1 }, testCaseAttributes[3].Arguments);
             return true;
         });
     }
@@ -7281,7 +7285,9 @@ func add(a: int, b: int): int {
 
 test ""should add"" with (a: int, b: int, expected: int) [
     (1, 2, 3),
-    (0, 0, 0)
+    (0, 0, 0),
+    (-1, (2), 1),
+    (-2147483648, 2147483647, -1)
 ] {
     assert add(a, b) == expected
 }";
@@ -7299,15 +7305,19 @@ test ""should add"" with (a: int, b: int, expected: int) [
                 .Where(attribute => attribute.AttributeType.FullName == "Xunit.InlineDataAttribute")
                 .ToList();
 
-            Assert.Equal(2, inlineDataAttributes.Count);
+            Assert.Equal(4, inlineDataAttributes.Count);
             Assert.Equal(new object?[] { new object?[] { 1, 2, 3 } }, GetAttributeArguments(inlineDataAttributes[0]));
             Assert.Equal(new object?[] { new object?[] { 0, 0, 0 } }, GetAttributeArguments(inlineDataAttributes[1]));
+            Assert.Equal(new object?[] { new object?[] { -1, 2, 1 } }, GetAttributeArguments(inlineDataAttributes[2]));
+            Assert.Equal(new object?[] { new object?[] { int.MinValue, int.MaxValue, -1 } }, GetAttributeArguments(inlineDataAttributes[3]));
 
             var instance = Activator.CreateInstance(testType);
             Assert.NotNull(instance);
 
             testMethod.Invoke(instance, new object[] { 1, 2, 3 });
             testMethod.Invoke(instance, new object[] { 0, 0, 0 });
+            testMethod.Invoke(instance, new object[] { -1, 2, 1 });
+            testMethod.Invoke(instance, new object[] { int.MinValue, int.MaxValue, -1 });
             return true;
         });
     }

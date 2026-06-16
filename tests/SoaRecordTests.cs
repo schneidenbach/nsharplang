@@ -3575,6 +3575,29 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaRowTypeCannotBeUsedInTableTestCaseTypeofValue()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+            }
+
+            test "bad table case" with (value: Type) [
+                (typeof(NodeTable.Row))
+            ] {
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("SoA row type 'NodeTable.Row' is not part of this lowering", error.Message);
+        Assert.Contains("table and an int row index", error.Suggestion);
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.ConstantRequired);
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.TypeNotFound);
+    }
+
+    [Fact]
     public void Analyzer_SoaRowTypeCannotBeUsedInAttributeTypeofArguments()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
