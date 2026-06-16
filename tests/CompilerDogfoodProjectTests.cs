@@ -497,6 +497,31 @@ class DuplicateMethod {
                 expectColumnarDecline: true);
             AssertStructDeclarationInfo(
                 """
+class DuplicateStaticArity {
+    static func Score(x: int): int {
+        return x
+    }
+    static func Score(x: string): int {
+        return x.Length
+    }
+}
+""",
+                (int)TokenType.Class,
+                "DuplicateStaticArity",
+                Array.Empty<string>(),
+                Array.Empty<string>(),
+                Array.Empty<string>(),
+                Array.Empty<string>(),
+                Array.Empty<int>(),
+                Array.Empty<string?>(),
+                tokenizeWithIndentation,
+                parseStructDeclaration,
+                parseStructDeclarationInfo,
+                parseColumnarStructInfo,
+                "duplicate static method arity",
+                expectColumnarDecline: true);
+            AssertStructDeclarationInfo(
+                """
 class MethodFieldCollision {
     Value: int
     func Value(): int {
@@ -9952,7 +9977,8 @@ func outer(x: int): int {
         Assert.False(RouteColumnarProgram("class C {\n    n: int\n    func V(): int {\n        return n\n    }\n    func V(x: int): int {\n        return x\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
         Assert.False(RouteColumnarProgram("class C {\n    n: int\n    func V(): int {\n        return n\n    }\n    static func V(x: int): int {\n        return x\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
         Assert.False(RouteColumnarProgram("class C {\n    n: int\n    V: int {\n        get {\n            return n\n        }\n    }\n    static func V(): int {\n        return 1\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
-        // SAME-ARITY type-distinguished static overloads (resolution is by arg count — the C# path handles these).
+        // SAME-ARITY type-distinguished static overloads are rejected by the N# struct parser because the
+        // columnar static-call surface resolves overloads by argument count.
         Assert.False(RouteColumnarProgram("class C {\n    static func T(x: int): int {\n        return x\n    }\n    static func T(s: string): int {\n        return 9\n    }\n}\n\nfunc f(): int {\n    return C.T(1)\n}\n").Ok);
         // STATIC FIELDS (the D-13 slice) and STATIC PROPERTIES (the D-14 slice) are now ACCEPTED — see
         // ColumnarCodegen_Parity_StaticFields / _StaticProperties, which own those surfaces.

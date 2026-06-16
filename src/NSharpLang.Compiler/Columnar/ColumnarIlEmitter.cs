@@ -3101,13 +3101,6 @@ internal sealed class ColumnarIlEmitter
                         overloads = new List<(MethodBuilder, Type[], Type)>();
                         def.StaticMethods[m.Name] = overloads;
                     }
-                    // Overloads resolve by ARG COUNT (see the call sites), so two same-arity overloads would be
-                    // ambiguous there — decline the set (the C# fallback handles type-distinguished overloads).
-                    foreach (var (_, existingParams, _) in overloads)
-                    {
-                        if (existingParams.Length == sParamTypes.Length)
-                            return false;
-                    }
                     var smb = def.Builder.DefineMethod(m.Name, MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.HideBySig, sReturn, sParamTypes);
                     overloads.Add((smb, sParamTypes, sReturn));
                     structMethodJobs.Add((def, m, smb, sReturn, sOrdinals, sParamTypeMap, true));

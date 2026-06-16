@@ -254,11 +254,35 @@ func ColumnarStructMethodUnsupportedStatus(source: string, tokens: ColumnarStruc
     }
     locals := new ColumnarFunctionLocalTable { NodeIndices: new int[](cap), TokenIndices: new int[](cap) }
     result := new ColumnarFunctionResultTable { Values: new int[](9) }
+    methodParamCounts := new int[](methodCount + 1)
 
     for i := 0; i < methodCount; i++ {
         paramCount := ParseColumnarFunctionInfoCore(source, ref functionTokens, outputs.MethodFuncIndices[i], 0, ref signatureOutputs, ref body, ref locals, ref result)
         if paramCount < 0 {
             return -1
+        }
+        methodParamCounts[i] = paramCount
+        if outputs.MethodStaticFlags[i] == 1 {
+            methodNameIndex := outputs.MethodFuncIndices[i] + 1
+            if methodNameIndex < 0 || methodNameIndex >= tokens.Count || tokens.Kinds[methodNameIndex] != 0 {
+                return -1
+            }
+
+            j := 0
+            while j < i {
+                if outputs.MethodStaticFlags[j] == 1 && methodParamCounts[j] == paramCount {
+                    otherNameIndex := outputs.MethodFuncIndices[j] + 1
+                    if otherNameIndex < 0 || otherNameIndex >= tokens.Count || tokens.Kinds[otherNameIndex] != 0 {
+                        return -1
+                    }
+
+                    if ParserDeclarationSourceSpansEqual(source, tokens.Starts[methodNameIndex], tokens.ValueLengths[methodNameIndex], tokens.Starts[otherNameIndex], tokens.ValueLengths[otherNameIndex]) {
+                        return 1
+                    }
+                }
+
+                j = j + 1
+            }
         }
         if outputs.MethodStaticFlags[i] == 0 && signatureOutputs.ReturnTypeTexts[0] == "void" {
             return 1

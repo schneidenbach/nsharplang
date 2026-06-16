@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Static method same-arity overload decline moves into N# parser
+
+`ColumnarStructMethodUnsupportedStatus` now records parsed static method parameter counts and rejects
+same-name/same-arity static overload sets while the struct parser still owns method signature rows.
+Distinct-arity static overloads remain accepted. The columnar emitter no longer carries the static
+overload-list ambiguity fallback; static method type resolution and body lowering remain semantic
+emission checks.
+
 ## 2026-06-16 — Top-level duplicate type-name decline moves into N# parser
 
 `TopLevelColumnarProgramDeclarationIndicesCore` now rejects duplicate top-level type names across
