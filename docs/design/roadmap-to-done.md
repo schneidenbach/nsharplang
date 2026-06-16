@@ -284,7 +284,8 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       `OutputFormatterDiagnosticClusterKernels`; output-format inspect-summary and diagnostic-cluster
       reference-file summaries now live beside `OutputFormatter` in `OutputFormatterReferenceFileKernels`;
       diagnostic/reference result de-duplication and lint-shadow suppression now live beside
-      code-intelligence result consumers in `CodeIntelligenceResultKernels`; DocQuery
+      code-intelligence result consumers in `CodeIntelligenceResultKernels`; symbol-kind filtering
+      now lives beside symbol query consumers in `CodeIntelligenceSymbolKernels`; DocQuery
       type/reference-pack de-duplication, best-type selection, and member ordering now live beside
       `DocQuery` in `DocQueryKernels`. Product parser
       wrappers for function, constructor, property, body/local-function, enum, struct/class/record, union, and

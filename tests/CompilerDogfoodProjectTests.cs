@@ -13614,14 +13614,11 @@ func documented(): int {
         var expectedShadowIndices = ExpectedDiagnosticShadowSuppressionIndices(shadowDiagnostics, shadowedFiles);
         Assert.Equal(expectedShadowIndices, shadowIndices.Take(shadowCount).ToArray());
 
-        var tryFilterSymbolsByKind = adapterType.GetMethod(
-                "TryFilterSymbolsByKind",
-                BindingFlags.Static | BindingFlags.NonPublic)
-            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryFilterSymbolsByKind.");
         var symbols = BuildSymbolKindFilterSymbols();
-        var filterArgs = new object?[] { symbols, SymbolKind.Function, null };
-        Assert.True((bool)(tryFilterSymbolsByKind.Invoke(null, filterArgs) ?? false));
-        var filteredSymbols = Assert.IsType<List<SymbolResult>>(filterArgs[2]);
+        Assert.True(CodeIntelligenceSymbolKernels.TryFilterSymbolsByKind(
+            symbols,
+            SymbolKind.Function,
+            out var filteredSymbols));
         Assert.Equal(
             symbols.Where(symbol => symbol.Kind == SymbolKind.Function).Select(symbol => symbol.Name),
             filteredSymbols.Select(symbol => symbol.Name));

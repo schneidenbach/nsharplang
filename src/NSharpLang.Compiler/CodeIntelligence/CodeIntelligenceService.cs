@@ -130,7 +130,7 @@ public class CodeIntelligenceService
 
     private static List<SymbolResult> FilterSymbolsByKind(List<SymbolResult> symbols, SymbolKind kind)
     {
-        if (NSharpCodeIntelligenceDogfoodAdapter.TryFilterSymbolsByKind(symbols, kind, out var filteredSymbols))
+        if (CodeIntelligenceSymbolKernels.TryFilterSymbolsByKind(symbols, kind, out var filteredSymbols))
         {
             return filteredSymbols;
         }

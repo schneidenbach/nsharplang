@@ -23,8 +23,6 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
     private static CompletionMethodGroupingScratch? t_completionMethodGroupingScratch;
     [ThreadStatic]
     private static CompletionReceiverScratch? t_completionReceiverScratch;
-    private static SymbolKindFilterScratch? t_symbolKindFilterScratch;
-
     internal static bool TryGetBindingCandidateColumns(
         int column,
         (int StartColumn, int EndColumn)? span,
@@ -376,65 +374,6 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         }
     }
 
-    internal static bool TryFilterSymbolsByKind(
-        IReadOnlyList<SymbolResult> symbols,
-        SymbolKind targetKind,
-        out List<SymbolResult> filteredSymbols)
-    {
-        filteredSymbols = [];
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        var symbolCount = symbols.Count;
-        if (symbolCount == 0)
-            return true;
-
-        var scratch = t_symbolKindFilterScratch ??= new SymbolKindFilterScratch();
-        scratch.EnsureCapacity(symbolCount);
-
-        try
-        {
-            for (var i = 0; i < symbolCount; i++)
-            {
-                scratch.KindIds[i] = (int)symbols[i].Kind;
-            }
-
-            var filteredCount = bindings.SymbolKindFilter(
-                scratch.KindIds,
-                (int)targetKind,
-                scratch.ResultIndices);
-
-            if (filteredCount < 0 || filteredCount > symbolCount)
-            {
-                filteredSymbols = [];
-                return false;
-            }
-
-            var results = new List<SymbolResult>(filteredCount);
-            for (var i = 0; i < filteredCount; i++)
-            {
-                var sourceIndex = scratch.ResultIndices[i];
-                if (sourceIndex < 0 || sourceIndex >= symbolCount)
-                {
-                    filteredSymbols = [];
-                    return false;
-                }
-
-                results.Add(symbols[sourceIndex]);
-            }
-
-            filteredSymbols = results;
-            return true;
-        }
-        catch
-        {
-            filteredSymbols = [];
-            return false;
-        }
-    }
-
     internal static bool TryResolveBindingDeclaration(
         BindingMap bindingMap,
         string filePath,
@@ -754,7 +693,6 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
                 CreateDelegate<CodeIntelligenceCompletionReceiversInto>(programType, "CodeIntelligenceCompletionReceiversInto"),
                 CreateDelegate<CompletionItemKindGroupsInto>(programType, "CompletionItemKindGroupsInto"),
                 CreateDelegate<CompletionMethodOverloadGroupsInto>(programType, "CompletionMethodOverloadGroupsInto"),
-                CreateDelegate<SymbolKindFilterIndicesInto>(programType, "SymbolKindFilterIndicesInto"),
                 CreateDelegate<BindingLookupCandidateColumnsInto>(programType, "BindingLookupCandidateColumnsInto"),
                 CreateDelegate<BindingLookupBuildSlotsInto>(programType, "BindingLookupBuildSlotsInto"),
                 CreateDelegate<BindingLookupQueryDeclarationIndicesInto>(programType, "BindingLookupQueryDeclarationIndicesInto"),
@@ -930,11 +868,6 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         int[] resultFirstIndices,
         int[] resultCounts);
 
-    private delegate int SymbolKindFilterIndicesInto(
-        int[] kindIds,
-        int targetKindId,
-        int[] resultIndices);
-
     private delegate int BindingLookupCandidateColumnsInto(
         int[] queryColumns,
         int[] spanStartColumns,
@@ -1005,7 +938,6 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         CodeIntelligenceCompletionReceiversInto CompletionReceivers,
         CompletionItemKindGroupsInto CompletionItemKindGroups,
         CompletionMethodOverloadGroupsInto CompletionMethodOverloadGroups,
-        SymbolKindFilterIndicesInto SymbolKindFilter,
         BindingLookupCandidateColumnsInto BindingLookupCandidateColumns,
         BindingLookupBuildSlotsInto BindingLookupBuildSlots,
         BindingLookupQueryDeclarationIndicesInto BindingLookupQueryDeclarationIndices,
@@ -1166,21 +1098,6 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
             if (_nameIds.Count > 0)
             {
                 _nameIds.Clear();
-            }
-        }
-    }
-
-    private sealed class SymbolKindFilterScratch
-    {
-        public int[] KindIds = Array.Empty<int>();
-        public int[] ResultIndices = Array.Empty<int>();
-
-        public void EnsureCapacity(int count)
-        {
-            if (KindIds.Length != count)
-            {
-                KindIds = new int[count];
-                ResultIndices = new int[count];
             }
         }
     }

@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Symbol-kind filtering leaves the code-intelligence adapter
+
+`nlc query symbols --kind`, batch symbol queries, and daemon symbol queries now route accepted
+symbol-kind filtering through `CodeIntelligenceSymbolKernels`, beside the code-intelligence symbol
+query path that consumes the filtered results. The broad `NSharpCodeIntelligenceDogfoodAdapter` no
+longer owns the `SymbolKindFilterIndicesInto` delegate, entry point, or scratch arrays; the existing
+LINQ enum-filter fallback remains in `CodeIntelligenceService`.
+Focused evidence: `dotnet build src/NSharpLang.Compiler/Compiler.csproj --no-restore`; `dotnet
+test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.CodeIntelligenceDogfoodAdapter_LoadsPackagedNSharpAssembly"`;
+`./scripts/dev.sh --since`.
+
 ## 2026-06-16 — Diagnostic/reference result kernels leave the code-intelligence adapter
 
 Diagnostic deduplication, stable `GetDiagnostics` duplicate removal, semantic-reference
@@ -10788,7 +10799,8 @@ or stand up the N#-native pooled `Token`/`TokenStream` so the parser can consume
   moved to `OutputFormatterDiagnosticKernels`, output-format diagnostic-cluster trait/group kernels
   moved to `OutputFormatterDiagnosticClusterKernels`, output-format reference-file summaries moved
   to `OutputFormatterReferenceFileKernels`, diagnostic/reference result de-duplication and lint-shadow
-  suppression moved to `CodeIntelligenceResultKernels`, and DocQuery type/reference-pack
+  suppression moved to `CodeIntelligenceResultKernels`, symbol-kind filtering moved to
+  `CodeIntelligenceSymbolKernels`, and DocQuery type/reference-pack
   de-duplication, best-type selection, and member ordering moved to `DocQueryKernels`; remaining
   routed kernels still cross the ~1.2 ns delegate-dispatch + bounds-check floor documented in the
   boundary profiling doc.

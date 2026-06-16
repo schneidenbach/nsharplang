@@ -1652,7 +1652,9 @@ wrapper. It ran about 6.1x faster on the representative symbol corpus in the lat
 run (299.4 ns vs 1.824 us, 0 B vs 1,216 B) and about 6.2x faster on the large generated symbol
 corpus (2.337 us vs 14.567 us, 0 B vs 8,936 B). This is acceptance-grade benchmark evidence for
 `nlc query symbols --kind`, batch symbol queries, and daemon symbol queries after the host has
-projected symbol kinds into compact integer ids.
+projected symbol kinds into compact integer ids. The production symbol-query route now binds this
+kernel through `CodeIntelligenceSymbolKernels` instead of the broad code-intelligence dogfood
+adapter.
 
 `CliSymbolNameGlobFilterIndicesInto` and `CliSymbolNameSubstringFilterIndicesInto` passed parity in
 the short BenchmarkDotNet evidence tier for `nlc query symbols --filter` name filters. The accepted
