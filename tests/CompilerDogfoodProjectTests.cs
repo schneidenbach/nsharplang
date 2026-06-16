@@ -5112,13 +5112,7 @@ func outer(x: int): int {
                 var scope = new List<(string Name, int Line, int Column)>();
                 stack.Add(scope);
                 foreach (var st in b.Statements) MirrorWalkUnused(st, used, stack, unused);
-                foreach (var (name, line, column) in scope)
-                {
-                    if (name != "_" && !name.StartsWith("_", StringComparison.Ordinal) && !used.Contains(name))
-                        unused.Add("unused-local:" + name + "@" + line + ":" + column);
-                }
-
-                stack.RemoveAt(stack.Count - 1);
+                MirrorPopUnusedScope(used, stack, unused);
                 break;
             }
 
@@ -5126,10 +5120,43 @@ func outer(x: int): int {
                 if (stack.Count > 0) stack[stack.Count - 1].Add((v.Name, v.Line, v.Column));
                 if (v.Initializer != null) MirrorCollectIds(v.Initializer, used);
                 break;
+            case TupleDeconstructionStatement t:
+                if (stack.Count > 0)
+                {
+                    foreach (var name in t.Names)
+                    {
+                        if (name != "_")
+                            stack[stack.Count - 1].Add((name, t.Line, t.Column));
+                    }
+                }
+                MirrorCollectIds(t.Initializer, used);
+                break;
             case IfStatement i:
                 MirrorCollectIds(i.Condition, used);
                 MirrorWalkUnused(i.ThenStatement, used, stack, unused);
                 if (i.ElseStatement != null) MirrorWalkUnused(i.ElseStatement, used, stack, unused);
+                break;
+            case ForStatement f:
+                stack.Add(new List<(string Name, int Line, int Column)>());
+                if (f.Initializer != null) MirrorWalkUnused(f.Initializer, used, stack, unused);
+                if (f.Condition != null) MirrorCollectIds(f.Condition, used);
+                if (f.Iterator != null) MirrorCollectIds(f.Iterator, used);
+                MirrorWalkUnused(f.Body, used, stack, unused);
+                MirrorPopUnusedScope(used, stack, unused);
+                break;
+            case ForeachStatement fe:
+                MirrorCollectIds(fe.Collection, used);
+                stack.Add(new List<(string Name, int Line, int Column)> { (fe.VariableName, fe.Line, fe.Column) });
+                used.Add(fe.VariableName);
+                MirrorWalkUnused(fe.Body, used, stack, unused);
+                MirrorPopUnusedScope(used, stack, unused);
+                break;
+            case AwaitForEachStatement afe:
+                MirrorCollectIds(afe.Collection, used);
+                stack.Add(new List<(string Name, int Line, int Column)> { (afe.VariableName, afe.Line, afe.Column) });
+                used.Add(afe.VariableName);
+                MirrorWalkUnused(afe.Body, used, stack, unused);
+                MirrorPopUnusedScope(used, stack, unused);
                 break;
             case WhileStatement w:
                 MirrorCollectIds(w.Condition, used);
@@ -5154,7 +5181,60 @@ func outer(x: int): int {
                 }
 
                 break;
+            case UsingStatement u:
+                stack.Add(new List<(string Name, int Line, int Column)>());
+                if (u.Declaration != null) MirrorWalkUnused(u.Declaration, used, stack, unused);
+                if (u.Expression != null) MirrorCollectIds(u.Expression, used);
+                if (u.Body != null) MirrorWalkUnused(u.Body, used, stack, unused);
+                MirrorPopUnusedScope(used, stack, unused);
+                break;
+            case LockStatement l:
+                MirrorCollectIds(l.LockObject, used);
+                MirrorWalkUnused(l.Body, used, stack, unused);
+                break;
+            case SwitchStatement sw:
+                MirrorCollectIds(sw.Value, used);
+                foreach (var c in sw.Cases)
+                {
+                    stack.Add(new List<(string Name, int Line, int Column)>());
+                    foreach (var st in c.Statements) MirrorWalkUnused(st, used, stack, unused);
+                    MirrorPopUnusedScope(used, stack, unused);
+                }
+                break;
+            case PrintStatement p:
+                MirrorCollectIds(p.Value, used);
+                break;
+            case AssertStatement a:
+                MirrorCollectIds(a.Condition, used);
+                if (a.Message != null) MirrorCollectIds(a.Message, used);
+                break;
+            case AssertThrowsStatement at:
+                MirrorWalkUnused(at.Body, used, stack, unused);
+                break;
+            case YieldStatement y:
+                if (y.Value != null) MirrorCollectIds(y.Value, used);
+                break;
+            case LocalFunctionStatement lf:
+                foreach (var p in lf.Function.Parameters) used.Add(p.Name);
+                if (lf.Function.Body != null) MirrorWalkUnused(lf.Function.Body, used, stack, unused);
+                if (lf.Function.ExpressionBody != null) MirrorCollectIds(lf.Function.ExpressionBody, used);
+                break;
         }
+    }
+
+    private static void MirrorPopUnusedScope(
+        HashSet<string> used,
+        List<List<(string Name, int Line, int Column)>> stack,
+        List<string> unused)
+    {
+        var scope = stack[stack.Count - 1];
+        foreach (var (name, line, column) in scope)
+        {
+            if (name != "_" && !name.StartsWith("_", StringComparison.Ordinal) && !used.Contains(name))
+                unused.Add("unused-local:" + name + "@" + line + ":" + column);
+        }
+
+        stack.RemoveAt(stack.Count - 1);
     }
 
     private static void MirrorCollectIds(Expression e, HashSet<string> used)
@@ -5162,6 +5242,10 @@ func outer(x: int): int {
         switch (e)
         {
             case IdentifierExpression id: used.Add(id.Name); break;
+            case InterpolatedStringExpression s:
+                foreach (var hole in s.Parts.OfType<InterpolatedStringHole>())
+                    MirrorCollectIds(hole.Expression, used);
+                break;
             case ParenthesizedExpression p: MirrorCollectIds(p.Inner, used); break;
             case MemberAccessExpression m: MirrorCollectIds(m.Object, used); break;
             case CallExpression c:
@@ -5188,8 +5272,60 @@ func outer(x: int): int {
                 break;
             case NewExpression nw:
                 foreach (var a in nw.ConstructorArguments) MirrorCollectIds(a.Value, used);
+                if (nw.Initializer != null) MirrorCollectIds(nw.Initializer, used);
+                if (nw.ArrayLengthExpression != null) MirrorCollectIds(nw.ArrayLengthExpression, used);
                 break;
+            case ObjectInitializerExpression oi:
+                foreach (var p in oi.Properties)
+                {
+                    if (p.IndexExpression != null) MirrorCollectIds(p.IndexExpression, used);
+                    MirrorCollectIds(p.Value, used);
+                }
+                break;
+            case ArrayLiteralExpression arr:
+                foreach (var element in arr.Elements) MirrorCollectIds(element, used);
+                break;
+            case TupleExpression tuple:
+                foreach (var element in tuple.Elements) MirrorCollectIds(element.Value, used);
+                break;
+            case AllocExpression alloc: MirrorCollectIds(alloc.Expression, used); break;
+            case StackAllocExpression stackAlloc: MirrorCollectIds(stackAlloc.LengthExpression, used); break;
             case CastExpression cast: MirrorCollectIds(cast.Expression, used); break;
+            case RangeExpression range:
+                if (range.Start != null) MirrorCollectIds(range.Start, used);
+                if (range.End != null) MirrorCollectIds(range.End, used);
+                break;
+            case MustExpression must: MirrorCollectIds(must.Expression, used); break;
+            case AwaitExpression awaitExpression: MirrorCollectIds(awaitExpression.Expression, used); break;
+            case ThrowExpression throwExpression: MirrorCollectIds(throwExpression.Expression, used); break;
+            case CheckedExpression checkedExpression: MirrorCollectIds(checkedExpression.Expression, used); break;
+            case UncheckedExpression uncheckedExpression: MirrorCollectIds(uncheckedExpression.Expression, used); break;
+            case IsExpression isExpression: MirrorCollectIds(isExpression.Expression, used); break;
+            case MatchExpression match:
+                MirrorCollectIds(match.Value, used);
+                foreach (var matchCase in match.Cases)
+                {
+                    if (matchCase.Guard != null) MirrorCollectIds(matchCase.Guard, used);
+                    MirrorCollectIds(matchCase.Expression, used);
+                }
+                break;
+            case SpreadExpression spread: MirrorCollectIds(spread.Expression, used); break;
+            case WithExpression with:
+                MirrorCollectIds(with.Target, used);
+                foreach (var p in with.Properties)
+                {
+                    if (p.IndexExpression != null) MirrorCollectIds(p.IndexExpression, used);
+                    MirrorCollectIds(p.Value, used);
+                }
+                break;
+            case OnSubscriptionExpression on:
+                MirrorCollectIds(on.Target, used);
+                MirrorCollectIds(on.Handler, used);
+                break;
+            case LambdaExpression lambda:
+                foreach (var p in lambda.Parameters) used.Add(p.Name);
+                if (lambda.ExpressionBody != null) MirrorCollectIds(lambda.ExpressionBody, used);
+                break;
         }
     }
 
