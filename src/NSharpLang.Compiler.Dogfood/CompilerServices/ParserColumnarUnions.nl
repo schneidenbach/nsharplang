@@ -60,6 +60,9 @@ func ParseColumnarUnionInfoCore(source: string, tokens: &ColumnarUnionTokenTable
     if outputs.UnionNameTexts.Length < 1 || caseCount > outputs.CaseNameTexts.Length || fieldCount > outputs.FieldNameTexts.Length || fieldCount > outputs.FieldTypeTexts.Length || typeParamCount > outputs.TypeParamTexts.Length {
         return -1
     }
+    if ColumnarUnionTypeParameterNamesDistinct(source, ref scratch, typeParamCount) == 0 {
+        return -1
+    }
 
     unionName := ParserDeclarationSpanText(source, result.Values[0], result.Values[1])
     if unionName == "" {
@@ -107,4 +110,30 @@ func ParseColumnarUnionInfoCore(source: string, tokens: &ColumnarUnionTokenTable
     }
 
     return caseCount
+}
+
+func ColumnarUnionTypeParameterNamesDistinct(source: string, scratch: &ColumnarUnionScratchTable, typeParamCount: int): int {
+    if typeParamCount < 0 {
+        return 0
+    }
+
+    i := 0
+    while i < typeParamCount {
+        if scratch.TypeParamStarts[i] < 0 || scratch.TypeParamLengths[i] <= 0 {
+            return 0
+        }
+
+        j := i + 1
+        while j < typeParamCount {
+            if ParserDeclarationSourceSpansEqual(source, scratch.TypeParamStarts[i], scratch.TypeParamLengths[i], scratch.TypeParamStarts[j], scratch.TypeParamLengths[j]) {
+                return 0
+            }
+
+            j = j + 1
+        }
+
+        i = i + 1
+    }
+
+    return 1
 }

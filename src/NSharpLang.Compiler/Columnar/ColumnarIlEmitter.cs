@@ -2944,17 +2944,15 @@ internal sealed class ColumnarIlEmitter
                 : module.DefineType(st.Name, TypeAttributes.Public | TypeAttributes.Sealed, typeof(ValueType));
 
             // Generic type parameters (`class Box<T>`): declared on the builder before any member signature
-            // resolves (a member type naming T needs the GenericTypeParameterBuilder). Duplicate names decline.
+            // resolves (a member type naming T needs the GenericTypeParameterBuilder). Duplicate names decline in
+            // the product parser wrapper before this point.
             Dictionary<string, Type>? typeGenericParams = null;
             if (st.TypeParamNames is { Length: > 0 })
             {
                 typeGenericParams = new Dictionary<string, Type>(StringComparer.Ordinal);
                 var declaredParams = tb.DefineGenericParameters(st.TypeParamNames);
                 for (var tp = 0; tp < declaredParams.Length; tp++)
-                {
-                    if (!typeGenericParams.TryAdd(st.TypeParamNames[tp], declaredParams[tp]))
-                        return false;
-                }
+                    typeGenericParams[st.TypeParamNames[tp]] = declaredParams[tp];
             }
 
             var fields = new Dictionary<string, FieldBuilder>(StringComparer.Ordinal);
@@ -3458,16 +3456,7 @@ internal sealed class ColumnarIlEmitter
             var isGenericUnion = un.TypeParamNames.Length > 0;
             var baseTb = module.DefineType(un.Name, TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.Abstract, typeof(object));
             if (isGenericUnion)
-            {
-                // Duplicate parameter names are malformed — validate before DefineGenericParameters (which throws).
-                var seenParams = new HashSet<string>(StringComparer.Ordinal);
-                foreach (var tp in un.TypeParamNames)
-                {
-                    if (!seenParams.Add(tp))
-                        return false;
-                }
                 baseTb.DefineGenericParameters(un.TypeParamNames);
-            }
             var baseCtor = baseTb.DefineConstructor(MethodAttributes.Family, CallingConventions.Standard, Type.EmptyTypes);
             var bcil = baseCtor.GetILGenerator();
             bcil.Emit(OpCodes.Ldarg_0);

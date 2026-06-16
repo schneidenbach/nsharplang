@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Nominal duplicate type-parameter declines move into N# parser
+
+`ParseColumnarStructInfoCore` and `ParseColumnarUnionInfoCore` now reject duplicate generic
+type-parameter names by comparing declaration spans before returning materializer rows for
+class/record/struct or union declarations. The corresponding CLR generic type setup guards were
+removed from the columnar emitter.
+
 ## 2026-06-16 — Function duplicate type-parameter decline moves into N# parser
 
 `ParseFunctionSignatureInfoCore` now rejects duplicate generic type-parameter names by comparing the

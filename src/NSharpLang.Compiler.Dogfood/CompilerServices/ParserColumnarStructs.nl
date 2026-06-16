@@ -63,6 +63,9 @@ func ParseColumnarStructInfoCore(source: string, tokens: &ColumnarStructTokenTab
     if fieldCount < 0 || outputs.StructNameTexts.Length < 1 || fieldCount > outputs.FieldNameTexts.Length || fieldCount > outputs.FieldTypeTexts.Length || fieldCount > outputs.FieldInitTexts.Length || typeParamCount > outputs.TypeParamTexts.Length || baseNameCount > outputs.BaseNameTexts.Length {
         return -1
     }
+    if ColumnarStructTypeParameterNamesDistinct(source, ref scratch, typeParamCount) == 0 {
+        return -1
+    }
 
     if isReference == 0 {
         instanceFieldCount := 0
@@ -319,4 +322,30 @@ func ColumnarStructNameMatchesTypeParam(source: string, scratch: &ColumnarStruct
     }
 
     return false
+}
+
+func ColumnarStructTypeParameterNamesDistinct(source: string, scratch: &ColumnarStructScratchTable, typeParamCount: int): int {
+    if typeParamCount < 0 {
+        return 0
+    }
+
+    i := 0
+    while i < typeParamCount {
+        if scratch.TypeParamStarts[i] < 0 || scratch.TypeParamLengths[i] <= 0 {
+            return 0
+        }
+
+        j := i + 1
+        while j < typeParamCount {
+            if ParserDeclarationSourceSpansEqual(source, scratch.TypeParamStarts[i], scratch.TypeParamLengths[i], scratch.TypeParamStarts[j], scratch.TypeParamLengths[j]) {
+                return 0
+            }
+
+            j = j + 1
+        }
+
+        i = i + 1
+    }
+
+    return 1
 }

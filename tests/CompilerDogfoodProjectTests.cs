@@ -372,6 +372,26 @@ class Pair<T> {
                 expectColumnarDecline: true);
             AssertStructDeclarationInfo(
                 """
+record Duplicate<T, T> {
+    Value: int
+}
+""",
+                (int)TokenType.Record,
+                "Duplicate",
+                new[] { "T", "T" },
+                Array.Empty<string>(),
+                new[] { "Value" },
+                new[] { "int" },
+                new[] { 0 },
+                new string?[] { null },
+                tokenizeWithIndentation,
+                parseStructDeclaration,
+                parseStructDeclarationInfo,
+                parseColumnarStructInfo,
+                "duplicate struct type parameter",
+                expectColumnarDecline: true);
+            AssertStructDeclarationInfo(
+                """
 class Derived: Base, IFace {
     Value: int
 }
@@ -437,6 +457,15 @@ union Result<T> {
                 parseUnionDeclarationInfo,
                 parseColumnarUnionInfo,
                 "generic union field type texts");
+            AssertColumnarUnionInfoDeclinesOnly(
+                """
+union Duplicate<T, T> {
+    Some { value: T }
+}
+""",
+                tokenizeWithIndentation,
+                parseColumnarUnionInfo,
+                "duplicate union type parameter");
             AssertUnionDeclarationInfoDeclines(
                 "union Bad { A { items: List<int> } }",
                 tokenizeWithIndentation,
@@ -2223,6 +2252,38 @@ class B
         Assert.Equal(-1, spanActual);
         Assert.Equal(spanActual, actual);
         Assert.Equal(actual, columnarActual);
+    }
+
+    private static void AssertColumnarUnionInfoDeclinesOnly(
+        string source,
+        MethodInfo tokenizeWithIndentation,
+        MethodInfo parseColumnarUnionInfo,
+        string label)
+    {
+        var (count, kinds, starts, valueLengths, compactedSource) = TokenizeSourceViaKernel(source, tokenizeWithIndentation);
+        var unionIndex = FirstTokenIndex(kinds, count, (int)TokenType.Union);
+        Assert.True(unionIndex >= 0, $"Could not locate union token for {label}.");
+
+        var cap = count + 1;
+        var columnarActual = (int)(parseColumnarUnionInfo.Invoke(
+            null,
+            new object[]
+            {
+                compactedSource,
+                kinds,
+                starts,
+                valueLengths,
+                count,
+                unionIndex,
+                new string[cap],
+                new int[cap],
+                new string[cap],
+                new string[cap],
+                new string[cap],
+                new string[1],
+                new int[4]
+            }) ?? -2);
+        Assert.Equal(-1, columnarActual);
     }
 
     private static void AssertCanonicalTypeText(
@@ -11771,8 +11832,7 @@ func outer(x: int): int {
         // against the open generic (BadImageFormatException at JIT — oracle defect bundle); columnar
         // declines rather than ship invalid IL.
         Assert.False(RouteColumnarProgram("record S<T> {\n    x: T\n    static count: int\n}\n\nfunc f(): int {\n    S.count = 7\n    return S.count\n}\n").Ok);
-        // DUPLICATE type-parameter names: the pipeline ACCEPTS `record W<T, T>` (an oracle defect — no
-        // diagnostic); columnar declines (the safe direction).
+        // DUPLICATE type-parameter names: the columnar struct parser wrapper rejects these before emission.
         Assert.False(RouteColumnarProgram("record W<T, T> {\n    x: int\n}\n\nfunc f(): int {\n    return 1\n}\n").Ok);
     }
 
