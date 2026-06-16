@@ -1,6 +1,7 @@
-// Composed constructor-signature product wrapper. ParserDeclarations.nl keeps the standalone constructor chain
+// Composed constructor-signature product core. ParserDeclarations.nl keeps the standalone constructor chain
 // parser; this file owns the cross-file route that combines constructor parameter signatures, canonical type text,
-// chaining initializer text, and body-brace validation for the columnar product adapter.
+// chaining initializer text, and body-brace validation for the columnar product adapter. The flattened
+// ParseConstructorSignatureInfoInto ABI lives in the parity corpus.
 
 struct ConstructorSignatureOutputTable {
     ParamNameTexts: string[]
@@ -9,25 +10,6 @@ struct ConstructorSignatureOutputTable {
     ArgStarts: int[]
     ArgLengths: int[]
     ArgTexts: string[]
-}
-
-func ParseConstructorSignatureInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, ctorIndex: int, outParamNameTexts: string[], outParamTypeTexts: string[], outArgKinds: int[], outArgStarts: int[], outArgLengths: int[], outArgTexts: string[], outResult: int[]): int {
-    if outResult.Length < 4 {
-        return -1
-    }
-
-    tokens := new ParserTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
-    outputs := new ConstructorSignatureOutputTable { ParamNameTexts: outParamNameTexts, ParamTypeTexts: outParamTypeTexts, ArgKinds: outArgKinds, ArgStarts: outArgStarts, ArgLengths: outArgLengths, ArgTexts: outArgTexts }
-    typeStack := new ParserArgumentStack { Values: new int[](count + 1) }
-    nodes := new ParserNodeTable { Kinds: new int[](count + 1), ValueStarts: new int[](count + 1), ValueLengths: new int[](count + 1), ChildStart: new int[](count + 1), ChildCount: new int[](count + 1), SpanStarts: new int[](count + 1), SpanLengths: new int[](count + 1) }
-    children := new ParserChildIndexTable { Indices: new int[](count + 1) }
-    canonicalNodes := new TypeReferenceCanonicalTable { Kinds: nodes.Kinds, ValueStarts: nodes.ValueStarts, ValueLengths: nodes.ValueLengths, ChildStart: nodes.ChildStart, ChildCount: nodes.ChildCount, ChildIndices: children.Indices }
-    parameters := new ParserFunctionParameterTable { NameStarts: new int[](count + 1), NameLengths: new int[](count + 1), TypeRoots: new int[](count + 1) }
-    typeParams := new ParserFunctionTypeParameterTable { Starts: new int[](count + 1), Lengths: new int[](count + 1) }
-    whereItems := new ParserFunctionWhereTable { NameStarts: new int[](count + 1), NameLengths: new int[](count + 1), ItemCodes: new int[](count + 1) }
-    signatureResult := new ParserResultTable { Values: new int[](8) }
-    result := new ParserResultTable { Values: outResult }
-    return ParseConstructorSignatureInfoCore(source, ref tokens, count, ctorIndex, ref outputs, ref typeStack, ref nodes, ref children, ref canonicalNodes, ref parameters, ref typeParams, ref whereItems, ref signatureResult, ref result)
 }
 
 func ParseConstructorSignatureInfoCore(source: string, tokens: &ParserTokenTable, count: int, ctorIndex: int, outputs: &ConstructorSignatureOutputTable, typeStack: &ParserArgumentStack, nodes: &ParserNodeTable, children: &ParserChildIndexTable, canonicalNodes: &TypeReferenceCanonicalTable, parameters: &ParserFunctionParameterTable, typeParams: &ParserFunctionTypeParameterTable, whereItems: &ParserFunctionWhereTable, signatureResult: &ParserResultTable, result: &ParserResultTable): int {

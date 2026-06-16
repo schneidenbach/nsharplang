@@ -464,7 +464,7 @@ func ParseFunctionSignatureCore(
     returnRoot := -1
     if i < count && tokens.Kinds[i] == 122 {
         // A `: this(...)` / `: base(...)` CONSTRUCTOR chaining initializer is NOT a return type — leave returnRoot at
-        // -1 and stop; the host parses the initializer separately (ParseConstructorChainInfoInto). A regular
+        // -1 and stop; the composed constructor parser handles the initializer via ParseConstructorChainInfoCore. A regular
         // function's `: ReturnType` always has a TYPE token after `:`, never `this` (42) / `base` (43), so this
         // branch is constructor-only and leaves function-signature parsing unchanged.
         if !(i + 1 < count && (tokens.Kinds[i + 1] == 42 || tokens.Kinds[i + 1] == 43)) {

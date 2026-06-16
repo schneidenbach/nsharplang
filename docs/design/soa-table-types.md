@@ -558,9 +558,10 @@ ownership lands.
    span scratch columns, member/index outputs, text outputs, and result slots inside its wrapper-aware
    struct/class/record product core while preserving its flattened adapter ABI; that product core now
    composes the struct/class/record declaration core directly. The lower flattened function
-   signature, enum/interface/struct/union declaration span/text wrappers, and the flattened
-   interface-signature wrapper are no longer shipped product dogfood files; they live in the parity
-   corpus because no product route calls them after the wrapper-aware cores took ownership.
+   signature, constructor signature/chain, enum/interface/struct/union declaration span/text
+   wrappers, and the flattened interface-signature wrapper are no longer shipped product dogfood
+   files; they live in the parity corpus because no product route calls them after the wrapper-aware
+   cores took ownership.
    `ParserTypeReferences.nl` has started the parser token-stream
    cleanup by wrapping token metadata, recursive argument stacks, child-index outputs, and result
    slots for the type-reference recursive cores; its base, greater-consumption, postfix, and union
@@ -570,8 +571,9 @@ ownership lands.
    named tables, and leaves the flattened entry/text/signature-info shims in the parity corpus.
    `ParserConstructorSignatures.nl`
    now routes constructor signature/initializer materialization through named output columns, reuses
-   one wrapper-shaped function-signature scratch rowset per constructor parse, and composes the
-   wrapper-aware type canonicalizer directly while preserving its flattened adapter ABI. `ParserInterfaceSignatures.nl`
+   one wrapper-shaped function-signature scratch rowset per constructor parse, composes the
+   wrapper-aware type canonicalizer directly, and leaves the flattened signature-info shim in the
+   parity corpus. `ParserInterfaceSignatures.nl`
    now routes interface signature materialization through named base-output and method-output tables,
    reuses one wrapper-shaped function-signature scratch rowset per interface parse, and composes the
    wrapper-aware interface declaration and type canonicalizer cores directly while preserving its

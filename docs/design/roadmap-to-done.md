@@ -243,9 +243,9 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       body/local-function, enum, struct/class/record, union, and interface routes now compose typed N# cores
       directly where wrapper ownership is complete, and columnar tokenization now compacts parser token
       kind/start/value-length rows in N# instead of a C# kept-index copy loop; flattened exports remain
-      compatibility/parity ABIs, with function-signature wrappers, enum/interface/struct/union
-      declaration-only shims, and the flattened interface-signature shim now extracted to the parity
-      corpus when no product caller remains. The
+      compatibility/parity ABIs, with function-signature wrappers, constructor signature/chain
+      wrappers, enum/interface/struct/union declaration-only shims, and the flattened
+      interface-signature shim now extracted to the parity corpus when no product caller remains. The
       SoA table-type design gate is complete in [`soa-table-types.md`](soa-table-types.md);
       non-generic `soa record` parsing/lowering and the cold overload-candidate fixture are in place behind
       `NSHARP_EXPERIMENTAL_SOA=1`. Next slices should either shrink redundant adapter/C# transition surface

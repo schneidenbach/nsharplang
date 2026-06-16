@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Constructor signature parity ABIs leave product dogfood
+
+The flattened `ParseConstructorChainInfoInto`, `ParseConstructorInfoInto`,
+`ParseConstructorTextInfoInto`, and `ParseConstructorSignatureInfoInto` exports now live in the
+parity corpus instead of shipped compiler-service product files. Product constructor parsing already
+routes through `ParseColumnarConstructorInfoInto`, which composes
+`ParseConstructorSignatureInfoCore` and `ParseConstructorChainInfoCore` directly before parsing the
+body. Product coverage now pins the constructor signature core while the parity-corpus merge keeps
+the flattened constructor ABIs available for parser parity tests.
+
 ## 2026-06-15 — Function signature parity ABIs leave product dogfood
 
 The flattened `ParseFunctionSignatureInto`, `ParseFunctionSignatureTextInfoInto`, and

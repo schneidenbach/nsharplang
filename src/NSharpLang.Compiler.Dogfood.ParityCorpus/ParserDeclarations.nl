@@ -246,3 +246,63 @@ func ParseUnionDeclarationInfoInto(source: string, tokenKinds: int[], tokenStart
 
     return caseCount
 }
+
+func ParseConstructorChainInfoInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, ctorIndex: int, outArgKinds: int[], outArgStarts: int[], outArgLengths: int[], outResult: int[]): int {
+    tokens := new ParserDeclarationTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
+    args := new ConstructorChainArgTable { Kinds: outArgKinds, Starts: outArgStarts, Lengths: outArgLengths }
+    result := new ParserDeclarationResultTable { Values: outResult }
+    return ParseConstructorChainInfoCore(ref tokens, count, ctorIndex, ref args, ref result)
+}
+
+func ParseConstructorInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, ctorIndex: int, outArgKinds: int[], outArgStarts: int[], outArgLengths: int[], outResult: int[]): int {
+    if ctorIndex < 0 || ctorIndex >= count {
+        return -1
+    }
+
+    if tokenKinds[ctorIndex] != 0 {
+        return -1
+    }
+
+    if !ParserDeclarationTokenTextEquals(source, tokenStarts[ctorIndex], tokenValueLengths[ctorIndex], "constructor") {
+        return -1
+    }
+
+    tokens := new ParserDeclarationTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
+    args := new ConstructorChainArgTable { Kinds: outArgKinds, Starts: outArgStarts, Lengths: outArgLengths }
+    result := new ParserDeclarationResultTable { Values: outResult }
+    return ParseConstructorChainInfoCore(ref tokens, count, ctorIndex, ref args, ref result)
+}
+
+func ParseConstructorTextInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, ctorIndex: int, outArgKinds: int[], outArgStarts: int[], outArgLengths: int[], outArgTexts: string[], outResult: int[]): int {
+    if ctorIndex < 0 || ctorIndex >= count {
+        return -1
+    }
+
+    if tokenKinds[ctorIndex] != 0 {
+        return -1
+    }
+
+    if !ParserDeclarationTokenTextEquals(source, tokenStarts[ctorIndex], tokenValueLengths[ctorIndex], "constructor") {
+        return -1
+    }
+
+    tokens := new ParserDeclarationTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
+    args := new ConstructorChainArgTable { Kinds: outArgKinds, Starts: outArgStarts, Lengths: outArgLengths }
+    result := new ParserDeclarationResultTable { Values: outResult }
+    argCount := ParseConstructorChainInfoCore(ref tokens, count, ctorIndex, ref args, ref result)
+    if argCount < 0 {
+        return -1
+    }
+
+    if outArgTexts.Length < argCount {
+        return -1
+    }
+
+    i := 0
+    while i < argCount {
+        outArgTexts[i] = source.Substring(args.Starts[i], args.Lengths[i])
+        i = i + 1
+    }
+
+    return argCount
+}

@@ -1685,7 +1685,7 @@ func ParseStructDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int
     // kernels at the recorded indices (a constructor's `(params)` and `{body}` parse via the same signature/statement
     // kernels — it has no name token and no `: ret`, so the signature kernel yields name=-1, returnRoot=-1; a
     // constructor INITIALIZER `: this(...)`/`base(...)` is skipped by the signature kernel and parsed separately
-    // via ParseConstructorTextInfoInto, which also verifies each ctor identifier's text is literally "constructor".
+    // via ParseConstructorChainInfoCore, with the composed constructor core verifying the identifier text.
     // A member with no `{` body declines.
     methodCount := 0
     ctorCount := 0
@@ -1757,66 +1757,8 @@ func ParseStructDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int
 // outResult[1] = the constructor BODY `{` token index, or -1 if it is missing. Returns the chained-arg count, or
 // -1 on a malformed initializer or a non-{identifier,int-literal} arg (a complex expression / string /
 // other literal — the host declines such a chaining ctor to the C# path).
-func ParseConstructorChainInfoInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, ctorIndex: int, outArgKinds: int[], outArgStarts: int[], outArgLengths: int[], outResult: int[]): int {
-    tokens := new ParserDeclarationTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
-    args := new ConstructorChainArgTable { Kinds: outArgKinds, Starts: outArgStarts, Lengths: outArgLengths }
-    result := new ParserDeclarationResultTable { Values: outResult }
-    return ParseConstructorChainInfoCore(ref tokens, count, ctorIndex, ref args, ref result)
-}
-
-func ParseConstructorInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, ctorIndex: int, outArgKinds: int[], outArgStarts: int[], outArgLengths: int[], outResult: int[]): int {
-    if ctorIndex < 0 || ctorIndex >= count {
-        return -1
-    }
-
-    if tokenKinds[ctorIndex] != 0 {
-        return -1
-    }
-
-    if !ParserDeclarationTokenTextEquals(source, tokenStarts[ctorIndex], tokenValueLengths[ctorIndex], "constructor") {
-        return -1
-    }
-
-    tokens := new ParserDeclarationTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
-    args := new ConstructorChainArgTable { Kinds: outArgKinds, Starts: outArgStarts, Lengths: outArgLengths }
-    result := new ParserDeclarationResultTable { Values: outResult }
-    return ParseConstructorChainInfoCore(ref tokens, count, ctorIndex, ref args, ref result)
-}
-
-func ParseConstructorTextInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, ctorIndex: int, outArgKinds: int[], outArgStarts: int[], outArgLengths: int[], outArgTexts: string[], outResult: int[]): int {
-    if ctorIndex < 0 || ctorIndex >= count {
-        return -1
-    }
-
-    if tokenKinds[ctorIndex] != 0 {
-        return -1
-    }
-
-    if !ParserDeclarationTokenTextEquals(source, tokenStarts[ctorIndex], tokenValueLengths[ctorIndex], "constructor") {
-        return -1
-    }
-
-    tokens := new ParserDeclarationTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
-    args := new ConstructorChainArgTable { Kinds: outArgKinds, Starts: outArgStarts, Lengths: outArgLengths }
-    result := new ParserDeclarationResultTable { Values: outResult }
-    argCount := ParseConstructorChainInfoCore(ref tokens, count, ctorIndex, ref args, ref result)
-    if argCount < 0 {
-        return -1
-    }
-
-    if outArgTexts.Length < argCount {
-        return -1
-    }
-
-    i := 0
-    while i < argCount {
-        outArgTexts[i] = source.Substring(args.Starts[i], args.Lengths[i])
-        i = i + 1
-    }
-
-    return argCount
-}
-
+// Product constructor-chain core. Flattened ParseConstructor*Into ABIs live in the parity corpus;
+// product callers compose this core through ParserConstructorSignatures.nl.
 func ParseConstructorChainInfoCore(tokens: &ParserDeclarationTokenTable, count: int, ctorIndex: int, args: &ConstructorChainArgTable, result: &ParserDeclarationResultTable): int {
     result.Values[0] = 0
     result.Values[1] = -1

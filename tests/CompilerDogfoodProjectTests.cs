@@ -10905,7 +10905,7 @@ func outer(x: int): int {
         Assert.Contains("ParseColumnarPropertyInfoInto", methodNames!); // composed property accessor + body routing
         Assert.Contains("ParseColumnarStructInfoInto", methodNames!); // composed struct/class/record text routing
         Assert.Contains("ParseColumnarUnionInfoInto", methodNames!); // composed union text/type routing
-        Assert.Contains("ParseConstructorSignatureInfoInto", methodNames!); // ParserConstructorSignatures -> declarations/signatures/types
+        Assert.Contains("ParseConstructorSignatureInfoCore", methodNames!); // ParserConstructorSignatures -> declarations/signatures/types
         Assert.Contains("ParseInterfaceDeclarationSignatureInfoCore", methodNames!); // ParserInterfaceSignatures -> declarations/signatures/types
         Assert.Contains("DirectLocalFunctionTokenIndicesInto", methodNames!); // ParserLocalFunctions -> declarations/statements
         Assert.Contains("ParsePrimaryExpressionNode", methodNames!); // ParserExpressions
@@ -10970,6 +10970,9 @@ func outer(x: int): int {
             ("DiagnosticClusters.nl", "IsDiagnosticClusterRootBefore"),
             ("DiagnosticDeduplication.nl", "SortDiagnosticDeduplicationIndices"),
             ("LexerTokenKindScanner.nl", "ScanOperator"),
+            ("ParserDeclarations.nl", "ParseConstructorChainInfoInto"),
+            ("ParserDeclarations.nl", "ParseConstructorInfoInto"),
+            ("ParserDeclarations.nl", "ParseConstructorTextInfoInto"),
             ("ParserDeclarations.nl", "ParseEnumDeclarationInto"),
             ("ParserDeclarations.nl", "ParseEnumDeclarationInfoInto"),
             ("ParserDeclarations.nl", "ParseEnumDeclarationTextInfoInto"),
@@ -10982,6 +10985,7 @@ func outer(x: int): int {
             ("ParserFunctionSignatures.nl", "ParseFunctionSignatureInto"),
             ("ParserFunctionSignatures.nl", "ParseFunctionSignatureTextInfoInto"),
             ("ParserFunctionSignatures.nl", "ParseFunctionSignatureInfoInto"),
+            ("ParserConstructorSignatures.nl", "ParseConstructorSignatureInfoInto"),
             ("ParserInterfaceSignatures.nl", "ParseInterfaceDeclarationSignatureInfoInto"),
             ("ParserExpressions.nl", "ParseExpressionNodesInto"),
             ("ParserTypeReferences.nl", "ParseTypeReferenceNodesInto"),
