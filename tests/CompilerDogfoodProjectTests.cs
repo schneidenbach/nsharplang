@@ -11824,6 +11824,7 @@ func outer(x: int): int {
             ("ParserFunctionSignatures.nl", "ParseFunctionSignatureTextInfoInto"),
             ("ParserFunctionSignatures.nl", "ParseFunctionSignatureInfoInto"),
             ("ParserFunctionSignatures.nl", "FunctionSignatureWhereOwnerIndicesInto"),
+            ("ParserFunctionSignatures.nl", "FunctionSignatureTypeParameterIndexOf"),
             ("ParserColumnarFunctions.nl", "ParseColumnarFunctionInfoInto"),
             ("ParserConstructorSignatures.nl", "ParseConstructorSignatureInfoInto"),
             ("ParserInterfaceSignatures.nl", "ParseInterfaceDeclarationSignatureInfoInto"),

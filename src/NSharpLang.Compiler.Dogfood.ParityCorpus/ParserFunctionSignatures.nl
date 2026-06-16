@@ -110,3 +110,8 @@ func FunctionSignatureWhereOwnerIndicesInto(source: string, typeParamStarts: int
     result := new FunctionSignatureOwnerIndexTable { Indices: outOwnerIndices }
     return FunctionSignatureWhereOwnerIndicesCore(source, ref typeParams, typeParamCount, ref whereNames, whereItemCount, ref result)
 }
+
+func FunctionSignatureTypeParameterIndexOf(source: string, typeParamStarts: int[], typeParamLengths: int[], typeParamCount: int, nameStart: int, nameLength: int): int {
+    typeParams := new FunctionSignatureNameSpanTable { Starts: typeParamStarts, Lengths: typeParamLengths }
+    return FunctionSignatureTypeParameterIndexOfCore(source, ref typeParams, typeParamCount, nameStart, nameLength)
+}

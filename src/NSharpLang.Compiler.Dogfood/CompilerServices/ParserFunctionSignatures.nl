@@ -243,11 +243,6 @@ func FunctionSignatureWhereOwnerIndicesCore(source: string, typeParams: &Functio
     return whereItemCount
 }
 
-func FunctionSignatureTypeParameterIndexOf(source: string, typeParamStarts: int[], typeParamLengths: int[], typeParamCount: int, nameStart: int, nameLength: int): int {
-    typeParams := new FunctionSignatureNameSpanTable { Starts: typeParamStarts, Lengths: typeParamLengths }
-    return FunctionSignatureTypeParameterIndexOfCore(source, ref typeParams, typeParamCount, nameStart, nameLength)
-}
-
 func FunctionSignatureTypeParameterIndexOfCore(source: string, typeParams: &FunctionSignatureNameSpanTable, typeParamCount: int, nameStart: int, nameLength: int): int {
     i := 0
     while i < typeParamCount {

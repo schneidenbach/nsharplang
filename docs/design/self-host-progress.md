@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Function-signature type-parameter shim leaves product dogfood
+
+The raw-array `FunctionSignatureTypeParameterIndexOf` compatibility shim now lives in the parity
+corpus beside the other flattened function-signature ABIs. Product `ParserFunctionSignatures.nl`
+keeps the wrapper-shaped `FunctionSignatureTypeParameterIndexOfCore` because
+`FunctionSignatureWhereOwnerIndicesCore` still composes it directly, but no shipped product route
+exposes the array-taking helper. The product/parity boundary test now pins this helper as
+parity-only while the parity merge continues to compile it for compatibility evidence.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_ParityOnlyFiles_AreAbsentFromProductCoverage|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_EligibleClusterCompiles|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`;
+`./scripts/dev.sh --since`.
+
 ## 2026-06-16 — Table-driven test case values type-check before emission
 
 Table-driven test case rows now validate each supported inline-data constant against the matching
