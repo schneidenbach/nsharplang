@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Statement parser parity ABI leaves product dogfood
+
+The flattened `ParseStatementNodesInto` export now lives in the parity corpus instead of
+`ParserStatements.nl`. Product function, constructor, and property body parsing already constructs
+the statement token/node/result tables and composes `ParseStatementNodesCore` directly; parser parity
+and real-corpus body tests keep direct coverage through the parity wrapper.
+
 ## 2026-06-16 — Type-reference canonicalization parity ABIs leave product dogfood
 
 The flattened `TypeReferenceCanonicalTextInto` and `TypeReferenceTupleElementNamesInto` exports now

@@ -558,7 +558,7 @@ ownership lands.
    span scratch columns, member/index outputs, text outputs, and result slots inside its wrapper-aware
    struct/class/record product core while preserving its flattened adapter ABI; that product core now
    composes the struct/class/record declaration core directly. The lower flattened function
-   signature, constructor signature/chain, property accessor, local-function discovery,
+   signature, constructor signature/chain, property accessor, statement parsing, local-function discovery,
    type-reference canonicalization, enum/interface/struct/union declaration span/text wrappers, and
    the flattened interface-signature wrapper are no longer shipped product dogfood files; they live in
    the parity corpus because no product route calls them after the wrapper-aware cores took ownership.

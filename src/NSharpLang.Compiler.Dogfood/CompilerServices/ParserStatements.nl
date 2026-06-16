@@ -1,9 +1,9 @@
 // Parser slices 16-17: the STATEMENT kernel -- function bodies, the critical path for parsing the dogfood
-// kernels (flat top-level functions whose bodies are statements). ParseStatementNodesInto parses ONE
-// statement at a token index by dispatching like the C# ParseStatement (Parser.cs:2165), and COMPOSES the
-// slice 10-15 expression kernel: statements and expressions share ONE columnar node table (the expression
-// table), with the shared expression `ParserState` (`st`) and `argStack`. Statement nodes use kinds 20+
-// so they never collide with the expression kinds 0-14.
+// kernels (flat top-level functions whose bodies are statements). ParseStatementNodesCore parses ONE statement
+// at a token index by dispatching like the C# ParseStatement (Parser.cs:2165), and COMPOSES the slice 10-15
+// expression kernel: statements and expressions share ONE columnar node table (the expression table), with the
+// shared expression `ParserState` (`st`) and `argStack`. Statement nodes use kinds 20+ so they never collide
+// with the expression kinds 0-14. The flattened ParseStatementNodesInto ABI lives in the parity corpus.
 //
 // Supported statement nodes (matching the concrete C# Statement records):
 //   ReturnStatement              -> kind 20  ( return [value]; 0 or 1 child = the value expression )
@@ -644,15 +644,6 @@ func ParseSimpleStatementNode(tokens: &ParserTokenTable, count: int, st: &Parser
     childRunStart := st.ChildCursor
     AppendExpressionChild(ref st, ref children, exprRoot)
     return EmitExpressionNode(ref st, ref nodes, 23, -1, 0, childRunStart, 1, exprStart, exprEnd - exprStart)
-}
-
-func ParseStatementNodesInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, start: int, outNodeKinds: int[], outValueStarts: int[], outValueLengths: int[], outChildStart: int[], outChildCount: int[], outChildIndices: int[], outSpanStarts: int[], outSpanLengths: int[], outResult: int[]): int {
-    tokens := new ParserTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
-    argStack := new ParserArgumentStack { Values: new int[](count + 1) }
-    nodes := new ParserExpressionNodeTable { Kinds: outNodeKinds, ValueStarts: outValueStarts, ValueLengths: outValueLengths, ChildStart: outChildStart, ChildCount: outChildCount, SpanStarts: outSpanStarts, SpanLengths: outSpanLengths }
-    children := new ParserChildIndexTable { Indices: outChildIndices }
-    result := new ParserResultTable { Values: outResult }
-    return ParseStatementNodesCore(ref tokens, count, start, ref argStack, ref nodes, ref children, ref result)
 }
 
 func ParseStatementNodesCore(tokens: &ParserTokenTable, count: int, start: int, argStack: &ParserArgumentStack, nodes: &ParserExpressionNodeTable, children: &ParserChildIndexTable, outResult: &ParserResultTable): int {

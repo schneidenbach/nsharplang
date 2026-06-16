@@ -10911,7 +10911,7 @@ func outer(x: int): int {
         Assert.Contains("TypeReferenceCanonicalTextCore", methodNames!); // ParserTypeReferences -> signature text canonicalization
         Assert.Contains("TypeReferenceTupleElementNamesCore", methodNames!); // ParserTypeReferences -> tuple parameter names
         Assert.Contains("ParsePrimaryExpressionNode", methodNames!); // ParserExpressions
-        Assert.Contains("ParseStatementNodesInto", methodNames!);    // ParserStatements -> ParserExpressions
+        Assert.Contains("ParseStatementNodesCore", methodNames!);    // ParserStatements -> ParserExpressions
     }
 
     // Arc M1 ZERO-NEW-DECLINES: the extracted PARITY CORPUS (the 94 checksum oracles moved out of
@@ -10993,6 +10993,7 @@ func outer(x: int): int {
             ("ParserInterfaceSignatures.nl", "ParseInterfaceDeclarationSignatureInfoInto"),
             ("ParserLocalFunctions.nl", "DirectLocalFunctionTokenIndicesInto"),
             ("ParserExpressions.nl", "ParseExpressionNodesInto"),
+            ("ParserStatements.nl", "ParseStatementNodesInto"),
             ("ParserTypeReferences.nl", "ParseTypeReferenceNodesInto"),
             ("ParserTypeReferences.nl", "TypeReferenceCanonicalTextInto"),
             ("ParserTypeReferences.nl", "TypeReferenceTupleElementNamesInto"),
