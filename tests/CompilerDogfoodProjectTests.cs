@@ -11104,8 +11104,8 @@ func outer(x: int): int {
         var (lexerOk, _, _, lexerProductMethods) = RouteColumnarProgram(lexerProduct);
         Assert.True(lexerOk, "LexerTokenKindScanner.nl product source should still compile without raw lexer parity wrappers.");
         Assert.Contains("TokenizeColumnarSourceInto", lexerProductMethods!);
-        Assert.Contains("TokenizeParserMetadataWithIndentationInto", lexerProductMethods!);
         Assert.Contains("ParserTokenCompactionIndicesCountedInto", lexerProductMethods!);
+        Assert.DoesNotContain("TokenizeParserMetadataWithIndentationInto", lexerProductMethods!);
         Assert.DoesNotContain("ParserTokenCompactedMetadataInto", lexerProductMethods!);
         Assert.DoesNotContain("TokenizeMetadataWithIndentationInto", lexerProductMethods!);
         Assert.DoesNotContain("ParserTokenCompactionIndicesInto", lexerProductMethods!);
@@ -11122,6 +11122,7 @@ func outer(x: int): int {
         var (lexerParityOk, _, _, lexerParityMethods) = RouteColumnarProgram(lexerWithParity);
         Assert.True(lexerParityOk, "LexerTokenKindScanner.nl parity corpus should still compile with raw lexer parity wrappers.");
         Assert.Contains("TokenizeMetadataWithIndentationInto", lexerParityMethods!);
+        Assert.Contains("TokenizeParserMetadataWithIndentationInto", lexerParityMethods!);
         Assert.Contains("ParserTokenCompactionIndicesInto", lexerParityMethods!);
         Assert.Contains("ParserTokenCompactedMetadataInto", lexerParityMethods!);
         Assert.Contains("TokenizeKinds", lexerParityMethods!);

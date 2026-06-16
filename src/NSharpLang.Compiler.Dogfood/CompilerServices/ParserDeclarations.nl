@@ -2,7 +2,7 @@ import System
 import System.Text
 
 // First N#-native parser slice: extract the top-level declaration KIND sequence from the
-// brace-inserted token-kind stream (the output of TokenizeParserMetadataWithIndentationInto), matching the
+// brace-inserted parser metadata stream produced by TokenizeColumnarSourceInto, matching the
 // C# parser's CompilationUnit.Declarations dispatch (Parser.cs ParseDeclaration). A top-level
 // declaration is a declaration keyword that appears at brace/bracket/paren depth 0 -- i.e. not nested
 // inside a type body ({...}), an attribute list ([...]), or a parameter/argument list ((...)). Leading

@@ -541,33 +541,25 @@ func InsertIndentationParserMetadataCore(
     return outCount
 }
 
-// Product parser lexer entry: tokenize the source into raw metadata, insert virtual indentation
-// braces, and emit only kind/start/valueLength columns for the parser and top-level declaration
-// kernels. The output buffers must be sized for the grown stream (<= 3x (source.Length + 1) is
-// always safe).
-func TokenizeParserMetadataWithIndentationInto(source: string, kinds: int[], starts: int[], valueLengths: int[]): int {
-    raw := new LexerTokenMetadataTable {
+// Product columnar lexer entry: tokenize, insert indentation braces, and compact parser metadata before
+// crossing back to C#. resultCounts[0] is the raw indentation-expanded count; resultCounts[1] is the
+// compact parser-token count. This keeps the transition adapter from binding standalone lexer probe ABIs.
+func TokenizeColumnarSourceInto(source: string, rawKinds: int[], rawStarts: int[], rawValueLengths: int[], compactKinds: int[], compactStarts: int[], compactValueLengths: int[], resultCounts: int[]): int {
+    if resultCounts.Length < 2 {
+        return -1
+    }
+
+    rawMetadata := new LexerTokenMetadataTable {
         Kinds: new int[](source.Length + 1),
         Starts: new int[](source.Length + 1),
         ValueLengths: new int[](source.Length + 1),
         Lines: new int[](source.Length + 1),
         Columns: new int[](source.Length + 1)
     }
-    target := new LexerCompactTokenMetadataTable { Kinds: kinds, Starts: starts, ValueLengths: valueLengths }
-    rawCount := TokenizeMetadataCore(source, ref raw)
+    rawTarget := new LexerCompactTokenMetadataTable { Kinds: rawKinds, Starts: rawStarts, ValueLengths: rawValueLengths }
+    tokenCount := TokenizeMetadataCore(source, ref rawMetadata)
     indentStack := new LexerIndentStackTable { Indents: new int[](source.Length + 2) }
-    return InsertIndentationParserMetadataCore(ref raw, rawCount, ref target, ref indentStack)
-}
-
-// Product columnar lexer entry: tokenize, insert indentation braces, and compact parser metadata before
-// crossing back to C#. resultCounts[0] is the raw indentation-expanded count; resultCounts[1] is the
-// compact parser-token count. This keeps the transition adapter from binding the standalone compaction ABI.
-func TokenizeColumnarSourceInto(source: string, rawKinds: int[], rawStarts: int[], rawValueLengths: int[], compactKinds: int[], compactStarts: int[], compactValueLengths: int[], resultCounts: int[]): int {
-    if resultCounts.Length < 2 {
-        return -1
-    }
-
-    rawCount := TokenizeParserMetadataWithIndentationInto(source, rawKinds, rawStarts, rawValueLengths)
+    rawCount := InsertIndentationParserMetadataCore(ref rawMetadata, tokenCount, ref rawTarget, ref indentStack)
     if rawCount < 0 {
         return -1
     }

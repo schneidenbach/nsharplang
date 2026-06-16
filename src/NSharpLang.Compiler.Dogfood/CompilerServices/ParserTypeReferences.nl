@@ -4,8 +4,8 @@ import System.Text
 // produced flat top-level indices via single-pass token scans, this kernel reproduces the C# parser's
 // ParseTypeReference -> ParsePostfixTypeReference -> ParseBaseTypeReference recursion (Parser.cs:1718-1907)
 // for the four dominant type-reference forms and emits a real parent->child AST as a flat columnar node
-// table. It consumes the lexer's token kind/start/value-length arrays (the output of
-// TokenizeParserMetadataWithIndentationInto) and builds nodes in POST-ORDER (children before parents), so the
+// table. It consumes the lexer's brace-inserted token kind/start/value-length arrays produced by
+// TokenizeColumnarSourceInto and builds nodes in POST-ORDER (children before parents), so the
 // root is the last node written.
 //
 // Supported forms (matching the concrete C# TypeReference nodes):

@@ -18,8 +18,9 @@ ABI. The wrapper tokenizes source, inserts indentation braces, compacts parser m
 both raw and compact token counts in one dogfood call. `NSharpCompilerDogfoodAdapter.TryTokenizeColumnarSource`
 now binds that composed entry directly instead of calling `TokenizeParserMetadataWithIndentationInto`
 and then crossing the boundary again for `ParserTokenCompactedMetadataInto`. The standalone
-`ParserTokenCompactedMetadataInto` wrapper moved to the parity corpus; `ParserTokenCompactedMetadataCore`
-stays in the product lexer file for the composed route.
+`TokenizeParserMetadataWithIndentationInto` and `ParserTokenCompactedMetadataInto` wrappers moved to
+the parity corpus; `InsertIndentationParserMetadataCore` and `ParserTokenCompactedMetadataCore` stay
+in the product lexer file for the composed route.
 
 ## 2026-06-16 — Fieldless value-struct decline moves into N# struct parser
 
@@ -62,13 +63,15 @@ has `typeParamCount` and `FieldStaticFlags`.
 
 ## 2026-06-16 — Parser lexer metadata ABI becomes compact
 
-`LexerTokenKindScanner.nl` now exposes `TokenizeParserMetadataWithIndentationInto` as the product
-parser-tokenization ABI. It still tokenizes into raw metadata internally so indentation insertion can
-use line/column information, but it writes only the parser-consumed kind/start/value-length columns
-across the C# dogfood boundary.
+This step introduced `TokenizeParserMetadataWithIndentationInto` as the compact
+parser-tokenization ABI. It still tokenized into raw metadata internally so indentation insertion
+could use line/column information, but wrote only the parser-consumed kind/start/value-length
+columns across the C# dogfood boundary. The later composed `TokenizeColumnarSourceInto` route moved
+that standalone wrapper to the parity corpus and calls `InsertIndentationParserMetadataCore`
+directly from product N#.
 
-`NSharpCompilerDogfoodAdapter` now binds this compact entry directly and no longer allocates
-line/column output arrays for columnar tokenization. The previous full composed metadata wrapper
+`NSharpCompilerDogfoodAdapter` stopped allocating line/column output arrays for columnar tokenization
+as part of this step. The previous full composed metadata wrapper
 (`TokenizeMetadataWithIndentationInto`) moved to the parity corpus with the full-output
 `InsertIndentationBracesCore`, keeping lexer and parser parity tests able to compare line/column
 metadata without shipping that wider ABI in product dogfood.

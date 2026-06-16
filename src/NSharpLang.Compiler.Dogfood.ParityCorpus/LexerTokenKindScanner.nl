@@ -388,6 +388,20 @@ func TokenizeMetadataWithIndentationInto(source: string, kinds: int[], starts: i
     return InsertIndentationBracesCore(ref raw, rawCount, ref target, ref indentStack)
 }
 
+func TokenizeParserMetadataWithIndentationInto(source: string, kinds: int[], starts: int[], valueLengths: int[]): int {
+    raw := new LexerTokenMetadataTable {
+        Kinds: new int[](source.Length + 1),
+        Starts: new int[](source.Length + 1),
+        ValueLengths: new int[](source.Length + 1),
+        Lines: new int[](source.Length + 1),
+        Columns: new int[](source.Length + 1)
+    }
+    target := new LexerCompactTokenMetadataTable { Kinds: kinds, Starts: starts, ValueLengths: valueLengths }
+    rawCount := TokenizeMetadataCore(source, ref raw)
+    indentStack := new LexerIndentStackTable { Indents: new int[](source.Length + 2) }
+    return InsertIndentationParserMetadataCore(ref raw, rawCount, ref target, ref indentStack)
+}
+
 func CommentsInto(source: string, lines: int[], columns: int[], starts: int[], lengths: int[], isMultiLine: int[]): int {
     comments := new LexerCommentTable { Lines: lines, Columns: columns, Starts: starts, Lengths: lengths, IsMultiLine: isMultiLine }
     return CommentsCore(source, ref comments)

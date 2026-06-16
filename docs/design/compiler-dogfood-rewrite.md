@@ -106,8 +106,8 @@ Current lexer dogfood benchmarks:
   binds `TokenizeColumnarSourceInto` for columnar tokenization so N# tokenizes, inserts indentation
   braces, and writes compact kind/start/value-length rows before crossing back to C#; parser-constructor
   token-object compaction still binds the counted-prefix `ParserTokenCompactionIndicesCountedInto`
-  ABI. The full-array and standalone compact-metadata exports are retained only in the parity corpus
-  for benchmark and parity evidence.
+  ABI. The full-array, standalone parser-metadata, and standalone compact-metadata exports are
+  retained only in the parity corpus for benchmark and parity evidence.
 
 The lexer scanner candidate now lives in `src/NSharpLang.Compiler.Dogfood` as an ordinary N# SDK
 project. Benchmarks embed `CompilerServices/LexerTokenKindScanner.nl` as source input and compile it
