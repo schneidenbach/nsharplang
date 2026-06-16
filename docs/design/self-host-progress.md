@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Enum value parsing keeps output storage table-shaped
+
+`ParseEnumMemberValuesCore` now writes through an `EnumMemberValueTable` wrapper instead of receiving
+the member-value output column as a raw `int[]`. Product enum parsing still exposes the same flattened
+C# transition ABI, but the composed N# declaration/value path keeps its output storage grouped behind
+the product table shape.
+Focused evidence: `./scripts/dev.sh ParserColumnarEnums`.
+
 ## 2026-06-16 — Union parser field-count validation stays table-shaped
 
 `ColumnarUnionCaseFieldNamesDistinct` now consumes the existing

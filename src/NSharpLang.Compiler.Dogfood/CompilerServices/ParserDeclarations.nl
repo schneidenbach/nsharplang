@@ -89,6 +89,10 @@ struct EnumMemberTable {
     HasValue: int[]
 }
 
+struct EnumMemberValueTable {
+    Values: int[]
+}
+
 struct StructDeclarationTable {
     FieldNameStarts: int[]
     FieldNameLengths: int[]
@@ -1165,8 +1169,8 @@ func ParseInterfaceDeclarationCore(tokens: &ParserDeclarationTokenTable, count: 
     return methodCount
 }
 
-func ParseEnumMemberValuesCore(source: string, members: &EnumMemberTable, memberCount: int, outMemberValues: int[]): bool {
-    if memberCount < 0 || memberCount > outMemberValues.Length {
+func ParseEnumMemberValuesCore(source: string, members: &EnumMemberTable, memberCount: int, values: &EnumMemberValueTable): bool {
+    if memberCount < 0 || memberCount > values.Values.Length {
         return false
     }
 
@@ -1175,12 +1179,12 @@ func ParseEnumMemberValuesCore(source: string, members: &EnumMemberTable, member
     while i < memberCount {
         value := nextValue
         if members.HasValue[i] != 0 {
-            if !ParserDeclarationTryParseIntLiteralCore(source, members.ValueStarts[i], members.ValueLengths[i], outMemberValues, i) {
+            if !ParserDeclarationTryParseIntLiteralCore(source, members.ValueStarts[i], members.ValueLengths[i], values.Values, i) {
                 return false
             }
-            value = outMemberValues[i]
+            value = values.Values[i]
         } else {
-            outMemberValues[i] = value
+            values.Values[i] = value
         }
 
         nextValue = ParserDeclarationNextEnumValue(value)
