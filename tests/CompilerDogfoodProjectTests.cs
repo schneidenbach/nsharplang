@@ -1808,6 +1808,7 @@ class B
         var columnarBaseNameTexts = new string[cap];
         var columnarStructNameTexts = new string[1];
         var columnarResult = new int[12];
+        var columnarReferenceFlag = tokenKind == (int)TokenType.Class || tokenKind == (int)TokenType.Record ? 1 : 0;
         var columnarRecordFlag = tokenKind == (int)TokenType.Record ? 1 : 0;
         var columnarFieldCount = (int)(parseColumnarStructInfo.Invoke(
             null,
@@ -1819,6 +1820,7 @@ class B
                 valueLengths,
                 count,
                 structIndex,
+                columnarReferenceFlag,
                 columnarRecordFlag,
                 columnarFieldNameTexts,
                 columnarFieldTypeTexts,

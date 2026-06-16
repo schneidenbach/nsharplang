@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Fieldless value-struct decline moves into N# struct parser
+
+`ParseColumnarStructInfoInto` now receives the declaration reference/value flag, and
+`ParseColumnarStructInfoCore` rejects zero-field value structs before returning rows to C#. The C#
+transition adapter no longer performs the `fieldCount == 0 && !isReference` route-safety check; pure
+behavior reference types remain accepted, while zero-size value structs still decline before emit.
+
 ## 2026-06-16 — Generic member-name collision decline moves into N# struct parser
 
 `ParseColumnarStructInfoCore` now compares generic type-parameter spans against field, method, and

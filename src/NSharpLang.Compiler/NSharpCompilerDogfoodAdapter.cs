@@ -278,14 +278,13 @@ internal static class NSharpCompilerDogfoodAdapter
                 var outStructNameTexts = new string[1];
                 var outResult = new int[12];
                 var fieldCount = bindings.ParseColumnarStructInfo(
-                    source, ck, cs, cv, n, structIndex, isRecord ? 1 : 0, outFieldNameTexts, outFieldTypeTexts,
+                    source, ck, cs, cv, n, structIndex, isReference ? 1 : 0, isRecord ? 1 : 0, outFieldNameTexts, outFieldTypeTexts,
                     outFieldStaticFlags, outFieldInitKinds, outFieldInitTexts,
                     outMethodFuncIndices, outMethodStaticFlags, outCtorIndices, outPropIndices, outPropStaticFlags,
                     outTypeParamTexts, outBaseNameTexts, outStructNameTexts, outResult);
-                // The kernel returns -1 on a parse failure; 0 is a legitimate FIELDLESS type. A zero-field
-                // REFERENCE type (a pure-behavior class — e.g. an inheritance base with only methods) is modelled;
-                // a zero-field VALUE struct keeps declining (a zero-size value type is a CLR layout edge case).
-                if (fieldCount < 0 || (fieldCount == 0 && !isReference) || outResult[1] <= 0)
+                // The kernel returns -1 on a parse failure or unsupported declaration shape; 0 is a legitimate
+                // fieldless reference type (a pure-behavior class — e.g. an inheritance base with only methods).
+                if (fieldCount < 0 || outResult[1] <= 0)
                     return false;
 
                 var structName = outStructNameTexts[0];
@@ -1998,6 +1997,7 @@ internal static class NSharpCompilerDogfoodAdapter
     private delegate int ParseColumnarStructInfoInto(
         string source,
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int structIndex,
+        int isReference,
         int isRecord,
         string[] outFieldNameTexts, string[] outFieldTypeTexts,
         int[] outFieldStaticFlags, int[] outFieldInitKinds, string[] outFieldInitTexts,

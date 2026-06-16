@@ -558,8 +558,8 @@ ownership lands.
    span scratch columns, member/index outputs, text outputs, and result slots inside its wrapper-aware
    struct/class/record product core while preserving its flattened adapter ABI; that product core now
    composes the struct/class/record declaration core directly and owns route-safety checks for
-   generic base lists, generic static fields, generic member/type-parameter name collisions, and
-   record constructors. The lower flattened function
+   fieldless value structs, generic base lists, generic static fields, generic member/type-parameter
+   name collisions, and record constructors. The lower flattened function
    signature, constructor signature/chain, property accessor, top-level declaration probes,
    declaration utility wrappers, statement parsing, local-function discovery, type-reference
    canonicalization, enum/interface/struct/union declaration span/text wrappers, and the flattened
