@@ -243,7 +243,7 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       body/local-function, enum, struct/class/record, union, and interface routes now compose typed N# cores
       directly where wrapper ownership is complete, and columnar tokenization now compacts parser token
       kind/start/value-length rows in N# instead of a C# kept-index copy loop; flattened exports remain
-      compatibility/parity ABIs, with function-signature wrappers, constructor signature/chain
+      compatibility/parity ABIs, with the full-array token-compaction wrapper, function-signature wrappers, constructor signature/chain
       wrappers, property accessor wrappers, top-level declaration probes, declaration utility
       wrappers, statement parsing, local-function discovery, type-reference canonicalization wrappers,
       enum/interface/struct/union declaration-only shims, and the flattened

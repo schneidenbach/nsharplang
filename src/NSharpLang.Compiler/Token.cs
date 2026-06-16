@@ -1,7 +1,7 @@
 namespace NSharpLang.Compiler;
 
 // IMPORTANT: TokenType member ORDER is load-bearing. The compiler dogfood N# kernels
-// (e.g. ParserTokenCompactionIndicesInto and the lexer token-kind scanner in
+// (e.g. ParserTokenCompactionIndicesCountedInto and the lexer token-kind scanner in
 // src/NSharpLang.Compiler.Dogfood/CompilerServices/LexerTokenKindScanner.nl) operate on the
 // integer ordinals of this enum and bake specific values (e.g. Newline == 136). New members
 // MUST be appended at the END of the enum so existing ordinals never shift; do not insert

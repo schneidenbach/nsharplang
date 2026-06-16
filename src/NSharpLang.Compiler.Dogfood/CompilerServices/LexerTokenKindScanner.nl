@@ -24,12 +24,6 @@ struct LexerIndentStackTable {
     Indents: int[]
 }
 
-func ParserTokenCompactionIndicesInto(tokenKinds: int[], resultIndices: int[]): int {
-    tokens := new LexerTokenKindTable { Kinds: tokenKinds }
-    result := new LexerTokenIndexTable { Indices: resultIndices }
-    return ParserTokenCompactionIndicesCore(ref tokens, ref result, tokenKinds.Length)
-}
-
 func ParserTokenCompactionIndicesCountedInto(tokenKinds: int[], tokenCount: int, resultIndices: int[]): int {
     if tokenCount < 0 {
         return -1

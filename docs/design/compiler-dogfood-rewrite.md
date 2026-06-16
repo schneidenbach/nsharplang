@@ -101,12 +101,12 @@ Current lexer dogfood benchmarks:
 - `CompilerServiceParserTokenCompactionBenchmarks` targets parser constructor newline-token
   compaction. The C# baseline mirrors `tokens.Where(t => t.Type != TokenType.Newline).ToList()`.
   The N# candidate runs after the host projects token kinds into compact ids and writes kept source
-  indices through `ParserTokenCompactionIndicesInto`. Token objects and the final parser token list
+  indices through the full-array `ParserTokenCompactionIndicesInto` parity wrapper. Token objects and the final parser token list
   remain C# host boundaries until the compact parser token table is ported. The product adapter now
   binds `ParserTokenCompactedMetadataInto` for columnar tokenization so N# writes compact
   kind/start/value-length rows directly; parser-constructor token-object compaction still binds the
   counted-prefix `ParserTokenCompactionIndicesCountedInto` ABI. The full-array export is retained
-  for benchmark and parity evidence.
+  only in the parity corpus for benchmark and parity evidence.
 
 The lexer scanner candidate now lives in `src/NSharpLang.Compiler.Dogfood` as an ordinary N# SDK
 project. Benchmarks embed `CompilerServices/LexerTokenKindScanner.nl` as source input and compile it
@@ -1660,8 +1660,9 @@ about 30.0x faster on the large generated corpus (51.244 us vs 1.535 ms, 0 B vs 
 `NSharpCodeIntelligenceDogfoodAdapter.TryOrderDocMembers` when the dogfood assembly is available,
 with the previous LINQ ordering retained for unexpected member kinds or unavailable dogfood.
 
-`ParserTokenCompactionIndicesInto` passed parity and reported zero managed allocation in the normal
-BenchmarkDotNet evidence tier for parser newline-token compaction. It ran about 7.3x faster on the
+The full-array `ParserTokenCompactionIndicesInto` parity wrapper passed parity and reported zero
+managed allocation in the normal BenchmarkDotNet evidence tier for parser newline-token compaction.
+It ran about 7.3x faster on the
 representative token corpus (96.771 ns vs 706.742 ns, 0 B vs 1,560 B) and about 8.6x faster on the
 large generated token corpus (31.250 us vs 268.324 us, 0 B vs 468,667 B). This is
 acceptance-grade benchmark evidence for newline compaction after the host has projected token kinds

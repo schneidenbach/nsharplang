@@ -21,7 +21,7 @@ public class CompilerDogfoodProjectTests
     private const int MinimumProductDogfoodFileCountAfterParityExtraction = 26;
 
     // The production-routed parser token-compaction kernel
-    // (LexerTokenKindScanner.nl: ParserTokenCompactionIndicesInto) filters newline tokens by the
+    // (LexerTokenKindScanner.nl: ParserTokenCompactionIndicesCountedInto) filters newline tokens by the
     // hard-coded integer ordinal 136. The Parser constructor routes through it via
     // NSharpCompilerDogfoodAdapter.TryCompactParserTokens. If a TokenType member is inserted in the
     // middle of the enum, Newline's ordinal shifts, the kernel filters the wrong token type, and the
@@ -11077,7 +11077,9 @@ func outer(x: int): int {
         var (lexerOk, _, _, lexerProductMethods) = RouteColumnarProgram(lexerProduct);
         Assert.True(lexerOk, "LexerTokenKindScanner.nl product source should still compile without raw lexer parity wrappers.");
         Assert.Contains("TokenizeMetadataWithIndentationInto", lexerProductMethods!);
+        Assert.Contains("ParserTokenCompactionIndicesCountedInto", lexerProductMethods!);
         Assert.Contains("ParserTokenCompactedMetadataInto", lexerProductMethods!);
+        Assert.DoesNotContain("ParserTokenCompactionIndicesInto", lexerProductMethods!);
         Assert.DoesNotContain("TokenizeKinds", lexerProductMethods!);
         Assert.DoesNotContain("TokenizeKindsInto", lexerProductMethods!);
         Assert.DoesNotContain("TokenizeMetadataInto", lexerProductMethods!);
@@ -11090,6 +11092,7 @@ func outer(x: int): int {
         var lexerWithParity = ReadDogfoodFileWithParityCorpus("LexerTokenKindScanner.nl");
         var (lexerParityOk, _, _, lexerParityMethods) = RouteColumnarProgram(lexerWithParity);
         Assert.True(lexerParityOk, "LexerTokenKindScanner.nl parity corpus should still compile with raw lexer parity wrappers.");
+        Assert.Contains("ParserTokenCompactionIndicesInto", lexerParityMethods!);
         Assert.Contains("TokenizeKinds", lexerParityMethods!);
         Assert.Contains("TokenizeKindsInto", lexerParityMethods!);
         Assert.Contains("TokenizeMetadataInto", lexerParityMethods!);

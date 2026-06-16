@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Full-array token-compaction ABI leaves product dogfood
+
+The flattened `ParserTokenCompactionIndicesInto` export now lives in the parity corpus. The shipped
+lexer dogfood file keeps `ParserTokenCompactionIndicesCore`,
+`ParserTokenCompactionIndicesCountedInto`, and `ParserTokenCompactedMetadataInto` for the real
+parser-constructor and columnar-tokenization routes, while parser-token compaction benchmarks and
+legacy parity checks still bind the full-array wrapper from the merged parity corpus.
+
 ## 2026-06-16 — Declaration utility parity ABIs leave product dogfood
 
 The flattened `MatchingCloseBraceInto` and `TokenIndexByKindStartInto` exports now live in the
@@ -229,9 +237,9 @@ parser parity tests. Focused evidence:
 
 `NSharpCompilerDogfoodAdapter.TryCompactParserTokens` now calls
 `ParserTokenCompactionIndicesCountedInto` with the logical token count instead of binding the older
-full-array `ParserTokenCompactionIndicesInto` surface. The full-array export remains available for
-parser parity tests and benchmark evidence, but the product `Parser` constructor path no longer
-depends on it. Focused evidence: `./scripts/dev.sh ParserTokenCompaction`,
+full-array `ParserTokenCompactionIndicesInto` surface. The full-array export now lives in the
+parity corpus for parser parity tests and benchmark evidence, and the product `Parser` constructor
+path no longer depends on it. Focused evidence: `./scripts/dev.sh ParserTokenCompaction`,
 `./scripts/dev.sh CompilerDogfoodAdapter_CompactsParserTokens`, and
 `./scripts/dev.sh ColumnarCodegen_CompilesRealDogfoodCorpus_Coverage`.
 
@@ -929,11 +937,11 @@ the columnar product route. `LexerTokenKindScanner.nl` now exposes
 `ParserTokenCompactionIndicesCore` loop, and the adapter uses those dogfood-selected raw token
 indices before materializing compact parser-token columns.
 
-The original `ParserTokenCompactionIndicesInto` full-array surface remains stable for parity
-benchmarks. `CompilerDogfoodProjectTests` now pads the input buffer when checking the counted entry
-point, proving the production tokenizer can pass over-allocated raw token arrays without compacting
-trailing spare capacity. The later parser-constructor adapter pass also moved that path to the
-counted entry point, leaving the full-array export out of product adapter bindings.
+The original `ParserTokenCompactionIndicesInto` full-array surface remains stable in the parity
+corpus for parity benchmarks. `CompilerDogfoodProjectTests` now pads the input buffer when checking
+the counted entry point, proving the production tokenizer can pass over-allocated raw token arrays
+without compacting trailing spare capacity. The later parser-constructor adapter pass also moved
+that path to the counted entry point, leaving the full-array export out of product adapter bindings.
 
 ## 2026-06-15 — Top-level function preamble guard moves into N#
 
@@ -4085,8 +4093,8 @@ parallel-array tables through its main token kind, token metadata, indentation, 
 
 `LexerTokenKindScanner.nl` now groups token-kind buffers and parser-compaction result indexes behind
 named normal structs for the plain token-kind scanner path. `TokenizeKinds`, `TokenizeKindsInto`,
-`ParserTokenCompactionIndicesInto`, and `CopyKinds` keep their flattened public signatures, while
-their internal loops operate on wrapper-aware token-kind and index tables.
+`ParserTokenCompactionIndicesCountedInto`, and `CopyKinds` keep their flattened public signatures,
+while their internal loops operate on wrapper-aware token-kind and index tables.
 
 This is the first lexer table-wrapper slice. The larger token metadata, indentation post-pass, and
 comment-output tables are still separate lexer surfaces and remain to be wrapped in later slices.
