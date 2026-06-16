@@ -693,6 +693,45 @@ class Box {
                 parsePropertyAccessorTypeInfo,
                 parseColumnarPropertyInfo,
                 "set-first property");
+            AssertColumnarPropertyInfoDeclines(
+                """
+class Box {
+    value: int
+    Value: int {
+        get {
+            func bump(x: int): int {
+                return x + 1
+            }
+            return bump(value)
+        }
+    }
+}
+""",
+                "Value",
+                tokenizeWithIndentation,
+                parseColumnarPropertyInfo,
+                "getter local function");
+            AssertColumnarPropertyInfoDeclines(
+                """
+class Box {
+    stored: int
+    Value: int {
+        get {
+            return stored
+        }
+        set {
+            func same(x: int): int {
+                return x
+            }
+            stored = same(value)
+        }
+    }
+}
+""",
+                "Value",
+                tokenizeWithIndentation,
+                parseColumnarPropertyInfo,
+                "setter local function");
             AssertConstructorChainBodyIndex(
                 """
 class C {
@@ -2320,6 +2359,63 @@ class B
             Assert.Equal(-1, composedResult[8]);
             Assert.Equal(0, composedResult[9]);
         }
+    }
+
+    private static void AssertColumnarPropertyInfoDeclines(
+        string source,
+        string propertyName,
+        MethodInfo tokenizeWithIndentation,
+        MethodInfo parseColumnarPropertyInfo,
+        string label)
+    {
+        var (count, kinds, starts, valueLengths, compactedSource) = TokenizeSourceViaKernel(source, tokenizeWithIndentation);
+        var propIndex = -1;
+        for (var i = 0; i < count; i++)
+        {
+            if (kinds[i] == (int)TokenType.Identifier
+                && valueLengths[i] == propertyName.Length
+                && string.CompareOrdinal(compactedSource, starts[i], propertyName, 0, propertyName.Length) == 0
+                && i + 1 < count
+                && kinds[i + 1] == (int)TokenType.Colon)
+            {
+                propIndex = i;
+                break;
+            }
+        }
+
+        Assert.True(propIndex >= 0, $"Could not locate property token for {label}.");
+        var cap = count + 1;
+        var actual = (int)(parseColumnarPropertyInfo.Invoke(
+            null,
+            new object[]
+            {
+                compactedSource,
+                kinds,
+                starts,
+                valueLengths,
+                count,
+                propIndex,
+                new string[1],
+                new string[1],
+                new int[cap],
+                new int[cap],
+                new int[cap],
+                new int[cap],
+                new int[cap],
+                new int[cap],
+                new int[cap],
+                new int[cap],
+                new int[cap],
+                new int[cap],
+                new int[cap],
+                new int[cap],
+                new int[cap],
+                new int[cap],
+                new int[cap],
+                new int[cap],
+                new int[10]
+            }) ?? -2);
+        Assert.Equal(-1, actual);
     }
 
     private static void AssertTopLevelDeclarationIndices(

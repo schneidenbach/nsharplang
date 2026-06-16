@@ -81,6 +81,10 @@ func ParseColumnarPropertyInfoCore(source: string, tokens: &ColumnarPropertyToke
     if getBodyRoot < 0 || getBodyRoot >= getBodyNodeCount {
         return -1
     }
+    getLocalFunctionStatus := ColumnarPropertyDirectLocalFunctionStatus(ref tokens, ref getBody, getBodyRoot)
+    if getLocalFunctionStatus != 0 {
+        return -1
+    }
 
     setBodyRoot := -1
     setBodyNodeCount := 0
@@ -100,6 +104,10 @@ func ParseColumnarPropertyInfoCore(source: string, tokens: &ColumnarPropertyToke
         if setBodyRoot < 0 || setBodyRoot >= setBodyNodeCount {
             return -1
         }
+        setLocalFunctionStatus := ColumnarPropertyDirectLocalFunctionStatus(ref tokens, ref setBody, setBodyRoot)
+        if setLocalFunctionStatus != 0 {
+            return -1
+        }
     } else if accessorKind != 0 {
         return -1
     }
@@ -115,6 +123,22 @@ func ParseColumnarPropertyInfoCore(source: string, tokens: &ColumnarPropertyToke
     result.Values[8] = setBodyRoot
     result.Values[9] = setBodyNodeCount
     return accessorKind
+}
+
+func ColumnarPropertyDirectLocalFunctionStatus(tokens: &ColumnarPropertyTokenTable, body: &ColumnarPropertyBodyTable, rootBlock: int): int {
+    localTokens := new LocalFunctionTokenTable { Kinds: tokens.Kinds, Starts: tokens.Starts, Count: tokens.Count }
+    localNodes := new LocalFunctionNodeTable { Kinds: body.NodeKinds, ValueStarts: body.ValueStarts, ChildStart: body.ChildStart, ChildCount: body.ChildCount, ChildIndices: body.ChildIndices }
+    cap := tokens.Count + 1
+    localResults := new LocalFunctionResultTable { NodeIndices: new int[](cap), FuncTokenIndices: new int[](cap) }
+    localFunctionCount := DirectLocalFunctionTokenIndicesCore(ref localTokens, ref localNodes, rootBlock, ref localResults)
+    if localFunctionCount < 0 {
+        return -1
+    }
+    if localFunctionCount > 0 {
+        return 1
+    }
+
+    return 0
 }
 
 func ParseColumnarPropertyBodyNodesCore(tokens: &ColumnarPropertyTokenTable, bodyBrace: int, body: &ColumnarPropertyBodyTable, result: &ColumnarPropertyResultTable): int {

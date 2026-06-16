@@ -11,6 +11,12 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Property local-function decline moves into N# parser
+
+`ParseColumnarPropertyInfoCore` now scans getter and setter body rowsets for direct local-function
+declarations and rejects them before accessor inputs cross the C# boundary. Method and constructor member
+body local-function declines were already parser-owned; property accessors now follow the same rule.
+
 ## 2026-06-16 — Value-struct constructor hazards move into N# parser
 
 `ParseColumnarStructInfoCore` now rejects value-type constructors with chain initializers and parameterless
