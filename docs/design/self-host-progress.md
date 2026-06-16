@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Constructor duplicate-signature decline moves into N# parser
+
+`ColumnarStructConstructorUnsupportedStatus` now records canonical constructor parameter signatures
+and rejects exact duplicate constructor signatures while the struct parser still owns constructor
+rows. Same-arity constructors with distinct parameter types remain declaration-accepted; ambiguous
+construction/chaining call sites still decline during semantic emission. The columnar emitter no
+longer carries the duplicate-signature fallback before `DefineConstructor`.
+
 ## 2026-06-16 — Static method same-arity overload decline moves into N# parser
 
 `ColumnarStructMethodUnsupportedStatus` now records parsed static method parameter counts and rejects

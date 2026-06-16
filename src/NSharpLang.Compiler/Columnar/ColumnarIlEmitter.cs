@@ -387,8 +387,8 @@ internal sealed class ColumnarStructDef
     // Instance methods declared on this struct, by name -> (the declared MethodBuilder, param types, return type).
     // Populated in PASS 0; lets `receiver.Method(args)` resolve the instance call (ldloca receiver; <args>; call).
     internal Dictionary<string, (MethodBuilder Builder, Type[] ParamTypes, Type ReturnType)> Methods { get; } = new(StringComparer.Ordinal);
-    // STATIC methods declared on this type, by name -> the declared overloads (distinct PARAM COUNT only — a
-    // same-arity overload set declines in PASS 0b, mirroring the constructor-overload rule). Resolved by
+    // STATIC methods declared on this type, by name -> the declared overloads (distinct PARAM COUNT only; the N#
+    // struct parser declines same-name/same-arity static overload sets before rows reach this pass). Resolved by
     // `TypeName.Method(args)` (chain-walked, nearest declaration first) and by bare calls inside this type's own
     // member bodies (after locals/params and sibling top-level functions — the empirically pinned N# order).
     internal Dictionary<string, List<(MethodBuilder Builder, Type[] ParamTypes, Type ReturnType)>> StaticMethods { get; } = new(StringComparer.Ordinal);
@@ -3062,8 +3062,8 @@ internal sealed class ColumnarIlEmitter
         // or without parameters; `this` is arg 0, so user param ordinals shift by +1 (void instance methods decline
         // — a later slice). STATIC methods (`static func`): declared with MethodAttributes.Static, NO implicit
         // `this` (ordinals unshifted), void allowed (the body emits exactly like a top-level procedure), and
-        // OVERLOADS by distinct PARAM COUNT (a same-arity static overload set declines — same rule as constructor
-        // overloads; the N# pipeline accepts type-distinguished same-arity sets, so declining is the safe side).
+        // OVERLOADS by distinct PARAM COUNT (same-name/same-arity static overload sets are parser declines because
+        // columnar static-call resolution is arity-based).
         // The N# struct parser wrapper rejects method names that collide with fields, duplicate instance method
         // names, and static/instance method name collisions before rows reach this pass. The builders + param types
         // are stored for call resolution; bodies are emitted in PASS 2.
@@ -3288,10 +3288,12 @@ internal sealed class ColumnarIlEmitter
         // PASS 0c (constructors): declare each user constructor. A constructor is a nameless,
         // void-returning member whose body assigns fields; `this` is arg 0 so user param ordinals shift by +1. Slice
         // scope: one or more OVERLOADED constructors on a REFERENCE type (class/record), optionally with a `: this(...)`
-        // (same-type) or `: base(...)` (declared base class) chaining initializer. Overload resolution at construction
-        // is by PARAM COUNT (see case 15). Value-type constructors arrive only for the parser-accepted positional
-        // shape: non-parameterless and without chain initializers. The ConstructorBuilder + its param types are stored
-        // for positional-construction resolution; the body (+ chained call) is emitted (+ validated) in PASS 2.
+        // (same-type) or `: base(...)` (declared base class) chaining initializer. The N# struct parser rejects exact
+        // duplicate constructor signatures before rows reach this pass; overload resolution at construction is still
+        // by PARAM COUNT (see case 15), so same-arity/different-type declarations decline only when an ambiguous
+        // construction/chaining call site is emitted. Value-type constructors arrive only for the parser-accepted
+        // positional shape: non-parameterless and without chain initializers. The ConstructorBuilder + its param types
+        // are stored for positional-construction resolution; the body (+ chained call) is emitted (+ validated) in PASS 2.
         var structCtorJobs = new List<(ColumnarStructDef Struct, ColumnarConstructorInput Ctor, ConstructorBuilder Builder, Dictionary<string, int> Ordinals, Dictionary<string, Type> ParamTypes)>();
         for (var s = 0; s < structs.Count; s++)
         {
@@ -3312,20 +3314,6 @@ internal sealed class ColumnarIlEmitter
                     cParamTypes[i] = pt;
                     cOrdinals[ctor.Body.ParamNames[i]] = i + 1;
                     cParamTypeMap[ctor.Body.ParamNames[i]] = pt;
-                }
-                // A constructor whose param-type signature DUPLICATES an already-declared one is a duplicate member
-                // the N# binder rejects — decline rather than emit two ctors with the same signature.
-                foreach (var (_, existingParamTypes) in def.Constructors)
-                {
-                    if (existingParamTypes.Length != cParamTypes.Length)
-                        continue;
-                    var sameSignature = true;
-                    for (var i = 0; i < cParamTypes.Length; i++)
-                    {
-                        if (!TypesEquivalent(existingParamTypes[i], cParamTypes[i])) { sameSignature = false; break; }
-                    }
-                    if (sameSignature)
-                        return false;
                 }
                 var cb = def.Builder.DefineConstructor(MethodAttributes.Public, CallingConventions.Standard, cParamTypes);
                 def.Constructors.Add((cb, cParamTypes));

@@ -522,6 +522,32 @@ class DuplicateStaticArity {
                 expectColumnarDecline: true);
             AssertStructDeclarationInfo(
                 """
+class DuplicateCtorSignature {
+    Value: int
+    constructor(x: int) {
+        Value = x
+    }
+    constructor(y: int) {
+        Value = y
+    }
+}
+""",
+                (int)TokenType.Class,
+                "DuplicateCtorSignature",
+                Array.Empty<string>(),
+                Array.Empty<string>(),
+                new[] { "Value" },
+                new[] { "int" },
+                new[] { 0 },
+                new string?[] { null },
+                tokenizeWithIndentation,
+                parseStructDeclaration,
+                parseStructDeclarationInfo,
+                parseColumnarStructInfo,
+                "duplicate constructor signature",
+                expectColumnarDecline: true);
+            AssertStructDeclarationInfo(
+                """
 class MethodFieldCollision {
     Value: int
     func Value(): int {
@@ -9634,8 +9660,9 @@ func outer(x: int): int {
         var pType = loadScope.Assembly.GetType("P")!;
         Assert.Equal(2, pType.GetConstructors().Length);
 
-        // DECLINES: a DUPLICATE-signature ctor (both `(int)` — the N# binder rejects the duplicate). An
-        // AMBIGUOUS-by-count construction (two same-arity ctors, constructed with that arity) declines to C#.
+        // DECLINES: a DUPLICATE-signature ctor (both `(int)`, rejected by the N# struct parser). An
+        // AMBIGUOUS-by-count construction (two same-arity ctors, constructed with that arity) remains a semantic
+        // route decline.
         Assert.False(RouteColumnarProgram("class C {\n    X: int\n    constructor(a: int) {\n        X = a\n    }\n    constructor(b: int) {\n        X = b\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
         Assert.False(RouteColumnarProgram("class C {\n    X: int\n    Y: int\n    constructor(a: int) {\n        X = a\n        Y = 0\n    }\n    constructor(s: string) {\n        X = s.Length\n        Y = 1\n    }\n}\n\nfunc f(v: int): int {\n    c := new C(v)\n    return c.X\n}\n").Ok);
     }

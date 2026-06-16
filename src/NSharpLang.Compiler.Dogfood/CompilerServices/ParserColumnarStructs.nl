@@ -321,12 +321,55 @@ func ColumnarStructConstructorUnsupportedStatus(source: string, tokens: Columnar
     }
     result := new ColumnarConstructorResultTable { Values: new int[](6) }
     localResults := new LocalFunctionResultTable { NodeIndices: new int[](cap), FuncTokenIndices: new int[](cap) }
+    ctorParamCounts := new int[](ctorCount + 1)
+    ctorParamStarts := new int[](ctorCount + 1)
+    ctorParamTypeTexts := new string[](cap)
+    nextCtorParamType := 0
 
     for i := 0; i < ctorCount; i++ {
         paramCount := ParseColumnarConstructorInfoCore(source, ref constructorTokens, outputs.CtorIndices[i], ref signatureOutputs, ref body, ref result)
         if paramCount < 0 {
             return -1
         }
+
+        previousCtor := 0
+        while previousCtor < i {
+            if ctorParamCounts[previousCtor] == paramCount {
+                sameSignature := true
+                paramSlot := 0
+                while paramSlot < paramCount {
+                    if signatureOutputs.ParamTypeTexts[paramSlot] != ctorParamTypeTexts[ctorParamStarts[previousCtor] + paramSlot] {
+                        sameSignature = false
+                    }
+
+                    paramSlot = paramSlot + 1
+                }
+
+                if sameSignature {
+                    return 1
+                }
+            }
+
+            previousCtor = previousCtor + 1
+        }
+
+        if nextCtorParamType + paramCount > ctorParamTypeTexts.Length {
+            return -1
+        }
+
+        ctorParamCounts[i] = paramCount
+        ctorParamStarts[i] = nextCtorParamType
+        paramSlot := 0
+        while paramSlot < paramCount {
+            if signatureOutputs.ParamTypeTexts[paramSlot] == "" {
+                return -1
+            }
+
+            ctorParamTypeTexts[nextCtorParamType + paramSlot] = signatureOutputs.ParamTypeTexts[paramSlot]
+            paramSlot = paramSlot + 1
+        }
+        nextCtorParamType = nextCtorParamType + paramCount
+
         if isReference == 0 {
             if result.Values[0] != 0 || paramCount == 0 {
                 return 1
