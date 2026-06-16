@@ -248,7 +248,7 @@ Exit codes:
 
     private static string? GetFirstPositionalArg(string[] args, string[] optionsWithValues)
     {
-        if (NSharpLang.Cli.NSharpCliDogfoodAdapter.TryGetFirstPositionalArg(args, optionsWithValues, out var positional))
+        if (CheckCommandKernels.TryGetProjectOperand(args, optionsWithValues, out var positional))
             return positional;
 
         for (int i = 0; i < args.Length; i++)

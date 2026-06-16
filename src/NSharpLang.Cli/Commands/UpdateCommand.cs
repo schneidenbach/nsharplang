@@ -148,7 +148,7 @@ Exit codes:
 
     internal static string? GetTargetPackage(string[] args)
     {
-        return NSharpLang.Cli.NSharpCliDogfoodAdapter.TryGetFirstPositionalArg(args, Array.Empty<string>(), out var positional)
+        return UpdateCommandKernels.TryGetTargetPackage(args, out var positional)
             ? positional
             : GetTargetPackageWithCSharp(args);
     }

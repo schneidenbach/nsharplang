@@ -2,20 +2,20 @@ using System;
 using System.IO;
 using System.Reflection;
 
-namespace NSharpLang.Cli;
+namespace NSharpLang.Cli.Commands;
 
-internal static class NSharpCliDogfoodAdapter
+internal static class CheckCommandKernels
 {
     private const string DogfoodAssemblyName = "NSharpLang.Compiler.Dogfood";
 
-    private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings);
+    private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
 
-    internal static bool TryGetFirstPositionalArg(
+    internal static bool TryGetProjectOperand(
         string[] args,
         string[] optionsWithValues,
-        out string? positional)
+        out string? project)
     {
-        positional = null;
+        project = null;
 
         var bindings = s_bindings.Value;
         if (bindings == null)
@@ -23,19 +23,19 @@ internal static class NSharpCliDogfoodAdapter
 
         try
         {
-            var index = bindings.CliFirstPositionalArgIndex(args, optionsWithValues);
+            var index = bindings.FirstPositionalArgIndex(args, optionsWithValues);
             if (index == -1)
                 return true;
 
             if (index < 0 || index >= args.Length)
                 return false;
 
-            positional = args[index];
+            project = args[index];
             return true;
         }
         catch
         {
-            positional = null;
+            project = null;
             return false;
         }
     }
@@ -50,7 +50,9 @@ internal static class NSharpCliDogfoodAdapter
                 return null;
 
             return new Bindings(
-                CreateDelegate<CliFirstPositionalArgIndex>(programType, "CliFirstPositionalArgIndex"));
+                CreateDelegate<CliFirstPositionalArgIndex>(
+                    programType,
+                    "CliFirstPositionalArgIndex"));
         }
         catch
         {
@@ -88,5 +90,5 @@ internal static class NSharpCliDogfoodAdapter
         string[] args,
         string[] optionsWithValues);
 
-    private sealed record Bindings(CliFirstPositionalArgIndex CliFirstPositionalArgIndex);
+    private sealed record Bindings(CliFirstPositionalArgIndex FirstPositionalArgIndex);
 }

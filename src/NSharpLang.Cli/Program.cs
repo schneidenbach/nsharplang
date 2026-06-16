@@ -1570,7 +1570,7 @@ Exit codes:
 
     static string? GetFirstPositionalArg(string[] args, string[] optionsWithValues)
     {
-        return NSharpCliDogfoodAdapter.TryGetFirstPositionalArg(args, optionsWithValues, out var positional)
+        return NewCommandKernels.TryGetProjectNameOperand(args, optionsWithValues, out var positional)
             ? positional
             : GetFirstPositionalArgWithCSharp(args, optionsWithValues);
     }

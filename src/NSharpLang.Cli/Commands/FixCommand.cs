@@ -356,7 +356,7 @@ Examples:
 
     private static string? GetFirstPositionalArg(string[] args, params string[] optionsWithValues)
     {
-        if (NSharpLang.Cli.NSharpCliDogfoodAdapter.TryGetFirstPositionalArg(args, optionsWithValues, out var positional))
+        if (FixCommandArgumentKernels.TryGetProjectOperand(args, optionsWithValues, out var positional))
             return positional;
 
         for (int i = 0; i < args.Length; i++)

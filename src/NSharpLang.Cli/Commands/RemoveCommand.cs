@@ -77,10 +77,7 @@ public static class RemoveCommand
 
     internal static string? GetPackageOperand(string[] args)
     {
-        return NSharpLang.Cli.NSharpCliDogfoodAdapter.TryGetFirstPositionalArg(
-            args,
-            Array.Empty<string>(),
-            out var positional)
+        return RemoveCommandKernels.TryGetPackageOperand(args, out var positional)
             ? positional
             : GetPackageOperandWithCSharp(args);
     }

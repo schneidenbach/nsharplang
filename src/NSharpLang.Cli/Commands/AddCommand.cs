@@ -123,7 +123,7 @@ public static class AddCommand
 
     internal static string? GetPackageOperand(string[] args)
     {
-        return NSharpCliDogfoodAdapter.TryGetFirstPositionalArg(args, PackageOptionsWithValues, out var positional)
+        return AddCommandKernels.TryGetPackageOperand(args, PackageOptionsWithValues, out var positional)
             ? positional
             : GetPackageOperandWithCSharp(args);
     }

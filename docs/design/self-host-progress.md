@@ -11,13 +11,23 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — CLI dogfood adapter deleted
+
+The last shared `NSharpCliDogfoodAdapter` route, first positional argument discovery, now lives
+beside each command owner: `NewCommandKernels`, `CheckCommandKernels`, `FixCommandArgumentKernels`,
+`AddCommandKernels`, `RemoveCommandKernels`, and `UpdateCommandKernels`. The `NSharpCliDogfoodAdapter`
+source file is deleted; accepted CLI kernels now route through owner-local helpers while preserving
+the existing C# positional fallbacks.
+Focused evidence: `dotnet build src/NSharpLang.Cli/Cli.csproj --no-restore`; `dotnet test
+tests/Tests.csproj --filter "FullyQualifiedName~CliCommandTests.NewCommandKernels_SelectsProjectNameOperand|FullyQualifiedName~CliCommandTests.CheckCommandKernels_SelectsProjectOperand|FullyQualifiedName~CliCommandTests.FixCommandArgumentKernels_SelectsProjectOperand|FullyQualifiedName~CliCommandTests.UpdateCommandKernels_SelectsTargetPackage|FullyQualifiedName~CliCommandTests.AddCommandKernels_SelectsPackageOperand|FullyQualifiedName~CliCommandTests.RemoveCommandKernels_SelectsPackageOperand"`;
+`./scripts/dev.sh --since`.
+
 ## 2026-06-16 — Compilation reference filtering leaves the CLI dogfood adapter
 
 Native CLI compilation reference resolution now routes the accepted N#
 `CliReferenceTypeFilterIndicesInto` kernel through `CompilationReferenceResolverKernels`, beside
 `CompilationReferenceResolver`. The broad CLI dogfood adapter no longer owns reference-type filter
-entry points, delegate bindings, or scratch arrays, and now contains only the shared first-positional
-argument scanner.
+entry points, delegate bindings, or scratch arrays; the next slice deleted the final positional route.
 Focused evidence: `dotnet build src/NSharpLang.Cli/Cli.csproj --no-restore`; `dotnet test
 tests/Tests.csproj --filter "FullyQualifiedName~CliCommandTests.CompilationReferenceResolverKernels_FiltersReferenceValuesByType"`;
 `./scripts/dev.sh --since`.
@@ -10700,7 +10710,8 @@ or stand up the N#-native pooled `Token`/`TokenStream` so the parser can consume
   host helpers beside the consuming subsystem while the N# kernels remain pre-bootstrap services.
 - `NSharpPerformanceDogfoodAdapter` — removed 2026-06-16. Performance product routes now use
   `AotRequirementSelector` and `StructCopyInitOnlySelector` beside their consuming analyses.
-- `NSharpCodeIntelligenceDogfoodAdapter`, `NSharpCliDogfoodAdapter` — still present as temporary
-  transition boundaries. Each routed kernel
+- `NSharpCliDogfoodAdapter` — removed 2026-06-16. CLI product routes now use owner-local helpers
+  beside the consuming command or resolver.
+- `NSharpCodeIntelligenceDogfoodAdapter` — still present as a temporary transition boundary. Each routed kernel
   still crosses the ~1.2 ns delegate-dispatch + bounds-check floor documented in the boundary
   profiling doc.

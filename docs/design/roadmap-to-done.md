@@ -249,7 +249,8 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       `OverloadCandidateSelector`, and declared-type lookup/order/dedup now lives beside IL emission in
       `ILTypeTableSelector`. AOT requirement grouping and struct-copy readonly gating now live beside compiler
       performance consumers in `AotRequirementSelector` and `StructCopyInitOnlySelector`. The source
-      `NSharpCompilerDogfoodAdapter` and `NSharpPerformanceDogfoodAdapter` types have been deleted. CLI query
+      `NSharpCompilerDogfoodAdapter`, `NSharpPerformanceDogfoodAdapter`, and `NSharpCliDogfoodAdapter`
+      types have been deleted. CLI query
       symbol-name filtering now lives beside `QueryCommand` in `QuerySymbolNameFilter` instead of the broad CLI
       adapter, and `nlc check`/`nlc lint` compiler-error severity filtering now lives beside the command
       implementations in `CompilerErrorSeverityFilter`; batch query duplicate-id validation and packed
@@ -264,7 +265,10 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       in `RestoreCommandKernels`; stale generated-output directory de-duplication now lives beside
       `Program.CleanStaleGeneratedFiles` in `GeneratedOutputDirectoryDeduplicator`; native
       compilation-reference filtering now lives beside `CompilationReferenceResolver` in
-      `CompilationReferenceResolverKernels`; tidy
+      `CompilationReferenceResolverKernels`; first positional project/package discovery for `nlc new`,
+      `nlc check`, `nlc fix`, `nlc add`, `nlc remove`, and `nlc update` now lives beside the owning
+      commands in `NewCommandKernels`, `CheckCommandKernels`, `FixCommandArgumentKernels`,
+      `AddCommandKernels`, `RemoveCommandKernels`, and `UpdateCommandKernels`; tidy
       classification/summary/fix filtering now live beside `TidyCommand` in `TidyCommandKernels`;
       lint file-argument extraction now lives beside `LintCommand` in `LintCommandKernels`; export
       csharp input selection, reference filtering, and

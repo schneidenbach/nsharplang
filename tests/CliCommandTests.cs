@@ -944,11 +944,40 @@ func Main() {
     }
 
     [Fact]
-    public void UpdateCommand_DogfoodAdapter_SelectsTargetPackage()
+    public void NewCommandKernels_SelectsProjectNameOperand()
     {
-        Assert.True(NSharpCliDogfoodAdapter.TryGetFirstPositionalArg(
-            new[] { "--dry-run", "Newtonsoft.Json" },
+        Assert.True(NewCommandKernels.TryGetProjectNameOperand(
+            new[] { "--template", "webapi", "MyApi" },
+            new[] { "--template", "--type" },
+            out var projectName));
+        Assert.Equal("MyApi", projectName);
+    }
+
+    [Fact]
+    public void CheckCommandKernels_SelectsProjectOperand()
+    {
+        Assert.True(CheckCommandKernels.TryGetProjectOperand(
+            new[] { "--text", "samples/demo" },
             Array.Empty<string>(),
+            out var projectPath));
+        Assert.Equal("samples/demo", projectPath);
+    }
+
+    [Fact]
+    public void FixCommandArgumentKernels_SelectsProjectOperand()
+    {
+        Assert.True(FixCommandArgumentKernels.TryGetProjectOperand(
+            new[] { "--project", "ignored", "--file", "Program.nl", "samples/demo" },
+            new[] { "--project", "--file" },
+            out var projectPath));
+        Assert.Equal("samples/demo", projectPath);
+    }
+
+    [Fact]
+    public void UpdateCommandKernels_SelectsTargetPackage()
+    {
+        Assert.True(UpdateCommandKernels.TryGetTargetPackage(
+            new[] { "--dry-run", "Newtonsoft.Json" },
             out var dogfoodTarget));
         Assert.Equal("Newtonsoft.Json", dogfoodTarget);
         Assert.Equal("Newtonsoft.Json", UpdateCommand.GetTargetPackage(new[] { "--dry-run", "Newtonsoft.Json" }));
@@ -957,9 +986,9 @@ func Main() {
     }
 
     [Fact]
-    public void AddCommand_DogfoodAdapter_SelectsPackageOperand()
+    public void AddCommandKernels_SelectsPackageOperand()
     {
-        Assert.True(NSharpCliDogfoodAdapter.TryGetFirstPositionalArg(
+        Assert.True(AddCommandKernels.TryGetPackageOperand(
             new[] { "--version", "13.0.3", "--framework", "Newtonsoft.Json" },
             new[] { "--version", "--path" },
             out var dogfoodPackage));
@@ -999,11 +1028,10 @@ func Main() {
     }
 
     [Fact]
-    public void RemoveCommand_DogfoodAdapter_SelectsPackageOperand()
+    public void RemoveCommandKernels_SelectsPackageOperand()
     {
-        Assert.True(NSharpCliDogfoodAdapter.TryGetFirstPositionalArg(
+        Assert.True(RemoveCommandKernels.TryGetPackageOperand(
             new[] { "--dry-run", "Serilog" },
-            Array.Empty<string>(),
             out var dogfoodPackage));
         Assert.Equal("Serilog", dogfoodPackage);
         Assert.Equal("Newtonsoft.Json", RemoveCommand.GetPackageOperand(new[] { "Newtonsoft.Json" }));

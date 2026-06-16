@@ -15,10 +15,10 @@ that prevent that result.
 The compiler core libraries, compiler-service core libraries, and CLI command logic are expected to
 move to N#. C# is acceptable only for CLR/BCL host boundaries, bootstrap loading, public .NET object
 materialization, or measured fallback while a function has not yet cleared parity and speed gates.
-Adapter names such as `NSharpPerformanceDogfoodAdapter`,
-`NSharpCompilerDogfoodAdapter`, `NSharpCliDogfoodAdapter`, and
-`NSharpCodeIntelligenceDogfoodAdapter` are temporary transition boundaries; they are not the target
-architecture and must shrink as N# slices land.
+Adapter names such as `NSharpPerformanceDogfoodAdapter`, `NSharpCompilerDogfoodAdapter`, and
+`NSharpCliDogfoodAdapter` were temporary transition boundaries and have been deleted from product
+routes as owner-local helpers took over. `NSharpCodeIntelligenceDogfoodAdapter` remains temporary;
+adapter surfaces are not the target architecture and must shrink as N# slices land.
 
 ## Acceptance Standard
 
@@ -1899,11 +1899,12 @@ regex fallback.
 Strict `nlc build` lint gating now routes its error-only diagnostic filter through the same
 adapter-backed formatter path before the accepted diagnostic deduplication/order route, instead of
 running a local C# LINQ severity filter.
-`nlc new`, `nlc check`, `nlc fix`, `nlc add`, `nlc remove`, `nlc update`, and `nlc export csharp`
-now route first positional project/operand/package discovery through
-`NSharpCliDogfoodAdapter.TryGetFirstPositionalArg`, which calls the compiled N# first-index scanner
-when the dogfood assembly is available, with command-local C# positional scans kept as the
-fallback.
+`nlc new`, `nlc check`, `nlc fix`, `nlc add`, `nlc remove`, and `nlc update` now route first
+positional project/operand/package discovery through owner-local command helpers
+(`NewCommandKernels`, `CheckCommandKernels`, `FixCommandArgumentKernels`, `AddCommandKernels`,
+`RemoveCommandKernels`, and `UpdateCommandKernels`), which call the compiled N# first-index scanner
+when the dogfood assembly is available, with command-local C# positional scans kept as the fallback.
+`nlc export csharp` input operand discovery routes through `ExportCommandKernels`.
 `nlc build` now routes source-file operand discovery through
 `BuildCommandKernels`, which calls the compiled N# first-operand scanner when the dogfood assembly
 is available, with the previous C# build-argument normalization kept as the fallback.
