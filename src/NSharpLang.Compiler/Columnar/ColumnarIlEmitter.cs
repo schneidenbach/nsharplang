@@ -7,8 +7,8 @@ using System.Reflection.Emit;
 namespace NSharpLang.Compiler.Columnar;
 
 /// <summary>
-/// One parsed columnar program as consumed by the standalone columnar emitter. The adapter owns source parsing and
-/// declaration collection; the emitter owns lowering this single typed bundle to an assembly.
+/// One parsed columnar program as consumed by the standalone columnar emitter. The columnar input builder owns source
+/// parsing and declaration collection; the emitter owns lowering this single typed bundle to an assembly.
 /// </summary>
 internal sealed class ColumnarProgramInput
 {

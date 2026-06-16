@@ -5,8 +5,7 @@ namespace NSharpLang.Compiler.Columnar;
 
 /// <summary>
 /// Production-facing standalone columnar backend. This class owns whole-program assembly emission;
-/// the remaining dogfood adapter boundary is limited to building typed columnar inputs from the
-/// N# parser/service kernels until those kernels are routed directly.
+/// typed columnar inputs are built beside this backend from the accepted N# parser/service kernels.
 /// </summary>
 internal static class ColumnarCompiler
 {
@@ -22,7 +21,7 @@ internal static class ColumnarCompiler
         emittedTypeName = string.Empty;
         methodNames = Array.Empty<string>();
 
-        if (!NSharpCompilerDogfoodAdapter.TryGetColumnarProgramInput(source, out var program))
+        if (!ColumnarProgramInputBuilder.TryBuild(source, out var program))
             return false;
 
         // Columnar emit is a best-effort, DECLINE-on-failure backend: it must never throw a hard

@@ -11,6 +11,19 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Columnar input builder leaves the general dogfood adapter
+
+`ColumnarCompiler` now builds typed `ColumnarProgramInput` through
+`ColumnarProgramInputBuilder` in the columnar backend namespace instead of entering through
+`NSharpCompilerDogfoodAdapter.TryGetColumnarProgramInput`. The general compiler adapter no longer
+binds the production columnar parser delegates (`TokenizeColumnarSourceInto`,
+`TopLevelColumnarProgramDeclarationIndicesInto`, `ParseColumnarProductFunctionInfoInto`, and the
+nominal declaration parsers); those bindings now live beside the columnar emitter boundary they feed.
+This is a routing shrink only: the accepted N# parser kernels and decline contract are unchanged.
+Focused evidence: `dotnet build src/NSharpLang.Compiler/Compiler.csproj --no-restore`,
+`./scripts/dev.sh ColumnarCodegen_MultiFile_EligibleClusterCompiles`, and
+`dotnet test tests/Tests.csproj --filter "FullyQualifiedName~ColumnarCodegen_ProgramRoute_EmitsRunnableTrivialFunctions|FullyQualifiedName~ColumnarCodegen_MultiFile_RealParserCluster"`.
+
 ## 2026-06-16 — Function parser compatibility wrapper moves to parity corpus
 
 The flattened `ParseColumnarFunctionInfoInto` wrapper moved from the shipped
