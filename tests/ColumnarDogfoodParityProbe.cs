@@ -766,10 +766,62 @@ internal static class ColumnarDogfoodParityProbe
 
     private static CollectibleAssemblyScope? TryLoadDogfoodAssembly()
     {
-        var assemblyPath = Path.Combine(AppContext.BaseDirectory, $"{DogfoodAssemblyName}.dll");
-        return File.Exists(assemblyPath)
-            ? CollectibleAssemblyScope.LoadFromFile(assemblyPath)
-            : null;
+        var repoRoot = FindRepoRoot();
+        var projectRoot = Path.Combine(repoRoot, "src", "NSharpLang.Compiler.Dogfood");
+        var corpusDir = Path.Combine(repoRoot, "src", "NSharpLang.Compiler.Dogfood.ParityCorpus");
+        var projectFile = Path.Combine(projectRoot, "project.yml");
+        if (!File.Exists(projectFile) || !Directory.Exists(corpusDir))
+            return null;
+
+        var config = ProjectFileParser.Parse(projectFile);
+        var files = config.GetSourceFiles(projectRoot, includeTests: false)
+            .Concat(Directory.EnumerateFiles(corpusDir, "*.nl").OrderBy(path => path, StringComparer.Ordinal))
+            .ToArray();
+        var outputPath = Path.Combine(
+            Path.GetTempPath(),
+            $"{DogfoodAssemblyName}.ColumnarParityProbe.{Guid.NewGuid():N}.dll");
+
+        var result = new MultiFileCompiler(files, projectRoot, config)
+            .CompileToIlAssembly(DogfoodAssemblyName, outputPath);
+        if (!result.Success || !File.Exists(outputPath))
+            return null;
+
+        try
+        {
+            return CollectibleAssemblyScope.LoadFromFile(outputPath);
+        }
+        finally
+        {
+            TryDeleteFile(outputPath);
+            TryDeleteFile(Path.ChangeExtension(outputPath, ".runtimeconfig.json"));
+            TryDeleteFile(Path.ChangeExtension(outputPath, ".pdb"));
+        }
+    }
+
+    private static string FindRepoRoot()
+    {
+        var dir = AppContext.BaseDirectory;
+        while (dir != null)
+        {
+            if (File.Exists(Path.Combine(dir, "NSharpLang.sln")))
+                return dir;
+
+            dir = Path.GetDirectoryName(dir);
+        }
+
+        return Directory.GetCurrentDirectory();
+    }
+
+    private static void TryDeleteFile(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+        catch
+        {
+        }
     }
 
     private static TDelegate CreateDelegate<TDelegate>(Type programType, string methodName)
