@@ -522,7 +522,7 @@ Exit codes:
             ReferenceType referenceType)
         {
             var dependencyList = dependencies as IReadOnlyList<Reference> ?? dependencies.ToArray();
-            return NSharpCliDogfoodAdapter.TryFilterReferencesByType(dependencyList, referenceType, out var dogfoodReferences)
+            return ExportCommandKernels.TryFilterReferencesByType(dependencyList, referenceType, out var dogfoodReferences)
                 ? dogfoodReferences
                 : dependencyList.Where(reference => reference.Type == referenceType).ToList();
         }
@@ -658,7 +658,7 @@ Exit codes:
             IEqualityComparer<T>? comparer = null)
             where T : notnull
         {
-            return NSharpCliDogfoodAdapter.TryDeduplicateExportReferences(references, comparer, out var dogfoodReferences)
+            return ExportCommandKernels.TryDeduplicateReferences(references, comparer, out var dogfoodReferences)
                 ? dogfoodReferences
                 : references.Distinct(comparer).ToList();
         }

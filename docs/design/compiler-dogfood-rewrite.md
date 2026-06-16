@@ -1907,15 +1907,17 @@ fallback.
 `nlc build` now routes source-file operand discovery through
 `BuildCommandKernels`, which calls the compiled N# first-operand scanner when the dogfood assembly
 is available, with the previous C# build-argument normalization kept as the fallback.
-`nlc export csharp`, `nlc restore`, and native CLI compilation reference resolution now route
-dependency reference-type selection for project, DLL, NuGet package, and framework references through
-`NSharpCliDogfoodAdapter.TryFilterReferencesByType`, which calls the compiled N# compact-rank filter
-when the dogfood assembly is available, preserving source order and invalid-reference fallback
-behavior, with the previous C# `Where(...).ToList()` filters kept as the fallback.
+`nlc export csharp` dependency reference-type selection for project, DLL, NuGet package, and
+framework references now routes through `ExportCommandKernels`, which calls the compiled N#
+compact-rank filter when the dogfood assembly is available, preserving source order and
+invalid-reference fallback behavior, with the previous C# `Where(...).ToList()` filters kept as the
+fallback. `nlc restore` and native CLI compilation reference resolution still route the same
+accepted kernel through `NSharpCliDogfoodAdapter.TryFilterReferencesByType` while those owners keep
+their transition boundary.
 `nlc export csharp` now routes stable post-resolution reference de-duplication for project,
-framework, package, and DLL references through `NSharpCliDogfoodAdapter.TryDeduplicateExportReferences`,
-which calls the compiled N# compact-rank stable distinct kernel when the dogfood assembly is
-available, with the previous C# `Distinct` paths kept as the fallback.
+framework, package, and DLL references through `ExportCommandKernels`, which calls the compiled N#
+compact-rank stable distinct kernel when the dogfood assembly is available, with the previous C#
+`Distinct` paths kept as the fallback.
 `nlc restore` now routes stable post-resolution project-reference de-duplication through
 `NSharpCliDogfoodAdapter.TryDeduplicateStable`, which calls the same compiled N# compact-rank stable
 distinct kernel when the dogfood assembly is available, with the previous C# `Distinct` path kept as

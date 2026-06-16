@@ -1163,7 +1163,7 @@ func Main() {
     }
 
     [Fact]
-    public void CliDogfoodAdapter_FiltersReferenceValuesByType()
+    public void ExportCommandKernels_FiltersReferenceValuesByType()
     {
         var references = new[]
         {
@@ -1175,25 +1175,25 @@ func Main() {
             new Reference { Framework = "Microsoft.WindowsDesktop.App" }
         };
 
-        Assert.True(NSharpCliDogfoodAdapter.TryFilterReferencesByType(
+        Assert.True(ExportCommandKernels.TryFilterReferencesByType(
             references,
             ReferenceType.NuGet,
             out var packageReferences));
         Assert.Equal(new[] { "Serilog", "YamlDotNet" }, packageReferences.Select(reference => reference.Nuget).ToArray());
 
-        Assert.True(NSharpCliDogfoodAdapter.TryFilterReferencesByType(
+        Assert.True(ExportCommandKernels.TryFilterReferencesByType(
             references,
             ReferenceType.Framework,
             out var frameworkReferences));
         Assert.Equal(new[] { "Microsoft.AspNetCore.App", "Microsoft.WindowsDesktop.App" }, frameworkReferences.Select(reference => reference.Framework).ToArray());
 
-        Assert.True(NSharpCliDogfoodAdapter.TryFilterReferencesByType(
+        Assert.True(ExportCommandKernels.TryFilterReferencesByType(
             references,
             ReferenceType.Dll,
             out var dllReferences));
         Assert.Equal(new[] { "lib/Analyzer.dll" }, dllReferences.Select(reference => reference.Dll).ToArray());
 
-        Assert.True(NSharpCliDogfoodAdapter.TryFilterReferencesByType(
+        Assert.True(ExportCommandKernels.TryFilterReferencesByType(
             references,
             ReferenceType.Project,
             out var projectReferences));
@@ -1201,7 +1201,7 @@ func Main() {
     }
 
     [Fact]
-    public void ExportCommand_DogfoodAdapter_DeduplicatesReferenceValues()
+    public void ExportCommandKernels_DeduplicatesReferenceValues()
     {
         var projectReferences = new[]
         {
@@ -1213,7 +1213,7 @@ func Main() {
             "../models/models.csproj"
         };
 
-        Assert.True(NSharpCliDogfoodAdapter.TryDeduplicateExportReferences(
+        Assert.True(ExportCommandKernels.TryDeduplicateReferences(
             projectReferences,
             StringComparer.OrdinalIgnoreCase,
             out var distinctProjectReferences));
@@ -1233,7 +1233,7 @@ func Main() {
             new ExportReferenceValue("Serilog", "3.1.1")
         };
 
-        Assert.True(NSharpCliDogfoodAdapter.TryDeduplicateExportReferences(
+        Assert.True(ExportCommandKernels.TryDeduplicateReferences(
             packageReferences,
             comparer: null,
             out var distinctPackageReferences));

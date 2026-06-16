@@ -261,9 +261,10 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       and slug generation now live beside `DocCommand` in `DocCommandKernels`; tree dependency deduplication
       now lives beside `TreeCommand` in `TreeDependencyDeduplicator`; tidy classification/summary/fix filtering
       now live beside `TidyCommand` in `TidyCommandKernels`; lint file-argument extraction now lives beside
-      `LintCommand` in `LintCommandKernels`; export csharp input selection now lives beside `ExportCommand`
-      in `ExportCommandKernels`; run source operand selection now lives beside `Program.RunCommand` in
-      `RunCommandKernels`; publish no-argument option summary now lives beside `Program.PublishCommand` in
+      `LintCommand` in `LintCommandKernels`; export csharp input selection, reference filtering, and
+      stable reference de-duplication now live beside `ExportCommand` in `ExportCommandKernels`; run
+      source operand selection now lives beside `Program.RunCommand` in `RunCommandKernels`; publish
+      no-argument option summary now lives beside `Program.PublishCommand` in
       `PublishCommandKernels`; build operand summary now lives beside `Program.BuildCommand` in
       `BuildCommandKernels`; test outcome summary now lives beside `Program.TestCommand` in
       `TestCommandKernels`. Product parser

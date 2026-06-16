@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Export reference kernels leave the CLI dogfood adapter
+
+`nlc export csharp` reference-type filtering and stable post-resolution reference de-duplication now
+route the accepted N# compact-rank kernels through `ExportCommandKernels`, beside the existing export
+input operand route. The broad CLI dogfood adapter no longer owns the export-only deduplication
+entry point, and export reference filtering no longer reaches through the adapter; restore and native
+CLI reference resolution keep their current adapter fallback until their owners are split.
+Focused evidence: `dotnet build src/NSharpLang.Cli/Cli.csproj --no-restore`; `dotnet test
+tests/Tests.csproj --filter "FullyQualifiedName~CliCommandTests.ExportCommandKernels_FiltersReferenceValuesByType|FullyQualifiedName~CliCommandTests.ExportCommandKernels_DeduplicatesReferenceValues"`;
+`./scripts/dev.sh --since`.
+
 ## 2026-06-16 — Test outcome summary leaves the CLI dogfood adapter
 
 `nlc test` native outcome summary calculation now routes the accepted N#

@@ -111,13 +111,6 @@ internal static class NSharpCliDogfoodAdapter
         }
     }
 
-    internal static bool TryDeduplicateExportReferences<T>(
-        IReadOnlyList<T> values,
-        IEqualityComparer<T>? comparer,
-        out List<T> deduplicatedValues)
-        where T : notnull
-        => TryDeduplicateStable(values, comparer, out deduplicatedValues);
-
     internal static bool TryDeduplicateStable<T>(
         IReadOnlyList<T> values,
         IEqualityComparer<T>? comparer,
