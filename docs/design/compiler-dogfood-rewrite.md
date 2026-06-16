@@ -882,7 +882,9 @@ construction strategy that clears the 5x gate.
 BenchmarkDotNet evidence tier for diagnostic summary counting. It ran about 5.64x faster on the
 representative diagnostic corpus (783.4 ns vs 4.420 us) and about 5.46x faster on the large
 generated diagnostic corpus (6.222 us vs 33.998 us). This is acceptance-grade benchmark evidence for
-the diagnostic/check/lint severity-summary pass.
+the diagnostic/check/lint severity-summary pass. The production output-format route now binds this
+kernel through `OutputFormatterDiagnosticKernels` instead of the broad code-intelligence dogfood
+adapter.
 
 `DiagnosticShadowSuppressionIndicesInto` passed parity and reported zero managed allocation in the
 short BenchmarkDotNet evidence tier for `GetDiagnostics` lint-shadowing suppression. The accepted N#
@@ -1532,7 +1534,8 @@ diagnostic corpus in the latest short validation run (380.5 ns vs 2.666 us, 0 B 
 about 7.0x faster on the large generated diagnostic corpus (3.125 us vs 21.990 us, 0 B vs
 21,944 B). This is acceptance-grade benchmark evidence for `nlc query diagnostics`, batch
 diagnostics, daemon diagnostics, and strict build lint error filtering after the host has assigned
-compact case-insensitive severity ranks.
+compact case-insensitive severity ranks. The production output-format route now binds this kernel
+through `OutputFormatterDiagnosticKernels` instead of the broad code-intelligence dogfood adapter.
 
 The same compact severity filter passed parity for `CompilerError` enum-severity filtering and
 reported zero managed allocation in the normal BenchmarkDotNet evidence tier. It ran about 6.4x
@@ -1876,14 +1879,16 @@ dogfood assembly is available, preserving the previous case-insensitive distinct
 with the previous LINQ `Distinct`/`OrderBy` path kept as the fallback.
 Diagnostic, clustered diagnostic, check, and lint JSON envelopes, Elm-style diagnostic text
 summaries, and CLI diagnostic exit decisions now use the compiled N# severity summary pass when the
-dogfood assembly is available, with the previous C# LINQ counts kept as the fallback.
+dogfood assembly is available through the owner-local `OutputFormatterDiagnosticKernels`, with the
+previous C# LINQ counts kept as the fallback.
 `CodeIntelligenceService.GetDiagnostics` now routes lint `NL020` shadowing suppression for files
 that already have compiler shadowing errors through the compiled N# compact code/file-rank filter
 when the dogfood assembly is available, with the previous C# case-insensitive `HashSet`/LINQ filter
 kept as the fallback.
 `nlc query diagnostics`, batch diagnostics, and daemon diagnostics now route `--severity` filtering
 through `OutputFormatter.FilterDiagnosticsBySeverity`, which calls the compiled N# compact-rank
-severity filter when the dogfood assembly is available, with the previous C# LINQ
+severity filter through `OutputFormatterDiagnosticKernels` when the dogfood assembly is available,
+with the previous C# LINQ
 `Where(...Equals(..., OrdinalIgnoreCase)).ToList()` path kept as the fallback.
 `nlc check` backend verification and `nlc lint` parse-error reporting now route compiler-error
 severity filtering through the owner-local `CompilerErrorSeverityFilter`, which calls the same

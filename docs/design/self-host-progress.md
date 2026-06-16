@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Output formatter severity kernels leave the code-intelligence adapter
+
+Diagnostic severity summary and diagnostic severity filtering now route through
+`OutputFormatterDiagnosticKernels`, beside the JSON/text output formatter that consumes those
+results for `nlc check`, `nlc lint`, `nlc query diagnostics`, and clustered diagnostics. The broad
+`NSharpCodeIntelligenceDogfoodAdapter` no longer owns the severity-summary/filter delegates or their
+scratch arrays; the existing LINQ count/filter fallback remains in `OutputFormatter`.
+Focused evidence: `dotnet build src/NSharpLang.Compiler/Compiler.csproj --no-restore`; `dotnet test
+tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.CodeIntelligenceDogfoodAdapter_LoadsPackagedNSharpAssembly"`;
+`dotnet test tests/Tests.csproj --no-build --filter "FullyQualifiedName~CodeIntelligenceOutputTests.SummarizeDiagnostics_CountsStableSeveritiesAndIgnoresUnknown"`.
+
 ## 2026-06-16 — Fix applicator text-edit ordering leaves the code-intelligence adapter
 
 `FixApplicator.ValidateAndSortEdits` now routes the accepted N# `TextEditOrderIndicesInto`
@@ -10725,5 +10736,6 @@ or stand up the N#-native pooled `Token`/`TokenStream` so the parser can consume
 - `NSharpCliDogfoodAdapter` — removed 2026-06-16. CLI product routes now use owner-local helpers
   beside the consuming command or resolver.
 - `NSharpCodeIntelligenceDogfoodAdapter` — still present as a temporary transition boundary. Text-edit ordering
-  moved to `FixApplicatorTextEditOrderer` on 2026-06-16; remaining routed kernels still cross the
-  ~1.2 ns delegate-dispatch + bounds-check floor documented in the boundary profiling doc.
+  moved to `FixApplicatorTextEditOrderer` on 2026-06-16, and output-format severity summary/filtering
+  moved to `OutputFormatterDiagnosticKernels`; remaining routed kernels still cross the ~1.2 ns
+  delegate-dispatch + bounds-check floor documented in the boundary profiling doc.

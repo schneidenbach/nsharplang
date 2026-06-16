@@ -13613,16 +13613,18 @@ func documented(): int {
         Assert.True((bool)(tryFindNearestBindingDeclarationByName.Invoke(null, unknownNameArgs) ?? false));
         Assert.Null(unknownNameArgs[4]);
 
-        var trySummarizeDiagnosticSeverities = adapterType.GetMethod(
-                "TrySummarizeDiagnosticSeverities",
-                BindingFlags.Static | BindingFlags.NonPublic)
-            ?? throw new InvalidOperationException("Dogfood adapter did not emit TrySummarizeDiagnosticSeverities.");
-        var summaryArgs = new object?[] { BuildDiagnosticSeveritySummaryDiagnostics(), null };
-        Assert.True((bool)(trySummarizeDiagnosticSeverities.Invoke(null, summaryArgs) ?? false));
-        var summary = Assert.IsType<DiagnosticSummary>(summaryArgs[1]);
+        var severityDiagnostics = BuildDiagnosticSeveritySummaryDiagnostics();
+        Assert.True(OutputFormatterDiagnosticKernels.TrySummarizeDiagnosticSeverities(severityDiagnostics, out var summary));
         Assert.Equal(2, summary.Errors);
         Assert.Equal(1, summary.Warnings);
         Assert.Equal(2, summary.Info);
+
+        Assert.True(OutputFormatterDiagnosticKernels.TryFilterDiagnosticSeverities(
+            severityDiagnostics,
+            "ERROR",
+            out var severityFilterIndices,
+            out var severityFilterCount));
+        Assert.Equal(new[] { 0, 5 }, severityFilterIndices.Take(severityFilterCount).ToArray());
 
         var trySuppressLintShadowingDiagnostics = adapterType.GetMethod(
                 "TrySuppressLintShadowingDiagnostics",

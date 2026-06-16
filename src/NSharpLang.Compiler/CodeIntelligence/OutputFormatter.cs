@@ -129,7 +129,7 @@ public static class OutputFormatter
 
     public static DiagnosticSummary SummarizeDiagnostics(IReadOnlyList<DiagnosticResult> results)
     {
-        if (NSharpCodeIntelligenceDogfoodAdapter.TrySummarizeDiagnosticSeverities(results, out var summary))
+        if (OutputFormatterDiagnosticKernels.TrySummarizeDiagnosticSeverities(results, out var summary))
             return summary;
 
         return new DiagnosticSummary(
@@ -142,7 +142,7 @@ public static class OutputFormatter
         IReadOnlyList<DiagnosticResult> diagnostics,
         string severity)
     {
-        if (NSharpCodeIntelligenceDogfoodAdapter.TryFilterDiagnosticSeverities(
+        if (OutputFormatterDiagnosticKernels.TryFilterDiagnosticSeverities(
             diagnostics,
             severity,
             out var resultIndices,
