@@ -11077,9 +11077,10 @@ func outer(x: int): int {
         var lexerProduct = ReadDogfoodProductFile("LexerTokenKindScanner.nl");
         var (lexerOk, _, _, lexerProductMethods) = RouteColumnarProgram(lexerProduct);
         Assert.True(lexerOk, "LexerTokenKindScanner.nl product source should still compile without raw lexer parity wrappers.");
-        Assert.Contains("TokenizeMetadataWithIndentationInto", lexerProductMethods!);
+        Assert.Contains("TokenizeParserMetadataWithIndentationInto", lexerProductMethods!);
         Assert.Contains("ParserTokenCompactionIndicesCountedInto", lexerProductMethods!);
         Assert.Contains("ParserTokenCompactedMetadataInto", lexerProductMethods!);
+        Assert.DoesNotContain("TokenizeMetadataWithIndentationInto", lexerProductMethods!);
         Assert.DoesNotContain("ParserTokenCompactionIndicesInto", lexerProductMethods!);
         Assert.DoesNotContain("TokenizeKinds", lexerProductMethods!);
         Assert.DoesNotContain("TokenizeKindsInto", lexerProductMethods!);
@@ -11093,6 +11094,7 @@ func outer(x: int): int {
         var lexerWithParity = ReadDogfoodFileWithParityCorpus("LexerTokenKindScanner.nl");
         var (lexerParityOk, _, _, lexerParityMethods) = RouteColumnarProgram(lexerWithParity);
         Assert.True(lexerParityOk, "LexerTokenKindScanner.nl parity corpus should still compile with raw lexer parity wrappers.");
+        Assert.Contains("TokenizeMetadataWithIndentationInto", lexerParityMethods!);
         Assert.Contains("ParserTokenCompactionIndicesInto", lexerParityMethods!);
         Assert.Contains("TokenizeKinds", lexerParityMethods!);
         Assert.Contains("TokenizeKindsInto", lexerParityMethods!);
@@ -13636,6 +13638,10 @@ class OtherZetaType {
                     "TokenizeMetadataWithIndentationInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit TokenizeMetadataWithIndentationInto.");
+            var tokenizeParserMetadataWithIndentationInto = programType.GetMethod(
+                    "TokenizeParserMetadataWithIndentationInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit TokenizeParserMetadataWithIndentationInto.");
             var commentsInto = programType.GetMethod(
                     "CommentsInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -14572,6 +14578,7 @@ func classify(value: int, name: string): string {
             AssertTokenMetadataWithIndentationLikeProductionLexer(systemsKeywordSource, tokenizeMetadataWithIndentationInto);
             AssertTokenMetadataWithIndentationLikeProductionLexer(metadataSource, tokenizeMetadataWithIndentationInto);
             AssertTokenMetadataWithIndentationLikeProductionLexer(representativeSource, tokenizeMetadataWithIndentationInto);
+            AssertParserMetadataWithIndentationLikeProductionLexer(representativeSource, tokenizeParserMetadataWithIndentationInto);
 
             // Then prove it on indentation-style (brace-free) source, where InsertIndentationBraces
             // actively inserts virtual { } tokens -- the remaining lexer kind-stream gap this slice closes.
@@ -14581,6 +14588,7 @@ func main(): void
     print("hi")
 """;
             AssertTokenMetadataWithIndentationLikeProductionLexer(indentSimpleSource, tokenizeMetadataWithIndentationInto);
+            AssertParserMetadataWithIndentationLikeProductionLexer(indentSimpleSource, tokenizeParserMetadataWithIndentationInto);
 
             // Nested indentation, multi-level dedent at once, and a sibling block (open/close in the middle).
             const string indentNestedSource = """
@@ -14593,11 +14601,13 @@ func outer(): int
     return second
 """;
             AssertTokenMetadataWithIndentationLikeProductionLexer(indentNestedSource, tokenizeMetadataWithIndentationInto);
+            AssertParserMetadataWithIndentationLikeProductionLexer(indentNestedSource, tokenizeParserMetadataWithIndentationInto);
 
             // Globally-indented source (the leading whitespace becomes the base indent, common in test
             // strings) plus blank lines inside a block (must not perturb indentation tracking).
             const string indentGloballyIndentedSource = "    func g(): void\n        a := 1\n\n        b := 2\n    return\n";
             AssertTokenMetadataWithIndentationLikeProductionLexer(indentGloballyIndentedSource, tokenizeMetadataWithIndentationInto);
+            AssertParserMetadataWithIndentationLikeProductionLexer(indentGloballyIndentedSource, tokenizeParserMetadataWithIndentationInto);
 
             // Parentheses spanning lines (a continuation inside parens must NOT open an indentation block)
             // mixed with an explicit-brace block (explicit braces suppress indentation insertion).
@@ -14612,14 +14622,17 @@ func h(): int
     return total
 """;
             AssertTokenMetadataWithIndentationLikeProductionLexer(indentParenContinuationSource, tokenizeMetadataWithIndentationInto);
+            AssertParserMetadataWithIndentationLikeProductionLexer(indentParenContinuationSource, tokenizeParserMetadataWithIndentationInto);
 
             // CRLF line endings on indentation-style source (line/column parity through \r\n).
             const string indentCrlfSource = "func c(): void\r\n    print(1)\r\n";
             AssertTokenMetadataWithIndentationLikeProductionLexer(indentCrlfSource, tokenizeMetadataWithIndentationInto);
+            AssertParserMetadataWithIndentationLikeProductionLexer(indentCrlfSource, tokenizeParserMetadataWithIndentationInto);
 
             // Tab-indented source (each tab counts as one column, matching the C# lexer's Advance()).
             const string indentTabSource = "func t(): void\n\tprint(1)\n\t\tnested := 2\n";
             AssertTokenMetadataWithIndentationLikeProductionLexer(indentTabSource, tokenizeMetadataWithIndentationInto);
+            AssertParserMetadataWithIndentationLikeProductionLexer(indentTabSource, tokenizeParserMetadataWithIndentationInto);
 
             // Inconsistent ("halfway") dedent: a dedent that lands between two stack levels pops to the
             // nearest enclosing level WITHOUT re-opening, then a later line re-indents -- the exact
@@ -14631,11 +14644,14 @@ func k(): int
     return mid
 """;
             AssertTokenMetadataWithIndentationLikeProductionLexer(indentHalfwayDedentSource, tokenizeMetadataWithIndentationInto);
+            AssertParserMetadataWithIndentationLikeProductionLexer(indentHalfwayDedentSource, tokenizeParserMetadataWithIndentationInto);
 
             // Degenerate inputs: empty source (only EOF) and whitespace/newline-only source (no blocks
             // ever open, so no braces are inserted and nothing under/overflows).
             AssertTokenMetadataWithIndentationLikeProductionLexer("", tokenizeMetadataWithIndentationInto);
             AssertTokenMetadataWithIndentationLikeProductionLexer("   \n  \n", tokenizeMetadataWithIndentationInto);
+            AssertParserMetadataWithIndentationLikeProductionLexer("", tokenizeParserMetadataWithIndentationInto);
+            AssertParserMetadataWithIndentationLikeProductionLexer("   \n  \n", tokenizeParserMetadataWithIndentationInto);
 
             // Composed-path coverage for the flat lifetime/unicode/char-literal/malformed-number corpora
             // (InsertIndentationBraces is a no-op on them, so the composed entry must equal the raw stream).
@@ -14651,6 +14667,7 @@ func gen<'a>(x: scoped 'a): int
     return uses<'a>('x')
 """;
             AssertTokenMetadataWithIndentationLikeProductionLexer(indentLifetimeSource, tokenizeMetadataWithIndentationInto);
+            AssertParserMetadataWithIndentationLikeProductionLexer(indentLifetimeSource, tokenizeParserMetadataWithIndentationInto);
 
             // Real-corpus dogfood: run the COMPLETE N# lexer (composed metadata-with-indentation +
             // comment trivia) against the C# production lexer over every real .nl file in examples/ and
@@ -14673,6 +14690,7 @@ func gen<'a>(x: scoped 'a): int
             {
                 var realSource = File.ReadAllText(file);
                 AssertTokenMetadataWithIndentationLikeProductionLexer(realSource, tokenizeMetadataWithIndentationInto);
+                AssertParserMetadataWithIndentationLikeProductionLexer(realSource, tokenizeParserMetadataWithIndentationInto);
                 AssertCommentsLikeProductionLexer(realSource, commentsInto);
             }
 
@@ -15151,6 +15169,34 @@ func main() {
             Assert.Equal(token.Value.Length, valueLengths[i]);
             Assert.Equal(token.Line, lines[i]);
             Assert.Equal(token.Column, columns[i]);
+        }
+    }
+
+    private static void AssertParserMetadataWithIndentationLikeProductionLexer(
+        string source,
+        MethodInfo tokenizeParserMetadataWithIndentationInto)
+    {
+        // Product parser entry: same brace-inserted token stream as Lexer.Tokenize(), but only the
+        // columns the columnar parser consumes cross the C# dogfood boundary.
+        var expectedTokens = new Lexer(source, "dogfood-test.nl").Tokenize();
+        var capacity = 3 * (source.Length + 1) + 8;
+        var kinds = new int[capacity];
+        var starts = new int[capacity];
+        var valueLengths = new int[capacity];
+
+        var count = (int)(tokenizeParserMetadataWithIndentationInto.Invoke(
+            null,
+            new object[] { source, kinds, starts, valueLengths }) ?? -1);
+
+        Assert.Equal(expectedTokens.Count, count);
+
+        var lineStarts = BuildLineStarts(source);
+        for (var i = 0; i < expectedTokens.Count; i++)
+        {
+            var token = expectedTokens[i];
+            Assert.Equal((int)token.Type, kinds[i]);
+            Assert.Equal(TokenStartFromLineColumn(lineStarts, token.Line, token.Column, source.Length), starts[i]);
+            Assert.Equal(token.Value.Length, valueLengths[i]);
         }
     }
 

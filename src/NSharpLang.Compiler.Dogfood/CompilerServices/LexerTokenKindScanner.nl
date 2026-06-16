@@ -443,21 +443,13 @@ func TokenizeMetadataCore(source: string, metadata: &LexerTokenMetadataTable): i
 }
 
 // Insert the virtual indentation braces that the C# production lexer's InsertIndentationBraces
-// post-pass produces, operating purely over the raw token metadata stream (kind/start/value
-// length/line/column) emitted by TokenizeMetadataInto. Indentation-based blocks open a virtual
-// LeftBrace (129) when a line's indentation increases and close virtual RightBrace (130) tokens on
-// dedent and at EOF, exactly matching Lexer.cs so the N# lexer reaches full token-stream parity on
-// brace-free (indentation-style) source as well as explicit-brace source.
-//
-// Caller-owned buffers (zero-alloc): out* must be sized for the grown stream (raw count plus the
-// inserted braces; <= 3x the raw count is always safe) and indentStack must hold the maximum block
-// depth (raw count + 1 is always safe). A virtual brace's start offset is derived as
-// (triggerStart - (triggerColumn - 1)), i.e. the start offset of the trigger token's line, with
-// column fixed to 1 -- identical to how the production lexer positions the inserted braces.
-func InsertIndentationBracesCore(
+// post-pass produces, but write only the parser-consumed token metadata columns. The raw metadata
+// stream still carries line/column because indentation decisions require it; the product adapter no
+// longer pays for line/column output columns that the parser route never reads.
+func InsertIndentationParserMetadataCore(
     raw: &LexerTokenMetadataTable,
     rawCount: int,
-    output: &LexerTokenMetadataTable,
+    output: &LexerCompactTokenMetadataTable,
     indentStack: &LexerIndentStackTable): int {
     outCount := 0
     stackTop := 0
@@ -473,7 +465,6 @@ func InsertIndentationBracesCore(
         kind := raw.Kinds[i]
         tokenStart := raw.Starts[i]
         tokenValueLength := raw.ValueLengths[i]
-        tokenLine := raw.Lines[i]
         tokenColumn := raw.Columns[i]
         lineStart := tokenStart - (tokenColumn - 1)
 
@@ -481,8 +472,6 @@ func InsertIndentationBracesCore(
             output.Kinds[outCount] = kind
             output.Starts[outCount] = tokenStart
             output.ValueLengths[outCount] = tokenValueLength
-            output.Lines[outCount] = tokenLine
-            output.Columns[outCount] = tokenColumn
             outCount = outCount + 1
             atLineStart = true
             i = i + 1
@@ -495,16 +484,12 @@ func InsertIndentationBracesCore(
                 output.Kinds[outCount] = 130
                 output.Starts[outCount] = lineStart
                 output.ValueLengths[outCount] = 1
-                output.Lines[outCount] = tokenLine
-                output.Columns[outCount] = 1
                 outCount = outCount + 1
             }
 
             output.Kinds[outCount] = kind
             output.Starts[outCount] = tokenStart
             output.ValueLengths[outCount] = tokenValueLength
-            output.Lines[outCount] = tokenLine
-            output.Columns[outCount] = tokenColumn
             outCount = outCount + 1
             return outCount
         }
@@ -533,8 +518,6 @@ func InsertIndentationBracesCore(
                     output.Kinds[outCount] = 129
                     output.Starts[outCount] = lineStart
                     output.ValueLengths[outCount] = 1
-                    output.Lines[outCount] = tokenLine
-                    output.Columns[outCount] = 1
                     outCount = outCount + 1
                 } else if currentIndent < previousIndent {
                     while stackTop > 0 && currentIndent < indentStack.Indents[stackTop] {
@@ -542,8 +525,6 @@ func InsertIndentationBracesCore(
                         output.Kinds[outCount] = 130
                         output.Starts[outCount] = lineStart
                         output.ValueLengths[outCount] = 1
-                        output.Lines[outCount] = tokenLine
-                        output.Columns[outCount] = 1
                         outCount = outCount + 1
                     }
                 }
@@ -571,8 +552,6 @@ func InsertIndentationBracesCore(
         output.Kinds[outCount] = kind
         output.Starts[outCount] = tokenStart
         output.ValueLengths[outCount] = tokenValueLength
-        output.Lines[outCount] = tokenLine
-        output.Columns[outCount] = tokenColumn
         outCount = outCount + 1
         i = i + 1
     }
@@ -580,13 +559,11 @@ func InsertIndentationBracesCore(
     return outCount
 }
 
-// Full N# lexer token stream including the virtual indentation braces: tokenize the source into raw
-// metadata and then run the indentation-brace post-pass. This reproduces the C# production lexer's
-// (Lexer.Tokenize) token stream for both explicit-brace and indentation-style source, EXCEPT where
-// the underlying raw scanner still diverges from C# -- lifetime tokens and Unicode character
-// classification (see self-host-progress.md "Remaining gaps"); those are tracked, separate slices.
-// The out buffers must be sized for the grown stream (<= 3x (source.Length + 1) is always safe).
-func TokenizeMetadataWithIndentationInto(source: string, kinds: int[], starts: int[], valueLengths: int[], lines: int[], columns: int[]): int {
+// Product parser lexer entry: tokenize the source into raw metadata, insert virtual indentation
+// braces, and emit only kind/start/valueLength columns for the parser and top-level declaration
+// kernels. The output buffers must be sized for the grown stream (<= 3x (source.Length + 1) is
+// always safe).
+func TokenizeParserMetadataWithIndentationInto(source: string, kinds: int[], starts: int[], valueLengths: int[]): int {
     raw := new LexerTokenMetadataTable {
         Kinds: new int[](source.Length + 1),
         Starts: new int[](source.Length + 1),
@@ -594,10 +571,10 @@ func TokenizeMetadataWithIndentationInto(source: string, kinds: int[], starts: i
         Lines: new int[](source.Length + 1),
         Columns: new int[](source.Length + 1)
     }
-    target := new LexerTokenMetadataTable { Kinds: kinds, Starts: starts, ValueLengths: valueLengths, Lines: lines, Columns: columns }
+    target := new LexerCompactTokenMetadataTable { Kinds: kinds, Starts: starts, ValueLengths: valueLengths }
     rawCount := TokenizeMetadataCore(source, ref raw)
     indentStack := new LexerIndentStackTable { Indents: new int[](source.Length + 2) }
-    return InsertIndentationBracesCore(ref raw, rawCount, ref target, ref indentStack)
+    return InsertIndentationParserMetadataCore(ref raw, rawCount, ref target, ref indentStack)
 }
 
 func ScanString(source: string, position: int, length: int, isInterpolated: bool): int {

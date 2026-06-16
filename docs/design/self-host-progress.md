@@ -11,13 +11,26 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Parser lexer metadata ABI becomes compact
+
+`LexerTokenKindScanner.nl` now exposes `TokenizeParserMetadataWithIndentationInto` as the product
+parser-tokenization ABI. It still tokenizes into raw metadata internally so indentation insertion can
+use line/column information, but it writes only the parser-consumed kind/start/value-length columns
+across the C# dogfood boundary.
+
+`NSharpCompilerDogfoodAdapter` now binds this compact entry directly and no longer allocates
+line/column output arrays for columnar tokenization. The previous full composed metadata wrapper
+(`TokenizeMetadataWithIndentationInto`) moved to the parity corpus with the full-output
+`InsertIndentationBracesCore`, keeping lexer and parser parity tests able to compare line/column
+metadata without shipping that wider ABI in product dogfood.
+
 ## 2026-06-16 — Columnar token transition drops unused line/column storage
 
 `NSharpCompilerDogfoodAdapter` no longer carries raw lexer line/column arrays in its
-`ColumnarTokenizedSource` product token bundle. The current N# lexer ABI still receives line/column
-scratch arrays for indentation-brace insertion, but the C# transition object now keeps only the raw
-kind/start/value-length columns needed by `TopLevelColumnarProgramDeclarationIndicesInto` plus the
-compacted parser token columns consumed by the columnar parser route.
+`ColumnarTokenizedSource` product token bundle. At this point the N# lexer ABI still received
+line/column scratch arrays for indentation-brace insertion, but the C# transition object kept only
+the raw kind/start/value-length columns needed by `TopLevelColumnarProgramDeclarationIndicesInto`
+plus the compacted parser token columns consumed by the columnar parser route.
 
 ## 2026-06-16 — Function where-owner parity ABI leaves product dogfood
 
@@ -3577,9 +3590,11 @@ production semantic lookup ABI unchanged.
 ## 2026-06-13 — Lexer indentation standalone wrapper retired
 
 `LexerTokenKindScanner.nl` no longer emits the standalone flattened `InsertIndentationBracesInto`
-entry. The indentation post-pass remains in N# as `InsertIndentationBracesCore`, and the production
-dogfood adapter/test route continues through the composed `TokenizeMetadataWithIndentationInto`
-entry that tokenizes raw metadata and invokes the core directly.
+entry. At that point the indentation post-pass remained in N# as `InsertIndentationBracesCore`, and
+the production dogfood adapter/test route continued through the composed
+`TokenizeMetadataWithIndentationInto` entry that tokenized raw metadata and invoked the core
+directly. A later 2026-06-16 slice moved that full metadata wrapper to parity and gave product a
+compact parser-metadata entry.
 
 This removes the last non-code-intelligence single-reference compiler-service export surfaced by the
 backend cleanup sweep while preserving the token-stream ABI used by the compiler and parity tests.
@@ -4098,9 +4113,9 @@ loops route through wrapper-aware cores and avoid anonymous table plumbing.
 
 `LexerTokenKindScanner.nl` now also groups the full token metadata stream, indentation-brace
 post-pass inputs/outputs, indentation stack, and comment-trivia output columns behind named normal
-structs. `TokenizeMetadataInto`, `TokenizeMetadataWithIndentationInto`, and `CommentsInto` keep the
-flattened dogfood adapter ABI; the indentation post-pass stays behind the composed tokenizer route,
-and their internals now route through wrapper-aware core functions.
+structs. At that point `TokenizeMetadataInto`, `TokenizeMetadataWithIndentationInto`, and
+`CommentsInto` kept the flattened dogfood adapter ABI; the indentation post-pass stayed behind the
+composed tokenizer route, and their internals routed through wrapper-aware core functions.
 
 Together with the token-kind slice below, the lexer scanner no longer carries anonymous
 parallel-array tables through its main token kind, token metadata, indentation, or comment loops.

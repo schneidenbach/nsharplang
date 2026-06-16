@@ -245,6 +245,149 @@ func TokenizeMetadataInto(source: string, kinds: int[], starts: int[], valueLeng
     return TokenizeMetadataCore(source, ref metadata)
 }
 
+// PARITY-ONLY composed lexer stream including the virtual indentation braces. Product code binds the
+// compact TokenizeParserMetadataWithIndentationInto entry; this full line/column wrapper remains here
+// for lexer and parser parity tests that compare every production lexer metadata column.
+func InsertIndentationBracesCore(
+    raw: &LexerTokenMetadataTable,
+    rawCount: int,
+    output: &LexerTokenMetadataTable,
+    indentStack: &LexerIndentStackTable): int {
+    outCount := 0
+    stackTop := 0
+    indentStack.Indents[0] = 0
+    atLineStart := true
+    explicitBraceDepth := 0
+    parenBracketDepth := 0
+    hasBaseIndent := false
+    baseIndent := 0
+
+    i := 0
+    while i < rawCount {
+        kind := raw.Kinds[i]
+        tokenStart := raw.Starts[i]
+        tokenValueLength := raw.ValueLengths[i]
+        tokenLine := raw.Lines[i]
+        tokenColumn := raw.Columns[i]
+        lineStart := tokenStart - (tokenColumn - 1)
+
+        if kind == 136 {
+            output.Kinds[outCount] = kind
+            output.Starts[outCount] = tokenStart
+            output.ValueLengths[outCount] = tokenValueLength
+            output.Lines[outCount] = tokenLine
+            output.Columns[outCount] = tokenColumn
+            outCount = outCount + 1
+            atLineStart = true
+            i = i + 1
+            continue
+        }
+
+        if kind == 135 {
+            while stackTop > 0 {
+                stackTop = stackTop - 1
+                output.Kinds[outCount] = 130
+                output.Starts[outCount] = lineStart
+                output.ValueLengths[outCount] = 1
+                output.Lines[outCount] = tokenLine
+                output.Columns[outCount] = 1
+                outCount = outCount + 1
+            }
+
+            output.Kinds[outCount] = kind
+            output.Starts[outCount] = tokenStart
+            output.ValueLengths[outCount] = tokenValueLength
+            output.Lines[outCount] = tokenLine
+            output.Columns[outCount] = tokenColumn
+            outCount = outCount + 1
+            return outCount
+        }
+
+        if atLineStart {
+            rawIndent := tokenColumn - 1
+            if rawIndent < 0 {
+                rawIndent = 0
+            }
+
+            if !hasBaseIndent && stackTop == 0 {
+                baseIndent = rawIndent
+                hasBaseIndent = true
+            }
+
+            currentIndent := rawIndent - baseIndent
+            if currentIndent < 0 {
+                currentIndent = 0
+            }
+
+            if parenBracketDepth == 0 && explicitBraceDepth == 0 {
+                previousIndent := indentStack.Indents[stackTop]
+                if currentIndent > previousIndent {
+                    stackTop = stackTop + 1
+                    indentStack.Indents[stackTop] = currentIndent
+                    output.Kinds[outCount] = 129
+                    output.Starts[outCount] = lineStart
+                    output.ValueLengths[outCount] = 1
+                    output.Lines[outCount] = tokenLine
+                    output.Columns[outCount] = 1
+                    outCount = outCount + 1
+                } else if currentIndent < previousIndent {
+                    while stackTop > 0 && currentIndent < indentStack.Indents[stackTop] {
+                        stackTop = stackTop - 1
+                        output.Kinds[outCount] = 130
+                        output.Starts[outCount] = lineStart
+                        output.ValueLengths[outCount] = 1
+                        output.Lines[outCount] = tokenLine
+                        output.Columns[outCount] = 1
+                        outCount = outCount + 1
+                    }
+                }
+            }
+
+            atLineStart = false
+        }
+
+        if kind == 129 {
+            explicitBraceDepth = explicitBraceDepth + 1
+        } else if kind == 130 {
+            explicitBraceDepth = explicitBraceDepth - 1
+            if explicitBraceDepth < 0 {
+                explicitBraceDepth = 0
+            }
+        } else if kind == 127 || kind == 131 {
+            parenBracketDepth = parenBracketDepth + 1
+        } else if kind == 128 || kind == 132 {
+            parenBracketDepth = parenBracketDepth - 1
+            if parenBracketDepth < 0 {
+                parenBracketDepth = 0
+            }
+        }
+
+        output.Kinds[outCount] = kind
+        output.Starts[outCount] = tokenStart
+        output.ValueLengths[outCount] = tokenValueLength
+        output.Lines[outCount] = tokenLine
+        output.Columns[outCount] = tokenColumn
+        outCount = outCount + 1
+        i = i + 1
+    }
+
+    return outCount
+}
+
+func TokenizeMetadataWithIndentationInto(source: string, kinds: int[], starts: int[], valueLengths: int[], lines: int[], columns: int[]): int {
+    raw := new LexerTokenMetadataTable {
+        Kinds: new int[](source.Length + 1),
+        Starts: new int[](source.Length + 1),
+        ValueLengths: new int[](source.Length + 1),
+        Lines: new int[](source.Length + 1),
+        Columns: new int[](source.Length + 1)
+    }
+    target := new LexerTokenMetadataTable { Kinds: kinds, Starts: starts, ValueLengths: valueLengths, Lines: lines, Columns: columns }
+    rawCount := TokenizeMetadataCore(source, ref raw)
+    indentStack := new LexerIndentStackTable { Indents: new int[](source.Length + 2) }
+    return InsertIndentationBracesCore(ref raw, rawCount, ref target, ref indentStack)
+}
+
 func CommentsInto(source: string, lines: int[], columns: int[], starts: int[], lengths: int[], isMultiLine: int[]): int {
     comments := new LexerCommentTable { Lines: lines, Columns: columns, Starts: starts, Lengths: lengths, IsMultiLine: isMultiLine }
     return CommentsCore(source, ref comments)
