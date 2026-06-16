@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Generic static-field decline moves into N# struct parser
+
+`ParseColumnarStructInfoCore` now rejects static fields on generic struct/class/record declarations
+before returning the struct rowset to C#. The adapter no longer loops over materialized
+`fieldStatics` to enforce this route-safety rule after constructing field arrays. The unsupported
+shape still declines, but the owner of the decision is now the product N# parser wrapper that already
+has `typeParamCount` and `FieldStaticFlags`.
+
 ## 2026-06-16 — Parser lexer metadata ABI becomes compact
 
 `LexerTokenKindScanner.nl` now exposes `TokenizeParserMetadataWithIndentationInto` as the product

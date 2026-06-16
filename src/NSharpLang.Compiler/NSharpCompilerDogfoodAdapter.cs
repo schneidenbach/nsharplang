@@ -414,14 +414,6 @@ internal static class NSharpCompilerDogfoodAdapter
                         if (typeParamSet.Contains(p.Name))
                             return false;
                     }
-                    // STATIC fields on a generic type: both pipelines today emit a static-field token against
-                    // the OPEN generic (BadImageFormatException at JIT — oracle defect bundle). Decline so
-                    // columnar never ships invalid IL; the program routes to the analyzer-backed C# path.
-                    foreach (var isStaticField in fieldStatics)
-                    {
-                        if (isStaticField)
-                            return false;
-                    }
                 }
 
                 structs.Add(new Columnar.ColumnarStructInput(structName, fieldNames, fieldTypes, methods, constructors, properties, isReference, baseNames, fieldStatics, fieldInitKinds, fieldInitTexts, isRecord, typeParamNames));

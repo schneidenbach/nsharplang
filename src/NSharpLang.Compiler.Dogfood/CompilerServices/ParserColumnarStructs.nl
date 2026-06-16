@@ -60,13 +60,24 @@ func ParseColumnarStructInfoCore(source: string, tokens: &ColumnarStructTokenTab
         return -1
     }
 
+    i := 0
+    if typeParamCount > 0 {
+        while i < fieldCount {
+            if outputs.FieldStaticFlags[i] == 1 {
+                return -1
+            }
+
+            i = i + 1
+        }
+    }
+
     structName := ParserDeclarationSpanText(source, result.Values[0], result.Values[1])
     if structName == "" {
         return -1
     }
     outputs.StructNameTexts[0] = structName
 
-    i := 0
+    i = 0
     while i < typeParamCount {
         typeParamName := ParserDeclarationSpanText(source, scratch.TypeParamStarts[i], scratch.TypeParamLengths[i])
         if typeParamName == "" {
