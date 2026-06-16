@@ -103,7 +103,7 @@ public class Formatter
         // performs the same stable ordering over compact rank/flag arrays without the
         // per-call LINQ projection/materialization; fall back to the LINQ shape if the
         // dogfood assembly is unavailable or declines.
-        var sortedImports = NSharpCompilerDogfoodAdapter.TryOrderImportsBySystemThenNamespace(
+        var sortedImports = FormatterImportOrderer.TryOrderBySystemThenNamespace(
                 ast.Imports,
                 out var dogfoodSortedImports)
             ? dogfoodSortedImports

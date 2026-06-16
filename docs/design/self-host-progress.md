@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Formatter import ordering leaves the general dogfood adapter
+
+`Formatter.Format` now routes import ordering through `FormatterImportOrderer`, which binds the N#
+`FormatterImportOrderIndicesInto` kernel beside the formatter code that consumes it. The general
+`NSharpCompilerDogfoodAdapter` no longer owns the formatter import-order delegate, rank/scratch
+storage, or ordering entry point. The production fallback remains the exact LINQ
+`OrderByDescending(...).ThenBy(...)` shape when the dogfood assembly is unavailable or declines.
+Focused evidence: `dotnet build src/NSharpLang.Compiler/Compiler.csproj --no-restore` and
+`dotnet test tests/Tests.csproj --filter "FullyQualifiedName~FormatterImportOrderer_OrdersImportsBySystemThenNamespaceLikeProduction|FullyQualifiedName~FormatterImportOrderer_OrdersImportsAfterLargerListReusesScratchCorrectly"`.
+
 ## 2026-06-16 — Project source filtering leaves the general dogfood adapter
 
 `ProjectConfig.GetSourceFiles` now routes exclude/test-file classification through

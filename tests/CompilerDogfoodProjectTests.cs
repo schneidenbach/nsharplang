@@ -14157,7 +14157,7 @@ class OtherZetaType {
     }
 
     [Fact]
-    public void CompilerDogfoodAdapter_OrdersImportsBySystemThenNamespaceLikeProduction()
+    public void FormatterImportOrderer_OrdersImportsBySystemThenNamespaceLikeProduction()
     {
         var imports = new List<ImportDirective>
         {
@@ -14179,17 +14179,7 @@ class OtherZetaType {
             .ThenBy(i => i.Namespace)
             .ToList();
 
-        var adapterType = typeof(Parser).Assembly.GetType("NSharpLang.Compiler.NSharpCompilerDogfoodAdapter")
-            ?? throw new InvalidOperationException("Compiler dogfood adapter type was not emitted.");
-
-        var tryOrderImports = adapterType.GetMethod(
-                "TryOrderImportsBySystemThenNamespace",
-                BindingFlags.Static | BindingFlags.NonPublic)
-            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryOrderImportsBySystemThenNamespace.");
-
-        var args = new object?[] { imports, null };
-        Assert.True((bool)(tryOrderImports.Invoke(null, args) ?? false));
-        var ordered = Assert.IsType<List<ImportDirective>>(args[1]);
+        Assert.True(FormatterImportOrderer.TryOrderBySystemThenNamespace(imports, out var ordered));
 
         // Same references, in the same order as production LINQ (stable, reference-identical).
         Assert.Equal(expected.Count, ordered.Count);
@@ -14200,29 +14190,20 @@ class OtherZetaType {
     }
 
     [Fact]
-    public void CompilerDogfoodAdapter_OrdersImportsAfterLargerListReusesScratchCorrectly()
+    public void FormatterImportOrderer_OrdersImportsAfterLargerListReusesScratchCorrectly()
     {
         // Regression: the kernel derives its working count from array length, and the
-        // adapter scratch is thread-static and reused. A larger list followed by a smaller
+        // formatter scratch is thread-static and reused. A larger list followed by a smaller
         // list on the same thread must not leak stale tail slots into the smaller result.
-        var adapterType = typeof(Parser).Assembly.GetType("NSharpLang.Compiler.NSharpCompilerDogfoodAdapter")
-            ?? throw new InvalidOperationException("Compiler dogfood adapter type was not emitted.");
-
-        var tryOrderImports = adapterType.GetMethod(
-                "TryOrderImportsBySystemThenNamespace",
-                BindingFlags.Static | BindingFlags.NonPublic)
-            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryOrderImportsBySystemThenNamespace.");
-
         static List<ImportDirective> ExpectedOrder(List<ImportDirective> imports) => imports
             .OrderByDescending(i => i.Namespace.StartsWith("System"))
             .ThenBy(i => i.Namespace)
             .ToList();
 
-        static List<ImportDirective> Invoke(MethodInfo method, List<ImportDirective> imports)
+        static List<ImportDirective> Invoke(List<ImportDirective> imports)
         {
-            var args = new object?[] { imports, null };
-            Assert.True((bool)(method.Invoke(null, args) ?? false));
-            return Assert.IsType<List<ImportDirective>>(args[1]);
+            Assert.True(FormatterImportOrderer.TryOrderBySystemThenNamespace(imports, out var ordered));
+            return ordered;
         }
 
         // First: a large list to grow the thread-static scratch buffers.
@@ -14233,7 +14214,7 @@ class OtherZetaType {
             large.Add(new ImportDirective(ns, Alias: null, Line: i + 1, Column: 1));
         }
 
-        var largeOrdered = Invoke(tryOrderImports, large);
+        var largeOrdered = Invoke(large);
         Assert.Equal(ExpectedOrder(large), largeOrdered);
 
         // Then: a smaller list on the same thread must still match production exactly.
@@ -14245,7 +14226,7 @@ class OtherZetaType {
             new("System", Alias: null, Line: 4, Column: 1),
         };
 
-        var smallOrdered = Invoke(tryOrderImports, small);
+        var smallOrdered = Invoke(small);
         Assert.Equal(ExpectedOrder(small), smallOrdered);
     }
 
