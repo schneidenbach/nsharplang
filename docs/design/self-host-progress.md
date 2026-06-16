@@ -11,6 +11,12 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Struct duplicate field decline moves into N# parser
+
+`ParseColumnarStructInfoCore` now rejects duplicate class/record/struct field names by comparing field
+declaration spans before text rows are materialized. The columnar emitter no longer carries the same-type
+field/static-field duplicate guard; wider member/property/inheritance collisions remain semantic checks.
+
 ## 2026-06-16 — Interface duplicate base/member/parameter declines move into N# parser
 
 `ParseColumnarInterfaceInfoCore` now rejects duplicate base-interface names, duplicate interface method

@@ -2967,9 +2967,6 @@ internal sealed class ColumnarIlEmitter
                 if (st.FieldStaticFlags != null && st.FieldStaticFlags[fi] && fieldType is GenericTypeParameterBuilder)
                     return false;
                 var isStaticField = st.FieldStaticFlags != null && st.FieldStaticFlags[fi];
-                // A static and an instance field (or two fields of either kind) sharing a name is NL306 — decline.
-                if (fields.ContainsKey(st.FieldNames[fi]) || staticFieldDefs.ContainsKey(st.FieldNames[fi]))
-                    return false;
                 if (isStaticField)
                 {
                     var sfb = tb.DefineField(st.FieldNames[fi], fieldType, FieldAttributes.Public | FieldAttributes.Static);

@@ -400,6 +400,27 @@ class Pair<T> {
                 expectColumnarDecline: true);
             AssertStructDeclarationInfo(
                 """
+class DuplicateField {
+    Value: int
+    Value: string
+}
+""",
+                (int)TokenType.Class,
+                "DuplicateField",
+                Array.Empty<string>(),
+                Array.Empty<string>(),
+                new[] { "Value", "Value" },
+                new[] { "int", "string" },
+                new[] { 0, 0 },
+                new string?[] { null, null },
+                tokenizeWithIndentation,
+                parseStructDeclaration,
+                parseStructDeclarationInfo,
+                parseColumnarStructInfo,
+                "duplicate class field",
+                expectColumnarDecline: true);
+            AssertStructDeclarationInfo(
+                """
 record Duplicate<T, T> {
     Value: int
 }
@@ -7192,6 +7213,8 @@ func outer(x: int): int {
         Assert.False(RouteColumnarProgram("struct P {\n    X: int\n    func g() { return }\n}\n\nfunc f(): int { return 1 }\n").Ok);
         Assert.False(RouteColumnarProgram("struct P {\n    X: int = 5\n}\n\nfunc f(): int { return 1 }\n").Ok);
         Assert.False(RouteColumnarProgram("struct P(x: int) {\n}\n\nfunc f(): int { return 1 }\n").Ok);
+        // Duplicate fields are rejected in the N# columnar parser before field emission.
+        Assert.False(RouteColumnarProgram("struct P {\n    X: int\n    X: int\n}\n\nfunc f(): int { return 1 }\n").Ok);
     }
 
     // STRUCT slice 2 — field MUTATION (`p.X = v` on a `:=` local struct: ldloca; <value>; stfld), plus locking in the
