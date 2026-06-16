@@ -1459,114 +1459,6 @@ func ParseEnumDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int, 
     return memberCount
 }
 
-// Parser slice (struct bodies): parse ONE fields-only struct declaration's fields into flat parallel arrays.
-// `structIndex` is the compacted token index of the `struct` keyword (token 9). Reads the struct NAME (the
-// Identifier after `struct`) into outResult[0]=nameStart / outResult[1]=nameLength, then an OPTIONAL single-
-// identifier BASE TYPE / INTERFACE list (`: Base[, IFace...]`) into outBaseNameStarts/Lengths with
-// outResult[8]=baseNameCount (outResult[5]/[6] mirror the first entry for compatibility, 0/0 when absent — the
-// host resolves and validates the names; only classes may model one non-interface base), then `{` (129), then a sequence
-// of FIELDS until `}` (130). Each field is `Identifier : <type>` where the type starts with an Identifier token
-// (a builtin like int/double/string, which the lexer tokenizes as an Identifier, kind 0) and may have a balanced
-// generic suffix plus postfix `[]`, `?`, or `?[]` suffixes. There is no field separator (newlines are stripped
-// before this runs), so fields are detected by the repeating `name : type` pattern: outFieldNameStarts/Lengths[f]
-// = the field name span, outFieldTypeStarts/Lengths[f] = the field TYPE span. Returns the field count (0 is legal
-// for a FIELDLESS type with at least one method/ctor/property), or -1 on any unexpected token — a primary-ctor
-// `(` after the name, a field initializer (`=`), a tuple/function field type, a missing name/colon/brace, or a
-// fully EMPTY body — so the host declines the whole program to the C# path.
-// Also used for RECORD declarations (token 13) and CLASS declarations (token 8): the `record/class Name { fields
-// methods }` body syntax is identical to a struct's, so the same kernel parses all three — the host distinguishes a
-// value-type struct from a reference-type record/class by which keyword index it passed in. Accepts the `struct` (9),
-// `record` (13), or `class` (8) keyword. A class with a user `constructor` (slice 1b) is NOT yet parsed here: the
-// `constructor` keyword is neither a field-name identifier nor `func`/`}`, so the field loop returns -1 and the host
-// declines that class to the C# path until constructors are modelled.
-// STATIC members: a `static func` method (token 63 `static` immediately before token 7 `func`) is recorded with
-// outMethodStaticFlags[m] = 1 (the func index points at the `func` keyword, exactly like an instance method, so the
-// host parses its signature/body with the same kernels); an instance method gets flag 0. A STATIC FIELD
-// `static name: Type [= <literal>]` is recorded with outFieldStaticFlags[f] = 1 and — when an initializer is
-// present — outFieldInitKinds[f] = the literal's token kind (IntLiteral 1 / FloatLiteral 2 / CharLiteral 3 /
-// StringLiteral 4 / true 44 / false 45; an optional leading `-` (89) is admitted before a NUMERIC literal and is
-// included in the recorded span) with outFieldInitStarts/Lengths[f] covering the full initializer text and
-// ParseStructDeclarationInfoInto also returning that text in outFieldInitTexts[f]; no initializer leaves
-// outFieldInitKinds[f] = -1. A STATIC PROPERTY `static name: Type { ... }` is recorded into
-// outPropIndices (the NAME token index, exactly like an instance property) with outPropStaticFlags[p] = 1; an
-// instance property gets flag 0. A GENERAL initializer expression (`= new T(...)`, `= a + b`), an initializer on
-// an INSTANCE field, and `static constructor` are not yet modelled and return -1 — the host declines the whole
-// program to the C# path.
-func ParseStructDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, structIndex: int, outFieldNameStarts: int[], outFieldNameLengths: int[], outFieldTypeStarts: int[], outFieldTypeLengths: int[], outFieldStaticFlags: int[], outFieldInitKinds: int[], outFieldInitStarts: int[], outFieldInitLengths: int[], outMethodFuncIndices: int[], outMethodStaticFlags: int[], outCtorIndices: int[], outPropIndices: int[], outPropStaticFlags: int[], outTypeParamStarts: int[], outTypeParamLengths: int[], outBaseNameStarts: int[], outBaseNameLengths: int[], outResult: int[]): int {
-    tokens := new ParserDeclarationTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
-    decl := new StructDeclarationTable { FieldNameStarts: outFieldNameStarts, FieldNameLengths: outFieldNameLengths, FieldTypeStarts: outFieldTypeStarts, FieldTypeLengths: outFieldTypeLengths, FieldStaticFlags: outFieldStaticFlags, FieldInitKinds: outFieldInitKinds, FieldInitStarts: outFieldInitStarts, FieldInitLengths: outFieldInitLengths, MethodFuncIndices: outMethodFuncIndices, MethodStaticFlags: outMethodStaticFlags, CtorIndices: outCtorIndices, PropIndices: outPropIndices, PropStaticFlags: outPropStaticFlags, TypeParamStarts: outTypeParamStarts, TypeParamLengths: outTypeParamLengths, BaseNameStarts: outBaseNameStarts, BaseNameLengths: outBaseNameLengths }
-    result := new ParserDeclarationResultTable { Values: outResult }
-    return ParseStructDeclarationCore(ref tokens, count, structIndex, ref decl, ref result)
-}
-
-func ParseStructDeclarationInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, structIndex: int, outFieldNameStarts: int[], outFieldNameLengths: int[], outFieldNameTexts: string[], outFieldTypeStarts: int[], outFieldTypeLengths: int[], outFieldTypeTexts: string[], outFieldStaticFlags: int[], outFieldInitKinds: int[], outFieldInitStarts: int[], outFieldInitLengths: int[], outFieldInitTexts: string[], outMethodFuncIndices: int[], outMethodStaticFlags: int[], outCtorIndices: int[], outPropIndices: int[], outPropStaticFlags: int[], outTypeParamStarts: int[], outTypeParamLengths: int[], outTypeParamTexts: string[], outBaseNameStarts: int[], outBaseNameLengths: int[], outBaseNameTexts: string[], outStructNameTexts: string[], outResult: int[]): int {
-    tokens := new ParserDeclarationTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
-    decl := new StructDeclarationTable { FieldNameStarts: outFieldNameStarts, FieldNameLengths: outFieldNameLengths, FieldTypeStarts: outFieldTypeStarts, FieldTypeLengths: outFieldTypeLengths, FieldStaticFlags: outFieldStaticFlags, FieldInitKinds: outFieldInitKinds, FieldInitStarts: outFieldInitStarts, FieldInitLengths: outFieldInitLengths, MethodFuncIndices: outMethodFuncIndices, MethodStaticFlags: outMethodStaticFlags, CtorIndices: outCtorIndices, PropIndices: outPropIndices, PropStaticFlags: outPropStaticFlags, TypeParamStarts: outTypeParamStarts, TypeParamLengths: outTypeParamLengths, BaseNameStarts: outBaseNameStarts, BaseNameLengths: outBaseNameLengths }
-    result := new ParserDeclarationResultTable { Values: outResult }
-    fieldCount := ParseStructDeclarationCore(ref tokens, count, structIndex, ref decl, ref result)
-    typeParamCount := result.Values[7]
-    baseNameCount := result.Values[8]
-    if fieldCount < 0 || outStructNameTexts.Length < 1 || fieldCount > outFieldNameTexts.Length || fieldCount > outFieldTypeTexts.Length || fieldCount > outFieldInitTexts.Length || typeParamCount > outTypeParamTexts.Length || baseNameCount > outBaseNameTexts.Length {
-        return -1
-    }
-
-    structName := ParserDeclarationSpanText(source, result.Values[0], result.Values[1])
-    if structName == "" {
-        return -1
-    }
-    outStructNameTexts[0] = structName
-
-    i := 0
-    while i < typeParamCount {
-        typeParamName := ParserDeclarationSpanText(source, decl.TypeParamStarts[i], decl.TypeParamLengths[i])
-        if typeParamName == "" {
-            return -1
-        }
-
-        outTypeParamTexts[i] = typeParamName
-        i = i + 1
-    }
-
-    i = 0
-    while i < baseNameCount {
-        baseName := ParserDeclarationSpanText(source, decl.BaseNameStarts[i], decl.BaseNameLengths[i])
-        if baseName == "" {
-            return -1
-        }
-
-        outBaseNameTexts[i] = baseName
-        i = i + 1
-    }
-
-    i = 0
-    while i < fieldCount {
-        fieldName := ParserDeclarationSpanText(source, decl.FieldNameStarts[i], decl.FieldNameLengths[i])
-        if fieldName == "" {
-            return -1
-        }
-
-        text := ParserDeclarationCanonicalTypeText(source, decl.FieldTypeStarts[i], decl.FieldTypeLengths[i])
-        if text.Length == 0 {
-            return -1
-        }
-
-        outFieldNameTexts[i] = fieldName
-        outFieldTypeTexts[i] = text
-        if decl.FieldInitKinds[i] >= 0 {
-            initText := source.Substring(decl.FieldInitStarts[i], decl.FieldInitLengths[i])
-            if initText.Length == 0 {
-                return -1
-            }
-
-            outFieldInitTexts[i] = initText
-        }
-
-        i = i + 1
-    }
-
-    return fieldCount
-}
-
 func ParserDeclarationCanonicalTypeText(source: string, start: int, length: int): string {
     if start < 0 || length <= 0 || start + length > source.Length {
         return ""
@@ -1601,6 +1493,8 @@ func ParserDeclarationCanonicalTypeText(source: string, start: int, length: int)
     return builder.ToString()
 }
 
+// Parse one struct/class/record declaration into wrapper-owned declaration tables. The flattened
+// ParseStructDeclaration* ABIs live in the parity corpus; product callers compose this core directly.
 func ParseStructDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int, structIndex: int, decl: &StructDeclarationTable, result: &ParserDeclarationResultTable): int {
     pos := structIndex
     if pos >= count || (tokens.Kinds[pos] != 9 && tokens.Kinds[pos] != 13 && tokens.Kinds[pos] != 8) {
@@ -2126,82 +2020,6 @@ func ParseConstructorChainInfoCore(tokens: &ParserDeclarationTokenTable, count: 
 // field type (a non-Identifier after `:`), a field initializer, a missing name/colon/brace, or an empty union — so
 // the host declines the whole program to the C# path. Slice scope: unions whose case fields are single
 // builtin/bare-name/type-param-typed (the emitter further gates each field type to a supported CLR type).
-func ParseUnionDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, unionIndex: int, outCaseNameStarts: int[], outCaseNameLengths: int[], outCaseFieldCounts: int[], outFieldNameStarts: int[], outFieldNameLengths: int[], outFieldTypeStarts: int[], outFieldTypeLengths: int[], outTypeParamStarts: int[], outTypeParamLengths: int[], outResult: int[]): int {
-    tokens := new ParserDeclarationTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
-    decl := new UnionDeclarationTable { CaseNameStarts: outCaseNameStarts, CaseNameLengths: outCaseNameLengths, CaseFieldCounts: outCaseFieldCounts, FieldNameStarts: outFieldNameStarts, FieldNameLengths: outFieldNameLengths, FieldTypeStarts: outFieldTypeStarts, FieldTypeLengths: outFieldTypeLengths, TypeParamStarts: outTypeParamStarts, TypeParamLengths: outTypeParamLengths }
-    result := new ParserDeclarationResultTable { Values: outResult }
-    return ParseUnionDeclarationCore(ref tokens, count, unionIndex, ref decl, ref result)
-}
-
-func ParseUnionDeclarationInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, unionIndex: int, outCaseNameStarts: int[], outCaseNameLengths: int[], outCaseNameTexts: string[], outCaseFieldCounts: int[], outFieldNameStarts: int[], outFieldNameLengths: int[], outFieldNameTexts: string[], outFieldTypeStarts: int[], outFieldTypeLengths: int[], outFieldTypeTexts: string[], outTypeParamStarts: int[], outTypeParamLengths: int[], outTypeParamTexts: string[], outUnionNameTexts: string[], outResult: int[]): int {
-    tokens := new ParserDeclarationTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
-    decl := new UnionDeclarationTable { CaseNameStarts: outCaseNameStarts, CaseNameLengths: outCaseNameLengths, CaseFieldCounts: outCaseFieldCounts, FieldNameStarts: outFieldNameStarts, FieldNameLengths: outFieldNameLengths, FieldTypeStarts: outFieldTypeStarts, FieldTypeLengths: outFieldTypeLengths, TypeParamStarts: outTypeParamStarts, TypeParamLengths: outTypeParamLengths }
-    result := new ParserDeclarationResultTable { Values: outResult }
-    caseCount := ParseUnionDeclarationCore(ref tokens, count, unionIndex, ref decl, ref result)
-    if caseCount < 0 {
-        return -1
-    }
-
-    typeParamCount := result.Values[2]
-    fieldCount := 0
-    i := 0
-    while i < caseCount {
-        fieldCount = fieldCount + decl.CaseFieldCounts[i]
-        i = i + 1
-    }
-
-    if outUnionNameTexts.Length < 1 || caseCount > outCaseNameTexts.Length || fieldCount > outFieldNameTexts.Length || fieldCount > outFieldTypeTexts.Length || typeParamCount > outTypeParamTexts.Length {
-        return -1
-    }
-
-    unionName := ParserDeclarationSpanText(source, result.Values[0], result.Values[1])
-    if unionName == "" {
-        return -1
-    }
-    outUnionNameTexts[0] = unionName
-
-    i = 0
-    while i < typeParamCount {
-        text := ParserDeclarationSpanText(source, decl.TypeParamStarts[i], decl.TypeParamLengths[i])
-        if text == "" {
-            return -1
-        }
-
-        outTypeParamTexts[i] = text
-        i = i + 1
-    }
-
-    i = 0
-    while i < caseCount {
-        text := ParserDeclarationSpanText(source, decl.CaseNameStarts[i], decl.CaseNameLengths[i])
-        if text == "" {
-            return -1
-        }
-
-        outCaseNameTexts[i] = text
-        i = i + 1
-    }
-
-    i = 0
-    while i < fieldCount {
-        fieldName := ParserDeclarationSpanText(source, decl.FieldNameStarts[i], decl.FieldNameLengths[i])
-        if fieldName == "" {
-            return -1
-        }
-
-        fieldType := ParserDeclarationCanonicalTypeText(source, decl.FieldTypeStarts[i], decl.FieldTypeLengths[i])
-        if fieldType == "" {
-            return -1
-        }
-
-        outFieldNameTexts[i] = fieldName
-        outFieldTypeTexts[i] = fieldType
-        i = i + 1
-    }
-
-    return caseCount
-}
-
 func ParseUnionDeclarationCore(tokens: &ParserDeclarationTokenTable, count: int, unionIndex: int, decl: &UnionDeclarationTable, result: &ParserDeclarationResultTable): int {
     pos := unionIndex
     if pos >= count || tokens.Kinds[pos] != 12 {

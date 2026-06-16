@@ -10969,6 +10969,10 @@ func outer(x: int): int {
             ("DiagnosticClusters.nl", "IsDiagnosticClusterRootBefore"),
             ("DiagnosticDeduplication.nl", "SortDiagnosticDeduplicationIndices"),
             ("LexerTokenKindScanner.nl", "ScanOperator"),
+            ("ParserDeclarations.nl", "ParseStructDeclarationInto"),
+            ("ParserDeclarations.nl", "ParseStructDeclarationInfoInto"),
+            ("ParserDeclarations.nl", "ParseUnionDeclarationInto"),
+            ("ParserDeclarations.nl", "ParseUnionDeclarationInfoInto"),
             ("ParserExpressions.nl", "ParseExpressionNodesInto"),
             ("ParserTypeReferences.nl", "ParseTypeReferenceNodesInto"),
         })

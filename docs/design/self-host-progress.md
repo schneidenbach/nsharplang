@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Struct/union declaration parity ABIs leave product dogfood
+
+The flattened `ParseStructDeclarationInto`, `ParseStructDeclarationInfoInto`,
+`ParseUnionDeclarationInto`, and `ParseUnionDeclarationInfoInto` exports now live in
+`NSharpLang.Compiler.Dogfood.ParityCorpus/ParserDeclarations.nl` instead of the shipped
+compiler-service product file. Product struct/class/record and union parsing already composes
+`ParseStructDeclarationCore` / `ParseUnionDeclarationCore` directly through
+`ParserColumnarStructs.nl` and `ParserColumnarUnions.nl`, so these flattened ABIs are retained only
+for parser parity tests. `ColumnarCodegen_ParityOnlyFiles_AreAbsentFromProductCoverage` now pins
+that product/parity boundary.
+
 ## 2026-06-15 — Columnar tokenization compacts metadata rows in N#
 
 `LexerTokenKindScanner.nl` now exposes `ParserTokenCompactedMetadataInto`, a counted product-shaped
