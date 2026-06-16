@@ -217,45 +217,6 @@ internal static class NSharpCliDogfoodAdapter
         }
     }
 
-    internal static bool TryGetExportCSharpInputOperand(string[] args, out string? operand)
-    {
-        operand = null;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        if (args.Length == 0)
-            return true;
-
-        var scratch = t_buildOperandScratch ??= new BuildOperandScratch();
-        scratch.EnsureCapacity(args.Length);
-
-        try
-        {
-            var index = bindings.CliExportCSharpFirstOperandIndex(
-                args,
-                scratch.KindIds,
-                scratch.NextIndices,
-                scratch.PreviousIndices,
-                scratch.NextOptionIndices,
-                scratch.ResultIndices);
-            if (index == -1)
-                return true;
-
-            if (index < 0 || index >= args.Length)
-                return false;
-
-            operand = args[index];
-            return true;
-        }
-        catch
-        {
-            operand = null;
-            return false;
-        }
-    }
-
     internal static bool TryFilterReferencesByType(
         IReadOnlyList<Reference> dependencies,
         ReferenceType targetType,
@@ -469,7 +430,6 @@ internal static class NSharpCliDogfoodAdapter
 
             return new Bindings(
                 CreateDelegate<CliBuildFirstOperandIndexInto>(programType, "CliBuildFirstOperandIndexInto"),
-                CreateDelegate<CliExportCSharpFirstOperandIndexInto>(programType, "CliExportCSharpFirstOperandIndexInto"),
                 CreateDelegate<CliRunFirstOperandIndex>(programType, "CliRunFirstOperandIndex"),
                 CreateDelegate<CliPublishOptionsInto>(programType, "CliPublishOptionsInto"),
                 CreateDelegate<CliFirstPositionalArgIndex>(programType, "CliFirstPositionalArgIndex"),
@@ -517,14 +477,6 @@ internal static class NSharpCliDogfoodAdapter
         int[] nextOptionIndices,
         int[] resultIndices);
 
-    private delegate int CliExportCSharpFirstOperandIndexInto(
-        string[] args,
-        int[] kindIds,
-        int[] nextIndices,
-        int[] previousIndices,
-        int[] nextOptionIndices,
-        int[] resultIndices);
-
     private delegate int CliRunFirstOperandIndex(string[] args);
 
     private delegate int CliPublishOptionsInto(string[] args, int[] resultIndices);
@@ -551,7 +503,6 @@ internal static class NSharpCliDogfoodAdapter
 
     private sealed record Bindings(
         CliBuildFirstOperandIndexInto CliBuildFirstOperandIndex,
-        CliExportCSharpFirstOperandIndexInto CliExportCSharpFirstOperandIndex,
         CliRunFirstOperandIndex CliRunFirstOperandIndex,
         CliPublishOptionsInto CliPublishOptionsInto,
         CliFirstPositionalArgIndex CliFirstPositionalArgIndex,

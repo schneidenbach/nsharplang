@@ -254,7 +254,7 @@ Exit codes:
 
     private static string? GetExportCSharpInputOperand(string[] args)
     {
-        return NSharpCliDogfoodAdapter.TryGetExportCSharpInputOperand(args, out var positional)
+        return ExportCommandKernels.TryGetCSharpInputOperand(args, out var positional)
             ? positional
             : GetExportCSharpInputOperandWithCSharp(args);
     }

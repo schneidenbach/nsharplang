@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Export csharp input selection leaves the CLI dogfood adapter
+
+`nlc export csharp` input operand discovery now routes the accepted N#
+`CliExportCSharpFirstOperandIndexInto` kernel through `ExportCommandKernels`, an owner-local helper
+beside `ExportCommand`. The broad CLI dogfood adapter no longer owns the export input selector,
+delegate binding, or build-operand scratch arrays for that route; the existing ordered
+`--output`/`-o`/`--project` strip fallback remains in the command.
+Focused evidence: `dotnet build src/NSharpLang.Cli/Cli.csproj --no-restore`; `dotnet test
+tests/Tests.csproj --filter "FullyQualifiedName~CliCommandTests.ExportCommandKernels_SelectsInputOperandAfterOrderedOptionStripping"`;
+`./scripts/dev.sh --since`.
+
 ## 2026-06-16 — Lint file-argument extraction leaves the CLI dogfood adapter
 
 `nlc lint` positional file-argument extraction now routes the accepted N#

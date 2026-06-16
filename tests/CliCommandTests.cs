@@ -1014,24 +1014,24 @@ func Main() {
     }
 
     [Fact]
-    public void ExportCommand_DogfoodAdapter_SelectsInputOperandAfterOrderedOptionStripping()
+    public void ExportCommandKernels_SelectsInputOperandAfterOrderedOptionStripping()
     {
-        Assert.True(NSharpCliDogfoodAdapter.TryGetExportCSharpInputOperand(
+        Assert.True(ExportCommandKernels.TryGetCSharpInputOperand(
             new[] { "Program.nl", "--output", "Program.cs" },
             out var sourceFirst));
         Assert.Equal("Program.nl", sourceFirst);
 
-        Assert.True(NSharpCliDogfoodAdapter.TryGetExportCSharpInputOperand(
+        Assert.True(ExportCommandKernels.TryGetCSharpInputOperand(
             new[] { "--output", "dist", "Program.nl" },
             out var outputFirst));
         Assert.Equal("Program.nl", outputFirst);
 
-        Assert.True(NSharpCliDogfoodAdapter.TryGetExportCSharpInputOperand(
+        Assert.True(ExportCommandKernels.TryGetCSharpInputOperand(
             new[] { "-o", "--output", "file" },
             out var shortOutputConsumesLongOutput));
         Assert.Null(shortOutputConsumesLongOutput);
 
-        Assert.True(NSharpCliDogfoodAdapter.TryGetExportCSharpInputOperand(
+        Assert.True(ExportCommandKernels.TryGetCSharpInputOperand(
             new[] { "--output", "--project", "file" },
             out var longOutputConsumesProject));
         Assert.Equal("file", longOutputConsumesProject);

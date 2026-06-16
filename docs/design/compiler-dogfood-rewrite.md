@@ -1500,8 +1500,8 @@ stripped argument arrays; leading-option cases keep the exact ordered stripping 
 `--output`, `-o`, and `--project`. It ran about 694x faster on the representative source-first
 argument corpus (4.423 ns vs 3.070 us, 0 B vs 27,712 B) and about 4,766x faster on the large
 generated source-first corpus (4.687 ns vs 22.338 us, 0 B vs 219,344 B). `ExportCommand` now routes
-input operand discovery through `NSharpCliDogfoodAdapter.TryGetExportCSharpInputOperand`, with the
-previous three-strip C# path retained as the exact fallback.
+input operand discovery through `ExportCommandKernels`, with the previous three-strip C# path
+retained as the exact fallback.
 
 `CliStableDistinctRankIndicesInto` passed parity and reported zero managed allocation in the short
 BenchmarkDotNet evidence tier for `nlc export csharp` stable reference de-duplication after the host
