@@ -10899,6 +10899,8 @@ func outer(x: int): int {
         Assert.Contains("TopLevelColumnarFunctionDeclarationIndicesCore", methodNames!); // product function index routing
         Assert.Contains("TopLevelColumnarNominalDeclarationIndicesCore", methodNames!); // product nominal index routing
         Assert.Contains("TopLevelStructLikeDeclarationIndicesCore", methodNames!); // product struct/class/record index routing
+        Assert.Contains("MatchingCloseBraceCore", methodNames!); // product property/accessor routing
+        Assert.Contains("TokenIndexByKindStartCore", methodNames!); // product local-function routing
         Assert.Contains("ParseFunctionSignatureCore", methodNames!); // ParserFunctionSignatures -> ParserTypeReferences
         Assert.Contains("ParseFunctionSignatureInfoCore", methodNames!); // ParserFunctionSignatures -> ParserTypeReferences
         Assert.Contains("ParseColumnarFunctionInfoInto", methodNames!); // composed signature + body + local-function routing
@@ -10983,6 +10985,8 @@ func outer(x: int): int {
             ("ParserDeclarations.nl", "TopLevelColumnarFunctionDeclarationIndicesInto"),
             ("ParserDeclarations.nl", "TopLevelFunctionPreamblesAreValidInto"),
             ("ParserDeclarations.nl", "TopLevelContextualTestDeclarationExistsInto"),
+            ("ParserDeclarations.nl", "MatchingCloseBraceInto"),
+            ("ParserDeclarations.nl", "TokenIndexByKindStartInto"),
             ("DiagnosticClusters.nl", "IsDiagnosticClusterRootBefore"),
             ("DiagnosticDeduplication.nl", "SortDiagnosticDeduplicationIndices"),
             ("LexerTokenKindScanner.nl", "ScanOperator"),

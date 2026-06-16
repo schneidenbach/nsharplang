@@ -780,11 +780,6 @@ func TopLevelFunctionPreamblesAreValidCore(tokens: &ParserDeclarationKindStream,
 // Parser declaration utility: the compacted-token index of the `}` (130) that closes the `{` (129)
 // at `open`, or -1 if `open` is not a left brace or the brace run is unbalanced. This keeps property
 // accessor body delimiting in the N# parser path instead of leaving a C# adapter-side scanner.
-func MatchingCloseBraceInto(tokenKinds: int[], count: int, open: int): int {
-    tokens := new ParserDeclarationKindStream { Kinds: tokenKinds }
-    return MatchingCloseBraceCore(ref tokens, count, open)
-}
-
 func MatchingCloseBraceCore(tokens: &ParserDeclarationKindStream, count: int, open: int): int {
     if open < 0 || open >= count || tokens.Kinds[open] != 129 {
         return -1
@@ -812,23 +807,6 @@ func MatchingCloseBraceCore(tokens: &ParserDeclarationKindStream, count: int, op
 // Parser declaration utility: find the compacted-token index whose kind and source start match a
 // parser-node source span. Used for local-function statement nodes, where the statement parser
 // records the `func` keyword span and the adapter must re-enter the declaration parser at that token.
-func TokenIndexByKindStartInto(tokenKinds: int[], tokenStarts: int[], count: int, targetKind: int, targetStart: int): int {
-    if count < 0 {
-        return -1
-    }
-
-    if count > tokenKinds.Length {
-        return -1
-    }
-
-    if count > tokenStarts.Length {
-        return -1
-    }
-
-    tokens := new ParserDeclarationStartKindStream { Kinds: tokenKinds, Starts: tokenStarts }
-    return TokenIndexByKindStartCore(ref tokens, count, targetKind, targetStart)
-}
-
 func TokenIndexByKindStartCore(tokens: &ParserDeclarationStartKindStream, count: int, targetKind: int, targetStart: int): int {
     i := 0
     while i < count {

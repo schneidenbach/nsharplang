@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Declaration utility parity ABIs leave product dogfood
+
+The flattened `MatchingCloseBraceInto` and `TokenIndexByKindStartInto` exports now live in the
+parity corpus. Product accessor parsing and local-function remapping keep the table-shaped
+`MatchingCloseBraceCore` and `TokenIndexByKindStartCore` helpers in `ParserDeclarations.nl` and call
+them directly.
+
 ## 2026-06-16 — Top-level declaration probe ABIs leave product dogfood
 
 The flattened top-level declaration scan probes (`PackageNameSpanInto`, import spans, declaration

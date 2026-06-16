@@ -70,6 +70,28 @@ func TopLevelContextualTestDeclarationExistsInto(source: string, tokenKinds: int
     return TopLevelContextualTestDeclarationExistsCore(source, ref tokens, count)
 }
 
+func MatchingCloseBraceInto(tokenKinds: int[], count: int, open: int): int {
+    tokens := new ParserDeclarationKindStream { Kinds: tokenKinds }
+    return MatchingCloseBraceCore(ref tokens, count, open)
+}
+
+func TokenIndexByKindStartInto(tokenKinds: int[], tokenStarts: int[], count: int, targetKind: int, targetStart: int): int {
+    if count < 0 {
+        return -1
+    }
+
+    if count > tokenKinds.Length {
+        return -1
+    }
+
+    if count > tokenStarts.Length {
+        return -1
+    }
+
+    tokens := new ParserDeclarationStartKindStream { Kinds: tokenKinds, Starts: tokenStarts }
+    return TokenIndexByKindStartCore(ref tokens, count, targetKind, targetStart)
+}
+
 func ParseInterfaceDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, interfaceIndex: int, outMethodFuncIndices: int[], outBaseNameStarts: int[], outBaseNameLengths: int[], outResult: int[]): int {
     tokens := new ParserDeclarationTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths }
     decl := new InterfaceDeclarationTable { MethodFuncIndices: outMethodFuncIndices, BaseNameStarts: outBaseNameStarts, BaseNameLengths: outBaseNameLengths }
