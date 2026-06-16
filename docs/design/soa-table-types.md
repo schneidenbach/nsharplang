@@ -539,12 +539,12 @@ ownership lands.
    `ParserColumnarProperties.nl` now wraps compact token columns, accessor text outputs,
    getter/setter statement-node rowsets, and property result slots inside its composed product core
    while preserving its flattened adapter ABI; its property accessor materialization now composes the
-   declaration accessor core directly, and its getter/setter body wrappers now compose the statement
-   parser core directly.
+   declaration accessor core directly, and its getter/setter body-node cores now compose the
+   statement parser core directly.
    `ParserColumnarConstructors.nl` now wraps compact token columns, signature/chain output columns,
    statement-node body rows, and constructor result slots inside its composed product core while
    preserving its flattened adapter ABI; its signature/chain materialization now composes the
-   constructor signature and declaration chain cores directly, and its body wrapper now composes the
+   constructor signature and declaration chain cores directly, and its body-node core now composes the
    statement parser core directly.
    `ParserColumnarFunctions.nl` now wraps compact token columns, signature output columns,
    statement-node body rows, direct local-function result columns, and function result slots inside
