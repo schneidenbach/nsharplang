@@ -17,6 +17,19 @@ internal static class UnifiedDiff
     internal readonly record struct DiffLine(DiffKind Kind, string Text, int OldLine, int NewLine);
     private readonly record struct Hunk(IReadOnlyList<DiffLine> Lines, int OldStart, int OldCount, int NewStart, int NewCount);
 
+    internal sealed class HunkRanges
+    {
+        internal static readonly HunkRanges Empty = new();
+
+        internal int Count { get; set; }
+        internal int[] Starts { get; set; } = Array.Empty<int>();
+        internal int[] Lengths { get; set; } = Array.Empty<int>();
+        internal int[] OldStarts { get; set; } = Array.Empty<int>();
+        internal int[] OldCounts { get; set; } = Array.Empty<int>();
+        internal int[] NewStarts { get; set; } = Array.Empty<int>();
+        internal int[] NewCounts { get; set; } = Array.Empty<int>();
+    }
+
     public static string Create(string before, string after, string beforeLabel, string afterLabel, int contextLines = 3)
     {
         if (string.Equals(before, after, StringComparison.Ordinal))
@@ -28,7 +41,7 @@ internal static class UnifiedDiff
         sb.AppendLine($"--- {beforeLabel}");
         sb.AppendLine($"+++ {afterLabel}");
 
-        if (NSharpCliDogfoodAdapter.TryBuildUnifiedDiffHunkRanges(diffLines, contextLines, out var ranges))
+        if (UnifiedDiffHunkRangeBuilder.TryBuild(diffLines, contextLines, out var ranges))
         {
             AppendHunks(sb, diffLines, ranges);
             return sb.ToString();
@@ -151,7 +164,7 @@ internal static class UnifiedDiff
     private static void AppendHunks(
         StringBuilder sb,
         IReadOnlyList<DiffLine> lines,
-        NSharpCliDogfoodAdapter.UnifiedDiffHunkRanges ranges)
+        HunkRanges ranges)
     {
         for (var hunkIndex = 0; hunkIndex < ranges.Count; hunkIndex++)
         {

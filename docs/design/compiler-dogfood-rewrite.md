@@ -1612,8 +1612,8 @@ reached about 4.6x on the representative corpus, so the accepted route computes 
 renders directly from the original diff lines. It ran about 7.5x faster on the representative diff
 corpus (911.0 ns vs 6.820 us, 0 B vs 14,216 B) and about 7.2x faster on the large generated diff
 corpus (7.315 us vs 53.003 us, 0 B vs 108,672 B). `UnifiedDiff.Create` now routes through
-`NSharpCliDogfoodAdapter.TryBuildUnifiedDiffHunkRanges` when the dogfood assembly is available,
-with the previous C# `BuildHunks` path retained as an exact fallback.
+`UnifiedDiffHunkRangeBuilder` when the dogfood assembly is available, with the previous C#
+`BuildHunks` path retained as an exact fallback.
 
 `SymbolKindFilterIndicesInto` passed parity and reported zero managed allocation in the normal
 BenchmarkDotNet evidence tier for symbol-kind filtering. The accepted N# path uses compact symbol

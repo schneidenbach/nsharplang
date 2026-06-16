@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Unified diff hunk ranges leave the CLI dogfood adapter
+
+`UnifiedDiff.Create` now routes accepted N# hunk-range construction through
+`UnifiedDiffHunkRangeBuilder`, with the consumed range DTO owned by `UnifiedDiff` itself. The broad
+CLI dogfood adapter no longer owns the unified-diff entry point, delegate binding, scratch arrays,
+or hunk-range result shape; the exact C# `BuildHunks` fallback remains in the renderer.
+Focused evidence: `dotnet build src/NSharpLang.Cli/Cli.csproj --no-restore`; `dotnet test
+tests/Tests.csproj --filter "FullyQualifiedName~CliParityAuditTests.UnifiedDiff_Create_EmitsStableMultiHunkDiff|FullyQualifiedName~CliParityAuditTests.FormatCommand_Diff_EmitsUnifiedDiff"`.
+
 ## 2026-06-16 — Batch query kernels leave the CLI dogfood adapter
 
 `nlc query batch` duplicate request-id validation and packed success-count summarization now route

@@ -253,7 +253,8 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       symbol-name filtering now lives beside `QueryCommand` in `QuerySymbolNameFilter` instead of the broad CLI
       adapter, and `nlc check`/`nlc lint` compiler-error severity filtering now lives beside the command
       implementations in `CompilerErrorSeverityFilter`; batch query duplicate-id validation and packed
-      success counting now live beside `BatchQueryRunner` in `BatchQueryKernels`. Product parser
+      success counting now live beside `BatchQueryRunner` in `BatchQueryKernels`; unified-diff hunk range
+      construction now lives beside `UnifiedDiff` in `UnifiedDiffHunkRangeBuilder`. Product parser
       wrappers for function, constructor, property, body/local-function, enum, struct/class/record, union, and
       interface routes now compose typed N# cores directly where wrapper ownership is complete, and columnar
       tokenization now compacts parser token kind/start/value-length rows in N# instead of a C# kept-index copy loop;
