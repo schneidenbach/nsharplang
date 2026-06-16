@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Local-function context decline moves into N# parser
+
+`ParserColumnarFunctions.nl` now exposes `ParseColumnarProductFunctionInfoInto`, the adapter-bound
+regular-function parser wrapper with an explicit local-function context bit. Recursive local-function
+materialization now rejects generic local functions and local-local declarations in N# before any local
+body reaches IL emission. The old flattened `ParseColumnarFunctionInfoInto` shape remains as the direct
+parser parity wrapper, and the redundant emitter guard for generic/nested local functions was removed.
+
 ## 2026-06-16 — Property local-function decline moves into N# parser
 
 `ParseColumnarPropertyInfoCore` now scans getter and setter body rowsets for direct local-function

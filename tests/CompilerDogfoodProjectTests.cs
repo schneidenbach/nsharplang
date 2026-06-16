@@ -10374,6 +10374,10 @@ func outer(x: int): int {
         Assert.False(RouteColumnarProgram("func f(v: int): int {\n    func isEven(n: int): int {\n        if n == 0 {\n            return 1\n        }\n        return isOdd(n - 1)\n    }\n    func isOdd(n: int): int {\n        if n == 0 {\n            return 0\n        }\n        return isEven(n - 1)\n    }\n    return isEven(v)\n}\n").Ok);
         // a CAPTURE of an enclosing local (the oracle prepends capture params — a later rung).
         Assert.False(RouteColumnarProgram("func f(v: int): int {\n    k := 10\n    func addK(n: int): int {\n        return n + k\n    }\n    return addK(v)\n}\n").Ok);
+        // a GENERIC local function and a LOCAL-LOCAL declaration now decline in the N# product parser wrapper
+        // before a local body is materialized for IL emission.
+        Assert.False(RouteColumnarProgram("func f(v: int): int {\n    func id<T>(n: T): T {\n        return n\n    }\n    return id<int>(v)\n}\n").Ok);
+        Assert.False(RouteColumnarProgram("func f(v: int): int {\n    func outer(n: int): int {\n        func inner(x: int): int {\n            return x + 1\n        }\n        return inner(n)\n    }\n    return outer(v)\n}\n").Ok);
         // a NESTED-BLOCK local function (scoping is a later rung; the kind-41 node stays undeclared).
         Assert.False(RouteColumnarProgram("func f(c: bool, v: int): int {\n    if c {\n        func g(n: int): int {\n            return n + 1\n        }\n        return g(v)\n    }\n    return v\n}\n").Ok);
         // a local function used as a VALUE (delegate materialization at the boundary — a later rung).
@@ -11165,7 +11169,8 @@ func outer(x: int): int {
         Assert.Contains("TokenIndexByKindStartCore", methodNames!); // product local-function routing
         Assert.Contains("ParseFunctionSignatureCore", methodNames!); // ParserFunctionSignatures -> ParserTypeReferences
         Assert.Contains("ParseFunctionSignatureInfoCore", methodNames!); // ParserFunctionSignatures -> ParserTypeReferences
-        Assert.Contains("ParseColumnarFunctionInfoInto", methodNames!); // composed signature + body + local-function routing
+        Assert.Contains("ParseColumnarFunctionInfoInto", methodNames!); // parity-shaped compatibility wrapper
+        Assert.Contains("ParseColumnarProductFunctionInfoInto", methodNames!); // product signature + body + local-function routing
         Assert.Contains("ParseColumnarConstructorInfoInto", methodNames!); // composed constructor signature + body routing
         Assert.Contains("ParseColumnarEnumInfoInto", methodNames!); // composed enum text/value routing
         Assert.Contains("ParseEnumMemberValuesCore", methodNames!); // product enum value parsing helper

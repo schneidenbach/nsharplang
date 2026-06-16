@@ -496,7 +496,7 @@ internal static class NSharpCompilerDogfoodAdapter
     // node tables. Returns false on any parse failure or a missing body brace.
     private static bool TryParseColumnarFunctionAt(
         Bindings bindings, int[] ck, int[] cs, int[] cv, int n, int funcIndex, string source,
-        out Columnar.ColumnarFunctionInput input, bool isStatic = false, bool isAsync = false)
+        out Columnar.ColumnarFunctionInput input, bool isStatic = false, bool isAsync = false, bool isLocalFunction = false)
     {
         input = null!;
         var cap = n + 1;
@@ -517,8 +517,8 @@ internal static class NSharpCompilerDogfoodAdapter
         var localFunctionNodeIndices = new int[cap];
         var localFunctionTokenIndices = new int[cap];
         var sres = new int[9];
-        var paramCount = bindings.ParseColumnarFunctionInfo(
-            source, ck, cs, cv, n, funcIndex, sFunctionNameTexts, sReturnTypeTexts,
+        var paramCount = bindings.ParseColumnarProductFunctionInfo(
+            source, ck, cs, cv, n, funcIndex, isLocalFunction ? 1 : 0, sFunctionNameTexts, sReturnTypeTexts,
             pNameTexts, pTypeTexts, pTupleNameCounts, pTupleNameTexts, sReturnTupleNameTexts,
             sTypeParamTexts, sTypeParamSpecials, sTypeParamConstraintCounts, sTypeParamConstraintTypeTexts,
             bk, bvs, bvl, bcs, bcc, bci, bss, bsl, localFunctionNodeIndices, localFunctionTokenIndices, sres);
@@ -640,7 +640,7 @@ internal static class NSharpCompilerDogfoodAdapter
             return false;
         for (var lf = 0; lf < localFunctionCount; lf++)
         {
-            if (!TryParseColumnarFunctionAt(bindings, ck, cs, cv, n, localFunctionTokenIndices[lf], source, out var localFn))
+            if (!TryParseColumnarFunctionAt(bindings, ck, cs, cv, n, localFunctionTokenIndices[lf], source, out var localFn, isLocalFunction: true))
                 return false;
             (input.LocalFunctions ??= new List<(int, Columnar.ColumnarFunctionInput)>()).Add((localFunctionNodeIndices[lf], localFn));
         }
@@ -1828,9 +1828,9 @@ internal static class NSharpCompilerDogfoodAdapter
                 CreateDelegate<TopLevelColumnarProgramDeclarationIndicesInto>(
                     programType,
                     "TopLevelColumnarProgramDeclarationIndicesInto"),
-                CreateDelegate<ParseColumnarFunctionInfoInto>(
+                CreateDelegate<ParseColumnarProductFunctionInfoInto>(
                     programType,
-                    "ParseColumnarFunctionInfoInto"),
+                    "ParseColumnarProductFunctionInfoInto"),
                 CreateDelegate<ParseColumnarPropertyInfoInto>(
                     programType,
                     "ParseColumnarPropertyInfoInto"),
@@ -1964,9 +1964,9 @@ internal static class NSharpCompilerDogfoodAdapter
         int[] outEnumIndices, int[] outUnionIndices, int[] outInterfaceIndices,
         int[] outStructIndices, int[] outStructReferenceFlags, int[] outStructRecordFlags,
         int[] outResult);
-    private delegate int ParseColumnarFunctionInfoInto(
+    private delegate int ParseColumnarProductFunctionInfoInto(
         string source,
-        int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int funcIndex,
+        int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int funcIndex, int isLocalFunction,
         string[] outFunctionNameTexts, string[] outReturnTypeTexts,
         string[] outParamNameTexts, string[] outParamTypeTexts, int[] outParamTupleNameCounts, string[] outParamTupleNameTexts,
         string[] outReturnTupleNameTexts, string[] outTypeParamTexts, int[] outTypeParamSpecials,
@@ -2032,7 +2032,7 @@ internal static class NSharpCompilerDogfoodAdapter
         OverloadSelectBestCandidate OverloadSelectBestCandidate,
         TokenizeColumnarSourceInto TokenizeColumnarSource,
         TopLevelColumnarProgramDeclarationIndicesInto TopLevelColumnarProgramDeclarationIndices,
-        ParseColumnarFunctionInfoInto ParseColumnarFunctionInfo,
+        ParseColumnarProductFunctionInfoInto ParseColumnarProductFunctionInfo,
         ParseColumnarPropertyInfoInto ParseColumnarPropertyInfo,
         ParseColumnarInterfaceInfoInto ParseColumnarInterfaceInfo,
         ParseColumnarEnumInfoInto ParseColumnarEnumInfo,

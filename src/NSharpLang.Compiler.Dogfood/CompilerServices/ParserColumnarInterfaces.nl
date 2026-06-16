@@ -105,7 +105,7 @@ func InterfaceDefaultMethodLocalFunctionStatus(source: string, tokens: ColumnarI
             return -1
         }
 
-        paramCount := ParseColumnarFunctionInfoCore(source, ref functionTokens, outputs.MethodFuncIndices[i], ref signatureOutputs, ref body, ref locals, ref result)
+        paramCount := ParseColumnarFunctionInfoCore(source, ref functionTokens, outputs.MethodFuncIndices[i], 0, ref signatureOutputs, ref body, ref locals, ref result)
         if paramCount < 0 {
             return -1
         }

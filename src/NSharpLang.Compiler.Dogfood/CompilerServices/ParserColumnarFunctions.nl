@@ -43,15 +43,19 @@ struct ColumnarFunctionResultTable {
 }
 
 func ParseColumnarFunctionInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, funcIndex: int, outFunctionNameTexts: string[], outReturnTypeTexts: string[], outParamNameTexts: string[], outParamTypeTexts: string[], outParamTupleNameCounts: int[], outParamTupleNameTexts: string[], outReturnTupleNameTexts: string[], outTypeParamTexts: string[], outTypeParamSpecials: int[], outTypeParamConstraintCounts: int[], outTypeParamConstraintTypeTexts: string[], outNodeKinds: int[], outValueStarts: int[], outValueLengths: int[], outChildStart: int[], outChildCount: int[], outChildIndices: int[], outSpanStarts: int[], outSpanLengths: int[], outLocalFunctionNodeIndices: int[], outLocalFunctionTokenIndices: int[], outResult: int[]): int {
+    return ParseColumnarProductFunctionInfoInto(source, tokenKinds, tokenStarts, tokenValueLengths, count, funcIndex, 0, outFunctionNameTexts, outReturnTypeTexts, outParamNameTexts, outParamTypeTexts, outParamTupleNameCounts, outParamTupleNameTexts, outReturnTupleNameTexts, outTypeParamTexts, outTypeParamSpecials, outTypeParamConstraintCounts, outTypeParamConstraintTypeTexts, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, outLocalFunctionNodeIndices, outLocalFunctionTokenIndices, outResult)
+}
+
+func ParseColumnarProductFunctionInfoInto(source: string, tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, funcIndex: int, isLocalFunction: int, outFunctionNameTexts: string[], outReturnTypeTexts: string[], outParamNameTexts: string[], outParamTypeTexts: string[], outParamTupleNameCounts: int[], outParamTupleNameTexts: string[], outReturnTupleNameTexts: string[], outTypeParamTexts: string[], outTypeParamSpecials: int[], outTypeParamConstraintCounts: int[], outTypeParamConstraintTypeTexts: string[], outNodeKinds: int[], outValueStarts: int[], outValueLengths: int[], outChildStart: int[], outChildCount: int[], outChildIndices: int[], outSpanStarts: int[], outSpanLengths: int[], outLocalFunctionNodeIndices: int[], outLocalFunctionTokenIndices: int[], outResult: int[]): int {
     tokens := new ColumnarFunctionTokenTable { Kinds: tokenKinds, Starts: tokenStarts, ValueLengths: tokenValueLengths, Count: count }
     signatureOutputs := new ColumnarFunctionSignatureOutputTable { FunctionNameTexts: outFunctionNameTexts, ReturnTypeTexts: outReturnTypeTexts, ParamNameTexts: outParamNameTexts, ParamTypeTexts: outParamTypeTexts, ParamTupleNameCounts: outParamTupleNameCounts, ParamTupleNameTexts: outParamTupleNameTexts, ReturnTupleNameTexts: outReturnTupleNameTexts, TypeParamTexts: outTypeParamTexts, TypeParamSpecials: outTypeParamSpecials, TypeParamConstraintCounts: outTypeParamConstraintCounts, TypeParamConstraintTypeTexts: outTypeParamConstraintTypeTexts }
     body := new ColumnarFunctionBodyTable { NodeKinds: outNodeKinds, ValueStarts: outValueStarts, ValueLengths: outValueLengths, ChildStart: outChildStart, ChildCount: outChildCount, ChildIndices: outChildIndices, SpanStarts: outSpanStarts, SpanLengths: outSpanLengths }
     locals := new ColumnarFunctionLocalTable { NodeIndices: outLocalFunctionNodeIndices, TokenIndices: outLocalFunctionTokenIndices }
     result := new ColumnarFunctionResultTable { Values: outResult }
-    return ParseColumnarFunctionInfoCore(source, ref tokens, funcIndex, ref signatureOutputs, ref body, ref locals, ref result)
+    return ParseColumnarFunctionInfoCore(source, ref tokens, funcIndex, isLocalFunction, ref signatureOutputs, ref body, ref locals, ref result)
 }
 
-func ParseColumnarFunctionInfoCore(source: string, tokens: &ColumnarFunctionTokenTable, funcIndex: int, signatureOutputs: &ColumnarFunctionSignatureOutputTable, body: &ColumnarFunctionBodyTable, locals: &ColumnarFunctionLocalTable, result: &ColumnarFunctionResultTable): int {
+func ParseColumnarFunctionInfoCore(source: string, tokens: &ColumnarFunctionTokenTable, funcIndex: int, isLocalFunction: int, signatureOutputs: &ColumnarFunctionSignatureOutputTable, body: &ColumnarFunctionBodyTable, locals: &ColumnarFunctionLocalTable, result: &ColumnarFunctionResultTable): int {
     if result.Values.Length < 9 {
         return -1
     }
@@ -71,6 +75,9 @@ func ParseColumnarFunctionInfoCore(source: string, tokens: &ColumnarFunctionToke
     signatureResult := new ParserResultTable { Values: new int[](6) }
     paramCount := ParseFunctionSignatureInfoCore(source, ref signatureTokens, tokens.Count, funcIndex, ref signatureOutput, ref typeStack, ref nodes, ref children, ref canonicalNodes, ref parameters, ref typeParams, ref whereItems, ref functionSignatureResult, ref ownerIndices, ref tupleNames, ref signatureResult)
     if paramCount < 0 {
+        return -1
+    }
+    if isLocalFunction != 0 && signatureResult.Values[2] > 0 {
         return -1
     }
 
@@ -95,6 +102,9 @@ func ParseColumnarFunctionInfoCore(source: string, tokens: &ColumnarFunctionToke
     localResults := new LocalFunctionResultTable { NodeIndices: locals.NodeIndices, FuncTokenIndices: locals.TokenIndices }
     localFunctionCount := DirectLocalFunctionTokenIndicesCore(ref localTokens, ref localNodes, bodyRoot, ref localResults)
     if localFunctionCount < 0 {
+        return -1
+    }
+    if isLocalFunction != 0 && localFunctionCount > 0 {
         return -1
     }
 

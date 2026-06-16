@@ -241,7 +241,7 @@ func ColumnarStructMethodUnsupportedStatus(source: string, tokens: ColumnarStruc
     result := new ColumnarFunctionResultTable { Values: new int[](9) }
 
     for i := 0; i < methodCount; i++ {
-        paramCount := ParseColumnarFunctionInfoCore(source, ref functionTokens, outputs.MethodFuncIndices[i], ref signatureOutputs, ref body, ref locals, ref result)
+        paramCount := ParseColumnarFunctionInfoCore(source, ref functionTokens, outputs.MethodFuncIndices[i], 0, ref signatureOutputs, ref body, ref locals, ref result)
         if paramCount < 0 {
             return -1
         }

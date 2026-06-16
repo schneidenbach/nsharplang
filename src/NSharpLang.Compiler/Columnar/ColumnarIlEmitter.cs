@@ -3748,8 +3748,9 @@ internal sealed class ColumnarIlEmitter
             var il = methods[f].GetILGenerator();
             // LOCAL FUNCTIONS (L4-i): declare each root-block local function as a `<parent>g__{n}` static
             // BEFORE the parent body emits (forward calls bake at Save); bodies emit after the parent's.
-            // Non-generic, resolvable signatures only; duplicate names decline. A local function SHADOWS a
-            // same-named sibling at call sites (probe-pinned), so the map is its own resolution tier.
+            // Product parser routing only materializes non-generic, non-nested local functions here; resolvable
+            // signatures only, duplicate names decline. A local function SHADOWS a same-named sibling at call
+            // sites (probe-pinned), so the map is its own resolution tier.
             Dictionary<string, (MethodBuilder Method, Type[] ParamTypes, Type ReturnType)>? localFuncs = null;
             Dictionary<int, string>? declaredLocalFuncNodes = null;
             if (fn.LocalFunctions != null)
@@ -3758,8 +3759,6 @@ internal sealed class ColumnarIlEmitter
                 declaredLocalFuncNodes = new Dictionary<int, string>();
                 foreach (var (nodeIndex, localFn) in fn.LocalFunctions)
                 {
-                    if (localFn.TypeParamNames.Length > 0 || localFn.LocalFunctions != null)
-                        return false; // generic local functions / local-local functions — later rungs.
                     Type localReturn;
                     if (localFn.ReturnCanonical == "void")
                         localReturn = typeof(void);
