@@ -19,7 +19,6 @@ internal static class NSharpCompilerDogfoodAdapter
     [ThreadStatic]
     private static TypeCreationOrderScratch? t_typeCreationOrderScratch;
     [ThreadStatic]
-    private static AnonymousUnionShimScratch? t_anonymousUnionShimScratch;
     private static OverloadCandidateScratch? t_overloadCandidateScratch;
 
     internal static bool TryDeduplicateFirstTypeKeys(
@@ -254,57 +253,6 @@ internal static class NSharpCompilerDogfoodAdapter
         }
     }
 
-    internal static bool TryDeclaresAnonymousUnionShims(
-        IReadOnlyList<Parameter> parameters,
-        Func<TypeReference, bool> isTwoArmAnonymousUnion,
-        out bool declaresShims)
-    {
-        declaresShims = false;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        var parameterCount = parameters.Count;
-        if (parameterCount == 0)
-            return true;
-
-        var scratch = t_anonymousUnionShimScratch ??= new AnonymousUnionShimScratch();
-        scratch.EnsureCapacity(parameterCount);
-
-        try
-        {
-            var unionParameterCount = 0;
-            for (var i = 0; i < parameterCount; i++)
-            {
-                var parameter = parameters[i];
-                if (!isTwoArmAnonymousUnion(parameter.Type))
-                {
-                    continue;
-                }
-
-                var hasDisallowedModifier =
-                    parameter.Modifier is Ast.ParameterModifier.Ref or Ast.ParameterModifier.Out or Ast.ParameterModifier.Params;
-                scratch.ParameterFlags[unionParameterCount] = hasDisallowedModifier ? 2 : 1;
-                unionParameterCount++;
-            }
-
-            var result = bindings.AnonymousUnionDeclaresPublicShim(
-                scratch.ParameterFlags,
-                unionParameterCount);
-            if (result is not 0 and not 1)
-                return false;
-
-            declaresShims = result != 0;
-            return true;
-        }
-        catch
-        {
-            declaresShims = false;
-            return false;
-        }
-    }
-
     /// <summary>
     /// Selects the winning declared-method overload index from a compact candidate table using the
     /// N# ranking kernel. The caller fills the rank columns for each surviving candidate through
@@ -397,9 +345,6 @@ internal static class NSharpCompilerDogfoodAdapter
                 CreateDelegate<TypeCreationOrderIndicesInto>(
                     programType,
                     "TypeCreationOrderIndicesInto"),
-                CreateDelegate<AnonymousUnionDeclaresPublicShim>(
-                    programType,
-                    "AnonymousUnionDeclaresPublicShim"),
                 CreateDelegate<OverloadSelectBestCandidate>(
                     programType,
                     "OverloadSelectBestCandidate"));
@@ -462,7 +407,6 @@ internal static class NSharpCompilerDogfoodAdapter
         int[] depthCounts,
         int[] depthOffsets,
         int[] resultIndices);
-    private delegate int AnonymousUnionDeclaresPublicShim(int[] parameterFlags, int count);
     private delegate int OverloadSelectBestCandidate(
         int[] validFlags,
         int[] scores,
@@ -475,21 +419,7 @@ internal static class NSharpCompilerDogfoodAdapter
         DeclaredTypeUniqueSuffixValueRank DeclaredTypeUniqueSuffixValueRank,
         DeclaredTypeNameCandidateIndex DeclaredTypeNameCandidateIndex,
         TypeCreationOrderIndicesInto TypeCreationOrderIndices,
-        AnonymousUnionDeclaresPublicShim AnonymousUnionDeclaresPublicShim,
         OverloadSelectBestCandidate OverloadSelectBestCandidate);
-
-    private sealed class AnonymousUnionShimScratch
-    {
-        internal int[] ParameterFlags = Array.Empty<int>();
-
-        internal void EnsureCapacity(int count)
-        {
-            if (ParameterFlags.Length < count)
-            {
-                ParameterFlags = new int[count];
-            }
-        }
-    }
 
     private sealed class OverloadCandidateScratch
     {

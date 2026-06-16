@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Anonymous-union shim selection leaves the general dogfood adapter
+
+`ILCompiler` now routes public anonymous-union shim eligibility through
+`AnonymousUnionShimSelector`, an IL-emission-owned helper that binds the N#
+`AnonymousUnionDeclaresPublicShim` kernel beside the shim emitter that consumes it. The general
+`NSharpCompilerDogfoodAdapter` no longer owns the anonymous-union shim delegate, scratch storage, or
+selection entry point; its remaining product calls are the IL/type lookup, ordering, dedup, and
+overload-candidate surfaces.
+Focused evidence: `dotnet test tests/Tests.csproj --filter "FullyQualifiedName~AnonymousUnionShimSelector_ChecksAnonymousUnionShimEligibility"`.
+
 ## 2026-06-16 — Analyzer exhaustiveness selection leaves the general dogfood adapter
 
 `Analyzer` now routes enum and union missing-case selection through `AnalyzerExhaustivenessSelector`,
@@ -3704,9 +3714,10 @@ column access, preserving the no-row-object contract for experimental SoA tables
 ## 2026-06-14 — Anonymous-union shim trusted wrapper leaves product dogfood
 
 `AnonymousUnionDeclaresPublicShimTrusted` no longer ships as a top-level dogfood export. The live
-adapter ABI still binds `AnonymousUnionDeclaresPublicShim`, which now performs the bounds guard,
-constructs the parameter table, and calls the table-shaped core directly. Reflection coverage pins
-the public product surface so this transition-era convenience wrapper does not come back.
+product kernel is `AnonymousUnionDeclaresPublicShim`, now bound by `AnonymousUnionShimSelector`
+rather than the general compiler adapter. The kernel performs the bounds guard, constructs the
+parameter table, and calls the table-shaped core directly. Reflection coverage pins the public
+product surface so this transition-era convenience wrapper does not come back.
 
 ## 2026-06-14 — SoA wrap length mismatch reports a direct table diagnostic
 

@@ -10370,7 +10370,7 @@ public partial class ILCompiler
             return false;
         }
 
-        if (NSharpCompilerDogfoodAdapter.TryDeclaresAnonymousUnionShims(
+        if (AnonymousUnionShimSelector.TryDeclaresShims(
                 function.Parameters,
                 IsTwoArmAnonymousUnion,
                 out var dogfoodResult))

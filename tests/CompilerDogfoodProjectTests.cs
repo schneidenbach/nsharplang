@@ -11,6 +11,7 @@ using NSharpLang.Compiler;
 using NSharpLang.Compiler.Ast;
 using NSharpLang.Compiler.CodeIntelligence;
 using NSharpLang.Compiler.Columnar;
+using NSharpLang.Compiler.ILCompiler;
 using NSharpLang.Tests.PerfEvidence;
 using Xunit;
 
@@ -13851,7 +13852,7 @@ func main(): int {
     }
 
     [Fact]
-    public void CompilerDogfoodAdapter_ChecksAnonymousUnionShimEligibility()
+    public void AnonymousUnionShimSelector_ChecksAnonymousUnionShimEligibility()
     {
         static SimpleTypeReference Simple(string name) => new(name);
         static UnionTypeReference Union(params TypeReference[] arms) => new(arms.ToList());
@@ -13892,9 +13893,6 @@ func main(): int {
             NSharpLang.Compiler.Ast.ParameterModifier modifier = NSharpLang.Compiler.Ast.ParameterModifier.None) =>
             new(name, type, DefaultValue: null, IsThis: false, modifier);
 
-        var adapterType = typeof(Parser).Assembly.GetType("NSharpLang.Compiler.NSharpCompilerDogfoodAdapter")
-            ?? throw new InvalidOperationException("Compiler dogfood adapter type was not emitted.");
-
         var dogfoodAssemblyPath = Path.Combine(AppContext.BaseDirectory, "NSharpLang.Compiler.Dogfood.dll");
         using (var dogfoodScope = CollectibleAssemblyScope.LoadFromFile(dogfoodAssemblyPath))
         {
@@ -13908,11 +13906,6 @@ func main(): int {
                 BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic));
         }
 
-        var tryDeclaresAnonymousUnionShims = adapterType.GetMethod(
-                "TryDeclaresAnonymousUnionShims",
-                BindingFlags.Static | BindingFlags.NonPublic)
-            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryDeclaresAnonymousUnionShims.");
-
         var eligibleUnion = Union(Simple("int"), Simple("string"));
         var threeArmUnion = Union(Simple("int"), Union(Simple("string"), Simple("bool")));
 
@@ -13922,42 +13915,33 @@ func main(): int {
             Parameter("value", eligibleUnion),
             Parameter("suffix", Simple("string"))
         };
-        var eligibleArgs = new object?[]
-        {
+        Assert.True(AnonymousUnionShimSelector.TryDeclaresShims(
             eligibleParameters,
-            (Func<TypeReference, bool>)IsTwoArmAnonymousUnion,
-            false
-        };
-        Assert.True((bool)(tryDeclaresAnonymousUnionShims.Invoke(null, eligibleArgs) ?? false));
-        Assert.Equal(true, eligibleArgs[2]);
+            IsTwoArmAnonymousUnion,
+            out var eligibleResult));
+        Assert.True(eligibleResult);
 
         var disallowedParameters = new[]
         {
             Parameter("value", eligibleUnion),
             Parameter("output", eligibleUnion, NSharpLang.Compiler.Ast.ParameterModifier.Out)
         };
-        var disallowedArgs = new object?[]
-        {
+        Assert.True(AnonymousUnionShimSelector.TryDeclaresShims(
             disallowedParameters,
-            (Func<TypeReference, bool>)IsTwoArmAnonymousUnion,
-            true
-        };
-        Assert.True((bool)(tryDeclaresAnonymousUnionShims.Invoke(null, disallowedArgs) ?? false));
-        Assert.Equal(false, disallowedArgs[2]);
+            IsTwoArmAnonymousUnion,
+            out var disallowedResult));
+        Assert.False(disallowedResult);
 
         var noShimParameters = new[]
         {
             Parameter("value", Simple("int")),
             Parameter("wide", threeArmUnion)
         };
-        var noShimArgs = new object?[]
-        {
+        Assert.True(AnonymousUnionShimSelector.TryDeclaresShims(
             noShimParameters,
-            (Func<TypeReference, bool>)IsTwoArmAnonymousUnion,
-            true
-        };
-        Assert.True((bool)(tryDeclaresAnonymousUnionShims.Invoke(null, noShimArgs) ?? false));
-        Assert.Equal(false, noShimArgs[2]);
+            IsTwoArmAnonymousUnion,
+            out var noShimResult));
+        Assert.False(noShimResult);
     }
 
     [Fact]
