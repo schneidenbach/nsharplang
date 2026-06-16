@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Compiler-error severity filtering leaves the CLI dogfood adapter
+
+`nlc check` backend verification and `nlc lint` parse-error reporting now route the N# compact
+severity filter through `CompilerErrorSeverityFilter`, an owner-local helper beside the CLI command
+implementations. The broad CLI dogfood adapter no longer owns the compiler-error severity entry
+point, scratch arrays, or enum-rank projection; tidy dependency filtering keeps its internal
+compact-rank route until that command-owned path is moved separately.
+Focused evidence: `dotnet build src/NSharpLang.Cli/Cli.csproj --no-restore`; `dotnet test
+tests/Tests.csproj --filter "FullyQualifiedName~CliCommandTests.CompilerErrorSeverityFilter_FiltersCompilerErrorsBySeverity"`.
+
 ## 2026-06-16 — Query symbol filtering leaves the CLI dogfood adapter
 
 `nlc query symbols --filter` now routes the N# glob/substring symbol-name kernels through

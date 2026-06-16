@@ -21,8 +21,6 @@ internal static class NSharpCliDogfoodAdapter
     [ThreadStatic]
     private static TreeDependencyDeduplicateScratch? t_treeDependencyDeduplicateScratch;
     [ThreadStatic]
-    private static CompilerErrorSeverityFilterScratch? t_compilerErrorSeverityFilterScratch;
-    [ThreadStatic]
     private static FixAppliedFileGroupingScratch? t_fixAppliedFileGroupingScratch;
     [ThreadStatic]
     private static UnifiedDiffHunkScratch? t_unifiedDiffHunkScratch;
@@ -532,68 +530,6 @@ internal static class NSharpCliDogfoodAdapter
         catch
         {
             orderedSourceIndices = Array.Empty<int>();
-            return false;
-        }
-    }
-
-    internal static bool TryFilterCompilerErrorsBySeverity(
-        IReadOnlyList<CompilerError> errors,
-        ErrorSeverity severity,
-        out List<CompilerError> filteredErrors)
-    {
-        filteredErrors = new List<CompilerError>();
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        var targetRank = GetCompilerErrorSeverityRank(severity);
-        if (targetRank == 0)
-            return false;
-
-        var errorCount = errors.Count;
-        if (errorCount == 0)
-            return true;
-
-        var scratch = t_compilerErrorSeverityFilterScratch ??= new CompilerErrorSeverityFilterScratch();
-        scratch.EnsureCapacity(errorCount);
-
-        try
-        {
-            for (var i = 0; i < errorCount; i++)
-            {
-                scratch.SeverityRanks[i] = GetCompilerErrorSeverityRank(errors[i].Severity);
-            }
-
-            var filteredCount = bindings.DiagnosticSeverityFilter(
-                scratch.SeverityRanks,
-                targetRank,
-                scratch.ResultIndices);
-
-            if (filteredCount < 0 || filteredCount > errorCount || filteredCount > scratch.ResultIndices.Length)
-            {
-                filteredErrors = new List<CompilerError>();
-                return false;
-            }
-
-            filteredErrors = new List<CompilerError>(filteredCount);
-            for (var i = 0; i < filteredCount; i++)
-            {
-                var sourceIndex = scratch.ResultIndices[i];
-                if (sourceIndex < 0 || sourceIndex >= errorCount)
-                {
-                    filteredErrors = new List<CompilerError>();
-                    return false;
-                }
-
-                filteredErrors.Add(errors[sourceIndex]);
-            }
-
-            return true;
-        }
-        catch
-        {
-            filteredErrors = new List<CompilerError>();
             return false;
         }
     }
@@ -1930,14 +1866,6 @@ internal static class NSharpCliDogfoodAdapter
             _ => 0
         };
 
-    private static int GetCompilerErrorSeverityRank(ErrorSeverity severity) =>
-        severity switch
-        {
-            ErrorSeverity.Error => 1,
-            ErrorSeverity.Warning => 2,
-            _ => 0
-        };
-
     private static int GetFixSafetyRank(FixSafety safety) =>
         safety switch
         {
@@ -2289,21 +2217,6 @@ internal static class NSharpCliDogfoodAdapter
             {
                 NameCounts = new int[nameBucketCapacity];
                 NameOffsets = new int[nameBucketCapacity];
-            }
-        }
-    }
-
-    private sealed class CompilerErrorSeverityFilterScratch
-    {
-        internal int[] ResultIndices = Array.Empty<int>();
-        internal int[] SeverityRanks = Array.Empty<int>();
-
-        internal void EnsureCapacity(int errorCount)
-        {
-            if (SeverityRanks.Length != errorCount)
-            {
-                SeverityRanks = new int[errorCount];
-                ResultIndices = new int[errorCount];
             }
         }
     }

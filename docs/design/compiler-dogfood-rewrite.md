@@ -1864,9 +1864,9 @@ through `OutputFormatter.FilterDiagnosticsBySeverity`, which calls the compiled 
 severity filter when the dogfood assembly is available, with the previous C# LINQ
 `Where(...Equals(..., OrdinalIgnoreCase)).ToList()` path kept as the fallback.
 `nlc check` backend verification and `nlc lint` parse-error reporting now route compiler-error
-severity filtering through `NSharpCliDogfoodAdapter.TryFilterCompilerErrorsBySeverity`, which calls
-the same compiled N# compact-rank severity filter when the dogfood assembly is available, with the
-previous C# LINQ `Where(e => e.Severity == ...).ToList()` path kept as the fallback.
+severity filtering through the owner-local `CompilerErrorSeverityFilter`, which calls the same
+compiled N# compact-rank severity filter when the dogfood assembly is available, with the previous
+C# LINQ `Where(e => e.Severity == ...).ToList()` path kept as the fallback.
 `CodeIntelligenceService.GetSymbols` now routes optional `SymbolKind` filtering through the compiled
 N# compact kind-id filter when the dogfood assembly is available, covering `nlc query symbols
 --kind`, batch symbol queries, and daemon symbol queries, with the previous C# LINQ

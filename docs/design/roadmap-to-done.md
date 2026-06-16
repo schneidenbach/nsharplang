@@ -251,7 +251,8 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       performance consumers in `AotRequirementSelector` and `StructCopyInitOnlySelector`. The source
       `NSharpCompilerDogfoodAdapter` and `NSharpPerformanceDogfoodAdapter` types have been deleted. CLI query
       symbol-name filtering now lives beside `QueryCommand` in `QuerySymbolNameFilter` instead of the broad CLI
-      adapter. Product parser
+      adapter, and `nlc check`/`nlc lint` compiler-error severity filtering now lives beside the command
+      implementations in `CompilerErrorSeverityFilter`. Product parser
       wrappers for function, constructor, property, body/local-function, enum, struct/class/record, union, and
       interface routes now compose typed N# cores directly where wrapper ownership is complete, and columnar
       tokenization now compacts parser token kind/start/value-length rows in N# instead of a C# kept-index copy loop;

@@ -1263,7 +1263,7 @@ dependencies:
     }
 
     [Fact]
-    public void CliDogfoodAdapter_FiltersCompilerErrorsBySeverity()
+    public void CompilerErrorSeverityFilter_FiltersCompilerErrorsBySeverity()
     {
         var errors = new[]
         {
@@ -1274,7 +1274,7 @@ dependencies:
             NewError("aot error", ErrorSeverity.Error)
         };
 
-        Assert.True(NSharpCliDogfoodAdapter.TryFilterCompilerErrorsBySeverity(
+        Assert.True(CompilerErrorSeverityFilter.TryFilter(
             errors,
             ErrorSeverity.Error,
             out var actualErrors));
@@ -1282,7 +1282,7 @@ dependencies:
             errors.Where(error => error.Severity == ErrorSeverity.Error),
             actualErrors);
 
-        Assert.True(NSharpCliDogfoodAdapter.TryFilterCompilerErrorsBySeverity(
+        Assert.True(CompilerErrorSeverityFilter.TryFilter(
             errors,
             ErrorSeverity.Warning,
             out var actualWarnings));

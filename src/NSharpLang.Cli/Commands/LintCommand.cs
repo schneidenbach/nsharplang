@@ -289,7 +289,7 @@ Exit codes:
         IReadOnlyList<CompilerError> errors,
         ErrorSeverity severity)
     {
-        return NSharpLang.Cli.NSharpCliDogfoodAdapter.TryFilterCompilerErrorsBySeverity(
+        return CompilerErrorSeverityFilter.TryFilter(
             errors,
             severity,
             out var filteredErrors)

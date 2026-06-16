@@ -163,7 +163,7 @@ public static class CheckCommand
         ErrorSeverity severity)
     {
         var errorList = errors as IReadOnlyList<CompilerError> ?? errors.ToList();
-        return NSharpLang.Cli.NSharpCliDogfoodAdapter.TryFilterCompilerErrorsBySeverity(
+        return CompilerErrorSeverityFilter.TryFilter(
             errorList,
             severity,
             out var filteredErrors)
