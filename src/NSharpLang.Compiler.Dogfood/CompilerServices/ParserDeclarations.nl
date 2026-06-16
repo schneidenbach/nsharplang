@@ -544,6 +544,16 @@ func TopLevelColumnarProgramDeclarationIndicesCore(source: string, rawTokens: &P
         return -1
     }
 
+    names := new TopLevelDeclarationNameTable { Kinds: new int[](rawCount + 1), NameStarts: new int[](rawCount + 1), NameLengths: new int[](rawCount + 1) }
+    nameCount := TopLevelDeclarationNameSpansCore(ref rawTokens, rawCount, ref names)
+    if nameCount != functionResult.Values[0] {
+        return -1
+    }
+
+    if TopLevelTypeDeclarationNamesDistinct(source, ref names, nameCount) == 0 {
+        return -1
+    }
+
     nominalOutputs := new TopLevelColumnarNominalDeclarationTable { EnumIndices: outputs.EnumIndices, UnionIndices: outputs.UnionIndices, InterfaceIndices: outputs.InterfaceIndices }
     nominalResult := new ParserDeclarationResultTable { Values: new int[](3) }
     nominalCount := TopLevelColumnarNominalDeclarationIndicesCore(ref compactTokens, compactCount, ref nominalOutputs, ref nominalResult)
@@ -564,6 +574,44 @@ func TopLevelColumnarProgramDeclarationIndicesCore(source: string, rawTokens: &P
     result.Values[4] = nominalResult.Values[2]
     result.Values[5] = structCount
     return functionCount + nominalCount + structCount
+}
+
+func TopLevelTypeDeclarationNamesDistinct(source: string, decls: &TopLevelDeclarationNameTable, declCount: int): int {
+    if declCount < 0 {
+        return 0
+    }
+
+    i := 0
+    while i < declCount {
+        if IsTopLevelTypeDeclarationKind(decls.Kinds[i]) {
+            if decls.NameStarts[i] < 0 || decls.NameLengths[i] <= 0 {
+                return 0
+            }
+
+            j := i + 1
+            while j < declCount {
+                if IsTopLevelTypeDeclarationKind(decls.Kinds[j]) {
+                    if decls.NameStarts[j] < 0 || decls.NameLengths[j] <= 0 {
+                        return 0
+                    }
+
+                    if ParserDeclarationSourceSpansEqual(source, decls.NameStarts[i], decls.NameLengths[i], decls.NameStarts[j], decls.NameLengths[j]) {
+                        return 0
+                    }
+                }
+
+                j = j + 1
+            }
+        }
+
+        i = i + 1
+    }
+
+    return 1
+}
+
+func IsTopLevelTypeDeclarationKind(kind: int): bool {
+    return kind == 8 || kind == 9 || kind == 10 || kind == 12 || kind == 13 || kind == 14
 }
 
 func TopLevelStructLikeDeclarationIndicesAppend(tokens: &ParserDeclarationKindStream, count: int, targetKind: int, suppressWhereClause: int, isReference: int, isRecord: int, output: &TopLevelStructLikeDeclarationTable, startCount: int): int {

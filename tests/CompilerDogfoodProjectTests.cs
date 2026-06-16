@@ -306,6 +306,23 @@ record Person {
                 tokenizeWithIndentation,
                 topLevelColumnarProgramDeclIndices,
                 "controlled program declaration rowset");
+            AssertTopLevelColumnarProgramDeclarationDeclines(
+                """
+enum Same {
+    A
+}
+
+interface Same {
+    func C(): int
+}
+
+func f(): int {
+    return 1
+}
+""",
+                tokenizeWithIndentation,
+                topLevelColumnarProgramDeclIndices,
+                "duplicate top-level type name rowset");
             AssertTopLevelColumnarFunctionDeclarationDeclines(
                 """
 func same(x: int): int {
@@ -2981,6 +2998,49 @@ class B
             Assert.Equal(expectedStructReferenceFlags[i], structReferenceFlags[i]);
             Assert.Equal(expectedStructRecordFlags[i], structRecordFlags[i]);
         }
+    }
+
+    private static void AssertTopLevelColumnarProgramDeclarationDeclines(
+        string source,
+        MethodInfo tokenizeWithIndentation,
+        MethodInfo topLevelColumnarProgramDeclIndices,
+        string label)
+    {
+        var (rawCount, rawKinds, rawStarts, rawValueLengths, compactKinds, compactCount) =
+            TokenizeRawAndCompactSourceViaKernel(source, tokenizeWithIndentation);
+        var funcIndices = new int[compactCount + 1];
+        var asyncFlags = new int[compactCount + 1];
+        var enumIndices = new int[compactCount + 1];
+        var unionIndices = new int[compactCount + 1];
+        var interfaceIndices = new int[compactCount + 1];
+        var structIndices = new int[compactCount + 1];
+        var structReferenceFlags = new int[compactCount + 1];
+        var structRecordFlags = new int[compactCount + 1];
+        var result = new int[6];
+
+        var actualTotal = (int)(topLevelColumnarProgramDeclIndices.Invoke(
+            null,
+            new object[]
+            {
+                source,
+                rawKinds,
+                rawStarts,
+                rawValueLengths,
+                rawCount,
+                compactKinds,
+                compactCount,
+                funcIndices,
+                asyncFlags,
+                enumIndices,
+                unionIndices,
+                interfaceIndices,
+                structIndices,
+                structReferenceFlags,
+                structRecordFlags,
+                result
+            }) ?? -2);
+
+        Assert.True(actualTotal == -1, $"Expected top-level program declaration rowset to decline for {label}, got {actualTotal}.");
     }
 
     private static void AssertTopLevelContextualTestDeclaration(
@@ -8526,9 +8586,8 @@ func outer(x: int): int {
         Assert.False(RouteColumnarProgram("interface IShape {\n    func Area(): int\n}\n\nclass Broken: IShape {\n    x: int\n    constructor(v: int) {\n        x = v\n    }\n}\n\nfunc f(): int {\n    b := new Broken(1)\n    return 1\n}\n").Ok);
         // bare members / properties inside interfaces (silent drop / locationless NL103 — #27).
         Assert.False(RouteColumnarProgram("interface IHasName {\n    Name: string\n}\n\nfunc f(): int {\n    return 1\n}\n").Ok);
-        // a cross-registry NAME COLLISION (interface vs enum) — the pipeline's NL306; the columnar
-        // registries now enforce uniqueness ACROSS kinds (review-found over-accept, pre-existing
-        // for enum/struct/union pairs and widened by each new type family);
+        // a cross-registry NAME COLLISION (interface vs enum) — the pipeline's NL306; the N# top-level
+        // program rowset rejects duplicate type names before CLR type registries are built.
         Assert.False(RouteColumnarProgram("enum Color {\n    Red,\n    Green\n}\n\ninterface Color {\n    func C(): int\n}\n\nfunc f(): int {\n    return 1\n}\n").Ok);
         // Duplicate interface base names, method names, and parameter names are rejected by the N# columnar parser before emission.
         Assert.False(RouteColumnarProgram("interface IA {\n    func A(): int\n}\n\ninterface IBad: IA, IA {\n    func B(): int\n}\n\nfunc f(): int {\n    return 1\n}\n").Ok);

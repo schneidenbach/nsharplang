@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Top-level duplicate type-name decline moves into N# parser
+
+`TopLevelColumnarProgramDeclarationIndicesCore` now rejects duplicate top-level type names across
+enum, union, interface, class, struct, and record declarations before CLR builders or C# type registries
+are created. The columnar emitter no longer carries duplicate/cross-registry type-name fallback guards;
+base resolution, type lookup, and inheritance/member-shape checks remain semantic emission checks.
+
 ## 2026-06-16 — Top-level duplicate function decline moves into N# parser
 
 `TopLevelColumnarFunctionDeclarationIndicesCore` now rejects duplicate top-level function names while it

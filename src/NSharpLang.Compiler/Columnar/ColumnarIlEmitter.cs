@@ -2828,9 +2828,7 @@ internal sealed class ColumnarIlEmitter
                 constants[en.MemberNames[m]] = en.MemberValues[m];
             }
             enumBuilders[e] = eb;
-            // A duplicate enum name is an ambiguous type — decline rather than silently pick one.
-            if (!enumRegistry.TryAdd(en.Name, new ColumnarEnumDef(eb, constants)))
-                return false;
+            enumRegistry[en.Name] = new ColumnarEnumDef(eb, constants);
         }
 
         // Union registries — declared empty here (populated in the union PASS below, after structs) so the struct/
@@ -2861,8 +2859,7 @@ internal sealed class ColumnarIlEmitter
             var interfaceDef = new ColumnarStructDef(interfaceTb, Array.Empty<string>(),
                 new Dictionary<string, FieldBuilder>(StringComparer.Ordinal), isReference: true)
             { IsInterface = true };
-            if (!structRegistry.TryAdd(iface.Name, interfaceDef) || enumRegistry.ContainsKey(iface.Name))
-                return false; // duplicate type name (incl. cross-registry — the pipeline's NL306).
+            structRegistry[iface.Name] = interfaceDef;
             interfaceDefsInOrder.Add(interfaceDef);
         }
         for (var i = 0; i < interfaces.Count; i++)
@@ -3005,8 +3002,7 @@ internal sealed class ColumnarIlEmitter
             };
             foreach (var (sfName, sfBuilder) in staticFieldDefs)
                 newDef.StaticFields[sfName] = sfBuilder;
-            if (!structRegistry.TryAdd(st.Name, newDef) || enumRegistry.ContainsKey(st.Name))
-                return false; // duplicate type name (incl. cross-registry — the pipeline's NL306).
+            structRegistry[st.Name] = newDef;
         }
 
         // PASS 0a' (base/interface lists): resolve each colon-list name. Any interface becomes a directly
@@ -3440,15 +3436,7 @@ internal sealed class ColumnarIlEmitter
 
             var unionDef = new ColumnarUnionDef(baseTb, un.TypeParamNames.Length);
             unionBaseBuilders.Add(baseTb);
-            if (!unionRegistry.TryAdd(un.Name, unionDef))
-                return false; // a duplicate union name is an ambiguous type.
-            // CROSS-REGISTRY name uniqueness: the pipeline rejects any two same-named TYPES with
-            // NL306 regardless of kind (enum vs class, interface vs union, ...), but each registry's
-            // own TryAdd only catches collisions WITHIN it — a review-probe routed an
-            // interface-vs-enum collision into a loadable assembly with two same-named types
-            // (pre-existing hole across enum/struct/union; widened by every new type family).
-            if (enumRegistry.ContainsKey(un.Name) || structRegistry.ContainsKey(un.Name))
-                return false;
+            unionRegistry[un.Name] = unionDef;
 
             for (var c = 0; c < un.CaseNames.Length; c++)
             {
