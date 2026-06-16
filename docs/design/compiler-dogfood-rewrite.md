@@ -1455,12 +1455,13 @@ acceptance-grade benchmark evidence for `nlc new`, `nlc check`, `nlc fix`, `nlc 
 full positional list.
 
 `CliLintFileArgIndicesInto` passed parity and routes `nlc lint` positional file-argument extraction
-through the dogfood adapter when the N# assembly is available. It preserves the current value-based
-`--project` exclusion semantics while replacing repeated full-array rescans with a caller-owned
-index buffer. A short validation run measured about 94.0x faster on the representative argument
-corpus (20.95 us vs 1.968 ms, 6.70 KB vs 34.32 KB) and about 118.8x faster on the large generated
-argument corpus (1.092 ms vs 129.694 ms, 53.68 KB vs 273.90 KB). This is acceptance-grade benchmark
-evidence for `nlc lint --project ... [files...]` command-boundary file selection.
+through the owner-local `LintCommandKernels` helper when the N# assembly is available. It preserves
+the current value-based `--project` exclusion semantics while replacing repeated full-array rescans
+with a caller-owned index buffer. A short validation run measured about 94.0x faster on the
+representative argument corpus (20.95 us vs 1.968 ms, 6.70 KB vs 34.32 KB) and about 118.8x faster
+on the large generated argument corpus (1.092 ms vs 129.694 ms, 53.68 KB vs 273.90 KB). This is
+acceptance-grade benchmark evidence for `nlc lint --project ... [files...]` command-boundary file
+selection.
 
 `CliBuildFirstOperandIndexInto` passed parity and reported zero managed allocation in the normal
 BenchmarkDotNet evidence tier for source-first `nlc build` operand discovery. The accepted N# path
@@ -1775,9 +1776,9 @@ through the compiled N# whole-identifier scanner when the dogfood assembly is av
 old split-based helper kept as the fallback. Completion receiver-context classification also routes
 through the compiled N# classifier
 when the dogfood assembly is available, with the old C# helper kept as the fallback.
-`LintCommand` positional file-argument extraction now routes through the compiled N#
-`CliLintFileArgIndicesInto` kernel when the dogfood assembly is available, with the previous
-LINQ/rescan helper retained as the fallback.
+`LintCommand` positional file-argument extraction now routes through `LintCommandKernels` and the
+compiled N# `CliLintFileArgIndicesInto` kernel when the dogfood assembly is available, with the
+previous LINQ/rescan helper retained as the fallback.
 Analyzer central error/warning snippets and namespace-import source-line lookups now route through
 the same source-only cached raw-line adapter, with the existing split-backed source lines retained
 for semantic span calculations that still need broader analyzer refactoring.

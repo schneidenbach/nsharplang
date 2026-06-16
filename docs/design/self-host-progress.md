@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Lint file-argument extraction leaves the CLI dogfood adapter
+
+`nlc lint` positional file-argument extraction now routes the accepted N#
+`CliLintFileArgIndicesInto` kernel through `LintCommandKernels`, an owner-local helper beside
+`LintCommand`. The broad CLI dogfood adapter no longer owns the lint file-argument entry point,
+delegate binding, project-value scratch, or result-index scratch; the existing LINQ/rescan fallback
+remains in the command.
+Focused evidence: `dotnet build src/NSharpLang.Cli/Cli.csproj --no-restore`; `dotnet test
+tests/Tests.csproj --filter "FullyQualifiedName~CliCommandTests.LintCommandKernels_SelectsFileArgsAfterProjectValueExclusion"`;
+`./scripts/dev.sh --since`.
+
 ## 2026-06-16 — Tidy command kernels leave the CLI dogfood adapter
 
 `nlc tidy` dependency usage classification, status summarization, `--fix` possibly-unused selection,
@@ -3744,10 +3755,10 @@ parity corpus once the product-root audit confirmed it had no adapter-bound rout
 
 ## 2026-06-14 — CLI lint project-value wrapper leaves product dogfood
 
-`CliArguments.nl` no longer emits the raw-array `CliLintIsProjectOptionValue` wrapper. The live
-`CliLintFileArgIndicesInto` product route still records `--project` value indices once and calls the
-table-shaped `CliLintIsProjectOptionValueCore` helper directly, while the CLI adapter and benchmark
-surface remain unchanged.
+`CliArguments.nl` no longer emits the raw-array `CliLintIsProjectOptionValue` wrapper. At that point
+the live `CliLintFileArgIndicesInto` product route still recorded `--project` value indices once and
+called the table-shaped `CliLintIsProjectOptionValueCore` helper directly, while the CLI adapter and
+benchmark surface remained unchanged.
 
 ## 2026-06-14 — SoA row-column assignment expressions preserve assigned values
 

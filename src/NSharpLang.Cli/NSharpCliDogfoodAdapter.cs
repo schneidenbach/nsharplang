@@ -16,8 +16,6 @@ internal static class NSharpCliDogfoodAdapter
     [ThreadStatic]
     private static StableDistinctScratch? t_stableDistinctScratch;
     [ThreadStatic]
-    private static LintFileArgScratch? t_lintFileArgScratch;
-    [ThreadStatic]
     private static int[]? t_publishOptionIndices;
     [ThreadStatic]
     private static TestOutcomeSummaryScratch? t_testOutcomeSummaryScratch;
@@ -215,55 +213,6 @@ internal static class NSharpCliDogfoodAdapter
         catch
         {
             positional = null;
-            return false;
-        }
-    }
-
-    internal static bool TryGetLintFileArgs(string[] args, out string[] files)
-    {
-        files = Array.Empty<string>();
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        if (args.Length == 0)
-            return true;
-
-        var scratch = t_lintFileArgScratch ??= new LintFileArgScratch();
-        scratch.EnsureCapacity(args.Length);
-
-        try
-        {
-            var count = bindings.CliLintFileArgIndices(
-                args,
-                scratch.ProjectValueIndices,
-                scratch.ResultIndices);
-
-            if (count < 0 || count > args.Length)
-                return false;
-
-            if (count == 0)
-                return true;
-
-            files = new string[count];
-            for (var i = 0; i < count; i++)
-            {
-                var sourceIndex = scratch.ResultIndices[i];
-                if (sourceIndex < 0 || sourceIndex >= args.Length)
-                {
-                    files = Array.Empty<string>();
-                    return false;
-                }
-
-                files[i] = args[sourceIndex];
-            }
-
-            return true;
-        }
-        catch
-        {
-            files = Array.Empty<string>();
             return false;
         }
     }
@@ -524,7 +473,6 @@ internal static class NSharpCliDogfoodAdapter
                 CreateDelegate<CliRunFirstOperandIndex>(programType, "CliRunFirstOperandIndex"),
                 CreateDelegate<CliPublishOptionsInto>(programType, "CliPublishOptionsInto"),
                 CreateDelegate<CliFirstPositionalArgIndex>(programType, "CliFirstPositionalArgIndex"),
-                CreateDelegate<CliLintFileArgIndicesInto>(programType, "CliLintFileArgIndicesInto"),
                 CreateDelegate<CliReferenceTypeFilterIndicesInto>(programType, "CliReferenceTypeFilterIndicesInto"),
                 CreateDelegate<CliTestOutcomeSummaryInto>(programType, "CliTestOutcomeSummaryInto"),
                 CreateDelegate<CliStableDistinctRankIndicesInto>(programType, "CliStableDistinctRankIndicesInto"));
@@ -585,11 +533,6 @@ internal static class NSharpCliDogfoodAdapter
         string[] args,
         string[] optionsWithValues);
 
-    private delegate int CliLintFileArgIndicesInto(
-        string[] args,
-        int[] projectValueIndices,
-        int[] resultIndices);
-
     private delegate int CliReferenceTypeFilterIndicesInto(
         int[] typeRanks,
         int targetTypeRank,
@@ -612,7 +555,6 @@ internal static class NSharpCliDogfoodAdapter
         CliRunFirstOperandIndex CliRunFirstOperandIndex,
         CliPublishOptionsInto CliPublishOptionsInto,
         CliFirstPositionalArgIndex CliFirstPositionalArgIndex,
-        CliLintFileArgIndicesInto CliLintFileArgIndices,
         CliReferenceTypeFilterIndicesInto CliReferenceTypeFilterIndices,
         CliTestOutcomeSummaryInto CliTestOutcomeSummary,
         CliStableDistinctRankIndicesInto CliStableDistinctRankIndices);
@@ -643,21 +585,6 @@ internal static class NSharpCliDogfoodAdapter
                 NextIndices = new int[count];
                 NextOptionIndices = new int[count];
                 PreviousIndices = new int[count];
-                ResultIndices = new int[count];
-            }
-        }
-    }
-
-    private sealed class LintFileArgScratch
-    {
-        internal int[] ProjectValueIndices = Array.Empty<int>();
-        internal int[] ResultIndices = Array.Empty<int>();
-
-        internal void EnsureCapacity(int count)
-        {
-            if (ProjectValueIndices.Length != count || ResultIndices.Length != count)
-            {
-                ProjectValueIndices = new int[count];
                 ResultIndices = new int[count];
             }
         }

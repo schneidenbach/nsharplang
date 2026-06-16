@@ -976,6 +976,31 @@ func Main() {
     }
 
     [Fact]
+    public void LintCommandKernels_SelectsFileArgsAfterProjectValueExclusion()
+    {
+        Assert.True(LintCommandKernels.TryGetFileArgs(Array.Empty<string>(), out var empty));
+        Assert.Empty(empty);
+
+        var args = new[]
+        {
+            "--json",
+            "--project",
+            "src",
+            "Program.nl",
+            "src",
+            "help",
+            "-v",
+            "Other.nl",
+            "--project",
+            "tests",
+            "tests"
+        };
+
+        Assert.True(LintCommandKernels.TryGetFileArgs(args, out var files));
+        Assert.Equal(new[] { "Program.nl", "Other.nl" }, files);
+    }
+
+    [Fact]
     public void RemoveCommand_DogfoodAdapter_SelectsPackageOperand()
     {
         Assert.True(NSharpCliDogfoodAdapter.TryGetFirstPositionalArg(

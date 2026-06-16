@@ -268,7 +268,7 @@ Exit codes:
 
     private static string[] GetPositionalFiles(string[] args)
     {
-        return NSharpLang.Cli.NSharpCliDogfoodAdapter.TryGetLintFileArgs(args, out var files)
+        return LintCommandKernels.TryGetFileArgs(args, out var files)
             ? files
             : args
                 .Where(a => !a.StartsWith("-", StringComparison.Ordinal) && a != "help")
