@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Query symbol filtering leaves the CLI dogfood adapter
+
+`nlc query symbols --filter` now routes the N# glob/substring symbol-name kernels through
+`QuerySymbolNameFilter`, an owner-local helper beside `QueryCommand`. The CLI-wide adapter no longer
+owns the symbol-name scratch arrays or the `CliSymbolNameGlobFilterIndicesInto` /
+`CliSymbolNameSubstringFilterIndicesInto` bindings; fallback behavior remains the existing regex path
+for non-ASCII or unavailable dogfood assemblies.
+Focused evidence: `dotnet build src/NSharpLang.Cli/Cli.csproj --no-restore`; `dotnet test
+tests/Tests.csproj --filter "FullyQualifiedName~CliCommandTests.QuerySymbolNameFilter_FiltersSymbolsByNamePattern"`.
+
 ## 2026-06-16 — Performance routes leave the performance dogfood adapter
 
 `AotRequirements.FromBlockers` now routes the N# AOT requirement grouping kernel through

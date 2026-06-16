@@ -78,7 +78,7 @@ public static class QueryCommand
         // Apply fuzzy/glob filter: * = wildcard, bare string = substring match
         if (!string.IsNullOrWhiteSpace(filterPattern))
         {
-            results = NSharpCliDogfoodAdapter.TryFilterSymbolsByNamePattern(
+            results = QuerySymbolNameFilter.TryFilter(
                     results,
                     filterPattern,
                     200,

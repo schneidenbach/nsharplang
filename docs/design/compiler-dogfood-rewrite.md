@@ -1872,7 +1872,7 @@ N# compact kind-id filter when the dogfood assembly is available, covering `nlc 
 --kind`, batch symbol queries, and daemon symbol queries, with the previous C# LINQ
 `Where(s => s.Kind == kind).ToList()` path kept as the fallback.
 `nlc query symbols --filter` now routes ASCII wildcard and bare substring name filters through
-`NSharpCliDogfoodAdapter.TryFilterSymbolsByNamePattern`, which calls the compiled N# glob or
+the owner-local `QuerySymbolNameFilter`, which calls the compiled N# glob or
 substring matcher when the dogfood assembly is available, preserving case-insensitive matching
 semantics, source order, and the 200-result cap. Non-ASCII patterns/names keep the previous C#
 regex fallback.

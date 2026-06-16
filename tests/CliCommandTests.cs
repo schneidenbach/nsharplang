@@ -1295,7 +1295,7 @@ dependencies:
     }
 
     [Fact]
-    public void CliDogfoodAdapter_FiltersSymbolsByNamePattern()
+    public void QuerySymbolNameFilter_FiltersSymbolsByNamePattern()
     {
         var symbols = new[]
         {
@@ -1306,7 +1306,7 @@ dependencies:
             NewSymbol("CurrentUser")
         };
 
-        Assert.True(NSharpCliDogfoodAdapter.TryFilterSymbolsByNamePattern(
+        Assert.True(QuerySymbolNameFilter.TryFilter(
             symbols,
             "user",
             200,
@@ -1315,7 +1315,7 @@ dependencies:
             new[] { "UserService", "UserQuery", "CurrentUser" },
             substringMatches.Select(symbol => symbol.Name));
 
-        Assert.True(NSharpCliDogfoodAdapter.TryFilterSymbolsByNamePattern(
+        Assert.True(QuerySymbolNameFilter.TryFilter(
             symbols,
             "*Service",
             200,
@@ -1324,7 +1324,7 @@ dependencies:
             new[] { "UserService", "OrderService" },
             globMatches.Select(symbol => symbol.Name));
 
-        Assert.True(NSharpCliDogfoodAdapter.TryFilterSymbolsByNamePattern(
+        Assert.True(QuerySymbolNameFilter.TryFilter(
             symbols,
             "*",
             2,
@@ -1333,7 +1333,7 @@ dependencies:
             new[] { "UserService", "OrderService" },
             limitedMatches.Select(symbol => symbol.Name));
 
-        Assert.False(NSharpCliDogfoodAdapter.TryFilterSymbolsByNamePattern(
+        Assert.False(QuerySymbolNameFilter.TryFilter(
             new[] { NewSymbol("café") },
             "caf*",
             200,
