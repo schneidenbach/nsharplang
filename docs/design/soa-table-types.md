@@ -557,20 +557,18 @@ ownership lands.
    `ParserColumnarStructs.nl` now wraps compact token columns, hidden field/type/init/type-parameter/base
    span scratch columns, member/index outputs, text outputs, and result slots inside its wrapper-aware
    struct/class/record product core while preserving its flattened adapter ABI; that product core now
-   composes the struct/class/record declaration core directly. The lower flattened enum,
-   interface, struct/union declaration span/text wrappers and the flattened interface-signature
-   wrapper are no longer shipped product dogfood files; they live in the parity corpus because no
-   product route calls them after the wrapper-aware cores took ownership.
+   composes the struct/class/record declaration core directly. The lower flattened function
+   signature, enum/interface/struct/union declaration span/text wrappers, and the flattened
+   interface-signature wrapper are no longer shipped product dogfood files; they live in the parity
+   corpus because no product route calls them after the wrapper-aware cores took ownership.
    `ParserTypeReferences.nl` has started the parser token-stream
    cleanup by wrapping token metadata, recursive argument stacks, child-index outputs, and result
    slots for the type-reference recursive cores; its base, greater-consumption, postfix, and union
    parser cores now keep token columns and recursive argument-stack values behind their wrapper tables
-   internally. `ParserFunctionSignatures.nl`
-   now composes those parser wrappers from a flattened entry shim, keeps token columns behind
-   `ParserTokenTable` in its internal core, and groups parameter, type-parameter, `where`
-   constraint, and result columns behind named tables in its internal core; its signature-info wrapper
-   now also uses named output, tuple-scratch, owner-index, and parser scratch tables while composing the
-   wrapper-aware type canonicalizer/tuple-name helpers directly. `ParserConstructorSignatures.nl`
+   internally. `ParserFunctionSignatures.nl` now keeps token columns behind `ParserTokenTable` in its
+   internal core, groups parameter, type-parameter, `where` constraint, and result columns behind
+   named tables, and leaves the flattened entry/text/signature-info shims in the parity corpus.
+   `ParserConstructorSignatures.nl`
    now routes constructor signature/initializer materialization through named output columns, reuses
    one wrapper-shaped function-signature scratch rowset per constructor parse, and composes the
    wrapper-aware type canonicalizer directly while preserving its flattened adapter ABI. `ParserInterfaceSignatures.nl`

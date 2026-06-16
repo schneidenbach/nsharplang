@@ -10825,11 +10825,11 @@ func outer(x: int): int {
             ("HelperAdd", new object[] { 2, 3 }), ("HelperScale", new object[] { 7 }));
     }
 
-    // MULTI-FILE on REAL corpus: ParserFunctionSignatures.ParseFunctionSignatureInto calls
-    // ParserTypeReferences.ParseUnionTypeReferenceNodeCore — an actual cross-file dependency. The signatures file
+    // MULTI-FILE on REAL corpus: ParserFunctionSignatures.ParseFunctionSignatureCore calls
+    // ParserTypeReferences.ParseUnionTypeReferenceNodeCore -- an actual cross-file dependency. The signatures file
     // ALONE declines (the call is unresolved); merged with the types file, the columnar backend compiles both
-    // with NO C# AST. Value-parity is checked by invoking ParseFunctionSignatureInto on hand-built token
-    // streams for `func f(x: int)` and `func g(): int` — exercising the real cross-file ParseUnionTypeReferenceNodeCore
+    // with NO C# AST. Value-parity is checked through the parity-corpus ParseFunctionSignatureInto wrapper on
+    // hand-built token streams for `func f(x: int)` and `func g(): int`, exercising the real cross-file core
     // call — and asserting the result equals the multi-file C# build (both paths process the same tokens
     // deterministically, so identity holds regardless of whether the tokens are "realistic").
     [Fact]
@@ -10842,8 +10842,8 @@ func outer(x: int): int {
         Assert.False(RouteColumnarProgram(sigs).Ok); // the signatures file alone cannot resolve the cross-file call.
         var (ok, _, _, methodNames) = RouteColumnarMultiFile(new[] { types, sigs });
         Assert.True(ok, "Columnar backend declined the merged ParserTypeReferences + ParserFunctionSignatures.");
-        Assert.Contains("ParseFunctionSignatureInto", methodNames!);
-        Assert.Contains("ParseFunctionSignatureInfoInto", methodNames!);
+        Assert.Contains("ParseFunctionSignatureCore", methodNames!);
+        Assert.Contains("ParseFunctionSignatureInfoCore", methodNames!);
         Assert.Contains("ParseUnionTypeReferenceNodeCore", methodNames!); // the cross-file callee, from the other file.
 
         // `func f(x: int)`: Func Id ( Id : Id ) -> exercises ParseUnionTypeReferenceNodeCore on the param type "int".
@@ -10862,7 +10862,8 @@ func outer(x: int): int {
             new int[15], new int[15], new int[15], new int[15], new int[15],
             new int[15], new int[15], new int[15], new int[8],
         };
-        AssertColumnarMultiFileMatchesCSharp(new[] { types, sigs },
+        var sigsWithParity = ReadDogfoodFileWithParityCorpus("ParserFunctionSignatures.nl");
+        AssertColumnarMultiFileMatchesCSharp(new[] { types, sigsWithParity },
             ("ParseFunctionSignatureInto", FuncF()),
             ("ParseFunctionSignatureInto", FuncG()));
     }
@@ -10895,8 +10896,8 @@ func outer(x: int): int {
         // Files eligible ONLY via cross-file resolution must contribute their public functions —
         // i.e. the merge actually emitted them (single-file each declines; see ColumnarCodegen_MultiFile_*).
         Assert.Contains("TopLevelColumnarProgramDeclarationIndicesInto", methodNames!); // ParserDeclarations composed routing
-        Assert.Contains("ParseFunctionSignatureInto", methodNames!); // ParserFunctionSignatures -> ParserTypeReferences
-        Assert.Contains("ParseFunctionSignatureInfoInto", methodNames!); // ParserFunctionSignatures -> ParserTypeReferences
+        Assert.Contains("ParseFunctionSignatureCore", methodNames!); // ParserFunctionSignatures -> ParserTypeReferences
+        Assert.Contains("ParseFunctionSignatureInfoCore", methodNames!); // ParserFunctionSignatures -> ParserTypeReferences
         Assert.Contains("ParseColumnarFunctionInfoInto", methodNames!); // composed signature + body + local-function routing
         Assert.Contains("ParseColumnarConstructorInfoInto", methodNames!); // composed constructor signature + body routing
         Assert.Contains("ParseColumnarEnumInfoInto", methodNames!); // composed enum text/value routing
@@ -10978,6 +10979,9 @@ func outer(x: int): int {
             ("ParserDeclarations.nl", "ParseStructDeclarationInfoInto"),
             ("ParserDeclarations.nl", "ParseUnionDeclarationInto"),
             ("ParserDeclarations.nl", "ParseUnionDeclarationInfoInto"),
+            ("ParserFunctionSignatures.nl", "ParseFunctionSignatureInto"),
+            ("ParserFunctionSignatures.nl", "ParseFunctionSignatureTextInfoInto"),
+            ("ParserFunctionSignatures.nl", "ParseFunctionSignatureInfoInto"),
             ("ParserInterfaceSignatures.nl", "ParseInterfaceDeclarationSignatureInfoInto"),
             ("ParserExpressions.nl", "ParseExpressionNodesInto"),
             ("ParserTypeReferences.nl", "ParseTypeReferenceNodesInto"),

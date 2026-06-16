@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-15 — Function signature parity ABIs leave product dogfood
+
+The flattened `ParseFunctionSignatureInto`, `ParseFunctionSignatureTextInfoInto`, and
+`ParseFunctionSignatureInfoInto` exports now live in
+`NSharpLang.Compiler.Dogfood.ParityCorpus/ParserFunctionSignatures.nl` instead of the shipped
+compiler-service product file. Product function, constructor, and interface parsing already compose
+`ParseFunctionSignatureCore` / `ParseFunctionSignatureInfoCore` directly, so these wrappers are
+retained for parser parity only. The real parser-cluster test now pins the shipped cores in product
+coverage while still invoking the parity wrapper against the product type-reference core.
+
 ## 2026-06-15 — Enum/interface declaration parity ABIs leave product dogfood
 
 The flattened `ParseEnumDeclarationInto`, `ParseEnumDeclarationInfoInto`,
