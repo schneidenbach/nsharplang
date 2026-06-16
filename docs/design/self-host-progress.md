@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Property accessor-name collision decline moves into N# parser
+
+`ColumnarStructPropertyMemberNamesDistinct` now rejects synthesized `get_`/`set_`
+accessor names that would collide with user methods while the struct parser still owns property and
+method declaration rows. The columnar emitter no longer carries the pre-`DefineMethod` accessor-name
+fallback; property type resolution and accessor body lowering remain semantic emission checks.
+
 ## 2026-06-16 — Constructor duplicate-signature decline moves into N# parser
 
 `ColumnarStructConstructorUnsupportedStatus` now records canonical constructor parameter signatures

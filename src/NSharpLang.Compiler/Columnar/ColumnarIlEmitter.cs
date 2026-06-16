@@ -3182,9 +3182,8 @@ internal sealed class ColumnarIlEmitter
         // (one param "value": property type, returning void). The accessor bodies read/write fields exactly like a
         // method, so they emit via the same structMethodJobs path in PASS 2. The property is registered for
         // `receiver.Name` read (case 8 -> callvirt get_Name) + `receiver.Name = v` write (case 23 -> callvirt
-        // set_Name). Declines: a value-type property (deferred), a property name colliding with a field/method/another
-        // property, or a synthesized get_Name/set_Name colliding with a user method of that name. Same-declaration
-        // property source-name collisions with fields/methods/properties are rejected by the N# struct parser.
+        // set_Name). Declines: a value-type property (deferred) plus same-declaration property source-name and
+        // synthesized get_Name/set_Name collisions are rejected by the N# struct parser before rows reach this pass.
         for (var s = 0; s < structs.Count; s++)
         {
             if (structs[s].Properties.Count == 0)
@@ -3192,12 +3191,6 @@ internal sealed class ColumnarIlEmitter
             var def = structRegistry[structs[s].Name];
             foreach (var prop in structs[s].Properties)
             {
-                // A synthesized accessor name ("get_Name"/"set_Name") must not collide with a user method of the same
-                // name (the N# pipeline accepts them as distinct symbols, but two CLR methods of identical signature
-                // would throw at CreateType) — decline so columnar never emits the duplicate.
-                if (def.Methods.ContainsKey("get_" + prop.Name) || def.StaticMethods.ContainsKey("get_" + prop.Name)
-                    || (prop.Setter != null && (def.Methods.ContainsKey("set_" + prop.Name) || def.StaticMethods.ContainsKey("set_" + prop.Name))))
-                    return false;
                 if (!TryResolveMemberType(prop.TypeCanonical, def, enumRegistry, structRegistry, unionRegistry, out var propType) || !IsSupportedType(propType))
                     return false;
                 if (prop.IsStatic)

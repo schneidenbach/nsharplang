@@ -596,6 +596,65 @@ class DuplicateProperty {
                 expectColumnarDecline: true);
             AssertStructDeclarationInfo(
                 """
+class GetterAccessorCollision {
+    Value: int
+    Total: int {
+        get {
+            return Value
+        }
+    }
+    func get_Total(): int {
+        return Value
+    }
+}
+""",
+                (int)TokenType.Class,
+                "GetterAccessorCollision",
+                Array.Empty<string>(),
+                Array.Empty<string>(),
+                new[] { "Value" },
+                new[] { "int" },
+                new[] { 0 },
+                new string?[] { null },
+                tokenizeWithIndentation,
+                parseStructDeclaration,
+                parseStructDeclarationInfo,
+                parseColumnarStructInfo,
+                "property getter accessor collision",
+                expectColumnarDecline: true);
+            AssertStructDeclarationInfo(
+                """
+class SetterAccessorCollision {
+    Value: int
+    Total: int {
+        get {
+            return Value
+        }
+        set {
+            Value = value
+        }
+    }
+    func set_Total(next: int): int {
+        return next
+    }
+}
+""",
+                (int)TokenType.Class,
+                "SetterAccessorCollision",
+                Array.Empty<string>(),
+                Array.Empty<string>(),
+                new[] { "Value" },
+                new[] { "int" },
+                new[] { 0 },
+                new string?[] { null },
+                tokenizeWithIndentation,
+                parseStructDeclaration,
+                parseStructDeclarationInfo,
+                parseColumnarStructInfo,
+                "property setter accessor collision",
+                expectColumnarDecline: true);
+            AssertStructDeclarationInfo(
+                """
 record Duplicate<T, T> {
     Value: int
 }
@@ -9733,9 +9792,9 @@ func outer(x: int): int {
         // DECLINES (slice scope): a VALUE-type struct property. (A SET accessor is now supported — see
         // ColumnarCodegen_Parity_ClassGetSetProperty.)
         Assert.False(RouteColumnarProgram("struct S {\n    v: int\n    Doubled: int {\n        get {\n            return v * 2\n        }\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
-        // a property `Double` whose synthesized getter `get_Double` collides with a user method `get_Double` — the N#
-        // pipeline accepts the two as distinct symbols, but two identical-signature CLR methods would clash, so decline.
-        Assert.False(RouteColumnarProgram("class C {\n    val: int\n    func get_Double(): int {\n        return val + val\n    }\n    Double: int {\n        get {\n            return val * 2\n        }\n    }\n    constructor(v: int) {\n        val = v\n    }\n}\n\nfunc f(v: int): int {\n    c := new C(v)\n    return c.Double\n}\n").Ok);
+        // a property `Double` whose synthesized getter `get_Double` collides with a user method `get_Double`, rejected
+        // by the N# struct parser before CLR methods are declared.
+        Assert.False(RouteColumnarProgram("class C {\n    val: int\n    Double: int {\n        get {\n            return val * 2\n        }\n    }\n    func get_Double(): int {\n        return val + val\n    }\n    constructor(v: int) {\n        val = v\n    }\n}\n\nfunc f(v: int): int {\n    c := new C(v)\n    return c.Double\n}\n").Ok);
     }
 
     // CLASS get/SET computed PROPERTIES — `Value: int { get { … } set { backing = value } }`. The setter has an
@@ -9768,6 +9827,9 @@ func outer(x: int): int {
         // DECLINE: assigning a GET-ONLY property (no setter) — the N# pipeline reports NL103 (member not found), so
         // columnar declines (no set_Name).
         Assert.False(RouteColumnarProgram("class C {\n    v: int\n    D: int {\n        get {\n            return v\n        }\n    }\n    constructor(x: int) {\n        v = x\n    }\n}\n\nfunc f(x: int): int {\n    c := new C(x)\n    c.D = 9\n    return c.D\n}\n").Ok);
+        // A property `Value` whose synthesized setter `set_Value` collides with a user method `set_Value` is rejected
+        // by the N# struct parser before CLR methods are declared.
+        Assert.False(RouteColumnarProgram("class C {\n    v: int\n    Value: int {\n        get {\n            return v\n        }\n        set {\n            v = value\n        }\n    }\n    func set_Value(next: int): int {\n        return next\n    }\n    constructor(x: int) {\n        v = x\n    }\n}\n\nfunc f(x: int): int {\n    c := new C(x)\n    c.Value = 9\n    return c.Value\n}\n").Ok);
     }
 
     // CLASS INHERITANCE — `class D: Base` with `: base(args)` constructor chaining. The kernel parses the optional

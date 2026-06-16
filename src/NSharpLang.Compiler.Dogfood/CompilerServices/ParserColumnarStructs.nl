@@ -515,6 +515,9 @@ func ColumnarStructPropertyMemberNamesDistinct(source: string, tokens: &Columnar
         return 0
     }
 
+    declarationTokens := new ParserDeclarationTokenTable { Kinds: tokens.Kinds, Starts: tokens.Starts, ValueLengths: tokens.ValueLengths }
+    propertyResult := new ParserDeclarationResultTable { Values: new int[](6) }
+
     i := 0
     while i < propCount {
         if outputs.PropStaticFlags[i] != 0 && outputs.PropStaticFlags[i] != 1 {
@@ -525,6 +528,19 @@ func ColumnarStructPropertyMemberNamesDistinct(source: string, tokens: &Columnar
         if propNameIndex < 0 || propNameIndex >= tokens.Count || tokens.Kinds[propNameIndex] != 0 {
             return 0
         }
+
+        propName := ParserDeclarationSpanText(source, tokens.Starts[propNameIndex], tokens.ValueLengths[propNameIndex])
+        if propName == "" {
+            return 0
+        }
+
+        accessorKind := ParsePropertyAccessorInfoCore(source, ref declarationTokens, tokens.Count, propNameIndex, ref propertyResult)
+        if accessorKind < 0 || accessorKind > 1 {
+            return 0
+        }
+
+        getAccessorName := "get_" + propName
+        setAccessorName := "set_" + propName
 
         f := 0
         while f < fieldCount {
@@ -547,6 +563,15 @@ func ColumnarStructPropertyMemberNamesDistinct(source: string, tokens: &Columnar
             }
 
             if ParserDeclarationSourceSpansEqual(source, tokens.Starts[propNameIndex], tokens.ValueLengths[propNameIndex], tokens.Starts[methodNameIndex], tokens.ValueLengths[methodNameIndex]) {
+                return 0
+            }
+
+            methodName := ParserDeclarationSpanText(source, tokens.Starts[methodNameIndex], tokens.ValueLengths[methodNameIndex])
+            if methodName == "" {
+                return 0
+            }
+
+            if methodName == getAccessorName || (accessorKind == 1 && methodName == setAccessorName) {
                 return 0
             }
 
