@@ -13653,16 +13653,8 @@ func documented(): int {
     }
 
     [Fact]
-    public void CodeIntelligenceDogfoodAdapter_DeduplicatesStableStringsOrdinalIgnoreCase()
+    public void DocQueryKernels_DeduplicatesStableStringsOrdinalIgnoreCase()
     {
-        var adapterType = typeof(CodeIntelligenceService).Assembly.GetType(
-                "NSharpLang.Compiler.CodeIntelligence.NSharpCodeIntelligenceDogfoodAdapter")
-            ?? throw new InvalidOperationException("Dogfood code-intelligence adapter type was not emitted.");
-
-        var tryDeduplicateStableStrings = adapterType.GetMethod(
-                "TryDeduplicateStableStringsOrdinalIgnoreCase",
-                BindingFlags.Static | BindingFlags.NonPublic)
-            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryDeduplicateStableStringsOrdinalIgnoreCase.");
         var names = new[]
         {
             "System.Console",
@@ -13671,25 +13663,16 @@ func documented(): int {
             "SYSTEM.TEXT.JSON",
             "Custom.Library"
         };
-        var args = new object?[] { names, null };
 
-        Assert.True((bool)(tryDeduplicateStableStrings.Invoke(null, args) ?? false));
+        Assert.True(DocQueryKernels.TryDeduplicateStableStringsOrdinalIgnoreCase(names, out var deduplicated));
         Assert.Equal(
             new[] { "System.Console", "System.Text.Json", "Custom.Library" },
-            Assert.IsType<string[]>(args[1]));
+            deduplicated);
     }
 
     [Fact]
-    public void CodeIntelligenceDogfoodAdapter_DeduplicatesStableTypes()
+    public void DocQueryKernels_DeduplicatesStableTypes()
     {
-        var adapterType = typeof(CodeIntelligenceService).Assembly.GetType(
-                "NSharpLang.Compiler.CodeIntelligence.NSharpCodeIntelligenceDogfoodAdapter")
-            ?? throw new InvalidOperationException("Dogfood code-intelligence adapter type was not emitted.");
-
-        var tryDeduplicateStableTypes = adapterType.GetMethod(
-                "TryDeduplicateStableTypes",
-                BindingFlags.Static | BindingFlags.NonPublic)
-            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryDeduplicateStableTypes.");
         var types = new[]
         {
             typeof(string),
@@ -13698,12 +13681,54 @@ func documented(): int {
             typeof(Console),
             typeof(int)
         };
-        var args = new object?[] { types, null };
 
-        Assert.True((bool)(tryDeduplicateStableTypes.Invoke(null, args) ?? false));
+        Assert.True(DocQueryKernels.TryDeduplicateStableTypes(types, out var deduplicated));
         Assert.Equal(
             new[] { typeof(string), typeof(int), typeof(Console) },
-            Assert.IsType<Type[]>(args[1]));
+            deduplicated);
+    }
+
+    [Fact]
+    public void DocQueryKernels_SelectsBestTypeByScoreNamespaceAndName()
+    {
+        var candidates = new[]
+        {
+            typeof(Environment),
+            typeof(System.Text.StringBuilder),
+            typeof(Console)
+        };
+
+        Assert.True(DocQueryKernels.TrySelectBestDocType(
+            "sample",
+            candidates,
+            static (_, _) => 100,
+            out var selected));
+        Assert.Equal(typeof(Console), selected);
+    }
+
+    [Fact]
+    public void DocQueryKernels_OrdersMembersByKindThenName()
+    {
+        var members = new[]
+        {
+            new DocMemberResult("ToString", "method", "string", null, null),
+            new DocMemberResult("Count", "property", "int", null, null),
+            new DocMemberResult("Sample()", "constructor", null, null, null),
+            new DocMemberResult("value", "field", "int", null, null),
+            new DocMemberResult("Changed", "event", "EventHandler", null, null),
+            new DocMemberResult("Enumerator", "nested type", "Sample.Enumerator", null, null),
+            new DocMemberResult("add", "method", "void", null, null),
+            new DocMemberResult("count", "property", "int", null, null),
+            new DocMemberResult("Add", "method", "void", null, null)
+        };
+
+        Assert.True(DocQueryKernels.TryOrderDocMembers(members, out var ordered));
+        Assert.Equal(
+            members
+                .OrderBy(member => member.Kind)
+                .ThenBy(member => member.Name, StringComparer.OrdinalIgnoreCase)
+                .Select(member => $"{member.Kind}:{member.Name}"),
+            ordered.Select(member => $"{member.Kind}:{member.Name}"));
     }
 
     [Fact]

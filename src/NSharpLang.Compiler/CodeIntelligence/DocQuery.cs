@@ -493,7 +493,7 @@ public class DocQuery
                 GetEventSummary(evt), null));
         }
 
-        if (NSharpCodeIntelligenceDogfoodAdapter.TryOrderDocMembers(results, out var dogfoodMembers))
+        if (DocQueryKernels.TryOrderDocMembers(results, out var dogfoodMembers))
         {
             return dogfoodMembers;
         }
@@ -687,7 +687,7 @@ public class DocQuery
     {
         var candidateList = candidates as IReadOnlyList<Type> ?? candidates.ToArray();
         var distinctCandidates = DeduplicateTypeCandidates(candidateList);
-        if (NSharpCodeIntelligenceDogfoodAdapter.TrySelectBestDocType(
+        if (DocQueryKernels.TrySelectBestDocType(
             query,
             distinctCandidates,
             ScoreTypeMatch,
@@ -705,7 +705,7 @@ public class DocQuery
 
     private static Type[] DeduplicateTypeCandidates(IReadOnlyList<Type> candidates)
     {
-        return NSharpCodeIntelligenceDogfoodAdapter.TryDeduplicateStableTypes(
+        return DocQueryKernels.TryDeduplicateStableTypes(
             candidates,
             out var dogfoodCandidates)
             ? dogfoodCandidates
@@ -907,7 +907,7 @@ public class DocQuery
 
     private static string[] DeduplicateReferencePackAssemblyNames(IReadOnlyList<string> names)
     {
-        return NSharpCodeIntelligenceDogfoodAdapter.TryDeduplicateStableStringsOrdinalIgnoreCase(
+        return DocQueryKernels.TryDeduplicateStableStringsOrdinalIgnoreCase(
             names,
             out var dogfoodNames)
             ? dogfoodNames

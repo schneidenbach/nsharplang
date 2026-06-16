@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — DocQuery kernels leave the code-intelligence adapter
+
+`nlc query doc` type-candidate de-duplication, best-type selection, member ordering, and
+reference-pack assembly-name de-duplication now route through `DocQueryKernels`, beside the
+documentation-query code that consumes those results. The broad
+`NSharpCodeIntelligenceDogfoodAdapter` no longer owns the DocQuery delegates, stable-distinct
+wrappers, or their scratch arrays; the existing LINQ/reflection fallback paths remain in
+`DocQuery`.
+Focused evidence: `dotnet build src/NSharpLang.Compiler/Compiler.csproj --no-restore`; `dotnet
+test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.DocQueryKernels_DeduplicatesStableStringsOrdinalIgnoreCase|FullyQualifiedName~CompilerDogfoodProjectTests.DocQueryKernels_DeduplicatesStableTypes|FullyQualifiedName~CompilerDogfoodProjectTests.DocQueryKernels_SelectsBestTypeByScoreNamespaceAndName|FullyQualifiedName~CompilerDogfoodProjectTests.DocQueryKernels_OrdersMembersByKindThenName|FullyQualifiedName~CompilerDogfoodProjectTests.CodeIntelligenceDogfoodAdapter_LoadsPackagedNSharpAssembly|FullyQualifiedName~DocQueryTests.DeduplicateReferencePackAssemblyNames_PreservesFirstSourceOrder|FullyQualifiedName~DocQueryTests.DeduplicateTypeCandidates_PreservesFirstSourceOrder"`;
+`./scripts/dev.sh --since`.
+
 ## 2026-06-16 — Output formatter severity kernels leave the code-intelligence adapter
 
 Diagnostic severity summary and diagnostic severity filtering now route through
@@ -10736,6 +10748,7 @@ or stand up the N#-native pooled `Token`/`TokenStream` so the parser can consume
 - `NSharpCliDogfoodAdapter` — removed 2026-06-16. CLI product routes now use owner-local helpers
   beside the consuming command or resolver.
 - `NSharpCodeIntelligenceDogfoodAdapter` — still present as a temporary transition boundary. Text-edit ordering
-  moved to `FixApplicatorTextEditOrderer` on 2026-06-16, and output-format severity summary/filtering
-  moved to `OutputFormatterDiagnosticKernels`; remaining routed kernels still cross the ~1.2 ns
-  delegate-dispatch + bounds-check floor documented in the boundary profiling doc.
+  moved to `FixApplicatorTextEditOrderer` on 2026-06-16, output-format severity summary/filtering
+  moved to `OutputFormatterDiagnosticKernels`, and DocQuery type/reference-pack de-duplication,
+  best-type selection, and member ordering moved to `DocQueryKernels`; remaining routed kernels
+  still cross the ~1.2 ns delegate-dispatch + bounds-check floor documented in the boundary profiling doc.

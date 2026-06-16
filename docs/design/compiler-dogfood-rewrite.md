@@ -1659,8 +1659,8 @@ representative type-candidate corpus (437.7 ns vs 2.248 us, 0 B vs 440 B) and ab
 the large generated corpus (3.282 us vs 17.028 us, 0 B vs 440 B). `DocQuery.SelectBestType` now
 routes candidate-array de-duplication through the accepted stable distinct rank kernel and routes
 the resulting distinct candidate arrays through
-`NSharpCodeIntelligenceDogfoodAdapter.TrySelectBestDocType` when the dogfood assembly is available,
-with the previous LINQ distinct/order path retained as the exact fallback; the adapter also falls
+`DocQueryKernels.TrySelectBestDocType` when the dogfood assembly is available,
+with the previous LINQ distinct/order path retained as the exact fallback; the helper also falls
 back for non-ASCII CLR full names so the public
 `StringComparer.OrdinalIgnoreCase` tie-break contract is not approximated.
 
@@ -1671,7 +1671,7 @@ stable counting passes to preserve the C# `OrderBy(kind).ThenBy(name)` contract.
 22.0x faster on the representative member corpus (5.585 us vs 122.970 us, 0 B vs 37,368 B) and
 about 30.0x faster on the large generated corpus (51.244 us vs 1.535 ms, 0 B vs 295,416 B).
 `DocQuery.GetTypeMembers` now routes through
-`NSharpCodeIntelligenceDogfoodAdapter.TryOrderDocMembers` when the dogfood assembly is available,
+`DocQueryKernels.TryOrderDocMembers` when the dogfood assembly is available,
 with the previous LINQ ordering retained for unexpected member kinds or unavailable dogfood.
 
 The full-array `ParserTokenCompactionIndicesInto` parity wrapper passed parity and reported zero
@@ -1935,7 +1935,7 @@ de-duplication through `TreeDependencyDeduplicator` when the dogfood assembly is
 preserving ordinal generated-directory identity, ordinal-ignore-case framework identity, and
 first-source output order, with the previous C# `Distinct` paths kept as the fallback.
 `DocQuery` reference-pack assembly-name discovery routes stable ordinal-ignore-case de-duplication
-through `NSharpCodeIntelligenceDogfoodAdapter.TryDeduplicateStableStringsOrdinalIgnoreCase`, with the
+through `DocQueryKernels.TryDeduplicateStableStringsOrdinalIgnoreCase`, with the
 previous C# `Distinct(StringComparer.OrdinalIgnoreCase)` path kept as the fallback.
 `nlc check` and strict build lint now route duplicate diagnostic removal and file/line/column
 ordering through `OutputFormatter.DeduplicateAndSortDiagnostics`, which calls the compiled N#
