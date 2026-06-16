@@ -1,6 +1,6 @@
 // Product columnar struct/class/record parser wrapper. It keeps declaration span scratch columns inside N#,
-// rejects unsupported value-type storage/property shapes and member-method local functions, and exposes only text,
-// flag, and member-index rows needed by the C# transition materializer.
+// rejects unsupported value-type storage/property shapes and member-method generic/local functions, and exposes
+// only text, flag, and member-index rows needed by the C# transition materializer.
 
 struct ColumnarStructTokenTable {
     Kinds: int[]
@@ -145,8 +145,8 @@ func ParseColumnarStructInfoCore(source: string, tokens: &ColumnarStructTokenTab
 
     tokenValues := new ColumnarStructTokenTable { Kinds: tokens.Kinds, Starts: tokens.Starts, ValueLengths: tokens.ValueLengths, Count: tokens.Count }
     outputValues := new ColumnarStructOutputTable { FieldNameTexts: outputs.FieldNameTexts, FieldTypeTexts: outputs.FieldTypeTexts, FieldStaticFlags: outputs.FieldStaticFlags, FieldInitKinds: outputs.FieldInitKinds, FieldInitTexts: outputs.FieldInitTexts, MethodFuncIndices: outputs.MethodFuncIndices, MethodStaticFlags: outputs.MethodStaticFlags, CtorIndices: outputs.CtorIndices, PropIndices: outputs.PropIndices, PropStaticFlags: outputs.PropStaticFlags, TypeParamTexts: outputs.TypeParamTexts, BaseNameTexts: outputs.BaseNameTexts, StructNameTexts: outputs.StructNameTexts }
-    localStatus := ColumnarStructMethodLocalFunctionStatus(source, tokenValues, outputValues, methodCount)
-    if localStatus != 0 {
+    methodStatus := ColumnarStructMethodUnsupportedStatus(source, tokenValues, outputValues, methodCount)
+    if methodStatus != 0 {
         return -1
     }
 
@@ -207,7 +207,7 @@ func ParseColumnarStructInfoCore(source: string, tokens: &ColumnarStructTokenTab
     return fieldCount
 }
 
-func ColumnarStructMethodLocalFunctionStatus(source: string, tokens: ColumnarStructTokenTable, outputs: ColumnarStructOutputTable, methodCount: int): int {
+func ColumnarStructMethodUnsupportedStatus(source: string, tokens: ColumnarStructTokenTable, outputs: ColumnarStructOutputTable, methodCount: int): int {
     functionTokens := new ColumnarFunctionTokenTable { Kinds: tokens.Kinds, Starts: tokens.Starts, ValueLengths: tokens.ValueLengths, Count: tokens.Count }
     cap := tokens.Count + 1
     signatureOutputs := new ColumnarFunctionSignatureOutputTable {
@@ -240,6 +240,9 @@ func ColumnarStructMethodLocalFunctionStatus(source: string, tokens: ColumnarStr
         paramCount := ParseColumnarFunctionInfoCore(source, ref functionTokens, outputs.MethodFuncIndices[i], ref signatureOutputs, ref body, ref locals, ref result)
         if paramCount < 0 {
             return -1
+        }
+        if result.Values[2] > 0 {
+            return 1
         }
         if result.Values[8] > 0 {
             return 1

@@ -3094,11 +3094,6 @@ internal sealed class ColumnarIlEmitter
             // value receiver) — see TryEmitInstanceCall. Slice-1a methods READ fields (no field WRITE in a body yet).
             foreach (var m in structs[s].Methods)
             {
-                // A GENERIC method on a user type (`func With<U>(...)` in a type body) is not modelled — the
-                // oracle itself fails on them (probe B12: "Operation is not valid..."), so decline both the
-                // instance and static forms.
-                if (m.TypeParamNames.Length > 0)
-                    return false;
                 // A method whose name collides with a FIELD (instance or static) is rejected by the N# binder
                 // (NL306 — a name must be unique within the struct scope), so decline to keep the columnar path
                 // from accepting a program the language refuses.

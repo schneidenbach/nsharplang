@@ -11,6 +11,12 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Member generic-method decline moves into N# struct parser
+
+`ParseColumnarStructInfoCore` now rejects generic methods declared inside class/record/struct bodies by
+reusing the composed function parser's type-parameter count. The columnar emitter no longer carries the
+member-generic-method guard; top-level generic functions remain on their accepted route.
+
 ## 2026-06-16 — Generic static member declines move into N# struct parser
 
 `ParseColumnarStructInfoCore` now rejects static methods and static properties on generic
