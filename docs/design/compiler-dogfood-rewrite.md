@@ -1716,6 +1716,9 @@ It ran about 19.4x faster on the representative directory corpus (2.703 us vs 52
 501.349 us, 0 B vs 644,415 B). This is acceptance-grade benchmark evidence for `nlc clean`
 post-enumeration artifact de-duplication and deletion order after the host has projected compact
 path facts.
+Production `nlc clean` now routes this kernel through the owner-local
+`CleanArtifactDirectoryOrderer` helper when the dogfood assembly is available, with the previous C#
+distinct/filter/order path retained as the fallback.
 
 `CliUpdateAllNuGetDependencyIndicesInto` passed parity and reported zero managed allocation in the
 short BenchmarkDotNet evidence tier for `nlc update` all-NuGet dependency selection. The flag-based

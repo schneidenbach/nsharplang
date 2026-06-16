@@ -65,7 +65,7 @@ public static class CleanCommand
             .Concat(ArtifactDirectories.Select(name => Path.Combine(projectRoot, name)))
             .Where(Directory.Exists)
             .ToArray();
-        var directories = NSharpLang.Cli.NSharpCliDogfoodAdapter.TryOrderCleanArtifactDirectories(
+        var directories = CleanArtifactDirectoryOrderer.TryOrder(
             existingDirectories,
             out var dogfoodDirectories)
             ? dogfoodDirectories

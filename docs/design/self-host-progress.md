@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Clean artifact ordering leaves the CLI dogfood adapter
+
+`nlc clean` post-enumeration artifact directory selection now routes the accepted N# directory-order
+kernel through `CleanArtifactDirectoryOrderer`, an owner-local helper beside `CleanCommand`. The
+broad CLI dogfood adapter no longer owns the clean artifact entry point, delegate binding, or path
+rank/count scratch arrays; the existing C# distinct/filter/order fallback remains in the command.
+Focused evidence: `dotnet build src/NSharpLang.Cli/Cli.csproj --no-restore`; `dotnet test
+tests/Tests.csproj --filter "FullyQualifiedName~CliCommandTests.CleanArtifactDirectoryOrderer_OrdersArtifactDirectories"`.
+
 ## 2026-06-16 — Fix command kernels leave the CLI dogfood adapter
 
 `nlc fix` safety filtering, skipped-fix text selection, and applied-fix file grouping now route

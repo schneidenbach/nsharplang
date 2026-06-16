@@ -252,7 +252,7 @@ func Main() {
     }
 
     [Fact]
-    public void CleanCommand_DogfoodAdapter_OrdersArtifactDirectories()
+    public void CleanArtifactDirectoryOrderer_OrdersArtifactDirectories()
     {
         var directories = new[]
         {
@@ -274,7 +274,7 @@ func Main() {
             .OrderByDescending(dir => dir.Length)
             .ToArray();
 
-        Assert.True(NSharpCliDogfoodAdapter.TryOrderCleanArtifactDirectories(directories, out var actual));
+        Assert.True(CleanArtifactDirectoryOrderer.TryOrder(directories, out var actual));
         Assert.Equal(expected, actual);
     }
 

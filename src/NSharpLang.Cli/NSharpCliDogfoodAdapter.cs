@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
-using NSharpLang.Cli.Commands;
 using NSharpLang.Compiler;
 using NSharpLang.Compiler.CodeIntelligence;
 
@@ -17,8 +16,6 @@ internal static class NSharpCliDogfoodAdapter
     private static DocSymbolOrderScratch? t_docSymbolOrderScratch;
     [ThreadStatic]
     private static TreeDependencyDeduplicateScratch? t_treeDependencyDeduplicateScratch;
-    private static CleanArtifactDirectoryScratch? t_cleanArtifactDirectoryScratch;
-    [ThreadStatic]
     private static UpdateDependencyFilterScratch? t_updateDependencyFilterScratch;
     [ThreadStatic]
     private static ReferenceTypeFilterScratch? t_referenceTypeFilterScratch;
@@ -402,85 +399,6 @@ internal static class NSharpCliDogfoodAdapter
         {
             orderedSourceIndices = Array.Empty<int>();
             return false;
-        }
-    }
-
-    internal static bool TryOrderCleanArtifactDirectories(
-        IReadOnlyList<string> directories,
-        out string[] orderedDirectories)
-    {
-        orderedDirectories = Array.Empty<string>();
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        var directoryCount = directories.Count;
-        if (directoryCount == 0)
-            return true;
-
-        var scratch = t_cleanArtifactDirectoryScratch ??= new CleanArtifactDirectoryScratch();
-        scratch.EnsureInputCapacity(directoryCount);
-
-        try
-        {
-            scratch.ResetPathRanks();
-            var maxPathLength = 0;
-            for (var i = 0; i < directoryCount; i++)
-            {
-                var directory = directories[i];
-                scratch.KindRanks[i] = CleanCommand.IsArtifactDirectoryName(Path.GetFileName(directory)) ? 1 : 0;
-                scratch.NodeModuleFlags[i] = CleanCommand.IsUnderNodeModulesDirectory(directory) ? 1 : 0;
-                scratch.PathLengths[i] = directory.Length;
-                scratch.AddPath(directory);
-
-                if (directory.Length > maxPathLength)
-                    maxPathLength = directory.Length;
-            }
-
-            scratch.EnsureScratchCapacity(scratch.UniquePathCount, maxPathLength);
-            for (var i = 0; i < directoryCount; i++)
-            {
-                scratch.PathRanks[i] = scratch.GetPathRank(directories[i]);
-            }
-
-            var orderedCount = bindings.CliCleanArtifactDirectoryIndices(
-                scratch.KindRanks,
-                scratch.NodeModuleFlags,
-                scratch.PathRanks,
-                scratch.PathLengths,
-                scratch.SeenPathRanks,
-                scratch.LengthCounts,
-                scratch.LengthOffsets,
-                scratch.TempIndices,
-                scratch.ResultIndices);
-
-            if (orderedCount < 0 || orderedCount > directoryCount || orderedCount > scratch.ResultIndices.Length)
-                return false;
-
-            orderedDirectories = new string[orderedCount];
-            for (var i = 0; i < orderedCount; i++)
-            {
-                var sourceIndex = scratch.ResultIndices[i];
-                if (sourceIndex < 0 || sourceIndex >= directoryCount)
-                {
-                    orderedDirectories = Array.Empty<string>();
-                    return false;
-                }
-
-                orderedDirectories[i] = directories[sourceIndex];
-            }
-
-            return true;
-        }
-        catch
-        {
-            orderedDirectories = Array.Empty<string>();
-            return false;
-        }
-        finally
-        {
-            scratch.ResetPathRanks();
         }
     }
 
@@ -1184,7 +1102,6 @@ internal static class NSharpCliDogfoodAdapter
                 CreateDelegate<CliDocSlugsInto>(programType, "CliDocSlugsInto"),
                 CreateDelegate<CliTreeDependencyDeduplicateIndicesInto>(programType, "CliTreeDependencyDeduplicateIndicesInto"),
                 CreateDelegate<DiagnosticSeverityFilterIndicesInto>(programType, "DiagnosticSeverityFilterIndicesInto"),
-                CreateDelegate<CliCleanArtifactDirectoryIndicesInto>(programType, "CliCleanArtifactDirectoryIndicesInto"),
                 CreateDelegate<CliUpdateAllNuGetDependencyIndicesInto>(programType, "CliUpdateAllNuGetDependencyIndicesInto"),
                 CreateDelegate<CliUpdateTargetNuGetDependencyIndicesInto>(programType, "CliUpdateTargetNuGetDependencyIndicesInto"),
                 CreateDelegate<CliReferenceTypeFilterIndicesInto>(programType, "CliReferenceTypeFilterIndicesInto"),
@@ -1284,17 +1201,6 @@ internal static class NSharpCliDogfoodAdapter
         int targetRank,
         int[] resultIndices);
 
-    private delegate int CliCleanArtifactDirectoryIndicesInto(
-        int[] kindRanks,
-        int[] nodeModuleFlags,
-        int[] pathRanks,
-        int[] pathLengths,
-        int[] seenPathRanks,
-        int[] lengthCounts,
-        int[] lengthOffsets,
-        int[] tempIndices,
-        int[] resultIndices);
-
     private delegate int CliUpdateAllNuGetDependencyIndicesInto(
         int[] nugetFlags,
         int[] resultIndices);
@@ -1345,7 +1251,6 @@ internal static class NSharpCliDogfoodAdapter
         CliDocSlugsInto CliDocSlugs,
         CliTreeDependencyDeduplicateIndicesInto CliTreeDependencyDeduplicateIndices,
         DiagnosticSeverityFilterIndicesInto DiagnosticSeverityFilter,
-        CliCleanArtifactDirectoryIndicesInto CliCleanArtifactDirectoryIndices,
         CliUpdateAllNuGetDependencyIndicesInto CliUpdateAllNuGetDependencyIndices,
         CliUpdateTargetNuGetDependencyIndicesInto CliUpdateTargetNuGetDependencyIndices,
         CliReferenceTypeFilterIndicesInto CliReferenceTypeFilterIndices,
@@ -1554,68 +1459,6 @@ internal static class NSharpCliDogfoodAdapter
                 NameCounts = new int[nameBucketCapacity];
                 NameOffsets = new int[nameBucketCapacity];
             }
-        }
-    }
-
-    private sealed class CleanArtifactDirectoryScratch
-    {
-        private readonly Dictionary<string, int> _pathRanks = new(StringComparer.Ordinal);
-
-        internal int[] KindRanks = Array.Empty<int>();
-        internal int[] LengthCounts = Array.Empty<int>();
-        internal int[] LengthOffsets = Array.Empty<int>();
-        internal int[] NodeModuleFlags = Array.Empty<int>();
-        internal int[] PathLengths = Array.Empty<int>();
-        internal int[] PathRanks = Array.Empty<int>();
-        internal int[] ResultIndices = Array.Empty<int>();
-        internal int[] SeenPathRanks = Array.Empty<int>();
-        internal int[] TempIndices = Array.Empty<int>();
-        internal int UniquePathCount;
-
-        internal void EnsureInputCapacity(int directoryCount)
-        {
-            if (KindRanks.Length != directoryCount)
-            {
-                KindRanks = new int[directoryCount];
-                NodeModuleFlags = new int[directoryCount];
-                PathRanks = new int[directoryCount];
-                PathLengths = new int[directoryCount];
-                TempIndices = new int[directoryCount];
-                ResultIndices = new int[directoryCount];
-            }
-        }
-
-        internal void EnsureScratchCapacity(int uniquePathCount, int maxPathLength)
-        {
-            var pathRankCapacity = uniquePathCount + 1;
-            if (SeenPathRanks.Length != pathRankCapacity)
-            {
-                SeenPathRanks = new int[pathRankCapacity];
-            }
-
-            var lengthCapacity = maxPathLength + 1;
-            if (LengthCounts.Length != lengthCapacity)
-            {
-                LengthCounts = new int[lengthCapacity];
-                LengthOffsets = new int[lengthCapacity];
-            }
-        }
-
-        internal void AddPath(string path)
-        {
-            if (_pathRanks.ContainsKey(path))
-                return;
-
-            UniquePathCount++;
-            _pathRanks.Add(path, UniquePathCount);
-        }
-
-        internal int GetPathRank(string path) => _pathRanks[path];
-
-        internal void ResetPathRanks()
-        {
-            _pathRanks.Clear();
-            UniquePathCount = 0;
         }
     }
 
