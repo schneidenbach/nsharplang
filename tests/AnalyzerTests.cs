@@ -10503,6 +10503,30 @@ func Main() {
     }
 
     [Fact]
+    public void TableDrivenTestCases_TypeMismatches_ReportTypeMismatch()
+    {
+        var result = AnalyzeWithSource("""
+            test "bad table case type" with (value: int, label: string) [
+                ("nope", 42)
+            ] {
+            }
+            """);
+
+        Assert.Contains(
+            result.Errors,
+            e => e.Code == ErrorCode.TypeMismatch
+                && e.Message.Contains("value")
+                && e.Message.Contains("int")
+                && e.Message.Contains("string"));
+        Assert.Contains(
+            result.Errors,
+            e => e.Code == ErrorCode.TypeMismatch
+                && e.Message.Contains("label")
+                && e.Message.Contains("string")
+                && e.Message.Contains("int"));
+    }
+
+    [Fact]
     public void AnonymousUnion_AllowsEitherArmAndCommonTargetAssignment()
     {
         AssertNoErrors(@"

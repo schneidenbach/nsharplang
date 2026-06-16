@@ -1063,9 +1063,11 @@ public class Analyzer : IDisposable
         {
             ValidateParameterDeclarations(test.TableParameters, test.Line, test.Column);
 
+            var tableParameterTypes = new List<(string Name, TypeInfo Type)>(test.TableParameters.Count);
             foreach (var param in test.TableParameters)
             {
                 var paramType = ResolveDeclaredType(param.Type);
+                tableParameterTypes.Add((param.Name, paramType));
                 var (paramLine, paramColumn) = GetParameterDeclarationPosition(param, test.Line, test.Column);
                 DeclareSymbol(param.Name, paramType, paramLine, paramColumn);
                 RecordVariableInCurrentScope(param.Name, paramType);
@@ -1084,9 +1086,17 @@ public class Analyzer : IDisposable
                             test.Line, test.Column);
                     }
 
-                    foreach (var value in row)
+                    var valuesToValidate = Math.Min(row.Count, tableParameterTypes.Count);
+                    for (var i = 0; i < row.Count; i++)
                     {
-                        ValidateTableCaseValue(value);
+                        var value = row[i];
+                        if (!ValidateTableCaseValue(value) || i >= valuesToValidate)
+                        {
+                            continue;
+                        }
+
+                        var (name, type) = tableParameterTypes[i];
+                        ValidateTableCaseValueType(value, type, name);
                     }
                 }
             }
@@ -1097,11 +1107,11 @@ public class Analyzer : IDisposable
         PopScope();
     }
 
-    private void ValidateTableCaseValue(Expression expression)
+    private bool ValidateTableCaseValue(Expression expression)
     {
         if (IsSupportedTableCaseValue(expression))
         {
-            return;
+            return true;
         }
 
         var errorsBefore = _errors.Count;
@@ -1112,7 +1122,7 @@ public class Analyzer : IDisposable
 
         if (_errors.Count != errorsBefore)
         {
-            return;
+            return false;
         }
 
         var (line, column, length) = GetExpressionDiagnosticSpan(expression);
@@ -1122,6 +1132,36 @@ public class Analyzer : IDisposable
             line,
             column,
             "Use literal int, float, char, string, bool, or null values in table rows.",
+            length);
+        return false;
+    }
+
+    private void ValidateTableCaseValueType(Expression expression, TypeInfo expectedType, string parameterName)
+    {
+        var previousExpectedType = _currentExpectedType;
+        TypeInfo actualType;
+        try
+        {
+            _currentExpectedType = expectedType;
+            actualType = AnalyzeExpression(expression);
+        }
+        finally
+        {
+            _currentExpectedType = previousExpectedType;
+        }
+
+        if (BuiltInTypes.IsUnknown(expectedType) || BuiltInTypes.IsUnknown(actualType) || IsAssignable(expectedType, actualType))
+        {
+            return;
+        }
+
+        var (line, column, length) = GetExpressionDiagnosticSpan(expression);
+        Error(
+            ErrorCode.TypeMismatch,
+            $"Table-driven test case value for '{parameterName}' is '{actualType}', but the table header declares '{expectedType}'",
+            line,
+            column,
+            $"Change the literal or the '{parameterName}' parameter type so the row value matches.",
             length);
     }
 

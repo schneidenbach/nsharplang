@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Table-driven test case values type-check before emission
+
+Table-driven test case rows now validate each supported inline-data constant against the matching
+table header parameter type during analysis. This closes the remaining pre-emission gap after the
+constant-shape check: a row such as `("nope", 42)` for `(value: int, label: string)` now reports
+NL120 before xUnit/NUnit metadata lowering instead of leaving the backend to discover an invalid
+custom-attribute payload or test invocation shape. The validation reuses normal expected-type
+expression analysis and assignability so numeric widening, nullability, and future literal typing
+rules stay aligned with ordinary variable/parameter checks.
+Focused evidence: targeted regression failed before the analyzer change and then passed with
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~AnalyzerTests.TableDrivenTestCases"`.
+
 ## 2026-06-16 — Table-driven test case values fail before emission
 
 Table-driven test case rows now get analyzer validation before xUnit/NUnit custom attributes are
