@@ -7554,7 +7554,7 @@ public partial class ILCompiler
             return -1;
         }
 
-        if (NSharpCompilerDogfoodAdapter.TrySelectOverloadCandidate(
+        if (OverloadCandidateSelector.TrySelectBest(
                 candidates.Count,
                 (validFlags, scores, genericFlags, paramsFlags, defaultsUsed) =>
                 {

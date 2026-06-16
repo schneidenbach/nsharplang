@@ -18,8 +18,6 @@ internal static class NSharpCompilerDogfoodAdapter
     private static DeclaredTypeNameCandidateScratch? t_declaredTypeNameCandidateScratch;
     [ThreadStatic]
     private static TypeCreationOrderScratch? t_typeCreationOrderScratch;
-    [ThreadStatic]
-    private static OverloadCandidateScratch? t_overloadCandidateScratch;
 
     internal static bool TryDeduplicateFirstTypeKeys(
         IReadOnlyList<Type> types,
@@ -253,76 +251,6 @@ internal static class NSharpCompilerDogfoodAdapter
         }
     }
 
-    /// <summary>
-    /// Selects the winning declared-method overload index from a compact candidate table using the
-    /// N# ranking kernel. The caller fills the rank columns for each surviving candidate through
-    /// <paramref name="fillColumns"/> (writing one entry per candidate into the supplied buffers and
-    /// returning the candidate count), and this routine runs the exact four-level tie-break
-    /// (score &gt; non-generic &gt; non-params &gt; fewer-defaults, first-wins-on-tie) over those
-    /// columns. <paramref name="selectedIndex"/> is the zero-based index of the winning candidate in
-    /// fill order, or -1 when no candidate is valid.
-    /// </summary>
-    internal static bool TrySelectOverloadCandidate(
-        int candidateCapacity,
-        OverloadColumnFiller fillColumns,
-        out int selectedIndex)
-    {
-        selectedIndex = -1;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        if (candidateCapacity < 0)
-            return false;
-
-        var scratch = t_overloadCandidateScratch ??= new OverloadCandidateScratch();
-        scratch.EnsureCapacity(candidateCapacity);
-
-        try
-        {
-            var count = fillColumns(
-                scratch.ValidFlags,
-                scratch.Scores,
-                scratch.GenericFlags,
-                scratch.ParamsFlags,
-                scratch.DefaultsUsed);
-
-            if (count < 0 || count > candidateCapacity)
-                return false;
-
-            var index = bindings.OverloadSelectBestCandidate(
-                scratch.ValidFlags,
-                scratch.Scores,
-                scratch.GenericFlags,
-                scratch.ParamsFlags,
-                scratch.DefaultsUsed,
-                count);
-
-            if (index < -1 || index >= count)
-                return false;
-
-            selectedIndex = index;
-            return true;
-        }
-        catch
-        {
-            selectedIndex = -1;
-            return false;
-        }
-    }
-
-    /// <summary>
-    /// Fills the compact overload-candidate rank columns for surviving candidates and returns the
-    /// candidate count.
-    /// </summary>
-    internal delegate int OverloadColumnFiller(
-        int[] validFlags,
-        int[] scores,
-        int[] genericFlags,
-        int[] paramsFlags,
-        int[] defaultsUsed);
-
     private static Bindings? LoadBindings()
     {
         try
@@ -344,10 +272,7 @@ internal static class NSharpCompilerDogfoodAdapter
                     "DeclaredTypeNameCandidateIndex"),
                 CreateDelegate<TypeCreationOrderIndicesInto>(
                     programType,
-                    "TypeCreationOrderIndicesInto"),
-                CreateDelegate<OverloadSelectBestCandidate>(
-                    programType,
-                    "OverloadSelectBestCandidate"));
+                    "TypeCreationOrderIndicesInto"));
         }
         catch
         {
@@ -407,40 +332,11 @@ internal static class NSharpCompilerDogfoodAdapter
         int[] depthCounts,
         int[] depthOffsets,
         int[] resultIndices);
-    private delegate int OverloadSelectBestCandidate(
-        int[] validFlags,
-        int[] scores,
-        int[] genericFlags,
-        int[] paramsFlags,
-        int[] defaultsUsed,
-        int count);
     private sealed record Bindings(
         FirstDistinctRankIndicesInto FirstDistinctRankIndices,
         DeclaredTypeUniqueSuffixValueRank DeclaredTypeUniqueSuffixValueRank,
         DeclaredTypeNameCandidateIndex DeclaredTypeNameCandidateIndex,
-        TypeCreationOrderIndicesInto TypeCreationOrderIndices,
-        OverloadSelectBestCandidate OverloadSelectBestCandidate);
-
-    private sealed class OverloadCandidateScratch
-    {
-        internal int[] ValidFlags = Array.Empty<int>();
-        internal int[] Scores = Array.Empty<int>();
-        internal int[] GenericFlags = Array.Empty<int>();
-        internal int[] ParamsFlags = Array.Empty<int>();
-        internal int[] DefaultsUsed = Array.Empty<int>();
-
-        internal void EnsureCapacity(int count)
-        {
-            if (ValidFlags.Length < count)
-            {
-                ValidFlags = new int[count];
-                Scores = new int[count];
-                GenericFlags = new int[count];
-                ParamsFlags = new int[count];
-                DefaultsUsed = new int[count];
-            }
-        }
-    }
+        TypeCreationOrderIndicesInto TypeCreationOrderIndices);
 
     private sealed class FirstDistinctTypeKeyScratch
     {

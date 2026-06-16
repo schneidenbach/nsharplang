@@ -11,14 +11,23 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Overload candidate selection leaves the general dogfood adapter
+
+`ILCompiler` now routes declared-method overload ranking through `OverloadCandidateSelector`, an
+IL-emission-owned helper that binds the N# `OverloadSelectBestCandidate` kernel beside the call
+resolver that consumes it. The general `NSharpCompilerDogfoodAdapter` no longer owns the overload
+ranking delegate, candidate scratch columns, or selection entry point; its remaining product calls
+are the IL declared-type lookup, type creation ordering, and type-key dedup surfaces.
+Focused evidence: `dotnet test tests/Tests.csproj --filter "FullyQualifiedName~OverloadCandidateSelector_SelectsBestCandidateThroughDogfoodKernel"`.
+
 ## 2026-06-16 — Anonymous-union shim selection leaves the general dogfood adapter
 
 `ILCompiler` now routes public anonymous-union shim eligibility through
 `AnonymousUnionShimSelector`, an IL-emission-owned helper that binds the N#
 `AnonymousUnionDeclaresPublicShim` kernel beside the shim emitter that consumes it. The general
 `NSharpCompilerDogfoodAdapter` no longer owns the anonymous-union shim delegate, scratch storage, or
-selection entry point; its remaining product calls are the IL/type lookup, ordering, dedup, and
-overload-candidate surfaces.
+selection entry point; its remaining product calls are the IL declared-type lookup, type creation
+ordering, and type-key dedup surfaces.
 Focused evidence: `dotnet test tests/Tests.csproj --filter "FullyQualifiedName~AnonymousUnionShimSelector_ChecksAnonymousUnionShimEligibility"`.
 
 ## 2026-06-16 — Analyzer exhaustiveness selection leaves the general dogfood adapter

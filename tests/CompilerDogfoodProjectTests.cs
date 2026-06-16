@@ -13945,6 +13945,48 @@ func main(): int {
     }
 
     [Fact]
+    public void OverloadCandidateSelector_SelectsBestCandidateThroughDogfoodKernel()
+    {
+        Assert.True(OverloadCandidateSelector.TrySelectBest(
+            4,
+            (validFlags, scores, genericFlags, paramsFlags, defaultsUsed) =>
+            {
+                validFlags[0] = 1;
+                scores[0] = 10;
+                genericFlags[0] = 1;
+                paramsFlags[0] = 0;
+                defaultsUsed[0] = 0;
+
+                validFlags[1] = 1;
+                scores[1] = 10;
+                genericFlags[1] = 0;
+                paramsFlags[1] = 1;
+                defaultsUsed[1] = 0;
+
+                validFlags[2] = 1;
+                scores[2] = 10;
+                genericFlags[2] = 0;
+                paramsFlags[2] = 0;
+                defaultsUsed[2] = 2;
+
+                validFlags[3] = 1;
+                scores[3] = 10;
+                genericFlags[3] = 0;
+                paramsFlags[3] = 0;
+                defaultsUsed[3] = 1;
+                return 4;
+            },
+            out var selectedIndex));
+
+        Assert.Equal(3, selectedIndex);
+
+        Assert.False(OverloadCandidateSelector.TrySelectBest(
+            1,
+            static (_, _, _, _, _) => 2,
+            out _));
+    }
+
+    [Fact]
     public void CompilerDogfoodAdapter_DeduplicatesFirstTypeKeys()
     {
         var types = new[]
