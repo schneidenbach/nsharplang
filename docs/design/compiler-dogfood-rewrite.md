@@ -723,7 +723,9 @@ normal BenchmarkDotNet evidence tier for semantic reference result deduplication
 ran about 13.02x faster on the representative reference corpus (6.557 us vs 85.349 us, 0 B vs
 59,560 B) and about 13.19x faster on the large generated reference corpus (71.671 us vs
 945.375 us, 0 B vs 468,184 B). This is acceptance-grade benchmark evidence for reference result
-deduplication after the host has assigned default-comparer file sort ranks.
+deduplication after the host has assigned default-comparer file sort ranks. The production
+code-intelligence reference route now binds this kernel through `CodeIntelligenceResultKernels`
+instead of the broad code-intelligence dogfood adapter.
 
 `ReferenceFileSummaryRanksInto` passed parity and reported much lower managed allocation in the
 same normal BenchmarkDotNet evidence tier for inspect-summary reference file lists. It ran about
@@ -896,7 +898,9 @@ path uses compact ordinal diagnostic-code ids, case-insensitive file ranks, and 
 shadowed-file flag table. It ran about 5.75x faster on the representative diagnostic corpus
 (1.335 us vs 7.673 us, 0 B vs 7,368 B) and about 6.97x faster on the large generated diagnostic
 corpus (10.696 us vs 74.597 us, 0 B vs 57,736 B). This is acceptance-grade benchmark evidence for
-the source-order-preserving `NL020` suppression pass before combined diagnostic deduplication.
+the source-order-preserving `NL020` suppression pass before combined diagnostic deduplication. The
+production `GetDiagnostics` route now binds this kernel through `CodeIntelligenceResultKernels`
+instead of the broad code-intelligence dogfood adapter.
 
 `ReferenceFileSummaryRanksInto` also passed parity for clustered diagnostic file-list materialization
 after the host has assigned compact case-insensitive file ranks. In the normal BenchmarkDotNet
@@ -913,14 +917,18 @@ normal BenchmarkDotNet evidence tier for check/build diagnostic deduplication. I
 faster on the representative diagnostic corpus (7.877 us vs 105.425 us, 0 B vs 63,656 B) and about
 12.63x faster on the large generated diagnostic corpus (86.654 us vs 1,094.624 us, 0 B vs
 500,952 B). This is acceptance-grade benchmark evidence for the compact integer diagnostic
-deduplication kernel after the host has assigned default-comparer file sort ranks.
+deduplication kernel after the host has assigned default-comparer file sort ranks. The production
+output-format dedup/sort route now binds this kernel through `CodeIntelligenceResultKernels`
+instead of the broad code-intelligence dogfood adapter.
 
 `DiagnosticDeduplicateStableInto` passed parity and reported zero managed allocation in the same
 normal BenchmarkDotNet evidence tier for `GetDiagnostics` duplicate removal while preserving the
 old first-seen result order. It ran about 14.4x faster on the representative diagnostic corpus
 (3.693 us vs 53.242 us, 0 B vs 56,672 B) and about 13.6x faster on the large generated diagnostic
 corpus (36.395 us vs 494.160 us, 0 B vs 450,960 B). This is acceptance-grade benchmark evidence
-for stable duplicate removal after the host has assigned compact code/file/message ids.
+for stable duplicate removal after the host has assigned compact code/file/message ids. The
+production `GetDiagnostics` route now binds this kernel through `CodeIntelligenceResultKernels`
+instead of the broad code-intelligence dogfood adapter.
 
 `DiagnosticClusterCompactGroupsInto` passed parity and reported zero managed allocation in the same
 normal BenchmarkDotNet evidence tier for the clustered diagnostic grouping kernel. It ran about 6.76x

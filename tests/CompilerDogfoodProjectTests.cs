@@ -13391,10 +13391,6 @@ func documented(): int {
         Assert.Equal(new[] { 0, 2 }, grouping.MemberStarts.Take(2));
         Assert.Equal(new[] { 1, 0, 2 }, grouping.MemberIndices.Take(3));
 
-        var tryDeduplicateDiagnostics = adapterType.GetMethod(
-                "TryDeduplicateDiagnostics",
-                BindingFlags.Static | BindingFlags.NonPublic)
-            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryDeduplicateDiagnostics.");
         var deduplicationDiagnostics = new List<DiagnosticResult>
         {
             BuildDiagnosticWithSeverity("error", 10) with
@@ -13435,24 +13431,20 @@ func documented(): int {
                 Message = "Undefined variable 'value'"
             }
         };
-        var deduplicationArgs = new object?[] { deduplicationDiagnostics, null, null };
-        Assert.True((bool)(tryDeduplicateDiagnostics.Invoke(null, deduplicationArgs) ?? false));
-        Assert.Equal(3, Assert.IsType<int>(deduplicationArgs[2]));
-        Assert.Equal(new[] { 3, 1, 0 }, Assert.IsType<int[]>(deduplicationArgs[1]).Take(3));
+        Assert.True(CodeIntelligenceResultKernels.TryDeduplicateDiagnostics(
+            deduplicationDiagnostics,
+            out var deduplicationIndices,
+            out var deduplicationCount));
+        Assert.Equal(3, deduplicationCount);
+        Assert.Equal(new[] { 3, 1, 0 }, deduplicationIndices.Take(3));
 
-        var tryDeduplicateDiagnosticsPreservingOrder = adapterType.GetMethod(
-                "TryDeduplicateDiagnosticsPreservingOrder",
-                BindingFlags.Static | BindingFlags.NonPublic)
-            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryDeduplicateDiagnosticsPreservingOrder.");
-        var stableDeduplicationArgs = new object?[] { deduplicationDiagnostics, null, null };
-        Assert.True((bool)(tryDeduplicateDiagnosticsPreservingOrder.Invoke(null, stableDeduplicationArgs) ?? false));
-        Assert.Equal(3, Assert.IsType<int>(stableDeduplicationArgs[2]));
-        Assert.Equal(new[] { 0, 1, 3 }, Assert.IsType<int[]>(stableDeduplicationArgs[1]).Take(3));
+        Assert.True(CodeIntelligenceResultKernels.TryDeduplicateDiagnosticsPreservingOrder(
+            deduplicationDiagnostics,
+            out var stableDeduplicationIndices,
+            out var stableDeduplicationCount));
+        Assert.Equal(3, stableDeduplicationCount);
+        Assert.Equal(new[] { 0, 1, 3 }, stableDeduplicationIndices.Take(3));
 
-        var tryDeduplicateReferences = adapterType.GetMethod(
-                "TryDeduplicateReferences",
-                BindingFlags.Static | BindingFlags.NonPublic)
-            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryDeduplicateReferences.");
         var references = new List<ReferenceResult>
         {
             new("B.nl", 10, 5, 5, "first duplicate wins", IsDefinition: true),
@@ -13461,10 +13453,12 @@ func documented(): int {
             new("A.nl", 2, 1, 5, "earlier column sorts first", IsDefinition: false),
             new("A.nl", 2, 3, 5, "duplicate A reference", IsDefinition: false)
         };
-        var referenceDeduplicationArgs = new object?[] { references, null, null };
-        Assert.True((bool)(tryDeduplicateReferences.Invoke(null, referenceDeduplicationArgs) ?? false));
-        Assert.Equal(3, Assert.IsType<int>(referenceDeduplicationArgs[2]));
-        Assert.Equal(new[] { 3, 1, 0 }, Assert.IsType<int[]>(referenceDeduplicationArgs[1]).Take(3));
+        Assert.True(CodeIntelligenceResultKernels.TryDeduplicateReferences(
+            references,
+            out var referenceDeduplicationIndices,
+            out var referenceDeduplicationCount));
+        Assert.Equal(3, referenceDeduplicationCount);
+        Assert.Equal(new[] { 3, 1, 0 }, referenceDeduplicationIndices.Take(3));
 
         var summaryReferences = new List<ReferenceResult>
         {
@@ -13610,16 +13604,13 @@ func documented(): int {
             out var severityFilterCount));
         Assert.Equal(new[] { 0, 5 }, severityFilterIndices.Take(severityFilterCount).ToArray());
 
-        var trySuppressLintShadowingDiagnostics = adapterType.GetMethod(
-                "TrySuppressLintShadowingDiagnostics",
-                BindingFlags.Static | BindingFlags.NonPublic)
-            ?? throw new InvalidOperationException("Dogfood adapter did not emit TrySuppressLintShadowingDiagnostics.");
         var shadowDiagnostics = BuildDiagnosticShadowSuppressionDiagnostics();
         var shadowedFiles = new[] { "SRC/a.nl", "src/c.nl", "src/c.nl" };
-        var shadowArgs = new object?[] { shadowDiagnostics, shadowedFiles, null, 0 };
-        Assert.True((bool)(trySuppressLintShadowingDiagnostics.Invoke(null, shadowArgs) ?? false));
-        var shadowIndices = Assert.IsType<int[]>(shadowArgs[2]);
-        var shadowCount = Assert.IsType<int>(shadowArgs[3]);
+        Assert.True(CodeIntelligenceResultKernels.TrySuppressLintShadowingDiagnostics(
+            shadowDiagnostics,
+            shadowedFiles,
+            out var shadowIndices,
+            out var shadowCount));
         var expectedShadowIndices = ExpectedDiagnosticShadowSuppressionIndices(shadowDiagnostics, shadowedFiles);
         Assert.Equal(expectedShadowIndices, shadowIndices.Take(shadowCount).ToArray());
 

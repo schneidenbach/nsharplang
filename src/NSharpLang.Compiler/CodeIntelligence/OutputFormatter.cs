@@ -173,7 +173,7 @@ public static class OutputFormatter
 
     public static List<DiagnosticResult> DeduplicateAndSortDiagnostics(IReadOnlyList<DiagnosticResult> diagnostics)
     {
-        if (NSharpCodeIntelligenceDogfoodAdapter.TryDeduplicateDiagnostics(
+        if (CodeIntelligenceResultKernels.TryDeduplicateDiagnostics(
             diagnostics,
             out var resultIndices,
             out var resultCount))

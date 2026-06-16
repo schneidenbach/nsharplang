@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Diagnostic/reference result kernels leave the code-intelligence adapter
+
+Diagnostic deduplication, stable `GetDiagnostics` duplicate removal, semantic-reference
+deduplication, and `NL020` lint-shadow suppression now route through
+`CodeIntelligenceResultKernels`, beside the code-intelligence service and formatter result paths
+that consume those indices. The broad `NSharpCodeIntelligenceDogfoodAdapter` no longer owns the
+diagnostic/reference dedup delegates, shadow-suppression delegate, or their scratch arrays; the
+existing LINQ fallbacks remain at each product caller.
+Focused evidence: `dotnet build src/NSharpLang.Compiler/Compiler.csproj --no-restore`; `dotnet
+test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.CodeIntelligenceDogfoodAdapter_LoadsPackagedNSharpAssembly"`;
+`./scripts/dev.sh --since`.
+
 ## 2026-06-16 — Output formatter diagnostic-cluster kernels leave the code-intelligence adapter
 
 Diagnostic-cluster trait classification, compact group construction, and compact group-member
@@ -10775,6 +10787,8 @@ or stand up the N#-native pooled `Token`/`TokenStream` so the parser can consume
   moved to `FixApplicatorTextEditOrderer` on 2026-06-16, output-format severity summary/filtering
   moved to `OutputFormatterDiagnosticKernels`, output-format diagnostic-cluster trait/group kernels
   moved to `OutputFormatterDiagnosticClusterKernels`, output-format reference-file summaries moved
-  to `OutputFormatterReferenceFileKernels`, and DocQuery type/reference-pack de-duplication,
-  best-type selection, and member ordering moved to `DocQueryKernels`; remaining routed kernels
-  still cross the ~1.2 ns delegate-dispatch + bounds-check floor documented in the boundary profiling doc.
+  to `OutputFormatterReferenceFileKernels`, diagnostic/reference result de-duplication and lint-shadow
+  suppression moved to `CodeIntelligenceResultKernels`, and DocQuery type/reference-pack
+  de-duplication, best-type selection, and member ordering moved to `DocQueryKernels`; remaining
+  routed kernels still cross the ~1.2 ns delegate-dispatch + bounds-check floor documented in the
+  boundary profiling doc.

@@ -309,7 +309,7 @@ public class CodeIntelligenceService
         List<DiagnosticResult> lintDiagnostics,
         IReadOnlyList<string> filesWithCompilerShadowingErrors)
     {
-        if (NSharpCodeIntelligenceDogfoodAdapter.TrySuppressLintShadowingDiagnostics(
+        if (CodeIntelligenceResultKernels.TrySuppressLintShadowingDiagnostics(
                 lintDiagnostics,
                 filesWithCompilerShadowingErrors,
                 out var resultIndices,
@@ -447,7 +447,7 @@ public class CodeIntelligenceService
 
     private static List<DiagnosticResult> DeduplicateDiagnostics(List<DiagnosticResult> diagnostics)
     {
-        if (NSharpCodeIntelligenceDogfoodAdapter.TryDeduplicateDiagnosticsPreservingOrder(
+        if (CodeIntelligenceResultKernels.TryDeduplicateDiagnosticsPreservingOrder(
                 diagnostics,
                 out var resultIndices,
                 out var resultCount))
@@ -685,7 +685,7 @@ public class CodeIntelligenceService
 
     private static List<ReferenceResult> DeduplicateAndSortReferenceResults(IReadOnlyList<ReferenceResult> results)
     {
-        if (NSharpCodeIntelligenceDogfoodAdapter.TryDeduplicateReferences(
+        if (CodeIntelligenceResultKernels.TryDeduplicateReferences(
                 results,
                 out var resultIndices,
                 out var resultCount))
