@@ -11828,6 +11828,7 @@ func outer(x: int): int {
             ("ParserColumnarFunctions.nl", "ParseColumnarFunctionInfoInto"),
             ("ParserConstructorSignatures.nl", "ParseConstructorSignatureInfoInto"),
             ("ParserInterfaceSignatures.nl", "ParseInterfaceDeclarationSignatureInfoInto"),
+            ("ParserInterfaceSignatures.nl", "ParseInterfaceSignatureHasTupleNames"),
             ("ParserLocalFunctions.nl", "DirectLocalFunctionTokenIndicesInto"),
             ("ParserExpressions.nl", "ParseExpressionNodesInto"),
             ("ParserStatements.nl", "ParseStatementNodesInto"),

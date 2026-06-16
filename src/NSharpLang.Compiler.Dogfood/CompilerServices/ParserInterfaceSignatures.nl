@@ -140,11 +140,6 @@ func ParseInterfaceDeclarationSignatureInfoCore(source: string, tokens: &ParserT
     return methodCount
 }
 
-func ParseInterfaceSignatureHasTupleNames(nodeKinds: int[], childStart: int[], childCount: int[], childIndices: int[], root: int): int {
-    nodes := new InterfaceSignatureTupleNodeTable { Kinds: nodeKinds, ChildStart: childStart, ChildCount: childCount, ChildIndices: childIndices }
-    return ParseInterfaceSignatureHasTupleNamesCore(ref nodes, root)
-}
-
 func ParseInterfaceSignatureHasTupleNamesCore(nodes: &InterfaceSignatureTupleNodeTable, root: int): int {
     if root < 0 || root >= nodes.Kinds.Length || nodes.Kinds[root] != 6 || nodes.ChildCount[root] == 0 {
         return 0

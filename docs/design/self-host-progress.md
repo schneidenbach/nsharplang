@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Interface tuple-name shim leaves product dogfood
+
+The raw-array `ParseInterfaceSignatureHasTupleNames` helper now lives in the parity corpus with the
+flattened `ParseInterfaceDeclarationSignatureInfoInto` ABI. Product interface-signature parsing keeps
+only the wrapper-shaped `ParseInterfaceSignatureHasTupleNamesCore`, which is still composed by
+`ParseInterfaceDeclarationSignatureInfoCore` while materializing method return/parameter type text.
+The product/parity boundary test now pins the shim as parity-only.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_ParityOnlyFiles_AreAbsentFromProductCoverage|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_EligibleClusterCompiles|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`;
+`./scripts/dev.sh --since`.
+
 ## 2026-06-16 — Function-signature type-parameter shim leaves product dogfood
 
 The raw-array `FunctionSignatureTypeParameterIndexOf` compatibility shim now lives in the parity

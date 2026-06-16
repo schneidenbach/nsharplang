@@ -21,3 +21,8 @@ func ParseInterfaceDeclarationSignatureInfoInto(source: string, tokenKinds: int[
     result := new ParserResultTable { Values: outResult }
     return ParseInterfaceDeclarationSignatureInfoCore(source, ref tokens, count, interfaceIndex, ref baseOutputs, ref methodOutputs, ref typeStack, ref nodes, ref children, ref canonicalNodes, ref tupleNodes, ref parameters, ref typeParams, ref whereItems, ref signatureResult, ref result)
 }
+
+func ParseInterfaceSignatureHasTupleNames(nodeKinds: int[], childStart: int[], childCount: int[], childIndices: int[], root: int): int {
+    nodes := new InterfaceSignatureTupleNodeTable { Kinds: nodeKinds, ChildStart: childStart, ChildCount: childCount, ChildIndices: childIndices }
+    return ParseInterfaceSignatureHasTupleNamesCore(ref nodes, root)
+}
