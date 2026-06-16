@@ -3610,6 +3610,21 @@ func outer(x: int): int {
                 tokenize,
                 parseColumnarFunctionInfo,
                 "regular function info");
+            AssertColumnarFunctionInfoDeclines(
+                """
+func outer(x: int): int {
+    func same(y: int): int {
+        return y
+    }
+    func same(z: int): int {
+        return z + 1
+    }
+    return same(x)
+}
+""",
+                tokenize,
+                parseColumnarFunctionInfo,
+                "duplicate local function name");
             AssertFunctionSignatureInfoDeclines(
                 "func bad<T>(x: T): T where U: class { return x }",
                 tokenize,
@@ -10711,6 +10726,8 @@ func outer(x: int): int {
         // before a local body is materialized for IL emission.
         Assert.False(RouteColumnarProgram("func f(v: int): int {\n    func id<T>(n: T): T {\n        return n\n    }\n    return id<int>(v)\n}\n").Ok);
         Assert.False(RouteColumnarProgram("func f(v: int): int {\n    func outer(n: int): int {\n        func inner(x: int): int {\n            return x + 1\n        }\n        return inner(n)\n    }\n    return outer(v)\n}\n").Ok);
+        // Duplicate direct local-function names now decline in the N# product parser before the local map is built.
+        Assert.False(RouteColumnarProgram("func f(v: int): int {\n    func same(n: int): int {\n        return n\n    }\n    func same(n: int): int {\n        return n + 1\n    }\n    return same(v)\n}\n").Ok);
         // Duplicate local-function parameters are rejected by the same N# signature parser wrapper.
         Assert.False(RouteColumnarProgram("func f(v: int): int {\n    func g(x: int, x: int): int {\n        return x\n    }\n    return g(v, v)\n}\n").Ok);
         // a NESTED-BLOCK local function (scoping is a later rung; the kind-41 node stays undeclared).

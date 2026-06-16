@@ -3734,8 +3734,7 @@ internal sealed class ColumnarIlEmitter
                     var localMethod = type.DefineMethod(
                         "<" + fn.Name + ">g__" + lambdaCounter[0]++,
                         MethodAttributes.Private | MethodAttributes.Static, localReturn, localParams);
-                    if (!localFuncs.TryAdd(localFn.Name, (localMethod, localParams, localReturn)))
-                        return false;
+                    localFuncs[localFn.Name] = (localMethod, localParams, localReturn);
                     declaredLocalFuncNodes[nodeIndex] = localFn.Name;
                 }
             }

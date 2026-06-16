@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-16 — Local-function duplicate name decline moves into N# parser
+
+`ParseColumnarFunctionInfoCore` now rejects duplicate direct local-function names by comparing the
+discovered local `func` declaration name spans before local-function rows cross into the C# transition
+materializer. The columnar emitter no longer carries the duplicate local-function name fallback guard;
+forward-reference scoping, local capture/shadowing checks, and local-function body lowering remain
+semantic emission checks.
+
 ## 2026-06-16 — Function duplicate parameter decline moves into N# parser
 
 `ParseFunctionSignatureInfoCore` now rejects duplicate parameter names by comparing declaration spans

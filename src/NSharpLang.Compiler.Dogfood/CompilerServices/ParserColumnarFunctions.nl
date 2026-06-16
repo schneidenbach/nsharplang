@@ -104,6 +104,9 @@ func ParseColumnarFunctionInfoCore(source: string, tokens: &ColumnarFunctionToke
     if localFunctionCount < 0 {
         return -1
     }
+    if ColumnarFunctionLocalFunctionNamesDistinct(source, ref tokens, ref locals, localFunctionCount) == 0 {
+        return -1
+    }
     if isLocalFunction != 0 && localFunctionCount > 0 {
         return -1
     }
@@ -127,4 +130,57 @@ func ParseColumnarFunctionBodyNodesCore(tokens: &ColumnarFunctionTokenTable, bod
     children := new ParserChildIndexTable { Indices: body.ChildIndices }
     statementResult := new ParserResultTable { Values: result.Values }
     return ParseStatementNodesCore(ref statementTokens, tokens.Count, bodyBrace, ref argStack, ref nodes, ref children, ref statementResult)
+}
+
+func ColumnarFunctionLocalFunctionNamesDistinct(source: string, tokens: &ColumnarFunctionTokenTable, locals: &ColumnarFunctionLocalTable, localFunctionCount: int): int {
+    if localFunctionCount < 0 {
+        return 0
+    }
+
+    i := 0
+    while i < localFunctionCount {
+        nameToken := locals.TokenIndices[i] + 1
+        if nameToken < 0 || nameToken >= tokens.Count || tokens.Kinds[nameToken] != 0 {
+            return 0
+        }
+
+        j := i + 1
+        while j < localFunctionCount {
+            otherNameToken := locals.TokenIndices[j] + 1
+            if otherNameToken < 0 || otherNameToken >= tokens.Count || tokens.Kinds[otherNameToken] != 0 {
+                return 0
+            }
+
+            if ColumnarFunctionSourceSpansEqual(source, tokens.Starts[nameToken], tokens.ValueLengths[nameToken], tokens.Starts[otherNameToken], tokens.ValueLengths[otherNameToken]) {
+                return 0
+            }
+
+            j = j + 1
+        }
+
+        i = i + 1
+    }
+
+    return 1
+}
+
+func ColumnarFunctionSourceSpansEqual(source: string, leftStart: int, leftLength: int, rightStart: int, rightLength: int): bool {
+    if leftStart < 0 || rightStart < 0 || leftLength != rightLength {
+        return false
+    }
+
+    if leftStart + leftLength > source.Length || rightStart + rightLength > source.Length {
+        return false
+    }
+
+    i := 0
+    while i < leftLength {
+        if source[leftStart + i] != source[rightStart + i] {
+            return false
+        }
+
+        i = i + 1
+    }
+
+    return true
 }
