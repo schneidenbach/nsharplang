@@ -10061,8 +10061,8 @@ func outer(x: int): int {
         Assert.False(RouteColumnarProgram("class C {\n    n: int\n    static func S(): int {\n        return n\n    }\n}\n\nfunc f(): int {\n    return C.S()\n}\n").Ok);
         // `this` inside a static method (now a compile-time error in the N# pipeline too).
         Assert.False(RouteColumnarProgram("class C {\n    n: int\n    static func S(): int {\n        return this.n\n    }\n}\n\nfunc f(): int {\n    return C.S()\n}\n").Ok);
-        // Duplicate instance method names and static/instance method name collisions are rejected by the
-        // N# struct parser before method builders are declared; property collisions stay in the emitter.
+        // Duplicate instance method names plus static/instance/property accessor name collisions are rejected by
+        // the N# struct parser before method builders are declared.
         Assert.False(RouteColumnarProgram("class C {\n    n: int\n    func V(): int {\n        return n\n    }\n    func V(x: int): int {\n        return x\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
         Assert.False(RouteColumnarProgram("class C {\n    n: int\n    func V(): int {\n        return n\n    }\n    static func V(x: int): int {\n        return x\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
         Assert.False(RouteColumnarProgram("class C {\n    n: int\n    V: int {\n        get {\n            return n\n        }\n    }\n    static func V(): int {\n        return 1\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
