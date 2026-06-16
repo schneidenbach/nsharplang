@@ -949,7 +949,7 @@ public static class OutputFormatter
             ? new LocationResult(result.Definition.File, result.Definition.Line, result.Definition.Column)
             : result.Symbol?.Definition;
 
-        var referenceFiles = NSharpCodeIntelligenceDogfoodAdapter.TryBuildInspectSummaryReferenceFiles(
+        var referenceFiles = OutputFormatterReferenceFileKernels.TryBuildInspectSummaryReferenceFiles(
             result.References.Results,
             out var dogfoodReferenceFiles)
                 ? dogfoodReferenceFiles
@@ -1146,7 +1146,7 @@ public static class OutputFormatter
         DiagnosticClusterTraits traits)
     {
         var root = ordered[0];
-        var files = NSharpCodeIntelligenceDogfoodAdapter.TryBuildDiagnosticClusterFiles(
+        var files = OutputFormatterReferenceFileKernels.TryBuildDiagnosticClusterFiles(
             ordered,
             out var dogfoodFiles)
                 ? dogfoodFiles

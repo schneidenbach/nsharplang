@@ -13476,10 +13476,6 @@ func documented(): int {
         Assert.Equal(3, Assert.IsType<int>(referenceDeduplicationArgs[2]));
         Assert.Equal(new[] { 3, 1, 0 }, Assert.IsType<int[]>(referenceDeduplicationArgs[1]).Take(3));
 
-        var tryBuildInspectSummaryReferenceFiles = adapterType.GetMethod(
-                "TryBuildInspectSummaryReferenceFiles",
-                BindingFlags.Static | BindingFlags.NonPublic)
-            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryBuildInspectSummaryReferenceFiles.");
         var summaryReferences = new List<ReferenceResult>
         {
             new(@"src\B.nl", 10, 5, 5, "B reference", IsDefinition: true),
@@ -13488,20 +13484,17 @@ func documented(): int {
             new(@"src\C.nl", 4, 1, 5, "C reference", IsDefinition: false),
             new("src/A.nl", 2, 8, 5, "duplicate A", IsDefinition: false)
         };
-        var referenceFileSummaryArgs = new object?[] { summaryReferences, null };
-        Assert.True((bool)(tryBuildInspectSummaryReferenceFiles.Invoke(null, referenceFileSummaryArgs) ?? false));
+        Assert.True(OutputFormatterReferenceFileKernels.TryBuildInspectSummaryReferenceFiles(
+            summaryReferences,
+            out var referenceFiles));
         Assert.Equal(
             summaryReferences
                 .Select(reference => reference.File.Replace('\\', '/'))
                 .Distinct(StringComparer.Ordinal)
                 .OrderBy(file => file, StringComparer.Ordinal)
                 .ToArray(),
-            Assert.IsType<string[]>(referenceFileSummaryArgs[1]));
+            referenceFiles);
 
-        var tryBuildDiagnosticClusterFiles = adapterType.GetMethod(
-                "TryBuildDiagnosticClusterFiles",
-                BindingFlags.Static | BindingFlags.NonPublic)
-            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryBuildDiagnosticClusterFiles.");
         var clusterDiagnostics = new List<DiagnosticResult>
         {
             BuildDiagnosticWithSeverity("error", 1) with { File = "src/B.nl" },
@@ -13510,15 +13503,16 @@ func documented(): int {
             BuildDiagnosticWithSeverity("error", 4) with { File = "src/C.nl" },
             BuildDiagnosticWithSeverity("error", 5) with { File = "src/b.NL" }
         };
-        var diagnosticClusterFileArgs = new object?[] { clusterDiagnostics, null };
-        Assert.True((bool)(tryBuildDiagnosticClusterFiles.Invoke(null, diagnosticClusterFileArgs) ?? false));
+        Assert.True(OutputFormatterReferenceFileKernels.TryBuildDiagnosticClusterFiles(
+            clusterDiagnostics,
+            out var clusterFiles));
         Assert.Equal(
             clusterDiagnostics
                 .Select(diagnostic => diagnostic.File)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .OrderBy(file => file, StringComparer.OrdinalIgnoreCase)
                 .ToArray(),
-            Assert.IsType<string[]>(diagnosticClusterFileArgs[1]));
+            clusterFiles);
 
         var tryGetBindingCandidateColumns = adapterType.GetMethod(
                 "TryGetBindingCandidateColumns",

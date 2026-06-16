@@ -730,7 +730,9 @@ same normal BenchmarkDotNet evidence tier for inspect-summary reference file lis
 18.9x faster on the representative reference corpus (1.257 us vs 23.735 us, 1.65 KB vs 32.73 KB)
 and about 29.9x faster on the large generated reference corpus (4.989 us vs 149.325 us, 1.96 KB vs
 111.45 KB). This is acceptance-grade benchmark evidence for `nlc query inspect` reference-file
-summaries after the host has assigned compact ordinal file ranks.
+summaries after the host has assigned compact ordinal file ranks. The production output-format
+route now binds this kernel through `OutputFormatterReferenceFileKernels` instead of the broad
+code-intelligence dogfood adapter.
 
 `BindingLookupQueryDeclarationIndicesInto` passed parity and reported zero managed allocation in the
 same normal BenchmarkDotNet evidence tier for strict semantic binding position lookup. It ran about
@@ -900,7 +902,9 @@ evidence tier, the `CompilerServiceDiagnosticClusterFileListBenchmarks` route ra
 on the representative diagnostic file corpus (1.108 us vs 30.813 us, 1.26 KB vs 29.6 KB) and about
 32.4x faster on the large generated diagnostic file corpus (4.821 us vs 156.270 us, 1.4 KB vs
 173.69 KB). This is acceptance-grade benchmark evidence for clustered diagnostic `files` lists while
-preserving the public case-insensitive distinct/order contract.
+preserving the public case-insensitive distinct/order contract. The production output-format route
+now binds this kernel through `OutputFormatterReferenceFileKernels` instead of the broad
+code-intelligence dogfood adapter.
 
 `DiagnosticDeduplicateCompactInto` passed parity and reported zero managed allocation in the same
 normal BenchmarkDotNet evidence tier for check/build diagnostic deduplication. It ran about 13.38x
