@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Hard-cast SoA checked assignment wrappers avoid old reads
+
+Expression-valued simple stores now have IL-shape evidence when hard-cast direct-column receivers are
+wrapped in `checked(...)` or `unchecked(...)`. Row-index, literal from-end, and variable-held
+from-end assignments such as `(checked(((NodeTable)nodes).kind))[row] = value` write the generated
+backing arrays directly and return the assigned value without reading the old element, allocating row
+objects, boxing, delegate construction, heap array allocation, slicing, calls, or virtual dispatch.
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~HardCastedDirectColumnAssignmentExpressionsCheckedUncheckedWrappers_ReturnAssignedValueWithoutOldElementRead"`.
+
 ## 2026-06-18 — Hard-cast SoA checked direct-column wrappers stay direct
 
 Direct-column element reads, stores, compound assignments, postfix updates, from-end indexing, and

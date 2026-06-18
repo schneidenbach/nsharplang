@@ -343,6 +343,59 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void HardCastedDirectColumnAssignmentExpressionsCheckedUncheckedWrappers_ReturnAssignedValueWithoutOldElementRead()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                kind: int
+                start: int
+            }
+
+            type Nodes = NodeTable
+
+            func assign(nodes: Nodes, row: int): int {
+                idx := ^1
+                rowKind := (checked(((NodeTable)nodes).kind))[row] = 11
+                rowStart := (unchecked(((Nodes)((NodeTable)nodes)).start))[row] = rowKind + 2
+                literalKind := (checked(((NodeTable)((Nodes)nodes)).kind))[^1] = 23
+                literalStart := (unchecked(((Nodes)((NodeTable)nodes)).start))[^1] = literalKind + 4
+                variableKind := (unchecked(((NodeTable)nodes).kind))[idx] = literalKind + 6
+                variableStart := (checked(((Nodes)((NodeTable)nodes)).start))[idx] = variableKind + 8
+                return rowKind + rowStart * 10 + literalKind * 100 + literalStart * 1000 + variableKind * 10000 + variableStart * 100000
+            }
+
+            func main(): int {
+                nodes := new Nodes(2)
+                first := nodes.add()
+                nodes.add()
+                assigned := assign(nodes, first)
+                stored := ((NodeTable)nodes).kind[first] + ((Nodes)((NodeTable)nodes)).start[first] * 10
+                stored += ((NodeTable)((Nodes)nodes)).kind[^1] * 100 + ((Nodes)((NodeTable)nodes)).start[^1] * 1000
+                return assigned + stored
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var assign = ILShapeInspector.GetProgramMethod(assembly, "assign");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(4059482, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoFromEndSliceAllocation(assign);
+            Assert.True(
+                ILShapeInspector.CountOpcode(assign, OpCodes.Ldfld) >= 6,
+                "Hard-casted checked/unchecked direct SoA column assignment expressions should load backing column fields directly.");
+            Assert.Equal(0, CountArrayElementLoads(assign));
+            Assert.Equal(6, CountArrayElementStores(assign));
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void DirectColumnNumericUpdatesCheckedUncheckedWrappers_UseColumnArrayLoadStoreWithoutRowAllocation()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
