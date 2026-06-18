@@ -11616,6 +11616,56 @@ func Main() {
     }
 
     [Fact]
+    public void AttributeArguments_UnknownClrEnumMember_ReportBeforeEmission()
+    {
+        var result = AnalyzeWithSource("""
+            import System
+
+            [AttributeUsage(AttributeTargets.Nope)]
+            class MarkerAttribute: Attribute {
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.UndefinedMember);
+        Assert.Contains("Nope", error.Message);
+        Assert.Contains("AttributeTargets", error.Message);
+    }
+
+    [Fact]
+    public void AttributeArguments_UnknownClrStaticMember_ReportBeforeEmission()
+    {
+        var result = AnalyzeWithSource("""
+            [System.Obsolete(string.Nope)]
+            func Bad(): int {
+                return 0
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.UndefinedMember);
+        Assert.Contains("Nope", error.Message);
+        Assert.Contains("string", error.Message);
+    }
+
+    [Fact]
+    public void AttributeArguments_UnknownSourceEnumMember_ReportBeforeEmission()
+    {
+        var result = AnalyzeWithSource("""
+            enum LocalTargets {
+                Good
+            }
+
+            [Missing(LocalTargets.Nope)]
+            func Bad(): int {
+                return 0
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.UndefinedMember);
+        Assert.Contains("Nope", error.Message);
+        Assert.Contains("LocalTargets", error.Message);
+    }
+
+    [Fact]
     public void TableDrivenTestCases_SupportedInlineDataConstants_AreValid()
     {
         AssertNoErrors("""

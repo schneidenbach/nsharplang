@@ -11,6 +11,19 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Attribute static member misses report before emission
+
+Resolved attribute enum/static member accesses now validate the selected member during semantic
+analysis. Missing CLR enum constants such as `System.AttributeTargets.Nope` and missing static
+members such as `string.Nope` report `NL303` at the member-name span instead of reaching
+attribute argument evaluation and failing as line-zero `NL103`. Source enum attribute constants get
+the same pre-emission check, while unresolved/source non-enum static containers still defer
+conservatively rather than inventing speculative diagnostics.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~AttributeArguments_UnknownClrEnumMember_ReportBeforeEmission|FullyQualifiedName~AttributeArguments_UnknownClrStaticMember_ReportBeforeEmission|FullyQualifiedName~AttributeArguments_UnknownSourceEnumMember_ReportBeforeEmission"`;
+`./scripts/dev.sh AttributeArguments`; targeted `nlc build <file> --backend il` probes for
+`[System.AttributeUsage(System.AttributeTargets.Nope)]` and `[System.Obsolete(string.Nope)]` now
+report `NL303` instead of `NL103`; `./scripts/dev.sh --since`.
+
 ## 2026-06-18 — CLR attribute argument failures report before emission
 
 CLR-backed attributes now validate their constructor and named-argument surface during semantic

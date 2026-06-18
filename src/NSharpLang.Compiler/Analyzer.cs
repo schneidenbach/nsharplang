@@ -746,15 +746,7 @@ public class Analyzer : IDisposable
                 kind = AttributeArgumentConstantKind.String;
                 return false;
             case MemberAccessExpression memberAccess:
-                kind = ClassifyAttributeMemberAccess(memberAccess);
-                if (kind == AttributeArgumentConstantKind.UnknownStaticMember
-                    && !CanResolveAttributeStaticContainer(memberAccess.Object))
-                {
-                    ReportUnsupportedAttributeArgument(memberAccess, "member access");
-                    return false;
-                }
-
-                return true;
+                return TryValidateAttributeMemberAccess(memberAccess, out kind);
             case ArrayLiteralExpression arrayLiteral:
                 return TryValidateAttributeArrayArgument(arrayLiteral, out kind);
             case UnaryExpression unary:
@@ -914,75 +906,103 @@ public class Analyzer : IDisposable
         return false;
     }
 
-    private bool CanResolveAttributeStaticContainer(Expression expression)
-    {
-        if (!TryGetQualifiedAttributeName(expression, out var name))
-        {
-            return false;
-        }
-
-        if (TryResolveBuiltInTypeKeyword(name) != null)
-        {
-            return true;
-        }
-
-        var resolvedType = ResolveTypeAlias(LookupType(name) ?? BuiltInTypes.Unknown);
-        if (!BuiltInTypes.IsUnknown(resolvedType))
-        {
-            return true;
-        }
-
-        return TryResolveExternalType(name) is ReflectionTypeInfo;
-    }
-
-    private AttributeArgumentConstantKind ClassifyAttributeMemberAccess(MemberAccessExpression memberAccess)
+    private bool TryValidateAttributeMemberAccess(
+        MemberAccessExpression memberAccess,
+        out AttributeArgumentConstantKind kind)
     {
         if (!TryGetQualifiedAttributeName(memberAccess.Object, out var containerName))
         {
-            return AttributeArgumentConstantKind.UnknownStaticMember;
+            ReportUnsupportedAttributeArgument(memberAccess, "member access");
+            kind = AttributeArgumentConstantKind.UnknownStaticMember;
+            return false;
         }
 
         var resolvedType = ResolveTypeAlias(LookupType(containerName) ?? BuiltInTypes.Unknown);
-        if (resolvedType is EnumTypeInfo)
+        if (resolvedType is EnumTypeInfo enumType)
         {
-            return AttributeArgumentConstantKind.Enum;
+            if (!HasSourceEnumMember(enumType, memberAccess.MemberName))
+            {
+                ReportUndefinedAttributeStaticMember(enumType, memberAccess);
+                kind = AttributeArgumentConstantKind.UnknownStaticMember;
+                return false;
+            }
+
+            kind = AttributeArgumentConstantKind.Enum;
+            return true;
         }
 
         if (TryResolveBuiltInTypeKeyword(containerName) is { } builtInType)
         {
-            return ClassifyAttributeRuntimeStaticMember(builtInType, memberAccess.MemberName);
+            return TryValidateAttributeRuntimeStaticMemberAccess(
+                new ReflectionTypeInfo(builtInType),
+                builtInType,
+                memberAccess,
+                out kind);
         }
 
         if (TryResolveExternalType(containerName) is ReflectionTypeInfo reflectionType)
         {
-            if (IsRuntimeEnumType(reflectionType.Type))
+            return TryValidateAttributeRuntimeStaticMemberAccess(
+                reflectionType,
+                reflectionType.Type,
+                memberAccess,
+                out kind);
+        }
+
+        if (!BuiltInTypes.IsUnknown(resolvedType))
+        {
+            kind = AttributeArgumentConstantKind.UnknownStaticMember;
+            return true;
+        }
+
+        ReportUnsupportedAttributeArgument(memberAccess, "member access");
+        kind = AttributeArgumentConstantKind.UnknownStaticMember;
+        return false;
+    }
+
+    private bool TryValidateAttributeRuntimeStaticMemberAccess(
+        ReflectionTypeInfo receiverType,
+        Type runtimeType,
+        MemberAccessExpression memberAccess,
+        out AttributeArgumentConstantKind kind)
+    {
+        if (IsRuntimeEnumType(runtimeType))
+        {
+            if (!HasRuntimeEnumMember(runtimeType, memberAccess.MemberName))
             {
-                return AttributeArgumentConstantKind.Enum;
+                ReportUndefinedAttributeStaticMember(receiverType, memberAccess);
+                kind = AttributeArgumentConstantKind.UnknownStaticMember;
+                return false;
             }
 
-            return ClassifyAttributeRuntimeStaticMember(reflectionType.Type, memberAccess.MemberName);
+            kind = AttributeArgumentConstantKind.Enum;
+            return true;
         }
 
-        return AttributeArgumentConstantKind.UnknownStaticMember;
+        if (!TryGetRuntimeStaticAttributeMemberType(runtimeType, memberAccess.MemberName, out var memberType))
+        {
+            ReportUndefinedAttributeStaticMember(receiverType, memberAccess);
+            kind = AttributeArgumentConstantKind.UnknownStaticMember;
+            return false;
+        }
+
+        kind = ClassifyAttributeRuntimeType(memberType);
+        return true;
     }
 
-    private static AttributeArgumentConstantKind ClassifyAttributeRuntimeStaticMember(Type type, string memberName)
-    {
-        const BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static;
-        var field = type.GetField(memberName, flags);
-        if (field != null)
-        {
-            return ClassifyAttributeRuntimeType(field.FieldType);
-        }
+    private static bool HasSourceEnumMember(EnumTypeInfo enumType, string memberName)
+        => enumType.Declaration.Members.Any(member => string.Equals(member.Name, memberName, StringComparison.Ordinal));
 
-        var property = type.GetProperty(memberName, flags);
-        if (property?.GetMethod != null)
-        {
-            return ClassifyAttributeRuntimeType(property.PropertyType);
-        }
+    private static bool HasRuntimeEnumMember(Type enumType, string memberName)
+        => enumType.GetField(memberName, BindingFlags.Public | BindingFlags.Static) != null;
 
-        return AttributeArgumentConstantKind.UnknownStaticMember;
-    }
+    private void ReportUndefinedAttributeStaticMember(TypeInfo receiverType, MemberAccessExpression memberAccess)
+        => ReportUndefinedMember(
+            receiverType,
+            memberAccess.MemberName,
+            memberAccess.Line,
+            GetMemberNameColumn(memberAccess),
+            includeStaticMembers: true);
 
     private static AttributeArgumentConstantKind ClassifyAttributeRuntimeType(Type type)
     {
