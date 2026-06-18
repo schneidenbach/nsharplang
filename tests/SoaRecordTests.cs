@@ -11003,6 +11003,87 @@ public class SoaRecordTests : ILCompilerTestBase
         Assert.Contains("numeric values", error.Message);
     }
 
+    [Theory]
+    [InlineData(
+        """
+        soa record NodeTable {
+            marker: char
+        }
+
+        func bad(nodes: NodeTable, row: int) {
+            (checked(nodes.marker))[row] += 'a'
+        }
+        """,
+        "The '+=' assignment produces 'int'",
+        "can't be stored in 'char'")]
+    [InlineData(
+        """
+        soa record NodeTable {
+            active: bool
+        }
+
+        func bad(nodes: NodeTable, row: int) {
+            (unchecked(nodes.active))[^1] -= true
+        }
+        """,
+        "'-' operator doesn't work with 'bool' and 'bool'",
+        "numeric values")]
+    [InlineData(
+        """
+        enum NodeKind {
+            Unknown,
+            Identifier
+        }
+
+        soa record NodeTable {
+            kind: NodeKind
+        }
+
+        func bad(nodes: NodeTable, row: int) {
+            idx := ^1
+            (checked(nodes.kind))[idx] *= NodeKind.Identifier
+        }
+        """,
+        "'*' operator doesn't work with 'NodeKind' and 'NodeKind'",
+        "numeric values")]
+    [InlineData(
+        """
+        soa record NodeTable {
+            text: string
+        }
+
+        func bad(nodes: NodeTable, row: int) {
+            (unchecked(nodes.text))[row] /= "suffix"
+        }
+        """,
+        "'/' operator doesn't work with 'string' and 'string'",
+        "numeric values")]
+    [InlineData(
+        """
+        soa record NodeTable {
+            text: string?
+        }
+
+        func bad(nodes: NodeTable, row: int) {
+            (checked(nodes.text))[^1] -= "suffix"
+        }
+        """,
+        "'-' operator doesn't work",
+        "string?")]
+    public void Analyzer_SoaRecordCheckedUncheckedColumnMemberUnsupportedCompoundAssignments_AreRejected(
+        string source,
+        string firstMessagePart,
+        string secondMessagePart)
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze(source);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains(firstMessagePart, error.Message);
+        Assert.Contains(secondMessagePart, error.Message);
+    }
+
     [Fact]
     public void ILCompiler_SoaRecordGeneratedOperationsBindNamedArguments()
     {

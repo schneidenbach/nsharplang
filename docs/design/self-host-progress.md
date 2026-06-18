@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA checked direct-column unsupported compound assignments reject before lowering
+
+Checked/unchecked direct-column receiver wrappers now have analyzer evidence for the unsupported
+compound-assignment side of the SoA contract. Char arithmetic compound assignment, bool arithmetic
+compound assignment, enum arithmetic compound assignment, and unsupported `string`/`string?`
+compound operators all fail with the ordinary type/operator diagnostics before IL emission when the
+column receiver is wrapped in `checked(...)` or `unchecked(...)`.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter
+"FullyQualifiedName~Analyzer_SoaRecordCheckedUncheckedColumnMemberUnsupportedCompoundAssignments_AreRejected"`.
+
 ## 2026-06-18 — SoA checked direct-column string compound assignment keeps IL shape
 
 Direct-column `string` and `string?` concatenating compound assignments now have IL-shape evidence

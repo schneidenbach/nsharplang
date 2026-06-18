@@ -224,7 +224,8 @@ columns support equality/inequality, relational comparisons,
 increment/decrement update forms, and promoted numeric expressions that produce `int`; assigning those
 promoted results back into a `char` column is rejected before lowering. Char arithmetic compound
 assignments reject for the same reason: the compound operator result promotes to `int`, which is not
-assignable to the `char` column, including when the column member is the parenthesized index receiver.
+assignable to the `char` column, including when the column member is the parenthesized index receiver
+or the direct column receiver is wrapped in `checked(...)`/`unchecked(...)`.
 Int-backed enum columns support the enum language's comparison
 expressions, prefix/postfix increment and decrement
 forms, same-enum bitwise expressions, and unary bitwise-not.
@@ -232,7 +233,8 @@ Arithmetic compound assignment is not part of the enum column proof. Each compou
 type-check through the underlying operator and produce a result assignable back to the column, so
 boolean and enum columns reject `+=`, `-=`, `*=`, and `/=` before lowering, while string/string?
 columns reject every compound operator except concatenating `+=`; the same rejection applies when the
-column member is the parenthesized index receiver. Direct column-element access through `table.column[row]`
+column member is the parenthesized index receiver or the direct column receiver is wrapped in
+`checked(...)`/`unchecked(...)`. Direct column-element access through `table.column[row]`
 follows the same update typing rules and is also
 permitted for explicit systems kernels when the index shape is one the built-in array path supports.
 Direct column elements support the same scalar update shapes as row projection: expression-valued
