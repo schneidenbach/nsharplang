@@ -6733,6 +6733,15 @@ public class Analyzer : IDisposable
             return BuiltInTypes.Unknown;
         }
 
+        if (isIncrementOrDecrement
+            && ReportReadOnlyPropertyWriteTargetIfNeeded(
+                unary.Operand,
+                GetUnaryOperatorSymbol(unary.Operator) ?? "operator",
+                targetExpressionTypes))
+        {
+            return BuiltInTypes.Unknown;
+        }
+
         return unary.Operator switch
         {
             UnaryOperator.Negate => AnalyzeUnaryNegation(operandType, unary),
@@ -13080,6 +13089,20 @@ public class Analyzer : IDisposable
             return BuiltInTypes.Unknown;
         }
 
+        if (ReportReadOnlyPropertyWriteTargetIfNeeded(
+                assignment.Target,
+                GetAssignmentOperatorText(assignment.Operator),
+                targetExpressionTypes))
+        {
+            var invalidValueType = AnalyzeExpression(assignment.Value);
+            if (invalidValueType is SoaRowTypeInfo)
+            {
+                ReportSoaRowEscape(assignment.Value, "assigned");
+            }
+
+            return BuiltInTypes.Unknown;
+        }
+
         CheckNullCoalesceAssignmentTarget(assignment, targetType);
 
         // NL322 (the CS1612 analog), paired with the EmitAddressableExpression chain fix (defect
@@ -13498,6 +13521,199 @@ public class Analyzer : IDisposable
             "Use a variable, field, property, indexed element, or `_` discard as the left side.",
             length);
         return true;
+    }
+
+    private bool ReportReadOnlyPropertyWriteTargetIfNeeded(
+        Expression target,
+        string opText,
+        Dictionary<Expression, TypeInfo>? expressionTypes)
+    {
+        if (!TryFindReadOnlyPropertyWriteTarget(target, expressionTypes, out var propertyName))
+        {
+            return false;
+        }
+
+        var action = opText is "++" or "--"
+            ? $"changed with '{opText}'"
+            : $"assigned with '{opText}'";
+        var (line, column, length) = GetAssignmentTargetNameDiagnosticSpan(target, target.Line, target.Column);
+        Error(
+            ErrorCode.InvalidSyntax,
+            $"Property '{propertyName}' is read-only — it can't be {action}",
+            line,
+            column,
+            "Use a variable, field, settable property, or indexed element as the target.",
+            length);
+        return true;
+    }
+
+    private bool TryFindReadOnlyPropertyWriteTarget(
+        Expression target,
+        Dictionary<Expression, TypeInfo>? expressionTypes,
+        out string propertyName)
+    {
+        switch (target)
+        {
+            case ParenthesizedExpression parenthesized:
+                return TryFindReadOnlyPropertyWriteTarget(parenthesized.Inner, expressionTypes, out propertyName);
+
+            case IdentifierExpression identifier:
+                if (!IsCurrentTypeMemberReference(identifier.Name))
+                    break;
+
+                var currentType = GetCurrentTypeScope();
+                if (currentType != null
+                    && TryIsReadOnlyPropertyMember(currentType, identifier.Name, includeStaticMembers: false))
+                {
+                    propertyName = identifier.Name;
+                    return true;
+                }
+                break;
+
+            case MemberAccessExpression memberAccess:
+                if (expressionTypes == null
+                    || !expressionTypes.TryGetValue(memberAccess.Object, out var receiverType))
+                {
+                    break;
+                }
+
+                receiverType = ResolveTypeAlias(receiverType);
+                if (receiverType is ByRefTypeInfo byRefReceiver)
+                    receiverType = ResolveTypeAlias(byRefReceiver.InnerType);
+
+                if (receiverType is NullableTypeInfo && memberAccess.MemberName is "HasValue" or "Value")
+                {
+                    propertyName = memberAccess.MemberName;
+                    return true;
+                }
+
+                receiverType = NormalizeMemberOwnerType(GetNonNullableType(receiverType));
+                if (TryIsReadOnlyPropertyMember(
+                        receiverType,
+                        memberAccess.MemberName,
+                        includeStaticMembers: IsStaticMemberAccessTarget(memberAccess.Object)))
+                {
+                    propertyName = memberAccess.MemberName;
+                    return true;
+                }
+                break;
+        }
+
+        propertyName = string.Empty;
+        return false;
+    }
+
+    private bool IsCurrentTypeMemberReference(string name)
+    {
+        foreach (var scope in _scopes)
+        {
+            if (scope.Symbols.ContainsKey(name))
+            {
+                return scope.Kind is not (ScopeKind.Function or ScopeKind.Block);
+            }
+
+            if (scope.Kind is not (ScopeKind.Function or ScopeKind.Block))
+            {
+                return GetCurrentTypeScope() != null;
+            }
+        }
+
+        return GetCurrentTypeScope() != null;
+    }
+
+    private bool TryIsReadOnlyPropertyMember(TypeInfo owner, string memberName, bool includeStaticMembers)
+    {
+        owner = ResolveTypeAlias(owner);
+        if (owner is ByRefTypeInfo byRefOwner)
+            owner = ResolveTypeAlias(byRefOwner.InnerType);
+
+        if (owner is NullableTypeInfo && memberName is "HasValue" or "Value")
+        {
+            return true;
+        }
+
+        if (owner is SoaRecordTypeInfo or SoaRowTypeInfo)
+        {
+            return false;
+        }
+
+        var members = owner switch
+        {
+            ClassTypeInfo classType => classType.Declaration.Members,
+            StructTypeInfo structType => structType.Declaration.Members,
+            RecordTypeInfo recordType => recordType.Declaration.Members,
+            InterfaceTypeInfo interfaceType => interfaceType.Declaration.Members,
+            _ => null,
+        };
+
+        if (members != null)
+        {
+            foreach (var member in members)
+            {
+                if (GetDeclarationName(member) != memberName)
+                {
+                    continue;
+                }
+
+                return member is PropertyDeclaration property
+                    && (property.SetBody == null || property.PropertyModifier.HasFlag(PropertyModifier.Readonly));
+            }
+
+            if (owner is ClassTypeInfo { Declaration.BaseClass: not null } classTypeWithBase)
+            {
+                var baseType = ResolveType(classTypeWithBase.Declaration.BaseClass);
+                return !BuiltInTypes.IsUnknown(baseType)
+                    && TryIsReadOnlyPropertyMember(baseType, memberName, includeStaticMembers);
+            }
+
+            return false;
+        }
+
+        owner = NormalizeMemberOwnerType(owner);
+        if (owner is ReflectionTypeInfo reflected
+            && reflected.Type is not System.Reflection.Emit.TypeBuilder
+            && !reflected.Type.IsGenericTypeDefinition)
+        {
+            return TryIsReadOnlyReflectionProperty(reflected.Type, memberName, includeStaticMembers);
+        }
+
+        return false;
+    }
+
+    private static bool TryIsReadOnlyReflectionProperty(Type type, string memberName, bool includeStaticMembers)
+    {
+        var flags = BindingFlags.Public
+            | BindingFlags.DeclaredOnly
+            | (includeStaticMembers ? BindingFlags.Static : BindingFlags.Instance);
+
+        try
+        {
+            for (var current = type; current != null; current = current.BaseType)
+            {
+                if (current.GetFields(flags).Any(field => field.Name == memberName))
+                {
+                    return false;
+                }
+
+                var property = current.GetProperties(flags).FirstOrDefault(candidate => candidate.Name == memberName);
+                if (property != null)
+                {
+                    return property.GetSetMethod(nonPublic: false) == null;
+                }
+
+                if (current.GetMethods(flags).Any(method => !method.IsSpecialName && method.Name == memberName)
+                    || current.GetEvents(flags).Any(@event => @event.Name == memberName))
+                {
+                    return false;
+                }
+            }
+        }
+        catch (NotSupportedException)
+        {
+            return false;
+        }
+
+        return false;
     }
 
     // Sub-expression types of the assignment/unary-write TARGET currently being analyzed (reference-keyed;

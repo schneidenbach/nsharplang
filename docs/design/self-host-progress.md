@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Read-only property write targets reject before IL emission
+
+The analyzer now rejects writes to read-only properties before the IL backend sees them as missing
+setters. This covers plain assignment, compound assignment, and prefix/postfix updates against CLR
+properties such as `text.Length`, source get-only properties through both `receiver.Property` and
+bare current-type member syntax, external getter-only properties, and SoA direct-column metadata
+properties such as `table.column.Length`/`LongLength`/`Rank`. Settable source properties remain
+accepted, so the guard is a pre-emission safety check rather than a property-assignment restriction.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~AnalyzerTests.Write_ReadOnlyRuntimePropertyTarget_Error|FullyQualifiedName~AnalyzerTests.Write_ReadOnlySourcePropertyTarget_Error|FullyQualifiedName~AnalyzerTests.Write_SettableSourcePropertyTarget_Valid|FullyQualifiedName~AnalyzerTests.Write_SettableRuntimePropertyTarget_Valid|FullyQualifiedName~AnalyzerTests.Write_ReadOnlyExternalPropertyTarget_Error|FullyQualifiedName~SoaRecordTests.Analyzer_SoaDirectColumnMetadataPropertiesCannotBeAssigned"`;
+`./scripts/dev.sh ReadOnly`; `./scripts/dev.sh PropertyTarget`; `./scripts/dev.sh SoaDirectColumn`.
+
 ## 2026-06-18 — SoA direct columns reject unpinned static Array methods
 
 Direct SoA columns now reject static `Array` calls outside the pinned whole-column kernels whenever a

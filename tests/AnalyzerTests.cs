@@ -1049,6 +1049,117 @@ func Main() {
     }
 
     [Theory]
+    [InlineData("text.Length = 2", "Length", "=")]
+    [InlineData("text.Length += 1", "Length", "+=")]
+    [InlineData("text.Length++", "Length", "++")]
+    public void Write_ReadOnlyRuntimePropertyTarget_Error(string statement, string propertyName, string op)
+    {
+        var result = AnalyzeWithSource($$"""
+            func Main() {
+                text := "abc"
+                {{statement}}
+            }
+        """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains($"Property '{propertyName}' is read-only", error.Message);
+        Assert.Contains($"'{op}'", error.Message);
+        Assert.Contains("settable property", error.Suggestion);
+    }
+
+    [Theory]
+    [InlineData("other.Value = 2", "Value", "=")]
+    [InlineData("other.Value++", "Value", "++")]
+    [InlineData("Value = 2", "Value", "=")]
+    public void Write_ReadOnlySourcePropertyTarget_Error(string statement, string propertyName, string op)
+    {
+        var result = AnalyzeWithSource($$"""
+            class Box {
+                backing: int
+
+                Value: int {
+                    get {
+                        return backing
+                    }
+                }
+
+                constructor() {
+                    backing = 0
+                }
+
+                func Mutate(other: Box) {
+                    {{statement}}
+                }
+            }
+        """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains($"Property '{propertyName}' is read-only", error.Message);
+        Assert.Contains($"'{op}'", error.Message);
+        Assert.Contains("settable property", error.Suggestion);
+    }
+
+    [Fact]
+    public void Write_SettableSourcePropertyTarget_Valid()
+    {
+        AssertNoErrors("""
+            class Box {
+                backing: int
+
+                Value: int {
+                    get {
+                        return backing
+                    }
+                    set {
+                        backing = value
+                    }
+                }
+
+                constructor() {
+                    backing = 0
+                }
+
+                func Mutate(other: Box) {
+                    Value = 1
+                    other.Value += 2
+                    other.Value++
+                }
+            }
+        """);
+    }
+
+    [Fact]
+    public void Write_SettableRuntimePropertyTarget_Valid()
+    {
+        AssertNoErrors("""
+            import System.Collections.Generic
+
+            func Main(items: List<int>) {
+                items.Capacity = 4
+                items.Capacity += 1
+                items.Capacity++
+            }
+        """);
+    }
+
+    [Fact]
+    public void Write_ReadOnlyExternalPropertyTarget_Error()
+    {
+        var result = AnalyzeWithInteropProbe("""
+            import NSharpLang.Tests
+
+            func Main(probe: CSharpInstancePropertyShadowsInheritedField) {
+                probe.Value = 2
+            }
+        """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("Property 'Value' is read-only", error.Message);
+        Assert.Contains("'='", error.Message);
+        Assert.Contains("settable property", error.Suggestion);
+    }
+
+    [Theory]
     [InlineData("(1 + 2) = 3", "=")]
     [InlineData("checked(value) = 2", "=")]
     [InlineData("unchecked(value) += 2", "+=")]

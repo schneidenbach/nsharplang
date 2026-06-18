@@ -264,10 +264,12 @@ that receive a direct column, such as `Array.IndexOf(table.column, ...)`,
 until they have explicit row-identity semantics and IL-shape evidence.
 Direct column metadata properties remain available: `table.column.Length` and
 `table.column.LongLength` lower through `ldlen`, while `table.column.Rank` lowers to the known SZ-array
-rank constant. Array instance methods on direct columns decline before IL emission because they would
-box, allocate, virtually dispatch, or bypass the pinned static kernels. This includes element access
-methods such as `table.column.GetValue(...)`/`SetValue(...)`, method-value escapes such as
-`table.column.Clone`, inherited methods such as `table.column.GetEnumerator()`/`ToString()`, and
+rank constant. Those metadata properties are read-only: `table.column.Length = n`,
+`table.column.LongLength += n`, and `table.column.Rank++` decline during analysis instead of reaching
+the IL backend as missing setters. Array instance methods on direct columns decline before IL emission
+because they would box, allocate, virtually dispatch, or bypass the pinned static kernels. This includes
+element access methods such as `table.column.GetValue(...)`/`SetValue(...)`, method-value escapes such
+as `table.column.Clone`, inherited methods such as `table.column.GetEnumerator()`/`ToString()`, and
 dimension methods such as `table.column.GetLength(...)`. Use direct element indexing, metadata
 properties, or the pinned static `Array.Fill`/`Array.Copy`/`Array.Clear` operations instead.
 Replacing wrapper column arrays, mutating `length`/`capacity` directly, or mutating column slices is
@@ -374,6 +376,8 @@ The compiler must produce direct diagnostics for common misuse:
   checked/unchecked mutation-target wrappers: "SoA column range slices allocate arrays";
 - unsupported direct-column array instance calls, including parenthesized, checked, and unchecked
   column receivers: "SoA table member 'X' cannot call array method 'Y' directly";
+- read-only direct-column metadata property writes, including simple assignment, compound assignment,
+  and prefix/postfix update operands: "Property 'Length' is read-only";
 - top-level `checked(...)`/`unchecked(...)` wrappers around `ref`/`out` arguments are not
   addressable lvalues, including when the wrapped expression is a SoA row projection or direct
   column element; if the wrapped expression already reports a SoA-specific error, such as a range

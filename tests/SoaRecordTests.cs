@@ -6606,6 +6606,67 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaDirectColumnMetadataPropertiesCannotBeAssigned()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var cases = new[]
+        {
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    nodes.kind.Length = 1
+                }
+                """,
+                Property: "Length",
+                Operator: "="),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    (nodes.kind).LongLength += 1L
+                }
+                """,
+                Property: "LongLength",
+                Operator: "+="),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    nodes.kind.Rank++
+                }
+                """,
+                Property: "Rank",
+                Operator: "++")
+        };
+
+        foreach (var testCase in cases)
+        {
+            var result = Analyze(testCase.Source);
+            var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+            Assert.Contains($"Property '{testCase.Property}' is read-only", error.Message);
+            Assert.Contains($"'{testCase.Operator}'", error.Message);
+            Assert.Contains("settable property", error.Suggestion);
+        }
+    }
+
+    [Fact]
     public void Analyzer_SoaDirectColumnsCannotUseUnpinnedStaticArrayMethods()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
