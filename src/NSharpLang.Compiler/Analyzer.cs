@@ -4921,14 +4921,21 @@ public class Analyzer : IDisposable
 
         if (usingStmt.Declaration != null)
         {
+            var resourceErrorsBefore = _errors.Count;
             AnalyzeVariableDeclaration(usingStmt.Declaration);
-            // TODO: Check if type implements IDisposable
+            if (_errors.Count == resourceErrorsBefore
+                && LookupSymbol(usingStmt.Declaration.Name) is { } resourceType)
+            {
+                ReportNonDisposableUsingResourceIfNeeded(usingStmt.Declaration, resourceType);
+            }
         }
         else if (usingStmt.Expression != null)
         {
             var resourceType = AnalyzeExpression(usingStmt.Expression);
-            ReportSoaRowEscapeIfNeeded(usingStmt.Expression, resourceType, "used as a using resource");
-            // TODO: Check if type implements IDisposable
+            if (!ReportSoaRowEscapeIfNeeded(usingStmt.Expression, resourceType, "used as a using resource"))
+            {
+                ReportNonDisposableUsingResourceIfNeeded(usingStmt.Expression, resourceType);
+            }
         }
 
         if (usingStmt.Body != null)
@@ -4937,6 +4944,132 @@ public class Analyzer : IDisposable
         }
 
         PopScope();
+    }
+
+    private void ReportNonDisposableUsingResourceIfNeeded(VariableDeclarationStatement declaration, TypeInfo resourceType)
+    {
+        if (IsDisposableUsingResourceType(resourceType))
+        {
+            return;
+        }
+
+        var (line, column, length) = GetVariableDeclarationNameDiagnosticSpan(declaration);
+        ReportNonDisposableUsingResource(resourceType, line, column, length);
+    }
+
+    private void ReportNonDisposableUsingResourceIfNeeded(Expression expression, TypeInfo resourceType)
+    {
+        if (IsDisposableUsingResourceType(resourceType))
+        {
+            return;
+        }
+
+        var (line, column, length) = GetExpressionDiagnosticSpan(expression);
+        ReportNonDisposableUsingResource(resourceType, line, column, length);
+    }
+
+    private void ReportNonDisposableUsingResource(TypeInfo resourceType, int line, int column, int length)
+    {
+        Error(
+            ErrorCode.InvalidSyntax,
+            $"Using resource of type '{resourceType}' must implement IDisposable or provide Dispose(): void",
+            line,
+            column,
+            "Use a resource type with a parameterless void Dispose method, or remove the using statement.",
+            length);
+    }
+
+    private bool IsDisposableUsingResourceType(TypeInfo type)
+    {
+        var resolved = ResolveTypeAlias(type);
+        if (BuiltInTypes.IsUnknown(resolved))
+        {
+            return true;
+        }
+
+        switch (resolved)
+        {
+            case ObliviousTypeInfo oblivious:
+                return IsDisposableUsingResourceType(oblivious.InnerType);
+            case ByRefTypeInfo byRef:
+                return IsDisposableUsingResourceType(byRef.InnerType);
+            case NullableTypeInfo nullable:
+                var innerType = ResolveTypeAlias(nullable.InnerType);
+                return IsReferenceType(innerType) && IsDisposableUsingResourceType(innerType);
+            case ExternalTypeInfo:
+                return true;
+            case SimpleTypeInfo simple when LookupType(simple.Name) is { } namedType && !ReferenceEquals(namedType, resolved):
+                return IsDisposableUsingResourceType(namedType);
+            case GenericTypeInfo generic when LookupType(generic.Name) is { } genericDefinition:
+                return IsDisposableUsingResourceType(genericDefinition);
+        }
+
+        return HasDisposePattern(resolved) || IsNominallyIDisposable(resolved);
+    }
+
+    private bool HasDisposePattern(TypeInfo type)
+    {
+        type = ResolveTypeAlias(type);
+        return type switch
+        {
+            ClassTypeInfo classType => HasDisposePatternMember(classType.Declaration.Members),
+            StructTypeInfo structType => HasDisposePatternMember(structType.Declaration.Members),
+            RecordTypeInfo recordType => HasDisposePatternMember(recordType.Declaration.Members),
+            InterfaceTypeInfo interfaceType => HasDisposePatternMember(interfaceType.Declaration.Members),
+            ReflectionTypeInfo reflectionType => HasReflectionDisposePattern(reflectionType.Type),
+            _ => false
+        };
+    }
+
+    private bool HasDisposePatternMember(IEnumerable<Declaration> members)
+    {
+        foreach (var member in members)
+        {
+            if (member is not FunctionDeclaration { Name: nameof(IDisposable.Dispose) } function
+                || function.Modifiers.HasFlag(Modifiers.Static)
+                || function.Parameters.Count != 0)
+            {
+                continue;
+            }
+
+            if (function.ReturnType == null || ResolveType(function.ReturnType) == BuiltInTypes.Void)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool HasReflectionDisposePattern(Type type)
+    {
+        try
+        {
+            var dispose = type.GetMethod(
+                nameof(IDisposable.Dispose),
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance,
+                binder: null,
+                types: Type.EmptyTypes,
+                modifiers: null);
+            return dispose is { IsStatic: false, ReturnType: { } returnType }
+                && returnType == typeof(void);
+        }
+        catch (Exception ex) when (ex is AmbiguousMatchException or NotSupportedException or TypeLoadException)
+        {
+            return false;
+        }
+    }
+
+    private bool IsNominallyIDisposable(TypeInfo type)
+    {
+        type = ResolveTypeAlias(type);
+        return type switch
+        {
+            ReflectionTypeInfo reflectionType => IsReflectionAssignableFrom(typeof(IDisposable), reflectionType.Type),
+            ClassTypeInfo or StructTypeInfo or RecordTypeInfo or InterfaceTypeInfo =>
+                IsSubtypeOf(type, new ReflectionTypeInfo(typeof(IDisposable))),
+            _ => false
+        };
     }
 
     private void AnalyzeLockStatement(LockStatement lockStmt)

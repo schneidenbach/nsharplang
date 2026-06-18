@@ -2067,13 +2067,68 @@ func Main() {
     [Fact]
     public void UsingStatement_Valid()
     {
-        AssertNoErrors(@"
-            func Main() {
-                using let stream: string = ""test"" {
-
+        AssertNoErrors("""
+            class Resource {
+                func Dispose(): void {
                 }
             }
-        ");
+
+            func Main() {
+                using resource := new Resource() {
+                }
+            }
+        """);
+    }
+
+    [Fact]
+    public void UsingStatement_RuntimeDisposable_Valid()
+    {
+        AssertNoErrors("""
+            import System.IO
+
+            func Main() {
+                using stream := new MemoryStream() {
+                }
+            }
+        """);
+    }
+
+    [Theory]
+    [InlineData("using value := 1 { }", "int")]
+    [InlineData("using let text: string = \"test\" { }", "string")]
+    [InlineData("using \"test\" { }", "string")]
+    public void UsingStatement_NonDisposableResource_Error(string statement, string typeName)
+    {
+        var result = AnalyzeWithSource($$"""
+            func Main() {
+                {{statement}}
+            }
+        """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains($"Using resource of type '{typeName}' must implement IDisposable", error.Message);
+        Assert.Contains("Dispose(): void", error.Message);
+    }
+
+    [Theory]
+    [InlineData("func Dispose(value: int): void { }")]
+    [InlineData("func Dispose(): int { return 0 }")]
+    [InlineData("static func Dispose(): void { }")]
+    public void UsingStatement_InvalidDisposePattern_Error(string disposeMember)
+    {
+        var result = AnalyzeWithSource($$"""
+            class Resource {
+                {{disposeMember}}
+            }
+
+            func Main() {
+                using resource := new Resource() {
+                }
+            }
+        """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("Using resource of type 'Resource' must implement IDisposable", error.Message);
     }
 
     [Fact]

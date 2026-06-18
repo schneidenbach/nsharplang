@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — `using` resources require disposable semantics before emission
+
+The analyzer now validates `using` resources instead of leaving non-disposable values for the IL
+backend to reject with an exception. Source and CLR resource types are accepted when they either
+implement `System.IDisposable` or provide an instance parameterless `Dispose(): void` pattern; strings,
+integers, expression-form non-resources, static `Dispose`, parameterized `Dispose`, and non-void
+`Dispose` members now stop during analysis with a direct diagnostic. Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~AnalyzerTests.UsingStatement"`;
+`./scripts/dev.sh UsingStatement`.
+
 ## 2026-06-18 — Null-conditional write targets reject before target lowering
 
 The analyzer now rejects null-conditional member and index access anywhere a write target is required
