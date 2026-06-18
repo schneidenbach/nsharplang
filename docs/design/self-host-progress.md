@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA direct-column bulk Array named arguments keep backing-array IL shape
+
+Accepted direct-column `Array.Fill`/`Array.Copy`/`Array.Clear` calls now have IL-shape evidence for
+named argument binding as well as positional overloads. The new pin uses out-of-order names such as
+`Array.Fill(count: 2, startIndex: 1, value: 7, array: nodes.kind)` and
+`Array.Copy(length: 2, destinationArray: nodes.kind, sourceArray: source, ...)`, then verifies the
+lowered method loads generated backing column fields directly, calls the BCL array helpers exactly
+once each, and allocates no row objects, arrays, delegates, boxes, or virtual dispatch.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter
+"FullyQualifiedName~DirectColumnBulkArrayOperationNamedArguments_UseBackingArraysWithoutRowAllocation"`.
+
 ## 2026-06-18 — SoA direct-column Array mutations honor named array arguments
 
 The SoA analyzer now rejects direct backing columns passed to mutating `Array.Sort`/`Array.Reverse`
