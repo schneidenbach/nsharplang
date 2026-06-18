@@ -523,7 +523,9 @@ The flag is for compiler table-migration gates only. Production builds without t
 IL-shape tests pin the current wrapper proof: row projection over an existing table, including
 parenthesized row projection such as `(table[row]).column`, emits direct column field loads and
 array element loads/stores with no row allocation, boxing, delegate construction, heap array
-allocation, or virtual dispatch, including default stores across the
+allocation, or virtual dispatch. Hard-cast table/alias receivers, such as `((Nodes)table)[row].column`
+and `((Nodes)table).column[row]`, keep the same direct backing-array shape. The proof also includes
+default stores across the
 verified scalar/reference element-type set, row-projection `ref`/`out` argument addresses through
 backing-column `ldelema` across the verified scalar/reference/int-backed-enum element-type set,
 including parenthesized row-projection lvalues, expression-valued default stores without old-element

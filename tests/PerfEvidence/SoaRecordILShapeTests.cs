@@ -5413,6 +5413,47 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void HardCastedAliasedSoaTableReceivers_UseGeneratedTableShape()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                kind: int
+                start: int
+            }
+
+            type Nodes = NodeTable
+
+            func mutate(nodes: NodeTable, row: int): int {
+                ((Nodes)nodes)[row].kind = 7
+                ((NodeTable)((Nodes)nodes)).start[row] = ((Nodes)nodes)[row].kind + 5
+                return ((Nodes)nodes).kind[row] * 10 + ((NodeTable)nodes)[row].start
+            }
+
+            func main(): int {
+                nodes := new NodeTable(1)
+                row := nodes.add()
+                return mutate(nodes, row)
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var mutate = ILShapeInspector.GetProgramMethod(assembly, "mutate");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(82, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoAllocationOrDispatch(mutate);
+            Assert.Equal(3, CountArrayElementLoads(mutate));
+            Assert.Equal(2, CountArrayElementStores(mutate));
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void AliasedSoaTableGeneratedOperations_UseUnderlyingTableShape()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

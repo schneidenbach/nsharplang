@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA hard-cast alias receivers get IL-shape pins
+
+The SoA IL-shape suite now pins hard-cast table/alias receivers for both row projection and direct
+column access. `((Nodes)table)[row].column` and `((Nodes)table).column[row]` lower through direct
+backing-array loads/stores with no row allocation, boxing, delegate construction, heap array
+allocation, or virtual dispatch. Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~HardCastedAliasedSoaTableReceivers_UseGeneratedTableShape"`.
+
 ## 2026-06-18 — SoA Array target shadowing gets value-symbol pins
 
 The SoA static `Array` diagnostic pin now covers value-symbol shadowing as well as type shadowing.
