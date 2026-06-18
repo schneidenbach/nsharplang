@@ -6666,6 +6666,48 @@ public class SoaRecordTests : ILCompilerTestBase
                 }
                 """,
                 Property: "Rank",
+                Operator: "++"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    checked(nodes.kind).Length = 1
+                }
+                """,
+                Property: "Length",
+                Operator: "="),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    unchecked((nodes.kind)).LongLength += 1L
+                }
+                """,
+                Property: "LongLength",
+                Operator: "+="),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    checked(nodes.kind).Rank++
+                }
+                """,
+                Property: "Rank",
                 Operator: "++")
         };
 

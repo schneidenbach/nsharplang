@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA direct-column metadata mutations reject through checked wrappers
+
+Direct-column metadata mutation diagnostics now have explicit analyzer pins through `checked(...)`
+and `unchecked(...)` wrappers. `checked(table.column).Length = n`,
+`unchecked(table.column).LongLength += n`, and `checked(table.column).Rank++` all report the
+read-only-property diagnostic before IL lowering, matching the accepted wrapper read surface without
+opening metadata setters.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter
+"FullyQualifiedName~Analyzer_SoaDirectColumnMetadataPropertiesCannotBeAssigned"`.
+
 ## 2026-06-18 — SoA direct-column metadata keeps IL shape through checked wrappers
 
 Direct-column metadata properties now have IL-shape evidence through `checked(...)` and
