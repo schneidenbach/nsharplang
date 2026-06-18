@@ -1575,6 +1575,15 @@ Exit codes:
 
     static string[] GetPositionalArgs(string[] args, params string[] optionsWithValues)
     {
+        if (PositionalArgumentKernels.TryGetArgs(args, optionsWithValues, out var positionalArgs))
+            return positionalArgs;
+
+        return GetPositionalArgsWithCSharp(args, optionsWithValues);
+    }
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product positional collection routes through PositionalArgumentKernels.
+    static string[] GetPositionalArgsWithCSharp(string[] args, params string[] optionsWithValues)
+    {
         var positional = new List<string>();
         var options = new HashSet<string>(optionsWithValues, StringComparer.Ordinal);
 

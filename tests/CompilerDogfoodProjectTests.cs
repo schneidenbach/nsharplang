@@ -7007,6 +7007,7 @@ func outer(x: int): int {
         Assert.Contains("CliBuildOptionSummaryInto", methodNames!); // product build option parsing.
         Assert.Contains("CliTestOptionSummaryInto", methodNames!); // product test option parsing.
         Assert.Contains("CliWatchForwardedArgIndicesInto", methodNames!); // product watch forwarding.
+        Assert.Contains("CliPositionalArgIndicesInto", methodNames!); // product positional collection.
 
         AssertColumnarProgramMatchesCSharp(source,
             ("CliSymbolNameContainsAsciiIgnoreCase", new object[] { "FooBarBaz", "barbaz" }),
@@ -7020,7 +7021,8 @@ func outer(x: int): int {
             ("CliShouldFormatDiscoveredPath", new object[] { "src/Program.nl" }),
             ("CliBuildOptionSummaryChecksumInto", new object[] { new[] { "--release", "-o", "short", "--output", "dist", "--backend", "il", "--project", "demo", "--verbose", "--timings", "--perf-report", "--aot" }, new int[9] }),
             ("CliTestOptionSummaryChecksumInto", new object[] { new[] { "--project", "demo", "--backend", "il", "--filter", "Adds", "--timeout", "30s", "--verbose", "--json", "--coverage-report", "--no-cache" }, new int[10] }),
-            ("CliWatchForwardedArgChecksumInto", new object[] { new[] { "test", "--project", "demo", "--filter", "Adds", "--debounce-ms", "25", "--json", "--max-runs", "2", "--coverage" }, new int[11] }));
+            ("CliWatchForwardedArgChecksumInto", new object[] { new[] { "test", "--project", "demo", "--filter", "Adds", "--debounce-ms", "25", "--json", "--max-runs", "2", "--coverage" }, new int[11] }),
+            ("CliPositionalArgChecksumInto", new object[] { new[] { "--template", "library", "systems-cli", "PacketTool", "--systems", "--diff", "src/App.nl" }, new[] { "--template", "--type" }, new int[7] }));
     }
 
     // StringBuilder — the first mutable reference type: new StringBuilder([capacity]); .Append(char/string/int)
@@ -12317,8 +12319,6 @@ func outer(x: int): int {
             "CliFormatDiscoveredPathFlagsCore",
             "CliLintFileArgChecksumInto",
             "CliPositionalArgChecksumInto",
-            "CliPositionalArgIndicesCore",
-            "CliPositionalArgIndicesInto",
             "CliReferenceResolutionBestScoreChecksum",
             "CliReferenceTypeFilterChecksumInto",
             "CliStableDistinctRankChecksumInto",

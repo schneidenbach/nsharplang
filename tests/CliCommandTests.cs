@@ -954,6 +954,31 @@ func Main() {
     }
 
     [Fact]
+    public void PositionalArgumentKernels_SelectsAllPositionals()
+    {
+        var args = new[]
+        {
+            "--template",
+            "library",
+            "systems-cli",
+            "PacketTool",
+            "--systems",
+            "--diff",
+            "src/App.nl",
+            "-x",
+            "",
+            "--type",
+            "console"
+        };
+
+        Assert.True(PositionalArgumentKernels.TryGetArgs(
+            args,
+            new[] { "--template", "--type" },
+            out var positionalArgs));
+        Assert.Equal(new[] { "systems-cli", "PacketTool", "src/App.nl", "" }, positionalArgs);
+    }
+
+    [Fact]
     public void CheckCommandKernels_SelectsProjectOperand()
     {
         Assert.True(CheckCommandKernels.TryGetProjectOperand(

@@ -1379,9 +1379,9 @@ shared CLI positional-argument filtering. The production-shaped benchmark, inclu
 array materialization, measured about 1.06x slower on the representative argument corpus (5.778 us
 vs 5.461 us) and about 1.06x slower on the large generated argument corpus (46.031 us vs
 43.272 us), while reducing managed allocation to about 26%-27% of the C# helper shape. This is
-measured CLI command-parser pressure, not acceptance evidence, and production CLI argument parsing
-for commands that need every positional operand must keep the current C# helper until N# string
-comparison/helper-call overhead clears the 5x gate.
+measured CLI command-parser pressure rather than 5x acceptance evidence; Stage 6 now routes the
+shared `Program.GetPositionalArgs` helper through `PositionalArgumentKernels` to shrink the C#
+product surface, with the C# helper retained as fallback/oracle logic.
 
 `CliWatchForwardedArgIndicesInto` passed parity but missed the dry BenchmarkDotNet speed gate for
 `nlc watch` forwarded-argument selection. The production-shaped benchmark, including final string
@@ -2120,10 +2120,10 @@ DocQuery reference-pack assembly-name and type-candidate de-duplication,
 CLI test outcome summaries,
 CLI build/test option summaries,
 watch forwarded-argument selection,
+shared positional-argument collection,
 and the accepted batch result packed-count kernel through the compiled N# methods. The same suite
-also compiles and exercises the pressure-only path-matching and all-positionals CLI argument parity
-kernels from the parity corpus without routing them through product adapters; `CliCommandTests`
-verifies both
+also compiles and exercises the pressure-only path-matching parity kernel from the parity corpus
+without routing it through product adapters; `CliCommandTests` verifies both
 packaged CLI dogfood routes for duplicate batch request ids, `nlc update` target package
 selection, `nlc doc` symbol/member ordering and slug generation, `nlc tree` dependency deduplication, and
 `nlc query diagnostics --severity` filtering plus compiler-error severity filtering, skipped-fix
@@ -2166,12 +2166,11 @@ plus wildcard and bare substring symbol-name filtering in `nlc query symbols --f
 selection in `nlc clean`.
 `nlc doc` symbol filtering/order, symbol-page member ordering, and symbol-page slug generation are
 also routed through the compiled N# doc-ordering kernel.
-Path matching, all-positionals CLI argument filtering, option-bearing `nlc publish` argument
-normalization, and `nlc format` discovered-file filtering have parity and benchmark evidence but are
-not routed through production code-intelligence, query, daemon, publish option-bearing, or format
-discovery paths because they currently miss the 5x speed gate. `nlc test` option summary parsing
-also has parity evidence but remains C# because the inlined N# argv classifier is slower or only
-parity on dry rows.
+Path matching and option-bearing `nlc publish` argument normalization have parity and benchmark
+evidence but are not routed through production code-intelligence, query, daemon, or publish
+option-bearing paths because they currently miss the 5x speed gate. The former all-positionals,
+format-discovery, and `nlc test` option-summary pressure probes have since been routed as Stage 6
+`C#-surface-shrink` product paths with C# fallback/oracle logic.
 Broader query, hover, definition, diagnostic, completion candidate construction, semantic binding
 table construction, remaining semantic-scope name/symbol table materialization, AOT public
 annotation materialization, and CLI command logic still contain C# implementation code and remain in

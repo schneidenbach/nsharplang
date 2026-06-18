@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Shared positional collection routes through product N#
+
+`Program.GetPositionalArgs`, used by the current `nlc new` positional-template flow and `nlc format`
+file-argument flow, now routes through `PositionalArgumentKernels` and
+`CliPositionalArgIndicesInto` in the shipped `CliArguments.nl` dogfood source. The old list-based C#
+scan remains as fallback/oracle logic. The parity corpus keeps only `CliPositionalArgChecksumInto`.
+This is a Stage 6 `C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`./scripts/dev.sh PositionalArgumentKernels`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliParityAuditTests.NewCommand_AcceptsProjectNameAfterTemplateOption|FullyQualifiedName~CliParityAuditTests.FormatCommand_Diff_EmitsUnifiedDiff|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_ParityOnlyFiles_AreAbsentFromProductCoverage|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-18 — Watch forwarding routes through product N#
 
 `WatchCommand` now routes watched-command argument forwarding through `WatchCommandKernels`, which
@@ -690,9 +702,9 @@ this lowering.
 ## 2026-06-18 — CLI argument parity-only probes get full product-boundary pins
 
 `ColumnarCodegen_ParityOnlyFiles_AreAbsentFromProductCoverage` now enumerates the full
-`CliArguments.nl` parity-only function surface, including format-discovery batch flags, batch
-positional selection, fix flattening, and checksum oracle helpers. Product dogfood coverage must keep
-those helpers absent, while the
+`CliArguments.nl` parity-only function surface, including format-discovery batch flags, fix
+flattening, and checksum oracle helpers. Product dogfood coverage must keep those helpers absent,
+while the
 product+parity merge still compiles them for historical parity and benchmark evidence.
 
 ## 2026-06-18 — Anonymous-union shim drops trusted-core transition name
@@ -4352,9 +4364,9 @@ byref IL address emitters can see an invalid element address.
 ## 2026-06-15 — Pressure-only CLI probes documented as unrouted
 
 The dogfood rewrite evidence list now separates the accepted batch-result packed-count route from
-the rejected path-matching, all-positionals, build-option-summary, and watch-forwarding pressure
-probes. Those probes still compile from the parity corpus for semantic and systems-language coverage,
-but the product adapters do not route through them after their speed-gate misses.
+the then-rejected path-matching, all-positionals, build-option-summary, and watch-forwarding pressure
+probes. Stage 6 later routed the all-positionals, build-option, and watch-forwarding product paths
+through owner-local kernels while retaining their checksum oracles in the parity corpus.
 
 ## 2026-06-15 — Direct SoA column ref/out indexes reject hidden slices
 
@@ -6155,16 +6167,16 @@ gate, so the benchmark-only flatten probe no longer ships in the product dogfood
 ## 2026-06-14 — Build-option summary probe leaves product dogfood
 
 `CliBuildOptionSummaryInto`, its table core, and the private option-kind classifier now live in the
-parity corpus with `CliBuildOptionSummaryChecksumInto`. The shipped CLI path still uses the accepted
-`CliBuildFirstOperandIndexInto` route for build operands and keeps build option discovery in C#, so
-the old benchmark-only build-option summary probe no longer ships in the product dogfood assembly.
+parity corpus with `CliBuildOptionSummaryChecksumInto`. This extraction was reversed by the 2026-06-18
+Stage 6 `BuildCommandKernels` product route, which now ships the build-option summary ABI again.
 
 ## 2026-06-14 — Positional-argument batch probe leaves product dogfood
 
 `CliPositionalArgIndicesInto` and its batch core moved from product `CliArguments.nl` to the parity
 corpus beside `CliPositionalArgChecksumInto`. The live CLI adapter still uses the scalar
-`CliFirstPositionalArgIndex` ABI, while the benchmark-only batch positional scan no longer ships in
-the product dogfood assembly.
+`CliFirstPositionalArgIndex` ABI at this point. This 2026-06-14 extraction was reversed by the
+2026-06-18 Stage 6 `PositionalArgumentKernels` product route, which now ships the batch positional
+collection ABI again.
 
 ## 2026-06-14 — Watch-argument forwarding probe leaves product dogfood
 
