@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-17 — For-loop iterators use expression-statement discard rules
+
+C-style `for` iterator expressions now share the analyzer's expression-statement validation before
+IL lowering. Value-only iterator clauses such as `for i := 0; i < n; i + 1 { ... }` now report
+NL313 with a for-iterator-specific explanation instead of reaching IL emission and being silently
+popped. Iterator calls marked `[MustUse]` are also rejected unless the result is used or explicitly
+discarded by normal assignment syntax.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~AnalyzerTests.ForIterator"`;
+`./scripts/dev.sh AnalyzerTests`.
+
 ## 2026-06-17 — SoA row views reject for-loop iterators before emission
 
 C-style `for` iterator expressions now use the same SoA row-view escape guard as conditions and

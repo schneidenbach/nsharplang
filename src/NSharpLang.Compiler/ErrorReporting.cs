@@ -1353,6 +1353,29 @@ public static class ErrorMessageBuilder
     }
 
     /// <summary>
+    /// Create an Elm-style invalid for-loop iterator expression error
+    /// </summary>
+    public static CompilerError InvalidForIteratorExpression(string fileName, int line, int column, string sourceSnippet,
+        int length, string expressionDescription)
+    {
+        var humanExplanation = "This expression appears in the update clause of a for loop, but it does not do anything by itself:";
+        var contextualHint =
+            $"The expression `{expressionDescription}` produces a value or names a member, but the value is ignored.\n" +
+            "Only assignments, calls, increments, decrements, await expressions, and object construction can be used as for-loop iterators.";
+
+        return new CompilerError(ErrorCode.InvalidExpressionStatement, "This for-loop iterator has no effect", line, column, ErrorSeverity.Error)
+        {
+            FileName = fileName,
+            SourceSnippet = sourceSnippet,
+            Length = length,
+            HumanExplanation = humanExplanation,
+            ContextualHint = contextualHint,
+            Suggestion = "Use an assignment such as `i = i + 1`, an increment/decrement such as `i++`, a side-effecting call, or remove the iterator.",
+            DocsUrl = "https://docs.n-sharp.dev/errors/NL313"
+        };
+    }
+
+    /// <summary>
     /// Create an Elm-style import not found error
     /// </summary>
     public static CompilerError ImportNotFound(string fileName, int line, int column, string sourceSnippet,

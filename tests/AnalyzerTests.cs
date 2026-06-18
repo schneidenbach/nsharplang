@@ -825,6 +825,40 @@ func Main() {
     }
 
     [Fact]
+    public void ForIteratorMustHaveStatementEffect()
+    {
+        var result = AnalyzeWithSource("""
+            func Main() {
+                for i := 0; i < 3; i + 1 {
+                }
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidExpressionStatement);
+        Assert.Contains("for-loop iterator has no effect", error.Message);
+        Assert.Contains("for-loop iterators", error.ContextualHint);
+    }
+
+    [Fact]
+    public void ForIteratorDiscardedMustUseCall_IsRejected()
+    {
+        var result = Analyze("""
+            [MustUse]
+            func Next(): int {
+                return 1
+            }
+
+            func Main() {
+                for i := 0; i < 3; Next() {
+                }
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.DiscardedMustUseResult);
+        Assert.Contains("'Next'", error.Message);
+    }
+
+    [Fact]
     public void BreakOutsideLoop_Error()
     {
         AssertHasError(@"

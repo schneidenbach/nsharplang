@@ -3221,26 +3221,41 @@ public class Analyzer : IDisposable
         }
     }
 
+    private enum DiscardedExpressionContext
+    {
+        ExpressionStatement,
+        ForIterator
+    }
+
     private void AnalyzeExpressionStatement(ExpressionStatement exprStmt)
+        => AnalyzeDiscardedExpression(
+            exprStmt.Expression,
+            soaUsage: "discarded",
+            DiscardedExpressionContext.ExpressionStatement);
+
+    private void AnalyzeDiscardedExpression(
+        Expression expression,
+        string soaUsage,
+        DiscardedExpressionContext context)
     {
         var errorsBefore = _errors.Count;
-        var expressionType = AnalyzeExpression(exprStmt.Expression);
+        var expressionType = AnalyzeExpression(expression);
 
-        if (ContainsParserErrorPlaceholder(exprStmt.Expression))
+        if (ContainsParserErrorPlaceholder(expression))
             return;
 
-        if (_errors.Count == errorsBefore && ReportSoaRowEscapeIfNeeded(exprStmt.Expression, expressionType, "discarded"))
+        if (_errors.Count == errorsBefore && ReportSoaRowEscapeIfNeeded(expression, expressionType, soaUsage))
             return;
 
-        if (!IsValidExpressionStatement(exprStmt.Expression) && _errors.Count == errorsBefore)
+        if (!IsValidExpressionStatement(expression) && _errors.Count == errorsBefore)
         {
-            ReportInvalidExpressionStatement(exprStmt.Expression);
+            ReportInvalidDiscardedExpression(expression, context);
             return;
         }
 
         if (_errors.Count == errorsBefore)
         {
-            ReportDiscardedMustUseResultIfNeeded(exprStmt.Expression);
+            ReportDiscardedMustUseResultIfNeeded(expression);
         }
     }
 
@@ -3475,6 +3490,43 @@ public class Analyzer : IDisposable
             line,
             column,
             "Use the value by assigning it, printing it, passing it to a call, or remove the expression. If you meant to call a method, add parentheses with the required arguments.",
+            length);
+    }
+
+    private void ReportInvalidDiscardedExpression(Expression expression, DiscardedExpressionContext context)
+    {
+        if (context == DiscardedExpressionContext.ForIterator)
+        {
+            ReportInvalidForIteratorExpression(expression);
+            return;
+        }
+
+        ReportInvalidExpressionStatement(expression);
+    }
+
+    private void ReportInvalidForIteratorExpression(Expression expression)
+    {
+        var (line, column, length) = GetExpressionStatementDiagnosticSpan(expression);
+        var description = DescribeExpressionForDiagnostic(expression);
+
+        if (_sourceLines != null && line > 0 && line <= _sourceLines.Length && _currentFilePath != null)
+        {
+            _errors.Add(ErrorMessageBuilder.InvalidForIteratorExpression(
+                _currentFilePath,
+                line,
+                column,
+                _sourceLines[line - 1],
+                length,
+                description));
+            return;
+        }
+
+        Error(
+            ErrorCode.InvalidExpressionStatement,
+            "This for-loop iterator has no effect",
+            line,
+            column,
+            "Use an assignment, call, increment, decrement, await expression, or object construction in the iterator clause, or remove the iterator.",
             length);
     }
 
@@ -4439,8 +4491,10 @@ public class Analyzer : IDisposable
 
         if (forStmt.Iterator != null)
         {
-            var iteratorType = AnalyzeExpression(forStmt.Iterator);
-            ReportSoaRowEscapeIfNeeded(forStmt.Iterator, iteratorType, "used as a 'for' iterator");
+            AnalyzeDiscardedExpression(
+                forStmt.Iterator,
+                soaUsage: "used as a 'for' iterator",
+                DiscardedExpressionContext.ForIterator);
         }
 
         var wasInLoop = _inLoop;
