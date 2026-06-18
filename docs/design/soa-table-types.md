@@ -331,7 +331,8 @@ metadata or element access instead. Array instance methods on
 direct columns decline before IL emission
 because they would box, allocate, virtually dispatch, or bypass the pinned static kernels. This includes
 element access methods such as `table.column.GetValue(...)`/`SetValue(...)`, method-value escapes
-such as `table.column.Clone`, checked/unchecked wrapper escapes such as `checked(table.column).Clone`,
+such as `table.column.Clone`, hard-cast table/alias receivers, checked/unchecked wrapper escapes
+such as `checked(table.column).Clone`,
 inherited methods such as `table.column.GetEnumerator()`, `table.column.Equals(...)`,
 `table.column.GetHashCode()`, `table.column.GetType()`, and `table.column.ToString()`, and dimension
 methods such as `table.column.GetLength(...)`,
@@ -475,8 +476,8 @@ The compiler must produce direct diagnostics for common misuse:
   match guards, index values, array and stackalloc lengths, pattern values, event/off operands,
   initializer indexes, with-initializer indexes, range bounds, spread expressions, and explicit
   allocation-policy operands: "SoA table member 'X' cannot be used as an operator operand directly";
-- unsupported direct-column array instance calls, including parenthesized, checked, and unchecked
-  column receivers: "SoA table member 'X' cannot call array method 'Y' directly";
+- unsupported direct-column array instance calls, including parenthesized, checked, unchecked, and
+  hard-cast table/alias column receivers: "SoA table member 'X' cannot call array method 'Y' directly";
 - unsupported direct-column null-conditional member/index access, including hard-cast table/alias
   receivers: "SoA table member 'X' cannot use null-conditional Y directly";
 - read-only direct-column metadata property writes, including simple assignment, compound assignment,

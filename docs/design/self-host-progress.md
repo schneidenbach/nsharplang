@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Hard-cast SoA array instance methods reject before lowering
+
+Direct-column array instance calls and method-value escapes now have analyzer pins when the column is
+reached through hard-cast table/alias receivers. `((NodeTable)nodes).kind.SetValue(...)`,
+`checked(((NodeTable)nodes).kind).GetLength(...)`,
+`unchecked(((Nodes)((NodeTable)nodes)).kind).GetHashCode()`, and method values such as
+`((NodeTable)nodes).kind.Clone` keep the SoA-specific array-method diagnostic before ordinary array
+dispatch, boxing, cloning, or delegate construction can run. Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~Analyzer_SoaDirectColumnsCannotUseArrayInstanceMethods|FullyQualifiedName~Analyzer_SoaDirectColumnArrayInstanceMethodsCannotBeUsedAsValues"`.
+
 ## 2026-06-18 — Hard-cast SoA metadata mutations keep read-only diagnostics
 
 Direct-column metadata writes now have analyzer pins when the column is reached through hard-cast

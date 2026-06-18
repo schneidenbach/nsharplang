@@ -8945,6 +8945,84 @@ public class SoaRecordTests : ILCompilerTestBase
                     return (nodes.kind).GetLowerBound(0)
                 }
                 """,
+                Method: "GetLowerBound"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    ((NodeTable)nodes).kind.SetValue(1, 0)
+                }
+                """,
+                Method: "SetValue"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes): object {
+                    return ((Nodes)((NodeTable)nodes)).kind.Clone()
+                }
+                """,
+                Method: "Clone"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes): int {
+                    return checked(((NodeTable)nodes).kind).GetLength(0)
+                }
+                """,
+                Method: "GetLength"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes): int {
+                    return unchecked(((Nodes)((NodeTable)nodes)).kind).GetHashCode()
+                }
+                """,
+                Method: "GetHashCode"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes): int {
+                    return unchecked(((NodeTable)nodes).kind).GetUpperBound(0)
+                }
+                """,
+                Method: "GetUpperBound"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes): int {
+                    return ((Nodes)((NodeTable)nodes)).kind.GetLowerBound(0)
+                }
+                """,
                 Method: "GetLowerBound")
         };
 
@@ -9077,6 +9155,62 @@ public class SoaRecordTests : ILCompilerTestBase
 
                 func bad(nodes: Nodes) {
                     copy := unchecked((nodes).kind).CopyTo
+                }
+                """,
+                Method: "CopyTo"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    let clone: Func<object> = ((NodeTable)nodes).kind.Clone
+                }
+                """,
+                Method: "Clone"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func pull(getBound: Func<int, int>): int {
+                    return getBound(0)
+                }
+
+                func bad(nodes: Nodes): int {
+                    return pull(checked(((Nodes)((NodeTable)nodes)).kind).GetLowerBound)
+                }
+                """,
+                Method: "GetLowerBound"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    hash := unchecked(((Nodes)((NodeTable)nodes)).kind).GetHashCode
+                }
+                """,
+                Method: "GetHashCode"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    copy := unchecked(((NodeTable)nodes).kind).CopyTo
                 }
                 """,
                 Method: "CopyTo")
