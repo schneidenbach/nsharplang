@@ -6685,6 +6685,14 @@ public class Analyzer : IDisposable
     {
         var isIncrementOrDecrement = unary.Operator is UnaryOperator.PreIncrement or UnaryOperator.PreDecrement
             or UnaryOperator.PostIncrement or UnaryOperator.PostDecrement;
+        if (isIncrementOrDecrement
+            && ReportNullConditionalWriteTargetIfNeeded(
+                unary.Operand,
+                $"changed with '{GetUnaryOperatorSymbol(unary.Operator) ?? "operator"}'"))
+        {
+            return BuiltInTypes.Unknown;
+        }
+
         Dictionary<Expression, TypeInfo>? targetExpressionTypes = null;
         TypeInfo operandType;
         if (isIncrementOrDecrement && IsWriteTargetNeedingExpressionTypes(unary.Operand))
@@ -9887,6 +9895,12 @@ public class Analyzer : IDisposable
             return AnalyzeExpressionWithExpectedType(argument.Value, expectedType, allowUnboundCallableReference);
         }
 
+        var modifier = argument.Modifier == ArgumentModifier.Ref ? "ref" : "out";
+        if (ReportNullConditionalWriteTargetIfNeeded(argument.Value, $"used as the {modifier} argument"))
+        {
+            return BuiltInTypes.Unknown;
+        }
+
         var previousTargetTypes = _assignmentTargetExpressionTypes;
         expressionTypes = new Dictionary<Expression, TypeInfo>(ReferenceEqualityComparer.Instance);
         _assignmentTargetExpressionTypes = expressionTypes;
@@ -9913,6 +9927,11 @@ public class Analyzer : IDisposable
 
         var modifier = argument.Modifier == ArgumentModifier.Ref ? "ref" : "out";
         var action = $"used as the {modifier} argument";
+        if (ReportNullConditionalWriteTargetIfNeeded(argument.Value, action))
+        {
+            return true;
+        }
+
         if (ReportSoaTableMemberMutationIfNeeded(argument.Value, expressionTypes, action)
             || ReportUnsupportedBuiltInIndexedMutationIfNeeded(argument.Value, expressionTypes, action))
         {
@@ -12993,6 +13012,19 @@ public class Analyzer : IDisposable
             return discardedType;
         }
 
+        if (ReportNullConditionalWriteTargetIfNeeded(
+                assignment.Target,
+                $"assigned with '{GetAssignmentOperatorText(assignment.Operator)}'"))
+        {
+            var invalidValueType = AnalyzeExpression(assignment.Value);
+            if (invalidValueType is SoaRowTypeInfo)
+            {
+                ReportSoaRowEscape(assignment.Value, "assigned");
+            }
+
+            return BuiltInTypes.Unknown;
+        }
+
         var previousSuppressNullabilityFlowType = _suppressNullabilityFlowType;
         var previousSuppressErrorTupleResultUse = _suppressErrorTupleResultUse;
         var previousAllowEventReference = _allowEventReference;
@@ -13521,6 +13553,52 @@ public class Analyzer : IDisposable
             "Use a variable, field, property, indexed element, or `_` discard as the left side.",
             length);
         return true;
+    }
+
+    private bool ReportNullConditionalWriteTargetIfNeeded(Expression target, string action)
+    {
+        if (!TryFindNullConditionalWriteTarget(target, out var nullConditionalTarget, out var targetKind))
+        {
+            return false;
+        }
+
+        var (line, column, length) = GetExpressionDiagnosticSpan(nullConditionalTarget);
+        Error(
+            ErrorCode.InvalidSyntax,
+            $"Null-conditional {targetKind} can't be {action}",
+            line,
+            column,
+            "Store the receiver in a local, guard it for null, then write through a normal member or index target.",
+            length);
+        return true;
+    }
+
+    private static bool TryFindNullConditionalWriteTarget(
+        Expression target,
+        out Expression nullConditionalTarget,
+        out string targetKind)
+    {
+        switch (target)
+        {
+            case ParenthesizedExpression parenthesized:
+                return TryFindNullConditionalWriteTarget(parenthesized.Inner, out nullConditionalTarget, out targetKind);
+            case MemberAccessExpression { IsNullConditional: true } memberAccess:
+                nullConditionalTarget = memberAccess;
+                targetKind = "member access";
+                return true;
+            case MemberAccessExpression memberAccess:
+                return TryFindNullConditionalWriteTarget(memberAccess.Object, out nullConditionalTarget, out targetKind);
+            case IndexAccessExpression { IsNullConditional: true } indexAccess:
+                nullConditionalTarget = indexAccess;
+                targetKind = "index access";
+                return true;
+            case IndexAccessExpression indexAccess:
+                return TryFindNullConditionalWriteTarget(indexAccess.Object, out nullConditionalTarget, out targetKind);
+            default:
+                nullConditionalTarget = target;
+                targetKind = string.Empty;
+                return false;
+        }
     }
 
     private bool ReportReadOnlyPropertyWriteTargetIfNeeded(

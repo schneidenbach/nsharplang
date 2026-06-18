@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Null-conditional write targets reject before target lowering
+
+The analyzer now rejects null-conditional member and index access anywhere a write target is required
+before target expression analysis or IL lowering. This covers plain assignment, compound assignment,
+prefix/postfix updates, and `ref`/`out` arguments such as `box?.Value = 1`, `items?[0]++`, and
+`bump(ref box?.Value)`. The diagnostic points users to guard the receiver for null and then write
+through an ordinary member or index target, preventing nullable-read warnings, read-only-property
+checks, overload binding, or backend addressability code from masking the primary unsupported write.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~AnalyzerTests.Write_NullConditionalTarget_Error"`;
+`./scripts/dev.sh Write_NullConditionalTarget`; `./scripts/dev.sh NullConditional`;
+`./scripts/dev.sh RefOutArgument`.
+
 ## 2026-06-18 — Read-only property write targets reject before IL emission
 
 The analyzer now rejects writes to read-only properties before the IL backend sees them as missing

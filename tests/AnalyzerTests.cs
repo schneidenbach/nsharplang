@@ -1178,6 +1178,57 @@ func Main() {
     }
 
     [Theory]
+    [InlineData("box?.Value = 1", "member access", "assigned with '='")]
+    [InlineData("box?.Next.Value = 1", "member access", "assigned with '='")]
+    [InlineData("box?.Value += 1", "member access", "assigned with '+='")]
+    [InlineData("box?.Value++", "member access", "changed with '++'")]
+    [InlineData("box?.Next.Value++", "member access", "changed with '++'")]
+    [InlineData("items?[0] = 1", "index access", "assigned with '='")]
+    [InlineData("matrix?[0][1] = 1", "index access", "assigned with '='")]
+    [InlineData("items?[0]++", "index access", "changed with '++'")]
+    [InlineData("bump(ref box?.Value)", "member access", "used as the ref argument")]
+    [InlineData("bump(ref box?.Next.Value)", "member access", "used as the ref argument")]
+    [InlineData("bump(ref items?[0])", "index access", "used as the ref argument")]
+    [InlineData("reset(out box?.Value)", "member access", "used as the out argument")]
+    public void Write_NullConditionalTarget_Error(string statement, string targetKind, string action)
+    {
+        var result = AnalyzeWithSource($$"""
+            class Box {
+                backing: int
+
+                Value: int {
+                    get {
+                        return backing
+                    }
+                    set {
+                        backing = value
+                    }
+                }
+
+                constructor() {
+                    backing = 0
+                }
+            }
+
+            func bump(ref value: int) {
+                value += 1
+            }
+
+            func reset(out value: int) {
+                value = 0
+            }
+
+            func Main(box: Box?, items: int[]?, matrix: int[][]?) {
+                {{statement}}
+            }
+        """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains($"Null-conditional {targetKind} can't be {action}", error.Message);
+        Assert.Contains("guard it for null", error.Suggestion);
+    }
+
+    [Theory]
     [InlineData("update(ref checked(value), out copy)", "ref")]
     [InlineData("update(ref value, out unchecked(copy))", "out")]
     public void RefOutArgument_NonAssignableTarget_Error(string statement, string modifier)
