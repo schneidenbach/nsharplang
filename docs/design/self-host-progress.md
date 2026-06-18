@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Columnar `HashSet.Clear` joins the void-mutator surface
+
+The standalone columnar emitter now lowers `HashSet<T>.Clear()` for the baked-element HashSet
+surface, using the existing void-call statement path and preserving post-clear count/contains
+behavior against the C# oracle. HashSet indexers remain declined so the set route cannot fall into
+the List/Dictionary get_Item/set_Item paths.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_Parity_Collections"`;
+`./scripts/dev.sh ColumnarCodegen_Parity_Collections`.
+
 ## 2026-06-18 — Columnar `HashSet.Remove` joins the bool-mutator surface
 
 The standalone columnar emitter now lowers `HashSet<T>.Remove(T)` for the same baked-element

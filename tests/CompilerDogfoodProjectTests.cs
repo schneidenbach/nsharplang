@@ -8212,7 +8212,7 @@ func outer(x: int): int {
     // COLLECTIONS (Phase D) — List<T>/Dictionary<K,V>/HashSet<T> over BAKED runtime type args (scalars/string/
     // nested collections; builder-typed elements decline this rung). TryResolveType closes the runtime
     // generics AFTER user generics (the Action precedent); construction = newobj .ctor()/(int capacity);
-    // members = Add/RemoveAt/ContainsKey/Contains/Remove + get_Count + get_Item/set_Item (probe-pinned exception parity:
+    // members = Add/RemoveAt/ContainsKey/Contains/Remove/Clear + get_Count + get_Item/set_Item (probe-pinned exception parity:
     // ArgumentOutOfRangeException, KeyNotFoundException). FOREACH over supported BCL collections mirrors the
     // ORACLE's exact lowering — the enumerator comes from the IEnumerable<T> INTERFACE (the struct enumerator is BOXED),
     // Dispose sits at a dispose label after the loop (break branches to it; NOT try/finally) — which is
@@ -8254,7 +8254,8 @@ func outer(x: int): int {
             // (probed: set uniqueness, bool Add result, order-independent foreach sum).
             "func hashSetCore(): int {\n    h := new HashSet<int>()\n    first := h.Add(1)\n    second := h.Add(1)\n    h.Add(3)\n    score := h.Count\n    if first {\n        score = score + 10\n    }\n    if second {\n        score = score + 100\n    }\n    if h.Contains(3) {\n        score = score + 1000\n    }\n    return score\n}\n\n" +
             "func hashSetForeach(): int {\n    h := new HashSet<int>()\n    h.Add(1)\n    h.Add(2)\n    h.Add(2)\n    s := 0\n    foreach v in h {\n        s = s + v\n    }\n    return s + h.Count * 10\n}\n\n" +
-            "func hashSetRemove(): int {\n    h := new HashSet<int>()\n    h.Add(1)\n    h.Add(3)\n    removed := h.Remove(1)\n    missing := h.Remove(2)\n    score := h.Count\n    if removed {\n        score = score + 10\n    }\n    if missing {\n        score = score + 100\n    }\n    if h.Contains(3) {\n        score = score + 1000\n    }\n    return score\n}\n";
+            "func hashSetRemove(): int {\n    h := new HashSet<int>()\n    h.Add(1)\n    h.Add(3)\n    removed := h.Remove(1)\n    missing := h.Remove(2)\n    score := h.Count\n    if removed {\n        score = score + 10\n    }\n    if missing {\n        score = score + 100\n    }\n    if h.Contains(3) {\n        score = score + 1000\n    }\n    return score\n}\n\n" +
+            "func hashSetClear(): int {\n    h := new HashSet<int>()\n    h.Add(1)\n    h.Add(3)\n    h.Clear()\n    h.Add(5)\n    score := h.Count * 10\n    if h.Contains(5) {\n        score = score + 1\n    }\n    return score\n}\n";
         AssertColumnarProgramMatchesCSharp(prog,
             ("listCore", System.Array.Empty<object>()),
             ("listStr", System.Array.Empty<object>()),
@@ -8274,7 +8275,8 @@ func outer(x: int): int {
             ("compoundIdx", System.Array.Empty<object>()),
             ("hashSetCore", System.Array.Empty<object>()),
             ("hashSetForeach", System.Array.Empty<object>()),
-            ("hashSetRemove", System.Array.Empty<object>()));
+            ("hashSetRemove", System.Array.Empty<object>()),
+            ("hashSetClear", System.Array.Empty<object>()));
 
         // EXCEPTION parity (route-only; exact types — all probe-pinned against the oracle).
         {
@@ -8309,8 +8311,8 @@ func outer(x: int): int {
         // (compound indexer assignment FLIPPED — the compoundIdx parity case above covers it.)
         // (List-over-USER-type and List<T>-in-generic-funcs FLIPPED — the builder-element rebind rung;
         // parity lives in ColumnarCodegen_Parity_CollectionsBuilderElements below.)
-        // unsupported HashSet mutators stay out until their surface is pinned.
-        Assert.False(RouteColumnarProgram("func f(): int {\n    h := new HashSet<int>()\n    h.Add(1)\n    h.Clear()\n    return h.Count\n}\n").Ok);
+        // HashSet is not indexable; keep it out of the List/Dictionary get_Item/set_Item paths.
+        Assert.False(RouteColumnarProgram("func f(): int {\n    h := new HashSet<int>()\n    h.Add(1)\n    return h[0]\n}\n").Ok);
     }
 
     // BUILDER-ELEMENT REBIND (Phase D collections, rung 4) — List<T>/Dictionary<K,V> closed over types
