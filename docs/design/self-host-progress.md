@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Generic object-initializer mismatch pins assert analyzer verdicts
+
+The generic record and generic union field-value mismatch route pins now assert the production
+analyzer's `NL202` verdict instead of only checking that the columnar backend declines. These were
+old oracle-defect comments from before object-initializer member values were type-checked under
+closed generic substitution; the analyzer now rejects `first: T`/`value: T` with `T=int` receiving a
+string before emission. Columnar still declines those sources, but the tests now prove the decline is
+paired with the real front-door safety diagnostic rather than hiding a parity-only unsupported path.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter
+"FullyQualifiedName~ColumnarCodegen_Parity_GenericRecords|FullyQualifiedName~ColumnarCodegen_Parity_GenericUnions"`.
+
 ## 2026-06-18 — Record user constructors route through columnar
 
 The columnar product parser no longer blanket-declines record declarations with user constructors.

@@ -8143,10 +8143,11 @@ func outer(x: int): int {
         // a `where` constraint clause on a union (pipeline-rejected — unions take no constraints).
         Assert.False(RouteColumnarProgram("union Opt<T> where T: class {\n    Some { value: T }\n    None { }\n}\n\nfunc f(): int { return 1 }\n").Ok);
         // a field-initializer TYPE MISMATCH under substitution (`value: T` with T=int given a string):
-        // columnar declines; the oracle ACCEPTS and emits IL that throws InvalidCastException at runtime —
-        // union case initializers are never type-checked (queued in the oracle defect bundle, generic and
-        // non-generic alike). ROUTE-ONLY pin until the oracle gains the NL202 check.
-        Assert.False(RouteColumnarProgram("union Opt<T> {\n    Some { value: T }\n    None { }\n}\n\nfunc f(): int {\n    s := new Opt.Some<int> { value: \"str\" }\n    return match s {\n        Opt.Some { value } => value,\n        Opt.None => -1\n    }\n}\n").Ok);
+        // the production analyzer now rejects this with NL202 before emission; columnar must decline
+        // rather than treat the unsupported route as an accepted program.
+        var unionFieldTypeMismatch = "union Opt<T> {\n    Some { value: T }\n    None { }\n}\n\nfunc f(): int {\n    s := new Opt.Some<int> { value: \"str\" }\n    return match s {\n        Opt.Some { value } => value,\n        Opt.None => -1\n    }\n}\n";
+        Assert.False(RouteColumnarProgram(unionFieldTypeMismatch).Ok);
+        AssertPipelineRejects(unionFieldTypeMismatch, "NL202");
         // a NON-EXHAUSTIVE generic-union match (NL501).
         Assert.False(RouteColumnarProgram("union Opt<T> {\n    Some { value: T }\n    None { }\n}\n\nfunc f(o: Opt<int>): int {\n    return match o {\n        Opt.Some { value } => value\n    }\n}\n").Ok);
         // a `{ }` property pattern on a PAYLOAD-FREE generic case (NL503 in C#).
@@ -12531,10 +12532,12 @@ func outer(x: int): int {
         Assert.False(RouteColumnarProgram("record Pair<T> {\n    first: T\n}\n\nfunc f(): int {\n    p: Pair<int> = new Pair { first: 1 }\n    return p.first\n}\n").Ok);
         // wrong ARITY at the object-init site (NL207).
         Assert.False(RouteColumnarProgram("record Pair<T> {\n    first: T\n}\n\nfunc f(): int {\n    p := new Pair<int, string> { first: 1 }\n    return p.first\n}\n").Ok);
-        // a FIELD-VALUE type mismatch under substitution: columnar declines; the oracle ACCEPTS and emits
-        // IL that throws InvalidCastException at runtime — object-init field initializers are never
-        // type-checked (oracle defect bundle, fully general). ROUTE-ONLY pin until the NL202 check lands.
-        Assert.False(RouteColumnarProgram("record Pair<T> {\n    first: T\n    second: T\n}\n\nfunc f(): int {\n    p := new Pair<int> { first: \"x\", second: 2 }\n    return p.second\n}\n").Ok);
+        // a FIELD-VALUE type mismatch under substitution: the production analyzer now rejects
+        // `first: T` with T=int receiving a string before emission; columnar must decline rather
+        // than bypass that front-door NL202 verdict.
+        var recordFieldTypeMismatch = "record Pair<T> {\n    first: T\n    second: T\n}\n\nfunc f(): int {\n    p := new Pair<int> { first: \"x\", second: 2 }\n    return p.second\n}\n";
+        Assert.False(RouteColumnarProgram(recordFieldTypeMismatch).Ok);
+        AssertPipelineRejects(recordFieldTypeMismatch, "NL202");
         // a MEMBER name colliding with a TYPE-PARAMETER name — the pipeline rejects with NL306 ("already
         // declared in this scope"); columnar declines field/method/property collisions (adversarial-review
         // finding — note union CASE fields are a DIFFERENT scope: `union U<T> { A { T: int } }` is
