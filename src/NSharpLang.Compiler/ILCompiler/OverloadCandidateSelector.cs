@@ -1,12 +1,10 @@
 using System;
 using System.IO;
-using System.Reflection;
 
 namespace NSharpLang.Compiler.ILCompiler;
 
 internal static class OverloadCandidateSelector
 {
-    private const string DogfoodAssemblyName = "NSharpLang.Compiler.Dogfood";
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
     [ThreadStatic]
     private static Scratch? t_scratch;
@@ -77,13 +75,12 @@ internal static class OverloadCandidateSelector
     {
         try
         {
-            var assembly = TryLoadDogfoodAssembly();
-            var programType = assembly?.GetType("Program");
+            var programType = DogfoodKernelLoader.TryGetProgramType();
             if (programType == null)
                 return null;
 
             return new Bindings(
-                CreateDelegate<OverloadSelectBestCandidate>(
+                DogfoodKernelLoader.CreateDelegate<OverloadSelectBestCandidate>(
                     programType,
                     "OverloadSelectBestCandidate"));
         }
@@ -91,32 +88,6 @@ internal static class OverloadCandidateSelector
         {
             return null;
         }
-    }
-
-    private static Assembly? TryLoadDogfoodAssembly()
-    {
-        try
-        {
-            return Assembly.Load(new AssemblyName(DogfoodAssemblyName));
-        }
-        catch
-        {
-            var assemblyPath = Path.Combine(AppContext.BaseDirectory, $"{DogfoodAssemblyName}.dll");
-            return File.Exists(assemblyPath)
-                ? Assembly.LoadFrom(assemblyPath)
-                : null;
-        }
-    }
-
-    private static TDelegate CreateDelegate<TDelegate>(Type programType, string methodName)
-        where TDelegate : Delegate
-    {
-        var method = programType.GetMethod(
-                methodName,
-                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
-            ?? throw new MissingMethodException(programType.FullName, methodName);
-
-        return (TDelegate)Delegate.CreateDelegate(typeof(TDelegate), method);
     }
 
     private delegate int OverloadSelectBestCandidate(

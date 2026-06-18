@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Compiler helper dogfood loaders share one host boundary
+
+Compiler-side owner-local dogfood helpers now bind through
+`NSharpLang.Compiler.DogfoodKernelLoader` instead of each carrying assembly-load and
+delegate-reflection copies. This centralizes the C# host boundary for IL type, overload, analyzer,
+parser-token, columnar-input, project/source-filtering, formatter/source-file/stub-ordering,
+performance, and code-intelligence helpers. Typed delegates, scratch buffers, and fallback behavior
+remain local to the helper that owns the product route. Focused evidence:
+`dotnet build src/NSharpLang.Compiler/Compiler.csproj --no-restore` and
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.CodeIntelligenceKernels_|FullyQualifiedName~DocQueryKernels_|FullyQualifiedName~StructCopyInitOnlySelector_ChecksStructCopyFieldReadonlyShape|FullyQualifiedName~ParserTokenCompactor_CompactsParserTokens|FullyQualifiedName~AnalyzerExhaustivenessSelector_SelectsMissingEnumMembersAndUnionCases|FullyQualifiedName~AnonymousUnionShimSelector_ChecksAnonymousUnionShimEligibility|FullyQualifiedName~OverloadCandidateSelector_SelectsBestCandidateThroughDogfoodKernel|FullyQualifiedName~ILTypeTableSelector_|FullyQualifiedName~SourceFileDeduplicator_DeduplicatesFirstStringsOrdinalIgnoreCase|FullyQualifiedName~CompilationStubNamespaceOrderer_DistinctOrdersStringsOrdinal|FullyQualifiedName~FormatterImportOrderer_|FullyQualifiedName~FixApplicatorTests.DogfoodTextEditOrdering|FullyQualifiedName~ProjectSourceFileFilter_FiltersSourceFilesThroughDogfoodKernel"`.
+
 ## 2026-06-18 — Hard-cast SoA row-view diagnostics cover advanced contexts
 
 Hard-cast table/alias row projections now have analyzer pins beyond the core store/return/call

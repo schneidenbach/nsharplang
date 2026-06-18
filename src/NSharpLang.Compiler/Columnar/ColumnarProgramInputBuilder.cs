@@ -1,13 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Reflection;
 
 namespace NSharpLang.Compiler.Columnar;
 
 internal static class ColumnarProgramInputBuilder
 {
-    private const string DogfoodAssemblyName = "NSharpLang.Compiler.Dogfood";
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
 
     internal static bool TryBuild(string source, out ColumnarProgramInput program)
@@ -810,37 +808,36 @@ internal static class ColumnarProgramInputBuilder
     {
         try
         {
-            var assembly = TryLoadDogfoodAssembly();
-            var programType = assembly?.GetType("Program");
+            var programType = DogfoodKernelLoader.TryGetProgramType();
             if (programType == null)
                 return null;
 
             return new Bindings(
-                CreateDelegate<TokenizeColumnarSourceInto>(
+                DogfoodKernelLoader.CreateDelegate<TokenizeColumnarSourceInto>(
                     programType,
                     "TokenizeColumnarSourceInto"),
-                CreateDelegate<TopLevelColumnarProgramDeclarationIndicesInto>(
+                DogfoodKernelLoader.CreateDelegate<TopLevelColumnarProgramDeclarationIndicesInto>(
                     programType,
                     "TopLevelColumnarProgramDeclarationIndicesInto"),
-                CreateDelegate<ParseColumnarProductFunctionInfoInto>(
+                DogfoodKernelLoader.CreateDelegate<ParseColumnarProductFunctionInfoInto>(
                     programType,
                     "ParseColumnarProductFunctionInfoInto"),
-                CreateDelegate<ParseColumnarPropertyInfoInto>(
+                DogfoodKernelLoader.CreateDelegate<ParseColumnarPropertyInfoInto>(
                     programType,
                     "ParseColumnarPropertyInfoInto"),
-                CreateDelegate<ParseColumnarInterfaceInfoInto>(
+                DogfoodKernelLoader.CreateDelegate<ParseColumnarInterfaceInfoInto>(
                     programType,
                     "ParseColumnarInterfaceInfoInto"),
-                CreateDelegate<ParseColumnarEnumInfoInto>(
+                DogfoodKernelLoader.CreateDelegate<ParseColumnarEnumInfoInto>(
                     programType,
                     "ParseColumnarEnumInfoInto"),
-                CreateDelegate<ParseColumnarStructInfoInto>(
+                DogfoodKernelLoader.CreateDelegate<ParseColumnarStructInfoInto>(
                     programType,
                     "ParseColumnarStructInfoInto"),
-                CreateDelegate<ParseColumnarUnionInfoInto>(
+                DogfoodKernelLoader.CreateDelegate<ParseColumnarUnionInfoInto>(
                     programType,
                     "ParseColumnarUnionInfoInto"),
-                CreateDelegate<ParseColumnarConstructorInfoInto>(
+                DogfoodKernelLoader.CreateDelegate<ParseColumnarConstructorInfoInto>(
                     programType,
                     "ParseColumnarConstructorInfoInto"));
         }
@@ -848,32 +845,6 @@ internal static class ColumnarProgramInputBuilder
         {
             return null;
         }
-    }
-
-    private static Assembly? TryLoadDogfoodAssembly()
-    {
-        try
-        {
-            return Assembly.Load(new AssemblyName(DogfoodAssemblyName));
-        }
-        catch
-        {
-            var assemblyPath = Path.Combine(AppContext.BaseDirectory, $"{DogfoodAssemblyName}.dll");
-            return File.Exists(assemblyPath)
-                ? Assembly.LoadFrom(assemblyPath)
-                : null;
-        }
-    }
-
-    private static TDelegate CreateDelegate<TDelegate>(Type programType, string methodName)
-        where TDelegate : Delegate
-    {
-        var method = programType.GetMethod(
-                methodName,
-                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
-            ?? throw new MissingMethodException(programType.FullName, methodName);
-
-        return (TDelegate)Delegate.CreateDelegate(typeof(TDelegate), method);
     }
 
     private delegate int TokenizeColumnarSourceInto(
