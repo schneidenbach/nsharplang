@@ -11,6 +11,21 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Generic value-struct object initializers route through rebound field stores
+
+Closed generic value-struct object initializers now use the same open-definition bookkeeping as
+closed generic records/classes instead of falling into reflection member lookup on
+`TypeBuilderInstantiation`. The C# oracle lowers `new Pt<int> { x: 2 }` by substituting the closed
+type arguments for initializer typing and rebinding the open `FieldBuilder`/accessor onto the
+instantiation, then storing through the initialized value local's address. The columnar backend now
+routes the same accepted surface: reference generic object-init keeps the existing rebound
+default-ctor + `dup` stores, while value structs emit `initobj`, address-based field stores, and the
+same substituted expected-type checks. This retires the previous generic value-struct object-init
+`NL103` oracle-defect probe from the generic-record parity test.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter
+"FullyQualifiedName~ILCompiler_GenericStructObjectInit_RebindsClosedField|FullyQualifiedName~ColumnarCodegen_Parity_GenericRecords"`;
+`./scripts/dev.sh --since`.
+
 ## 2026-06-18 — Local-function calls bind lambda arguments before emission
 
 Direct local-function calls now reuse the same declared-parameter binder as normal function and

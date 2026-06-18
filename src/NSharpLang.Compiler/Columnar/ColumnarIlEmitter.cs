@@ -8302,14 +8302,14 @@ internal sealed class ColumnarIlEmitter
                     return TryEmitUnionCaseConstruction(genericInitCaseDef, explicitArgs, idx, pairCount, out type);
                 }
 
-                // CLOSED GENERIC REFERENCE object-init: `new Pair<int> { first: 1, ... }` — a Generic type root
-                // (kind 1) whose head names a registered generic RECORD or default-ctor CLASS. The default ctor
-                // and every field handle are REBOUND onto the instantiation (TypeBuilder.GetConstructor/GetField,
-                // the union-construction machinery's analog) and each field's expected value type substitutes the
-                // arguments positionally (`first: T` on Pair<int> expects int). Generic VALUE structs DECLINE:
-                // the pipeline itself fails their object-init at emit (NL103 "Specified method is not supported"
-                // — oracle defect bundle item; accepting would diverge). A user-ctor class has no default ctor —
-                // object-init declines exactly like the non-generic rule below.
+                // CLOSED GENERIC object-init: `new Pair<int> { first: 1, ... }` — a Generic type root
+                // (kind 1) whose head names a registered generic RECORD/default-ctor CLASS or a VALUE
+                // struct. The default ctor (for reference types) and every field handle are REBOUND onto
+                // the instantiation (TypeBuilder.GetConstructor/GetField, the union-construction
+                // machinery's analog) and each field's expected value type substitutes the arguments
+                // positionally (`first: T` on Pair<int> expects int). Value structs mirror the non-generic
+                // struct path: temp local, initobj, then address-based field stores. A user-ctor class has
+                // no default ctor — object-init declines exactly like the non-generic rule below.
                 if (_nodes.Kind(typeRootNode) == 1 && _structRegistry.TryGetValue(Text(typeRootNode), out var closedInitDef)
                     && closedInitDef.Builder.IsGenericTypeDefinition)
                 {
@@ -8317,8 +8317,6 @@ internal sealed class ColumnarIlEmitter
                     // head for `new List<int> { ... }` and rejects its members (NL303, probe-pinned) —
                     // the user definition must not claim the construction. Decline (parity by rejection).
                     if (Text(typeRootNode) is "List" or "Dictionary" or "HashSet")
-                        return false;
-                    if (!closedInitDef.IsReference || closedInitDef.DefaultCtor == null)
                         return false;
                     var closedArity = closedInitDef.Builder.GetGenericArguments().Length;
                     if (_nodes.ChildCount(typeRootNode) != closedArity)
@@ -8332,8 +8330,36 @@ internal sealed class ColumnarIlEmitter
                             return false;
                     }
                     var closedInitType = closedInitDef.Builder.MakeGenericType(closedInitArgs);
-                    _il.Emit(OpCodes.Newobj, TypeBuilder.GetConstructor(closedInitType, closedInitDef.DefaultCtor));
                     var closedAssigned = new HashSet<string>(StringComparer.Ordinal);
+
+                    if (closedInitDef.IsReference)
+                    {
+                        if (closedInitDef.DefaultCtor == null)
+                            return false;
+                        _il.Emit(OpCodes.Newobj, TypeBuilder.GetConstructor(closedInitType, closedInitDef.DefaultCtor));
+                        for (var p = 0; p < pairCount; p++)
+                        {
+                            var nameNode = Child(idx, 1 + (2 * p));
+                            var valueNode = Child(idx, 2 + (2 * p));
+                            if (_nodes.Kind(nameNode) != 6)
+                                return false;
+                            var fieldName = Text(nameNode);
+                            if (!closedInitDef.Fields.TryGetValue(fieldName, out var openInitField) || !closedAssigned.Add(fieldName))
+                                return false; // unknown or duplicately-assigned field -> decline.
+                            var expectedInitType = SubstituteClosedTypeArguments(openInitField.FieldType, closedInitArgs);
+                            _il.Emit(OpCodes.Dup);
+                            if (!EmitExpression(valueNode, out var closedInitValueType)
+                                || (!TypesEquivalent(closedInitValueType, expectedInitType) && !TryEmitInterfaceUpcast(closedInitValueType, expectedInitType)))
+                                return false;
+                            _il.Emit(OpCodes.Stfld, TypeBuilder.GetField(closedInitType, openInitField));
+                        }
+                        type = closedInitType;
+                        return true;
+                    }
+
+                    var closedStructValue = _il.DeclareLocal(closedInitType);
+                    _il.Emit(OpCodes.Ldloca, closedStructValue);
+                    _il.Emit(OpCodes.Initobj, closedInitType);
                     for (var p = 0; p < pairCount; p++)
                     {
                         var nameNode = Child(idx, 1 + (2 * p));
@@ -8344,12 +8370,13 @@ internal sealed class ColumnarIlEmitter
                         if (!closedInitDef.Fields.TryGetValue(fieldName, out var openInitField) || !closedAssigned.Add(fieldName))
                             return false; // unknown or duplicately-assigned field -> decline.
                         var expectedInitType = SubstituteClosedTypeArguments(openInitField.FieldType, closedInitArgs);
-                        _il.Emit(OpCodes.Dup);
+                        _il.Emit(OpCodes.Ldloca, closedStructValue);
                         if (!EmitExpression(valueNode, out var closedInitValueType)
                             || (!TypesEquivalent(closedInitValueType, expectedInitType) && !TryEmitInterfaceUpcast(closedInitValueType, expectedInitType)))
                             return false;
                         _il.Emit(OpCodes.Stfld, TypeBuilder.GetField(closedInitType, openInitField));
                     }
+                    _il.Emit(OpCodes.Ldloc, closedStructValue);
                     type = closedInitType;
                     return true;
                 }

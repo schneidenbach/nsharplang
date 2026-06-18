@@ -17568,6 +17568,64 @@ public partial class ILCompiler
         var memberName = initializer.Name
             ?? throw new InvalidOperationException("Object initializer entry is missing a member name");
 
+        // Closed generic instantiation of an uncreated user VALUE type (Pt<int>): reflection
+        // member queries throw on TypeBuilderInstantiation just as they do for reference
+        // object-initializers. Resolve through the open definition's bookkeeping, substitute
+        // the closed arguments for typing, then rebind the token onto the instantiation.
+        if (targetType is not TypeBuilder && TryGetUserTypeDefinition(targetType, out var closedValueTypeDefinition))
+        {
+            var closedGeneratedInitializerField = FindInstanceFieldOnClosedGeneratedType(targetType, memberName);
+            if (closedGeneratedInitializerField != null)
+            {
+                var openField = FindInstanceFieldOnBaseChain(closedValueTypeDefinition, memberName)!;
+                var fieldType = SubstituteGenericSignatureTypeByPosition(
+                    openField.FieldType,
+                    targetType.GetGenericArguments());
+                _currentIL.Emit(OpCodes.Ldloca_S, targetLocal);
+                EmitExpressionWithExpectedType(initializer.Value, fieldType);
+                _currentIL.Emit(OpCodes.Stfld, closedGeneratedInitializerField);
+                return;
+            }
+
+            var closedValueSetter = FindInstanceAccessorOnClosedGeneratedType(targetType, $"set_{memberName}");
+            if (closedValueSetter != null)
+            {
+                var openSetter = FindInstanceAccessorOnBaseChain(closedValueTypeDefinition, $"set_{memberName}")!;
+                var valueType = SubstituteGenericSignatureTypeByPosition(
+                    openSetter.GetParameters()[0].ParameterType,
+                    targetType.GetGenericArguments());
+
+                if (_initOnlySetters.Contains(openSetter)
+                    && FindInitOnlyBackingFieldOnClosedGeneratedType(targetType, memberName) is { } initializerBackingField)
+                {
+                    _currentIL.Emit(OpCodes.Ldloca_S, targetLocal);
+                    EmitExpressionWithExpectedType(initializer.Value, valueType);
+                    _currentIL.Emit(OpCodes.Stfld, initializerBackingField);
+                    return;
+                }
+
+                if (_customInitOnlySetters.Contains(openSetter))
+                {
+                    throw new InvalidOperationException(
+                        $"Cannot assign init-only member '{memberName}' on generic type '{GetTypeKey(closedValueTypeDefinition)}' — " +
+                        "its set accessor has a custom body, and .NET's persisted Reflection.Emit drops the init-only marker " +
+                        "from generic member references (the call would fail at runtime). " +
+                        "Use an auto init member, or a non-generic type.");
+                }
+
+                if (_initOnlySetters.Contains(openSetter))
+                {
+                    throw new InvalidOperationException(
+                        $"Could not resolve the backing field of init-only member '{memberName}' on generic type '{GetTypeKey(closedValueTypeDefinition)}'");
+                }
+
+                _currentIL.Emit(OpCodes.Ldloca_S, targetLocal);
+                EmitExpressionWithExpectedType(initializer.Value, valueType);
+                _currentIL.Emit(OpCodes.Call, closedValueSetter);
+                return;
+            }
+        }
+
         if (targetType is TypeBuilder valueTypeBuilder)
         {
             if (_fields.TryGetValue(GetFieldKey(valueTypeBuilder, memberName), out var fieldBuilder))

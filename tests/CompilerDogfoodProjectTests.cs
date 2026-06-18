@@ -12485,9 +12485,9 @@ func outer(x: int): int {
     // (`new Pair<int> { first: 1 }`) rebinds the default ctor + field handles onto the instantiation
     // (TypeBuilder.GetConstructor/GetField — the union-construction machinery's analog) with positional
     // field-type substitution; member reads/methods ride the existing D-16 closed-receiver machinery.
-    // Records do NOT adopt the expected type (probe-pinned NL207 — explicit args required everywhere,
-    // unlike union cases). Generic VALUE-STRUCT object-init DECLINES: the pipeline itself crashes at emit
-    // (NL103 "Specified method is not supported" — oracle defect bundle).
+    // Generic VALUE-STRUCT object-init now takes the same rebound-field route, with the value local
+    // initialized by `initobj` before address-based stores. Records do NOT adopt the expected type
+    // (probe-pinned NL207 — explicit args required everywhere, unlike union cases).
     [Fact]
     public void ColumnarCodegen_Parity_GenericRecords()
     {
@@ -12503,19 +12503,19 @@ func outer(x: int): int {
             "func nested(v: int): int {\n    inner := new Pair<int> { first: v, second: v + 1 }\n    outer := new Pair<Pair<int>> { first: inner, second: inner }\n    return outer.first.first + outer.second.second\n}\n\n" +
             // A generic ctor-less CLASS object-init (the same closed-reference branch).
             "class Box<T> {\n    v: T\n}\n\n" +
-            "func boxed(n: int): int {\n    b := new Box<int> { v: n }\n    return b.v\n}\n";
+            "func boxed(n: int): int {\n    b := new Box<int> { v: n }\n    return b.v\n}\n\n" +
+            // A generic VALUE struct object-init (closed-field rebinding plus struct initobj/address stores).
+            "struct Pt<T> {\n    x: T\n}\n\n" +
+            "func valueStruct(n: int): int {\n    p := new Pt<int> { x: n }\n    text := new Pt<string> { x: \"abcd\" }\n    return p.x + text.x.Length\n}\n";
         AssertColumnarProgramMatchesCSharp(prog,
             ("roundTrip", new object[] { 3, 4 }), ("roundTrip", new object[] { -2, 2 }),
             ("strLens", new object[] { "ab", "cde" }), ("strLens", new object[] { "", "" }),
             ("viaMethod", new object[] { 9 }),
             ("nested", new object[] { 5 }),
-            ("boxed", new object[] { 11 }));
+            ("boxed", new object[] { 11 }),
+            ("valueStruct", new object[] { 6 }));
 
         // DECLINES (slice scope / forms the pipeline rejects):
-        // a GENERIC VALUE-STRUCT object-init — the pipeline itself fails at emit (NL103 "Specified method
-        // is not supported"; analyzer accepts — oracle defect bundle); columnar declines so the C# path
-        // reports it.
-        Assert.False(RouteColumnarProgram("struct Pt<T> {\n    x: T\n}\n\nfunc f(): int {\n    p := new Pt<int> { x: 2 }\n    return p.x\n}\n").Ok);
         // a BARE generic record name in construction (records never adopt — NL207, probe-pinned).
         Assert.False(RouteColumnarProgram("record Pair<T> {\n    first: T\n}\n\nfunc f(): int {\n    p: Pair<int> = new Pair { first: 1 }\n    return p.first\n}\n").Ok);
         // wrong ARITY at the object-init site (NL207).

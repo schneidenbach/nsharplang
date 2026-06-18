@@ -8876,6 +8876,25 @@ func main(): int {
     }
 
     [Fact]
+    public void ILCompiler_GenericStructObjectInit_RebindsClosedField()
+    {
+        // Closed generic value-struct object-init must use the open definition's FieldBuilder
+        // rebound onto each instantiation. Reflection field lookup on the unfinished closed
+        // TypeBuilderInstantiation throws NotSupportedException.
+        var source = @"
+struct Cell<T> {
+    value: T
+}
+
+func main(): int {
+    number := new Cell<int> { value: 7 }
+    text := new Cell<string> { value: ""abcd"" }
+    return number.value + text.value.Length
+}";
+        Assert.Equal(11, Assert.IsType<int>(CompileAndInvoke(source)));
+    }
+
+    [Fact]
     public void ILCompiler_GenericInstanceMethod_OnGenericType_ValueAndReferenceTypeArgs()
     {
         // B12b: `Box<int>.Pair<U>` must rebind onto the closed type BEFORE MakeGenericMethod,
