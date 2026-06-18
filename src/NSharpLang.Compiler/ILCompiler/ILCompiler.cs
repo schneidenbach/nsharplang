@@ -19326,11 +19326,6 @@ public partial class ILCompiler
         for (int i = 0; i < arrayLiteral.Elements.Count; i++)
         {
             var element = arrayLiteral.Elements[i];
-            if (element is SpreadExpression)
-            {
-                throw new NotImplementedException("Spread elements in array literals are not yet supported in IL compiler");
-            }
-
             _currentIL.Emit(OpCodes.Dup);
             _currentIL.Emit(OpCodes.Ldc_I4, i);
             EmitExpression(element);
