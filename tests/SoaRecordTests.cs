@@ -6398,7 +6398,33 @@ public class SoaRecordTests : ILCompilerTestBase
                 type Nodes = NodeTable
 
                 func bad(nodes: Nodes) {
+                    assert ((NodeTable)nodes).kind
+                }
+                """,
+                Action: "asserted"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
                     assert true, checked(nodes.kind)
+                }
+                """,
+                Action: "used as an assertion message"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    assert true, checked(((Nodes)((NodeTable)nodes)).kind)
                 }
                 """,
                 Action: "used as an assertion message"),
@@ -6424,6 +6450,19 @@ public class SoaRecordTests : ILCompilerTestBase
                 type Nodes = NodeTable
 
                 func bad(nodes: Nodes) {
+                    message := $"{((NodeTable)nodes).kind}"
+                }
+                """,
+                Action: "formatted in an interpolated string"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
                     _ = unchecked(nodes.kind)
                 }
                 """,
@@ -6437,7 +6476,33 @@ public class SoaRecordTests : ILCompilerTestBase
                 type Nodes = NodeTable
 
                 func bad(nodes: Nodes) {
+                    _ = unchecked(((Nodes)((NodeTable)nodes)).kind)
+                }
+                """,
+                Action: "discarded"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
                     checked(nodes.kind)
+                }
+                """,
+                Action: "discarded"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    checked(((NodeTable)nodes).kind)
                 }
                 """,
                 Action: "discarded")

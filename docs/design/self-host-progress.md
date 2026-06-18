@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Hard-cast SoA display escapes reject before lowering
+
+Direct-column display/discard escapes now have hard-cast pins for assertion conditions, assertion
+messages, interpolation holes, explicit discards, and bare expression statements. Hard-cast table/alias
+receivers wrapped in `checked(...)` or `unchecked(...)` keep the SoA direct-column diagnostic before
+display lowering or expression-statement validation can treat the backing array as an ordinary value.
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~Analyzer_SoaDirectColumnsCannotEscapeThroughDisplayOrDiscardContexts"`.
+
 ## 2026-06-18 — Hard-cast SoA storage and result escapes reject before lowering
 
 Direct-column storage/result escapes now have hard-cast pins for deconstruction, typed locals,

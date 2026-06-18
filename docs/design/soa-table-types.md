@@ -474,8 +474,9 @@ The compiler must produce direct diagnostics for common misuse:
   field/object/collection/with initializers plus `with` targets:
   "SoA table member 'X' cannot be stored in a variable directly";
 - unsupported direct-column array escapes through display/discard contexts, including print,
-  assertion conditions/messages, interpolation holes, explicit discards, and bare expression
-  statements: "SoA table member 'X' cannot be printed directly";
+  assertion conditions/messages, interpolation holes, explicit discards, bare expression
+  statements, hard-cast table/alias receivers, and checked/unchecked wrappers:
+  "SoA table member 'X' cannot be printed directly";
 - unsupported direct-column array escapes through control/operand contexts, including if/while/for
   conditions, foreach/await-foreach collections, using/lock resources, switch/match subjects,
   operator/unary operands, `must`, casts, `is`, `await`, `throw`, `yield`, ternary conditions,
