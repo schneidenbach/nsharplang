@@ -8338,13 +8338,14 @@ public class Analyzer : IDisposable
         {
             return BuiltInTypes.Unknown;
         }
-        if (ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(unary.Operand, "used as a unary operand"))
+
+        if (isIncrementOrDecrement
+            && ReportSoaTableMemberMutationIfNeeded(unary.Operand, targetExpressionTypes, "incremented or decremented directly"))
         {
             return BuiltInTypes.Unknown;
         }
 
-        if (isIncrementOrDecrement
-            && ReportSoaTableMemberMutationIfNeeded(unary.Operand, targetExpressionTypes, "incremented or decremented directly"))
+        if (ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(unary.Operand, "used as a unary operand"))
         {
             return BuiltInTypes.Unknown;
         }

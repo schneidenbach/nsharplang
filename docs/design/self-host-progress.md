@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA direct column increments keep mutation diagnostics
+
+Direct generated table members now report the precise mutation diagnostic for `++`/`--` before the
+generic direct-column unary-operand escape. This preserves the table-shape guidance for
+`nodes.kind++`, parenthesized column-member increments, and checked/unchecked generated member
+targets while keeping ordinary unary value contexts rejected as direct-column escapes.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter
+"FullyQualifiedName~Analyzer_SoaTableColumnArrayCannotBeIncrementedDirectly|FullyQualifiedName~Analyzer_SoaTableColumnArrayCannotBeDecrementedDirectly|FullyQualifiedName~Analyzer_SoaTableParenthesizedDirectMemberMutationsAreRejected|FullyQualifiedName~Analyzer_SoaTableCheckedAndUncheckedDirectMemberMutationsAreRejected|FullyQualifiedName~Analyzer_SoaDirectColumnsCannotEscapeThroughControlOrOperandContexts"`.
+
 ## 2026-06-18 — SoA direct columns cannot escape through tuple deconstruction
 
 Tuple deconstruction now rejects direct backing columns before tuple-shape or error-pattern handling.
