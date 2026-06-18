@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Typed-catch decline pins assert analyzer verdicts
+
+The typed-catch parity declines for unknown exception types and non-`Exception` catch types now assert
+the production analyzer diagnostics (`NL201` for missing catch types, `NL202` for non-exception
+types) instead of preserving stale oracle-defect comments. Columnar still declines those sources, but
+the tests now prove the decline is paired with the front-door catch safety checks that stop invalid
+`BeginCatchBlock` lowering before emission.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter
+"FullyQualifiedName~ColumnarCodegen_Parity_TypedCatches"`.
+
 ## 2026-06-18 — Generic object-initializer mismatch pins assert analyzer verdicts
 
 The generic record and generic union field-value mismatch route pins now assert the production

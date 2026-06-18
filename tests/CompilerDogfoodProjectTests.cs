@@ -8297,8 +8297,8 @@ func outer(x: int): int {
     // local (stloc of the pushed exception); the name child is a kind-6 USE in every name scan, mirroring
     // the Linter's catch-vars-are-always-used rule (no NL001). `e.Message` resolves via the new
     // Exception-receiver member arm (callvirt get_Message). Types resolve through a strict BCL exception
-    // whitelist — the pipeline silently turns UNKNOWN type names into catch-alls (oracle defect #16) and
-    // accepts non-exception types as dead clauses (#17); columnar declines both.
+    // whitelist; unknown and non-exception catch types are production analyzer diagnostics, so columnar
+    // declines those sources rather than bypassing the front-door verdict.
     [Fact]
     public void ColumnarCodegen_Parity_TypedCatches()
     {
@@ -8358,11 +8358,14 @@ func outer(x: int): int {
         }
 
         // DECLINES:
-        // an UNKNOWN exception type — the pipeline accepts it as a silent CATCH-ALL (oracle defect #16);
-        // columnar refuses to inherit that wrongness.
-        Assert.False(RouteColumnarProgram("func f(n: int): int {\n    try {\n        return 100 / n\n    } catch (e: TotallyMadeUpException) {\n        return 0 - 1\n    }\n}\n").Ok);
-        // a NON-exception catch type — pipeline-accepted as a dead clause (defect #17).
-        Assert.False(RouteColumnarProgram("func f(n: int): int {\n    try {\n        return 100 / n\n    } catch (e: int) {\n        return 0 - 1\n    }\n}\n").Ok);
+        // an UNKNOWN exception type — production rejects with NL201 before catch lowering.
+        var unknownCatchType = "func f(n: int): int {\n    try {\n        return 100 / n\n    } catch (e: TotallyMadeUpException) {\n        return 0 - 1\n    }\n}\n";
+        Assert.False(RouteColumnarProgram(unknownCatchType).Ok);
+        AssertPipelineRejects(unknownCatchType, "NL201");
+        // a NON-exception catch type — production rejects with NL202 before catch lowering.
+        var nonExceptionCatchType = "func f(n: int): int {\n    try {\n        return 100 / n\n    } catch (e: int) {\n        return 0 - 1\n    }\n}\n";
+        Assert.False(RouteColumnarProgram(nonExceptionCatchType).Ok);
+        AssertPipelineRejects(nonExceptionCatchType, "NL202");
         // a catch variable SHADOWING an existing local — the pipeline's NL316 error; declining keeps the
         // real diagnostic authoritative.
         Assert.False(RouteColumnarProgram("func f(k: int): int {\n    e := 5\n    try {\n        if k == 1 {\n            throw new InvalidOperationException(\"x\")\n        }\n        return e\n    } catch (e: InvalidOperationException) {\n        return 0 - 1\n    }\n}\n").Ok);
