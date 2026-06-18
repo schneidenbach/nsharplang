@@ -5614,6 +5614,19 @@ public class SoaRecordTests : ILCompilerTestBase
                     value := unchecked((nodes).kind)?[0]
                 }
                 """,
+                AccessKind: "index access"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    value := unchecked(((Nodes)((NodeTable)nodes)).kind)?[0]
+                }
+                """,
                 AccessKind: "index access")
         };
 

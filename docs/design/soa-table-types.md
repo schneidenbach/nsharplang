@@ -550,7 +550,7 @@ array element loads/stores with no row allocation, boxing, delegate construction
 allocation, or virtual dispatch. Hard-cast table/alias row projections, such as
 `((Nodes)table)[row].column`, and hard-cast direct-column element access, such as
 `((Nodes)table).column[row]`, keep the same direct backing-array shape; unsupported hard-cast
-direct-column escapes, null-conditional access, range slices, and generated-member mutations still
+direct-column escapes, null-conditional member/index access, range slices, and generated-member mutations still
 report SoA diagnostics before emission. Accepted hard-cast direct-column `Array.Fill`, `Array.Copy`,
 and `Array.Clear` kernels also load backing arrays directly with no row allocation or dispatch, while
 hard-cast direct-column `Array.Resize`, `Array.Sort`, and `Array.Reverse` cases reject before
