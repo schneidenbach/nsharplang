@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA enum ref/out column addresses are pinned
+
+SoA int-backed enum columns now have direct IL-shape coverage for `ref`/`out` arguments across row
+projection, parenthesized row projection, and direct backing-column from-end access. The test pins
+the same `ldelema` column-element address path already required for scalar columns, without row
+allocation, boxing, delegate construction, heap array allocation, or virtual dispatch.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~ILCompiler_SoaRecordEnumColumnRefOutArguments_UseColumnElementAddresses"`;
+`./scripts/dev.sh SoaRecord`.
+
 ## 2026-06-18 — Collection materialization requires compatible element parameters
 
 Collection-expression analysis now rejects reflection-backed concrete sequence targets whose
