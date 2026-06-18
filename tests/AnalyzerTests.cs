@@ -1887,6 +1887,48 @@ func CompareReflectedChars(left: string, right: string): bool {
     }
 
     [Fact]
+    public void RangeExpression_InvalidEndpointTypes_ReportTypeMismatch()
+    {
+        var result = AnalyzeWithSource(@"
+func BadStart(values: int[]) {
+    _ = values[""0""..2]
+}
+
+func BadEnd(values: int[]) {
+    _ = values[0..""2""]
+}
+
+func BadFromEnd(values: int[]) {
+    _ = values[0..^""2""]
+}
+
+func BadLong(values: int[], count: long) {
+    _ = values[0..count]
+}
+");
+
+        var errors = result.Errors.Where(e => e.Code == ErrorCode.TypeMismatch).ToList();
+        Assert.Equal(4, errors.Count);
+        Assert.Contains(errors, e => e.Message.Contains("Range bounds must be int or System.Index")
+            && e.Message.Contains("'string'"));
+        Assert.Contains(errors, e => e.Message.Contains("Range bounds must be int or System.Index")
+            && e.Message.Contains("'long'"));
+        Assert.Contains(errors, e => e.Message.Contains("'^' operator doesn't work with 'string'"));
+    }
+
+    [Fact]
+    public void RangeExpression_IntCompatibleEndpoints_AreValid()
+    {
+        AssertNoErrors(@"
+func Main(values: int[], start: byte, end: short, fromEnd: int) {
+    first := values[start..end]
+    middle := values[..^fromEnd]
+    all := values[..]
+}
+        ");
+    }
+
+    [Fact]
     public void ArrayIndexAccess_WithStringIndex_ReportsTypeMismatch()
     {
         var result = Analyze("""

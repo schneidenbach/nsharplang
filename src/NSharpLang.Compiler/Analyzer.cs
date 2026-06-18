@@ -6608,18 +6608,41 @@ public class Analyzer : IDisposable
         if (range.Start != null)
         {
             var startType = AnalyzeExpression(range.Start);
-            ReportSoaRowEscapeIfNeeded(range.Start, startType, "used as a range bound");
+            if (!ReportSoaRowEscapeIfNeeded(range.Start, startType, "used as a range bound"))
+            {
+                CheckRangeEndpoint(range.Start, startType);
+            }
         }
 
         // Analyze end if present
         if (range.End != null)
         {
             var endType = AnalyzeExpression(range.End);
-            ReportSoaRowEscapeIfNeeded(range.End, endType, "used as a range bound");
+            if (!ReportSoaRowEscapeIfNeeded(range.End, endType, "used as a range bound"))
+            {
+                CheckRangeEndpoint(range.End, endType);
+            }
         }
 
         // All range expressions return System.Range
         return GetRangeType();
+    }
+
+    private void CheckRangeEndpoint(Expression endpoint, TypeInfo endpointType)
+    {
+        if (BuiltInTypes.IsUnknown(endpointType) || IsRangeEndpointType(endpointType))
+        {
+            return;
+        }
+
+        var (line, column, length) = GetExpressionDiagnosticSpan(endpoint);
+        Error(
+            ErrorCode.TypeMismatch,
+            $"Range bounds must be int or System.Index, but this bound has type '{endpointType}'",
+            line,
+            column,
+            "Use an int bound, '^n' with an int count, or convert the value before building the range.",
+            length);
     }
 
     private TypeInfo AnalyzeSpreadExpression(SpreadExpression spread)
@@ -7575,9 +7598,28 @@ public class Analyzer : IDisposable
             UnaryOperator.BitwiseNot => AnalyzeUnaryBitwiseNot(operandType, unary),
             UnaryOperator.PreIncrement or UnaryOperator.PreDecrement
                 or UnaryOperator.PostIncrement or UnaryOperator.PostDecrement => AnalyzeIncrementOrDecrement(operandType, unary),
-            UnaryOperator.IndexFromEnd => GetIndexType(),
+            UnaryOperator.IndexFromEnd => AnalyzeIndexFromEnd(operandType, unary),
             _ => BuiltInTypes.Unknown
         };
+    }
+
+    private TypeInfo AnalyzeIndexFromEnd(TypeInfo operandType, UnaryExpression unary)
+    {
+        if (BuiltInTypes.IsUnknown(operandType))
+        {
+            return BuiltInTypes.Unknown;
+        }
+
+        if (!IsAssignable(BuiltInTypes.Int, operandType))
+        {
+            ReportUnaryOperatorOperandMismatch(
+                unary,
+                operandType,
+                "the from-end index count must be an int-compatible value");
+            return BuiltInTypes.Unknown;
+        }
+
+        return GetIndexType();
     }
 
     private TypeInfo AnalyzeLogicalNot(TypeInfo operandType, UnaryExpression unary)
@@ -8079,6 +8121,12 @@ public class Analyzer : IDisposable
     private static bool IsIndexLikeType(TypeInfo type)
         => type is ReflectionTypeInfo { Type.FullName: "System.Index" }
            || type is SimpleTypeInfo { Name: "Index" or "System.Index" };
+
+    private bool IsRangeEndpointType(TypeInfo type)
+    {
+        var resolved = ResolveTypeAlias(type);
+        return IsIndexLikeType(resolved) || IsAssignable(BuiltInTypes.Int, resolved);
+    }
 
     private TypeInfo GetRangeType()
         => LookupType("System.Range") ?? new ReflectionTypeInfo(typeof(Range));

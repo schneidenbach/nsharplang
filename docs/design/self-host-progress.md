@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Range and from-end index operands validate before lowering
+
+Range bounds now validate during analysis before the IL backend constructs `System.Index`/`System.Range`
+values. `^expr` requires an int-compatible count, and each `start..end` bound must be int-compatible
+or already `System.Index`; invalid string/long bounds now report `NL202` instead of reaching
+`EmitExpressionWithExpectedType(..., int)` and producing an invalid or truncating stack shape.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~AnalyzerTests.RangeExpression"`;
+`./scripts/dev.sh RangeExpression`.
+
 ## 2026-06-18 — Binary equality validates operands before `ceq`
 
 `==` and `!=` now use analyzer-side shape checks instead of accepting every operand pair and letting
