@@ -8217,7 +8217,7 @@ func outer(x: int): int {
     // ORACLE's exact lowering — the enumerator comes from the IEnumerable<T> INTERFACE (the struct enumerator is BOXED),
     // Dispose sits at a dispose label after the loop (break branches to it; NOT try/finally) — which is
     // what makes mutation-during-iteration throw InvalidOperationException identically (an index loop
-    // would silently diverge; probe-pinned). The 20-probe oracle sweep was ALL green; the unmodeled
+    // would silently diverge; probe-pinned). The 22-probe oracle sweep was ALL green; the unmodeled
     // remainder declines below.
     [Fact]
     public void ColumnarCodegen_Parity_Collections()
@@ -8241,6 +8241,7 @@ func outer(x: int): int {
             "func dictOverwrite(): int {\n    d := new Dictionary<string, int>()\n    d[\"k\"] = 1\n    d[\"k\"] = 7\n    return d[\"k\"]\n}\n\n" +
             "func dictAdd(): int {\n    d := new Dictionary<string, int>()\n    d.Add(\"k\", 4)\n    d.Add(\"q\", 5)\n    return d[\"k\"] + d[\"q\"] + d.Count\n}\n\n" +
             "func dictRemove(): int {\n    d := new Dictionary<string, int>()\n    d.Add(\"a\", 1)\n    d.Add(\"b\", 2)\n    removed := d.Remove(\"a\")\n    missing := d.Remove(\"x\")\n    score := d.Count\n    if removed {\n        score = score + 10\n    }\n    if missing {\n        score = score + 100\n    }\n    if d.ContainsKey(\"b\") {\n        score = score + 1000\n    }\n    return score + d[\"b\"]\n}\n\n" +
+            "func dictClear(): int {\n    d := new Dictionary<string, int>()\n    d.Add(\"a\", 1)\n    d.Add(\"b\", 2)\n    d.Clear()\n    d.Add(\"c\", 3)\n    score := d.Count * 10\n    if d.ContainsKey(\"c\") {\n        score = score + 1\n    }\n    if d.ContainsKey(\"a\") {\n        score = score + 100\n    }\n    return score + d[\"c\"]\n}\n\n" +
             // capacity ctors (probed: 7).
             "func capacity(): int {\n    l := new List<int>(8)\n    d := new Dictionary<string, int>(10)\n    l.Add(3)\n    d[\"x\"] = 4\n    return l[0] + d[\"x\"]\n}\n\n" +
             // NESTED generics compose (probed: \"localhost\" / 8).
@@ -8270,6 +8271,7 @@ func outer(x: int): int {
             ("dictOverwrite", System.Array.Empty<object>()),
             ("dictAdd", System.Array.Empty<object>()),
             ("dictRemove", System.Array.Empty<object>()),
+            ("dictClear", System.Array.Empty<object>()),
             ("capacity", System.Array.Empty<object>()),
             ("nestedDict", System.Array.Empty<object>()),
             ("nestedList", System.Array.Empty<object>()),

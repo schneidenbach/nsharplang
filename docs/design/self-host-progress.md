@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Columnar `Dictionary.Clear` joins the void-mutator surface
+
+The standalone columnar emitter now lowers `Dictionary<K,V>.Clear()` for the closed-generic
+dictionary surface already backed by `Add`, `ContainsKey`, and `Remove`. The parity probe verifies
+post-clear `Count`, removed-key absence, reuse after clear, and indexer lookup against the C# oracle.
+Other dictionary mutators such as `TryGetValue` remain declined until they have dedicated parity and
+shape evidence.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_Parity_Collections"`;
+`./scripts/dev.sh ColumnarCodegen_Parity_Collections`.
+
 ## 2026-06-18 — Columnar `Dictionary.Remove` joins the bool-mutator surface
 
 The standalone columnar emitter now lowers `Dictionary<K,V>.Remove(K)` for the same closed-generic
