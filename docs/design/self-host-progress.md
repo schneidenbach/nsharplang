@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA checked direct-column null coalescing keeps IL shape
+
+Direct-column null-coalescing reads and assignments now have IL-shape evidence when the nullable
+column receiver is wrapped in `checked(...)` or `unchecked(...)`, including from-end element access.
+`(checked(table.column))[row] ?? fallback`, `(unchecked(table.column))[row] ??= value`, and
+`(checked(table.column))[idx]` still lower to generated backing array loads/stores, with no row
+materialization, array slicing, boxing, delegate construction, or virtual dispatch.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter
+"FullyQualifiedName~DirectColumnNullCoalescingCheckedUncheckedWrappers_UseColumnArrayLoadStoreWithoutRowAllocation"`.
+
 ## 2026-06-18 — SoA checked direct-column element access keeps IL shape
 
 Direct-column element reads, writes, compound assignment, postfix update, and from-end stores now
