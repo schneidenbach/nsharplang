@@ -11,6 +11,20 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — CLR attribute argument failures report before emission
+
+CLR-backed attributes now validate their constructor and named-argument surface during semantic
+analysis after the existing constant-expression checks. Analyzer diagnostics now catch unsupported
+attribute constructor shapes, unknown named properties/fields, and known named-argument type
+mismatches before the IL backend builds `CustomAttributeBuilder`, preserving source spans and avoiding
+line-zero `NL103` emitter failures. Validation is conservative for source-defined or unresolved
+attribute values: it only performs CLR surface matching when the attribute type and argument CLR
+shapes are known through the analyzer's metadata context.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~AttributeArguments_NoMatchingClrConstructor_ReportBeforeEmission|FullyQualifiedName~AttributeArguments_UnknownClrNamedMember_ReportBeforeEmission|FullyQualifiedName~AttributeArguments_ClrNamedMemberTypeMismatch_ReportBeforeEmission"`;
+`./scripts/dev.sh AttributeArguments`; targeted `nlc build <file> --backend il` probes for
+`[System.Obsolete(1)]` and `[System.Obsolete(message: "bad")]` now report `NL402`/`NL303` instead of
+`NL103`; `./scripts/dev.sh --since`.
+
 ## 2026-06-18 — Product example analyzer compatibility restored after stricter checks
 
 The stricter pre-lowering diagnostics now preserve the product examples that depend on source nested

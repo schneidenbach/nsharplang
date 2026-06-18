@@ -11568,6 +11568,54 @@ func Main() {
     }
 
     [Fact]
+    public void AttributeArguments_NoMatchingClrConstructor_ReportBeforeEmission()
+    {
+        var result = AnalyzeWithSource("""
+            [System.Obsolete(1)]
+            func Bad(): int {
+                return 0
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.NoMatchingOverload);
+        Assert.Contains("No constructor of attribute 'System.ObsoleteAttribute'", error.Message);
+        Assert.Contains("1 positional argument", error.Message);
+        Assert.Contains("int", error.Message);
+    }
+
+    [Fact]
+    public void AttributeArguments_UnknownClrNamedMember_ReportBeforeEmission()
+    {
+        var result = AnalyzeWithSource("""
+            [System.Obsolete(message: "bad")]
+            func Bad(): int {
+                return 0
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.UndefinedMember);
+        Assert.Contains("System.ObsoleteAttribute", error.Message);
+        Assert.Contains("message", error.Message);
+        Assert.Contains("settable property or field", error.Message);
+    }
+
+    [Fact]
+    public void AttributeArguments_ClrNamedMemberTypeMismatch_ReportBeforeEmission()
+    {
+        var result = AnalyzeWithSource("""
+            [System.Obsolete(DiagnosticId: 1)]
+            func Bad(): int {
+                return 0
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains("DiagnosticId", error.Message);
+        Assert.Contains("string", error.Message);
+        Assert.Contains("int", error.Message);
+    }
+
+    [Fact]
     public void TableDrivenTestCases_SupportedInlineDataConstants_AreValid()
     {
         AssertNoErrors("""

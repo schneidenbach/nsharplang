@@ -562,6 +562,13 @@ public class Analyzer : IDisposable
         UnknownStaticMember
     }
 
+    private sealed record AttributeArgumentValidationInfo(
+        Argument Argument,
+        string? Name,
+        Expression Value,
+        Type? ClrType,
+        bool IsNull);
+
     private void ValidateDeclarationAttributeArguments(Declaration decl)
     {
         switch (decl)
@@ -641,10 +648,30 @@ public class Analyzer : IDisposable
                 continue;
             }
 
+            var argumentInfos = new List<AttributeArgumentValidationInfo>(attribute.Arguments.Count);
+            var allConstantsValid = true;
             foreach (var argument in attribute.Arguments)
             {
-                var (_, valueExpression) = NormalizeAttributeArgument(argument);
-                TryValidateAttributeArgumentExpression(valueExpression, out _);
+                var (argumentName, valueExpression) = NormalizeAttributeArgument(argument);
+                if (!TryValidateAttributeArgumentExpression(valueExpression, out _))
+                {
+                    allConstantsValid = false;
+                    argumentInfos.Add(new AttributeArgumentValidationInfo(argument, argumentName, valueExpression, null, false));
+                    continue;
+                }
+
+                var hasClrType = TryInferAttributeArgumentClrType(valueExpression, out var clrType, out var isNull);
+                argumentInfos.Add(new AttributeArgumentValidationInfo(
+                    argument,
+                    argumentName,
+                    valueExpression,
+                    hasClrType ? clrType : null,
+                    isNull));
+            }
+
+            if (allConstantsValid && TryResolveClrAttributeType(attribute.Name, out var attributeType))
+            {
+                ValidateClrAttributeArguments(attribute, attributeType, argumentInfos);
             }
         }
     }
@@ -1060,6 +1087,411 @@ public class Analyzer : IDisposable
             "Use a literal, typeof(...), nameof(...), enum/static constant, or an array of those constants.",
             length);
     }
+
+    private bool TryResolveClrAttributeType(string attributeName, [NotNullWhen(true)] out Type? attributeType)
+    {
+        foreach (var candidate in GetClrAttributeNameCandidates(attributeName))
+        {
+            if (TryResolveExternalType(candidate) is ReflectionTypeInfo { Type: var resolvedType }
+                && IsClrAttributeType(resolvedType))
+            {
+                attributeType = resolvedType;
+                return true;
+            }
+        }
+
+        attributeType = null;
+        return false;
+    }
+
+    private static bool IsClrAttributeType(Type type)
+    {
+        for (var current = type; current != null; current = current.BaseType)
+        {
+            if (string.Equals(current.FullName, "System.Attribute", StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static IEnumerable<string> GetClrAttributeNameCandidates(string attributeName)
+    {
+        yield return attributeName;
+        if (!attributeName.EndsWith("Attribute", StringComparison.Ordinal))
+        {
+            yield return attributeName + "Attribute";
+        }
+    }
+
+    private void ValidateClrAttributeArguments(
+        AttributeNode attribute,
+        Type attributeType,
+        IReadOnlyList<AttributeArgumentValidationInfo> argumentInfos)
+    {
+        foreach (var argumentInfo in argumentInfos)
+        {
+            if (argumentInfo.Name == null)
+            {
+                continue;
+            }
+
+            if (!TryGetSettableAttributeNamedMemberType(attributeType, argumentInfo.Name, out var memberType))
+            {
+                ReportUnknownAttributeNamedArgument(attributeType, argumentInfo);
+                continue;
+            }
+
+            if (argumentInfo.ClrType != null
+                && !IsAttributeArgumentCompatible(memberType, argumentInfo.ClrType, argumentInfo.IsNull))
+            {
+                ReportAttributeNamedArgumentTypeMismatch(attributeType, argumentInfo, memberType);
+            }
+        }
+
+        var positionalArguments = argumentInfos
+            .Where(argumentInfo => argumentInfo.Name == null)
+            .ToList();
+        if (positionalArguments.Any(argumentInfo => argumentInfo.ClrType == null))
+        {
+            return;
+        }
+
+        if (!HasMatchingAttributeConstructor(attributeType, positionalArguments))
+        {
+            ReportNoMatchingAttributeConstructor(attribute, attributeType, positionalArguments);
+        }
+    }
+
+    private static bool TryGetSettableAttributeNamedMemberType(
+        Type attributeType,
+        string memberName,
+        [NotNullWhen(true)] out Type? memberType)
+    {
+        var property = attributeType.GetProperty(memberName, BindingFlags.Public | BindingFlags.Instance);
+        if (property is { SetMethod.IsPublic: true } && property.GetIndexParameters().Length == 0)
+        {
+            memberType = property.PropertyType;
+            return true;
+        }
+
+        var field = attributeType.GetField(memberName, BindingFlags.Public | BindingFlags.Instance);
+        if (field != null && !field.IsInitOnly && !field.IsLiteral)
+        {
+            memberType = field.FieldType;
+            return true;
+        }
+
+        memberType = null;
+        return false;
+    }
+
+    private static bool HasMatchingAttributeConstructor(
+        Type attributeType,
+        IReadOnlyList<AttributeArgumentValidationInfo> positionalArguments)
+    {
+        foreach (var constructor in attributeType.GetConstructors(BindingFlags.Public | BindingFlags.Instance))
+        {
+            var parameters = constructor.GetParameters();
+            if (parameters.Length != positionalArguments.Count)
+            {
+                continue;
+            }
+
+            var matches = true;
+            for (var i = 0; i < parameters.Length; i++)
+            {
+                if (!IsAttributeArgumentCompatible(
+                    parameters[i].ParameterType,
+                    positionalArguments[i].ClrType!,
+                    positionalArguments[i].IsNull))
+                {
+                    matches = false;
+                    break;
+                }
+            }
+
+            if (matches)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IsAttributeArgumentCompatible(Type parameterType, Type argumentType, bool isNull)
+    {
+        if (isNull)
+        {
+            return !parameterType.IsValueType || Nullable.GetUnderlyingType(parameterType) != null;
+        }
+
+        if (parameterType == argumentType || parameterType.IsAssignableFrom(argumentType))
+        {
+            return true;
+        }
+
+        if (TryGetRuntimeEnumUnderlyingType(parameterType) == argumentType)
+        {
+            return true;
+        }
+
+        if (parameterType.IsArray && argumentType.IsArray)
+        {
+            var parameterElementType = parameterType.GetElementType()!;
+            var argumentElementType = argumentType.GetElementType()!;
+            return parameterElementType == argumentElementType
+                || parameterElementType.IsAssignableFrom(argumentElementType)
+                || TryGetRuntimeEnumUnderlyingType(parameterElementType) == argumentElementType;
+        }
+
+        return false;
+    }
+
+    private static Type? TryGetRuntimeEnumUnderlyingType(Type type)
+        => type.IsEnum ? Enum.GetUnderlyingType(type) : null;
+
+    private void ReportUnknownAttributeNamedArgument(Type attributeType, AttributeArgumentValidationInfo argumentInfo)
+    {
+        var (line, column, length) = GetAttributeArgumentDiagnosticSpan(argumentInfo);
+        Error(
+            ErrorCode.UndefinedMember,
+            $"Attribute '{GetAttributeDisplayName(attributeType)}' has no public settable property or field named '{argumentInfo.Name}'",
+            line,
+            column,
+            "Use a named argument exposed by the attribute type.",
+            length);
+    }
+
+    private void ReportAttributeNamedArgumentTypeMismatch(
+        Type attributeType,
+        AttributeArgumentValidationInfo argumentInfo,
+        Type memberType)
+    {
+        var (line, column, length) = GetAttributeArgumentDiagnosticSpan(argumentInfo);
+        Error(
+            ErrorCode.TypeMismatch,
+            $"Attribute named argument '{argumentInfo.Name}' on '{GetAttributeDisplayName(attributeType)}' expects '{FormatReflectionTypeName(memberType)}' but got '{FormatReflectionTypeName(argumentInfo.ClrType!)}'",
+            line,
+            column,
+            "Use a value whose type matches the attribute property or field.",
+            length);
+    }
+
+    private void ReportNoMatchingAttributeConstructor(
+        AttributeNode attribute,
+        Type attributeType,
+        IReadOnlyList<AttributeArgumentValidationInfo> positionalArguments)
+    {
+        var (line, column, length) = positionalArguments.Count > 0
+            ? GetExpressionDiagnosticSpan(positionalArguments[0].Value)
+            : GetAttributeFallbackDiagnosticSpan(attribute);
+        var argumentTypes = positionalArguments
+            .Select(argumentInfo => FormatReflectionTypeName(argumentInfo.ClrType!))
+            .ToList();
+        Error(
+            ErrorCode.NoMatchingOverload,
+            $"No constructor of attribute '{GetAttributeDisplayName(attributeType)}' accepts {positionalArguments.Count} positional argument(s) with these types: {string.Join(", ", argumentTypes)}",
+            line,
+            column,
+            "Check the attribute constructor argument count and types.",
+            length);
+    }
+
+    private static string GetAttributeDisplayName(Type attributeType)
+        => attributeType.FullName ?? attributeType.Name;
+
+    private (int Line, int Column, int Length) GetAttributeArgumentDiagnosticSpan(AttributeArgumentValidationInfo argumentInfo)
+    {
+        if (argumentInfo.Argument.Name == null
+            && argumentInfo.Argument.Value is AssignmentExpression
+            {
+                Target: IdentifierExpression identifier
+            })
+        {
+            return (identifier.Line, identifier.Column, Math.Max(1, identifier.Name.Length));
+        }
+
+        return GetExpressionDiagnosticSpan(argumentInfo.Value);
+    }
+
+    private static (int Line, int Column, int Length) GetAttributeFallbackDiagnosticSpan(AttributeNode attribute)
+        => (1, 1, Math.Max(1, attribute.Name.Length));
+
+    private bool TryInferAttributeArgumentClrType(Expression expression, out Type clrType, out bool isNull)
+    {
+        isNull = false;
+        switch (expression)
+        {
+            case IntLiteralExpression intLiteral:
+                return TryConvertLiteralTypeInfoToClrType(GetIntLiteralType(intLiteral.Value), out clrType);
+            case FloatLiteralExpression floatLiteral:
+                return TryConvertLiteralTypeInfoToClrType(GetFloatLiteralType(floatLiteral.Value), out clrType);
+            case CharLiteralExpression:
+                return TryConvertLiteralTypeInfoToClrType(BuiltInTypes.Char, out clrType);
+            case StringLiteralExpression:
+                return TryConvertLiteralTypeInfoToClrType(BuiltInTypes.String, out clrType);
+            case BoolLiteralExpression:
+                return TryConvertLiteralTypeInfoToClrType(BuiltInTypes.Bool, out clrType);
+            case NullLiteralExpression:
+                isNull = true;
+                return TryConvertLiteralTypeInfoToClrType(BuiltInTypes.Object, out clrType);
+            case TypeOfExpression:
+                clrType = _wellKnownTypes?.SystemType ?? typeof(Type);
+                return true;
+            case NameofExpression:
+                return TryConvertLiteralTypeInfoToClrType(BuiltInTypes.String, out clrType);
+            case MemberAccessExpression memberAccess:
+                return TryInferAttributeMemberAccessClrType(memberAccess, out clrType);
+            case ArrayLiteralExpression arrayLiteral:
+                return TryInferAttributeArrayClrType(arrayLiteral, out clrType);
+            case UnaryExpression unary:
+                return TryInferAttributeUnaryClrType(unary, out clrType, out isNull);
+            case BinaryExpression binary:
+                return TryInferAttributeBinaryClrType(binary, out clrType);
+            default:
+                clrType = typeof(object);
+                return false;
+        }
+    }
+
+    private bool TryConvertLiteralTypeInfoToClrType(TypeInfo typeInfo, out Type clrType)
+    {
+        clrType = TryConvertTypeInfoToClrType(typeInfo) ?? typeof(object);
+        return clrType != typeof(object) || typeInfo == BuiltInTypes.Object;
+    }
+
+    private bool TryInferAttributeMemberAccessClrType(MemberAccessExpression memberAccess, out Type clrType)
+    {
+        clrType = typeof(object);
+        if (!TryGetQualifiedAttributeName(memberAccess.Object, out var containerName))
+        {
+            return false;
+        }
+
+        if (TryResolveBuiltInTypeKeyword(containerName) is { } builtInType)
+        {
+            return TryGetRuntimeStaticAttributeMemberType(builtInType, memberAccess.MemberName, out clrType);
+        }
+
+        if (TryResolveExternalType(containerName) is not ReflectionTypeInfo { Type: var reflectionType })
+        {
+            return false;
+        }
+
+        if (IsRuntimeEnumType(reflectionType))
+        {
+            clrType = reflectionType;
+            return true;
+        }
+
+        return TryGetRuntimeStaticAttributeMemberType(reflectionType, memberAccess.MemberName, out clrType);
+    }
+
+    private static bool TryGetRuntimeStaticAttributeMemberType(Type containerType, string memberName, out Type memberType)
+    {
+        const BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static;
+        var field = containerType.GetField(memberName, flags);
+        if (field != null)
+        {
+            memberType = field.FieldType;
+            return true;
+        }
+
+        var property = containerType.GetProperty(memberName, flags);
+        if (property?.GetMethod != null)
+        {
+            memberType = property.PropertyType;
+            return true;
+        }
+
+        memberType = typeof(object);
+        return false;
+    }
+
+    private bool TryInferAttributeArrayClrType(ArrayLiteralExpression arrayLiteral, out Type clrType)
+    {
+        Type? elementType = null;
+        foreach (var element in arrayLiteral.Elements)
+        {
+            if (!TryInferAttributeArgumentClrType(element, out var currentType, out var isNull))
+            {
+                clrType = typeof(object);
+                return false;
+            }
+
+            if (isNull)
+            {
+                continue;
+            }
+
+            elementType ??= currentType;
+            if (elementType != currentType)
+            {
+                clrType = typeof(object);
+                return false;
+            }
+        }
+
+        if (elementType == null && !TryConvertLiteralTypeInfoToClrType(BuiltInTypes.Object, out elementType))
+        {
+            clrType = typeof(object);
+            return false;
+        }
+
+        clrType = elementType.MakeArrayType();
+        return true;
+    }
+
+    private bool TryInferAttributeUnaryClrType(UnaryExpression unary, out Type clrType, out bool isNull)
+    {
+        isNull = false;
+        if (!TryInferAttributeArgumentClrType(unary.Operand, out clrType, out var operandIsNull) || operandIsNull)
+        {
+            return false;
+        }
+
+        return unary.Operator switch
+        {
+            UnaryOperator.Negate => IsClrType(clrType, typeof(int))
+                || IsClrType(clrType, typeof(long))
+                || IsClrType(clrType, typeof(float))
+                || IsClrType(clrType, typeof(double)),
+            UnaryOperator.Not => IsClrType(clrType, typeof(bool)),
+            UnaryOperator.BitwiseNot => IsClrType(clrType, typeof(int)) || IsClrType(clrType, typeof(long)),
+            _ => false
+        };
+    }
+
+    private bool TryInferAttributeBinaryClrType(BinaryExpression binary, out Type clrType)
+    {
+        clrType = typeof(object);
+        if (binary.Operator is not (BinaryOperator.BitwiseOr or BinaryOperator.BitwiseAnd or BinaryOperator.BitwiseXor)
+            || !TryInferAttributeArgumentClrType(binary.Left, out var leftType, out var leftIsNull)
+            || !TryInferAttributeArgumentClrType(binary.Right, out var rightType, out var rightIsNull)
+            || leftIsNull
+            || rightIsNull)
+        {
+            return false;
+        }
+
+        if (leftType == rightType
+            && (IsClrType(leftType, typeof(int))
+                || IsClrType(leftType, typeof(long))
+                || IsRuntimeEnumType(leftType)))
+        {
+            clrType = leftType;
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool IsClrType(Type type, Type runtimeType)
+        => type == runtimeType || string.Equals(type.FullName, runtimeType.FullName, StringComparison.Ordinal);
 
     private void AnalyzeTestDeclaration(TestDeclaration test)
     {
