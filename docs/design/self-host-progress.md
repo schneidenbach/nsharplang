@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Columnar `Array.Reverse` flips compiler buffers
+
+The standalone columnar emitter now lowers generic `Array.Reverse<T>(T[])` and
+`Array.Reverse<T>(T[], int, int)` for the existing supported single-dimensional array element set.
+This covers owned compiler buffer reordering without opening non-generic `System.Array` overloads or
+unsupported element arrays; non-int range arguments and unsupported array shapes still decline so the
+C# path remains authoritative outside the pinned surface.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_Parity_ArrayReverse"`;
+`./scripts/dev.sh ColumnarCodegen_Parity_Array`.
+
 ## 2026-06-18 — SoA direct columns reject `Array.Reverse` before emission
 
 The SoA analyzer now rejects `Array.Reverse(table.column)` and

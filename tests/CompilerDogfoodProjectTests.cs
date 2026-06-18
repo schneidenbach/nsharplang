@@ -6753,6 +6753,34 @@ func outer(x: int): int {
             "func f(a: bool[]): int {\n    Array.Sort(a)\n    return 0\n}\n").Ok);
     }
 
+    // Array.Reverse<T>(T[] array) and Array.Reverse<T>(T[] array, int index, int length) -> void. The columnar
+    // slice covers one supported single-dimensional array at a time; non-generic Array overloads and unsupported
+    // element shapes stay declined until separately pinned.
+    [Fact]
+    public void ColumnarCodegen_Parity_ArrayReverse()
+    {
+        var reverseIntWhole = "func reverseIntWhole(): int {\n    a := new int[](4)\n    a[0] = 1\n    a[1] = 2\n    a[2] = 3\n    a[3] = 4\n    Array.Reverse(a)\n    return a[0] * 1000 + a[1] * 100 + a[2] * 10 + a[3]\n}\n\n";
+        var reverseIntRange = "func reverseIntRange(): int {\n    a := new int[](5)\n    a[0] = 9\n    a[1] = 1\n    a[2] = 2\n    a[3] = 3\n    a[4] = 8\n    Array.Reverse(a, 1, 3)\n    return a[0] * 10000 + a[1] * 1000 + a[2] * 100 + a[3] * 10 + a[4]\n}\n\n";
+        var reverseLong = "func reverseLong(): long {\n    a := new long[](3)\n    a[0] = 1L\n    a[1] = 2L\n    a[2] = 3L\n    Array.Reverse(a)\n    return a[0] * 100L + a[1] * 10L + a[2]\n}\n\n";
+        var reverseChar = "func reverseChar(): int {\n    a := new char[](3)\n    a[0] = 'a'\n    a[1] = 'b'\n    a[2] = 'c'\n    Array.Reverse(a)\n    return (int)a[0] * 10000 + (int)a[1] * 100 + (int)a[2]\n}\n\n";
+        var reverseString = "func reverseString(): string {\n    a := new string[](3)\n    a[0] = \"a\"\n    a[1] = \"b\"\n    a[2] = \"c\"\n    Array.Reverse(a)\n    return a[0] + a[1] + a[2]\n}\n";
+        var prog = reverseIntWhole + reverseIntRange + reverseLong + reverseChar + reverseString;
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("reverseIntWhole", Array.Empty<object>()),
+            ("reverseIntRange", Array.Empty<object>()),
+            ("reverseLong", Array.Empty<object>()),
+            ("reverseChar", Array.Empty<object>()),
+            ("reverseString", Array.Empty<object>()));
+
+        // DECLINE SURFACE — keep the C# path authoritative for overload/type shapes the backend does not model.
+        Assert.False(RouteColumnarProgram(  // range index/count must be int.
+            "func f(a: int[]): int {\n    Array.Reverse(a, 0L, 1)\n    return 0\n}\n").Ok);
+        Assert.False(RouteColumnarProgram(  // first argument must be a supported single-dimensional array.
+            "func f(): int {\n    Array.Reverse(5)\n    return 0\n}\n").Ok);
+        Assert.False(RouteColumnarProgram(  // bool[] element opcodes are still outside the columnar array surface.
+            "func f(a: bool[]): int {\n    Array.Reverse(a)\n    return 0\n}\n").Ok);
+    }
+
     // A bare CALL statement whose result is DISCARDED: emit the call, then `pop` the non-void result (a void
     // call leaves nothing). The C# path emits the same pop, so the side effects + ignored result are identical.
     // This is the `helper(args)`-as-statement idiom (LinterImports.nl calls a flag-clearing helper for its side

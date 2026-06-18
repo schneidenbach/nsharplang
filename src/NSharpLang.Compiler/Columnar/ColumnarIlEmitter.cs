@@ -4661,6 +4661,7 @@ internal sealed class ColumnarIlEmitter
             case 23: // ExpressionStatement — a SIMPLE `=` assignment (kind 14) to a `:=` local OR an array
             {        // element `a[i] = value`, OR a bare CALL statement (a void BCL call such as `Array.Fill(...)`,
                      // `Array.Clear(...)`, `Array.Copy(...)`, `Array.Resize(...)`, `Array.Sort(...)`,
+                     // `Array.Reverse(...)`,
                      // or a sibling/BCL call whose non-void result is discarded), OR a COMPOUND assignment
                      // (`+=` `-=` `*=` `/=` on a bare local/param — lowered to load/op/store below).
                 var expr = UnwrapParenthesizedNode(Child(idx, 0));
@@ -9422,6 +9423,24 @@ internal sealed class ColumnarIlEmitter
             type = typeof(void);
             return true;
         }
+        if (typeName == "Array" && member == "Reverse" && (argCount == 1 || argCount == 3))
+        {
+            // Array.Reverse<T>(T[] array) and Array.Reverse<T>(T[] array, int index, int length) -> void. Keep
+            // this to one supported SZ array; non-generic Array and unsupported element shapes stay declined.
+            if (!EmitExpression(Child(callIdx, 1), out var arrayType) || !arrayType.IsSZArray)
+                return false;
+            var elementType = arrayType.GetElementType()!;
+            if (!IsSupportedElementType(elementType))
+                return false;
+            if (argCount == 3 && (!EmitArg(callIdx, 2, typeof(int)) || !EmitArg(callIdx, 3, typeof(int))))
+                return false;
+            var reverse = ResolveArrayReverse(argCount);
+            if (reverse == null)
+                return false;
+            _il.Emit(OpCodes.Call, reverse.MakeGenericMethod(elementType));
+            type = typeof(void);
+            return true;
+        }
         if (typeName == "Array" && member == "Clear" && (argCount == 1 || argCount == 3))
         {
             // Array.Clear(Array) and Array.Clear(Array, int, int) -> void. The emitted argument remains the
@@ -9525,6 +9544,25 @@ internal sealed class ColumnarIlEmitter
         foreach (var m in typeof(System.Array).GetMethods(BindingFlags.Public | BindingFlags.Static))
         {
             if (m.Name != "Sort" || !m.IsGenericMethodDefinition)
+                continue;
+            var parameters = m.GetParameters();
+            if (parameters.Length != parameterCount
+                || !parameters[0].ParameterType.IsSZArray
+                || !parameters[0].ParameterType.GetElementType()!.IsGenericParameter)
+                continue;
+            if (parameterCount == 1
+                || (parameters[1].ParameterType == typeof(int) && parameters[2].ParameterType == typeof(int)))
+                return m;
+        }
+        return null;
+    }
+
+    // System.Array.Reverse<T>(T[] array[, int index, int length]) as a generic method DEFINITION.
+    private static MethodInfo? ResolveArrayReverse(int parameterCount)
+    {
+        foreach (var m in typeof(System.Array).GetMethods(BindingFlags.Public | BindingFlags.Static))
+        {
+            if (m.Name != "Reverse" || !m.IsGenericMethodDefinition)
                 continue;
             var parameters = m.GetParameters();
             if (parameters.Length != parameterCount
