@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Hard-cast SoA loop operands reject before lowering
+
+Direct-column control/operand escapes now have focused pins for the hard-cast forms not covered by
+the broader advanced/resource escape suites: C-style `for` conditions, C-style `for` iterator
+expressions, and throw expressions. Hard-cast table/alias receivers wrapped in `checked(...)` keep the
+SoA diagnostic before loop or throw binding can treat the backing column as a normal operand.
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~Analyzer_SoaDirectColumnsCannotEscapeThroughControlOrOperandContexts"`.
+
 ## 2026-06-18 — Hard-cast SoA display escapes reject before lowering
 
 Direct-column display/discard escapes now have hard-cast pins for assertion conditions, assertion

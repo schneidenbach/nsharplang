@@ -6582,7 +6582,35 @@ public class SoaRecordTests : ILCompilerTestBase
                 type Nodes = NodeTable
 
                 func bad(nodes: Nodes) {
+                    for i := 0; ((NodeTable)nodes).kind; i++ {
+                    }
+                }
+                """,
+                Action: "used as a 'for' condition"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
                     for i := 0; i < 1; checked(nodes.kind) {
+                    }
+                }
+                """,
+                Action: "used as a 'for' iterator"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    for i := 0; i < 1; checked(((Nodes)((NodeTable)nodes)).kind) {
                     }
                 }
                 """,
@@ -6774,6 +6802,19 @@ public class SoaRecordTests : ILCompilerTestBase
 
                 func bad(nodes: Nodes, ok: bool): int {
                     return ok ? 1 : throw nodes.kind
+                }
+                """,
+                Action: "thrown"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes, ok: bool): int {
+                    return ok ? 1 : throw ((NodeTable)nodes).kind
                 }
                 """,
                 Action: "thrown"),

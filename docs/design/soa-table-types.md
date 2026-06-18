@@ -481,8 +481,9 @@ The compiler must produce direct diagnostics for common misuse:
   conditions, foreach/await-foreach collections, using/lock resources, switch/match subjects,
   operator/unary operands, `must`, casts, `is`, `await`, `throw`, `yield`, ternary conditions,
   match guards, index values, array and stackalloc lengths, pattern values, event/off operands,
-  initializer indexes, with-initializer indexes, range bounds, spread expressions, and explicit
-  allocation-policy operands: "SoA table member 'X' cannot be used as an operator operand directly";
+  initializer indexes, with-initializer indexes, range bounds, spread expressions, explicit
+  allocation-policy operands, hard-cast table/alias receivers, and checked/unchecked wrappers:
+  "SoA table member 'X' cannot be used as an operator operand directly";
 - unsupported direct-column array instance calls, including parenthesized, checked, unchecked, and
   hard-cast table/alias column receivers: "SoA table member 'X' cannot call array method 'Y' directly";
 - unsupported direct-column null-conditional member/index access, including hard-cast table/alias
