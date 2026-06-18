@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Hard-cast SoA direct-column escapes cover advanced contexts
+
+Hard-cast table/alias direct-column projections now have analyzer pins beyond the existing
+call/storage/null-conditional/range/Array cases. `((NodeTable)nodes).kind` and nested alias casts
+keep the SoA direct-column escape diagnostic when used in array storage, display, control-flow
+conditions, operator operands, foreach collections, allocation policies, casts, throws, ternary
+results, and explicit discards, so backing arrays cannot leak through hard-cast wrappers before IL
+emission. Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~Analyzer_HardCastedSoaDirectColumnsCannotEscapeFromAdvancedContexts"`.
+
 ## 2026-06-18 — Compiler helper dogfood loaders share one host boundary
 
 Compiler-side owner-local dogfood helpers now bind through

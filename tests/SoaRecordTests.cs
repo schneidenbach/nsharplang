@@ -6778,6 +6778,161 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_HardCastedSoaDirectColumnsCannotEscapeFromAdvancedContexts()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var cases = new[]
+        {
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    values := [((NodeTable)nodes).kind]
+                }
+                """,
+                Action: "stored in an array"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    print ((Nodes)((NodeTable)nodes)).kind
+                }
+                """,
+                Action: "printed"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    if ((NodeTable)nodes).kind {
+                    }
+                }
+                """,
+                Action: "used as an 'if' condition"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes, other: int[]): bool {
+                    return ((Nodes)((NodeTable)nodes)).kind == other
+                }
+                """,
+                Action: "used as an operator operand"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    foreach value in ((NodeTable)nodes).kind {
+                    }
+                }
+                """,
+                Action: "used as a foreach collection"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    value := alloc ((Nodes)((NodeTable)nodes)).kind
+                }
+                """,
+                Action: "used in an alloc expression"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes): object {
+                    return (object)((NodeTable)nodes).kind
+                }
+                """,
+                Action: "cast"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    throw ((Nodes)((NodeTable)nodes)).kind
+                }
+                """,
+                Action: "thrown"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes, other: int[], useColumn: bool): int[] {
+                    return useColumn ? ((NodeTable)nodes).kind : other
+                }
+                """,
+                Action: "used as a ternary result"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    _ = ((Nodes)((NodeTable)nodes)).kind
+                }
+                """,
+                Action: "discarded")
+        };
+
+        foreach (var testCase in cases)
+        {
+            var result = Analyze(testCase.Source);
+            var error = Assert.Single(
+                result.Errors,
+                e => e.Code == ErrorCode.InvalidSyntax
+                    && e.Message.Contains("SoA table member 'kind' cannot be"));
+            Assert.Contains($"SoA table member 'kind' cannot be {testCase.Action} directly", error.Message);
+            Assert.Contains("Table.wrap", error.Suggestion);
+            Assert.Contains("Array.Fill, Array.Copy, and Array.Clear", error.Suggestion);
+            Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.UndefinedMember);
+        }
+    }
+
+    [Fact]
     public void Analyzer_SoaTableRowIndexMustBeInt()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
