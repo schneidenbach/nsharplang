@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Hard-cast SoA checked string compound assignments stay direct
+
+String and nullable-string compound assignments now have IL-shape evidence when hard-cast
+direct-column receivers are wrapped in `checked(...)` or `unchecked(...)`. `+=` over columns reached
+through nested table and alias casts reads the old backing-array element only for the compound
+operation, writes the backing array directly, and uses `String.Concat` without row allocation,
+boxing, delegate construction, heap array allocation, slicing, or virtual dispatch. Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~HardCastedDirectColumnStringCompoundAssignmentsCheckedUncheckedWrappers_UseStringConcatWithoutRowAllocation"`.
+
 ## 2026-06-18 — Hard-cast SoA checked char/enum expressions stay direct
 
 Char promotion/comparison and int-backed enum bitwise/comparison expressions now have IL-shape

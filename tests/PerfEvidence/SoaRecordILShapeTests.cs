@@ -1064,6 +1064,68 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void HardCastedDirectColumnStringCompoundAssignmentsCheckedUncheckedWrappers_UseStringConcatWithoutRowAllocation()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                name: string
+                alias: string?
+            }
+
+            type Nodes = NodeTable
+
+            func update(nodes: Nodes, row: int): int {
+                idx := ^1
+
+                (checked(((NodeTable)nodes).name))[row] = "a"
+                rowValue := (checked(((Nodes)((NodeTable)nodes)).name))[row] += "b"
+
+                (unchecked(((NodeTable)((Nodes)nodes)).name))[^1] = "c"
+                tailValue := (unchecked(((Nodes)((NodeTable)nodes)).name))[idx] += "d"
+
+                rowNullable := (unchecked(((NodeTable)nodes).alias))[row] += "row"
+
+                (checked(((Nodes)((NodeTable)nodes)).alias))[^1] = "tail"
+                tailNullable := (checked(((NodeTable)((Nodes)nodes)).alias))[idx] += "-suffix"
+
+                total := rowValue == "ab" ? 1000 : 0
+                total += tailValue == "cd" ? 100 : 0
+                total += rowNullable == "row" ? 10 : 0
+                total += tailNullable == "tail-suffix" ? 1 : 0
+                return total
+            }
+
+            func main(): int {
+                nodes := new Nodes(2)
+                first := nodes.add()
+                nodes.add()
+                return update(nodes, first)
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var update = ILShapeInspector.GetProgramMethod(assembly, "update");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(1111, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoFromEndSliceAllocation(update);
+            var fieldLoads = ILShapeInspector.CountOpcode(update, OpCodes.Ldfld);
+            Assert.True(
+                fieldLoads >= 7,
+                $"Hard-casted checked/unchecked direct SoA string compound assignments should load backing column fields directly; saw {fieldLoads} field loads.");
+            Assert.Equal(4, CountArrayElementLoads(update));
+            Assert.Equal(7, CountArrayElementStores(update));
+            Assert.Equal(4, ILShapeInspector.CountCallsTo(update, typeof(string), nameof(string.Concat)));
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void DirectColumnNullCoalescingCheckedUncheckedWrappers_UseColumnArrayLoadStoreWithoutRowAllocation()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
