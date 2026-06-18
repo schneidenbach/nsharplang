@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Collection expressions discard non-void mutator results
+
+Collection-expression lowering now discards return values from target collection mutators such as
+`bool Add(T)`. Accepted collection targets that materialize through a default constructor plus
+`Add`/`Enqueue` no longer leave a mutator result on the IL stack while copying elements from the
+temporary list into the final collection.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~ILCompilerCoverageTests.ILCompiler_CanExecuteCollectionExpressionIntoCustomBoolAddCollection|FullyQualifiedName~ILCompilerCoverageTests.ILCompiler_CanExecuteCollectionExpressionIntoISetInterfaceTarget"`.
+
 ## 2026-06-18 — Target-typed `new()` without a target type rejects before emission
 
 Non-anonymous target-typed `new` expressions now report NL203 during analysis when no expected type

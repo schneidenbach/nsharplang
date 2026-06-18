@@ -261,6 +261,10 @@ public partial class ILCompiler
         _currentIL.Emit(OpCodes.Ldloc, indexLocal);
         _currentIL.Emit(OpCodes.Callvirt, itemGetter);
         _currentIL.Emit(OpCodes.Callvirt, targetAddMethod);
+        if (targetAddMethod.ReturnType != typeof(void))
+        {
+            _currentIL.Emit(OpCodes.Pop);
+        }
 
         _currentIL.Emit(OpCodes.Ldloc, indexLocal);
         _currentIL.Emit(OpCodes.Ldc_I4_1);

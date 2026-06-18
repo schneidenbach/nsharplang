@@ -903,6 +903,21 @@ func main(): int {
     }
 
     [Fact]
+    public void ILCompiler_CanExecuteCollectionExpressionIntoCustomBoolAddCollection()
+    {
+        var source = @"
+import NSharpLang.Tests
+
+func main(): int {
+    bag: IntBoolAddBag = [2, 4, 8]
+    return bag.Sum()
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal(14, Assert.IsType<int>(result));
+    }
+
+    [Fact]
     public void ILCompiler_CanExecuteCollectionExpressionIntoCustomEnqueueCollection()
     {
         var source = @"

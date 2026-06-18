@@ -333,6 +333,32 @@ public sealed class IntAddBag : IEnumerable<int>
     }
 }
 
+public sealed class IntBoolAddBag : IEnumerable<int>
+{
+    private readonly List<int> _values = new();
+
+    public bool Add(int value)
+    {
+        _values.Add(value);
+        return true;
+    }
+
+    public int Sum()
+    {
+        return _values.Sum();
+    }
+
+    public IEnumerator<int> GetEnumerator()
+    {
+        return _values.GetEnumerator();
+    }
+
+    IEnumerator IEnumerable.GetEnumerator()
+    {
+        return GetEnumerator();
+    }
+}
+
 public sealed class IntEnqueueBag : IEnumerable<int>
 {
     private readonly Queue<int> _values = new();
