@@ -8653,6 +8653,11 @@ func outer(x: int): int {
         // NL102) that the adapter's whitespace strip would FUSE into a valid canonical; the kernel
         // rejects the token run so the program declines.
         Assert.False(RouteColumnarProgram("record H {\n    Items: List<i nt>\n}\n\nfunc f(): int {\n    h := new H { Items: new List<int>() }\n    h.Items.Add(8)\n    return h.Items[0]\n}\n").Ok);
+        // a non-generic built-in used as a closed-generic FIELD type is a production analyzer error
+        // (NL207), not merely a columnar limitation.
+        var nonGenericBuiltInHead = "record H {\n    Items: int<int>\n}\n\nfunc f(): int {\n    return 0\n}\n";
+        AssertPipelineRejects(nonGenericBuiltInHead, "NL207");
+        Assert.False(RouteColumnarProgram(nonGenericBuiltInHead).Ok);
         // a USER type named List/Dictionary/HashSet shadows the BCL head: the pipeline rejects every
         // closed-generic use (NL207 non-generic / NL303 generic) — columnar declines the head outright.
         Assert.False(RouteColumnarProgram("record List {\n    X: int\n}\n\nfunc f(): int {\n    l := new List<int>()\n    l.Add(3)\n    return l[0]\n}\n").Ok);

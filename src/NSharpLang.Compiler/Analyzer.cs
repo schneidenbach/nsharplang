@@ -17285,9 +17285,9 @@ public class Analyzer : IDisposable
             // must be explicit.
             if (newExpr.Type is SimpleTypeReference bareTypeReference
                 && !bareTypeReference.Name.Contains('.')
-                && GetDeclaredTypeParameterCount(type) > 0)
+                && GetGenericHeadArity(type) > 0)
             {
-                var requiredCount = GetDeclaredTypeParameterCount(type);
+                var requiredCount = GetGenericHeadArity(type);
                 Error(
                     ErrorCode.InvalidTypeArgument,
                     $"Generic type '{bareTypeReference.Name}' requires {requiredCount} type argument(s)",
@@ -19170,7 +19170,22 @@ public class Analyzer : IDisposable
                 _reportUnresolvedTypes = previousReport;
             }
 
-            var declaredTypeParameterCount = GetDeclaredTypeParameterCount(resolvedName);
+            var genericHeadArity = GetGenericHeadArity(resolvedName);
+            Type? arityQualifiedExternalType = null;
+            if (resolvedName is ExternalTypeInfo or ReflectionTypeInfo)
+            {
+                arityQualifiedExternalType = TryGetKnownOpenGenericType(generic.Name, generic.TypeArguments.Count);
+                if (arityQualifiedExternalType == null
+                    && TryResolveExternalType($"{generic.Name}`{generic.TypeArguments.Count}") is ReflectionTypeInfo arityQualifiedExternal)
+                {
+                    arityQualifiedExternalType = arityQualifiedExternal.Type;
+                }
+
+                if (arityQualifiedExternalType != null)
+                {
+                    genericHeadArity = generic.TypeArguments.Count;
+                }
+            }
 
             // Report the generic name as unresolved only when it is not compiler-known
             // (Result, Task, Func, ...) and the arity-qualified external probe also misses
@@ -19178,8 +19193,7 @@ public class Analyzer : IDisposable
             if (previousReport &&
                 resolvedName is ExternalTypeInfo &&
                 !generic.Name.Contains('.') &&
-                TryGetKnownOpenGenericType(generic.Name, generic.TypeArguments.Count) == null &&
-                TryResolveExternalType($"{generic.Name}`{generic.TypeArguments.Count}") == null &&
+                arityQualifiedExternalType == null &&
                 _reportedUnresolvedTypeRefs.Add((generic.Name, generic.Line, generic.Column)))
             {
                 Error(
@@ -19195,19 +19209,19 @@ public class Analyzer : IDisposable
             // sailed through analysis and the emitter produced an unloadable assembly
             // (TypeLoadException at runtime). Reported at declared-type positions only, with
             // the same dedupe as NL201 (this resolver runs in both analysis passes).
-            if (previousReport && declaredTypeParameterCount >= 0
-                && declaredTypeParameterCount != generic.TypeArguments.Count
+            if (previousReport && genericHeadArity >= 0
+                && genericHeadArity != generic.TypeArguments.Count
                 && _reportedUnresolvedTypeRefs.Add((generic.Name, generic.Line, generic.Column)))
             {
-                var message = declaredTypeParameterCount == 0
+                var message = genericHeadArity == 0
                     ? $"'{generic.Name}' is not generic, but {generic.TypeArguments.Count} type argument(s) were provided"
-                    : $"Generic type '{generic.Name}' takes {declaredTypeParameterCount} type argument(s), but {generic.TypeArguments.Count} were provided";
+                    : $"Generic type '{generic.Name}' takes {genericHeadArity} type argument(s), but {generic.TypeArguments.Count} were provided";
                 Error(
                     ErrorCode.InvalidTypeArgument,
                     message,
                     generic.Line,
                     generic.Column,
-                    declaredTypeParameterCount == 0
+                    genericHeadArity == 0
                         ? $"Remove the type arguments: '{generic.Name}'"
                         : $"Match the declaration's type parameter count for '{generic.Name}'",
                     generic.Name.Length);
@@ -19246,18 +19260,25 @@ public class Analyzer : IDisposable
     }
 
     /// <summary>
-    /// The declared generic-parameter count for a locally-declared type, or -1 when the
-    /// resolved info carries no declaration (external/built-in/unresolved) and arity cannot
-    /// be validated locally.
+    /// The generic-parameter count for a resolved type head, or -1 when the head is unresolved
+    /// external text and arity cannot be validated locally.
     /// </summary>
-    private static int GetDeclaredTypeParameterCount(TypeInfo resolvedName)
+    private static int GetGenericHeadArity(TypeInfo resolvedName)
         => resolvedName switch
         {
+            SimpleTypeInfo => 0,
             ClassTypeInfo classInfo => classInfo.Declaration.TypeParameters?.Count ?? 0,
             StructTypeInfo structInfo => structInfo.Declaration.TypeParameters?.Count ?? 0,
             RecordTypeInfo recordInfo => recordInfo.Declaration.TypeParameters?.Count ?? 0,
+            SoaRecordTypeInfo => 0,
             InterfaceTypeInfo interfaceInfo => interfaceInfo.Declaration.TypeParameters?.Count ?? 0,
             UnionTypeInfo { IsAnonymous: false } unionInfo => unionInfo.Declaration!.TypeParameters?.Count ?? 0,
+            EnumTypeInfo => 0,
+            AliasTypeInfo => 0,
+            NewtypeInfo => 0,
+            ReflectionTypeInfo reflectionInfo => reflectionInfo.Type.IsGenericTypeDefinition
+                ? reflectionInfo.Type.GetGenericArguments().Length
+                : 0,
             _ => -1
         };
 

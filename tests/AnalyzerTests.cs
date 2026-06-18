@@ -12570,6 +12570,45 @@ func bad(a: Vec2, b: Vec2): Vec2 {
     }
 
     [Fact]
+    public void GenericAnnotation_BuiltInHeadWithTypeArguments_ReportsInvalidTypeArgument()
+    {
+        var result = Analyze("record Holder {\n    Items: int<int>\n}\n");
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidTypeArgument);
+        Assert.Equal("NL207", error.DiagnosticId);
+        Assert.Contains("'int' is not generic", error.Message);
+    }
+
+    [Fact]
+    public void GenericAnnotation_TypeParameterHeadWithTypeArguments_ReportsInvalidTypeArgument()
+    {
+        var result = Analyze("func Handle<T>(input: T<int>) {\n    _ = input\n}\n");
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidTypeArgument);
+        Assert.Equal("NL207", error.DiagnosticId);
+        Assert.Contains("'T' is not generic", error.Message);
+    }
+
+    [Fact]
+    public void GenericAnnotation_ExternalNonGenericHeadWithTypeArguments_ReportsInvalidTypeArgument()
+    {
+        var result = Analyze("import System.Text\nfunc Handle(input: StringBuilder<int>) {\n    _ = input\n}\n");
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidTypeArgument);
+        Assert.Equal("NL207", error.DiagnosticId);
+        Assert.Contains("'StringBuilder' is not generic", error.Message);
+    }
+
+    [Fact]
+    public void GenericAnnotation_ExternalGenericHeadWithTypeArguments_HasNoArityDiagnostics()
+    {
+        AssertNoErrorCode("import System.Collections.Generic\nfunc Handle(items: List<int>) {\n    _ = items\n}\n", ErrorCode.InvalidTypeArgument);
+    }
+
+    [Fact]
+    public void GenericAnnotation_ExternalGenericHeadWithNonGenericSibling_HasNoArityDiagnostics()
+    {
+        AssertNoErrorCode("import System.Threading.Tasks\nfunc Handle(task: Task<int>) {\n    _ = task\n}\n", ErrorCode.InvalidTypeArgument);
+    }
+
+    [Fact]
     public void GenericNew_UnknownTypeArgument_ReportsTypeNotFound()
     {
         // B14 pin: `new Box<Nope>(5)` is diagnosed at analysis (NL201 on the type argument)

@@ -11,6 +11,20 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Non-generic generic-head annotations reject before emission
+
+Declared type references now report `NL207` when type arguments are attached to a known
+non-generic head: built-ins such as `int<int>`, generic type parameters such as `T<int>`,
+non-generic CLR types such as `StringBuilder<int>`, aliases/newtypes/enums, and SoA records. This
+closes the old collections-review hole where the analyzer could accept `Items: int<int>` and leave
+the invalid synthetic generic type for lowering; the dogfood route pin now asserts the analyzer
+verdict before the columnar decline. Imported CLR generics such as `List<int>` still resolve through
+the arity-qualified external lookup path, including names with non-generic CLR siblings such as
+`Task<int>`, while local N# declarations still win over compiler-known generic heads.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter
+"FullyQualifiedName~GenericAnnotation_BuiltInHeadWithTypeArguments|FullyQualifiedName~GenericAnnotation_TypeParameterHeadWithTypeArguments|FullyQualifiedName~GenericAnnotation_ExternalNonGenericHeadWithTypeArguments|FullyQualifiedName~GenericAnnotation_ExternalGenericHeadWithTypeArguments|FullyQualifiedName~GenericAnnotation_ExternalGenericHeadWithNonGenericSibling|FullyQualifiedName~GenericUnionAnnotation_WrongArity_Error|FullyQualifiedName~ColumnarCodegen_Parity_CollectionsBuilderElements"`;
+`./scripts/dev.sh --since`.
+
 ## 2026-06-18 — Non-integral increment decline pins assert analyzer verdicts
 
 The decimal and double postfix-increment columnar decline pins now assert the production analyzer's
@@ -6736,9 +6750,9 @@ sweep fully green; `ContainsBuilderBoundType` gained the user-headed-definition 
 `List&lt;Box&lt;int&gt;&gt;` pin was declining only via a swallowed NotSupportedException — now a clean
 resolution decline, which also restored the PASS 0e skip for closed-user-generic fields).
 
-**Oracle laxness recorded (defect-bundle candidates, both probe-found by the review):** the
-pipeline ACCEPTS `Items: int&lt;int&gt;` field types (no arity/genericity validation on the head —
-columnar declines, safe), and the object-initializer accepts mismatched generic collection field
+**Oracle laxness recorded (defect-bundle candidates, probe-found by the review):** the
+`Items: int&lt;int&gt;` field-type hole is fixed as of 2026-06-18 (`NL207` on the non-generic head);
+the remaining recorded item is that object-initializers accept mismatched generic collection field
 types (pre-existing, slice-independent; columnar declines).
 
 Parity: `ColumnarCodegen_Parity_CollectionsBuilderElements` — 16 value functions + the
