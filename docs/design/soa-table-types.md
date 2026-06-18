@@ -562,7 +562,8 @@ simple stores, default stores without old-element reads, numeric compound/update
 scalar arithmetic/shift/bitwise/comparison expressions, reference/string and bool expression shapes,
 string compound-assignment concatenation shapes, reference-column null-coalescing read/assignment
 shapes, and char promotion/comparison plus int-backed enum bitwise/comparison shapes,
-checked/unchecked bulk `System.Array` argument shapes, parenthesized direct-column lvalues,
+checked/unchecked bulk `System.Array` argument shapes, checked/unchecked `ref`/`out` argument
+addresses, parenthesized direct-column lvalues,
 receiver-parenthesized direct-column `ref`/`out` arguments over row and literal/variable-held
 from-end indexes, and the verified scalar/reference/int-backed-enum
 element-type set, with mixed verified element types also pinned for literal and variable-held

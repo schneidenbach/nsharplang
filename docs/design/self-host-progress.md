@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Hard-cast SoA checked ref/out wrappers stay direct
+
+Direct-column `ref` and `out` arguments now have IL-shape evidence when hard-cast receivers are
+wrapped in `checked(...)` or `unchecked(...)`. Numeric, bool, and string columns reached through
+nested table and alias casts lower to backing-column `ldelema` for row and from-end indexes without
+row allocation, boxing, delegate construction, heap array allocation, slicing, or virtual dispatch.
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~HardCastedDirectColumnRefAndOutArgumentsCheckedUncheckedWrappers_UseColumnArrayElementAddress"`.
+
 ## 2026-06-18 — Hard-cast SoA checked bulk array wrappers stay direct
 
 Pinned `System.Array` bulk operations now have IL-shape evidence when hard-cast direct-column

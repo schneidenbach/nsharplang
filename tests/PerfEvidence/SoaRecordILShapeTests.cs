@@ -2387,6 +2387,88 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void HardCastedDirectColumnRefAndOutArgumentsCheckedUncheckedWrappers_UseColumnArrayElementAddress()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                kind: int
+                start: int
+                active: bool
+                name: string
+            }
+
+            type Nodes = NodeTable
+
+            func bump(ref value: int) {
+                value += 5
+            }
+
+            func reset(out value: int) {
+                value = 17
+            }
+
+            func flip(ref value: bool) {
+                value = !value
+            }
+
+            func setName(out value: string) {
+                value = "done"
+            }
+
+            func mutate(nodes: Nodes, row: int): int {
+                bump(ref (checked(((NodeTable)nodes).kind))[row])
+                reset(out (unchecked(((Nodes)((NodeTable)nodes)).start))[^1])
+                idx := ^1
+                bump(ref (unchecked(((NodeTable)((Nodes)nodes)).kind))[idx])
+                flip(ref (checked(((Nodes)((NodeTable)nodes)).active))[row])
+                setName(out (unchecked(((NodeTable)nodes).name))[idx])
+
+                score := nodes.kind[row] * 1000
+                score += nodes.start[idx] * 100
+                score += nodes.kind[idx] * 10
+                score += nodes.active[row] ? 1 : 0
+                score += nodes.name[idx] == "done" ? 2 : 0
+                return score
+            }
+
+            func main(): int {
+                nodes := new Nodes(2)
+                row := nodes.add()
+                nodes.add()
+                nodes.kind[row] = 2
+                nodes.start[row] = 3
+                nodes.active[row] = true
+                nodes.name[row] = "head"
+                nodes.kind[^1] = 4
+                nodes.start[^1] = 6
+                nodes.active[^1] = false
+                nodes.name[^1] = "tail"
+                return mutate(nodes, row)
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var mutate = ILShapeInspector.GetProgramMethod(assembly, "mutate");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(8792, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoFromEndSliceAllocation(mutate);
+            Assert.True(
+                ILShapeInspector.CountOpcode(mutate, OpCodes.Ldfld) >= 10,
+                "Hard-casted checked/unchecked direct SoA column ref/out arguments should load backing column arrays directly.");
+            Assert.Equal(5, ILShapeInspector.CountOpcode(mutate, OpCodes.Ldelema));
+            Assert.Equal(10, CountArrayElementLoads(mutate));
+            Assert.Equal(0, CountArrayElementStores(mutate));
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void ParenthesizedRefAndOutArguments_UseColumnArrayElementAddress()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
