@@ -3,15 +3,15 @@ struct AnonymousUnionParameterTable {
 }
 
 func AnonymousUnionDeclaresPublicShim(parameterFlags: int[], count: int): int {
-    if count < 0 || count > parameterFlags.Length {
+    parameters := new AnonymousUnionParameterTable { Flags: parameterFlags }
+    return AnonymousUnionDeclaresPublicShimCore(ref parameters, count)
+}
+
+func AnonymousUnionDeclaresPublicShimCore(parameters: &AnonymousUnionParameterTable, count: int): int {
+    if count < 0 || count > parameters.Flags.Length {
         return -1
     }
 
-    parameters := new AnonymousUnionParameterTable { Flags: parameterFlags }
-    return AnonymousUnionDeclaresPublicShimTrustedCore(ref parameters, count)
-}
-
-func AnonymousUnionDeclaresPublicShimTrustedCore(parameters: &AnonymousUnionParameterTable, count: int): int {
     hasEligibleUnion := 0
     i := 0
     limit := count - 7

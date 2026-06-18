@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Anonymous-union shim drops trusted-core transition name
+
+`AnonymousUnionDeclaresPublicShim` now routes through a table-shaped
+`AnonymousUnionDeclaresPublicShimCore` instead of the stale
+`AnonymousUnionDeclaresPublicShimTrustedCore` boundary name. The exported ABI stays unchanged while
+the internal dogfood shape matches the current accepted compiler-service kernels: the wrapper only
+builds the SoA-style parameter table and the core owns count validation plus the hot scan.
+
 ## 2026-06-18 — Retired CLI test-filter probe leaves live benchmarks
 
 The stale `CliTestFilterMatchingBenchmarks` source has been removed. It still attempted to bind

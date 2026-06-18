@@ -14143,8 +14143,14 @@ func main(): int {
             Assert.NotNull(programType.GetMethod(
                 "AnonymousUnionDeclaresPublicShim",
                 BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic));
+            Assert.NotNull(programType.GetMethod(
+                "AnonymousUnionDeclaresPublicShimCore",
+                BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic));
             Assert.Null(programType.GetMethod(
                 "AnonymousUnionDeclaresPublicShimTrusted",
+                BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic));
+            Assert.Null(programType.GetMethod(
+                "AnonymousUnionDeclaresPublicShimTrustedCore",
                 BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic));
         }
 
