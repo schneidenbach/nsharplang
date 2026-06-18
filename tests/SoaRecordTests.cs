@@ -6461,6 +6461,28 @@ public class SoaRecordTests : ILCompilerTestBase
             func bad(nodes: Nodes) {
                 Array.Resize(ref checked(nodes.kind), 4)
             }
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
+            func bad(nodes: Nodes) {
+                Array.Resize(ref unchecked(nodes.kind), 4)
+            }
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
+            func bad(nodes: Nodes) {
+                System.Array.Resize(ref nodes.kind, 4)
+            }
             """
         };
 

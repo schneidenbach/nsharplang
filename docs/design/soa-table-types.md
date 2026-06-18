@@ -348,11 +348,11 @@ The compiler must produce direct diagnostics for common misuse:
   compound, and null-coalescing assignment, or "SoA table member 'X' cannot be incremented or
   decremented directly", and the same member cannot be used as a `ref`/`out` argument, including
   `Array.Resize(ref table.column, n)`, aliases to SoA tables plus parenthesized and checked/unchecked
-  target-wrapper forms; mutating one physical backing column through `Array.Sort(table.column)`,
-  `Array.Sort(table.column, index, length)`, `Array.Reverse(table.column)`, or
-  `Array.Reverse(table.column, index, length)` is also rejected because it would reorder that column
-  independently from the rest of the row storage; explicit `System.Array` targets are rejected the
-  same way;
+  target-wrapper forms, and explicit `System.Array.Resize` targets; mutating one physical backing
+  column through `Array.Sort(table.column)`, `Array.Sort(table.column, index, length)`,
+  `Array.Reverse(table.column)`, or `Array.Reverse(table.column, index, length)` is also rejected
+  because it would reorder that column independently from the rest of the row storage; explicit
+  `System.Array` targets are rejected the same way;
 - non-int direct column element indexes: "Array indexes must be int, System.Index, or System.Range";
 - direct column slice reads, mutations, and `ref`/`out` argument addresses, including aliases to SoA
   tables, parenthesized column-member receivers, and
