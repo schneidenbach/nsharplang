@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Hard-cast SoA direct-column escapes cover resource/pattern contexts
+
+Hard-cast table/alias direct-column projections now have analyzer pins for the remaining
+resource, pattern, index, event, and range escape contexts. `((NodeTable)nodes).kind` and nested
+alias casts keep the SoA direct-column diagnostic for `while`, async iteration, using/lock
+resources, switch/match values, unary/must/type-test/await operands, index values, array and
+stackalloc lengths, match guards, relational and literal pattern values, yield, event/off handles,
+range bounds, spread expressions, initializer indexes, and `with` initializer indexes. Focused
+evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~Analyzer_HardCastedSoaDirectColumnsCannotEscapeFromAdvancedContexts|FullyQualifiedName~Analyzer_HardCastedSoaDirectColumnsCannotEscapeFromResourcePatternAndIndexContexts"`.
+
 ## 2026-06-18 — Hard-cast SoA direct-column nameof stays metadata-only
 
 Direct-column `nameof` now has accepted-shape pins for hard-cast table and alias receivers.

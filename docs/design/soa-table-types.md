@@ -570,7 +570,9 @@ resource contexts, expression-bodied function/property/lambda contexts, storage 
 contexts, pattern/event/off/async contexts, hard-cast row-view diagnostics for operator, control,
 checked-expression, with-target, `nameof`, and resource contexts, hard-cast direct-column `nameof`
 metadata-only IL shape, hard-cast direct-column diagnostics for storage, display, control, operator,
-iterator, allocation, cast, throw, ternary, and discard contexts, variable-held direct-column range mutation diagnostics
+iterator, resource, async, unary/must/type-test/await, index, allocation-length, pattern/guard,
+event/off, range/spread, initializer/with-index, allocation, cast, throw, ternary, and discard
+contexts, variable-held direct-column range mutation diagnostics
 including parenthesized column members, direct-column `ref`/`out` range and negative-index
 diagnostics, variable-held from-end
 null-coalescing reads/assignments, receiver-parenthesized bool logical and bitwise expression stores,
