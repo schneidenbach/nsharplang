@@ -12116,6 +12116,26 @@ func outer(x: int): int {
         Assert.Contains("CliQueryIsWhiteSpace", cliQueryParityMethods!);
         Assert.Contains("CliQueryMinInt", cliQueryParityMethods!);
 
+        var analyzerExhaustivenessProduct = ReadDogfoodProductFile("AnalyzerExhaustiveness.nl");
+        var analyzerExhaustivenessWithParity = ReadDogfoodFileWithParityCorpus("AnalyzerExhaustiveness.nl");
+        foreach (var functionName in new[]
+        {
+            "AnalyzerMissingMemberChecksumInto",
+            "AnalyzerUnionMissingCaseChecksumInto",
+            "AnalyzerOverloadSignatureDistinct",
+            "AnalyzerOverloadSignatureDistinctCore",
+            "AnalyzerOverloadSignatureDistinctChecksumInto"
+        })
+        {
+            var functionDeclaration = $"func {functionName}(";
+            Assert.False(
+                analyzerExhaustivenessProduct.Contains(functionDeclaration, StringComparison.Ordinal),
+                $"{functionName} must live only in the parity corpus for AnalyzerExhaustiveness.nl.");
+            Assert.True(
+                analyzerExhaustivenessWithParity.Contains(functionDeclaration, StringComparison.Ordinal),
+                $"{functionName} should still be available when AnalyzerExhaustiveness.nl is merged with its parity corpus.");
+        }
+
         var cliArgumentsProduct = ReadDogfoodProductFile("CliArguments.nl");
         var cliArgumentsWithParity = ReadDogfoodFileWithParityCorpus("CliArguments.nl");
         Assert.DoesNotContain("func CliTestFilterMatchIndicesInto(", cliArgumentsProduct);

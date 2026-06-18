@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Analyzer exhaustiveness parity probes get product-boundary pins
+
+`AnalyzerExhaustiveness.nl` product coverage now explicitly excludes the benchmark/parity-only checksum
+and overload-signature probes (`AnalyzerMissingMemberChecksumInto`, union missing-case checksum, and
+overload-signature distinctness helpers). The merged product+parity source still exposes those names
+for historical parity and benchmark evidence.
+
 ## 2026-06-18 — SoA direct-column collection literals keep storage diagnostics
 
 Typed collection literals that would store a direct backing column, such as
