@@ -2196,11 +2196,7 @@ internal sealed class ColumnarIlEmitter
         _il.Emit(OpCodes.Ldarg_0);
         for (var a = 1; a <= argCount; a++)
         {
-            if (!EmitExpression(Child(callIdx, a), out var argType))
-                return false;
-            if (!TypesEquivalent(argType, method.ParamTypes[a - 1])
-                && !TryEmitImplicitWidening(argType, method.ParamTypes[a - 1])
-                && !TryEmitInterfaceUpcast(argType, method.ParamTypes[a - 1]))
+            if (!EmitDeclaredCallArgument(Child(callIdx, a), method.ParamTypes[a - 1], allowLambdaLiteral: true))
                 return false;
         }
         _il.Emit(_currentStruct!.IsReference ? OpCodes.Callvirt : OpCodes.Call, method.Builder);
@@ -2981,7 +2977,7 @@ internal sealed class ColumnarIlEmitter
                 for (var p = 0; p < memberParams.Length; p++)
                 {
                     if (!TryResolveType(iface.MethodParamCanonicals[m][p], enumRegistry, structRegistry, null, out memberParams[p])
-                        || !IsSupportedType(memberParams[p]))
+                        || !IsSupportedParameterType(memberParams[p]))
                         return false;
                 }
                 var hasDefaultBody = iface.MethodBodies[m] != null;
@@ -3184,7 +3180,7 @@ internal sealed class ColumnarIlEmitter
                     var sParamTypeMap = new Dictionary<string, Type>(StringComparer.Ordinal);
                     for (var i = 0; i < m.ParamNames.Length; i++)
                     {
-                        if (!TryResolveType(m.ParamCanonicals[i], enumRegistry, structRegistry, unionRegistry, out var pt) || !IsSupportedType(pt))
+                        if (!TryResolveType(m.ParamCanonicals[i], enumRegistry, structRegistry, unionRegistry, out var pt) || !IsSupportedParameterType(pt))
                             return false;
                         sParamTypes[i] = pt;
                         sOrdinals[m.ParamNames[i]] = i;
@@ -3208,7 +3204,7 @@ internal sealed class ColumnarIlEmitter
                 var mParamTypeMap = new Dictionary<string, Type>(StringComparer.Ordinal);
                 for (var i = 0; i < m.ParamNames.Length; i++)
                 {
-                    if (!TryResolveMemberType(m.ParamCanonicals[i], def, enumRegistry, structRegistry, unionRegistry, out var pt) || !IsSupportedType(pt))
+                    if (!TryResolveMemberType(m.ParamCanonicals[i], def, enumRegistry, structRegistry, unionRegistry, out var pt) || !IsSupportedParameterType(pt))
                         return false;
                     mParamTypes[i] = pt;
                     mOrdinals[m.ParamNames[i]] = i + 1;
@@ -3396,7 +3392,7 @@ internal sealed class ColumnarIlEmitter
                 var cParamTypeMap = new Dictionary<string, Type>(StringComparer.Ordinal);
                 for (var i = 0; i < ctor.Body.ParamNames.Length; i++)
                 {
-                    if (!TryResolveMemberType(ctor.Body.ParamCanonicals[i], def, enumRegistry, structRegistry, unionRegistry, out var pt) || !IsSupportedType(pt))
+                    if (!TryResolveMemberType(ctor.Body.ParamCanonicals[i], def, enumRegistry, structRegistry, unionRegistry, out var pt) || !IsSupportedParameterType(pt))
                         return false;
                     cParamTypes[i] = pt;
                     cOrdinals[ctor.Body.ParamNames[i]] = i + 1;
@@ -7593,38 +7589,7 @@ internal sealed class ColumnarIlEmitter
                         // a static `<Lambda>_{n}` method and constructs the delegate in place (L1b).
                         for (var a = 1; a <= argCount; a++)
                         {
-                            var argNode = Child(idx, a);
-                            var expectedParamType = target.ParamTypes[a - 1];
-                            if (expectedParamType.IsByRef)
-                            {
-                                if (!EmitByRefCallArgument(argNode, expectedParamType))
-                                    return false;
-                                continue;
-                            }
-                            if (_nodes.Kind(argNode) == 54)
-                                return false;
-                            if (_nodes.Kind(argNode) == 39)
-                            {
-                                if (!TryEmitLambdaLiteral(argNode, expectedParamType))
-                                    return false;
-                                continue;
-                            }
-                            Type argType;
-                            if (TryEmitNullLiteralAsType(argNode, expectedParamType, out argType))
-                            {
-                                continue; // a NULL argument onto a reference-typed param.
-                            }
-                            if (IsSupportedNullable(expectedParamType))
-                            {
-                                // a lifted T -> T? argument (incl. bare null and T? pass-through) —
-                                // OWNS the emission; failure declines the whole program.
-                                if (!TryEmitValueAsNullable(argNode, expectedParamType, out argType))
-                                    return false;
-                                continue;
-                            }
-                            if (!EmitExpression(argNode, out argType))
-                                return false;
-                            if (!TypesEquivalent(argType, expectedParamType) && !TryEmitImplicitWidening(argType, expectedParamType) && !TryEmitInterfaceUpcast(argType, expectedParamType))
+                            if (!EmitDeclaredCallArgument(Child(idx, a), target.ParamTypes[a - 1], allowLambdaLiteral: true))
                                 return false;
                         }
                         _il.Emit(OpCodes.Call, target.Method);
@@ -7639,7 +7604,7 @@ internal sealed class ColumnarIlEmitter
                         var staticArgCount = _nodes.ChildCount(idx) - 1;
                         for (var a = 1; a <= staticArgCount; a++)
                         {
-                            if (!EmitExpression(Child(idx, a), out var sArgType) || !TypesEquivalent(sArgType, ownStatic.ParamTypes[a - 1]))
+                            if (!EmitDeclaredCallArgument(Child(idx, a), ownStatic.ParamTypes[a - 1], allowLambdaLiteral: true))
                                 return false;
                         }
                         _il.Emit(OpCodes.Call, ownStatic.Builder);
@@ -9298,9 +9263,7 @@ internal sealed class ColumnarIlEmitter
                 return false;
             for (var a = 1; a <= argCount; a++)
             {
-                if (!EmitExpression(Child(callIdx, a), out var argType))
-                    return false;
-                if (!TypesEquivalent(argType, userStatic.ParamTypes[a - 1]) && !TryEmitImplicitWidening(argType, userStatic.ParamTypes[a - 1]))
+                if (!EmitDeclaredCallArgument(Child(callIdx, a), userStatic.ParamTypes[a - 1], allowLambdaLiteral: true))
                     return false;
             }
             _il.Emit(OpCodes.Call, userStatic.Builder);
@@ -10306,11 +10269,7 @@ internal sealed class ColumnarIlEmitter
                     _il.Emit(d.IsReference ? OpCodes.Ldloc : OpCodes.Ldloca, receiverTemp);
                     for (var a = 0; a < argCount; a++)
                     {
-                        if (!EmitExpression(Child(callIdx, 1 + a), out var argType))
-                            return false;
-                        if (!TypesEquivalent(argType, structMethod.ParamTypes[a])
-                            && !TryEmitImplicitWidening(argType, structMethod.ParamTypes[a])
-                            && !TryEmitInterfaceUpcast(argType, structMethod.ParamTypes[a]))
+                        if (!EmitDeclaredCallArgument(Child(callIdx, 1 + a), structMethod.ParamTypes[a], allowLambdaLiteral: true))
                             return false;
                     }
                     _il.Emit(d.IsReference ? OpCodes.Callvirt : OpCodes.Call, structMethod.Builder);
@@ -10555,6 +10514,24 @@ internal sealed class ColumnarIlEmitter
     private bool EmitArg(int callIdx, int argPosition, Type expected)
         => EmitExpression(Child(callIdx, argPosition), out var argType)
            && (TypesEquivalent(argType, expected) || TryEmitInterfaceUpcast(argType, expected));
+
+    private bool EmitDeclaredCallArgument(int argNode, Type expectedParamType, bool allowLambdaLiteral)
+    {
+        if (expectedParamType.IsByRef)
+            return EmitByRefCallArgument(argNode, expectedParamType);
+        if (_nodes.Kind(argNode) == 54)
+            return false;
+        if (allowLambdaLiteral && _nodes.Kind(argNode) == 39)
+            return TryEmitLambdaLiteral(argNode, expectedParamType);
+        if (TryEmitNullLiteralAsType(argNode, expectedParamType, out _))
+            return true;
+        if (IsSupportedNullable(expectedParamType))
+            return TryEmitValueAsNullable(argNode, expectedParamType, out _);
+        return EmitExpression(argNode, out var argType)
+               && (TypesEquivalent(argType, expectedParamType)
+                   || TryEmitImplicitWidening(argType, expectedParamType)
+                   || TryEmitInterfaceUpcast(argType, expectedParamType));
+    }
 
     private bool EmitByRefCallArgument(int argNode, Type expectedByRefType)
     {

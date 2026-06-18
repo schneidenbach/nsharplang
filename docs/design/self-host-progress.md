@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Columnar user call sites carry by-ref state arguments
+
+Columnar codegen now accepts supported by-ref parameter types on class/interface/constructor method
+signatures and routes declared call arguments through one call-site helper for bare static calls,
+qualified static calls, qualified instance calls, and implicit-this calls. Non-generic user methods
+can now mutate `&RefState` locals and member fields through `ref` arguments with pinned `ldloca` and
+`ldflda` IL shape checks. Closed-generic receivers with by-ref parameters remain a separate
+rebind/token proof, so they are not routed as product evidence in this slice. Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~ColumnarCodegen_Parity_ByRefUserCallSites"`; `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~ColumnarCodegen_Parity_ByRefStateParameter|FullyQualifiedName~ColumnarCodegen_Parity_ByRefUserCallSites|FullyQualifiedName~ColumnarCodegen_Parity_StaticMethods|FullyQualifiedName~ColumnarCodegen_Parity_ClassObjectInitAndMethods|FullyQualifiedName~ColumnarCodegen_Parity_ClassInheritanceImplicitChainHidingAndBareCalls"`.
+
 ## 2026-06-18 — Columnar member postfix updates use the member-write chain
 
 Columnar codegen now emits postfix `++`/`--` for `int`/`long`/`ulong` member fields through the

@@ -6209,6 +6209,68 @@ func outer(x: int): int {
         Assert.True(ILShapeInspector.CountOpcode(run, OpCodes.Ldloca) + ILShapeInspector.CountOpcode(run, OpCodes.Ldloca_S) >= 2);
     }
 
+    [Fact]
+    public void ColumnarCodegen_Parity_ByRefUserCallSites()
+    {
+        var stateTypes =
+            "struct RefState {\n    Value: int\n}\n\n" +
+            "class Holder {\n    State: RefState\n}\n\n";
+
+        var staticCalls = stateTypes +
+            "class RefOps {\n" +
+            "    static func Bump(st: &RefState, delta: int): int {\n        st.Value = st.Value + delta\n        return st.Value\n    }\n\n" +
+            "}\n\n" +
+            "func staticLocal(seed: int): int {\n    st := new RefState { Value: seed }\n    got := RefOps.Bump(ref st, 5)\n    return got * 10 + st.Value\n}\n\n" +
+            "func staticMember(seed: int): int {\n    h := new Holder { State: new RefState { Value: seed } }\n    got := RefOps.Bump(ref h.State, 7)\n    return got * 10 + h.State.Value\n}\n";
+        AssertColumnarProgramMatchesCSharp(staticCalls,
+            ("staticLocal", new object[] { 1 }), ("staticLocal", new object[] { -4 }),
+            ("staticMember", new object[] { 2 }), ("staticMember", new object[] { -5 }));
+
+        var (staticOk, staticAsm, staticTypeName, _) = RouteColumnarProgram(staticCalls);
+        Assert.True(staticOk, $"Columnar program codegen declined the static by-ref call-site proof:\n{staticCalls}");
+        using (var loadScope = CollectibleAssemblyScope.Load(staticAsm!))
+        {
+            var programType = loadScope.Assembly.GetType(staticTypeName!)!;
+            var bump = loadScope.Assembly.GetType("RefOps")!.GetMethod("Bump")!;
+            Assert.True(bump.GetParameters()[0].ParameterType.IsByRef);
+            Assert.True(ILShapeInspector.CountOpcode(bump, OpCodes.Stfld) >= 1);
+            Assert.True(ILShapeInspector.CountOpcode(programType.GetMethod("staticLocal")!, OpCodes.Ldloca) + ILShapeInspector.CountOpcode(programType.GetMethod("staticLocal")!, OpCodes.Ldloca_S) >= 1);
+            Assert.True(ILShapeInspector.CountOpcode(programType.GetMethod("staticMember")!, OpCodes.Ldflda) >= 1);
+        }
+
+        var instanceCalls = stateTypes +
+            "class RefOps {\n" +
+            "    func Add(st: &RefState, delta: int): int {\n        st.Value = st.Value + delta\n        return st.Value\n    }\n" +
+            "}\n\n" +
+            "func instanceLocal(seed: int): int {\n    op := new RefOps { }\n    st := new RefState { Value: seed }\n    got := op.Add(ref st, 4)\n    return got * 10 + st.Value\n}\n\n" +
+            "func instanceMember(seed: int): int {\n    op := new RefOps { }\n    h := new Holder { State: new RefState { Value: seed } }\n    got := op.Add(ref h.State, 6)\n    return got * 10 + h.State.Value\n}\n";
+        AssertColumnarProgramMatchesCSharp(instanceCalls,
+            ("instanceLocal", new object[] { 4 }), ("instanceLocal", new object[] { -6 }),
+            ("instanceMember", new object[] { 5 }), ("instanceMember", new object[] { -7 }));
+
+        var (instanceOk, instanceAsm, instanceTypeName, _) = RouteColumnarProgram(instanceCalls);
+        Assert.True(instanceOk, $"Columnar program codegen declined the instance by-ref call-site proof:\n{instanceCalls}");
+        using (var loadScope = CollectibleAssemblyScope.Load(instanceAsm!))
+        {
+            var programType = loadScope.Assembly.GetType(instanceTypeName!)!;
+            Assert.True(ILShapeInspector.CountOpcode(programType.GetMethod("instanceMember")!, OpCodes.Ldflda) >= 1);
+        }
+
+        var implicitThisCall = stateTypes +
+            "class RefOps {\n" +
+            "    func Add(st: &RefState, delta: int): int {\n        st.Value = st.Value + delta\n        return st.Value\n    }\n\n" +
+            "    func Run(seed: int): int {\n        st := new RefState { Value: seed }\n        first := Add(ref st, 2)\n        second := Add(ref st, 3)\n        return first * 100 + second * 10 + st.Value\n    }\n" +
+            "}\n\n" +
+            "func implicitThis(seed: int): int {\n    op := new RefOps { }\n    return op.Run(seed)\n}\n\n" +
+            "func directImplicit(seed: int): int {\n    op := new RefOps { }\n    return op.Run(seed + 1)\n}\n";
+        AssertColumnarProgramMatchesCSharp(implicitThisCall,
+            ("implicitThis", new object[] { 6 }), ("implicitThis", new object[] { -8 }),
+            ("directImplicit", new object[] { 1 }));
+
+        // Closed-generic receivers with by-ref parameters remain a separate rebind/token proof; keep this slice on
+        // non-generic user call sites, which are the ParserState/table-kernel migration shape.
+    }
+
     // Stage 4b-i — the type-aware emitter, proven by adding BOOL alongside int. Comparisons now produce bool in
     // value position, bool literals / params / locals / returns work, logical-not works, and a bool value drives
     // conditions directly. The type machinery rejects cross-type mixing (a bool can't leak into int arithmetic).
