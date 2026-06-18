@@ -8551,6 +8551,12 @@ public class Analyzer : IDisposable
             return BuiltInTypes.Unknown;
         }
 
+        if (member.IsNullConditional
+            && ReportSoaDirectColumnNullConditionalAccessIfNeeded(member, member.Object, "member access"))
+        {
+            return BuiltInTypes.Unknown;
+        }
+
         if (receiverType is SoaRowTypeInfo soaRowType
             && TryGetSoaColumn(soaRowType.Declaration, member.MemberName) is null)
         {
@@ -8594,6 +8600,12 @@ public class Analyzer : IDisposable
         if (receiverType is SoaRecordTypeInfo && index.IsNullConditional)
         {
             ReportSoaRowEscape(index, "used with null-conditional indexing");
+            return BuiltInTypes.Unknown;
+        }
+
+        if (index.IsNullConditional
+            && ReportSoaDirectColumnNullConditionalAccessIfNeeded(index, index.Object, "index access"))
+        {
             return BuiltInTypes.Unknown;
         }
 
@@ -8767,6 +8779,27 @@ public class Analyzer : IDisposable
             column,
             "Iterate with int row indexes over table.column[row], or add an allocation-free view lowering with IL-shape evidence before using slices in compiler table kernels.",
             length);
+    }
+
+    private bool ReportSoaDirectColumnNullConditionalAccessIfNeeded(
+        Expression expression,
+        Expression receiver,
+        string accessKind)
+    {
+        if (!TryGetSoaColumnMemberAccess(receiver, out var columnMember))
+        {
+            return false;
+        }
+
+        var (line, column, length) = GetExpressionDiagnosticSpan(expression);
+        Error(
+            ErrorCode.InvalidSyntax,
+            $"SoA table member '{columnMember.MemberName}' cannot use null-conditional {accessKind} directly",
+            line,
+            column,
+            "Direct columns are non-null table storage; use direct column access such as table.column[row] or table.column.Length.",
+            length);
+        return true;
     }
 
     private TypeInfo ResolveIndexElementType(TypeInfo receiverType, TypeInfo indexType, bool isRangeAccess)

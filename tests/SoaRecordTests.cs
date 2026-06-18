@@ -5366,6 +5366,77 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaDirectColumnsCannotUseNullConditionalAccess()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var cases = new[]
+        {
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    value := nodes.kind?.Length
+                }
+                """,
+                AccessKind: "member access"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    value := checked(nodes.kind)?.GetHashCode()
+                }
+                """,
+                AccessKind: "member access"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    value := nodes.kind?[0]
+                }
+                """,
+                AccessKind: "index access"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    value := unchecked((nodes).kind)?[0]
+                }
+                """,
+                AccessKind: "index access")
+        };
+
+        foreach (var testCase in cases)
+        {
+            var result = Analyze(testCase.Source);
+            var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+            Assert.Contains($"SoA table member 'kind' cannot use null-conditional {testCase.AccessKind} directly", error.Message);
+            Assert.Contains("Direct columns are non-null table storage", error.Suggestion);
+            Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.UndefinedMember);
+        }
+    }
+
+    [Fact]
     public void Analyzer_SoaTableRowIndexMustBeInt()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

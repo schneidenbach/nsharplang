@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA direct-column null-conditionals reject before lowering
+
+Direct-column null-conditional member and index access now report SoA diagnostics before ordinary
+nullable array lowering can hide the table-storage invariant. Metadata probes such as
+`nodes.kind?.Length`, null-conditional array method probes such as
+`checked(nodes.kind)?.GetHashCode()`, and element probes such as `nodes.kind?[0]` or
+`unchecked((nodes).kind)?[0]` all decline during analysis with direct-column guidance.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter
+"FullyQualifiedName~Analyzer_SoaDirectColumnsCannotUseNullConditionalAccess"`.
+
 ## 2026-06-18 — SoA checked direct-column inherited object methods reject before lowering
 
 Direct-column inherited object methods now have analyzer evidence through wrapper forms.

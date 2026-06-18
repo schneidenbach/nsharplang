@@ -76,8 +76,8 @@ Aliases to a SoA table follow the same construction surface: `new Nodes(capacity
 Alias-typed table values expose the same generated instance members (`length`, `capacity`, `add`,
 `clear`, `ensureCapacity`, `copyRow`), row projection, and direct column arrays as the underlying
 table, and invalid row/index/count arguments keep the SoA-specific diagnostics. Alias receivers also
-keep the rejection-only table diagnostics for null-conditional table/row access, direct generated
-member mutation, and direct-column range slices before IL lowering.
+keep the rejection-only table diagnostics for null-conditional table/row/direct-column access,
+direct generated member mutation, and direct-column range slices before IL lowering.
 Target-typed `default` is not a construction form for SoA tables because it would produce a CLR
 wrapper value with null backing column arrays; use
 `new Table(capacity)` or `Table.wrap(...)` instead. Target-typed `new()` without the required capacity
@@ -294,8 +294,11 @@ Direct column metadata properties remain available: `table.column.Length` and
 rank constant. Checked/unchecked wrappers around the direct column keep that same metadata lowering.
 Those metadata properties are read-only: `table.column.Length = n`, `table.column.LongLength += n`,
 and `table.column.Rank++` decline during analysis instead of reaching the IL backend as missing
-setters, including through checked/unchecked direct-column wrappers. Array instance methods on direct
-columns decline before IL emission
+setters, including through checked/unchecked direct-column wrappers. Null-conditional member or index
+access over direct columns, such as `table.column?.Length`, `checked(table.column)?.GetHashCode()`,
+and `table.column?[row]`, declines before ordinary nullable array lowering can hide the non-null
+table-storage invariant; use direct metadata or element access instead. Array instance methods on
+direct columns decline before IL emission
 because they would box, allocate, virtually dispatch, or bypass the pinned static kernels. This includes
 element access methods such as `table.column.GetValue(...)`/`SetValue(...)`, method-value escapes
 such as `table.column.Clone`, checked/unchecked wrapper escapes such as `checked(table.column).Clone`,
@@ -340,7 +343,7 @@ The compiler must produce direct diagnostics for common misuse:
   collections, range bounds, spread expressions, `alloc`, allocation lengths, checked/unchecked
   expressions, field initializers, invalid member/index receivers, index values, pattern values, `with`
   targets/indexes/values, `nameof` targets, event subscription handles, and null-conditional
-  table/row projections);
+  table/row/direct-column projections);
 - row type annotations/type expressions: "SoA row type 'NodeTable.Row' is not part of this lowering"
   for direct table names and aliases to SoA tables in function/indexer parameter and return
   annotations, local, generic constraint, base/interface, function-type, type-pattern, hard-cast and
