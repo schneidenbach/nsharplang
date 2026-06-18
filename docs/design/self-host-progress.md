@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA static Array diagnostics respect type shadowing
+
+The SoA direct-column static `Array` classifier now resolves a bare `Array` identifier through the type
+namespace before treating it as the implicit `System.Array` target. User-defined types named `Array`
+therefore keep the ordinary direct-column call-argument diagnostic instead of being misreported as
+unsupported `System.Array` calls.
+
 ## 2026-06-18 — SoA direct-column Array mutation diagnostics stay parameter-aware
 
 The dedicated `Array.Resize`, `Array.Sort`, and `Array.Reverse` SoA diagnostics now only suppress the

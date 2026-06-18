@@ -289,6 +289,9 @@ until they have explicit row-identity semantics and IL-shape evidence; named arr
 such as `array: table.column`, `sourceArray: table.column`, and `destinationArray: table.column`
 decline the same way, including when the named direct-column expression is wrapped in
 `checked(...)` or `unchecked(...)`.
+The unqualified `Array` spelling is classified as this BCL target only after local symbol/type lookup:
+user-defined types named `Array` keep ordinary call diagnostics instead of being treated as
+`System.Array`.
 The pinned `Array.Fill`, `Array.Copy`, and `Array.Clear` allowance is parameter-specific: direct
 columns are accepted only for array-bearing parameters such as `array`, `sourceArray`, and
 `destinationArray`. Passing a direct column as a fill value, index, length, or count argument declines

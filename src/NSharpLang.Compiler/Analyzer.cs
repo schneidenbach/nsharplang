@@ -15908,17 +15908,40 @@ public class Analyzer : IDisposable
             case ParenthesizedExpression parenthesized:
                 return IsStaticArrayTarget(parenthesized.Inner);
             case IdentifierExpression identifier:
-                if (identifier.Name == "Array" && LookupSymbol(identifier.Name) == null)
+                if (LookupSymbol(identifier.Name) != null)
+                    return false;
+                if (LookupType(identifier.Name) is { } localType)
+                    return IsSystemArrayTypeInfo(ResolveTypeAlias(localType));
+                if (TryResolveTypeValuedMemberAccess(identifier, out var identifierType)
+                    && IsSystemArrayTypeInfo(identifierType))
+                {
                     return true;
-                if (TryResolveTypeValuedMemberAccess(identifier, out var identifierType))
-                    return IsSystemArrayTypeInfo(identifierType);
+                }
+                if (identifier.Name == "Array")
+                {
+                    return true;
+                }
                 return false;
             case MemberAccessExpression { Object: IdentifierExpression { Name: "System" } system, MemberName: "Array" }:
-                return LookupSymbol(system.Name) == null;
+                if (LookupSymbol(system.Name) != null)
+                    return false;
+                if (LookupType(system.Name) != null)
+                {
+                    return TryResolveTypeValuedMemberAccess(expression, out var systemArrayType)
+                        && IsSystemArrayTypeInfo(systemArrayType);
+                }
+                if (TryResolveTypeValuedMemberAccess(expression, out var resolvedSystemArrayType))
+                {
+                    return IsSystemArrayTypeInfo(resolvedSystemArrayType);
+                }
+                return true;
+            default:
+                if (TryResolveTypeValuedMemberAccess(expression, out var ownerType))
+                {
+                    return IsSystemArrayTypeInfo(ownerType);
+                }
+                return false;
         }
-
-        return TryResolveTypeValuedMemberAccess(expression, out var ownerType)
-            && IsSystemArrayTypeInfo(ownerType);
     }
 
     private bool IsSystemArrayTypeInfo(TypeInfo type)

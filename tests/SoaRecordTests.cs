@@ -5561,6 +5561,34 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaDirectColumnsRespectUserArrayTypeShadowing()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            class Array {
+                static func Capture(values: int[]) {
+                }
+            }
+
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
+            func bad(nodes: Nodes) {
+                Array.Capture(nodes.kind)
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("SoA table member 'kind' cannot be passed as an argument directly", error.Message);
+        Assert.DoesNotContain("Array method", error.Message);
+        Assert.Contains("Table.wrap", error.Suggestion);
+    }
+
+    [Fact]
     public void Analyzer_SoaDirectColumnsCannotEscapeThroughStorageOrResultValues()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
