@@ -10020,6 +10020,48 @@ func Main() {
     }
 
     [Fact]
+    public void TargetTypedNew_NoTypeContext_ReportsError()
+    {
+        var result = Analyze("""
+            func Main() {
+                x := new()
+            }
+            """);
+
+        var diagnostic = Assert.Single(result.Errors,
+            error => error.Message.Contains("what type 'new()' should create"));
+        Assert.Equal(ErrorCode.CannotInferType, diagnostic.Code);
+        Assert.Equal(2, diagnostic.Line);
+        Assert.Equal(10, diagnostic.Column);
+        Assert.Equal("new".Length, diagnostic.Length);
+    }
+
+    [Fact]
+    public void TargetTypedNew_ExpressionStatementNoTypeContext_ReportsError()
+    {
+        var result = Analyze("""
+            func Main() {
+                new()
+            }
+            """);
+
+        var diagnostic = Assert.Single(result.Errors,
+            error => error.Message.Contains("what type 'new()' should create"));
+        Assert.Equal(ErrorCode.CannotInferType, diagnostic.Code);
+        Assert.Equal("new".Length, diagnostic.Length);
+    }
+
+    [Fact]
+    public void AnonymousObjectCreation_NoTypeContext_IsAllowed()
+    {
+        AssertNoErrors("""
+            func Main() {
+                value := new { Name: "Ada", Count: 1 }
+            }
+            """);
+    }
+
+    [Fact]
     public void DefaultExpression_FunctionArgument_NoErrors()
     {
         AssertNoErrors(@"

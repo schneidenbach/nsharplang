@@ -5863,6 +5863,26 @@ public class Analyzer : IDisposable
         return true;
     }
 
+    private static bool IsAnonymousObjectCreation(NewExpression newExpr)
+        => newExpr.Type == null
+            && newExpr.ConstructorArguments.Count == 0
+            && newExpr.Initializer != null
+            && newExpr.Initializer.Properties.All(property =>
+                property.Name != null
+                && property.IndexExpression == null);
+
+    private void ReportCannotInferTargetTypedNew(NewExpression newExpr)
+    {
+        var shape = newExpr.ConstructorArguments.Count == 0 ? "new()" : "new(...)";
+        Error(
+            ErrorCode.CannotInferType,
+            $"I can't figure out what type '{shape}' should create here — add a type annotation or write the type after 'new'",
+            newExpr.Line,
+            newExpr.Column,
+            "For example, use `value: Person = new()` when the target type is clear, or `new Person()` when it is not.",
+            "new".Length);
+    }
+
     private TypeInfo AnalyzeRangeExpression(RangeExpression range)
     {
         // Analyze start if present
@@ -14762,10 +14782,15 @@ public class Analyzer : IDisposable
         {
             // Try to infer type from context (expected type)
             // For now, we'll use _currentExpectedType if available, otherwise Unknown
+            if (_currentExpectedType == null && !IsAnonymousObjectCreation(newExpr))
+            {
+                ReportCannotInferTargetTypedNew(newExpr);
+            }
+
             type = _currentExpectedType ?? BuiltInTypes.Unknown;
 
-            // If we couldn't infer the type, that's an error in some contexts
-            // but we'll let it slide for now to avoid breaking existing code
+            // Anonymous object creation is intentionally allowed without an expected type; the
+            // backend synthesizes the concrete anonymous shape from the initializer.
         }
         else
         {

@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Target-typed `new()` without a target type rejects before emission
+
+Non-anonymous target-typed `new` expressions now report NL203 during analysis when no expected type
+is available. Shapes such as `x := new()` and bare `new()` no longer reach
+`ResolveNewExpressionType` and throw from IL emission; the diagnostic asks for an explicit type
+annotation or an explicit constructed type. Anonymous object construction (`new { Name: value }`)
+remains accepted without a target type because the backend synthesizes that concrete shape from the
+initializer.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~AnalyzerTests.TargetTypedNew|FullyQualifiedName~AnalyzerTests.AnonymousObjectCreation_NoTypeContext_IsAllowed"`;
+`./scripts/dev.sh AnalyzerTests`.
+
 ## 2026-06-17 — For-loop iterators use expression-statement discard rules
 
 C-style `for` iterator expressions now share the analyzer's expression-statement validation before
