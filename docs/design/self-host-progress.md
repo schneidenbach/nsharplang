@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA hard-cast column ref/out addresses are pinned
+
+The direct-column `ref`/`out` IL-shape proof now covers alias parameters and hard-cast table/alias
+receiver chains, not only plain table receivers. The accepted path still lowers through backing-column
+`ldelema`, preserves from-end addressing, and stays free of array allocation, boxing, delegate
+construction, and virtual dispatch. Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~ILCompiler_SoaRecordDirectColumnRefOutArguments_UseColumnElementAddresses"`.
+
 ## 2026-06-18 — Closed-generic columnar calls preserve by-ref parameters
 
 Closed user-generic receiver calls now route through the same declared-argument helper as non-generic

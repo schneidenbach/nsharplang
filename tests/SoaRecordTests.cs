@@ -15416,6 +15416,8 @@ public class SoaRecordTests : ILCompilerTestBase
                 kind: int
             }
 
+            type Nodes = NodeTable
+
             func bump(ref value: int) {
                 value += 5
             }
@@ -15424,16 +15426,17 @@ public class SoaRecordTests : ILCompilerTestBase
                 value = 11
             }
 
-            func columnRefOut(nodes: NodeTable): int {
+            func columnRefOut(nodes: Nodes): int {
                 first := nodes.add()
                 second := nodes.add()
                 nodes.kind[first] = 3
                 nodes.kind[second] = 7
                 bump(ref nodes.kind[first])
-                reset(out nodes.kind[^1])
+                reset(out ((NodeTable)nodes).kind[second])
+                bump(ref ((Nodes)((NodeTable)nodes)).kind[first])
                 idx := ^1
-                bump(ref (nodes.kind)[idx])
-                return nodes.kind[first] * 100 + nodes.kind[second]
+                bump(ref (((NodeTable)nodes).kind)[idx])
+                return ((NodeTable)nodes).kind[first] * 100 + ((Nodes)((NodeTable)nodes)).kind[second]
             }
 
             func main(): int {
@@ -15442,7 +15445,7 @@ public class SoaRecordTests : ILCompilerTestBase
             }
             """;
 
-        Assert.Equal(816, Assert.IsType<int>(CompileAndInvoke(source)));
+        Assert.Equal(1316, Assert.IsType<int>(CompileAndInvoke(source)));
 
         var opCodes = CompileAndInspect(source, assembly =>
         {
