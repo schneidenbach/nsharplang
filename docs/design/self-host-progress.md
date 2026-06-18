@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA checked direct-column non-integral updates reject before lowering
+
+Checked/unchecked direct-column receiver wrappers now have analyzer evidence for invalid `++` and
+`--` on non-integral columns. `string`, `string?`, and `bool` direct-column elements over row and
+from-end indexes keep the ordinary non-integral update diagnostics before IL emission when the
+column receiver is wrapped in `checked(...)` or `unchecked(...)`.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter
+"FullyQualifiedName~Analyzer_SoaRecordCheckedUncheckedColumnMemberNonIntegralUpdates_AreRejected"`.
+
 ## 2026-06-18 — SoA checked direct-column non-nullable coalescing rejects before lowering
 
 Checked/unchecked direct-column receiver wrappers now have analyzer evidence for invalid `??` and

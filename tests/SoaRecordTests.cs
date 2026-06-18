@@ -13030,6 +13030,39 @@ public class SoaRecordTests : ILCompilerTestBase
         Assert.Contains("integral numeric value", error.Message);
     }
 
+    [Theory]
+    [InlineData("string", "", "(checked(nodes.text))[row]++", "++", "string")]
+    [InlineData("string", "", "(unchecked(nodes.text))[^1]--", "--", "string")]
+    [InlineData("string", "idx := ^1;", "++((checked(nodes.text))[idx])", "++", "string")]
+    [InlineData("string?", "", "(checked(nodes.text))[row]--", "--", "string?")]
+    [InlineData("string?", "idx := ^1;", "++((unchecked(nodes.text))[idx])", "++", "string?")]
+    [InlineData("bool", "", "(unchecked(nodes.text))[row]++", "++", "bool")]
+    [InlineData("bool", "idx := ^1;", "--((checked(nodes.text))[idx])", "--", "bool")]
+    public void Analyzer_SoaRecordCheckedUncheckedColumnMemberNonIntegralUpdates_AreRejected(
+        string columnType,
+        string declaration,
+        string statement,
+        string operatorText,
+        string typeName)
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze($$"""
+            soa record NodeTable {
+                text: {{columnType}}
+            }
+
+            func bad(nodes: NodeTable, row: int) {
+                {{declaration}}
+                {{statement}}
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains($"'{operatorText}' operator doesn't work with '{typeName}'", error.Message);
+        Assert.Contains("integral numeric value", error.Message);
+    }
+
     [Fact]
     public void ILCompiler_SoaRecordRowColumnIncrementAndDecrement_PreservesPostfixSemantics()
     {
