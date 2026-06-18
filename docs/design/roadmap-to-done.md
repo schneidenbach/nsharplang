@@ -151,7 +151,11 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
         · [x] **4b-iii `double` DONE** (`ldc.r8`; FP arithmetic/rem/negate; int/long casts; `double[]`;
         NaN-correct comparisons via unordered complements; parity-gated over NaN, infinities, signed zero, and
         casts) · [x] **4b-iii-a `float` DONE** (`ldc.r4`; FP arithmetic/negate; casts incl. float↔double;
-        `float[]`; same NaN comparison contract) · [ ] 4b-iv `string` (BCL `op_Equality`/`Concat`). · [x] **4c parity-vs-C#-path
+        `float[]`; same NaN comparison contract) · [x] **4b-iv `string` DONE** (`ldstr`, `Length`,
+        `get_Chars`, `String.op_Equality`, `String.Concat`, interpolation, escapes, `StringComparison`
+        `IndexOf`, `Substring`, scalar `.ToString()`, and the current string BCL whitelist; parity-gated by
+        `ColumnarCodegen_Parity_StringBasics`, `StringMethods`, `CharAndStringIndex`, `StringComparisonAndIndexOf`,
+        `StringInterpolation`, `StringEscapes`, and `StringBclWhitelist`). · [x] **4c parity-vs-C#-path
         harness DONE** (`ColumnarCodegen_Parity_MatchesCSharpPath`: compile each eligible fn via BOTH the columnar
         path AND `MultiFileCompiler`→`ILCompiler`, invoke over many inputs incl. negatives/boundaries/overflow,
         assert identical; 15 fns. Caught + fixed TWO latent C# codegen bugs of one class — `EmitIf` both-arms-return
@@ -181,8 +185,8 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
         (columnar Call kind 9: bare-identifier callee resolved in the pass-1 sibling map → `call` the declared
         MethodBuilder; arity-checked, int args left-to-right; declines shadowed/overloaded/delegate callees.
         Forward references + self/mutual RECURSION work via declare-first. Parity-gated: nested call, `fact`,
-        `fib`, mutual `isEven`/`isOdd`) · [ ] 4b types beyond int (long/bool/double/string via the builtin map +
-        type-aware emission).
+        `fib`, mutual `isEven`/`isOdd`) · [x] 4b primitive types beyond int (bool/long/double/float/string via the
+        builtin map + type-aware emission).
 - [~] **Stage 4j ROUTING — STANDALONE columnar pipeline (user decision 2026-06-08; NOT re-parse-in-ILCompiler).**
       Grow `TryEmitColumnarProgram` into a `ColumnarCompiler` parallel to the C# `ILCompiler` that OWNS
       parse→bind→analyze→codegen→assembly from columnar tables with NO C# AST. This SUPERSEDES the 2026-06-07
