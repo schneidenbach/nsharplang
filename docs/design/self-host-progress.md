@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Hard-cast SoA direct-column metadata stays direct
+
+Direct-column metadata properties now have IL-shape evidence when the table receiver is hard-cast
+through table and alias types. `((NodeTable)nodes).kind.Length`, nested alias-cast `LongLength`,
+and checked/unchecked hard-cast `Rank`/`Length` metadata lower through backing-column field loads and
+`ldlen` or constants without row allocation, boxing, delegate construction, heap array allocation,
+element traffic, calls, or virtual dispatch. Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~HardCastedDirectColumnMetadataProperties_UseBackingArrayLengthWithoutDispatch"`.
+
 ## 2026-06-18 — Hard-cast SoA row projection ref/out addresses stay direct
 
 Row-projection `ref`/`out` arguments now have IL-shape evidence when the table receiver is hard-cast

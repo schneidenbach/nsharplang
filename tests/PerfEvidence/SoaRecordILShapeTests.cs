@@ -864,6 +864,51 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void HardCastedDirectColumnMetadataProperties_UseBackingArrayLengthWithoutDispatch()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                kind: int
+                start: int
+            }
+
+            type Nodes = NodeTable
+
+            func metadata(nodes: Nodes): int {
+                return ((NodeTable)nodes).kind.Length
+                    + (int)((Nodes)((NodeTable)nodes)).start.LongLength
+                    + checked(((NodeTable)((Nodes)nodes)).kind).Rank
+                    + unchecked(((Nodes)((NodeTable)nodes)).start).Length
+            }
+
+            func main(): int {
+                nodes := new Nodes(3)
+                return metadata(nodes)
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var metadata = ILShapeInspector.GetProgramMethod(assembly, "metadata");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(10, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoAllocationOrDispatch(metadata);
+            Assert.Equal(3, ILShapeInspector.CountOpcode(metadata, OpCodes.Ldlen));
+            Assert.True(
+                ILShapeInspector.CountOpcode(metadata, OpCodes.Ldfld) >= 4,
+                "Hard-casted direct SoA column metadata should load backing column arrays directly.");
+            Assert.Equal(0, CountArrayElementLoads(metadata));
+            Assert.Equal(0, CountArrayElementStores(metadata));
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void DirectColumnBulkArrayOperations_UseBackingArraysWithoutRowAllocation()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
