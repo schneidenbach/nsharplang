@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA direct columns cannot escape through storage or result values
+
+Direct backing columns now reject array-value aliasing before lowering. A direct column cannot be
+stored in inferred or typed locals, assigned to an existing array slot, returned from block or
+expression-bodied functions, returned from lambdas, embedded in array/tuple literals, selected from
+ternary or match result arms, or written through object/collection initializers. This closes the
+alias hole where `arr := table.column` could later call an unsupported mutating array API under a
+non-SoA name.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter
+"FullyQualifiedName~Analyzer_SoaDirectColumnsCannotEscapeThroughStorageOrResultValues"`.
+
 ## 2026-06-18 — SoA direct columns cannot escape through arbitrary array calls
 
 Direct backing columns now reject ordinary array-value escapes before lowering. Calls such as
