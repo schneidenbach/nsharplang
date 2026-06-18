@@ -74,23 +74,10 @@ internal static class CompilerErrorSeverityFilter
     }
 
     private static Bindings? LoadBindings()
-    {
-        try
-        {
-            var programType = DogfoodKernelLoader.TryGetProgramType();
-            if (programType == null)
-                return null;
-
-            return new Bindings(
-                DogfoodKernelLoader.CreateDelegate<DiagnosticSeverityFilterIndicesInto>(
-                    programType,
-                    "DiagnosticSeverityFilterIndicesInto"));
-        }
-        catch
-        {
-            return null;
-        }
-    }
+        => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
+            DogfoodKernelLoader.CreateDelegate<DiagnosticSeverityFilterIndicesInto>(
+                programType,
+                "DiagnosticSeverityFilterIndicesInto")));
 
     private static int GetSeverityRank(ErrorSeverity severity) =>
         severity switch

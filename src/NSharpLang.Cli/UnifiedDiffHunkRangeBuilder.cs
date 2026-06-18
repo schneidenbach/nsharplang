@@ -83,23 +83,10 @@ internal static class UnifiedDiffHunkRangeBuilder
     }
 
     private static Bindings? LoadBindings()
-    {
-        try
-        {
-            var programType = DogfoodKernelLoader.TryGetProgramType();
-            if (programType == null)
-                return null;
-
-            return new Bindings(
-                DogfoodKernelLoader.CreateDelegate<CliUnifiedDiffHunkRangesInto>(
-                    programType,
-                    "CliUnifiedDiffHunkRangesInto"));
-        }
-        catch
-        {
-            return null;
-        }
-    }
+        => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
+            DogfoodKernelLoader.CreateDelegate<CliUnifiedDiffHunkRangesInto>(
+                programType,
+                "CliUnifiedDiffHunkRangesInto")));
 
     private delegate int CliUnifiedDiffHunkRangesInto(
         int[] kindIds,

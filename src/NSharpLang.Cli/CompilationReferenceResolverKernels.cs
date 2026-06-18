@@ -76,23 +76,10 @@ internal static class CompilationReferenceResolverKernels
     }
 
     private static Bindings? LoadBindings()
-    {
-        try
-        {
-            var programType = DogfoodKernelLoader.TryGetProgramType();
-            if (programType == null)
-                return null;
-
-            return new Bindings(
-                DogfoodKernelLoader.CreateDelegate<CliReferenceTypeFilterIndicesInto>(
-                    programType,
-                    "CliReferenceTypeFilterIndicesInto"));
-        }
-        catch
-        {
-            return null;
-        }
-    }
+        => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
+            DogfoodKernelLoader.CreateDelegate<CliReferenceTypeFilterIndicesInto>(
+                programType,
+                "CliReferenceTypeFilterIndicesInto")));
 
     private delegate int CliReferenceTypeFilterIndicesInto(
         int[] typeRanks,

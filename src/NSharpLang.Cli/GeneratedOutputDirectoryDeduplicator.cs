@@ -82,23 +82,10 @@ internal static class GeneratedOutputDirectoryDeduplicator
     }
 
     private static Bindings? LoadBindings()
-    {
-        try
-        {
-            var programType = DogfoodKernelLoader.TryGetProgramType();
-            if (programType == null)
-                return null;
-
-            return new Bindings(
-                DogfoodKernelLoader.CreateDelegate<CliStableDistinctRankIndicesInto>(
-                    programType,
-                    "CliStableDistinctRankIndicesInto"));
-        }
-        catch
-        {
-            return null;
-        }
-    }
+        => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
+            DogfoodKernelLoader.CreateDelegate<CliStableDistinctRankIndicesInto>(
+                programType,
+                "CliStableDistinctRankIndicesInto")));
 
     private delegate int CliStableDistinctRankIndicesInto(
         int[] ranks,

@@ -106,23 +106,10 @@ internal static class PublishCommandKernels
     }
 
     private static Bindings? LoadBindings()
-    {
-        try
-        {
-            var programType = DogfoodKernelLoader.TryGetProgramType();
-            if (programType == null)
-                return null;
-
-            return new Bindings(
-                DogfoodKernelLoader.CreateDelegate<CliPublishOptionsInto>(
-                    programType,
-                    "CliPublishOptionsInto"));
-        }
-        catch
-        {
-            return null;
-        }
-    }
+        => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
+            DogfoodKernelLoader.CreateDelegate<CliPublishOptionsInto>(
+                programType,
+                "CliPublishOptionsInto")));
 
     private delegate int CliPublishOptionsInto(string[] args, int[] resultIndices);
 

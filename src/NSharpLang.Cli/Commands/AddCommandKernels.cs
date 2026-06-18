@@ -37,23 +37,10 @@ internal static class AddCommandKernels
     }
 
     private static Bindings? LoadBindings()
-    {
-        try
-        {
-            var programType = DogfoodKernelLoader.TryGetProgramType();
-            if (programType == null)
-                return null;
-
-            return new Bindings(
-                DogfoodKernelLoader.CreateDelegate<CliFirstPositionalArgIndex>(
-                    programType,
-                    "CliFirstPositionalArgIndex"));
-        }
-        catch
-        {
-            return null;
-        }
-    }
+        => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
+            DogfoodKernelLoader.CreateDelegate<CliFirstPositionalArgIndex>(
+                programType,
+                "CliFirstPositionalArgIndex")));
 
     private delegate int CliFirstPositionalArgIndex(
         string[] args,

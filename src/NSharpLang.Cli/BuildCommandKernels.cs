@@ -52,23 +52,10 @@ internal static class BuildCommandKernels
     }
 
     private static Bindings? LoadBindings()
-    {
-        try
-        {
-            var programType = DogfoodKernelLoader.TryGetProgramType();
-            if (programType == null)
-                return null;
-
-            return new Bindings(
-                DogfoodKernelLoader.CreateDelegate<CliBuildFirstOperandIndexInto>(
-                    programType,
-                    "CliBuildFirstOperandIndexInto"));
-        }
-        catch
-        {
-            return null;
-        }
-    }
+        => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
+            DogfoodKernelLoader.CreateDelegate<CliBuildFirstOperandIndexInto>(
+                programType,
+                "CliBuildFirstOperandIndexInto")));
 
     private delegate int CliBuildFirstOperandIndexInto(
         string[] args,

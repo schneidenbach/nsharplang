@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Simple CLI dogfood bindings share compiler loader fallback
+
+The simple one-delegate CLI dogfood wrappers now use the compiler-owned
+`DogfoodKernelLoader.TryCreateBindings(...)` path introduced for compiler wrappers. This removes the
+repeated `TryGetProgramType`/catch/null transition scaffolding from positional operand discovery,
+generated-output deduplication, artifact ordering, severity filtering, lint selection, test outcome
+summary, publish option packing, reference filtering, and unified-diff hunk range helpers. The
+remaining CLI `LoadBindings` sites are multi-delegate wrappers and remain owner-local for a separate
+slice. Focused evidence: `dotnet build src/NSharpLang.Cli/Cli.csproj --no-restore`; `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CleanArtifactDirectoryOrderer_OrdersArtifactDirectories|FullyQualifiedName~CompilerErrorSeverityFilter_FiltersCompilerErrorsBySeverity|FullyQualifiedName~GeneratedOutputDirectoryDeduplicator_DeduplicatesStaleGeneratedDirectories|FullyQualifiedName~LintCommandKernels_SelectsFileArgsAfterProjectValueExclusion|FullyQualifiedName~UpdateCommandKernels_SelectsPackageOperand|FullyQualifiedName~RemoveCommandKernels_SelectsPackageOperand|FullyQualifiedName~AddCommandKernels_SelectsPackageOperand|FullyQualifiedName~CheckCommandKernels_SelectsProjectOperand|FullyQualifiedName~FixCommandArgumentKernels_SelectsProjectOperand|FullyQualifiedName~BuildCommandKernels_SelectsFirstOperand|FullyQualifiedName~NewCommandKernels_SelectsProjectNameOperand|FullyQualifiedName~RunCommandKernels_SelectsSourceOperand|FullyQualifiedName~PublishCommandKernels_SelectsOptions|FullyQualifiedName~TestCommandKernels_SummarizesOutcomes|FullyQualifiedName~CompilationReferenceResolverKernels_FiltersReferenceValuesByType|FullyQualifiedName~UnifiedDiff_Create_EmitsStableMultiHunkDiff"`.
+
 ## 2026-06-18 — Compiler dogfood bindings share loader fallback handling
 
 Compiler-owned one-delegate dogfood wrappers now use `DogfoodKernelLoader.TryCreateBindings(...)`
