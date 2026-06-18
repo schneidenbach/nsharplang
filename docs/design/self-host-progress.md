@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Columnar `Dictionary.Add` joins the collection surface
+
+The standalone columnar emitter now lowers `Dictionary<K,V>.Add(K,V)` through the same closed-generic
+method rebinding path used for `ContainsKey`, including builder-bound dictionary values. The old
+collection decline for `d.Add("k", value)` has flipped to parity coverage, with duplicate-key
+exception behavior pinned against the C# oracle.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_Parity_Collections|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_Parity_CollectionsBuilderElements"`.
+
 ## 2026-06-18 — SoA generated-member ref/out wrappers reject before emission
 
 Direct generated SoA table members now have explicit analyzer coverage when used as `ref`/`out`
@@ -6125,7 +6133,8 @@ ILGenerator.Emit token resolution, bake-first is a later rung; builder dict KEYS
 hashing rides synthesized equality, PASS 0e skew; `List&lt;Box&lt;int&gt;&gt;`; body-side `new List&lt;T&gt;()`
 — no type-param map at body resolution, signature surface only this rung; T=Pt inference;
 tuple-over-collection; `.Equals` on collection-field records; identifier fusion; head shadowing
-×3). The two old decline pins flipped; HashSet + Dictionary.Add stay out. 311/311 dogfood; full
+×3). The two old decline pins flipped; HashSet stays out; Dictionary.Add later flipped on 2026-06-18.
+311/311 dogfood; full
 unit suite green (`dev.sh --since` escalated to it); gate (see commit). NEXT (retirement-map
 queue): pinned collection rungs DONE → **D-18 member writes (param receivers / nested receivers /
 class-local receivers)** → **Arc M interleave (M1 first; pull the queued strings-interpolation rung
@@ -6180,9 +6189,10 @@ regression.
 
 Parity: `ColumnarCodegen_Parity_Collections` — 15 value functions + 3 exception-parity pins
 (ArgumentOutOfRangeException / KeyNotFoundException / mutation InvalidOperationException) + 4
-decline pins (List-of-user-type, List&lt;T&gt;-in-generic-func, HashSet, Dictionary.Add — every one
-oracle-ACCEPTED, flips when its rung lands). 307/307; gate (see commit). NEXT: the builder-element
-rebind rung or the queue's async/interfaces.
+decline pins at the time (List-of-user-type, List&lt;T&gt;-in-generic-func, HashSet, Dictionary.Add —
+every one oracle-ACCEPTED; the first two flipped in the builder-element rung and Dictionary.Add
+flipped on 2026-06-18). 307/307; gate (see commit). NEXT: the builder-element rebind rung or the
+queue's async/interfaces.
 
 ---
 

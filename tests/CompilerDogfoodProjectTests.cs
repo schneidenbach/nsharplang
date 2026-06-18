@@ -8239,6 +8239,7 @@ func outer(x: int): int {
             // Dictionary core: ctor + set_Item + ContainsKey + get_Item + overwrite (probed: 3 / 7).
             "func dictCore(): int {\n    d := new Dictionary<string, int>()\n    d[\"a\"] = 1\n    d[\"b\"] = 2\n    if d.ContainsKey(\"a\") {\n        return d[\"a\"] + d[\"b\"]\n    }\n    return 0\n}\n\n" +
             "func dictOverwrite(): int {\n    d := new Dictionary<string, int>()\n    d[\"k\"] = 1\n    d[\"k\"] = 7\n    return d[\"k\"]\n}\n\n" +
+            "func dictAdd(): int {\n    d := new Dictionary<string, int>()\n    d.Add(\"k\", 4)\n    d.Add(\"q\", 5)\n    return d[\"k\"] + d[\"q\"] + d.Count\n}\n\n" +
             // capacity ctors (probed: 7).
             "func capacity(): int {\n    l := new List<int>(8)\n    d := new Dictionary<string, int>(10)\n    l.Add(3)\n    d[\"x\"] = 4\n    return l[0] + d[\"x\"]\n}\n\n" +
             // NESTED generics compose (probed: \"localhost\" / 8).
@@ -8260,6 +8261,7 @@ func outer(x: int): int {
             ("feBreak", System.Array.Empty<object>()),
             ("dictCore", System.Array.Empty<object>()),
             ("dictOverwrite", System.Array.Empty<object>()),
+            ("dictAdd", System.Array.Empty<object>()),
             ("capacity", System.Array.Empty<object>()),
             ("nestedDict", System.Array.Empty<object>()),
             ("nestedList", System.Array.Empty<object>()),
@@ -8271,6 +8273,7 @@ func outer(x: int): int {
             var (ok, asm, typeName, _) = RouteColumnarProgram(
                 "func oor(): int {\n    lst := new List<int>()\n    return lst[0]\n}\n\n" +
                 "func missKey(): int {\n    d := new Dictionary<string, int>()\n    return d[\"nope\"]\n}\n\n" +
+                "func dupKey(): int {\n    d := new Dictionary<string, int>()\n    d.Add(\"k\", 1)\n    d.Add(\"k\", 2)\n    return d.Count\n}\n\n" +
                 // mutation during foreach — the boxed enumerator's version check MUST fire.
                 "func mutate(): int {\n    l := new List<int>()\n    l.Add(1)\n    s := 0\n    foreach v in l {\n        s = s + v\n        l.Add(99)\n    }\n    return s\n}\n");
             Assert.True(ok, "columnar must emit the collections exception program");
@@ -8282,6 +8285,9 @@ func outer(x: int): int {
             var miss = Assert.Throws<System.Reflection.TargetInvocationException>(
                 () => progType.GetMethod("missKey")!.Invoke(null, null));
             Assert.IsType<System.Collections.Generic.KeyNotFoundException>(miss.InnerException);
+            var dup = Assert.Throws<System.Reflection.TargetInvocationException>(
+                () => progType.GetMethod("dupKey")!.Invoke(null, null));
+            Assert.IsType<ArgumentException>(dup.InnerException);
             var mut = Assert.Throws<System.Reflection.TargetInvocationException>(
                 () => progType.GetMethod("mutate")!.Invoke(null, null));
             Assert.IsType<InvalidOperationException>(mut.InnerException);
@@ -8291,9 +8297,8 @@ func outer(x: int): int {
         // (compound indexer assignment FLIPPED — the compoundIdx parity case above covers it.)
         // (List-over-USER-type and List<T>-in-generic-funcs FLIPPED — the builder-element rebind rung;
         // parity lives in ColumnarCodegen_Parity_CollectionsBuilderElements below.)
-        // other BCL generics (HashSet) and Dictionary.Add stay out.
+        // other BCL generics (HashSet) stay out.
         Assert.False(RouteColumnarProgram("func f(): int {\n    h := new HashSet<int>()\n    h.Add(1)\n    return h.Count\n}\n").Ok);
-        Assert.False(RouteColumnarProgram("func f(): int {\n    d := new Dictionary<string, int>()\n    d.Add(\"k\", 1)\n    return d.Count\n}\n").Ok);
     }
 
     // BUILDER-ELEMENT REBIND (Phase D collections, rung 4) — List<T>/Dictionary<K,V> closed over types
@@ -8321,6 +8326,7 @@ func outer(x: int): int {
             "func lrem(): int {\n    l := new List<Pt>()\n    l.Add(new Pt { X: 1 })\n    l.Add(new Pt { X: 7 })\n    l.RemoveAt(0)\n    return l[0].X\n}\n\n" +
             // Dictionary with a builder VALUE: set/ContainsKey/get + member through the value (probed: 4).
             "func dval(): int {\n    d := new Dictionary<string, Pt>()\n    d[\"a\"] = new Pt { X: 3 }\n    bonus := 0\n    if d.ContainsKey(\"a\") {\n        bonus = 1\n    }\n    return d[\"a\"].X + bonus\n}\n\n" +
+            "func daddval(): int {\n    d := new Dictionary<string, Pt>()\n    d.Add(\"a\", new Pt { X: 4 })\n    return d[\"a\"].X + d.Count\n}\n\n" +
             // Dictionary foreach with a builder VALUE — KVP<string,Pt> getters rebind and the result
             // type substitutes from the closed args (the open-TValue leak hazard).
             "func dvfe(): int {\n    d := new Dictionary<string, Pt>()\n    d[\"a\"] = new Pt { X: 1 }\n    d[\"bb\"] = new Pt { X: 2 }\n    s := 0\n    foreach kvp in d {\n        s = s + kvp.Value.X + kvp.Key.Length * 10\n    }\n    return s\n}\n\n" +
@@ -8355,6 +8361,7 @@ func outer(x: int): int {
             ("lset", System.Array.Empty<object>()),
             ("lrem", System.Array.Empty<object>()),
             ("dval", System.Array.Empty<object>()),
+            ("daddval", System.Array.Empty<object>()),
             ("dvfe", System.Array.Empty<object>()),
             ("lstruct", System.Array.Empty<object>()),
             ("nest", System.Array.Empty<object>()),
