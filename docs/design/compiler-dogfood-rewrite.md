@@ -1166,8 +1166,9 @@ Current CLI dogfood benchmarks:
   parts, and run ordinal-ignore-case contains checks against display and fully-qualified names. The
   N# pressure candidate scanned pre-trimmed filter parts over projected candidate-name arrays and
   wrote selected source indices through `CliTestFilterMatchIndicesInto`; it was intentionally not
-  routed because the measured speedup missed the 5x production gate, and the unrouted probe has since
-  been retired from the dogfood compiler-service source.
+  routed because the measured speedup missed the 5x production gate. The unrouted probe has since
+  been retired from the dogfood compiler-service source and the stale live benchmark source was
+  removed; the historical finding remains here only as a rejected evidence record.
 - `CliDiagnosticSeverityFilterBenchmarks` targets diagnostic severity filtering in
   `nlc query diagnostics`, batch diagnostics, and daemon diagnostics. The C# baseline mirrors the
   current CLI LINQ shape: case-insensitive severity comparison and list materialization. The N#

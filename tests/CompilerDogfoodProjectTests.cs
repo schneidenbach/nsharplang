@@ -12118,6 +12118,9 @@ func outer(x: int): int {
 
         var cliArgumentsProduct = ReadDogfoodProductFile("CliArguments.nl");
         var cliArgumentsWithParity = ReadDogfoodFileWithParityCorpus("CliArguments.nl");
+        Assert.DoesNotContain("func CliTestFilterMatchIndicesInto(", cliArgumentsProduct);
+        Assert.DoesNotContain("func CliTestFilterMatchIndicesInto(", cliArgumentsWithParity);
+
         foreach (var functionName in new[]
         {
             "CliBuildOptionSummaryInto",

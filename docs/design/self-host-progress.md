@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Retired CLI test-filter probe leaves live benchmarks
+
+The stale `CliTestFilterMatchingBenchmarks` source has been removed. It still attempted to bind
+`CliTestFilterMatchIndicesInto`, but that N# probe was intentionally retired from both product and
+parity dogfood source after missing the 5x production routing gate. The product/parity boundary test
+now also asserts the retired function is absent from merged `CliArguments.nl` coverage so it cannot
+inflate compiler dogfood progress again.
+
 ## 2026-06-18 — SoA direct column for-loop iterators stay pre-emission diagnostics
 
 Direct backing columns are now pinned in the `for` iterator slot, including checked/unchecked direct
