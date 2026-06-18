@@ -306,7 +306,8 @@ through hard-cast table/alias receivers and checked/unchecked wrappers.
 Direct columns also cannot escape as ordinary array values through arbitrary calls, extension-method
 receivers, or constructors: `take(table.column)`, `checked(table.column).ext()`, and
 `new Holder(table.column)` decline before lowering unless the call is `Table.wrap(...)` or one of
-the pinned `Array.Fill`/`Array.Copy`/`Array.Clear` kernels. They also cannot be stored or returned as
+the pinned `Array.Fill`/`Array.Copy`/`Array.Clear` kernels, including through hard-cast table/alias
+receivers and checked/unchecked wrappers. They also cannot be stored or returned as
 ordinary array values through locals, assignments, function/property/lambda results, array or tuple
 literals, tuple deconstruction initializers, ternary/match result arms, field initializers,
 object/collection/with initializers, `with` targets, display contexts such as `print`/assertion
@@ -462,7 +463,7 @@ The compiler must produce direct diagnostics for common misuse:
   checked/unchecked wrappers, and hard-cast table/alias receivers:
   "SoA table member 'X' cannot be passed to Array.Y directly";
 - unsupported direct-column array escapes through arbitrary calls, extension receivers, or
-  constructors, including hard-cast table/alias receivers:
+  constructors, including hard-cast table/alias receivers and checked/unchecked wrappers:
   "SoA table member 'X' cannot be passed as an argument directly";
 - unsupported direct-column array escapes through storage/result contexts, including locals,
   assignments, returns, lambda returns, array/collection/tuple literals, tuple deconstruction

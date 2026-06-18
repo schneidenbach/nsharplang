@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Hard-cast SoA arbitrary call escapes reject before lowering
+
+Direct-column arbitrary-call escapes now have hard-cast pins for the common call shapes that can reach
+ordinary binding: local function arguments, namespace-qualified call arguments, extension-method
+receivers, and constructor arguments. Hard-cast table/alias receivers wrapped in `checked(...)` or
+`unchecked(...)` keep the SoA direct-column escape diagnostic before overload resolution can treat the
+generated backing array as an ordinary array value. Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~Analyzer_SoaDirectColumnsCannotEscapeThroughArbitraryCalls"`.
+
 ## 2026-06-18 — Hard-cast SoA dedicated Array argument guards stay parameter-specific
 
 The dedicated `Array.Resize`/`Array.Sort`/`Array.Reverse` rejection path now has hard-cast receiver

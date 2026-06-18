@@ -5711,8 +5711,37 @@ public class SoaRecordTests : ILCompilerTestBase
 
                 type Nodes = NodeTable
 
+                func take(values: int[]) {
+                }
+
+                func bad(nodes: Nodes) {
+                    take(checked(((Nodes)((NodeTable)nodes)).kind))
+                }
+                """,
+                Action: "passed as an argument"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
                 func bad(nodes: Nodes) {
                     System.Console.WriteLine(nodes.kind)
+                }
+                """,
+                Action: "passed as an argument"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    System.Console.WriteLine(((Nodes)((NodeTable)nodes)).kind)
                 }
                 """,
                 Action: "passed as an argument"),
@@ -5735,6 +5764,23 @@ public class SoaRecordTests : ILCompilerTestBase
                 Action: "used as the receiver for 'first'"),
             (
                 Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func first(this values: int[]): int {
+                    return values[0]
+                }
+
+                func bad(nodes: Nodes): int {
+                    return checked(((NodeTable)nodes).kind).first()
+                }
+                """,
+                Action: "used as the receiver for 'first'"),
+            (
+                Source: """
                 class Holder {
                     values: int[]
 
@@ -5751,6 +5797,27 @@ public class SoaRecordTests : ILCompilerTestBase
 
                 func bad(nodes: Nodes) {
                     holder := new Holder(nodes.kind)
+                }
+                """,
+                Action: "passed as a constructor argument"),
+            (
+                Source: """
+                class Holder {
+                    values: int[]
+
+                    constructor(values: int[]) {
+                        this.values = values
+                    }
+                }
+
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    holder := new Holder(unchecked(((Nodes)((NodeTable)nodes)).kind))
                 }
                 """,
                 Action: "passed as a constructor argument")
