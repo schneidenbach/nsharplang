@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA table default/new diagnostics cover typed lambdas
+
+The SoA analyzer regression matrix now pins target-typed `default` and `new()` table diagnostics
+through typed `Func<Table>` lambda returns. Both expression-bodied and block-bodied lambdas are covered
+for direct table types and aliases, so delegate return inference cannot let invalid wrapper defaults or
+capacity-less construction reach IL emission.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~SoaRecordTests.Analyzer_SoaTableTargetTypedDefaultAndNewCannotHideInLambdaReturns"`.
+
 ## 2026-06-18 — Columnar `List<T>.Reverse` reorders without equality assumptions
 
 The standalone columnar emitter now lowers the zero-argument `List<T>.Reverse()` overload. It is

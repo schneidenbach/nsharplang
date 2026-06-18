@@ -952,6 +952,77 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaTableTargetTypedDefaultAndNewCannotHideInLambdaReturns()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var cases = new (string Statement, ErrorCode Code, string Message, string Suggestion)[]
+        {
+            (
+                "let make: Func<NodeTable> = () => default",
+                ErrorCode.InvalidSyntax,
+                "SoA table 'NodeTable' cannot be default-initialized",
+                "NodeTable.wrap"),
+            (
+                "let make: Func<NodeTable> = () => { return default }",
+                ErrorCode.InvalidSyntax,
+                "SoA table 'NodeTable' cannot be default-initialized",
+                "NodeTable.wrap"),
+            (
+                "let make: Func<NodeTable> = () => new()",
+                ErrorCode.NoMatchingOverload,
+                "SoA table 'NodeTable' construction expects exactly one int capacity argument",
+                "new NodeTable(capacity)"),
+            (
+                "let make: Func<NodeTable> = () => { return new() }",
+                ErrorCode.NoMatchingOverload,
+                "SoA table 'NodeTable' construction expects exactly one int capacity argument",
+                "new NodeTable(capacity)"),
+            (
+                "let make: Func<Nodes> = () => default",
+                ErrorCode.InvalidSyntax,
+                "SoA table 'NodeTable' cannot be default-initialized",
+                "NodeTable.wrap"),
+            (
+                "let make: Func<Nodes> = () => { return default }",
+                ErrorCode.InvalidSyntax,
+                "SoA table 'NodeTable' cannot be default-initialized",
+                "NodeTable.wrap"),
+            (
+                "let make: Func<Nodes> = () => new()",
+                ErrorCode.NoMatchingOverload,
+                "SoA table 'NodeTable' construction expects exactly one int capacity argument",
+                "new NodeTable(capacity)"),
+            (
+                "let make: Func<Nodes> = () => { return new() }",
+                ErrorCode.NoMatchingOverload,
+                "SoA table 'NodeTable' construction expects exactly one int capacity argument",
+                "new NodeTable(capacity)")
+        };
+
+        foreach (var (statement, code, message, suggestion) in cases)
+        {
+            var result = Analyze($$"""
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(): int {
+                    {{statement}}
+                    return 0
+                }
+                """);
+
+            var error = Assert.Single(result.Errors, e => e.Code == code && e.Message.Contains(message));
+            Assert.Contains(suggestion, error.Suggestion);
+            Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.CannotInferType);
+            Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.TypeNotFound);
+        }
+    }
+
+    [Fact]
     public void Analyzer_SoaTableCannotBeDefaultInitializedInField()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

@@ -82,11 +82,11 @@ Target-typed `default` is not a construction form for SoA tables because it woul
 wrapper value with null backing column arrays; use
 `new Table(capacity)` or `Table.wrap(...)` instead. Target-typed `new()` without the required capacity
 argument is rejected the same way as `new Table()`, including when the expected table type comes from
-a typed local, return, expression-bodied function/local function, call argument, default parameter
-value, field, expression-bodied property, object initializer member, `with` expression member,
-assignment target, array literal element, array initializer element, collection literal element,
-tuple literal element, typed ternary/match result arm, hard-cast target, checked/unchecked expression
-wrapper, or parenthesized wrapper.
+a typed local, return, expression-bodied function/local function, typed delegate/lambda return, call
+argument, default parameter value, field, expression-bodied property, object initializer member,
+`with` expression member, assignment target, array literal element, array initializer element,
+collection literal element, tuple literal element, typed ternary/match result arm, hard-cast target,
+checked/unchecked expression wrapper, or parenthesized wrapper.
 The same construction rule applies when the expected type is nullable (`Table?`): `new()` still lacks
 the required backing-column capacity and must not become a nullable wrapper around an invalid table.
 The same diagnostics apply after resolving table aliases, including `Nodes?`, hard casts to `Nodes`,
