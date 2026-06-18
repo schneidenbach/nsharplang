@@ -5927,6 +5927,45 @@ public class SoaRecordTests : ILCompilerTestBase
 
                 type Nodes = NodeTable
 
+                func bump(ref value: int) {
+                    value += 1
+                }
+
+                func bad(nodes: Nodes) {
+                    bump(ref (checked(nodes.kind))["0"])
+                }
+                """,
+                Code: ErrorCode.TypeMismatch,
+                Message: "Array indexes must be int, System.Index, or System.Range",
+                Suggestion: "^n"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func reset(out value: int) {
+                    value = 0
+                }
+
+                func bad(nodes: Nodes) {
+                    idx := "0"
+                    reset(out (unchecked(nodes.kind))[idx])
+                }
+                """,
+                Code: ErrorCode.TypeMismatch,
+                Message: "Array indexes must be int, System.Index, or System.Range",
+                Suggestion: "^n"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
                 func reset(out value: int) {
                     value = 0
                 }

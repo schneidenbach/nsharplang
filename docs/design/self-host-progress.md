@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA checked direct-column non-int ref/out indexes reject before lowering
+
+Checked/unchecked direct-column receiver wrappers now have analyzer evidence for invalid non-int
+element indexes on `ref`/`out` address targets. String literal and variable indexes keep the ordinary
+array-index type diagnostic before the compiler can lower the target to a backing-array element
+address.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter
+"FullyQualifiedName~Analyzer_SoaDirectColumnRefOutIndexesAreRejectedBeforeEmission"`.
+
 ## 2026-06-18 — SoA checked direct-column non-int indexes reject before lowering
 
 Checked/unchecked direct-column receiver wrappers now have analyzer evidence for invalid non-int

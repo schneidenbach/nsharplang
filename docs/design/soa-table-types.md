@@ -407,8 +407,8 @@ The compiler must produce direct diagnostics for common misuse:
   array-bearing arguments such as `array: table.column`, `keys: table.column`, and
   `items: table.column`, checked/unchecked direct-column wrappers on those named arguments,
   explicit generic method spelling, and explicit `System.Array` targets are rejected the same way;
-- non-int direct column element indexes, including checked/unchecked direct-column receivers:
-  "Array indexes must be int, System.Index, or System.Range";
+- non-int direct column element indexes, including checked/unchecked direct-column receivers and
+  `ref`/`out` address targets: "Array indexes must be int, System.Index, or System.Range";
 - direct column slice reads, mutations, and `ref`/`out` argument addresses, including aliases to SoA
   tables, parenthesized column-member receivers, and
   checked/unchecked mutation-target wrappers: "SoA column range slices allocate arrays";
