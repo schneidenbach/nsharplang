@@ -293,6 +293,10 @@ The pinned `Array.Fill`, `Array.Copy`, and `Array.Clear` allowance is parameter-
 columns are accepted only for array-bearing parameters such as `array`, `sourceArray`, and
 `destinationArray`. Passing a direct column as a fill value, index, length, or count argument declines
 before lowering even though the method name itself is otherwise pinned.
+Dedicated rejections for `Array.Resize`, `Array.Sort`, and `Array.Reverse` are parameter-specific as
+well: array-bearing `array`/`keys`/`items` slots keep the mutation or `ref` diagnostic, while direct
+columns in `newSize`, `index`, `length`, or comparer slots use the generic direct-column `Array`
+diagnostic before ordinary method-binding errors can obscure the backing-array escape.
 Direct columns also cannot escape as ordinary array values through arbitrary calls, extension-method
 receivers, or constructors: `take(table.column)`, `checked(table.column).ext()`, and
 `new Holder(table.column)` decline before lowering unless the call is `Table.wrap(...)` or one of

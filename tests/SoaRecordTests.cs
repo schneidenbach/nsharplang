@@ -9034,6 +9034,108 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaDirectColumnsCannotUseDedicatedArrayMethodsThroughNonArrayArguments()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var cases = new[]
+        {
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes, target: int[]) {
+                    Array.Resize(ref array: target, newSize: nodes.kind)
+                }
+                """,
+                Method: "Resize"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes, target: int[]) {
+                    System.Array.Resize<int>(newSize: checked(nodes.kind), ref array: target)
+                }
+                """,
+                Method: "Resize"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes, target: int[]) {
+                    Array.Sort(array: target, index: nodes.kind, length: 1)
+                }
+                """,
+                Method: "Sort"),
+            (
+                Source: """
+                import System.Collections.Generic
+
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes, target: int[]) {
+                    Array.Sort<int>(array: target, comparer: nodes.kind)
+                }
+                """,
+                Method: "Sort"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes, target: int[]) {
+                    Array.Reverse(target, nodes.kind, 1)
+                }
+                """,
+                Method: "Reverse"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes, target: int[]) {
+                    System.Array.Reverse<int>(array: target, index: 0, length: unchecked(nodes.kind))
+                }
+                """,
+                Method: "Reverse")
+        };
+
+        foreach (var testCase in cases)
+        {
+            var result = Analyze(testCase.Source);
+            var error = Assert.Single(
+                result.Errors,
+                e => e.Code == ErrorCode.InvalidSyntax
+                    && e.Message.Contains("SoA table member 'kind' cannot be"));
+            Assert.Contains($"SoA table member 'kind' cannot be passed to Array method '{testCase.Method}' directly", error.Message);
+            Assert.Contains("Array.Fill, Array.Copy, and Array.Clear", error.Suggestion);
+            Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.UndefinedMember);
+        }
+    }
+
+    [Fact]
     public void Analyzer_SoaTableColumnFromEndRangeSliceCannotBeAssigned()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

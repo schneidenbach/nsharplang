@@ -15640,7 +15640,7 @@ public class Analyzer : IDisposable
         for (var i = 0; i < call.Arguments.Count; i++)
         {
             var argument = call.Arguments[i];
-            if (IsSoaMutatingArrayParameter(methodName, argument, i)
+            if (IsSoaMutatingArrayParameter(call, methodName, argument, i)
                 && TryGetSoaColumnMemberAccess(argument.Value, out member))
             {
                 return true;
@@ -15651,7 +15651,11 @@ public class Analyzer : IDisposable
         return false;
     }
 
-    private static bool IsSoaMutatingArrayParameter(string methodName, Argument argument, int positionalIndex)
+    private static bool IsSoaMutatingArrayParameter(
+        CallExpression call,
+        string methodName,
+        Argument argument,
+        int positionalIndex)
     {
         if (argument.Name != null)
         {
@@ -15665,18 +15669,27 @@ public class Analyzer : IDisposable
 
         return methodName switch
         {
-            "Sort" => positionalIndex <= 1,
+            "Sort" => IsPositionalArraySortParameter(call.Arguments.Count, positionalIndex),
             "Reverse" => positionalIndex == 0,
             _ => false
         };
     }
+
+    private static bool IsPositionalArraySortParameter(int argumentCount, int positionalIndex)
+        => argumentCount switch
+        {
+            1 => positionalIndex == 0,
+            2 => positionalIndex is 0 or 1,
+            3 => positionalIndex == 0,
+            4 => positionalIndex is 0 or 1,
+            _ => false
+        };
 
     private bool ReportUnsupportedSoaDirectColumnStaticArrayCallIfNeeded(CallExpression call)
     {
         if (call.Arguments.Count == 0
             || call.Callee is not MemberAccessExpression memberAccess
             || !IsStaticArrayTarget(memberAccess.Object)
-            || DedicatedSoaDirectColumnStaticArrayDiagnostics.Contains(memberAccess.MemberName)
             || !TryGetUnsupportedSoaColumnStaticArrayArgument(call, memberAccess.MemberName, out var columnMember))
         {
             return false;
@@ -15704,7 +15717,7 @@ public class Analyzer : IDisposable
         {
             var argument = call.Arguments[i];
             if (TryGetSoaColumnMemberAccess(argument.Value, out member)
-                && !IsPinnedSoaDirectColumnArrayParameter(call, methodName, argument, i))
+                && !IsHandledSoaDirectColumnStaticArrayParameter(call, methodName, argument, i))
             {
                 return true;
             }
@@ -15713,6 +15726,14 @@ public class Analyzer : IDisposable
         member = null!;
         return false;
     }
+
+    private static bool IsHandledSoaDirectColumnStaticArrayParameter(
+        CallExpression call,
+        string methodName,
+        Argument argument,
+        int positionalIndex)
+        => IsPinnedSoaDirectColumnArrayParameter(call, methodName, argument, positionalIndex)
+           || IsDedicatedSoaDirectColumnArrayDiagnosticParameter(call, methodName, argument, positionalIndex);
 
     private static bool IsPinnedSoaDirectColumnArrayParameter(
         CallExpression call,
@@ -15738,6 +15759,35 @@ public class Analyzer : IDisposable
             "Fill" or "Clear" => positionalIndex == 0,
             "Copy" when call.Arguments.Count == 3 => positionalIndex is 0 or 1,
             "Copy" when call.Arguments.Count == 5 => positionalIndex is 0 or 2,
+            _ => false
+        };
+    }
+
+    private static bool IsDedicatedSoaDirectColumnArrayDiagnosticParameter(
+        CallExpression call,
+        string methodName,
+        Argument argument,
+        int positionalIndex)
+    {
+        if (!DedicatedSoaDirectColumnStaticArrayDiagnostics.Contains(methodName))
+            return false;
+
+        if (argument.Name != null)
+        {
+            return methodName switch
+            {
+                "Resize" => argument.Name == "array",
+                "Sort" => argument.Name is "array" or "keys" or "items",
+                "Reverse" => argument.Name == "array",
+                _ => false
+            };
+        }
+
+        return methodName switch
+        {
+            "Resize" => positionalIndex == 0,
+            "Sort" => IsPositionalArraySortParameter(call.Arguments.Count, positionalIndex),
+            "Reverse" => positionalIndex == 0,
             _ => false
         };
     }

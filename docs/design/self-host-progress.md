@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA direct-column Array mutation diagnostics stay parameter-aware
+
+The dedicated `Array.Resize`, `Array.Sort`, and `Array.Reverse` SoA diagnostics now only suppress the
+generic static-Array direct-column guard for the array-bearing slots they own. Direct columns passed as
+`newSize`, `index`, `length`, or comparer arguments now report the generic direct-column Array
+diagnostic before ordinary method binding can hide the backing-array escape.
+
 ## 2026-06-18 — SoA direct-column Array pins become parameter-aware
 
 The analyzer now treats the accepted `Array.Fill`, `Array.Copy`, and `Array.Clear` direct-column
