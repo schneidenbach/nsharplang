@@ -403,8 +403,8 @@ The compiler must produce direct diagnostics for common misuse:
   overflow throws "length for NodeTable.add is too large", and dynamic `copyRow` sources at or beyond
   `length` throw "source row for NodeTable.copyRow must be less than length";
   target rows too large to extend throw "target row for NodeTable.copyRow is too large";
-  generated operations cannot be materialized as function/delegate values, including `wrap` and alias
-  receivers: "SoA table generated operation 'X' cannot be used as a value";
+  generated operations cannot be materialized as function/delegate values, including `wrap`, aliases,
+  and hard-cast table/alias receivers: "SoA table generated operation 'X' cannot be used as a value";
 - unsupported element type, including direct or aliased arrays, nullable non-string columns,
   string-enum columns, and nested SoA-table columns:
   "SoA column type X is not supported in this lowering";

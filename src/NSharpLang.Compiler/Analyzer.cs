@@ -15264,6 +15264,7 @@ public class Analyzer : IDisposable
         BaseExpression => "base",
         MemberAccessExpression member => $"{RenderEventTarget(member.Object)}.{member.MemberName}",
         ParenthesizedExpression parenthesized => RenderEventTarget(parenthesized.Inner),
+        CastExpression cast => RenderEventTarget(cast.Expression),
         _ => "<event>"
     };
 
