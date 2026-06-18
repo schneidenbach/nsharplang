@@ -7056,6 +7056,28 @@ public class SoaRecordTests : ILCompilerTestBase
 
             type Nodes = NodeTable
 
+            func bad(nodes: Nodes, items: int[]) {
+                Array.Sort<int, int>(index: 0, length: 1, keys: nodes.kind, items: items)
+            }
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
+            func bad(nodes: Nodes, items: int[]) {
+                System.Array.Sort<int, int>(length: 1, items: items, index: 0, keys: (nodes).kind)
+            }
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
             func bad(nodes: Nodes) {
                 Array.Sort<int>(nodes.kind)
             }

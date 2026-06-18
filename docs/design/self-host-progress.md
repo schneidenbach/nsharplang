@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA direct-column named Array.Sort keys reject before emission
+
+The SoA direct-column mutation suite now pins named `Array.Sort` key arrays as mutating too, not only
+`array:` and `items:` destinations. `Array.Sort<int, int>(index: 0, length: 1, keys: table.column,
+items: items)` and explicit `System.Array.Sort<int, int>(..., keys: (table).column)` report the same
+SoA direct-member mutation diagnostic before overload binding or IL lowering, preventing one backing
+column from being reordered independently through named key-array binding.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter
+"FullyQualifiedName~Analyzer_SoaDirectColumnsCannotBeSortedThroughArraySort"`.
+
 ## 2026-06-18 — SoA direct-column named Array rejections stay pre-emission
 
 The SoA analyzer matrix now pins named-argument forms for the remaining direct-column `Array` rejection

@@ -373,7 +373,8 @@ The compiler must produce direct diagnostics for common misuse:
   `Array.Sort(keys, table.column)`, `Array.Sort(keys, table.column, index, length)`,
   `Array.Reverse(table.column)`, or `Array.Reverse(table.column, index, length)` is also rejected
   because it would reorder that column independently from the rest of the row storage; named
-  array-bearing arguments such as `array: table.column` and `items: table.column`, explicit
+  array-bearing arguments such as `array: table.column`, `keys: table.column`, and
+  `items: table.column`, explicit
   generic method spelling, and explicit `System.Array` targets are rejected the same way;
 - non-int direct column element indexes: "Array indexes must be int, System.Index, or System.Range";
 - direct column slice reads, mutations, and `ref`/`out` argument addresses, including aliases to SoA
