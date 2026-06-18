@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA direct-column Array pins become parameter-aware
+
+The analyzer now treats the accepted `Array.Fill`, `Array.Copy`, and `Array.Clear` direct-column
+kernels as parameter-specific, not just method-name-specific. Direct columns remain accepted for the
+array-bearing `array`/`sourceArray`/`destinationArray` slots, but attempts to pass a backing column as
+a fill value, index, length, or count argument now report the SoA direct-column Array diagnostic before
+lowering can alias the column through an ordinary array call.
+
 ## 2026-06-18 — Product/parity dogfood boundary becomes generated
 
 `ColumnarCodegen_ParityOnlyFiles_AreAbsentFromProductCoverage` now derives every parity-only N#

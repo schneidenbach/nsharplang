@@ -15676,9 +15676,8 @@ public class Analyzer : IDisposable
         if (call.Arguments.Count == 0
             || call.Callee is not MemberAccessExpression memberAccess
             || !IsStaticArrayTarget(memberAccess.Object)
-            || SupportedSoaDirectColumnStaticArrayMethods.Contains(memberAccess.MemberName)
             || DedicatedSoaDirectColumnStaticArrayDiagnostics.Contains(memberAccess.MemberName)
-            || !TryGetSoaColumnArgument(call, out var columnMember))
+            || !TryGetUnsupportedSoaColumnStaticArrayArgument(call, memberAccess.MemberName, out var columnMember))
         {
             return false;
         }
@@ -15696,16 +15695,51 @@ public class Analyzer : IDisposable
         return true;
     }
 
-    private bool TryGetSoaColumnArgument(CallExpression call, out MemberAccessExpression member)
+    private bool TryGetUnsupportedSoaColumnStaticArrayArgument(
+        CallExpression call,
+        string methodName,
+        out MemberAccessExpression member)
     {
-        foreach (var argument in call.Arguments)
+        for (var i = 0; i < call.Arguments.Count; i++)
         {
-            if (TryGetSoaColumnMemberAccess(argument.Value, out member))
+            var argument = call.Arguments[i];
+            if (TryGetSoaColumnMemberAccess(argument.Value, out member)
+                && !IsPinnedSoaDirectColumnArrayParameter(call, methodName, argument, i))
+            {
                 return true;
+            }
         }
 
         member = null!;
         return false;
+    }
+
+    private static bool IsPinnedSoaDirectColumnArrayParameter(
+        CallExpression call,
+        string methodName,
+        Argument argument,
+        int positionalIndex)
+    {
+        if (!SupportedSoaDirectColumnStaticArrayMethods.Contains(methodName))
+            return false;
+
+        if (argument.Name != null)
+        {
+            return methodName switch
+            {
+                "Fill" or "Clear" => argument.Name == "array",
+                "Copy" => argument.Name is "sourceArray" or "destinationArray",
+                _ => false
+            };
+        }
+
+        return methodName switch
+        {
+            "Fill" or "Clear" => positionalIndex == 0,
+            "Copy" when call.Arguments.Count == 3 => positionalIndex is 0 or 1,
+            "Copy" when call.Arguments.Count == 5 => positionalIndex is 0 or 2,
+            _ => false
+        };
     }
 
     private bool ReportUnsupportedSoaDirectColumnCallArgumentIfNeeded(CallExpression call, TypeInfo calleeType)

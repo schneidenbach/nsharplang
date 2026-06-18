@@ -289,6 +289,10 @@ until they have explicit row-identity semantics and IL-shape evidence; named arr
 such as `array: table.column`, `sourceArray: table.column`, and `destinationArray: table.column`
 decline the same way, including when the named direct-column expression is wrapped in
 `checked(...)` or `unchecked(...)`.
+The pinned `Array.Fill`, `Array.Copy`, and `Array.Clear` allowance is parameter-specific: direct
+columns are accepted only for array-bearing parameters such as `array`, `sourceArray`, and
+`destinationArray`. Passing a direct column as a fill value, index, length, or count argument declines
+before lowering even though the method name itself is otherwise pinned.
 Direct columns also cannot escape as ordinary array values through arbitrary calls, extension-method
 receivers, or constructors: `take(table.column)`, `checked(table.column).ext()`, and
 `new Holder(table.column)` decline before lowering unless the call is `Table.wrap(...)` or one of

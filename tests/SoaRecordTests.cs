@@ -8428,6 +8428,118 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaDirectColumnsCannotUsePinnedArrayMethodsThroughNonArrayArguments()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var cases = new[]
+        {
+            (
+                Source: """
+                import System
+
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes, target: int[][]) {
+                    Array.Fill(target, nodes.kind)
+                }
+                """,
+                Method: "Fill"),
+            (
+                Source: """
+                import System
+
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes, target: int[][]) {
+                    Array.Fill(array: target, value: checked(nodes.kind))
+                }
+                """,
+                Method: "Fill"),
+            (
+                Source: """
+                import System
+
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes, source: int[], target: int[]) {
+                    Array.Copy(source, nodes.kind, target, 0, 1)
+                }
+                """,
+                Method: "Copy"),
+            (
+                Source: """
+                import System
+
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes, source: int[], target: int[]) {
+                    System.Array.Copy(sourceArray: source, sourceIndex: nodes.kind, destinationArray: target, destinationIndex: 0, length: 1)
+                }
+                """,
+                Method: "Copy"),
+            (
+                Source: """
+                import System
+
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes, target: int[]) {
+                    Array.Clear(target, nodes.kind, 1)
+                }
+                """,
+                Method: "Clear"),
+            (
+                Source: """
+                import System
+
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes, target: int[]) {
+                    System.Array.Clear(array: target, index: 0, length: unchecked(nodes.kind))
+                }
+                """,
+                Method: "Clear")
+        };
+
+        foreach (var testCase in cases)
+        {
+            var result = Analyze(testCase.Source);
+            var error = Assert.Single(
+                result.Errors,
+                e => e.Code == ErrorCode.InvalidSyntax
+                    && e.Message.Contains("SoA table member 'kind' cannot be"));
+            Assert.Contains($"SoA table member 'kind' cannot be passed to Array method '{testCase.Method}' directly", error.Message);
+            Assert.Contains("Array.Fill, Array.Copy, and Array.Clear", error.Suggestion);
+            Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.UndefinedMember);
+        }
+    }
+
+    [Fact]
     public void Analyzer_SoaDirectColumnsCannotBeResizedThroughArrayResize()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
