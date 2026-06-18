@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Hard-cast SoA checked default stores avoid old reads
+
+Statement and expression-valued default stores now have IL-shape evidence when hard-cast
+direct-column receivers are wrapped in `checked(...)` or `unchecked(...)`. Scalar and nullable
+reference columns reached through nested table and alias casts write backing arrays directly,
+preserve expression results, and do not read old elements for row, literal from-end, or variable-held
+from-end stores. Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~HardCastedDirectColumnDefaultStoresCheckedUncheckedWrappers_DoNotReadOldElement"`.
+
 ## 2026-06-18 — Hard-cast SoA checked null-coalescing stays direct
 
 Reference-column `??` and `??=` operations now have IL-shape evidence when hard-cast direct-column
