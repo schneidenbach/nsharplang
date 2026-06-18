@@ -4109,6 +4109,10 @@ public class Analyzer : IDisposable
 
             // Analyze the initializer expression to ensure it's valid
             var initType = AnalyzeExpression(tupleDecl.Initializer);
+            if (ReportSoaRowEscapeIfNeeded(tupleDecl.Initializer, initType, "deconstructed"))
+            {
+                initType = BuiltInTypes.Unknown;
+            }
 
             // Declare result variable with inferred type (or Unknown if can't infer)
             if (resultVar != "_")
@@ -4132,6 +4136,7 @@ public class Analyzer : IDisposable
             // Normal tuple deconstruction
             // Analyze the initializer expression
             var initType = AnalyzeExpression(tupleDecl.Initializer);
+            ReportSoaRowEscapeIfNeeded(tupleDecl.Initializer, initType, "deconstructed");
 
             // TODO: Check if initType is a tuple type and has the right number of elements
             // For now, just declare all variables with Unknown type

@@ -277,14 +277,16 @@ The compiler must produce direct diagnostics for common misuse:
 - duplicate or reserved column names: "SoA column 'X' is already defined" or
   "SoA column 'X' conflicts with a generated table member";
 - row value escapes: "SoA row views cannot be stored or returned; use the table and row index" (including
-  locals, assignments, explicit returns, expression-bodied functions/local functions/properties/lambdas,
-  explicit discards, call/constructor arguments, array literals, tuple literals, initializer values, yielding,
-  throwing, printing, string interpolation, assertions, assertion messages, using resources, locks, and
-  switch subjects, operator operands, casts, `is` tests, `must` unwraps, awaits, ternary results, and match
-  results, bare expression statements, control conditions, match subjects/guards, foreach collections,
-  range bounds, spread expressions, `alloc`, allocation lengths, checked/unchecked expressions, field
-  initializers, invalid member/index receivers, index values, pattern values, `with` targets/indexes/values,
-  `nameof` targets, event subscription handles, and null-conditional table/row projections);
+  locals, tuple-deconstruction initializers, assignments, explicit returns, expression-bodied
+  functions/local functions/properties/lambdas, explicit discards, call/constructor arguments,
+  array literals, tuple literals, initializer values, yielding, throwing, printing, string
+  interpolation, assertions, assertion messages, using resources, locks, and switch subjects,
+  operator operands, casts, `is` tests, `must` unwraps, awaits, ternary results, and match results,
+  bare expression statements, control conditions, match subjects/guards, foreach collections, range
+  bounds, spread expressions, `alloc`, allocation lengths, checked/unchecked expressions, field
+  initializers, invalid member/index receivers, index values, pattern values, `with`
+  targets/indexes/values, `nameof` targets, event subscription handles, and null-conditional
+  table/row projections);
 - row type annotations/type expressions: "SoA row type 'NodeTable.Row' is not part of this lowering"
   for direct table names and aliases to SoA tables in function/indexer parameter and return
   annotations, local, generic constraint, base/interface, function-type, type-pattern, hard-cast and

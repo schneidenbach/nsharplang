@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-17 — SoA row views reject tuple deconstruction before emission
+
+Tuple-deconstruction initializers now get the same SoA row-view escape guard as locals, returns,
+assignments, literals, and call arguments. Both parenthesized `(row, other) := nodes[i]` and bare
+`row, other := nodes[i]` forms now report the SoA-specific diagnostic during analysis instead
+of letting an unsupported row value reach tuple-deconstruction lowering. The special `result, err`
+deconstruction path also downgrades the initializer to `Unknown` after reporting the row diagnostic,
+so no downstream binding treats the row view as a stored value.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~SoaRecordTests.Analyzer_SoaRowViewCannotEscapeThroughTupleDeconstruction"`.
+
 ## 2026-06-16 — Interface tuple-name shim leaves product dogfood
 
 The raw-array `ParseInterfaceSignatureHasTupleNames` helper now lives in the parity corpus with the
