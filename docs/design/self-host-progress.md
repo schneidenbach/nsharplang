@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA hard-cast generated operations keep receiver-address shape
+
+Hard-cast table and alias receivers now have a generated-operation call-site pin. Calls like
+`((Nodes)nodes).add()`, `((NodeTable)nodes).ensureCapacity(...)`,
+`((Nodes)((NodeTable)nodes)).copyRow(...)`, and `((NodeTable)nodes).clear()` mutate the original
+table storage instead of a cast temporary and keep the helper free of caller-side row construction,
+array allocation, boxing, delegate construction, and virtual dispatch. Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~ILCompiler_SoaRecordHardCastGeneratedOperationCalls_PreserveReceiverAddressAndDirectShape"`.
+
 ## 2026-06-18 — SoA alias generated operation calls keep direct IL shape
 
 Alias-typed receivers now have a call-site IL-shape pin for generated `add`, `ensureCapacity`,

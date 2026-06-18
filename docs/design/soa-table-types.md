@@ -556,7 +556,9 @@ and `Array.Clear` kernels also load backing arrays directly with no row allocati
 hard-cast direct-column `Array.Resize`, `Array.Sort`, and `Array.Reverse` cases reject before
 emission. Hard-cast generated operations (`ensureCapacity`, `add`,
 `copyRow`, and `clear`) preserve the original table receiver address, so metadata and backing-column
-mutations update caller-visible storage instead of a cast temporary. The proof also includes
+mutations update caller-visible storage instead of a cast temporary; their call-site IL-shape pin
+also rejects caller-side row construction, array allocation, boxing, delegate construction, and
+virtual dispatch. The proof also includes
 default stores across the
 verified scalar/reference element-type set, row-projection `ref`/`out` argument addresses through
 backing-column `ldelema` across the verified scalar/reference/int-backed-enum element-type set,
