@@ -24514,28 +24514,28 @@ public partial class ILCompiler
             case RelationalPattern relationalPattern:
                 // Relational pattern (< value, >= value, etc.)
                 // Stack: [value]
-                EmitExpression(relationalPattern.Value);
+                EmitExpressionWithExpectedType(relationalPattern.Value, matchValueType);
                 // Stack: [value, relational_value]
 
                 switch (relationalPattern.Operator)
                 {
                     case "<":
-                        _currentIL.Emit(OpCodes.Clt);
+                        _currentIL.Emit(UsesUnsignedNumericOpcode(matchValueType) ? OpCodes.Clt_Un : OpCodes.Clt);
                         _currentIL.Emit(OpCodes.Brtrue, successLabel);
                         _currentIL.Emit(OpCodes.Br, failLabel);
                         break;
                     case ">":
-                        _currentIL.Emit(OpCodes.Cgt);
+                        _currentIL.Emit(UsesUnsignedNumericOpcode(matchValueType) ? OpCodes.Cgt_Un : OpCodes.Cgt);
                         _currentIL.Emit(OpCodes.Brtrue, successLabel);
                         _currentIL.Emit(OpCodes.Br, failLabel);
                         break;
                     case "<=":
-                        _currentIL.Emit(OpCodes.Cgt);
+                        _currentIL.Emit(UsesUnsignedOrUnorderedComparisonOpcode(matchValueType) ? OpCodes.Cgt_Un : OpCodes.Cgt);
                         _currentIL.Emit(OpCodes.Brfalse, successLabel);
                         _currentIL.Emit(OpCodes.Br, failLabel);
                         break;
                     case ">=":
-                        _currentIL.Emit(OpCodes.Clt);
+                        _currentIL.Emit(UsesUnsignedOrUnorderedComparisonOpcode(matchValueType) ? OpCodes.Clt_Un : OpCodes.Clt);
                         _currentIL.Emit(OpCodes.Brfalse, successLabel);
                         _currentIL.Emit(OpCodes.Br, failLabel);
                         break;

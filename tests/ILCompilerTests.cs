@@ -1889,6 +1889,31 @@ func getRange(x: int): string {
     }
 
     [Fact]
+    public void ILCompiler_RelationalPattern_UsesScrutineeTypeForPatternValue()
+    {
+        var source = @"
+func classifyLong(x: long): int {
+    return match x {
+        < 0 => 1,
+        >= 0 => 2
+    }
+}
+
+func classifyUnsigned(x: uint): int {
+    return match x {
+        > 4000000000u => 3,
+        <= 4000000000u => 4
+    }
+}
+";
+
+        Assert.Equal(1, Assert.IsType<int>(CompileAndInvoke(source, "classifyLong", -1L)));
+        Assert.Equal(2, Assert.IsType<int>(CompileAndInvoke(source, "classifyLong", 1L)));
+        Assert.Equal(3, Assert.IsType<int>(CompileAndInvoke(source, "classifyUnsigned", 4000000001u)));
+        Assert.Equal(4, Assert.IsType<int>(CompileAndInvoke(source, "classifyUnsigned", 4u)));
+    }
+
+    [Fact]
     public void ILCompiler_CanCompileMatchExpressionInReturnStatement()
     {
         var source = @"

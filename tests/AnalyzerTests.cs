@@ -4038,6 +4038,53 @@ func Main() {
         Assert.Contains("IEnumerable<int>", error.Message);
     }
 
+    [Theory]
+    [InlineData("value: string", "< \"m\"", "string", "string")]
+    [InlineData("value: string", "== \"m\"", "string", "string")]
+    [InlineData("value: object", "== 1", "object", "int")]
+    [InlineData("value: int?", "< 1", "int?", "int")]
+    [InlineData("value: decimal", "< 1m", "decimal", "decimal")]
+    public void RelationalPattern_UnsupportedComparison_ReportsTypeMismatch(
+        string declaration,
+        string pattern,
+        string valueType,
+        string patternType)
+    {
+        var result = Analyze($$"""
+            func Main({{declaration}}): int {
+                return match value {
+                    {{pattern}} => 1,
+                    _ => 0
+                }
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains("Relational pattern", error.Message);
+        Assert.Contains($"'{valueType}'", error.Message);
+        Assert.Contains($"'{patternType}'", error.Message);
+        Assert.Contains("before IL emission", error.Message);
+        Assert.Contains("match guard", error.Suggestion);
+    }
+
+    [Fact]
+    public void RelationalPattern_NumericWidening_IsValid()
+    {
+        AssertNoErrors("""
+            func Main(value: long, ratio: double): int {
+                a := match value {
+                    < 0 => 1,
+                    >= 0 => 2
+                }
+                b := match ratio {
+                    < 1 => 3,
+                    >= 1 => 4
+                }
+                return a + b
+            }
+            """);
+    }
+
     [Fact]
     public void MatchExpression_IncompatibleCaseTypes_Error()
     {

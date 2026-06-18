@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Relational patterns validate comparable types before emission
+
+Relational match patterns now reject unsupported comparison shapes during analysis instead of letting
+the IL backend emit raw `clt`/`cgt`/`ceq` over invalid stack types. String/object/nullable/decimal
+relational patterns now produce a typed diagnostic that points users to literal string patterns or
+match guards. Numeric relational patterns still compile, and the IL emitter now evaluates the pattern
+operand under the scrutinee type so widened constants such as `long` comparisons and unsigned
+comparisons use the correct CLI stack shape/opcodes.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~AnalyzerTests.RelationalPattern"`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~ILCompilerTests.ILCompiler_RelationalPattern|FullyQualifiedName~ILCompilerTests.ILCompiler_CanCompileMatchExpressionWithRelationalPattern"`.
+
 ## 2026-06-18 — `assert throws` validates exception types before emission
 
 `assert throws` now resolves its expected exception type through the declared-type path and requires an

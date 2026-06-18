@@ -5833,11 +5833,11 @@ public class Analyzer : IDisposable
                 break;
 
             case RelationalPattern relationalPattern:
-                // Analyze the value expression and ensure it's compatible with valueType
                 var relationalValueType = AnalyzeExpression(relationalPattern.Value);
-                ReportSoaRowEscapeIfNeeded(relationalPattern.Value, relationalValueType, "used as a relational pattern value");
-                // The value type should be comparable (numeric, string, etc.)
-                // For now, we'll allow any relational pattern without strict type checking
+                if (!ReportSoaRowEscapeIfNeeded(relationalPattern.Value, relationalValueType, "used as a relational pattern value"))
+                {
+                    ValidateRelationalPattern(relationalPattern, valueType, relationalValueType);
+                }
                 break;
 
             case AndPattern andPattern:
@@ -5962,6 +5962,96 @@ public class Analyzer : IDisposable
         }
 
         return false;
+    }
+
+    private void ValidateRelationalPattern(
+        RelationalPattern pattern,
+        TypeInfo valueType,
+        TypeInfo patternValueType)
+    {
+        var resolvedValueType = ResolveTypeAlias(GetNonNullableType(valueType));
+        var resolvedPatternValueType = ResolveTypeAlias(GetNonNullableType(patternValueType));
+        if (BuiltInTypes.IsUnknown(resolvedValueType) || BuiltInTypes.IsUnknown(resolvedPatternValueType))
+        {
+            return;
+        }
+
+        var allowBool = IsEqualityPatternOperator(pattern.Operator);
+        if (IsNullableRelationalPatternType(valueType)
+            || IsNullableRelationalPatternType(patternValueType)
+            || !IsRelationalPatternComparableType(resolvedValueType, allowBool)
+            || !IsRelationalPatternComparableType(resolvedPatternValueType, allowBool)
+            || !IsAssignable(valueType, patternValueType))
+        {
+            ReportRelationalPatternTypeMismatch(pattern, valueType, patternValueType);
+        }
+    }
+
+    private static bool IsEqualityPatternOperator(string op)
+        => op is "==" or "!=";
+
+    private bool IsNullableRelationalPatternType(TypeInfo type)
+    {
+        type = ResolveTypeAlias(type);
+        return type is NullableTypeInfo
+            || type is ReflectionTypeInfo reflection && Nullable.GetUnderlyingType(reflection.Type) != null;
+    }
+
+    private bool IsRelationalPatternComparableType(TypeInfo type, bool allowBool)
+    {
+        type = ResolveTypeAlias(GetNonNullableType(type));
+        if (allowBool && IsBoolType(type))
+        {
+            return true;
+        }
+
+        if (type == BuiltInTypes.Decimal)
+        {
+            return false;
+        }
+
+        if (IsNumericType(type))
+        {
+            return true;
+        }
+
+        if (type is ReflectionTypeInfo reflection)
+        {
+            var runtimeType = Nullable.GetUnderlyingType(reflection.Type) ?? reflection.Type;
+            if (allowBool && runtimeType == typeof(bool))
+            {
+                return true;
+            }
+
+            return runtimeType != typeof(decimal)
+                && (runtimeType == typeof(byte)
+                    || runtimeType == typeof(sbyte)
+                    || runtimeType == typeof(short)
+                    || runtimeType == typeof(ushort)
+                    || runtimeType == typeof(int)
+                    || runtimeType == typeof(uint)
+                    || runtimeType == typeof(long)
+                    || runtimeType == typeof(ulong)
+                    || runtimeType == typeof(float)
+                    || runtimeType == typeof(double)
+                    || runtimeType == typeof(char));
+        }
+
+        return false;
+    }
+
+    private void ReportRelationalPatternTypeMismatch(
+        RelationalPattern pattern,
+        TypeInfo valueType,
+        TypeInfo patternValueType)
+    {
+        Error(
+            ErrorCode.TypeMismatch,
+            $"Relational pattern '{pattern.Operator}' can't compare '{valueType}' with '{patternValueType}' before IL emission",
+            pattern.Line,
+            pattern.Column,
+            "Use numeric operands with a supported common type, use a literal pattern for string equality, or move custom comparisons into a match guard.",
+            Math.Max(1, pattern.Operator.Length));
     }
 
     private static bool IsIndexableGenericListPatternType(string name)
