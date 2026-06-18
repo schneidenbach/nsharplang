@@ -12609,6 +12609,44 @@ func bad(a: Vec2, b: Vec2): Vec2 {
     }
 
     [Fact]
+    public void GenericAnnotation_ExternalGenericWrongArity_ReportsInvalidTypeArgument()
+    {
+        var result = Analyze("import System.Collections.Generic\nfunc Handle(items: List<int, string>) {\n    _ = items\n}\n");
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidTypeArgument);
+        Assert.Equal("NL207", error.DiagnosticId);
+        Assert.Contains("takes 1 type argument(s), but 2 were provided", error.Message);
+    }
+
+    [Fact]
+    public void GenericAnnotation_ExternalGenericWithNonGenericSiblingWrongArity_ReportsInvalidTypeArgument()
+    {
+        var result = Analyze("import System.Threading.Tasks\nfunc Handle(task: Task<int, string>) {\n    _ = task\n}\n");
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidTypeArgument);
+        Assert.Equal("NL207", error.DiagnosticId);
+        Assert.Contains("takes 1 type argument(s), but 2 were provided", error.Message);
+    }
+
+    [Fact]
+    public void GenericAnnotation_CompilerKnownGenericWrongArity_ReportsInvalidTypeArgument()
+    {
+        var result = Analyze("func Handle(value: Result<int>) {\n    _ = value\n}\n");
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidTypeArgument);
+        Assert.Equal("NL207", error.DiagnosticId);
+        Assert.Contains("takes 2 type argument(s), but 1 were provided", error.Message);
+    }
+
+    [Fact]
+    public void GenericAnnotation_ExternalGenericMultipleAritiesWrongArity_ReportsInvalidTypeArgument()
+    {
+        var result = Analyze("import System\nfunc Handle(action: Action<int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int>) {\n    _ = action\n}\n");
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidTypeArgument);
+        Assert.Equal("NL207", error.DiagnosticId);
+        Assert.Contains("available arities are", error.Message);
+        Assert.Contains("16", error.Message);
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.TypeNotFound);
+    }
+
+    [Fact]
     public void GenericNew_UnknownTypeArgument_ReportsTypeNotFound()
     {
         // B14 pin: `new Box<Nope>(5)` is diagnosed at analysis (NL201 on the type argument)

@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — External generic arity errors report NL207
+
+Wrong-arity generic annotations over compiler-known and CLR generic heads now report `NL207` instead
+of falling back to `NL201` or a misleading non-generic-head message. The resolver records available
+generic arities for unresolved/reflection heads after the exact arity probe misses, so
+`List<int, string>`, `Task<int, string>`, and compiler-known `Result<int>` point at the type head with
+the declaration's expected type-argument count. Exact CLR generic uses with non-generic siblings, such
+as `Task<int>`, still resolve through the arity-qualified external lookup, and local N# declarations
+continue to take precedence over compiler-known names.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter
+"FullyQualifiedName~GenericAnnotation_ExternalGenericWrongArity|FullyQualifiedName~GenericAnnotation_ExternalGenericWithNonGenericSiblingWrongArity|FullyQualifiedName~GenericAnnotation_CompilerKnownGenericWrongArity|FullyQualifiedName~GenericAnnotation_ExternalGenericHeadWithNonGenericSibling|FullyQualifiedName~GenericUnionAnnotation_WrongArity_Error"`.
+
 ## 2026-06-18 — Non-generic generic-head annotations reject before emission
 
 Declared type references now report `NL207` when type arguments are attached to a known
@@ -6751,9 +6763,10 @@ sweep fully green; `ContainsBuilderBoundType` gained the user-headed-definition 
 resolution decline, which also restored the PASS 0e skip for closed-user-generic fields).
 
 **Oracle laxness recorded (defect-bundle candidates, probe-found by the review):** the
-`Items: int&lt;int&gt;` field-type hole is fixed as of 2026-06-18 (`NL207` on the non-generic head);
-the remaining recorded item is that object-initializers accept mismatched generic collection field
-types (pre-existing, slice-independent; columnar declines).
+`Items: int&lt;int&gt;` field-type hole is fixed as of 2026-06-18 (`NL207` on the non-generic head).
+The generic collection object-initializer mismatch item is also closed by the analyzer's member-type
+checking pins (`List&lt;Pt&gt;` vs `List&lt;Qt&gt;` and `Dictionary&lt;string, Pt&gt;` vs
+`Dictionary&lt;string, Rs&gt;` now report `NL202` before emission).
 
 Parity: `ColumnarCodegen_Parity_CollectionsBuilderElements` — 16 value functions + the
 mutation-during-foreach IOE pin + 11 decline pins (enum elements — un-baked EnumBuilder dies at

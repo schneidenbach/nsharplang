@@ -19172,6 +19172,7 @@ public class Analyzer : IDisposable
 
             var genericHeadArity = GetGenericHeadArity(resolvedName);
             Type? arityQualifiedExternalType = null;
+            List<int>? knownGenericHeadArities = null;
             if (resolvedName is ExternalTypeInfo or ReflectionTypeInfo)
             {
                 arityQualifiedExternalType = TryGetKnownOpenGenericType(generic.Name, generic.TypeArguments.Count);
@@ -19185,6 +19186,14 @@ public class Analyzer : IDisposable
                 {
                     genericHeadArity = generic.TypeArguments.Count;
                 }
+                else
+                {
+                    knownGenericHeadArities = GetKnownGenericHeadArities(generic.Name);
+                    if (knownGenericHeadArities.Count == 1)
+                    {
+                        genericHeadArity = knownGenericHeadArities[0];
+                    }
+                }
             }
 
             // Report the generic name as unresolved only when it is not compiler-known
@@ -19194,6 +19203,7 @@ public class Analyzer : IDisposable
                 resolvedName is ExternalTypeInfo &&
                 !generic.Name.Contains('.') &&
                 arityQualifiedExternalType == null &&
+                (knownGenericHeadArities == null || knownGenericHeadArities.Count == 0) &&
                 _reportedUnresolvedTypeRefs.Add((generic.Name, generic.Line, generic.Column)))
             {
                 Error(
@@ -19202,6 +19212,19 @@ public class Analyzer : IDisposable
                     generic.Line,
                     generic.Column,
                     BuildUnresolvedTypeSuggestion(generic.Name),
+                    generic.Name.Length);
+            }
+
+            if (previousReport && knownGenericHeadArities is { Count: > 1 }
+                && _reportedUnresolvedTypeRefs.Add((generic.Name, generic.Line, generic.Column)))
+            {
+                var arityList = string.Join(", ", knownGenericHeadArities);
+                Error(
+                    ErrorCode.InvalidTypeArgument,
+                    $"Generic type '{generic.Name}' does not take {generic.TypeArguments.Count} type argument(s); available arities are {arityList}",
+                    generic.Line,
+                    generic.Column,
+                    $"Use one of the supported type-argument counts for '{generic.Name}'.",
                     generic.Name.Length);
             }
 
@@ -19281,6 +19304,23 @@ public class Analyzer : IDisposable
                 : 0,
             _ => -1
         };
+
+    private List<int> GetKnownGenericHeadArities(string name)
+    {
+        const int MaxClrGenericArity = 17;
+        var arities = new List<int>();
+
+        for (var arity = 1; arity <= MaxClrGenericArity; arity++)
+        {
+            if (TryGetKnownOpenGenericType(name, arity) != null
+                || TryResolveExternalType($"{name}`{arity}") is ReflectionTypeInfo { Type.IsGenericTypeDefinition: true })
+            {
+                arities.Add(arity);
+            }
+        }
+
+        return arities;
+    }
 
     private TypeInfo ResolveAnonymousUnionType(UnionTypeReference union)
     {
