@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Hard-cast SoA ref/out range slices reject before emission
+
+Direct-column `ref`/`out` range diagnostics now have focused hard-cast receiver pins. Range slices
+such as `ref ((NodeTable)nodes).kind[range]` and `out (checked(((Nodes)((NodeTable)nodes)).kind))[range]`
+keep the SoA hidden-allocation diagnostic before address-taking or slice lowering can treat the
+generated backing array as a normal value. Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~Analyzer_SoaDirectColumnRefOutIndexesAreRejectedBeforeEmission"`.
+
 ## 2026-06-18 — Remaining compiler dogfood bindings share loader fallback
 
 The remaining multi-delegate compiler dogfood wrappers now use
