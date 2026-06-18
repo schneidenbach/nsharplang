@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Hard-cast SoA checked direct-column wrappers stay direct
+
+Direct-column element reads, stores, compound assignments, postfix updates, from-end indexing, and
+metadata reads now have IL-shape evidence when hard-cast table/alias receivers are wrapped in
+`checked(...)` or `unchecked(...)`. Shapes such as `(checked(((NodeTable)nodes).kind))[row]` and
+`(unchecked(((Nodes)((NodeTable)nodes)).start))[^1]` keep direct backing-column field loads,
+`ldlen`, and array element traffic without row allocation, boxing, delegate construction, heap array
+allocation, slicing, or virtual dispatch. Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~HardCastedDirectColumnElementAccessCheckedUncheckedWrappers_UseColumnArrayLoadStoreWithoutRowAllocation"`.
+
 ## 2026-06-18 — Hard-cast SoA direct-column metadata stays direct
 
 Direct-column metadata properties now have IL-shape evidence when the table receiver is hard-cast
