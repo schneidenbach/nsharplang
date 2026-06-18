@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA checked direct-column scalar expressions keep IL shape
+
+Direct-column scalar read expressions now have IL-shape evidence when the column receiver is wrapped
+in `checked(...)` or `unchecked(...)`, including arithmetic, bitwise, shift, and comparison operands
+over row and from-end indexes. `(checked(table.column))[row] + value`,
+`(unchecked(table.column))[idx] >> n`, and `(checked(table.column))[^1] >= value` still read the
+generated backing arrays directly and lower through scalar opcodes/branches without row
+materialization, array slicing, boxing, delegate construction, or virtual dispatch.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter
+"FullyQualifiedName~DirectColumnScalarExpressionsCheckedUncheckedWrappers_UseColumnArrayLoadsAndOpcodesWithoutRowAllocation"`.
+
 ## 2026-06-18 — SoA checked direct-column numeric updates keep IL shape
 
 Direct-column numeric compound assignments and prefix/postfix update operands now have IL-shape

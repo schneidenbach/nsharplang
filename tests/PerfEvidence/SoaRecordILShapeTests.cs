@@ -263,6 +263,81 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void DirectColumnScalarExpressionsCheckedUncheckedWrappers_UseColumnArrayLoadsAndOpcodesWithoutRowAllocation()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                kind: int
+                flags: uint
+                mask: long
+            }
+
+            func evaluate(nodes: NodeTable, row: int): int {
+                idx := ^1
+
+                (checked(nodes.kind))[row] = 10
+                (unchecked(nodes.flags))[row] = (uint)12
+                (checked(nodes.mask))[row] = 3L
+                (unchecked(nodes.kind))[^1] = -16
+                (checked(nodes.flags))[^1] = (uint)8
+                (unchecked(nodes.mask))[^1] = 5L
+
+                rowScore := (checked(nodes.kind))[row] + 2
+                rowScore += (int)((unchecked(nodes.flags))[row] & (uint)10)
+                rowScore += (int)((checked(nodes.mask))[row] << 2)
+                rowScore += (checked(nodes.kind))[row] == 10 ? 100 : 0
+                rowScore += (unchecked(nodes.flags))[row] > (uint)10 ? 1000 : 0
+
+                tailScore := (unchecked(nodes.kind))[idx] >> 2
+                tailScore += (int)((checked(nodes.flags))[idx] >> 1)
+                tailScore += (int)(~((unchecked(nodes.mask))[idx]))
+                tailScore += (unchecked(nodes.kind))[idx] < 0 ? 10000 : 0
+                tailScore += (checked(nodes.mask))[idx] >= 5L ? 100000 : 0
+
+                return rowScore + tailScore
+            }
+
+            func main(): int {
+                nodes := new NodeTable(2)
+                first := nodes.add()
+                nodes.add()
+                return evaluate(nodes, first)
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var evaluate = ILShapeInspector.GetProgramMethod(assembly, "evaluate");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(111126, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoFromEndSliceAllocation(evaluate);
+            Assert.True(
+                ILShapeInspector.CountOpcode(evaluate, OpCodes.Ldfld) >= 16,
+                "Checked/unchecked direct SoA column scalar expressions should load backing column fields directly.");
+            Assert.Equal(10, CountArrayElementLoads(evaluate));
+            Assert.Equal(6, CountArrayElementStores(evaluate));
+            Assert.True(ILShapeInspector.CountOpcode(evaluate, OpCodes.Add) >= 3);
+            Assert.True(ILShapeInspector.CountOpcode(evaluate, OpCodes.And) >= 1);
+            Assert.True(ILShapeInspector.CountOpcode(evaluate, OpCodes.Shl) >= 1);
+            Assert.True(ILShapeInspector.CountOpcode(evaluate, OpCodes.Shr) >= 1);
+            Assert.True(ILShapeInspector.CountOpcode(evaluate, OpCodes.Shr_Un) >= 1);
+            Assert.True(ILShapeInspector.CountOpcode(evaluate, OpCodes.Not) >= 1);
+            Assert.True(
+                ILShapeInspector.CountOpcode(evaluate, OpCodes.Ceq)
+                + ILShapeInspector.CountOpcode(evaluate, OpCodes.Clt)
+                + ILShapeInspector.CountOpcode(evaluate, OpCodes.Cgt)
+                + ILShapeInspector.CountOpcode(evaluate, OpCodes.Clt_Un)
+                + ILShapeInspector.CountOpcode(evaluate, OpCodes.Cgt_Un) >= 3);
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void DirectColumnNullCoalescingCheckedUncheckedWrappers_UseColumnArrayLoadStoreWithoutRowAllocation()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
