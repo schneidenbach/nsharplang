@@ -15,14 +15,20 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 The stricter pre-lowering diagnostics now preserve the product examples that depend on source nested
 type identity, async omitted-return calls, and dictionary foreach variables. Declared dotted nested
-types such as `BankAccount.Status` resolve to their source enum declarations, omitted-return
-`async func` calls type as unit `Task` values for await analysis while keeping body return checking
-source-level `void`, and `Dictionary<K,V>` foreach binds the loop variable as `KeyValuePair<K,V>` so
-`Key`/`Value` members are semantic instead of grep-shaped. This keeps the new equality/await/foreach
-diagnostics from rejecting valid product code before IL emission.
+types such as `BankAccount.Status` resolve to their source enum declarations. N# async call sites now
+expose the lowered task-like shape for await analysis (`ValueTask`/`ValueTask<T>` by default,
+`Task`/`Task<T>` for `main`, explicit task-like annotations preserved) while keeping body return
+checking source-level; async generator calls stay on their declared `IAsyncEnumerable<T>` shape and
+are not task-wrapped. `Dictionary<K,V>` foreach binds the loop variable as `KeyValuePair<K,V>` so
+`Key`/`Value` members are semantic instead of grep-shaped, string foreach binds `char`, and logical
+operators suppress follow-on boolean diagnostics when an unresolved operand already carries the real
+error. This keeps the new equality/await/foreach/logical diagnostics from rejecting valid product code
+before IL emission.
 Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~EqualityOperator_NestedEnumOperands_AreValid|FullyQualifiedName~AwaitOmittedAsyncReturn_IsValid|FullyQualifiedName~ForeachDictionary_BindsKeyValuePairMembers"`;
 targeted `nlc build` and `nlc check` on `examples/06-classes-and-records`, `examples/08-async`, and
-`examples/16-task-cli`; `./scripts/dev.sh --since`.
+`examples/16-task-cli`; `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~AwaitOmittedAsyncReturn_IsValid|FullyQualifiedName~ForeachString_BindsCharElements|FullyQualifiedName~LogicalOperators_UnknownOperand_DoesNotCascade|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_Parity_Async|FullyQualifiedName~PlaygroundCompilerTests.Catalog_ExamplesAreCompilerClean|FullyQualifiedName~CompilerDogfoodProjectTests.Stage5_ColumnarBackend_FallsBackToCSharpForIneligibleProgram|FullyQualifiedName~SystemsNSharpTests.ExecutableSystemsProofProjects_CheckBuildPerfAndQueryEvidence"`;
+`dotnet src/NSharpLang.Cli/bin/Debug/net10.0/Cli.dll check --project docs/design/systems-samples/proofs/24-zero-copy-frame-reader --systems-report`;
+`./scripts/dev.sh --since`.
 
 ## 2026-06-18 — Range and from-end index operands validate before lowering
 

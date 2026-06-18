@@ -4819,6 +4819,9 @@ public class Analyzer : IDisposable
             case ArrayTypeInfo arrayType when !requireAsync:
                 elementType = arrayType.ElementType;
                 return true;
+            case SimpleTypeInfo simpleType when !requireAsync && simpleType == BuiltInTypes.String:
+                elementType = BuiltInTypes.Char;
+                return true;
             case GenericTypeInfo genericType when TryGetGenericLoopSequenceElementType(genericType, requireAsync, out elementType):
                 return true;
             case ReflectionTypeInfo reflectionType when TryGetReflectionLoopSequenceElementType(reflectionType.Type, requireAsync, out elementType):
@@ -7561,6 +7564,11 @@ public class Analyzer : IDisposable
 
     private TypeInfo AnalyzeLogicalOp(TypeInfo left, TypeInfo right, BinaryExpression expr)
     {
+        if (BuiltInTypes.IsUnknown(left) || BuiltInTypes.IsUnknown(right))
+        {
+            return BuiltInTypes.Unknown;
+        }
+
         if (!IsBoolType(left) || !IsBoolType(right))
         {
             var leftIsWrong = !IsBoolType(left);
@@ -10775,13 +10783,7 @@ public class Analyzer : IDisposable
                     }
                 }
 
-                // Return the declared return type, with generic bindings applied
-                if (funcType.Declaration.ReturnType != null)
-                {
-                    var returnType = ResolveType(funcType.Declaration.ReturnType);
-                    var genericBindingsForReturn = TryInferNSharpGenericBindings(funcType.Declaration, call, argTypes);
-                    return ApplyNSharpGenericBindings(returnType, genericBindingsForReturn);
-                }
+                return ResolveNSharpReturnType(funcType.Declaration, call, argTypes);
             }
             else if (funcType.ParameterTypes != null)
             {
@@ -12399,22 +12401,48 @@ public class Analyzer : IDisposable
     /// </summary>
     private TypeInfo ResolveNSharpReturnType(FunctionDeclaration decl, CallExpression call, List<TypeInfo> argTypes)
     {
-        if (decl.ReturnType == null)
-            return ResolveDeclaredFunctionCallReturnType(decl);
-
-        var returnType = ResolveType(decl.ReturnType);
+        var returnType = decl.ReturnType != null
+            ? ResolveType(decl.ReturnType)
+            : BuiltInTypes.Void;
         var genericBindings = TryInferNSharpGenericBindings(decl, call, argTypes);
-        return ApplyNSharpGenericBindings(returnType, genericBindings);
+        returnType = ApplyNSharpGenericBindings(returnType, genericBindings);
+        return ResolveFunctionCallReturnType(decl, returnType);
     }
 
     private TypeInfo ResolveDeclaredFunctionCallReturnType(FunctionDeclaration decl)
     {
-        if (decl.ReturnType != null)
-            return ResolveType(decl.ReturnType);
-
-        return decl.Modifiers.HasFlag(Modifiers.Async)
-            ? new ReflectionTypeInfo(typeof(System.Threading.Tasks.Task))
+        var sourceReturnType = decl.ReturnType != null
+            ? ResolveType(decl.ReturnType)
             : BuiltInTypes.Void;
+
+        return ResolveFunctionCallReturnType(decl, sourceReturnType);
+    }
+
+    private TypeInfo ResolveFunctionCallReturnType(FunctionDeclaration decl, TypeInfo sourceReturnType)
+    {
+        if (!decl.Modifiers.HasFlag(Modifiers.Async)
+            || decl.Modifiers.HasFlag(Modifiers.Generator))
+        {
+            return sourceReturnType;
+        }
+
+        if (IsUnitTaskLikeType(sourceReturnType)
+            || TryGetTaskLikeResultType(sourceReturnType, out _))
+        {
+            return sourceReturnType;
+        }
+
+        var usesTaskFamily = string.Equals(decl.Name, "main", StringComparison.OrdinalIgnoreCase);
+        if (sourceReturnType == BuiltInTypes.Void)
+        {
+            return usesTaskFamily
+                ? new ReflectionTypeInfo(typeof(System.Threading.Tasks.Task))
+                : new ReflectionTypeInfo(typeof(System.Threading.Tasks.ValueTask));
+        }
+
+        return new GenericTypeInfo(
+            usesTaskFamily ? "Task" : "ValueTask",
+            new List<TypeInfo> { sourceReturnType });
     }
 
     /// <summary>

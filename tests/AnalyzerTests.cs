@@ -1830,8 +1830,13 @@ class BankAccount {
 async func Work() {
 }
 
+async func GetCount(): int {
+    return 1
+}
+
 async func Main() {
     await Work()
+    value := await GetCount()
 }
         ");
     }
@@ -1858,6 +1863,25 @@ func Main(items: Dictionary<string, Stat>): int {
     }
 
     [Fact]
+    public void ForeachString_BindsCharElements()
+    {
+        AssertNoErrors(@"
+import System
+
+func CountLetters(text: string): int {
+    count := 0
+    for ch in text {
+        if Char.IsLetter(ch) {
+            count = count + 1
+        }
+    }
+
+    return count
+}
+        ");
+    }
+
+    [Fact]
     public void StringConcatenation_Valid()
     {
         AssertNoErrors(@"
@@ -1875,6 +1899,20 @@ func Main(items: Dictionary<string, Stat>): int {
                 x := 1 && 2
             }
         ", "must be booleans");
+    }
+
+    [Fact]
+    public void LogicalOperators_UnknownOperand_DoesNotCascade()
+    {
+        var result = AnalyzeWithSource(@"
+func Main(flag: bool) {
+    if flag || missing {
+    }
+}
+        ");
+
+        Assert.Contains(result.Errors, e => e.Code == ErrorCode.UndefinedVariable && e.Message.Contains("missing"));
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.TypeMismatch && e.Message.Contains("Both sides of '||'"));
     }
 
     [Fact]
@@ -2667,6 +2705,28 @@ func Main(values: int[], start: byte, end: short, fromEnd: int) {
                 }
 
                 return total
+            }
+            """);
+
+        Assert.Empty(result.Errors);
+        Assert.Equal("int", result.SemanticModel.LookupIdentifier("value")?.ToString());
+    }
+
+    [Fact]
+    public void AwaitForeachLoop_AsyncGeneratorCall_Valid()
+    {
+        var result = AnalyzeWithSource("""
+            import System.Collections.Generic
+
+            async func* Numbers(): IAsyncEnumerable<int> {
+                yield 1
+            }
+
+            async func Sum() {
+                total := 0
+                await foreach value in Numbers() {
+                    total += value
+                }
             }
             """);
 
