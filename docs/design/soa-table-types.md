@@ -303,7 +303,10 @@ bounds, spread expressions, or explicit allocation-policy operands; otherwise a 
 alias could bypass the SoA row-identity checks and mutate one backing column independently.
 Direct column metadata properties remain available: `table.column.Length` and
 `table.column.LongLength` lower through `ldlen`, while `table.column.Rank` lowers to the known SZ-array
-rank constant. Checked/unchecked wrappers around the direct column keep that same metadata lowering.
+rank constant. `nameof(table.column)` and member accesses whose table receiver is parenthesized, such
+as `nameof((table).column)`, are also accepted because they lower to string literals and never expose
+the backing array. Checked/unchecked wrappers around the direct column keep that same metadata
+lowering.
 Those metadata properties are read-only: `table.column.Length = n`, `table.column.LongLength += n`,
 and `table.column.Rank++` decline during analysis instead of reaching the IL backend as missing
 setters, including through checked/unchecked direct-column wrappers. Null-conditional member or index

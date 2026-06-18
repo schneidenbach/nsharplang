@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA direct-column nameof stays metadata-only
+
+Direct-column `nameof` targets are now pinned as an accepted metadata-only shape: `nameof(table.column)`
+and `nameof((table).column)` compile to string literals without loading the SoA backing array. Row-view
+`nameof(table[row])` remains a pre-emission diagnostic because row views have no materialized value in
+this lowering.
+
 ## 2026-06-18 — CLI argument parity-only probes get full product-boundary pins
 
 `ColumnarCodegen_ParityOnlyFiles_AreAbsentFromProductCoverage` now enumerates the full

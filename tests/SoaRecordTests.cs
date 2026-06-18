@@ -5437,6 +5437,27 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaDirectColumnsAllowNameofTargets()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze("""
+            soa record NodeTable {
+                kind: int
+                start: int
+            }
+
+            type Nodes = NodeTable
+
+            func name(nodes: Nodes): string {
+                return nameof(nodes.kind) + ":" + nameof((nodes).start)
+            }
+            """);
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
     public void Analyzer_SoaDirectColumnsCannotEscapeThroughArbitraryCalls()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
@@ -11853,6 +11874,47 @@ public class SoaRecordTests : ILCompilerTestBase
             """;
 
         Assert.Equal(2632, Assert.IsType<int>(CompileAndInvoke(source)));
+    }
+
+    [Fact]
+    public void ILCompiler_SoaRecordDirectColumnNameof_LowersToStringLiteral()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var source = """
+            soa record NodeTable {
+                kind: int
+                start: int
+            }
+
+            type Nodes = NodeTable
+
+            func name(nodes: Nodes): string {
+                return nameof(nodes.kind) + ":" + nameof((nodes).start)
+            }
+
+            func main(): string {
+                nodes := new NodeTable(1)
+                return name(nodes)
+            }
+            """;
+
+        var opCodes = CompileAndInspect(source, assembly =>
+        {
+            var name = assembly.GetType("Program")!.GetMethod(
+                "name",
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(name);
+            return GetMethodOpCodes(name!);
+        });
+
+        Assert.Contains(OpCodes.Ldstr, opCodes);
+        Assert.DoesNotContain(OpCodes.Ldfld, opCodes);
+        Assert.DoesNotContain(opCodes, IsArrayElementLoad);
+        Assert.DoesNotContain(opCodes, IsArrayElementStore);
+        Assert.DoesNotContain(OpCodes.Newarr, opCodes);
+        Assert.DoesNotContain(OpCodes.Box, opCodes);
+        Assert.Equal("kind:start", Assert.IsType<string>(CompileAndInvoke(source)));
     }
 
     [Fact]
