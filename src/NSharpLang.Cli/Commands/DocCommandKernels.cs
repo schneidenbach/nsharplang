@@ -122,26 +122,13 @@ internal static class DocCommandKernels
     }
 
     private static Bindings? LoadBindings()
-    {
-        try
-        {
-            var programType = DogfoodKernelLoader.TryGetProgramType();
-            if (programType == null)
-                return null;
-
-            return new Bindings(
-                DogfoodKernelLoader.CreateDelegate<CliDocSymbolOrderCountingIndicesInto>(
-                    programType,
-                    "CliDocSymbolOrderCountingIndicesInto"),
-                DogfoodKernelLoader.CreateDelegate<CliDocSlugsInto>(
-                    programType,
-                    "CliDocSlugsInto"));
-        }
-        catch
-        {
-            return null;
-        }
-    }
+        => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
+            DogfoodKernelLoader.CreateDelegate<CliDocSymbolOrderCountingIndicesInto>(
+                programType,
+                "CliDocSymbolOrderCountingIndicesInto"),
+            DogfoodKernelLoader.CreateDelegate<CliDocSlugsInto>(
+                programType,
+                "CliDocSlugsInto")));
 
     private static bool IsDocumentedSymbolKind(SymbolKind kind) =>
         kind is not SymbolKind.Variable and not SymbolKind.Parameter;

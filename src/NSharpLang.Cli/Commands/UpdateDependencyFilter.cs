@@ -146,26 +146,13 @@ internal static class UpdateDependencyFilter
     }
 
     private static Bindings? LoadBindings()
-    {
-        try
-        {
-            var programType = DogfoodKernelLoader.TryGetProgramType();
-            if (programType == null)
-                return null;
-
-            return new Bindings(
-                DogfoodKernelLoader.CreateDelegate<CliUpdateAllNuGetDependencyIndicesInto>(
-                    programType,
-                    "CliUpdateAllNuGetDependencyIndicesInto"),
-                DogfoodKernelLoader.CreateDelegate<CliUpdateTargetNuGetDependencyIndicesInto>(
-                    programType,
-                    "CliUpdateTargetNuGetDependencyIndicesInto"));
-        }
-        catch
-        {
-            return null;
-        }
-    }
+        => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
+            DogfoodKernelLoader.CreateDelegate<CliUpdateAllNuGetDependencyIndicesInto>(
+                programType,
+                "CliUpdateAllNuGetDependencyIndicesInto"),
+            DogfoodKernelLoader.CreateDelegate<CliUpdateTargetNuGetDependencyIndicesInto>(
+                programType,
+                "CliUpdateTargetNuGetDependencyIndicesInto")));
 
     private delegate int CliUpdateAllNuGetDependencyIndicesInto(
         int[] nugetFlags,

@@ -284,32 +284,19 @@ internal static class TidyCommandKernels
     }
 
     private static Bindings? LoadBindings()
-    {
-        try
-        {
-            var programType = DogfoodKernelLoader.TryGetProgramType();
-            if (programType == null)
-                return null;
-
-            return new Bindings(
-                DogfoodKernelLoader.CreateDelegate<DiagnosticSeverityFilterIndicesInto>(
-                    programType,
-                    "DiagnosticSeverityFilterIndicesInto"),
-                DogfoodKernelLoader.CreateDelegate<CliTidyDependencyStatusSummaryInto>(
-                    programType,
-                    "CliTidyDependencyStatusSummaryInto"),
-                DogfoodKernelLoader.CreateDelegate<CliTidyDependencyStatusRanksInto>(
-                    programType,
-                    "CliTidyDependencyStatusRanksInto"),
-                DogfoodKernelLoader.CreateDelegate<CliTidyRemovalLineKeepFlagsInto>(
-                    programType,
-                    "CliTidyRemovalLineKeepFlagsInto"));
-        }
-        catch
-        {
-            return null;
-        }
-    }
+        => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
+            DogfoodKernelLoader.CreateDelegate<DiagnosticSeverityFilterIndicesInto>(
+                programType,
+                "DiagnosticSeverityFilterIndicesInto"),
+            DogfoodKernelLoader.CreateDelegate<CliTidyDependencyStatusSummaryInto>(
+                programType,
+                "CliTidyDependencyStatusSummaryInto"),
+            DogfoodKernelLoader.CreateDelegate<CliTidyDependencyStatusRanksInto>(
+                programType,
+                "CliTidyDependencyStatusRanksInto"),
+            DogfoodKernelLoader.CreateDelegate<CliTidyRemovalLineKeepFlagsInto>(
+                programType,
+                "CliTidyRemovalLineKeepFlagsInto")));
 
     private static int GetStatusRank(string status) =>
         status switch

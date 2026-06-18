@@ -90,22 +90,9 @@ internal static class QuerySymbolNameFilter
     }
 
     private static Bindings? LoadBindings()
-    {
-        try
-        {
-            var programType = DogfoodKernelLoader.TryGetProgramType();
-            if (programType == null)
-                return null;
-
-            return new Bindings(
-                DogfoodKernelLoader.CreateDelegate<CliSymbolNameGlobFilterIndicesInto>(programType, "CliSymbolNameGlobFilterIndicesInto"),
-                DogfoodKernelLoader.CreateDelegate<CliSymbolNameSubstringFilterIndicesInto>(programType, "CliSymbolNameSubstringFilterIndicesInto"));
-        }
-        catch
-        {
-            return null;
-        }
-    }
+        => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
+            DogfoodKernelLoader.CreateDelegate<CliSymbolNameGlobFilterIndicesInto>(programType, "CliSymbolNameGlobFilterIndicesInto"),
+            DogfoodKernelLoader.CreateDelegate<CliSymbolNameSubstringFilterIndicesInto>(programType, "CliSymbolNameSubstringFilterIndicesInto")));
 
     private static bool IsAscii(string value)
     {

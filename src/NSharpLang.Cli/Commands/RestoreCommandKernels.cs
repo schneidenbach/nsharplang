@@ -149,26 +149,13 @@ internal static class RestoreCommandKernels
     }
 
     private static Bindings? LoadBindings()
-    {
-        try
-        {
-            var programType = DogfoodKernelLoader.TryGetProgramType();
-            if (programType == null)
-                return null;
-
-            return new Bindings(
-                DogfoodKernelLoader.CreateDelegate<CliReferenceTypeFilterIndicesInto>(
-                    programType,
-                    "CliReferenceTypeFilterIndicesInto"),
-                DogfoodKernelLoader.CreateDelegate<CliStableDistinctRankIndicesInto>(
-                    programType,
-                    "CliStableDistinctRankIndicesInto"));
-        }
-        catch
-        {
-            return null;
-        }
-    }
+        => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
+            DogfoodKernelLoader.CreateDelegate<CliReferenceTypeFilterIndicesInto>(
+                programType,
+                "CliReferenceTypeFilterIndicesInto"),
+            DogfoodKernelLoader.CreateDelegate<CliStableDistinctRankIndicesInto>(
+                programType,
+                "CliStableDistinctRankIndicesInto")));
 
     private delegate int CliReferenceTypeFilterIndicesInto(
         int[] typeRanks,

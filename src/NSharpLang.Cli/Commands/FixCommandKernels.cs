@@ -223,29 +223,16 @@ internal static class FixCommandKernels
     }
 
     private static Bindings? LoadBindings()
-    {
-        try
-        {
-            var programType = DogfoodKernelLoader.TryGetProgramType();
-            if (programType == null)
-                return null;
-
-            return new Bindings(
-                DogfoodKernelLoader.CreateDelegate<CliFixSafetyFilterIndicesInto>(
-                    programType,
-                    "CliFixSafetyFilterIndicesInto"),
-                DogfoodKernelLoader.CreateDelegate<CliFixSkippedIndicesInto>(
-                    programType,
-                    "CliFixSkippedIndicesInto"),
-                DogfoodKernelLoader.CreateDelegate<CliFixAppliedFileGroupsInto>(
-                    programType,
-                    "CliFixAppliedFileGroupsInto"));
-        }
-        catch
-        {
-            return null;
-        }
-    }
+        => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
+            DogfoodKernelLoader.CreateDelegate<CliFixSafetyFilterIndicesInto>(
+                programType,
+                "CliFixSafetyFilterIndicesInto"),
+            DogfoodKernelLoader.CreateDelegate<CliFixSkippedIndicesInto>(
+                programType,
+                "CliFixSkippedIndicesInto"),
+            DogfoodKernelLoader.CreateDelegate<CliFixAppliedFileGroupsInto>(
+                programType,
+                "CliFixAppliedFileGroupsInto")));
 
     private static int GetFixSafetyRank(FixSafety safety) =>
         safety switch

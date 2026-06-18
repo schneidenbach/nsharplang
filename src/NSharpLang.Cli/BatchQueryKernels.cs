@@ -130,26 +130,13 @@ internal static class BatchQueryKernels
     }
 
     private static Bindings? LoadBindings()
-    {
-        try
-        {
-            var programType = DogfoodKernelLoader.TryGetProgramType();
-            if (programType == null)
-                return null;
-
-            return new Bindings(
-                DogfoodKernelLoader.CreateDelegate<CliBatchDuplicateIdRanksInto>(
-                    programType,
-                    "CliBatchDuplicateIdRanksInto"),
-                DogfoodKernelLoader.CreateDelegate<CliBatchResultPackedSuccessCount>(
-                    programType,
-                    "CliBatchResultPackedSuccessCount"));
-        }
-        catch
-        {
-            return null;
-        }
-    }
+        => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
+            DogfoodKernelLoader.CreateDelegate<CliBatchDuplicateIdRanksInto>(
+                programType,
+                "CliBatchDuplicateIdRanksInto"),
+            DogfoodKernelLoader.CreateDelegate<CliBatchResultPackedSuccessCount>(
+                programType,
+                "CliBatchResultPackedSuccessCount")));
 
     private delegate int CliBatchDuplicateIdRanksInto(
         int[] idRanks,

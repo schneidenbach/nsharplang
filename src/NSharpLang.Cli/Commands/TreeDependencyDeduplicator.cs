@@ -192,26 +192,13 @@ internal static class TreeDependencyDeduplicator
     }
 
     private static Bindings? LoadBindings()
-    {
-        try
-        {
-            var programType = DogfoodKernelLoader.TryGetProgramType();
-            if (programType == null)
-                return null;
-
-            return new Bindings(
-                DogfoodKernelLoader.CreateDelegate<CliTreeDependencyDeduplicateIndicesInto>(
-                    programType,
-                    "CliTreeDependencyDeduplicateIndicesInto"),
-                DogfoodKernelLoader.CreateDelegate<CliStableDistinctRankIndicesInto>(
-                    programType,
-                    "CliStableDistinctRankIndicesInto"));
-        }
-        catch
-        {
-            return null;
-        }
-    }
+        => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
+            DogfoodKernelLoader.CreateDelegate<CliTreeDependencyDeduplicateIndicesInto>(
+                programType,
+                "CliTreeDependencyDeduplicateIndicesInto"),
+            DogfoodKernelLoader.CreateDelegate<CliStableDistinctRankIndicesInto>(
+                programType,
+                "CliStableDistinctRankIndicesInto")));
 
     private delegate int CliTreeDependencyDeduplicateIndicesInto(
         int[] kindRanks,
