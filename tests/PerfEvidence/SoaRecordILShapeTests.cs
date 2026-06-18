@@ -99,6 +99,52 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void HardCastedDirectColumnElementAccess_UsesColumnArrayLoadStoreWithoutRowAllocation()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                kind: int
+                start: int
+            }
+
+            type Nodes = NodeTable
+
+            func update(nodes: Nodes, row: int): int {
+                ((NodeTable)nodes).kind[row] = 3
+                ((Nodes)((NodeTable)nodes)).kind[row] += 4
+                old := ((NodeTable)((Nodes)nodes)).kind[row]++
+                ((Nodes)((NodeTable)nodes)).start[row] = old + ((NodeTable)nodes).kind[row]
+                return old * 100 + ((Nodes)((NodeTable)nodes)).kind[row] * 10 + ((NodeTable)nodes).start[row]
+            }
+
+            func main(): int {
+                nodes := new Nodes(1)
+                row := nodes.add()
+                return update(nodes, row)
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var update = ILShapeInspector.GetProgramMethod(assembly, "update");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(795, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoAllocationOrDispatch(update);
+            Assert.True(
+                ILShapeInspector.CountOpcode(update, OpCodes.Ldfld) >= 6,
+                "Hard-casted direct SoA column element operations should load backing column fields directly.");
+            Assert.Equal(5, CountArrayElementLoads(update));
+            Assert.Equal(4, CountArrayElementStores(update));
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void DirectColumnElementAccessCheckedUncheckedWrappers_UseColumnArrayLoadStoreWithoutRowAllocation()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

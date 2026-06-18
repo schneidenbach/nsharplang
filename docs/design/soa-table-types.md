@@ -554,7 +554,8 @@ the verified scalar/reference
 element-type set, direct column null-coalescing reads/assignments, and from-end `System.Index` access
 including parenthesized literal and variable-held from-end direct-column element lvalues, direct
 column `ref`/`out` argument addresses through backing-column `ldelema` including from-end indexes,
-hard-cast table/alias receivers, parenthesized direct-column lvalues,
+hard-cast table/alias receiver element reads/stores/compound assignments/prefix-postfix updates,
+parenthesized direct-column lvalues,
 receiver-parenthesized direct-column `ref`/`out` arguments over row and literal/variable-held
 from-end indexes, and the verified scalar/reference/int-backed-enum
 element-type set, with mixed verified element types also pinned for literal and variable-held

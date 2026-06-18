@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Hard-cast SoA direct-column element IL shape stays direct
+
+Direct-column element reads, stores, compound assignments, and postfix updates now have IL-shape
+evidence when the table receiver is hard-cast through table and alias types. `((NodeTable)nodes).kind[row]`
+and nested alias casts load and store the generated backing arrays directly, without row allocation,
+boxing, delegate construction, heap array allocation, calls, or virtual dispatch. Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~HardCastedDirectColumnElementAccess_UsesColumnArrayLoadStoreWithoutRowAllocation"`.
+
 ## 2026-06-18 — Hard-cast SoA direct-column escapes cover resource/pattern contexts
 
 Hard-cast table/alias direct-column projections now have analyzer pins for the remaining
