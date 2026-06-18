@@ -6606,6 +6606,99 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaDirectColumnsCannotUseUnpinnedStaticArrayMethods()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var cases = new[]
+        {
+            (
+                Source: """
+                import System
+
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes): int {
+                    return Array.IndexOf(nodes.kind, 2)
+                }
+                """,
+                Method: "IndexOf"),
+            (
+                Source: """
+                import System
+
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes): int {
+                    return System.Array.BinarySearch((nodes).kind, 2)
+                }
+                """,
+                Method: "BinarySearch"),
+            (
+                Source: """
+                import System
+
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes, source: int[]) {
+                    Array.ConstrainedCopy(source, 0, nodes.kind, 0, 1)
+                }
+                """,
+                Method: "ConstrainedCopy"),
+            (
+                Source: """
+                import System
+
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes): bool {
+                    return Array.Exists(checked(nodes.kind), value => value == 2)
+                }
+                """,
+                Method: "Exists"),
+            (
+                Source: """
+                import System
+
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes): object {
+                    return Array.AsReadOnly(unchecked((nodes).kind))
+                }
+                """,
+                Method: "AsReadOnly")
+        };
+
+        foreach (var testCase in cases)
+        {
+            var result = Analyze(testCase.Source);
+            var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+            Assert.Contains($"SoA table member 'kind' cannot be passed to Array method '{testCase.Method}' directly", error.Message);
+            Assert.Contains("Array.Fill, Array.Copy, and Array.Clear", error.Suggestion);
+        }
+    }
+
+    [Fact]
     public void Analyzer_SoaDirectColumnsCannotBeResizedThroughArrayResize()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

@@ -117,6 +117,20 @@ public class Analyzer : IDisposable
         "CopyTo"
     };
 
+    private static readonly HashSet<string> SupportedSoaDirectColumnStaticArrayMethods = new(StringComparer.Ordinal)
+    {
+        "Fill",
+        "Copy",
+        "Clear"
+    };
+
+    private static readonly HashSet<string> DedicatedSoaDirectColumnStaticArrayDiagnostics = new(StringComparer.Ordinal)
+    {
+        "Resize",
+        "Sort",
+        "Reverse"
+    };
+
     private readonly List<CompilerError> _errors = new();
     private readonly Stack<Scope> _scopes = new();
     private readonly List<string> _usingNamespaces = new();
@@ -9569,6 +9583,8 @@ public class Analyzer : IDisposable
 
         if (ReportSoaDirectColumnMutatingArrayCallIfNeeded(call))
             return BuiltInTypes.Unknown;
+        if (ReportUnsupportedSoaDirectColumnStaticArrayCallIfNeeded(call))
+            return BuiltInTypes.Unknown;
         if (ReportUnsupportedSoaDirectColumnArrayInstanceCallIfNeeded(call, calleeType))
             return BuiltInTypes.Unknown;
 
@@ -13557,6 +13573,43 @@ public class Analyzer : IDisposable
         for (var i = 0; i < argumentCount; i++)
         {
             if (TryGetSoaColumnMemberAccess(call.Arguments[i].Value, out member))
+                return true;
+        }
+
+        member = null!;
+        return false;
+    }
+
+    private bool ReportUnsupportedSoaDirectColumnStaticArrayCallIfNeeded(CallExpression call)
+    {
+        if (call.Arguments.Count == 0
+            || call.Callee is not MemberAccessExpression memberAccess
+            || !IsStaticArrayTarget(memberAccess.Object)
+            || SupportedSoaDirectColumnStaticArrayMethods.Contains(memberAccess.MemberName)
+            || DedicatedSoaDirectColumnStaticArrayDiagnostics.Contains(memberAccess.MemberName)
+            || !TryGetSoaColumnArgument(call, out var columnMember))
+        {
+            return false;
+        }
+
+        var line = memberAccess.Line;
+        var column = GetMemberNameColumn(memberAccess);
+        var length = Math.Max(1, memberAccess.MemberName.Length);
+        Error(
+            ErrorCode.InvalidSyntax,
+            $"SoA table member '{columnMember.MemberName}' cannot be passed to Array method '{memberAccess.MemberName}' directly",
+            line,
+            column,
+            "Use table.column[row] for element access, or Array.Fill, Array.Copy, and Array.Clear for supported whole-column operations.",
+            length);
+        return true;
+    }
+
+    private bool TryGetSoaColumnArgument(CallExpression call, out MemberAccessExpression member)
+    {
+        foreach (var argument in call.Arguments)
+        {
+            if (TryGetSoaColumnMemberAccess(argument.Value, out member))
                 return true;
         }
 

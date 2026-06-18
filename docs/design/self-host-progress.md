@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA direct columns reject unpinned static Array methods
+
+Direct SoA columns now reject static `Array` calls outside the pinned whole-column kernels whenever a
+direct column is passed as an argument. `Array.IndexOf(table.column, ...)`,
+`System.Array.BinarySearch(table.column, ...)`, `Array.ConstrainedCopy(..., table.column, ...)`,
+`Array.Exists(table.column, ...)`, and `Array.AsReadOnly(table.column)` now report a SoA-specific
+diagnostic before overload binding or IL emission. The existing accepted surface remains
+`Array.Fill`/`Array.Copy`/`Array.Clear`, and the dedicated `Resize`/`Sort`/`Reverse` diagnostics keep
+their narrower row-identity messages.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~SoaRecordTests.Analyzer_SoaDirectColumnsCannotUseUnpinnedStaticArrayMethods"`;
+`./scripts/dev.sh SoaDirectColumn`.
+
 ## 2026-06-18 — SoA direct columns reject array instance methods outside pinned surfaces
 
 Direct SoA columns now reject array instance method calls and method-value escapes that would bypass the
