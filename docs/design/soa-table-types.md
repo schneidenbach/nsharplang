@@ -264,10 +264,12 @@ the same overloads, such as `array: table.column`, `sourceArray: table.column`, 
 `Array.Clear(length: n, array: table.column, index: i)` and explicit `System.Array` targets. Other
 static `Array` methods
 that receive a direct column, such as `Array.IndexOf(table.column, ...)`,
-`Array.BinarySearch(table.column, ...)`, `Array.ConstrainedCopy(..., table.column, ...)`,
-`Array.Exists(table.column, ...)`, or `Array.AsReadOnly(table.column)`, decline before IL emission
+`Array.BinarySearch(table.column, ...)`, `Array.ConstrainedCopy(table.column, ...)`,
+`Array.ConstrainedCopy(..., table.column, ...)`, `Array.Exists(table.column, ...)`, or
+`Array.AsReadOnly(table.column)`, decline before IL emission
 until they have explicit row-identity semantics and IL-shape evidence; named array-bearing arguments
-such as `array: table.column` and `destinationArray: table.column` decline the same way.
+such as `array: table.column`, `sourceArray: table.column`, and `destinationArray: table.column`
+decline the same way.
 Direct column metadata properties remain available: `table.column.Length` and
 `table.column.LongLength` lower through `ldlen`, while `table.column.Rank` lowers to the known SZ-array
 rank constant. Those metadata properties are read-only: `table.column.Length = n`,

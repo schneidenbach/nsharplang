@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA direct-column ConstrainedCopy sources reject before emission
+
+The static `Array` rejection matrix now pins `ConstrainedCopy` when the direct SoA column appears as
+the source array, not only as the destination. Positional `Array.ConstrainedCopy(table.column, ...)`
+and named explicit `System.Array.ConstrainedCopy(..., sourceArray: table.column)` both report the
+SoA direct-column Array diagnostic during analysis, keeping unsupported whole-column kernels out of
+IL lowering even as `Array.Copy` source-column shapes are accepted.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter
+"FullyQualifiedName~Analyzer_SoaDirectColumnsCannotUseUnpinnedStaticArrayMethods"`.
+
 ## 2026-06-18 — SoA direct-column positional Array.Copy sources keep backing-array IL shape
 
 Accepted direct-column `Array.Copy` calls now also have IL-shape evidence when the direct column is

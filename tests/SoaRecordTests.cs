@@ -6758,6 +6758,36 @@ public class SoaRecordTests : ILCompilerTestBase
 
                 type Nodes = NodeTable
 
+                func bad(nodes: Nodes, target: int[]) {
+                    Array.ConstrainedCopy(nodes.kind, 0, target, 0, 1)
+                }
+                """,
+                Method: "ConstrainedCopy"),
+            (
+                Source: """
+                import System
+
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes, target: int[]) {
+                    System.Array.ConstrainedCopy(length: 1, destinationIndex: 0, destinationArray: target, sourceIndex: 0, sourceArray: nodes.kind)
+                }
+                """,
+                Method: "ConstrainedCopy"),
+            (
+                Source: """
+                import System
+
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
                 func bad(nodes: Nodes): bool {
                     return Array.Exists(checked(nodes.kind), value => value == 2)
                 }
