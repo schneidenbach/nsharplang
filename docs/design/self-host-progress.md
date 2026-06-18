@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA checked direct-column ref/out arguments keep address IL shape
+
+Direct-column `ref`/`out` arguments now have IL-shape evidence when the column receiver is wrapped
+in `checked(...)` or `unchecked(...)`. The accepted form keeps `ldelema` over the generated backing
+column arrays for row and from-end indexes across scalar, bool, and string columns, with no row
+materialization, array slicing, element stores in the caller, boxing, delegate construction, or
+virtual dispatch.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter
+"FullyQualifiedName~DirectColumnRefAndOutArgumentsCheckedUncheckedWrappers_UseColumnArrayElementAddress"`.
+
 ## 2026-06-18 — SoA checked direct-column reference and bool expressions keep IL shape
 
 Direct-column string/reference and bool read expressions now have IL-shape evidence when the column
