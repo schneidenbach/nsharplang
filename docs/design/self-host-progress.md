@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA checked direct-column numeric updates keep IL shape
+
+Direct-column numeric compound assignments and prefix/postfix update operands now have IL-shape
+evidence when the column receiver is wrapped in `checked(...)` or `unchecked(...)`, including row
+indexes plus literal and variable-held from-end indexes. `(unchecked(table.column))[row] += value`,
+`((checked(table.column))[^1])--`, and `++((checked(table.column))[idx])` still read and write the
+generated backing arrays directly while preserving the ordinary expression result semantics, with no
+row materialization, array slicing, boxing, delegate construction, or virtual dispatch.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter
+"FullyQualifiedName~DirectColumnNumericUpdatesCheckedUncheckedWrappers_UseColumnArrayLoadStoreWithoutRowAllocation"`.
+
 ## 2026-06-18 — SoA checked direct-column assignment expressions avoid old reads
 
 Direct-column simple assignment expressions now have IL-shape evidence when the column receiver is
