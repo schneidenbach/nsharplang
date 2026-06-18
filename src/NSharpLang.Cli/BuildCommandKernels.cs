@@ -7,6 +7,9 @@ internal static class BuildCommandKernels
     [ThreadStatic]
     private static OperandScratch? t_operandScratch;
 
+    [ThreadStatic]
+    private static int[]? t_optionResultIndices;
+
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
 
     internal static bool TryGetOperandSummary(string[] args, out int count, out int firstOperandIndex)
@@ -51,11 +54,55 @@ internal static class BuildCommandKernels
         }
     }
 
+    internal static bool TryGetOptionSummary(string[] args, out BuildOptionSummary summary)
+    {
+        summary = default;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        var resultIndices = t_optionResultIndices ??= new int[9];
+        try
+        {
+            var code = bindings.BuildOptionSummary(args, resultIndices);
+            if (code != 0)
+                return false;
+
+            if (!TryGetOptionalArg(args, resultIndices[0], out var output)
+                || !TryGetOptionalArg(args, resultIndices[1], out var backend)
+                || !TryGetOptionalArg(args, resultIndices[2], out var project))
+            {
+                summary = default;
+                return false;
+            }
+
+            summary = new BuildOptionSummary(
+                output,
+                backend,
+                project,
+                resultIndices[3] != 0,
+                resultIndices[4] != 0,
+                resultIndices[5] != 0,
+                resultIndices[6] != 0,
+                resultIndices[7] != 0);
+            return true;
+        }
+        catch
+        {
+            summary = default;
+            return false;
+        }
+    }
+
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
             DogfoodKernelLoader.CreateDelegate<CliBuildFirstOperandIndexInto>(
                 programType,
-                "CliBuildFirstOperandIndexInto")));
+                "CliBuildFirstOperandIndexInto"),
+            DogfoodKernelLoader.CreateDelegate<CliBuildOptionSummaryInto>(
+                programType,
+                "CliBuildOptionSummaryInto")));
 
     private delegate int CliBuildFirstOperandIndexInto(
         string[] args,
@@ -65,7 +112,24 @@ internal static class BuildCommandKernels
         int[] nextOptionIndices,
         int[] resultIndices);
 
-    private sealed record Bindings(CliBuildFirstOperandIndexInto BuildFirstOperandIndex);
+    private delegate int CliBuildOptionSummaryInto(string[] args, int[] resultIndices);
+
+    private sealed record Bindings(
+        CliBuildFirstOperandIndexInto BuildFirstOperandIndex,
+        CliBuildOptionSummaryInto BuildOptionSummary);
+
+    private static bool TryGetOptionalArg(string[] args, int index, out string? value)
+    {
+        value = null;
+        if (index == -1)
+            return true;
+
+        if (index < 0 || index >= args.Length)
+            return false;
+
+        value = args[index];
+        return true;
+    }
 
     private sealed class OperandScratch
     {

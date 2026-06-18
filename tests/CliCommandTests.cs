@@ -1100,6 +1100,38 @@ func Main() {
     }
 
     [Fact]
+    public void BuildCommandKernels_SummarizesOptions()
+    {
+        var args = new[]
+        {
+            "--release",
+            "-o",
+            "short-out",
+            "--output",
+            "dist",
+            "--backend",
+            "il",
+            "--project",
+            "samples/demo",
+            "--verbose",
+            "--timings",
+            "--perf-report",
+            "--aot",
+            "Program.nl"
+        };
+
+        Assert.True(BuildCommandKernels.TryGetOptionSummary(args, out var summary));
+        Assert.Equal("dist", summary.OutputDir);
+        Assert.Equal("il", summary.BackendOption);
+        Assert.Equal("samples/demo", summary.ProjectOption);
+        Assert.True(summary.Release);
+        Assert.True(summary.Verbose);
+        Assert.True(summary.Timings);
+        Assert.True(summary.PerfReport);
+        Assert.True(summary.Aot);
+    }
+
+    [Fact]
     public void RunCommandKernels_SelectsSourceOperandAfterBackendStripping()
     {
         Assert.True(RunCommandKernels.TryGetSourceOperand(

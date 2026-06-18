@@ -11,6 +11,19 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Build option parsing routes through product N#
+
+`Program.BuildCommand` now gets `--output`/`-o`, `--backend`, `--project`, `--release`,
+`--verbose`, `--timings`, `--perf-report`, and `--aot` from `BuildCommandKernels` instead of
+scanning those options directly in C# on the product path. `CliBuildOptionSummaryInto/Core/Kind`
+moved from the parity corpus into the shipped `CliArguments.nl` beside the existing build operand
+kernels; the parity corpus keeps only `CliBuildOptionSummaryChecksumInto`. The old C# option scan
+remains as fallback/oracle logic. This is a Stage 6 `C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`./scripts/dev.sh BuildCommandKernels`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilationBackendTests.BuildCommand_SingleFileSourceAfterOptions_BuildsWithIlBackend|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_ParityOnlyFiles_AreAbsentFromProductCoverage|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-18 — Format discovery path filtering moves into product N#
 
 `nlc format` project discovery now routes each normalized relative path through

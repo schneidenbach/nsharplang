@@ -20,6 +20,16 @@ internal readonly record struct PublishArgumentSummary(
     bool SelfContained,
     bool Aot);
 
+internal readonly record struct BuildOptionSummary(
+    string? OutputDir,
+    string? BackendOption,
+    string? ProjectOption,
+    bool Release,
+    bool Verbose,
+    bool Timings,
+    bool PerfReport,
+    bool Aot);
+
 partial class Program
 {
     private static readonly string[] NewProjectOptionsWithValues = ["--template", "--type"];
@@ -130,15 +140,7 @@ Exit codes:
         // mistaken for source-file operands by the build operand parsers.
         var cliDefines = ExtractDefineFlags(ref args);
 
-        // Check for flags
-        var release = args.Contains("--release");
-        var verbose = args.Contains("--verbose");
-        var timings = args.Contains("--timings");
-        var perfReport = args.Contains("--perf-report");
-        var aot = args.Contains("--aot");
-        var outputDir = GetOptionValue(args, "--output") ?? GetOptionValue(args, "-o");
-        var backendOption = GetOptionValue(args, "--backend");
-        var projectOption = GetOptionValue(args, "--project");
+        var buildOptions = GetBuildOptionSummary(args);
         var buildOperands = GetBuildOperandSummary(args);
 
         try
@@ -146,20 +148,27 @@ Exit codes:
             // Support both single-file and multi-file builds
             if (buildOperands.Count == 0)
             {
-                var projectRoot = projectOption != null
-                    ? Path.GetFullPath(projectOption)
+                var projectRoot = buildOptions.ProjectOption != null
+                    ? Path.GetFullPath(buildOptions.ProjectOption)
                     : Directory.GetCurrentDirectory();
                 var currentProjectConfig = ProjectFileParser.ParseFromDirectory(projectRoot);
-                var backend = ResolveCompilationBackend(backendOption, currentProjectConfig);
+                var backend = ResolveCompilationBackend(buildOptions.BackendOption, currentProjectConfig);
                 if (backend != CompilationBackend.Il)
                 {
                     throw new InvalidOperationException(CompilationBackendExtensions.RetiredTranspileBackendMessage);
                 }
 
                 var buildResult = RunBuildEmittingPerfReport(
-                    perfReport,
+                    buildOptions.PerfReport,
                     projectRoot,
-                    () => BuildWithIlBackend(projectRoot, release, outputDir, timings, verbose, aot, cliDefines));
+                    () => BuildWithIlBackend(
+                        projectRoot,
+                        buildOptions.Release,
+                        buildOptions.OutputDir,
+                        buildOptions.Timings,
+                        buildOptions.Verbose,
+                        buildOptions.Aot,
+                        cliDefines));
                 return buildResult;
             }
 
@@ -171,11 +180,17 @@ Exit codes:
 
             var sourceDir = Path.GetDirectoryName(Path.GetFullPath(sourceFile)) ?? Directory.GetCurrentDirectory();
             var sourceProjectConfig = ProjectFileParser.ParseFromDirectory(sourceDir);
-            _ = ResolveCompilationBackend(backendOption, sourceProjectConfig);
+            _ = ResolveCompilationBackend(buildOptions.BackendOption, sourceProjectConfig);
             var singleFileResult = RunBuildEmittingPerfReport(
-                perfReport,
+                buildOptions.PerfReport,
                 sourceDir,
-                () => BuildSingleFileWithIlBackend(sourceFile, sourceProjectConfig, release, outputDir, aot, cliDefines));
+                () => BuildSingleFileWithIlBackend(
+                    sourceFile,
+                    sourceProjectConfig,
+                    buildOptions.Release,
+                    buildOptions.OutputDir,
+                    buildOptions.Aot,
+                    cliDefines));
             return singleFileResult;
         }
         catch (Exception ex)
@@ -1607,6 +1622,26 @@ Exit codes:
     }
 
     private readonly record struct BuildOperandSummary(int Count, string? FirstOperand);
+
+    static BuildOptionSummary GetBuildOptionSummary(string[] args)
+    {
+        if (BuildCommandKernels.TryGetOptionSummary(args, out var summary))
+            return summary;
+
+        return GetBuildOptionSummaryWithCSharp(args);
+    }
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product build option parsing routes through BuildCommandKernels.
+    static BuildOptionSummary GetBuildOptionSummaryWithCSharp(string[] args)
+        => new(
+            GetOptionValue(args, "--output") ?? GetOptionValue(args, "-o"),
+            GetOptionValue(args, "--backend"),
+            GetOptionValue(args, "--project"),
+            args.Contains("--release"),
+            args.Contains("--verbose"),
+            args.Contains("--timings"),
+            args.Contains("--perf-report"),
+            args.Contains("--aot"));
 
     static BuildOperandSummary GetBuildOperandSummary(string[] args)
     {

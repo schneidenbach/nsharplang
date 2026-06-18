@@ -7004,6 +7004,7 @@ func outer(x: int): int {
         Assert.Contains("CliExportCSharpFirstOperandChecksumInto", methodNames!); // char/int promotion
         Assert.Contains("CliReferenceResolutionBestScoreIndex", methodNames!); // product resolver best-score selection.
         Assert.Contains("CliShouldFormatDiscoveredPath", methodNames!); // product format discovery filtering.
+        Assert.Contains("CliBuildOptionSummaryInto", methodNames!); // product build option parsing.
 
         AssertColumnarProgramMatchesCSharp(source,
             ("CliSymbolNameContainsAsciiIgnoreCase", new object[] { "FooBarBaz", "barbaz" }),
@@ -7014,7 +7015,8 @@ func outer(x: int): int {
             ("CliReferenceResolutionBestScoreIndex", new object[] { new[] { -1, 40, 900, 120, 900, 30 }, 6 }),
             ("CliReferenceResolutionBestScoreChecksum", new object[] { new[] { -1, 40, 900, 120, 900, 30 }, new[] { 0, 11, 19, 23, 31, 37 }, 6 }),
             ("CliShouldFormatDiscoveredPath", new object[] { "tests/fixtures/generated/Bad.nl" }),
-            ("CliShouldFormatDiscoveredPath", new object[] { "src/Program.nl" }));
+            ("CliShouldFormatDiscoveredPath", new object[] { "src/Program.nl" }),
+            ("CliBuildOptionSummaryChecksumInto", new object[] { new[] { "--release", "-o", "short", "--output", "dist", "--backend", "il", "--project", "demo", "--verbose", "--timings", "--perf-report", "--aot" }, new int[9] }));
     }
 
     // StringBuilder — the first mutable reference type: new StringBuilder([capacity]); .Append(char/string/int)
@@ -12298,9 +12300,6 @@ func outer(x: int): int {
             "CliBuildOperandIndicesCore",
             "CliBuildOperandIndicesInto",
             "CliBuildOperandSummaryInto",
-            "CliBuildOptionSummaryInto",
-            "CliBuildOptionSummaryCore",
-            "CliBuildOptionSummaryKind",
             "CliBuildOptionSummaryChecksumInto",
             "CliCleanArtifactDirectoryChecksumInto",
             "CliExportCSharpFirstOperandChecksumInto",
