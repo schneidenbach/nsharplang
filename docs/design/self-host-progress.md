@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA direct columns cannot escape through control or operand contexts
+
+Direct backing columns now reject remaining non-storage value contexts before lowering. Conditions,
+foreach/await-foreach collections, using/lock resources, switch and match subjects, operator/unary
+operands, `must`, casts, `is`, `await`, statement/expression `throw`, range bounds, and spread
+expressions all report the SoA direct-column diagnostic instead of flowing as ordinary arrays.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter
+"FullyQualifiedName~Analyzer_SoaDirectColumnsCannotEscapeThroughControlOrOperandContexts"`.
+
 ## 2026-06-18 — SoA direct columns cannot escape through display or discard contexts
 
 Direct backing columns now reject non-call display and discard contexts before lowering. `print

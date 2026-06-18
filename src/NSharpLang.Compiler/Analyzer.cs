@@ -3822,7 +3822,8 @@ public class Analyzer : IDisposable
                 var condType = AnalyzeExpression(whileStmt.Condition);
                 var (whileThenNarrowings, _) = ExtractFlowNarrowings(whileStmt.Condition);
                 var isSoaRowCondition = ReportSoaRowEscapeIfNeeded(whileStmt.Condition, condType, "used as a 'while' condition");
-                if (!isSoaRowCondition && !IsBoolType(condType))
+                var isSoaDirectColumnCondition = ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(whileStmt.Condition, "used as a 'while' condition");
+                if (!isSoaRowCondition && !isSoaDirectColumnCondition && !IsBoolType(condType))
                 {
                     ReportBooleanConditionTypeMismatch(whileStmt.Condition, "a 'while' loop", condType);
                 }
@@ -3919,7 +3920,8 @@ public class Analyzer : IDisposable
                 break;
             case ThrowStatement throwStmt:
                 var thrownType = AnalyzeExpression(throwStmt.Expression);
-                if (!ReportSoaRowEscapeIfNeeded(throwStmt.Expression, thrownType, "thrown"))
+                if (!ReportSoaRowEscapeIfNeeded(throwStmt.Expression, thrownType, "thrown")
+                    && !ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(throwStmt.Expression, "thrown"))
                 {
                     ReportNonThrowableThrowOperandIfNeeded(throwStmt.Expression, thrownType);
                 }
@@ -5059,8 +5061,9 @@ public class Analyzer : IDisposable
         // Extract flow-sensitive type narrowings from the condition (null checks, is-patterns, && chains)
         var (thenNarrowings, elseNarrowings) = ExtractFlowNarrowings(ifStmt.Condition);
         var isSoaRowCondition = ReportSoaRowEscapeIfNeeded(ifStmt.Condition, condType, "used as an 'if' condition");
+        var isSoaDirectColumnCondition = ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(ifStmt.Condition, "used as an 'if' condition");
 
-        if (!isSoaRowCondition && !IsBoolType(condType) && !BuiltInTypes.IsUnknown(condType) && !ContainsParserErrorPlaceholder(ifStmt.Condition))
+        if (!isSoaRowCondition && !isSoaDirectColumnCondition && !IsBoolType(condType) && !BuiltInTypes.IsUnknown(condType) && !ContainsParserErrorPlaceholder(ifStmt.Condition))
         {
             // Use ErrorMessageBuilder for better error message
             var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetExpressionDiagnosticSpan(ifStmt.Condition);
@@ -5332,7 +5335,8 @@ public class Analyzer : IDisposable
         {
             var condType = AnalyzeExpression(forStmt.Condition);
             var isSoaRowCondition = ReportSoaRowEscapeIfNeeded(forStmt.Condition, condType, "used as a 'for' condition");
-            if (!isSoaRowCondition && !IsBoolType(condType))
+            var isSoaDirectColumnCondition = ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(forStmt.Condition, "used as a 'for' condition");
+            if (!isSoaRowCondition && !isSoaDirectColumnCondition && !IsBoolType(condType))
             {
                 ReportBooleanConditionTypeMismatch(forStmt.Condition, "a 'for' loop", condType);
             }
@@ -5385,6 +5389,10 @@ public class Analyzer : IDisposable
         {
             collectionType = BuiltInTypes.Unknown;
         }
+        else if (ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(foreachStmt.Collection, "used as a foreach collection"))
+        {
+            collectionType = BuiltInTypes.Unknown;
+        }
 
         TypeInfo elementType = BuiltInTypes.Unknown;
         if (!TryGetLoopSequenceElementType(collectionType, requireAsync: false, out elementType)
@@ -5423,6 +5431,10 @@ public class Analyzer : IDisposable
     {
         var collectionType = AnalyzeExpression(awaitForeachStmt.Collection);
         if (ReportSoaRowEscapeIfNeeded(awaitForeachStmt.Collection, collectionType, "used as an async foreach collection"))
+        {
+            collectionType = BuiltInTypes.Unknown;
+        }
+        else if (ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(awaitForeachStmt.Collection, "used as an async foreach collection"))
         {
             collectionType = BuiltInTypes.Unknown;
         }
@@ -6129,7 +6141,8 @@ public class Analyzer : IDisposable
         else if (usingStmt.Expression != null)
         {
             var resourceType = AnalyzeExpression(usingStmt.Expression);
-            if (!ReportSoaRowEscapeIfNeeded(usingStmt.Expression, resourceType, "used as a using resource"))
+            if (!ReportSoaRowEscapeIfNeeded(usingStmt.Expression, resourceType, "used as a using resource")
+                && !ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(usingStmt.Expression, "used as a using resource"))
             {
                 ReportNonDisposableUsingResourceIfNeeded(usingStmt.Expression, resourceType);
             }
@@ -6281,7 +6294,9 @@ public class Analyzer : IDisposable
         {
             ReportSoaRowEscape(lockStmt.LockObject, "locked");
         }
-        else if (lockeeType is SimpleTypeInfo named && TryGetEnclosingTypeParameter(named.Name, out var isReferenceConstrained))
+        else if (!ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(lockStmt.LockObject, "locked")
+                 && lockeeType is SimpleTypeInfo named
+                 && TryGetEnclosingTypeParameter(named.Name, out var isReferenceConstrained))
         {
             // Stricter than C# by design: Roslyn boxes an unconstrained T (a lock that can never
             // provide mutual exclusion); N# requires the type parameter to be provably a reference.
@@ -6418,7 +6433,11 @@ public class Analyzer : IDisposable
     private void AnalyzeSwitchStatement(SwitchStatement switchStmt)
     {
         var valueType = AnalyzeExpression(switchStmt.Value);
-        ReportSoaRowEscapeIfNeeded(switchStmt.Value, valueType, "used as a switch value");
+        if (ReportSoaRowEscapeIfNeeded(switchStmt.Value, valueType, "used as a switch value")
+            || ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(switchStmt.Value, "used as a switch value"))
+        {
+            valueType = BuiltInTypes.Unknown;
+        }
 
         // A `break` in a case body targets the switch itself (the emitter pushes a break label per
         // switch), so for NL319 the break target's finally depth is the switch's entry depth.
@@ -7333,7 +7352,8 @@ public class Analyzer : IDisposable
         if (range.Start != null)
         {
             var startType = AnalyzeExpression(range.Start);
-            if (!ReportSoaRowEscapeIfNeeded(range.Start, startType, "used as a range bound"))
+            if (!ReportSoaRowEscapeIfNeeded(range.Start, startType, "used as a range bound")
+                && !ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(range.Start, "used as a range bound"))
             {
                 CheckRangeEndpoint(range.Start, startType);
             }
@@ -7343,7 +7363,8 @@ public class Analyzer : IDisposable
         if (range.End != null)
         {
             var endType = AnalyzeExpression(range.End);
-            if (!ReportSoaRowEscapeIfNeeded(range.End, endType, "used as a range bound"))
+            if (!ReportSoaRowEscapeIfNeeded(range.End, endType, "used as a range bound")
+                && !ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(range.End, "used as a range bound"))
             {
                 CheckRangeEndpoint(range.End, endType);
             }
@@ -7375,6 +7396,10 @@ public class Analyzer : IDisposable
         // Analyze the inner expression
         var innerType = AnalyzeExpression(spread.Expression);
         if (ReportSoaRowEscapeIfNeeded(spread.Expression, innerType, "spread"))
+        {
+            return BuiltInTypes.Unknown;
+        }
+        if (ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(spread.Expression, "spread"))
         {
             return BuiltInTypes.Unknown;
         }
@@ -7492,7 +7517,9 @@ public class Analyzer : IDisposable
                 rightType = AnalyzeExpression(binary.Right);
             }
             if (ReportSoaRowEscapeIfNeeded(binary.Left, leftType, "used as an operator operand")
-                | ReportSoaRowEscapeIfNeeded(binary.Right, rightType, "used as an operator operand"))
+                | ReportSoaRowEscapeIfNeeded(binary.Right, rightType, "used as an operator operand")
+                | ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(binary.Left, "used as an operator operand")
+                | ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(binary.Right, "used as an operator operand"))
             {
                 return BuiltInTypes.Unknown;
             }
@@ -7519,7 +7546,9 @@ public class Analyzer : IDisposable
                 rightType = AnalyzeExpression(binary.Right);
             }
             if (ReportSoaRowEscapeIfNeeded(binary.Left, leftType, "used as an operator operand")
-                | ReportSoaRowEscapeIfNeeded(binary.Right, rightType, "used as an operator operand"))
+                | ReportSoaRowEscapeIfNeeded(binary.Right, rightType, "used as an operator operand")
+                | ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(binary.Left, "used as an operator operand")
+                | ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(binary.Right, "used as an operator operand"))
             {
                 return BuiltInTypes.Unknown;
             }
@@ -7531,7 +7560,9 @@ public class Analyzer : IDisposable
             var coalesceLeftType = AnalyzeExpressionPreservingNullabilityFlowType(binary.Left);
             var coalesceRightType = AnalyzeExpression(binary.Right);
             if (ReportSoaRowEscapeIfNeeded(binary.Left, coalesceLeftType, "used as an operator operand")
-                | ReportSoaRowEscapeIfNeeded(binary.Right, coalesceRightType, "used as an operator operand"))
+                | ReportSoaRowEscapeIfNeeded(binary.Right, coalesceRightType, "used as an operator operand")
+                | ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(binary.Left, "used as an operator operand")
+                | ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(binary.Right, "used as an operator operand"))
             {
                 return BuiltInTypes.Unknown;
             }
@@ -7542,7 +7573,9 @@ public class Analyzer : IDisposable
         var leftT = AnalyzeExpression(binary.Left);
         var rightT = AnalyzeExpression(binary.Right);
         if (ReportSoaRowEscapeIfNeeded(binary.Left, leftT, "used as an operator operand")
-            | ReportSoaRowEscapeIfNeeded(binary.Right, rightT, "used as an operator operand"))
+            | ReportSoaRowEscapeIfNeeded(binary.Right, rightT, "used as an operator operand")
+            | ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(binary.Left, "used as an operator operand")
+            | ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(binary.Right, "used as an operator operand"))
         {
             return BuiltInTypes.Unknown;
         }
@@ -8290,6 +8323,10 @@ public class Analyzer : IDisposable
         {
             return BuiltInTypes.Unknown;
         }
+        if (ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(unary.Operand, "used as a unary operand"))
+        {
+            return BuiltInTypes.Unknown;
+        }
 
         if (isIncrementOrDecrement
             && ReportSoaTableMemberMutationIfNeeded(unary.Operand, targetExpressionTypes, "incremented or decremented directly"))
@@ -8484,6 +8521,10 @@ public class Analyzer : IDisposable
     {
         var operandType = AnalyzeExpression(must.Expression);
         if (ReportSoaRowEscapeIfNeeded(must.Expression, operandType, "unwrapped with 'must'"))
+        {
+            return BuiltInTypes.Unknown;
+        }
+        if (ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(must.Expression, "unwrapped with 'must'"))
         {
             return BuiltInTypes.Unknown;
         }
@@ -18248,6 +18289,10 @@ public class Analyzer : IDisposable
         {
             return BuiltInTypes.Bool;
         }
+        if (ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(isExpr.Expression, "tested with 'is'"))
+        {
+            return BuiltInTypes.Bool;
+        }
 
         if (!IsPatternPossible(sourceType, targetType))
         {
@@ -18271,6 +18316,10 @@ public class Analyzer : IDisposable
         {
             return BuiltInTypes.Unknown;
         }
+        if (ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(cast.Expression, "cast"))
+        {
+            return BuiltInTypes.Unknown;
+        }
 
         return targetType;
     }
@@ -18284,6 +18333,10 @@ public class Analyzer : IDisposable
     {
         var exprType = AnalyzeExpression(await.Expression);
         if (ReportSoaRowEscapeIfNeeded(await.Expression, exprType, "awaited"))
+        {
+            return BuiltInTypes.Unknown;
+        }
+        if (ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(await.Expression, "awaited"))
         {
             return BuiltInTypes.Unknown;
         }
@@ -18394,6 +18447,7 @@ public class Analyzer : IDisposable
     {
         var thrownType = AnalyzeExpression(throwExpr.Expression);
         ReportSoaRowEscapeIfNeeded(throwExpr.Expression, thrownType, "thrown");
+        ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(throwExpr.Expression, "thrown");
         return BuiltInTypes.Never;
     }
 
@@ -18519,6 +18573,10 @@ public class Analyzer : IDisposable
         // Analyze the value being matched
         var valueType = AnalyzeExpressionWithoutExpectedType(match.Value);
         if (ReportSoaRowEscapeIfNeeded(match.Value, valueType, "used as a match value"))
+        {
+            valueType = BuiltInTypes.Unknown;
+        }
+        else if (ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(match.Value, "used as a match value"))
         {
             valueType = BuiltInTypes.Unknown;
         }

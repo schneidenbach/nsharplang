@@ -295,8 +295,10 @@ receivers, or constructors: `take(table.column)`, `checked(table.column).ext()`,
 the pinned `Array.Fill`/`Array.Copy`/`Array.Clear` kernels. They also cannot be stored or returned as
 ordinary array values through locals, assignments, function/property/lambda results, array or tuple
 literals, ternary/match result arms, object/collection initializers, display contexts such as
-`print`/assertion messages/interpolation, or discarded expression statements; otherwise a later use
-of the alias could bypass the SoA row-identity checks and mutate one backing column independently.
+`print`/assertion messages/interpolation, discarded expression statements, control-flow values,
+foreach collections, using/lock resources, switch/match subjects, operator operands, casts/type
+tests, await/throw operands, range bounds, or spread expressions; otherwise a later use of the alias
+could bypass the SoA row-identity checks and mutate one backing column independently.
 Direct column metadata properties remain available: `table.column.Length` and
 `table.column.LongLength` lower through `ldlen`, while `table.column.Rank` lowers to the known SZ-array
 rank constant. Checked/unchecked wrappers around the direct column keep that same metadata lowering.
@@ -439,6 +441,10 @@ The compiler must produce direct diagnostics for common misuse:
 - unsupported direct-column array escapes through display/discard contexts, including print,
   assertion conditions/messages, interpolation holes, explicit discards, and bare expression
   statements: "SoA table member 'X' cannot be printed directly";
+- unsupported direct-column array escapes through control/operand contexts, including if/while/for
+  conditions, foreach/await-foreach collections, using/lock resources, switch/match subjects,
+  operator/unary operands, `must`, casts, `is`, `await`, `throw`, range bounds, and spread
+  expressions: "SoA table member 'X' cannot be used as an operator operand directly";
 - unsupported direct-column array instance calls, including parenthesized, checked, and unchecked
   column receivers: "SoA table member 'X' cannot call array method 'Y' directly";
 - read-only direct-column metadata property writes, including simple assignment, compound assignment,
