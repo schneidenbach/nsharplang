@@ -1337,6 +1337,23 @@ func Main() {
     }
 
     [Fact]
+    public void CompilationReferenceResolverKernels_SelectsFirstHighestCompatibleScore()
+    {
+        var scores = new[] { -1, 40, 900, 120, 900, 30 };
+
+        Assert.True(CompilationReferenceResolverKernels.TrySelectBestScoreIndex(scores, scores.Length, out var bestIndex));
+        Assert.Equal(2, bestIndex);
+
+        Assert.True(CompilationReferenceResolverKernels.TrySelectBestScoreIndex(new[] { -1, -1 }, 2, out var noMatchIndex));
+        Assert.Equal(-1, noMatchIndex);
+
+        Assert.True(CompilationReferenceResolverKernels.TrySelectBestScoreIndex(scores, 0, out var emptyIndex));
+        Assert.Equal(-1, emptyIndex);
+
+        Assert.False(CompilationReferenceResolverKernels.TrySelectBestScoreIndex(scores, scores.Length + 1, out _));
+    }
+
+    [Fact]
     public void RestoreCommand_DeduplicatesProjectReferencesInGeneratedProps()
     {
         static int CountOccurrences(string text, string value)

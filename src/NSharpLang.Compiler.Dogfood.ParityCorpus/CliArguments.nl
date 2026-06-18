@@ -1548,41 +1548,6 @@ func CliStableDistinctRankChecksumInto(
     return checksum
 }
 
-struct CliReferenceResolutionScoreTable {
-    Scores: int[]
-}
-
-func CliReferenceResolutionBestScoreIndex(scores: int[], count: int): int {
-    scoreTable := new CliReferenceResolutionScoreTable { Scores: scores }
-    return CliReferenceResolutionBestScoreIndexCore(ref scoreTable, count)
-}
-
-func CliReferenceResolutionBestScoreIndexCore(scoresTable: &CliReferenceResolutionScoreTable, count: int): int {
-    scores := scoresTable.Scores
-    if count <= 0 {
-        return -1
-    }
-
-    if count > scores.Length {
-        return -2
-    }
-
-    bestIndex := -1
-    bestScore := -1
-    i := 0
-    while i < count {
-        score := scores[i]
-        if score >= 0 && score > bestScore {
-            bestScore = score
-            bestIndex = i
-        }
-
-        i = i + 1
-    }
-
-    return bestIndex
-}
-
 func CliReferenceResolutionBestScoreChecksum(scores: int[], weights: int[], count: int): int {
     bestIndex := CliReferenceResolutionBestScoreIndex(scores, count)
     if bestIndex < 0 {

@@ -7002,13 +7002,16 @@ func outer(x: int): int {
         Assert.True(ok, "Columnar backend declined the real CliArguments.nl (expected full support).");
         Assert.Contains("CliSymbolNameContainsAsciiIgnoreCase", methodNames!); // IndexOf(string, StringComparison)
         Assert.Contains("CliExportCSharpFirstOperandChecksumInto", methodNames!); // char/int promotion
+        Assert.Contains("CliReferenceResolutionBestScoreIndex", methodNames!); // product resolver best-score selection.
 
         AssertColumnarProgramMatchesCSharp(source,
             ("CliSymbolNameContainsAsciiIgnoreCase", new object[] { "FooBarBaz", "barbaz" }),
             ("CliSymbolNameContainsAsciiIgnoreCase", new object[] { "FooBarBaz", "xyz" }),
             ("CliSymbolNameContainsAsciiIgnoreCase", new object[] { "abc", "ABC" }),
             ("CliExportCSharpFirstOperandChecksumInto", new object[] { new[] { "a", "bb" }, new int[2], new int[2], new int[2], new int[2], new int[2] }),
-            ("CliExportCSharpFirstOperandChecksumInto", new object[] { new string[0], new int[0], new int[0], new int[0], new int[0], new int[0] }));
+            ("CliExportCSharpFirstOperandChecksumInto", new object[] { new string[0], new int[0], new int[0], new int[0], new int[0], new int[0] }),
+            ("CliReferenceResolutionBestScoreIndex", new object[] { new[] { -1, 40, 900, 120, 900, 30 }, 6 }),
+            ("CliReferenceResolutionBestScoreChecksum", new object[] { new[] { -1, 40, 900, 120, 900, 30 }, new[] { 0, 11, 19, 23, 31, 37 }, 6 }));
     }
 
     // StringBuilder — the first mutable reference type: new StringBuilder([capacity]); .Append(char/string/int)
@@ -12314,8 +12317,6 @@ func outer(x: int): int {
             "CliPositionalArgIndicesCore",
             "CliPositionalArgIndicesInto",
             "CliReferenceResolutionBestScoreChecksum",
-            "CliReferenceResolutionBestScoreIndex",
-            "CliReferenceResolutionBestScoreIndexCore",
             "CliReferenceTypeFilterChecksumInto",
             "CliShouldFormatDiscoveredPath",
             "CliStableDistinctRankChecksumInto",

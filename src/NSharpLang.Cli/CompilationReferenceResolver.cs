@@ -657,10 +657,14 @@ internal static class CompilationReferenceResolver
         }
         else
         {
-            var bestGroup = dependencyGroups
-                .OrderByDescending(group => GetFrameworkCompatibilityScore(group.TargetFramework, targetFramework))
-                .FirstOrDefault(group => GetFrameworkCompatibilityScore(group.TargetFramework, targetFramework) >= 0);
-            dependencies = bestGroup?.Dependencies ?? Array.Empty<XElement>();
+            var scores = new int[dependencyGroups.Length];
+            for (var i = 0; i < dependencyGroups.Length; i++)
+                scores[i] = GetFrameworkCompatibilityScore(dependencyGroups[i].TargetFramework, targetFramework);
+
+            var bestGroupIndex = SelectBestFrameworkScoreIndex(scores);
+            dependencies = bestGroupIndex >= 0
+                ? dependencyGroups[bestGroupIndex].Dependencies
+                : Array.Empty<XElement>();
         }
 
         return dependencies
@@ -682,22 +686,42 @@ internal static class CompilationReferenceResolver
             return Array.Empty<string>();
         }
 
-        var bestDirectory = Directory.GetDirectories(assetRoot, "*", SearchOption.TopDirectoryOnly)
-            .Select(directory => new
-            {
-                Directory = directory,
-                Score = GetFrameworkCompatibilityScore(Path.GetFileName(directory), targetFramework)
-            })
-            .Where(candidate => candidate.Score >= 0)
-            .OrderByDescending(candidate => candidate.Score)
-            .Select(candidate => candidate.Directory)
-            .FirstOrDefault();
+        var candidateDirectories = Directory.GetDirectories(assetRoot, "*", SearchOption.TopDirectoryOnly);
+        var scores = new int[candidateDirectories.Length];
+        for (var i = 0; i < candidateDirectories.Length; i++)
+            scores[i] = GetFrameworkCompatibilityScore(Path.GetFileName(candidateDirectories[i]), targetFramework);
+
+        var bestDirectoryIndex = SelectBestFrameworkScoreIndex(scores);
+        var bestDirectory = bestDirectoryIndex >= 0
+            ? candidateDirectories[bestDirectoryIndex]
+            : null;
 
         return bestDirectory == null
             ? Array.Empty<string>()
             : Directory.GetFiles(bestDirectory, "*.dll", SearchOption.TopDirectoryOnly)
                 .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
                 .ToArray();
+    }
+
+    // Stage 6 C#-surface-shrink: keep filesystem/XML materialization here, route score selection through N#.
+    private static int SelectBestFrameworkScoreIndex(int[] scores)
+    {
+        if (CompilationReferenceResolverKernels.TrySelectBestScoreIndex(scores, scores.Length, out var dogfoodBestIndex))
+            return dogfoodBestIndex;
+
+        var bestIndex = -1;
+        var bestScore = -1;
+        for (var i = 0; i < scores.Length; i++)
+        {
+            var score = scores[i];
+            if (score >= 0 && score > bestScore)
+            {
+                bestScore = score;
+                bestIndex = i;
+            }
+        }
+
+        return bestIndex;
     }
 
     private static string? NormalizeNuGetDependencyVersion(string? version)

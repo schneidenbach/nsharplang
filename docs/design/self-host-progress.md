@@ -11,6 +11,19 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Reference resolver best-score selection leaves parity-only C#
+
+NuGet dependency-group and asset-folder best-score selection now routes through the shipped
+`CliReferenceResolutionBestScoreIndex` N# kernel beside `CompilationReferenceResolver`; filesystem,
+XML, and path materialization remain in the C# host boundary. The best-score ABI moved out of
+`NSharpLang.Compiler.Dogfood.ParityCorpus/CliArguments.nl` into the product `CliArguments.nl`, while
+the parity corpus keeps only its checksum oracle. This is a Stage 6 `C#-surface-shrink` slice: the
+remaining C# helper is the fallback/oracle loop plus delegate boundary validation.
+
+Focused evidence:
+`./scripts/dev.sh CompilationReferenceResolverKernels`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_ParityOnlyFiles_AreAbsentFromProductCoverage|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-18 — SoA hard-cast column ref/out addresses are pinned
 
 The direct-column `ref`/`out` IL-shape proof now covers alias parameters and hard-cast table/alias

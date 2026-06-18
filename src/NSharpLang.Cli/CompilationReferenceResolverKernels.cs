@@ -75,18 +75,60 @@ internal static class CompilationReferenceResolverKernels
         }
     }
 
+    internal static bool TrySelectBestScoreIndex(int[] scores, int count, out int bestIndex)
+    {
+        bestIndex = -1;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        if (count < 0 || count > scores.Length)
+            return false;
+
+        try
+        {
+            bestIndex = bindings.ReferenceResolutionBestScoreIndex(scores, count);
+            if (bestIndex < -1 || bestIndex >= count)
+            {
+                bestIndex = -1;
+                return false;
+            }
+
+            if (bestIndex >= 0 && scores[bestIndex] < 0)
+            {
+                bestIndex = -1;
+                return false;
+            }
+
+            return true;
+        }
+        catch
+        {
+            bestIndex = -1;
+            return false;
+        }
+    }
+
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
             DogfoodKernelLoader.CreateDelegate<CliReferenceTypeFilterIndicesInto>(
                 programType,
-                "CliReferenceTypeFilterIndicesInto")));
+                "CliReferenceTypeFilterIndicesInto"),
+            DogfoodKernelLoader.CreateDelegate<CliReferenceResolutionBestScoreIndex>(
+                programType,
+                "CliReferenceResolutionBestScoreIndex")));
 
     private delegate int CliReferenceTypeFilterIndicesInto(
         int[] typeRanks,
         int targetTypeRank,
         int[] resultIndices);
 
-    private sealed record Bindings(CliReferenceTypeFilterIndicesInto ReferenceTypeFilterIndices);
+    private delegate int CliReferenceResolutionBestScoreIndex(int[] scores, int count);
+
+    private sealed record Bindings(
+        CliReferenceTypeFilterIndicesInto ReferenceTypeFilterIndices,
+        CliReferenceResolutionBestScoreIndex ReferenceResolutionBestScoreIndex);
 
     private static int GetReferenceTypeRank(ReferenceType type) =>
         type switch
