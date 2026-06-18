@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA direct columns reject `Array.Sort` before emission
+
+The SoA analyzer now rejects `Array.Sort(table.column)` and
+`Array.Sort(table.column, index, length)` on direct backing columns before overload binding or IL
+emission. Sorting one physical column would reorder values independently from the other columns and
+break row identity, so the diagnostic reuses the existing direct-member mutation wording and
+suggests row-wise writes or constructing/wrapping a new table. The guard also covers parenthesized
+and checked/unchecked column expressions.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~SoaRecordTests.Analyzer_SoaDirectColumnsCannotBeSortedThroughArraySort"`.
+
 ## 2026-06-18 — Columnar `Array.Sort` orders compiler buffers
 
 The standalone columnar emitter now lowers generic `Array.Sort<T>(T[])` and

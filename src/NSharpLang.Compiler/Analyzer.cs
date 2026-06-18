@@ -9557,6 +9557,9 @@ public class Analyzer : IDisposable
             }
         }
 
+        if (ReportSoaDirectColumnMutatingArrayCallIfNeeded(call))
+            return BuiltInTypes.Unknown;
+
         // Resolve return type from function type
         if (calleeType is FunctionTypeInfo funcType)
         {
@@ -13502,6 +13505,109 @@ public class Analyzer : IDisposable
 
         ReportSoaTableMemberMutation(member, action, isColumn);
         return true;
+    }
+
+    private bool ReportSoaDirectColumnMutatingArrayCallIfNeeded(CallExpression call)
+    {
+        if (call.Arguments.Count == 0
+            || call.Callee is not MemberAccessExpression memberAccess)
+        {
+            return false;
+        }
+
+        var action = memberAccess.MemberName switch
+        {
+            "Sort" => "sorted directly",
+            _ => null
+        };
+        if (action == null)
+            return false;
+
+        if (!IsStaticArrayTarget(memberAccess.Object))
+            return false;
+
+        if (!TryGetSoaColumnMemberAccess(call.Arguments[0].Value, out var columnMember))
+            return false;
+
+        ReportSoaTableMemberMutation(columnMember, action, isColumn: true);
+        return true;
+    }
+
+    private bool IsStaticArrayTarget(Expression expression)
+    {
+        switch (expression)
+        {
+            case ParenthesizedExpression parenthesized:
+                return IsStaticArrayTarget(parenthesized.Inner);
+            case IdentifierExpression identifier:
+                if (identifier.Name == "Array" && LookupSymbol(identifier.Name) == null)
+                    return true;
+                if (TryResolveTypeValuedMemberAccess(identifier, out var identifierType))
+                    return IsSystemArrayTypeInfo(identifierType);
+                return false;
+            case MemberAccessExpression { Object: IdentifierExpression { Name: "System" } system, MemberName: "Array" }:
+                return LookupSymbol(system.Name) == null;
+        }
+
+        return TryResolveTypeValuedMemberAccess(expression, out var ownerType)
+            && IsSystemArrayTypeInfo(ownerType);
+    }
+
+    private bool IsSystemArrayTypeInfo(TypeInfo type)
+    {
+        var resolved = ResolveTypeAlias(type);
+        return TryConvertTypeInfoToClrType(resolved) == typeof(Array)
+            || resolved is ExternalTypeInfo { Name: "Array" or "System.Array" };
+    }
+
+    private bool TryGetSoaColumnMemberAccess(Expression expression, out MemberAccessExpression member)
+    {
+        switch (expression)
+        {
+            case MemberAccessExpression memberAccess when _soaColumnMemberAccesses.Contains(memberAccess):
+                member = memberAccess;
+                return true;
+            case MemberAccessExpression memberAccess
+                when TryGetSoaRecordReceiverType(memberAccess.Object, out var soaRecordType)
+                    && TryGetSoaColumn(soaRecordType.Declaration, memberAccess.MemberName) != null:
+                member = memberAccess;
+                return true;
+            case ParenthesizedExpression parenthesized:
+                return TryGetSoaColumnMemberAccess(parenthesized.Inner, out member);
+            case CheckedExpression checkedExpression:
+                return TryGetSoaColumnMemberAccess(checkedExpression.Expression, out member);
+            case UncheckedExpression uncheckedExpression:
+                return TryGetSoaColumnMemberAccess(uncheckedExpression.Expression, out member);
+            default:
+                member = null!;
+                return false;
+        }
+    }
+
+    private bool TryGetSoaRecordReceiverType(Expression expression, out SoaRecordTypeInfo soaRecordType)
+    {
+        switch (expression)
+        {
+            case IdentifierExpression identifier:
+                var resolvedType = ResolveTypeAlias(GetNonNullableType(LookupSymbol(identifier.Name) ?? BuiltInTypes.Unknown));
+                if (resolvedType is ByRefTypeInfo byRefReceiver)
+                    resolvedType = ResolveTypeAlias(GetNonNullableType(byRefReceiver.InnerType));
+                if (resolvedType is SoaRecordTypeInfo receiverSoaRecordType)
+                {
+                    soaRecordType = receiverSoaRecordType;
+                    return true;
+                }
+                break;
+            case ParenthesizedExpression parenthesized:
+                return TryGetSoaRecordReceiverType(parenthesized.Inner, out soaRecordType);
+            case CheckedExpression checkedExpression:
+                return TryGetSoaRecordReceiverType(checkedExpression.Expression, out soaRecordType);
+            case UncheckedExpression uncheckedExpression:
+                return TryGetSoaRecordReceiverType(uncheckedExpression.Expression, out soaRecordType);
+        }
+
+        soaRecordType = null!;
+        return false;
     }
 
     private bool ReportUnsupportedBuiltInIndexedMutationIfNeeded(
