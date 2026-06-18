@@ -321,7 +321,8 @@ the backing array. Checked/unchecked wrappers around the direct column keep that
 lowering.
 Those metadata properties are read-only: `table.column.Length = n`, `table.column.LongLength += n`,
 and `table.column.Rank++` decline during analysis instead of reaching the IL backend as missing
-setters, including through checked/unchecked direct-column wrappers. Null-conditional member or index
+setters, including through hard-cast table/alias receivers and checked/unchecked direct-column
+wrappers. Null-conditional member or index
 access over direct columns, such as `table.column?.Length`, `checked(table.column)?.GetHashCode()`,
 and `table.column?[row]`, declines before ordinary nullable array lowering can hide the non-null
 table-storage invariant. The same rejection applies when the direct column is reached through

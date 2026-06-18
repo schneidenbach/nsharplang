@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Hard-cast SoA metadata mutations keep read-only diagnostics
+
+Direct-column metadata writes now have analyzer pins when the column is reached through hard-cast
+table/alias receivers. `((NodeTable)nodes).kind.Length = 1`,
+`((Nodes)((NodeTable)nodes)).kind.LongLength += 1L`, and checked/unchecked hard-cast `Rank++`/`Length =`
+forms report the read-only property diagnostic before the IL backend can treat generated backing-array
+metadata as an ordinary mutable member. Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~Analyzer_SoaDirectColumnMetadataPropertiesCannotBeAssigned"`.
+
 ## 2026-06-18 — Hard-cast SoA negative indexes reject before emission
 
 Negative row ids inside `checked(...)` and `unchecked(...)` wrappers now have analyzer pins when the

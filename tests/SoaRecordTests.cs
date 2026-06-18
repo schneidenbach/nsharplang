@@ -9181,6 +9181,76 @@ public class SoaRecordTests : ILCompilerTestBase
                 }
                 """,
                 Property: "Rank",
+                Operator: "++"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    ((NodeTable)nodes).kind.Length = 1
+                }
+                """,
+                Property: "Length",
+                Operator: "="),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    ((Nodes)((NodeTable)nodes)).kind.LongLength += 1L
+                }
+                """,
+                Property: "LongLength",
+                Operator: "+="),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    checked(((NodeTable)nodes).kind).Rank++
+                }
+                """,
+                Property: "Rank",
+                Operator: "++"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    unchecked(((Nodes)((NodeTable)nodes)).kind).Length = 1
+                }
+                """,
+                Property: "Length",
+                Operator: "="),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    unchecked(((Nodes)((NodeTable)nodes)).kind).Rank++
+                }
+                """,
+                Property: "Rank",
                 Operator: "++")
         };
 
