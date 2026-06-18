@@ -184,19 +184,19 @@ internal sealed class ColumnarEnumInput
 }
 
 /// <summary>
-/// A user-defined enum being emitted: its <see cref="EnumBuilder"/> (its CLR <see cref="Type"/> — an i4-underlying
-/// value type) plus its member-name → constant-int map (for <c>Enum.Member</c> value and pattern resolution). Built
-/// in PASS 0 of <see cref="ColumnarIlEmitter.TryEmitColumnarAssembly"/> and threaded into type resolution + emit.
+/// A user-defined enum emitted by the columnar route: its finalized CLR <see cref="Type"/> plus its member-name →
+/// constant-int map. Enums have no user-type dependencies, so they are baked before function signatures and can
+/// safely close generic runtime types such as <c>List&lt;Color&gt;</c>.
 /// </summary>
 internal sealed class ColumnarEnumDef
 {
-    internal ColumnarEnumDef(EnumBuilder builder, Dictionary<string, int> constants)
+    internal ColumnarEnumDef(Type enumType, Dictionary<string, int> constants)
     {
-        Builder = builder;
+        EnumType = enumType;
         Constants = constants;
     }
 
-    internal EnumBuilder Builder { get; }
+    internal Type EnumType { get; }
     internal Dictionary<string, int> Constants { get; }
 }
 
@@ -532,8 +532,9 @@ internal sealed class ColumnarIlEmitter
     // argument's type against the callee's param types (int and bool are both i4, so a mismatch would otherwise
     // produce verifiable-but-wrong IL rather than declining).
     private readonly IReadOnlyDictionary<string, (MethodInfo Method, Type[] ParamTypes, Type ReturnType, Type[] TypeParams, int[] SpecialConstraints, Type?[] BaseConstraints)> _siblings;
-    // User-defined enums in this program, by name -> (EnumBuilder, member->value). Lets member access `Enum.Member`
-    // and enum match patterns resolve their underlying-int constant, and types resolve `Color` to its EnumBuilder.
+    // User-defined enums in this program, by name -> (finalized enum Type, member->value). Lets member access
+    // `Enum.Member` and enum match patterns resolve their underlying-int constant, and types resolve `Color` to a
+    // baked type that can close runtime generics.
     private readonly IReadOnlyDictionary<string, ColumnarEnumDef> _enumRegistry;
     // User-defined structs in this program, by name -> (TypeBuilder, field->FieldBuilder). Lets object-initializer
     // construction and field access resolve their FieldBuilders, and types resolve `Point` to its TypeBuilder.
@@ -785,7 +786,7 @@ internal sealed class ColumnarIlEmitter
                                                   // comparisons call System.Decimal's op_* methods
         || IsSupportedNullable(t)                 // Nullable<T> over a baked value scalar (null N2)
         || t == typeof(System.Text.StringBuilder)
-        || t is EnumBuilder                       // a user-defined enum — its own i4-underlying value type
+        || IsEnumType(t)                          // a user-defined enum — its own i4-underlying value type
         || t is TypeBuilder                       // a user-defined struct (value type) OR record (reference type);
                                                   // only those reach here as a resolved type — the Program type never does
         || t is GenericTypeParameterBuilder       // a generic type/method parameter (T) — valid member/param/local type
@@ -800,6 +801,20 @@ internal sealed class ColumnarIlEmitter
     private static bool IsSupportedParameterType(Type t) =>
         IsSupportedType(t)
         || (t.IsByRef && IsSupportedByRefElementType(t.GetElementType()!));
+
+    private static bool IsEnumType(Type t)
+    {
+        if (t is EnumBuilder)
+            return true;
+        try
+        {
+            return t.IsEnum;
+        }
+        catch (NotSupportedException)
+        {
+            return false;
+        }
+    }
 
     private static bool IsSupportedByRefElementType(Type t) =>
         !t.IsByRef && t.IsValueType && IsSupportedType(t);
@@ -840,7 +855,7 @@ internal sealed class ColumnarIlEmitter
         return def == typeof(List<>) || def == typeof(Dictionary<,>);
     }
 
-    // True when a type carries an UN-BAKED builder anywhere in its shape: a TypeBuilder/EnumBuilder/
+    // True when a type carries a Reflection.Emit builder-shaped type anywhere in its shape: a TypeBuilder/EnumBuilder/
     // generic type parameter itself, an array over one, or a generic instantiation any of whose arguments
     // does (List<Pt>, Dictionary<string,T>, KeyValuePair<string,Pt>, IEnumerable<Pt>, ...). Plain
     // reflection member lookups (GetMethod/GetProperty/GetConstructor/GetField) throw NotSupportedException
@@ -848,6 +863,8 @@ internal sealed class ColumnarIlEmitter
     // proven): neither `Module is ModuleBuilder` nor `Assembly is AssemblyBuilder` nor
     // ContainsGenericParameters detects these — a BCL-headed TypeBuilderInstantiation reports the OPEN
     // definition's CoreLib module/assembly, and ContainsGenericParameters is false even over an open T.
+    // Baked Reflection.Emit enums still surface as TypeBuilderImpl, so they stay builder-bound for member-token
+    // rebind purposes even though they are admissible as enum keys/elements.
     private static bool ContainsBuilderBoundType(Type t)
     {
         if (t is TypeBuilder || t is EnumBuilder || t.IsGenericParameter)
@@ -873,6 +890,40 @@ internal sealed class ColumnarIlEmitter
         foreach (var arg in t.GetGenericArguments())
         {
             if (ContainsBuilderBoundType(arg))
+                return true;
+        }
+        return false;
+    }
+
+    // Key/equality admissibility uses a stricter question than member-token resolution: baked emitted enums are
+    // stable i4 values, but records/struct builders and generic parameters still make hashing/equality depend on
+    // generated type behavior that has separate parity gates.
+    private static bool ContainsNonEnumBuilderBoundType(Type t)
+    {
+        if (t is EnumBuilder)
+            return true;
+        if (IsEnumType(t))
+            return false;
+        if (t is TypeBuilder || t.IsGenericParameter)
+            return true;
+        if (t.IsSZArray)
+            return ContainsNonEnumBuilderBoundType(t.GetElementType()!);
+        if (!t.IsGenericType || t.IsGenericTypeDefinition)
+            return false;
+        Type def;
+        try
+        {
+            def = t.GetGenericTypeDefinition();
+        }
+        catch (NotSupportedException)
+        {
+            return true;
+        }
+        if (def is TypeBuilder)
+            return true;
+        foreach (var arg in t.GetGenericArguments())
+        {
+            if (ContainsNonEnumBuilderBoundType(arg))
                 return true;
         }
         return false;
@@ -963,16 +1014,17 @@ internal sealed class ColumnarIlEmitter
     // The element/value types a collection may close over (the builder-element rebind rung):
     // - a user TypeBuilder (record/class/struct under construction) — members rebind, probe-pinned working;
     // - a nested admissible collection (List<List<Pt>>, List<HashSet<int>>) — its own resolution already vetted the inner args;
-    // - the BAKED surface (scalars/string/baked closed generics) exactly as before.
-    // PINNED DECLINES (oracle-accepted, flip in later rungs): EnumBuilder elements (an un-baked EnumBuilder
-    // dies at ILGenerator.Emit token resolution — spike-proven; baking-first is a separate rung), user-headed
-    // closed generics (List<Box<int>>), and tuples/delegates over builders.
+    // - the BAKED surface (scalars/string/enums/baked closed generics) exactly as before.
+    // PINNED DECLINES (oracle-accepted, flip in later rungs): user-headed closed generics (List<Box<int>>),
+    // builder-bound key/equality shapes, and tuples/delegates over builders.
     private static bool IsAdmissibleCollectionElement(Type t)
     {
-        if (t is TypeBuilder)
-            return true;
         if (t is EnumBuilder)
             return false;
+        if (IsEnumType(t))
+            return true;
+        if (t is TypeBuilder)
+            return true;
         if (t.IsGenericType && !t.IsGenericTypeDefinition)
         {
             Type def;
@@ -995,7 +1047,7 @@ internal sealed class ColumnarIlEmitter
     // HashSet<T> elements are keys: accepting builder-bound elements would make lookup behavior depend on
     // generated Equals/GetHashCode synthesis before that key path has parity evidence.
     private static bool IsAdmissibleHashSetElement(Type t)
-        => IsAdmissibleCollectionElement(t) && !ContainsBuilderBoundType(t);
+        => IsAdmissibleCollectionElement(t) && !ContainsNonEnumBuilderBoundType(t);
 
     // A closed System.Func/Action delegate over BAKED runtime types (the L1a delegate surface), or the bare
     // System.Action — valid as a param/return/local so delegate-typed parameters can be received and invoked
@@ -1059,9 +1111,10 @@ internal sealed class ColumnarIlEmitter
             return false;
         foreach (var arg in t.GetGenericArguments())
         {
-            // Exclude an EnumBuilder OR a user-struct TypeBuilder element: a ValueTuple<…> instantiated over a
-            // builder type cannot resolve its ctor/ItemN fields via plain reflection (GetConstructor/GetField throw
-            // NotSupportedException at emit), so enum-in-tuple / struct-in-tuple must DECLINE here (→ C# fallback) —
+            // Exclude enum elements and user-struct TypeBuilder elements: enum-in-tuple remains outside this slice
+            // (value-comparison parity across independently emitted enum types needs its own proof), and a
+            // ValueTuple<…> instantiated over a builder type cannot resolve its ctor/ItemN fields via plain
+            // reflection (GetConstructor/GetField throw NotSupportedException at emit). Keep both as clean declines,
             // consistent with the array-element decline. Enums and structs are modelled as scalars/locals only.
             // Delegates are likewise excluded from tuple elements (the L1a delegate surface is params/locals only).
             // CLOSED user-generic instantiations (Box<int>, Opt<int> — TypeBuilderInstantiation, not TypeBuilder)
@@ -1069,7 +1122,7 @@ internal sealed class ColumnarIlEmitter
             // review hardening — an uncaught NotSupportedException is a compiler crash, not a clean decline).
             // Builder-bound COLLECTION elements ((int, List<Pt>)) are excluded by the same rule: the
             // ValueTuple closed over them is a TypeBuilderInstantiation whose ctor/ItemN lookups throw.
-            if (arg is EnumBuilder || arg is TypeBuilder || IsClosedUserGenericInstantiation(arg)
+            if (IsEnumType(arg) || arg is TypeBuilder || IsClosedUserGenericInstantiation(arg)
                 || IsSupportedDelegateType(arg) || ContainsBuilderBoundType(arg) || !IsSupportedType(arg))
                 return false;
         }
@@ -2600,7 +2653,7 @@ internal sealed class ColumnarIlEmitter
                 if (dictArgCanons.Count == 2
                     && TryResolveType(dictArgCanons[0], enumRegistry, structRegistry, unionRegistry, out var dictKey)
                     && TryResolveType(dictArgCanons[1], enumRegistry, structRegistry, unionRegistry, out var dictValue)
-                    && !ContainsBuilderBoundType(dictKey)
+                    && !ContainsNonEnumBuilderBoundType(dictKey)
                     && IsAdmissibleCollectionElement(dictValue))
                 {
                     type = typeof(Dictionary<,>).MakeGenericType(dictKey, dictValue);
@@ -2612,12 +2665,13 @@ internal sealed class ColumnarIlEmitter
             type = null!;
             return false;
         }
-        // A bare name matching a user-defined enum resolves to its EnumBuilder (so `Color` is a valid param/return/
-        // local type). Checked before the builtins so a user enum never collides with a builtin name (it cannot —
-        // builtin names are reserved keywords the parser would not accept as an enum name).
+        // A bare name matching a user-defined enum resolves to its finalized CLR Type (so `Color` is a valid
+        // param/return/local type and can close BCL generics). Checked before the builtins so a user enum never
+        // collides with a builtin name (it cannot — builtin names are reserved keywords the parser would not accept
+        // as an enum name).
         if (enumRegistry != null && enumRegistry.TryGetValue(canonical, out var enumDef))
         {
-            type = enumDef.Builder;
+            type = enumDef.EnumType;
             return true;
         }
         // A bare name matching a user-defined struct resolves to its TypeBuilder (a valid param/return/local type).
@@ -2854,10 +2908,9 @@ internal sealed class ColumnarIlEmitter
 
         // PASS 0: define every user enum as a module-level i4-underlying enum type, BEFORE the Program type and the
         // function signatures (pass 1) so a function can use an enum as a param/return/local type and resolve its
-        // members. The EnumBuilder is its own CLR Type; it is referenced (un-finalized) throughout passes 1-2 and
-        // finalized (CreateType) just before the Program type — the same ordering proven by the de-risking spike.
+        // members. Enums have no dependency on later user types, so bake them immediately; this keeps runtime generic
+        // instantiations such as List<Color> on normal closed-Type handles instead of fragile EnumBuilder handles.
         var enumRegistry = new Dictionary<string, ColumnarEnumDef>(StringComparer.Ordinal);
-        var enumBuilders = new EnumBuilder[enums.Count];
         for (var e = 0; e < enums.Count; e++)
         {
             var en = enums[e];
@@ -2868,8 +2921,8 @@ internal sealed class ColumnarIlEmitter
                 eb.DefineLiteral(en.MemberNames[m], en.MemberValues[m]);
                 constants[en.MemberNames[m]] = en.MemberValues[m];
             }
-            enumBuilders[e] = eb;
-            enumRegistry[en.Name] = new ColumnarEnumDef(eb, constants);
+            var enumType = eb.CreateType();
+            enumRegistry[en.Name] = new ColumnarEnumDef(enumType, constants);
         }
 
         // Union registries — declared empty here (populated in the union PASS below, after structs) so the struct/
@@ -3892,11 +3945,9 @@ internal sealed class ColumnarIlEmitter
                 return false;
         }
 
-        // Finalize the enum and struct types before the Program type (the spike's ordering). Each enum member
-        // literal / struct field is already defined, so CreateType bakes the type's metadata; the methods that
-        // reference the un-finalized builders resolve to the finalized types at Save.
-        foreach (var eb in enumBuilders)
-            eb.CreateType();
+        // Finalize the struct types before the Program type (the spike's ordering). Struct fields are already
+        // defined, so CreateType bakes the type metadata; methods that reference un-finalized builders resolve to
+        // the finalized types at Save. Enums were baked in pass 0 because no later user type can affect them.
         // Interfaces bake BEFORE their implementers, and base interfaces bake before derived interfaces.
         for (var depth = 0; depth <= interfaces.Count; depth++)
         {
@@ -7452,10 +7503,10 @@ internal sealed class ColumnarIlEmitter
                             type = typeof(bool);
                             return true;
                         }
-                        // Equality on int, long, ulong, bool, char, double, or float (Ceq is bit-identical
+                        // Equality on int, long, ulong, bool, char, double, float, or a baked i4 enum (Ceq is bit-identical
                         // signed/unsigned; on double/float it is the IEEE ordered equal — NaN == NaN is false and
                         // NaN != NaN is true, which the `!=` negation of Ceq produces correctly).
-                        if (!IsIntPromotable(opType) && opType != typeof(long) && opType != typeof(ulong) && opType != typeof(uint) && opType != typeof(bool) && opType != typeof(double) && opType != typeof(float)) return false;
+                        if (!IsIntPromotable(opType) && opType != typeof(long) && opType != typeof(ulong) && opType != typeof(uint) && opType != typeof(bool) && opType != typeof(double) && opType != typeof(float) && !IsEnumType(opType)) return false;
                         EmitComparison(op);
                         type = typeof(bool);
                         return true;
@@ -7650,15 +7701,14 @@ internal sealed class ColumnarIlEmitter
                     }
                     // A USER-DEFINED enum constant: the receiver names a registered enum TYPE (not shadowed by a
                     // local/param/sibling) and the member is one of its constants -> load the underlying int. The
-                    // reported type is the enum's EnumBuilder (the same instance used for its param/return types, so
-                    // `return Color.Green` reference-matches the declared `Color` return).
+                    // reported type is the same finalized enum Type used for params/returns and collection elements.
                     if (_enumRegistry.TryGetValue(receiverIdent, out var userEnum)
                         && !_locals.ContainsKey(receiverIdent) && !_liftedLocals.ContainsKey(receiverIdent) && !_paramOrdinals.ContainsKey(receiverIdent) && !_siblings.ContainsKey(receiverIdent))
                     {
                         if (!userEnum.Constants.TryGetValue(Text(idx), out var memberValue))
                             return false;
                         _il.Emit(OpCodes.Ldc_I4, memberValue);
-                        type = userEnum.Builder;
+                        type = userEnum.EnumType;
                         return true;
                     }
                     // A USER-TYPE STATIC member read `TypeName.member`: the receiver names a registered struct/
@@ -8102,7 +8152,7 @@ internal sealed class ColumnarIlEmitter
                 // An i4-underlying enum operand is its int on the stack, so `enum as <numeric>` is a cast FROM int:
                 // enum->int is identity (no opcode), enum->long/double/etc. widens exactly like int->long/double. The
                 // C# path emits the same (the underlying-int value, then the same numeric conversion).
-                if (sourceType is EnumBuilder)
+                if (IsEnumType(sourceType))
                     sourceType = typeof(int);
                 if (!IsCastableScalar(sourceType))
                     return false;
@@ -8563,7 +8613,7 @@ internal sealed class ColumnarIlEmitter
                 ColumnarEnumDef? matchEnumDef = null;
                 foreach (var def in _enumRegistry.Values)
                 {
-                    if (def.Builder == matchValueType) { matchEnumDef = def; break; }
+                    if (def.EnumType == matchValueType) { matchEnumDef = def; break; }
                 }
                 if (matchEnumDef != null)
                 {
@@ -8580,7 +8630,7 @@ internal sealed class ColumnarIlEmitter
                         {
                             var recv = Child(rawP, 0);
                             if (_nodes.Kind(recv) == 6 && _enumRegistry.TryGetValue(Text(recv), out var rd)
-                                && rd.Builder == matchValueType && matchEnumDef.Constants.ContainsKey(Text(rawP)))
+                                && rd.EnumType == matchValueType && matchEnumDef.Constants.ContainsKey(Text(rawP)))
                                 covered.Add(Text(rawP));
                         }
                     }
@@ -8813,7 +8863,7 @@ internal sealed class ColumnarIlEmitter
                 if (_enumRegistry.TryGetValue(recvName, out var enumDef)
                     && !_locals.ContainsKey(recvName) && !_liftedLocals.ContainsKey(recvName) && !_paramOrdinals.ContainsKey(recvName) && !_siblings.ContainsKey(recvName))
                 {
-                    if (matchValueType != enumDef.Builder)
+                    if (matchValueType != enumDef.EnumType)
                         return false;
                     if (!enumDef.Constants.TryGetValue(Text(patternNode), out var memberValue))
                         return false;
@@ -9071,7 +9121,7 @@ internal sealed class ColumnarIlEmitter
     private bool IsSupportedMatchValueType(Type t) =>
         t == typeof(int) || t == typeof(long) || t == typeof(ulong) || t == typeof(char)
         || t == typeof(bool) || t == typeof(double) || t == typeof(float) || t == typeof(string)
-        || t is EnumBuilder
+        || IsEnumType(t)
         || TryGetUnionDefForMatchValue(t, out _, out _);
 
     // Resolves a match VALUE type to its union def: the OPEN base TypeBuilder (a non-generic union's
@@ -9746,6 +9796,8 @@ internal sealed class ColumnarIlEmitter
     {
         if (a == b)
             return true;
+        if (IsEnumType(a) || IsEnumType(b))
+            return IsSameEnumType(a, b);
         if (a.IsByRef || b.IsByRef)
             return a.IsByRef && b.IsByRef && TypesEquivalent(a.GetElementType()!, b.GetElementType()!);
         // Structural equivalence for closed generic INSTANTIATIONS — user-headed (Box<int>) AND
@@ -9777,6 +9829,22 @@ internal sealed class ColumnarIlEmitter
                 return false;
         }
         return true;
+    }
+
+    private static bool IsSameEnumType(Type a, Type b)
+    {
+        if (!IsEnumType(a) || !IsEnumType(b))
+            return false;
+        try
+        {
+            if (a.TypeHandle.Equals(b.TypeHandle))
+                return true;
+        }
+        catch (NotSupportedException)
+        {
+        }
+        return string.Equals(a.FullName, b.FullName, StringComparison.Ordinal)
+            && ReferenceEquals(a.Module, b.Module);
     }
 
     // Maps a CLOSED user-generic receiver (Box<int>) back to its OPEN definition's registry entry.

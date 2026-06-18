@@ -8315,6 +8315,28 @@ func outer(x: int): int {
         Assert.False(RouteColumnarProgram("func f(): int {\n    h := new HashSet<int>()\n    h.Add(1)\n    return h[0]\n}\n").Ok);
     }
 
+    [Fact]
+    public void ColumnarCodegen_Parity_EnumCollections()
+    {
+        var enumPrefix =
+            "enum Color {\n    Red,\n    Green,\n    Blue\n}\n\n";
+
+        AssertColumnarProgramMatchesCSharp(
+            enumPrefix +
+            "func listEnum(): int {\n    l := new List<Color>()\n    l.Add(Color.Red)\n    l.Add(Color.Green)\n    score := 0\n    foreach c in l {\n        if c == Color.Green {\n            score = score + 10\n        }\n    }\n    if l[0] == Color.Red {\n        score = score + 1\n    }\n    return score + l.Count * 100\n}\n",
+            ("listEnum", System.Array.Empty<object>()));
+
+        AssertColumnarProgramMatchesCSharp(
+            enumPrefix +
+            "func dictEnumKey(): int {\n    d := new Dictionary<Color, int>()\n    d[Color.Red] = 4\n    d.Add(Color.Blue, 6)\n    if d.ContainsKey(Color.Blue) {\n        return d[Color.Red] + d[Color.Blue] + d.Count * 100\n    }\n    return 0\n}\n",
+            ("dictEnumKey", System.Array.Empty<object>()));
+
+        AssertColumnarProgramMatchesCSharp(
+            enumPrefix +
+            "func hashEnum(): int {\n    h := new HashSet<Color>()\n    first := h.Add(Color.Green)\n    second := h.Add(Color.Green)\n    h.Add(Color.Blue)\n    removed := h.Remove(Color.Blue)\n    score := h.Count * 100\n    if first {\n        score = score + 1\n    }\n    if second {\n        score = score + 10\n    }\n    if removed {\n        score = score + 1000\n    }\n    if h.Contains(Color.Green) {\n        score = score + 10000\n    }\n    return score\n}\n",
+            ("hashEnum", System.Array.Empty<object>()));
+    }
+
     // BUILDER-ELEMENT REBIND (Phase D collections, rung 4) — List<T>/Dictionary<K,V> closed over types
     // still under construction: user TypeBuilders (record/class/struct elements and dictionary VALUES,
     // nested collections, collection-typed record fields) and a generic function's own T (params,
@@ -8406,9 +8428,7 @@ func outer(x: int): int {
         }
 
         // DECLINES (each shape oracle-ACCEPTED in the probe sweep — pinned OUT of this rung, flips later):
-        // EnumBuilder elements — an UN-BAKED EnumBuilder element dies at ILGenerator.Emit token
-        // resolution (spike-proven ArgumentException), so List<Color> declines until an enum-bake rung.
-        Assert.False(RouteColumnarProgram("enum Color {\n    Red,\n    Green\n}\n\nfunc f(): int {\n    l := new List<Color>()\n    l.Add(Color.Green)\n    if l[0] == Color.Green {\n        return 1\n    }\n    return 0\n}\n").Ok);
+        // (Enum collection elements FLIPPED — the enum-bake rung above covers List/Dictionary/HashSet.)
         // builder KEYS (Dictionary<Pt,int>) — record-key hashing rides the synthesized Equals/GetHashCode
         // and the PASS 0e synthesis-skip rules would diverge from the oracle; oracle-probed working
         // (fresh equal-fielded key HITS — records are value-equal) for the eventual flip.

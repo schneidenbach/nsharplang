@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Columnar enum collections use baked enum handles
+
+The standalone columnar emitter now bakes user enums before function signatures and collection
+construction, then routes `List<Color>`, enum-keyed `Dictionary<Color,V>`, and `HashSet<Color>`
+through the BCL generic collection surface. Reflection.Emit still reports baked emitted enums as
+builder-shaped types, so generic method/ctor binding keeps the builder rebind path while the
+dictionary/hashset key-admissibility gate treats baked enum values as stable i4 keys. Tuple enum
+elements remain declined until that separate value-comparison surface has parity evidence.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_Parity_EnumCollections"`.
+
 ## 2026-06-18 — Columnar `HashSet.Clear` joins the void-mutator surface
 
 The standalone columnar emitter now lowers `HashSet<T>.Clear()` for the baked-element HashSet
