@@ -11,12 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
-## 2026-06-18 — `yield` outside generators rejects before IL emission
+## 2026-06-18 — `yield` validates generator context and element type before emission
 
 The analyzer now rejects `yield` and `yield break` in ordinary functions before the IL backend reaches
 its generator-context guard. Valid `func*` and `async func*` generator paths remain unchanged, while
 non-generator bodies now get a direct source diagnostic that points users to `func*`/`async func*` or
-ordinary `return`.
+ordinary `return`. Generator `yield` values also type-check against the declared sequence element type,
+so mismatches such as `IEnumerable<string>` yielding `int` or `IAsyncEnumerable<int>` yielding `string`
+stop during analysis before `EmitExpressionWithExpectedType` tries to lower the wrong element value.
 Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~AnalyzerTests.YieldOutsideGenerator|FullyQualifiedName~AnalyzerTests.Generator"`;
 `./scripts/dev.sh Yield`.
 

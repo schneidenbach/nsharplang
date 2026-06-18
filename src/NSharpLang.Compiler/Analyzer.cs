@@ -3157,7 +3157,8 @@ public class Analyzer : IDisposable
                 _continueTargetFinallyDepth = whileContinueDepth;
                 break;
             case YieldStatement yieldStmt:
-                if (_currentFunction?.Modifiers.HasFlag(Modifiers.Generator) != true)
+                var isGeneratorYield = _currentFunction?.Modifiers.HasFlag(Modifiers.Generator) == true;
+                if (!isGeneratorYield)
                 {
                     Error(
                         ErrorCode.InvalidSyntax,
@@ -3170,7 +3171,24 @@ public class Analyzer : IDisposable
                 if (yieldStmt.Value != null)
                 {
                     var yieldedType = AnalyzeExpression(yieldStmt.Value);
-                    ReportSoaRowEscapeIfNeeded(yieldStmt.Value, yieldedType, "yielded");
+                    var isSoaRowYield = ReportSoaRowEscapeIfNeeded(yieldStmt.Value, yieldedType, "yielded");
+                    if (isGeneratorYield
+                        && !isSoaRowYield
+                        && _currentReturnType != null
+                        && TryGetGeneratorYieldElementType(_currentReturnType, out var elementType)
+                        && !BuiltInTypes.IsUnknown(yieldedType)
+                        && !BuiltInTypes.IsUnknown(elementType)
+                        && !IsAssignable(elementType, yieldedType))
+                    {
+                        var (line, column, length) = GetExpressionDiagnosticSpan(yieldStmt.Value);
+                        Error(
+                            ErrorCode.TypeMismatch,
+                            $"Generator yield value is '{yieldedType}', but the sequence element type is '{elementType}'",
+                            line,
+                            column,
+                            $"Yield a value assignable to '{elementType}', or change the generator return type.",
+                            length);
+                    }
                 }
                 break;
             case ReturnStatement returnStmt:
@@ -4990,6 +5008,12 @@ public class Analyzer : IDisposable
         {
             return false;
         }
+    }
+
+    private bool TryGetGeneratorYieldElementType(TypeInfo returnType, out TypeInfo elementType)
+    {
+        var isAsyncGenerator = _currentFunction?.Modifiers.HasFlag(Modifiers.Async) == true;
+        return TryGetLoopSequenceElementType(returnType, isAsyncGenerator, out elementType);
     }
 
     private void AnalyzeReturnStatement(ReturnStatement returnStmt)

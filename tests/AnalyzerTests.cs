@@ -749,6 +749,22 @@ func Main() {
         Assert.Contains(expectedSuggestion, error.Suggestion);
     }
 
+    [Theory]
+    [InlineData("func* Numbers(): IEnumerable<string> { yield 1 }", "int", "string")]
+    [InlineData("async func* Numbers(): IAsyncEnumerable<int> { yield \"bad\" }", "string", "int")]
+    public void GeneratorYieldValueTypeMismatch_ReportsTypeMismatch(
+        string declaration,
+        string yieldedType,
+        string elementType)
+    {
+        var result = AnalyzeWithSource("import System.Collections.Generic\n\n" + declaration);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains($"yield value is '{yieldedType}'", error.Message);
+        Assert.Contains($"sequence element type is '{elementType}'", error.Message);
+        Assert.Contains($"assignable to '{elementType}'", error.Suggestion);
+    }
+
     [Fact]
     public void LocalGeneratorNonSequenceReturnType_ReportsTypeMismatch()
     {
