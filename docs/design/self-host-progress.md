@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Columnar `Array.Copy` moves compiler buffers
+
+The standalone columnar emitter now lowers the 3-argument and 5-argument `Array.Copy` overloads for
+exact same-element single-dimensional arrays in the existing supported element set. The parity probe
+covers whole-buffer copies, ranged copies, overlapping self-copy semantics, scalar/reference elements,
+and declines long-index, cross-element-type, and non-array shapes.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_Parity_ArrayCopy"`;
+`./scripts/dev.sh ColumnarCodegen_Parity_Array`.
+
 ## 2026-06-18 — Columnar `Array.Clear` resets compiler table slices
 
 The standalone columnar emitter now lowers `Array.Clear(Array)` and

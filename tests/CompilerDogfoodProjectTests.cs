@@ -6666,6 +6666,34 @@ func outer(x: int): int {
             "func f(): int {\n    Array.Clear(5)\n    return 0\n}\n").Ok);
     }
 
+    // Array.Copy(Array, Array, int) and Array.Copy(Array, int, Array, int, int) -> void, invoked as bare
+    // statements. The columnar slice keeps exact same-element SZ-array copies, covering compiler buffer moves
+    // without opening Array covariance or long-index overloads.
+    [Fact]
+    public void ColumnarCodegen_Parity_ArrayCopy()
+    {
+        var copyIntWhole = "func copyIntWhole(src: int[], dst: int[]): int {\n    Array.Fill(dst, 0, 0, dst.Length)\n    Array.Copy(src, dst, src.Length)\n    return dst[0] * 100 + dst[1] * 10 + dst[2]\n}\n\n";
+        var copyIntRange = "func copyIntRange(src: int[], dst: int[]): int {\n    Array.Fill(dst, 9, 0, dst.Length)\n    Array.Copy(src, 1, dst, 2, 2)\n    return dst[0] * 10000 + dst[1] * 1000 + dst[2] * 100 + dst[3] * 10 + dst[4]\n}\n\n";
+        var copyOverlap = "func copyOverlap(a: int[]): int {\n    a[0] = 1\n    a[1] = 2\n    a[2] = 3\n    a[3] = 4\n    Array.Copy(a, 0, a, 1, 3)\n    return a[0] * 1000 + a[1] * 100 + a[2] * 10 + a[3]\n}\n\n";
+        var copyLong = "func copyLong(src: long[], dst: long[]): long {\n    Array.Fill(dst, 0L, 0, dst.Length)\n    Array.Copy(src, dst, src.Length)\n    total := 0L\n    i := 0\n    while i < dst.Length {\n        total = total + dst[i]\n        i = i + 1\n    }\n    return total\n}\n\n";
+        var copyString = "func copyString(src: string[], dst: string[]): int {\n    Array.Fill(dst, \"z\", 0, dst.Length)\n    Array.Copy(src, 1, dst, 0, 2)\n    score := 0\n    if dst[0] == \"b\" {\n        score = score + 1\n    }\n    if dst[1] == \"c\" {\n        score = score + 10\n    }\n    if dst[2] == \"z\" {\n        score = score + 100\n    }\n    return score\n}\n";
+        var prog = copyIntWhole + copyIntRange + copyOverlap + copyLong + copyString;
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("copyIntWhole", new object[] { new[] { 1, 2, 3 }, new int[3] }),
+            ("copyIntRange", new object[] { new[] { 1, 2, 3, 4 }, new int[5] }),
+            ("copyOverlap", new object[] { new int[4] }),
+            ("copyLong", new object[] { new[] { 10000000000L, 20L, 3L }, new long[3] }),
+            ("copyString", new object[] { new[] { "a", "b", "c" }, new string[3] }));
+
+        // DECLINE SURFACE — keep the C# path authoritative for forms the backend does not model.
+        Assert.False(RouteColumnarProgram(  // long-index overloads are not modelled.
+            "func f(src: int[], dst: int[]): int {\n    Array.Copy(src, dst, 1L)\n    return 0\n}\n").Ok);
+        Assert.False(RouteColumnarProgram(  // source and destination element types must match exactly.
+            "func f(src: int[], dst: long[]): int {\n    Array.Copy(src, dst, 1)\n    return 0\n}\n").Ok);
+        Assert.False(RouteColumnarProgram(  // first argument must be a supported single-dimensional array.
+            "func f(dst: int[]): int {\n    Array.Copy(5, dst, 1)\n    return 0\n}\n").Ok);
+    }
+
     // A bare CALL statement whose result is DISCARDED: emit the call, then `pop` the non-void result (a void
     // call leaves nothing). The C# path emits the same pop, so the side effects + ignored result are identical.
     // This is the `helper(args)`-as-statement idiom (LinterImports.nl calls a flag-clearing helper for its side

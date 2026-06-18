@@ -4660,7 +4660,7 @@ internal sealed class ColumnarIlEmitter
 
             case 23: // ExpressionStatement — a SIMPLE `=` assignment (kind 14) to a `:=` local OR an array
             {        // element `a[i] = value`, OR a bare CALL statement (a void BCL call such as `Array.Fill(...)`,
-                     // `Array.Clear(...)`,
+                     // `Array.Clear(...)`, `Array.Copy(...)`,
                      // or a sibling/BCL call whose non-void result is discarded), OR a COMPOUND assignment
                      // (`+=` `-=` `*=` `/=` on a bare local/param — lowered to load/op/store below).
                 var expr = UnwrapParenthesizedNode(Child(idx, 0));
@@ -4672,7 +4672,7 @@ internal sealed class ColumnarIlEmitter
 
                 if (_nodes.Kind(expr) == 9) // a bare call statement.
                 {
-                    // Emit the call. A void call (e.g. Array.Fill/Array.Clear) leaves nothing on the stack; a
+                    // Emit the call. A void call (e.g. Array.Fill/Array.Clear/Array.Copy) leaves nothing on the stack; a
                     // NON-void call leaves its result, which is unused in statement position — discard it with `pop` (exactly
                     // what the C# path emits for a discarded call result, so the side effects + result are
                     // identical). This is the `helper(args)`-as-statement idiom (e.g. LinterImports.nl clearing
@@ -9406,7 +9406,48 @@ internal sealed class ColumnarIlEmitter
             type = typeof(void);
             return true;
         }
+        if (typeName == "Array" && member == "Copy" && (argCount == 3 || argCount == 5))
+        {
+            // Array.Copy(Array, Array, int) and Array.Copy(Array, int, Array, int, int) -> void. Keep this slice
+            // to exact same-element SZ-array copies; wider Array covariance and long-index overloads stay declined.
+            if (!EmitExpression(Child(callIdx, 1), out var sourceArrayType) || !sourceArrayType.IsSZArray)
+                return false;
+
+            MethodInfo? copy;
+            if (argCount == 3)
+            {
+                if (!EmitExpression(Child(callIdx, 2), out var destinationArrayType)
+                    || !AreSameSupportedArrayType(sourceArrayType, destinationArrayType)
+                    || !EmitArg(callIdx, 3, typeof(int)))
+                    return false;
+                copy = typeof(Array).GetMethod(nameof(Array.Copy), new[] { typeof(Array), typeof(Array), typeof(int) });
+            }
+            else
+            {
+                if (!EmitArg(callIdx, 2, typeof(int))
+                    || !EmitExpression(Child(callIdx, 3), out var destinationArrayType)
+                    || !AreSameSupportedArrayType(sourceArrayType, destinationArrayType)
+                    || !EmitArg(callIdx, 4, typeof(int))
+                    || !EmitArg(callIdx, 5, typeof(int)))
+                    return false;
+                copy = typeof(Array).GetMethod(nameof(Array.Copy), new[] { typeof(Array), typeof(int), typeof(Array), typeof(int), typeof(int) });
+            }
+            if (copy == null)
+                return false;
+            _il.Emit(OpCodes.Call, copy);
+            type = typeof(void);
+            return true;
+        }
         return false;
+    }
+
+    private static bool AreSameSupportedArrayType(Type sourceArrayType, Type destinationArrayType)
+    {
+        if (!sourceArrayType.IsSZArray || !destinationArrayType.IsSZArray)
+            return false;
+        var sourceElementType = sourceArrayType.GetElementType()!;
+        var destinationElementType = destinationArrayType.GetElementType()!;
+        return sourceElementType == destinationElementType && IsSupportedElementType(sourceElementType);
     }
 
     // System.Array.Fill&lt;T&gt;(T[] array, T value, int startIndex, int count) — the 4-arg overload as a generic
