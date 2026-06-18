@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA direct-column metadata keeps IL shape through checked wrappers
+
+Direct-column metadata properties now have IL-shape evidence through `checked(...)` and
+`unchecked(...)` wrappers. `checked(table.column).Length`, `unchecked(table.column).LongLength`, and
+`checked(table.column).Rank` still load the generated backing column field, use `ldlen` or the known
+SZ-array rank constant, and allocate no rows, arrays, delegates, boxes, or virtual dispatch.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter
+"FullyQualifiedName~DirectColumnMetadataPropertiesCheckedUncheckedWrappers_UseBackingArrayLengthWithoutDispatch"`.
+
 ## 2026-06-18 — SoA direct-column Array kernels keep IL shape through checked wrappers
 
 Accepted direct-column `Array.Fill`/`Array.Copy`/`Array.Clear` calls now have IL-shape evidence when

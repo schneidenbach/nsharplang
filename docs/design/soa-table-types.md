@@ -274,9 +274,10 @@ such as `array: table.column`, `sourceArray: table.column`, and `destinationArra
 decline the same way.
 Direct column metadata properties remain available: `table.column.Length` and
 `table.column.LongLength` lower through `ldlen`, while `table.column.Rank` lowers to the known SZ-array
-rank constant. Those metadata properties are read-only: `table.column.Length = n`,
-`table.column.LongLength += n`, and `table.column.Rank++` decline during analysis instead of reaching
-the IL backend as missing setters. Array instance methods on direct columns decline before IL emission
+rank constant. Checked/unchecked wrappers around the direct column keep that same metadata lowering.
+Those metadata properties are read-only: `table.column.Length = n`, `table.column.LongLength += n`,
+and `table.column.Rank++` decline during analysis instead of reaching the IL backend as missing
+setters. Array instance methods on direct columns decline before IL emission
 because they would box, allocate, virtually dispatch, or bypass the pinned static kernels. This includes
 element access methods such as `table.column.GetValue(...)`/`SetValue(...)`, method-value escapes such
 as `table.column.Clone`, checked/unchecked wrapper escapes such as `checked(table.column).Clone`,

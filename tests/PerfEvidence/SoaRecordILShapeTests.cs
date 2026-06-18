@@ -138,6 +138,45 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void DirectColumnMetadataPropertiesCheckedUncheckedWrappers_UseBackingArrayLengthWithoutDispatch()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                kind: int
+            }
+
+            func metadata(nodes: NodeTable): int {
+                return checked(nodes.kind).Length + (int)unchecked(nodes.kind).LongLength + checked(nodes.kind).Rank
+            }
+
+            func main(): int {
+                nodes := new NodeTable(3)
+                return metadata(nodes)
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var metadata = ILShapeInspector.GetProgramMethod(assembly, "metadata");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(7, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoAllocationOrDispatch(metadata);
+            Assert.Equal(2, ILShapeInspector.CountOpcode(metadata, OpCodes.Ldlen));
+            Assert.True(
+                ILShapeInspector.CountOpcode(metadata, OpCodes.Ldfld) >= 2,
+                "Checked/unchecked direct SoA column metadata should load backing column arrays directly.");
+            Assert.Equal(0, CountArrayElementLoads(metadata));
+            Assert.Equal(0, CountArrayElementStores(metadata));
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void DirectColumnBulkArrayOperations_UseBackingArraysWithoutRowAllocation()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
