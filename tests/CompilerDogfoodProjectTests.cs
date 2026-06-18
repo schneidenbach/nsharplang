@@ -9545,8 +9545,10 @@ func outer(x: int): int {
         // DECLINES:
         // an UNSUFFIXED float literal on a decimal target (the pipeline's NL202 — no implicit double->decimal).
         Assert.False(RouteColumnarProgram("func f(): decimal {\n    d: decimal = 1.5\n    return d\n}\n").Ok);
-        // decimal `++` (the pipeline's behavior on non-int targets is the defect-#11 family; columnar declines).
-        Assert.False(RouteColumnarProgram("func f(): decimal {\n    d := 1m\n    d++\n    return d\n}\n").Ok);
+        // decimal `++` — production rejects non-integral increment operands with NL202 before lowering.
+        var decimalIncrement = "func f(): decimal {\n    d := 1m\n    d++\n    return d\n}\n";
+        Assert.False(RouteColumnarProgram(decimalIncrement).Ok);
+        AssertPipelineRejects(decimalIncrement, "NL202");
         // mixed decimal/int arithmetic without a cast (`x + 1` on decimal — literal typing for decimal
         // operands is unmodelled; the right-literal adoption covers uint/long/ulong only).
         Assert.False(RouteColumnarProgram("func f(): decimal {\n    x := 2.5m\n    return x + 1\n}\n").Ok);
@@ -9677,9 +9679,9 @@ func outer(x: int): int {
     // SCALAR COMPLETENESS SC-2 (Phase D) — POSTFIX `++`/`--` (kernel kind 44 PostfixUnary, single wrap
     // after the suffix chain). Statement position steps in place; expression position keeps the PRE-step
     // value (C# post-semantics, probe-pinned: `m := n++` reads the old n). int/long/ulong on bare
-    // locals/params; double/float DECLINE — the pipeline's `++` on them silently NO-OPS (oracle defect
-    // bundle), so columnar declining keeps it from ever diverging. Prefix `++n` is pipeline-rejected
-    // (NL313). The write scans treat kind 44 like an assignment (capture-lifting soundness).
+    // locals/params; double/float DECLINE because production rejects non-integral increment operands
+    // with NL202. Prefix `++n` is pipeline-rejected (NL313). The write scans treat kind 44 like an
+    // assignment (capture-lifting soundness).
     [Fact]
     public void ColumnarCodegen_Parity_PostfixIncrementDecrement()
     {
@@ -9701,8 +9703,10 @@ func outer(x: int): int {
             ("countUp", new object[] { 5 }), ("countUp", new object[] { 0 }));
 
         // DECLINES:
-        // double/float `++` — the PIPELINE silently no-ops them (oracle defect bundle); columnar declines.
-        Assert.False(RouteColumnarProgram("func f(): double {\n    d := 1.5\n    d++\n    return d\n}\n").Ok);
+        // double/float `++` — production rejects non-integral increment operands with NL202.
+        var doubleIncrement = "func f(): double {\n    d := 1.5\n    d++\n    return d\n}\n";
+        Assert.False(RouteColumnarProgram(doubleIncrement).Ok);
+        AssertPipelineRejects(doubleIncrement, "NL202");
         // prefix `++n` is pipeline-rejected (NL313) — and unparsed by the kernel.
         Assert.False(RouteColumnarProgram("func f(): int {\n    n := 5\n    ++n\n    return n\n}\n").Ok);
         // `++` through a MEMBER path (storage-addressing rung).

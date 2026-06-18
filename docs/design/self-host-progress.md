@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Non-integral increment decline pins assert analyzer verdicts
+
+The decimal and double postfix-increment columnar decline pins now assert the production analyzer's
+`NL202` verdict for non-integral increment operands. The comments previously described an old
+oracle-defect family where non-int `++` could reach lowering; the analyzer now stops those operands
+before emission, and the route tests pin that front-door safety result alongside the columnar
+decline.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter
+"FullyQualifiedName~ColumnarCodegen_Parity_Decimal|FullyQualifiedName~ColumnarCodegen_Parity_PostfixIncrementDecrement"`.
+
 ## 2026-06-18 — Typed-catch decline pins assert analyzer verdicts
 
 The typed-catch parity declines for unknown exception types and non-`Exception` catch types now assert
