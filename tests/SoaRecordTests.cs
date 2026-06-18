@@ -10605,6 +10605,9 @@ public class SoaRecordTests : ILCompilerTestBase
     [InlineData("", "(nodes.kind)[row]")]
     [InlineData("", "(nodes.kind)[^1]")]
     [InlineData("idx := ^1;", "(nodes.kind)[idx]")]
+    [InlineData("", "(checked(nodes.kind))[row]")]
+    [InlineData("", "(unchecked(nodes.kind))[^1]")]
+    [InlineData("idx := ^1;", "(checked(nodes.kind))[idx]")]
     public void Analyzer_SoaRecordNonBoolColumnLogicalNot_IsRejected(string declaration, string target)
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
@@ -10632,12 +10635,18 @@ public class SoaRecordTests : ILCompilerTestBase
     [InlineData("", "(nodes.kind)[row]", "&&")]
     [InlineData("", "(nodes.kind)[^1]", "&&")]
     [InlineData("idx := ^1;", "(nodes.kind)[idx]", "&&")]
+    [InlineData("", "(checked(nodes.kind))[row]", "&&")]
+    [InlineData("", "(unchecked(nodes.kind))[^1]", "&&")]
+    [InlineData("idx := ^1;", "(checked(nodes.kind))[idx]", "&&")]
     [InlineData("", "nodes[row].kind", "||")]
     [InlineData("", "nodes.kind[row]", "||")]
     [InlineData("", "nodes.kind[^1]", "||")]
     [InlineData("", "(nodes.kind)[row]", "||")]
     [InlineData("", "(nodes.kind)[^1]", "||")]
     [InlineData("idx := ^1;", "(nodes.kind)[idx]", "||")]
+    [InlineData("", "(unchecked(nodes.kind))[row]", "||")]
+    [InlineData("", "(checked(nodes.kind))[^1]", "||")]
+    [InlineData("idx := ^1;", "(unchecked(nodes.kind))[idx]", "||")]
     public void Analyzer_SoaRecordNonBoolColumnLogicalExpressions_AreRejected(
         string declaration,
         string target,

@@ -214,7 +214,8 @@ column member is the parenthesized index receiver or the direct column receiver 
 logical-not, logical `&&`/`||` expressions, and bitwise expressions but still reject arithmetic
 compound assignment before lowering, including when the column member is the parenthesized index
 receiver; non-bool column elements reject logical operators during analysis, including when the
-column member is the parenthesized index receiver.
+column member is the parenthesized index receiver or the direct column receiver is wrapped in
+`checked(...)`/`unchecked(...)`.
 Numeric scalar columns support equality/inequality and relational comparisons,
 including unsigned comparisons for `uint`, plus arithmetic expression stores, arithmetic compound
 assignments, signed `int`/`long` unary negation, same-type bitwise expressions, and unary bitwise-not.
@@ -376,6 +377,9 @@ The compiler must produce direct diagnostics for common misuse:
   "The '+' operator doesn't work with 'X' and 'Y'";
 - non-integral row/direct column increment/decrement, including parenthesized column-member receiver
   forms and checked/unchecked direct-column receivers: "The '++' operator doesn't work with 'X'";
+- non-bool row/direct column logical operators, including parenthesized column-member receiver forms
+  and checked/unchecked direct-column receivers: "The '!' operator doesn't work with 'X'" or
+  "Both sides of '&&' must be booleans";
 - non-nullable row/direct column null coalescing, including enum columns:
   "The left side of '??' has type 'X', which can't be null";
 - non-int, `System.Index`, or range row indexes, including variable-held `System.Index`/`System.Range`

@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA checked direct-column non-bool logical operators reject before lowering
+
+Checked/unchecked direct-column receiver wrappers now have analyzer evidence for invalid `!`, `&&`,
+and `||` on non-bool columns. Row, literal from-end, and variable-held from-end direct-column indexes
+keep the ordinary logical-operator diagnostics before IL emission when the column receiver is wrapped
+in `checked(...)` or `unchecked(...)`.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter
+"FullyQualifiedName~Analyzer_SoaRecordNonBoolColumnLogical"`.
+
 ## 2026-06-18 — SoA checked direct-column non-integral updates reject before lowering
 
 Checked/unchecked direct-column receiver wrappers now have analyzer evidence for invalid `++` and
