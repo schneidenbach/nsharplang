@@ -8217,7 +8217,7 @@ func outer(x: int): int {
     // ORACLE's exact lowering — the enumerator comes from the IEnumerable<T> INTERFACE (the struct enumerator is BOXED),
     // Dispose sits at a dispose label after the loop (break branches to it; NOT try/finally) — which is
     // what makes mutation-during-iteration throw InvalidOperationException identically (an index loop
-    // would silently diverge; probe-pinned). The 22-probe oracle sweep was ALL green; the unmodeled
+    // would silently diverge; probe-pinned). The 23-probe oracle sweep was ALL green; the unmodeled
     // remainder declines below.
     [Fact]
     public void ColumnarCodegen_Parity_Collections()
@@ -8240,6 +8240,7 @@ func outer(x: int): int {
             "func dictCore(): int {\n    d := new Dictionary<string, int>()\n    d[\"a\"] = 1\n    d[\"b\"] = 2\n    if d.ContainsKey(\"a\") {\n        return d[\"a\"] + d[\"b\"]\n    }\n    return 0\n}\n\n" +
             "func dictOverwrite(): int {\n    d := new Dictionary<string, int>()\n    d[\"k\"] = 1\n    d[\"k\"] = 7\n    return d[\"k\"]\n}\n\n" +
             "func dictAdd(): int {\n    d := new Dictionary<string, int>()\n    d.Add(\"k\", 4)\n    d.Add(\"q\", 5)\n    return d[\"k\"] + d[\"q\"] + d.Count\n}\n\n" +
+            "func dictTryGetValue(): int {\n    d := new Dictionary<string, int>()\n    d.Add(\"a\", 7)\n    hit := 0\n    missing := 9\n    score := 0\n    if d.TryGetValue(\"a\", out hit) {\n        score = score + hit * 10\n    }\n    if d.TryGetValue(\"x\", out missing) {\n        score = score + 1000\n    }\n    return score + missing\n}\n\n" +
             "func dictRemove(): int {\n    d := new Dictionary<string, int>()\n    d.Add(\"a\", 1)\n    d.Add(\"b\", 2)\n    removed := d.Remove(\"a\")\n    missing := d.Remove(\"x\")\n    score := d.Count\n    if removed {\n        score = score + 10\n    }\n    if missing {\n        score = score + 100\n    }\n    if d.ContainsKey(\"b\") {\n        score = score + 1000\n    }\n    return score + d[\"b\"]\n}\n\n" +
             "func dictClear(): int {\n    d := new Dictionary<string, int>()\n    d.Add(\"a\", 1)\n    d.Add(\"b\", 2)\n    d.Clear()\n    d.Add(\"c\", 3)\n    score := d.Count * 10\n    if d.ContainsKey(\"c\") {\n        score = score + 1\n    }\n    if d.ContainsKey(\"a\") {\n        score = score + 100\n    }\n    return score + d[\"c\"]\n}\n\n" +
             // capacity ctors (probed: 7).
@@ -8270,6 +8271,7 @@ func outer(x: int): int {
             ("dictCore", System.Array.Empty<object>()),
             ("dictOverwrite", System.Array.Empty<object>()),
             ("dictAdd", System.Array.Empty<object>()),
+            ("dictTryGetValue", System.Array.Empty<object>()),
             ("dictRemove", System.Array.Empty<object>()),
             ("dictClear", System.Array.Empty<object>()),
             ("capacity", System.Array.Empty<object>()),

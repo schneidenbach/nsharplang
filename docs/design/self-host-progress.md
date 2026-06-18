@@ -11,13 +11,22 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Columnar `Dictionary.TryGetValue` routes existing `out` locals
+
+The standalone columnar emitter now lowers `Dictionary<K,V>.TryGetValue(K, out V)` for dictionary
+values that fit the existing supported by-ref value-slot surface. This covers the systems proof shape
+(`Dictionary<int,int>` hot lookup) without opening reference-`out` or builder-valued dictionary cases.
+The parity probe checks hit/miss booleans, writes through an existing `out` local, and the C#-matching
+default value written on a missing key.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_Parity_Collections"`;
+`./scripts/dev.sh ColumnarCodegen_Parity_Collections`.
+
 ## 2026-06-18 — Columnar `Dictionary.Clear` joins the void-mutator surface
 
 The standalone columnar emitter now lowers `Dictionary<K,V>.Clear()` for the closed-generic
 dictionary surface already backed by `Add`, `ContainsKey`, and `Remove`. The parity probe verifies
 post-clear `Count`, removed-key absence, reuse after clear, and indexer lookup against the C# oracle.
-Other dictionary mutators such as `TryGetValue` remain declined until they have dedicated parity and
-shape evidence.
+Other dictionary mutators remain declined until they have dedicated parity and shape evidence.
 Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_Parity_Collections"`;
 `./scripts/dev.sh ColumnarCodegen_Parity_Collections`.
 
