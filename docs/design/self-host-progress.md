@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA alias generated operation bounds keep runtime table names
+
+Alias-generated `add`, `wrap`, and `copyRow` calls now have dynamic bounds pins. Calls through
+`type Nodes = NodeTable` and `type EmptyNodes = EmptyTable` still report the underlying table names
+for `add` length overflow, `wrap` length beyond column capacity, `copyRow` source past length, and
+`copyRow` target overflow. Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~ILCompiler_SoaRecordAliasGeneratedOperationDynamicBounds_ReportUnderlyingTableMessages"`.
+
 ## 2026-06-18 — SoA alias generated operations keep runtime guard messages
 
 Alias-generated `new`, `wrap`, `ensureCapacity`, and `copyRow` calls now have dynamic runtime guard

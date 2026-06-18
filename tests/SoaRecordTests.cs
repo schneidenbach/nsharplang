@@ -15806,6 +15806,64 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void ILCompiler_SoaRecordAliasGeneratedOperationDynamicBounds_ReportUnderlyingTableMessages()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var source = """
+            soa record NodeTable {
+                kind: int
+            }
+
+            soa record EmptyTable {
+            }
+
+            type Nodes = NodeTable
+            type EmptyNodes = EmptyTable
+
+            func addAt(length: int): int {
+                nodes := EmptyNodes.wrap(length)
+                nodes.add()
+                return nodes.length
+            }
+
+            func wrapLength(length: int): int {
+                kinds := new int[](2)
+                nodes := Nodes.wrap(kinds, length)
+                return nodes.length
+            }
+
+            func copyFrom(from: int): int {
+                nodes := new Nodes(3)
+                row := nodes.add()
+                nodes[row].kind = 7
+                nodes.copyRow(from, 0)
+                return nodes[0].kind
+            }
+
+            func copyTo(to: int): int {
+                nodes := new Nodes(1)
+                row := nodes.add()
+                nodes[row].kind = 7
+                nodes.copyRow(0, to)
+                return nodes.length
+            }
+            """;
+
+        var addError = Assert.Throws<ArgumentException>(() => CompileAndInvoke(source, "addAt", int.MaxValue));
+        Assert.Equal("length for EmptyTable.add is too large", addError.Message);
+
+        var wrapError = Assert.Throws<ArgumentException>(() => CompileAndInvoke(source, "wrapLength", 3));
+        Assert.Equal("length for NodeTable.wrap must be between 0 and column length", wrapError.Message);
+
+        var sourceRowError = Assert.Throws<ArgumentException>(() => CompileAndInvoke(source, "copyFrom", 1));
+        Assert.Equal("source row for NodeTable.copyRow must be less than length", sourceRowError.Message);
+
+        var targetRowError = Assert.Throws<ArgumentException>(() => CompileAndInvoke(source, "copyTo", int.MaxValue));
+        Assert.Equal("target row for NodeTable.copyRow is too large", targetRowError.Message);
+    }
+
+    [Fact]
     public void ILCompiler_SoaRecordAddDynamicMaxLength_ReportsLengthMessage()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
