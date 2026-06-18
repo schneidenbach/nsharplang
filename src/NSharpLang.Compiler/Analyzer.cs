@@ -3978,6 +3978,9 @@ public class Analyzer : IDisposable
 
     private void AnalyzeAssertThrowsStatement(AssertThrowsStatement assertThrows)
     {
+        var exceptionType = ResolveDeclaredType(assertThrows.ExceptionType);
+        ReportNonThrowableAssertThrowsTypeIfNeeded(assertThrows.ExceptionType, exceptionType);
+
         // Analyze the body block
         PushScope(new Scope(ScopeKind.Block), assertThrows.Line, assertThrows.Column);
         AnalyzeStatements(assertThrows.Body.Statements);
@@ -5289,6 +5292,23 @@ public class Analyzer : IDisposable
             span.StartLine,
             span.StartColumn,
             "Catch Exception or an Exception-derived type, or use a bare catch for all exceptions.",
+            span.Length);
+    }
+
+    private void ReportNonThrowableAssertThrowsTypeIfNeeded(TypeReference typeReference, TypeInfo exceptionType)
+    {
+        if (IsThrowableType(exceptionType))
+        {
+            return;
+        }
+
+        var span = GetTypeReferenceStartSpan(typeReference);
+        Error(
+            ErrorCode.TypeMismatch,
+            $"Assert throws type must be assignable to System.Exception, but this type is '{exceptionType}'",
+            span.StartLine,
+            span.StartColumn,
+            "Assert an Exception-derived type, or use a broader exception type such as Exception.",
             span.Length);
     }
 

@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — `assert throws` validates exception types before emission
+
+`assert throws` now resolves its expected exception type through the declared-type path and requires an
+`Exception`-derived type before the backend builds the protected region. Unknown assertion types now
+produce `NL201`, and known non-exception types such as `int`, `string`, and `object` produce `NL202`
+at the asserted type span instead of reaching `BeginCatchBlock` with an invalid catch type. CLR and
+N# exception-derived assertion types remain accepted.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~AnalyzerTests.AssertThrows"`;
+`./scripts/dev.sh AssertThrows`.
+
 ## 2026-06-18 — Catch clauses validate exception types before lowering
 
 Catch clause type annotations now resolve through the declared-type path and must be assignable to

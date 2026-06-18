@@ -2191,6 +2191,61 @@ func Main() {
             """);
     }
 
+    [Theory]
+    [InlineData("int", "int")]
+    [InlineData("string", "string")]
+    [InlineData("object", "object")]
+    public void AssertThrows_NonExceptionType_ReportsTypeMismatch(string assertType, string expectedType)
+    {
+        var result = AnalyzeWithSource($$"""
+            func Main() {
+                assert throws {{assertType}} {
+                }
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains("Assert throws type must be assignable to System.Exception", error.Message);
+        Assert.Contains($"'{expectedType}'", error.Message);
+        Assert.Contains("Exception-derived", error.Suggestion);
+    }
+
+    [Fact]
+    public void AssertThrows_UnknownType_ReportsTypeNotFoundOnly()
+    {
+        var result = AnalyzeWithSource("""
+            func Main() {
+                assert throws MissingException {
+                }
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeNotFound);
+        Assert.Contains("MissingException", error.Message);
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+    }
+
+    [Fact]
+    public void AssertThrows_ExceptionTypes_AreValid()
+    {
+        AssertNoErrors("""
+            import System
+
+            class DomainFailure : Exception {
+            }
+
+            func Main() {
+                assert throws InvalidOperationException {
+                    throw new InvalidOperationException("boom")
+                }
+
+                assert throws DomainFailure {
+                    throw new DomainFailure()
+                }
+            }
+            """);
+    }
+
     [Fact]
     public void UsingStatement_Valid()
     {
