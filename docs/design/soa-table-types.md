@@ -254,10 +254,11 @@ require a nullable/reference column element and non-nullable columns reject the 
 analysis, including when the column member is the parenthesized index receiver. Direct-column range
 slices remain rejected before IL lowering instead of falling into the allocating array-slice backend.
 Whole-column BCL calls that preserve row identity, such as `Array.Fill(table.column, ...)`,
-`Array.Copy(source, table.column, ...)`, and `Array.Clear(table.column, ...)`, are accepted direct
-backing-array operations for the supported whole-array, ranged, and offset-copy overloads. They are
-pinned to load the generated column field directly without row allocation, boxing, delegate
-construction, array allocation, or virtual dispatch in the hot function. Named argument calls over
+`Array.Copy(source, table.column, ...)`, `Array.Copy(table.column, target, ...)`, and
+`Array.Clear(table.column, ...)`, are accepted direct backing-array operations for the supported
+whole-array, ranged, and offset-copy overloads. They are pinned to load the generated column field
+directly without row allocation, boxing, delegate construction, array allocation, or virtual dispatch
+in the hot function. Named argument calls over
 the same overloads, such as `array: table.column`, `sourceArray: table.column`, and
 `destinationArray: table.column`, keep the same backing-array IL shape, including ranged clear calls such as
 `Array.Clear(length: n, array: table.column, index: i)` and explicit `System.Array` targets. Other

@@ -445,6 +445,61 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void DirectColumnBulkArrayOperationSourceColumnPositionalArguments_UseBackingArraysWithoutRowAllocation()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            import System
+
+            soa record NodeTable {
+                kind: int
+                start: int
+            }
+
+            func bulk(nodes: NodeTable, target: int[]): int {
+                Array.Copy(nodes.kind, target, 2)
+                System.Array.Copy(nodes.start, 1, target, 2, 1)
+                return target[0] * 100 + target[1] * 10 + target[2]
+            }
+
+            func main(): int {
+                nodes := new NodeTable(2)
+                first := nodes.add()
+                second := nodes.add()
+                nodes.kind[first] = 3
+                nodes.kind[second] = 4
+                nodes.start[first] = 8
+                nodes.start[second] = 9
+                target := new int[](3)
+                return bulk(nodes, target)
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var bulk = ILShapeInspector.GetProgramMethod(assembly, "bulk");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(349, Assert.IsType<int>(main.Invoke(null, null)));
+
+            ILShapeInspector.AssertNoBoxing(bulk);
+            Assert.Equal(0, ILShapeInspector.CountOpcode(bulk, OpCodes.Newobj));
+            Assert.Equal(0, ILShapeInspector.CountOpcode(bulk, OpCodes.Newarr));
+            Assert.Equal(0, ILShapeInspector.CountDelegateConstructions(bulk));
+            Assert.Equal(0, ILShapeInspector.CountOpcode(bulk, OpCodes.Callvirt));
+            Assert.Equal(2, ILShapeInspector.CountCallsTo(bulk, typeof(Array), nameof(Array.Copy)));
+            Assert.True(
+                ILShapeInspector.CountOpcode(bulk, OpCodes.Ldfld) >= 2,
+                "Positional direct SoA column Array.Copy source arguments should load backing column arrays directly.");
+            Assert.Equal(3, CountArrayElementLoads(bulk));
+            Assert.Equal(0, CountArrayElementStores(bulk));
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void RowProjectionRefAndOutArguments_UseColumnArrayElementAddress()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
