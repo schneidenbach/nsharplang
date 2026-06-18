@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — CLI argument parity-only probes get full product-boundary pins
+
+`ColumnarCodegen_ParityOnlyFiles_AreAbsentFromProductCoverage` now enumerates the full
+`CliArguments.nl` parity-only function surface, including benchmark-only format-discovery,
+reference-resolution score, build/test option, watch forwarding, batch positional, fix flattening,
+and checksum oracle helpers. Product dogfood coverage must keep those helpers absent, while the
+product+parity merge still compiles them for historical parity and benchmark evidence.
+
 ## 2026-06-18 — Anonymous-union shim drops trusted-core transition name
 
 `AnonymousUnionDeclaresPublicShim` now routes through a table-shaped
