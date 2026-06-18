@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Remaining compiler dogfood bindings share loader fallback
+
+The remaining multi-delegate compiler dogfood wrappers now use
+`DogfoodKernelLoader.TryCreateBindings(...)`. IL type-table selection, analyzer exhaustiveness,
+code-intelligence source/result/binding/diagnostic/completion/doc/cluster kernels, and columnar
+program input construction no longer carry local `TryGetProgramType`/catch/null scaffolding. The
+typed delegate shapes, scratch buffers, validation, and C# fallback algorithms remain owner-local;
+only the assembly-load/delegate-bind/fallback host boundary is centralized. A compiler scan now
+finds direct dogfood assembly/type loading only in `DogfoodKernelLoader`. Focused evidence:
+`dotnet build src/NSharpLang.Compiler/Compiler.csproj --no-restore`; `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~ILTypeTableSelector_|FullyQualifiedName~AnalyzerExhaustivenessSelector_SelectsMissingEnumMembersAndUnionCases|FullyQualifiedName~CodeIntelligenceKernels_LoadsPackagedNSharpAssembly|FullyQualifiedName~DocQueryKernels_|FullyQualifiedName~CompilerErrorSeverityFilter_FiltersCompilerErrorsBySeverity|FullyQualifiedName~FixApplicatorTests.DogfoodTextEditOrdering|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_EligibleClusterCompiles"`.
+
 ## 2026-06-18 — All CLI dogfood bindings share compiler loader fallback
 
 The remaining multi-delegate CLI dogfood wrappers now use `DogfoodKernelLoader.TryCreateBindings(...)`

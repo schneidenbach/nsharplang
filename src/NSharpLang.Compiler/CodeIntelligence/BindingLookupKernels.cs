@@ -120,25 +120,12 @@ internal static class BindingLookupKernels
     }
 
     private static Bindings? LoadBindings()
-    {
-        try
-        {
-            var programType = DogfoodKernelLoader.TryGetProgramType();
-            if (programType == null)
-                return null;
-
-            return new Bindings(
-                DogfoodKernelLoader.CreateDelegate<BindingLookupCandidateColumnsInto>(programType, "BindingLookupCandidateColumnsInto"),
-                DogfoodKernelLoader.CreateDelegate<BindingLookupBuildSlotsInto>(programType, "BindingLookupBuildSlotsInto"),
-                DogfoodKernelLoader.CreateDelegate<BindingLookupQueryDeclarationIndicesInto>(programType, "BindingLookupQueryDeclarationIndicesInto"),
-                DogfoodKernelLoader.CreateDelegate<BindingLookupBuildNearestDeclarationIndexInto>(programType, "BindingLookupBuildNearestDeclarationIndexInto"),
-                DogfoodKernelLoader.CreateDelegate<BindingLookupFindNearestDeclarationIndicesInto>(programType, "BindingLookupFindNearestDeclarationIndicesInto"));
-        }
-        catch
-        {
-            return null;
-        }
-    }
+        => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
+            DogfoodKernelLoader.CreateDelegate<BindingLookupCandidateColumnsInto>(programType, "BindingLookupCandidateColumnsInto"),
+            DogfoodKernelLoader.CreateDelegate<BindingLookupBuildSlotsInto>(programType, "BindingLookupBuildSlotsInto"),
+            DogfoodKernelLoader.CreateDelegate<BindingLookupQueryDeclarationIndicesInto>(programType, "BindingLookupQueryDeclarationIndicesInto"),
+            DogfoodKernelLoader.CreateDelegate<BindingLookupBuildNearestDeclarationIndexInto>(programType, "BindingLookupBuildNearestDeclarationIndexInto"),
+            DogfoodKernelLoader.CreateDelegate<BindingLookupFindNearestDeclarationIndicesInto>(programType, "BindingLookupFindNearestDeclarationIndicesInto")));
 
     private delegate int BindingLookupCandidateColumnsInto(
         int[] queryColumns,

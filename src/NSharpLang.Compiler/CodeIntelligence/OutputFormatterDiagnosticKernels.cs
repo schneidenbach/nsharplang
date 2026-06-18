@@ -107,26 +107,13 @@ internal static class OutputFormatterDiagnosticKernels
     }
 
     private static Bindings? LoadBindings()
-    {
-        try
-        {
-            var programType = DogfoodKernelLoader.TryGetProgramType();
-            if (programType == null)
-                return null;
-
-            return new Bindings(
-                DogfoodKernelLoader.CreateDelegate<DiagnosticSeveritySummaryInto>(
-                    programType,
-                    "DiagnosticSeveritySummaryInto"),
-                DogfoodKernelLoader.CreateDelegate<DiagnosticSeverityFilterIndicesInto>(
-                    programType,
-                    "DiagnosticSeverityFilterIndicesInto"));
-        }
-        catch
-        {
-            return null;
-        }
-    }
+        => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
+            DogfoodKernelLoader.CreateDelegate<DiagnosticSeveritySummaryInto>(
+                programType,
+                "DiagnosticSeveritySummaryInto"),
+            DogfoodKernelLoader.CreateDelegate<DiagnosticSeverityFilterIndicesInto>(
+                programType,
+                "DiagnosticSeverityFilterIndicesInto")));
 
     private delegate int DiagnosticSeveritySummaryInto(
         string[] severities,

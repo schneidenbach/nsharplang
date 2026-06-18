@@ -805,47 +805,34 @@ internal static class ColumnarProgramInputBuilder
     }
 
     private static Bindings? LoadBindings()
-    {
-        try
-        {
-            var programType = DogfoodKernelLoader.TryGetProgramType();
-            if (programType == null)
-                return null;
-
-            return new Bindings(
-                DogfoodKernelLoader.CreateDelegate<TokenizeColumnarSourceInto>(
-                    programType,
-                    "TokenizeColumnarSourceInto"),
-                DogfoodKernelLoader.CreateDelegate<TopLevelColumnarProgramDeclarationIndicesInto>(
-                    programType,
-                    "TopLevelColumnarProgramDeclarationIndicesInto"),
-                DogfoodKernelLoader.CreateDelegate<ParseColumnarProductFunctionInfoInto>(
-                    programType,
-                    "ParseColumnarProductFunctionInfoInto"),
-                DogfoodKernelLoader.CreateDelegate<ParseColumnarPropertyInfoInto>(
-                    programType,
-                    "ParseColumnarPropertyInfoInto"),
-                DogfoodKernelLoader.CreateDelegate<ParseColumnarInterfaceInfoInto>(
-                    programType,
-                    "ParseColumnarInterfaceInfoInto"),
-                DogfoodKernelLoader.CreateDelegate<ParseColumnarEnumInfoInto>(
-                    programType,
-                    "ParseColumnarEnumInfoInto"),
-                DogfoodKernelLoader.CreateDelegate<ParseColumnarStructInfoInto>(
-                    programType,
-                    "ParseColumnarStructInfoInto"),
-                DogfoodKernelLoader.CreateDelegate<ParseColumnarUnionInfoInto>(
-                    programType,
-                    "ParseColumnarUnionInfoInto"),
-                DogfoodKernelLoader.CreateDelegate<ParseColumnarConstructorInfoInto>(
-                    programType,
-                    "ParseColumnarConstructorInfoInto"));
-        }
-        catch
-        {
-            return null;
-        }
-    }
+        => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
+            DogfoodKernelLoader.CreateDelegate<TokenizeColumnarSourceInto>(
+                programType,
+                "TokenizeColumnarSourceInto"),
+            DogfoodKernelLoader.CreateDelegate<TopLevelColumnarProgramDeclarationIndicesInto>(
+                programType,
+                "TopLevelColumnarProgramDeclarationIndicesInto"),
+            DogfoodKernelLoader.CreateDelegate<ParseColumnarProductFunctionInfoInto>(
+                programType,
+                "ParseColumnarProductFunctionInfoInto"),
+            DogfoodKernelLoader.CreateDelegate<ParseColumnarPropertyInfoInto>(
+                programType,
+                "ParseColumnarPropertyInfoInto"),
+            DogfoodKernelLoader.CreateDelegate<ParseColumnarInterfaceInfoInto>(
+                programType,
+                "ParseColumnarInterfaceInfoInto"),
+            DogfoodKernelLoader.CreateDelegate<ParseColumnarEnumInfoInto>(
+                programType,
+                "ParseColumnarEnumInfoInto"),
+            DogfoodKernelLoader.CreateDelegate<ParseColumnarStructInfoInto>(
+                programType,
+                "ParseColumnarStructInfoInto"),
+            DogfoodKernelLoader.CreateDelegate<ParseColumnarUnionInfoInto>(
+                programType,
+                "ParseColumnarUnionInfoInto"),
+            DogfoodKernelLoader.CreateDelegate<ParseColumnarConstructorInfoInto>(
+                programType,
+                "ParseColumnarConstructorInfoInto")));
 
     private delegate int TokenizeColumnarSourceInto(
         string source,

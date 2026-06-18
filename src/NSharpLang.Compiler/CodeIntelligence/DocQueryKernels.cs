@@ -305,29 +305,16 @@ internal static class DocQueryKernels
     }
 
     private static Bindings? LoadBindings()
-    {
-        try
-        {
-            var programType = DogfoodKernelLoader.TryGetProgramType();
-            if (programType == null)
-                return null;
-
-            return new Bindings(
-                DogfoodKernelLoader.CreateDelegate<StableDistinctRankIndicesInto>(
-                    programType,
-                    "CliStableDistinctRankIndicesInto"),
-                DogfoodKernelLoader.CreateDelegate<DocQueryBestTypeIndexInto>(
-                    programType,
-                    "DocQueryBestTypeIndex"),
-                DogfoodKernelLoader.CreateDelegate<DocQueryMemberOrderIndicesInto>(
-                    programType,
-                    "DocQueryMemberOrderIndicesInto"));
-        }
-        catch
-        {
-            return null;
-        }
-    }
+        => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
+            DogfoodKernelLoader.CreateDelegate<StableDistinctRankIndicesInto>(
+                programType,
+                "CliStableDistinctRankIndicesInto"),
+            DogfoodKernelLoader.CreateDelegate<DocQueryBestTypeIndexInto>(
+                programType,
+                "DocQueryBestTypeIndex"),
+            DogfoodKernelLoader.CreateDelegate<DocQueryMemberOrderIndicesInto>(
+                programType,
+                "DocQueryMemberOrderIndicesInto")));
 
     private static int GetDocMemberKindRank(string kind) =>
         kind switch

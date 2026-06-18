@@ -247,29 +247,16 @@ internal static class CompletionEngineKernels
         !method.IsSpecialName && method.DeclaringType?.FullName != "System.Object";
 
     private static Bindings? LoadBindings()
-    {
-        try
-        {
-            var programType = DogfoodKernelLoader.TryGetProgramType();
-            if (programType == null)
-                return null;
-
-            return new Bindings(
-                DogfoodKernelLoader.CreateDelegate<CodeIntelligenceCompletionReceiversInto>(
-                    programType,
-                    "CodeIntelligenceCompletionReceiversInto"),
-                DogfoodKernelLoader.CreateDelegate<CompletionItemKindGroupsInto>(
-                    programType,
-                    "CompletionItemKindGroupsInto"),
-                DogfoodKernelLoader.CreateDelegate<CompletionMethodOverloadGroupsInto>(
-                    programType,
-                    "CompletionMethodOverloadGroupsInto"));
-        }
-        catch
-        {
-            return null;
-        }
-    }
+        => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
+            DogfoodKernelLoader.CreateDelegate<CodeIntelligenceCompletionReceiversInto>(
+                programType,
+                "CodeIntelligenceCompletionReceiversInto"),
+            DogfoodKernelLoader.CreateDelegate<CompletionItemKindGroupsInto>(
+                programType,
+                "CompletionItemKindGroupsInto"),
+            DogfoodKernelLoader.CreateDelegate<CompletionMethodOverloadGroupsInto>(
+                programType,
+                "CompletionMethodOverloadGroupsInto")));
 
     private delegate int CodeIntelligenceCompletionReceiversInto(
         string[] prefixes,

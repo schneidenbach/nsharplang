@@ -167,26 +167,13 @@ internal static class AnalyzerExhaustivenessSelector
     }
 
     private static Bindings? LoadBindings()
-    {
-        try
-        {
-            var programType = DogfoodKernelLoader.TryGetProgramType();
-            if (programType == null)
-                return null;
-
-            return new Bindings(
-                DogfoodKernelLoader.CreateDelegate<AnalyzerMissingMemberIndicesInto>(
-                    programType,
-                    "AnalyzerMissingMemberIndicesInto"),
-                DogfoodKernelLoader.CreateDelegate<AnalyzerUnionMissingCaseIndicesInto>(
-                    programType,
-                    "AnalyzerUnionMissingCaseIndicesInto"));
-        }
-        catch
-        {
-            return null;
-        }
-    }
+        => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
+            DogfoodKernelLoader.CreateDelegate<AnalyzerMissingMemberIndicesInto>(
+                programType,
+                "AnalyzerMissingMemberIndicesInto"),
+            DogfoodKernelLoader.CreateDelegate<AnalyzerUnionMissingCaseIndicesInto>(
+                programType,
+                "AnalyzerUnionMissingCaseIndicesInto")));
 
     private delegate int AnalyzerMissingMemberIndicesInto(int[] coveredFlags, int count, int[] resultIndices);
     private delegate int AnalyzerUnionMissingCaseIndicesInto(

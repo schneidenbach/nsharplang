@@ -295,32 +295,19 @@ internal static class CodeIntelligenceResultKernels
     }
 
     private static Bindings? LoadBindings()
-    {
-        try
-        {
-            var programType = DogfoodKernelLoader.TryGetProgramType();
-            if (programType == null)
-                return null;
-
-            return new Bindings(
-                DogfoodKernelLoader.CreateDelegate<DiagnosticShadowSuppressionIndicesInto>(
-                    programType,
-                    "DiagnosticShadowSuppressionIndicesInto"),
-                DogfoodKernelLoader.CreateDelegate<DiagnosticDeduplicateCompactInto>(
-                    programType,
-                    "DiagnosticDeduplicateCompactInto"),
-                DogfoodKernelLoader.CreateDelegate<DiagnosticDeduplicateCompactInto>(
-                    programType,
-                    "DiagnosticDeduplicateStableInto"),
-                DogfoodKernelLoader.CreateDelegate<ReferenceDeduplicateCompactInto>(
-                    programType,
-                    "ReferenceDeduplicateCompactInto"));
-        }
-        catch
-        {
-            return null;
-        }
-    }
+        => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
+            DogfoodKernelLoader.CreateDelegate<DiagnosticShadowSuppressionIndicesInto>(
+                programType,
+                "DiagnosticShadowSuppressionIndicesInto"),
+            DogfoodKernelLoader.CreateDelegate<DiagnosticDeduplicateCompactInto>(
+                programType,
+                "DiagnosticDeduplicateCompactInto"),
+            DogfoodKernelLoader.CreateDelegate<DiagnosticDeduplicateCompactInto>(
+                programType,
+                "DiagnosticDeduplicateStableInto"),
+            DogfoodKernelLoader.CreateDelegate<ReferenceDeduplicateCompactInto>(
+                programType,
+                "ReferenceDeduplicateCompactInto")));
 
     private delegate int DiagnosticShadowSuppressionIndicesInto(
         int[] codeIds,

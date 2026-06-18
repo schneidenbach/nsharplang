@@ -250,32 +250,19 @@ internal static class ILTypeTableSelector
     }
 
     private static Bindings? LoadBindings()
-    {
-        try
-        {
-            var programType = DogfoodKernelLoader.TryGetProgramType();
-            if (programType == null)
-                return null;
-
-            return new Bindings(
-                DogfoodKernelLoader.CreateDelegate<FirstDistinctRankIndicesInto>(
-                    programType,
-                    "FirstDistinctRankIndicesInto"),
-                DogfoodKernelLoader.CreateDelegate<DeclaredTypeUniqueSuffixValueRank>(
-                    programType,
-                    "DeclaredTypeUniqueSuffixValueRank"),
-                DogfoodKernelLoader.CreateDelegate<DeclaredTypeNameCandidateIndex>(
-                    programType,
-                    "DeclaredTypeNameCandidateIndex"),
-                DogfoodKernelLoader.CreateDelegate<TypeCreationOrderIndicesInto>(
-                    programType,
-                    "TypeCreationOrderIndicesInto"));
-        }
-        catch
-        {
-            return null;
-        }
-    }
+        => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
+            DogfoodKernelLoader.CreateDelegate<FirstDistinctRankIndicesInto>(
+                programType,
+                "FirstDistinctRankIndicesInto"),
+            DogfoodKernelLoader.CreateDelegate<DeclaredTypeUniqueSuffixValueRank>(
+                programType,
+                "DeclaredTypeUniqueSuffixValueRank"),
+            DogfoodKernelLoader.CreateDelegate<DeclaredTypeNameCandidateIndex>(
+                programType,
+                "DeclaredTypeNameCandidateIndex"),
+            DogfoodKernelLoader.CreateDelegate<TypeCreationOrderIndicesInto>(
+                programType,
+                "TypeCreationOrderIndicesInto")));
 
     private delegate int FirstDistinctRankIndicesInto(
         int[] ranks,

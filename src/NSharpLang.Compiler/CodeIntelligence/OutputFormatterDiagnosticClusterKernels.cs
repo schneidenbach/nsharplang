@@ -164,29 +164,16 @@ internal static class OutputFormatterDiagnosticClusterKernels
     }
 
     private static Bindings? LoadBindings()
-    {
-        try
-        {
-            var programType = DogfoodKernelLoader.TryGetProgramType();
-            if (programType == null)
-                return null;
-
-            return new Bindings(
-                DogfoodKernelLoader.CreateDelegate<DiagnosticClusterTraitsInto>(
-                    programType,
-                    "DiagnosticClusterTraitsInto"),
-                DogfoodKernelLoader.CreateDelegate<DiagnosticClusterCompactGroupsInto>(
-                    programType,
-                    "DiagnosticClusterCompactGroupsInto"),
-                DogfoodKernelLoader.CreateDelegate<DiagnosticClusterCompactGroupMembersInto>(
-                    programType,
-                    "DiagnosticClusterCompactGroupMembersInto"));
-        }
-        catch
-        {
-            return null;
-        }
-    }
+        => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
+            DogfoodKernelLoader.CreateDelegate<DiagnosticClusterTraitsInto>(
+                programType,
+                "DiagnosticClusterTraitsInto"),
+            DogfoodKernelLoader.CreateDelegate<DiagnosticClusterCompactGroupsInto>(
+                programType,
+                "DiagnosticClusterCompactGroupsInto"),
+            DogfoodKernelLoader.CreateDelegate<DiagnosticClusterCompactGroupMembersInto>(
+                programType,
+                "DiagnosticClusterCompactGroupMembersInto")));
 
     private static int GetRiskId(int category) => category switch
     {
