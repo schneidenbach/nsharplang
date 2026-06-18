@@ -1173,6 +1173,55 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void HardCastedDirectColumnNullCoalescingCheckedUncheckedWrappers_UseColumnArrayLoadStoreWithoutRowAllocation()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                text: string
+            }
+
+            type Nodes = NodeTable
+
+            func adopt(nodes: Nodes, row: int): string {
+                missing := (checked(((NodeTable)nodes).text))[row] ?? "missing"
+                (unchecked(((Nodes)((NodeTable)nodes)).text))[row] ??= "assigned"
+                current := (checked(((NodeTable)((Nodes)nodes)).text))[row] ??= "ignored"
+                (unchecked(((NodeTable)nodes).text))[^1] ??= "tail"
+                idx := ^1
+                tail := (checked(((Nodes)((NodeTable)nodes)).text))[idx] ?? "fallback"
+                return missing + ":" + current + ":" + tail
+            }
+
+            func main(): string {
+                nodes := new Nodes(1)
+                row := nodes.add()
+                return adopt(nodes, row)
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var adopt = ILShapeInspector.GetProgramMethod(assembly, "adopt");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal("missing:assigned:assigned", Assert.IsType<string>(main.Invoke(null, null)));
+
+            AssertNoFromEndSliceAllocation(adopt);
+            Assert.True(
+                ILShapeInspector.CountOpcode(adopt, OpCodes.Ldfld) >= 5,
+                "Hard-casted checked/unchecked direct SoA column null coalescing should load backing column fields directly.");
+            Assert.True(
+                CountArrayElementLoads(adopt) >= 5,
+                "Hard-casted checked/unchecked direct SoA column null coalescing should read current values from backing arrays.");
+            Assert.Equal(3, CountArrayElementStores(adopt));
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void DirectColumnDefaultStoresCheckedUncheckedWrappers_DoNotReadOldElement()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

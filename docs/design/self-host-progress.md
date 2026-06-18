@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Hard-cast SoA checked null-coalescing stays direct
+
+Reference-column `??` and `??=` operations now have IL-shape evidence when hard-cast direct-column
+receivers are wrapped in `checked(...)` or `unchecked(...)`. String columns reached through nested
+table and alias casts read current backing-array elements, conditionally store for `??=`, and keep
+from-end access direct without row allocation, boxing, delegate construction, heap array allocation,
+slicing, or virtual dispatch. Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~HardCastedDirectColumnNullCoalescingCheckedUncheckedWrappers_UseColumnArrayLoadStoreWithoutRowAllocation"`.
+
 ## 2026-06-18 — Hard-cast SoA checked string compound assignments stay direct
 
 String and nullable-string compound assignments now have IL-shape evidence when hard-cast
