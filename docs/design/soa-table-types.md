@@ -258,6 +258,10 @@ Whole-column BCL calls that preserve row identity, such as `Array.Fill(table.col
 backing-array operations for the supported whole-array, ranged, and offset-copy overloads. They are
 pinned to load the generated column field directly without row allocation, boxing, delegate
 construction, array allocation, or virtual dispatch in the hot function.
+Array instance methods on direct columns that would box, allocate, virtually dispatch, or bypass the
+pinned static kernels, including `table.column.GetValue(...)`, `table.column.SetValue(...)`,
+`table.column.Clone()`, and `table.column.CopyTo(...)`, decline before IL emission. Use direct
+element indexing or the pinned static `Array.Fill`/`Array.Copy`/`Array.Clear` operations instead.
 Replacing wrapper column arrays, mutating `length`/`capacity` directly, or mutating column slices is
 not allowed: shape changes must go through construction, `wrap`, `add`, `clear`, `ensureCapacity`, or
 `copyRow`. Direct `length`/`capacity` simple assignment, compound assignment, and increment/decrement
@@ -360,6 +364,8 @@ The compiler must produce direct diagnostics for common misuse:
 - direct column slice reads, mutations, and `ref`/`out` argument addresses, including aliases to SoA
   tables, parenthesized column-member receivers, and
   checked/unchecked mutation-target wrappers: "SoA column range slices allocate arrays";
+- unsupported direct-column array instance calls, including parenthesized, checked, and unchecked
+  column receivers: "SoA table member 'X' cannot call array method 'Y' directly";
 - top-level `checked(...)`/`unchecked(...)` wrappers around `ref`/`out` arguments are not
   addressable lvalues, including when the wrapped expression is a SoA row projection or direct
   column element; if the wrapped expression already reports a SoA-specific error, such as a range

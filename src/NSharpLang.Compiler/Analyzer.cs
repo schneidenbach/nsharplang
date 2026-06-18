@@ -117,6 +117,14 @@ public class Analyzer : IDisposable
         "CopyTo"
     };
 
+    private static readonly HashSet<string> UnsupportedSoaDirectColumnArrayInstanceMethods = new(StringComparer.Ordinal)
+    {
+        "GetValue",
+        "SetValue",
+        "Clone",
+        "CopyTo"
+    };
+
     private readonly List<CompilerError> _errors = new();
     private readonly Stack<Scope> _scopes = new();
     private readonly List<string> _usingNamespaces = new();
@@ -9559,6 +9567,8 @@ public class Analyzer : IDisposable
 
         if (ReportSoaDirectColumnMutatingArrayCallIfNeeded(call))
             return BuiltInTypes.Unknown;
+        if (ReportUnsupportedSoaDirectColumnArrayInstanceCallIfNeeded(call))
+            return BuiltInTypes.Unknown;
 
         // Resolve return type from function type
         if (calleeType is FunctionTypeInfo funcType)
@@ -13550,6 +13560,28 @@ public class Analyzer : IDisposable
 
         member = null!;
         return false;
+    }
+
+    private bool ReportUnsupportedSoaDirectColumnArrayInstanceCallIfNeeded(CallExpression call)
+    {
+        if (call.Callee is not MemberAccessExpression memberAccess
+            || !UnsupportedSoaDirectColumnArrayInstanceMethods.Contains(memberAccess.MemberName)
+            || !TryGetSoaColumnMemberAccess(memberAccess.Object, out var columnMember))
+        {
+            return false;
+        }
+
+        var line = memberAccess.Line;
+        var column = GetMemberNameColumn(memberAccess);
+        var length = Math.Max(1, memberAccess.MemberName.Length);
+        Error(
+            ErrorCode.InvalidSyntax,
+            $"SoA table member '{columnMember.MemberName}' cannot call array method '{memberAccess.MemberName}' directly",
+            line,
+            column,
+            "Use table.column[row] for element access, or Array.Fill, Array.Copy, and Array.Clear for supported whole-column operations.",
+            length);
+        return true;
     }
 
     private bool IsStaticArrayTarget(Expression expression)

@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA direct columns reject array instance methods outside pinned kernels
+
+Direct SoA columns now reject array instance methods that would bypass the pinned direct-column IL
+surface: `table.column.GetValue(...)`, `table.column.SetValue(...)`, `table.column.Clone()`, and
+`table.column.CopyTo(...)` report a SoA-specific diagnostic before overload binding or emission. The
+accepted whole-column surface remains the static `Array.Fill`/`Array.Copy`/`Array.Clear` kernels with
+IL-shape evidence; element mutation should use `table.column[row]`.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~SoaRecordTests.Analyzer_SoaDirectColumnsCannotUseArrayInstanceMethods"`;
+`./scripts/dev.sh SoaDirectColumnsCannotUseArrayInstanceMethods`.
+
 ## 2026-06-18 — SoA direct columns reject `Array.Sort` item-array overloads
 
 The SoA analyzer now rejects direct backing columns passed as the item array in `Array.Sort` overloads,

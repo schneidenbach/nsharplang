@@ -6423,6 +6423,76 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaDirectColumnsCannotUseArrayInstanceMethods()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var cases = new[]
+        {
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    nodes.kind.SetValue(1, 0)
+                }
+                """,
+                Method: "SetValue"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    value := (nodes.kind).GetValue(0)
+                }
+                """,
+                Method: "GetValue"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    clone := checked(nodes.kind).Clone()
+                }
+                """,
+                Method: "Clone"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes, dst: int[]) {
+                    unchecked((nodes).kind).CopyTo(dst, 0)
+                }
+                """,
+                Method: "CopyTo")
+        };
+
+        foreach (var testCase in cases)
+        {
+            var result = Analyze(testCase.Source);
+            var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+            Assert.Contains($"SoA table member 'kind' cannot call array method '{testCase.Method}' directly", error.Message);
+            Assert.Contains("Array.Fill, Array.Copy, and Array.Clear", error.Suggestion);
+        }
+    }
+
+    [Fact]
     public void Analyzer_SoaDirectColumnsCannotBeResizedThroughArrayResize()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
