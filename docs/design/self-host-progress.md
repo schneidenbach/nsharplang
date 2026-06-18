@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA direct-column Array kernels keep IL shape through checked wrappers
+
+Accepted direct-column `Array.Fill`/`Array.Copy`/`Array.Clear` calls now have IL-shape evidence when
+the direct column is wrapped in `checked(...)` or `unchecked(...)`. Named `array`, `sourceArray`, and
+`destinationArray` arguments still load the generated backing column fields directly, call the BCL
+bulk helper, and allocate no rows, arrays, delegates, boxes, or virtual dispatch in the hot function.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter
+"FullyQualifiedName~DirectColumnBulkArrayOperationCheckedUncheckedWrappers_UseBackingArraysWithoutRowAllocation"`.
+
 ## 2026-06-18 — SoA direct-column array method values reject through checked wrappers
 
 Direct-column array instance method-value escapes now have an explicit analyzer pin through

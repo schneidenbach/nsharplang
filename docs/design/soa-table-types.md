@@ -261,7 +261,9 @@ directly without row allocation, boxing, delegate construction, array allocation
 in the hot function. Named argument calls over
 the same overloads, such as `array: table.column`, `sourceArray: table.column`, and
 `destinationArray: table.column`, keep the same backing-array IL shape, including ranged clear calls such as
-`Array.Clear(length: n, array: table.column, index: i)` and explicit `System.Array` targets. Other
+`Array.Clear(length: n, array: table.column, index: i)` and explicit `System.Array` targets.
+Checked/unchecked wrappers around the direct column, such as `array: checked(table.column)` or
+`sourceArray: unchecked(table.column)`, keep the same accepted shape for those pinned kernels. Other
 static `Array` methods
 that receive a direct column, such as `Array.IndexOf(table.column, ...)`,
 `Array.BinarySearch(table.column, ...)`, `Array.ConstrainedCopy(table.column, ...)`,
