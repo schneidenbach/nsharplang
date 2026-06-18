@@ -6483,6 +6483,28 @@ public class SoaRecordTests : ILCompilerTestBase
             func bad(nodes: Nodes) {
                 System.Array.Resize(ref nodes.kind, 4)
             }
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
+            func bad(nodes: Nodes) {
+                Array.Resize<int>(ref nodes.kind, 4)
+            }
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
+            func bad(nodes: Nodes) {
+                System.Array.Resize<int>(ref (nodes).kind, 4)
+            }
             """
         };
 
@@ -6567,6 +6589,28 @@ public class SoaRecordTests : ILCompilerTestBase
             func bad(nodes: Nodes) {
                 System.Array.Sort(nodes.kind)
             }
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
+            func bad(nodes: Nodes) {
+                Array.Sort<int>(nodes.kind)
+            }
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
+            func bad(nodes: Nodes) {
+                System.Array.Sort<int>((nodes).kind)
+            }
             """
         };
 
@@ -6650,6 +6694,28 @@ public class SoaRecordTests : ILCompilerTestBase
 
             func bad(nodes: Nodes) {
                 System.Array.Reverse(nodes.kind)
+            }
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
+            func bad(nodes: Nodes) {
+                Array.Reverse<int>(nodes.kind)
+            }
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
+            func bad(nodes: Nodes) {
+                System.Array.Reverse<int>((nodes).kind)
             }
             """
         };

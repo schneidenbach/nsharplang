@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA direct-column generic Array mutations stay rejected
+
+The SoA direct-column mutation diagnostics now pin explicit generic BCL method spelling and
+parenthesized table receivers: `Array.Resize<int>(ref table.column, ...)`,
+`System.Array.Resize<int>(ref (table).column, ...)`, `Array.Sort<int>(table.column)`,
+`System.Array.Sort<int>((table).column)`, `Array.Reverse<int>(table.column)`, and
+`System.Array.Reverse<int>((table).column)` all stop during analysis. This keeps row-identity-breaking
+whole-column mutations and backing-array replacement attempts out of IL emission even when callers
+spell the generic method arguments explicitly.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~SoaRecordTests.Analyzer_SoaDirectColumnsCannotBeResizedThroughArrayResize|FullyQualifiedName~SoaRecordTests.Analyzer_SoaDirectColumnsCannotBeSortedThroughArraySort|FullyQualifiedName~SoaRecordTests.Analyzer_SoaDirectColumnsCannotBeReversedThroughArrayReverse"`;
+`./scripts/dev.sh SoaDirectColumnsCannotBe`.
+
 ## 2026-06-18 — Columnar keeps `System.Array.*` outside product routing until oracle support exists
 
 The columnar BCL array primitive whitelist remains limited to the product-valid `Array.*` call shape.
