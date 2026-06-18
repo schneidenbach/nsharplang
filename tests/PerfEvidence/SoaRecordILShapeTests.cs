@@ -149,6 +149,57 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void DirectColumnAssignmentExpressionsCheckedUncheckedWrappers_ReturnAssignedValueWithoutOldElementRead()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                kind: int
+                start: int
+            }
+
+            func assign(nodes: NodeTable, row: int): int {
+                idx := ^1
+                rowKind := (checked(nodes.kind))[row] = 11
+                rowStart := (unchecked(nodes.start))[row] = rowKind + 2
+                literalKind := (checked(nodes.kind))[^1] = 23
+                literalStart := (unchecked(nodes.start))[^1] = literalKind + 4
+                variableKind := (unchecked(nodes.kind))[idx] = literalKind + 6
+                variableStart := (checked(nodes.start))[idx] = variableKind + 8
+                return rowKind + rowStart * 10 + literalKind * 100 + literalStart * 1000 + variableKind * 10000 + variableStart * 100000
+            }
+
+            func main(): int {
+                nodes := new NodeTable(2)
+                first := nodes.add()
+                nodes.add()
+                assigned := assign(nodes, first)
+                stored := nodes.kind[first] + nodes.start[first] * 10
+                stored += nodes.kind[^1] * 100 + nodes.start[^1] * 1000
+                return assigned + stored
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var assign = ILShapeInspector.GetProgramMethod(assembly, "assign");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(4059482, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoFromEndSliceAllocation(assign);
+            Assert.True(
+                ILShapeInspector.CountOpcode(assign, OpCodes.Ldfld) >= 6,
+                "Checked/unchecked direct SoA column assignment expressions should load backing column fields directly.");
+            Assert.Equal(0, CountArrayElementLoads(assign));
+            Assert.Equal(6, CountArrayElementStores(assign));
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void DirectColumnNullCoalescingCheckedUncheckedWrappers_UseColumnArrayLoadStoreWithoutRowAllocation()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

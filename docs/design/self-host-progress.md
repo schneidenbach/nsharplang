@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA checked direct-column assignment expressions avoid old reads
+
+Direct-column simple assignment expressions now have IL-shape evidence when the column receiver is
+wrapped in `checked(...)` or `unchecked(...)`, including literal and variable-held from-end indexes.
+`(checked(table.column))[row] = value`, `(unchecked(table.column))[^1] = value`, and
+`(checked(table.column))[idx] = value` still return the assigned value from the expression path
+without reading the old element, materializing rows, slicing arrays, boxing, constructing delegates,
+or dispatching.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter
+"FullyQualifiedName~DirectColumnAssignmentExpressionsCheckedUncheckedWrappers_ReturnAssignedValueWithoutOldElementRead"`.
+
 ## 2026-06-18 — SoA checked direct-column default stores avoid old reads
 
 Direct-column `= default` stores now have IL-shape evidence when the column receiver is wrapped in
