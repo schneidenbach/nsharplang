@@ -315,9 +315,11 @@ has pinned IL-shape evidence. That rejection also applies when the range uses `S
 from-end bounds, such as `table.column[1..^1]`, and when the column member is parenthesized, such as
 `(table.column)[start..end]`. The same rejection applies to variable-held `System.Range` values such
 as `range := 0..1; table.column[range]`, including the parenthesized column-member form
-`(table.column)[range]`. Slice update forms, including simple assignment, compound assignment,
+`(table.column)[range]` and checked/unchecked direct-column receiver forms such as
+`(checked(table.column))[range]`. Slice update forms, including simple assignment, compound assignment,
 null-coalescing assignment, increment, and decrement, all reject during analysis for literal,
-variable-held, parenthesized-column, checked/unchecked target-wrapper, and from-end ranges.
+variable-held, parenthesized-column, checked/unchecked receiver or target-wrapper, and from-end
+ranges.
 
 ## Diagnostics
 
@@ -410,8 +412,8 @@ The compiler must produce direct diagnostics for common misuse:
 - non-int direct column element indexes, including checked/unchecked direct-column receivers and
   `ref`/`out` address targets: "Array indexes must be int, System.Index, or System.Range";
 - direct column slice reads, mutations, and `ref`/`out` argument addresses, including aliases to SoA
-  tables, parenthesized column-member receivers, and
-  checked/unchecked mutation-target wrappers: "SoA column range slices allocate arrays";
+  tables, parenthesized column-member receivers, variable-held ranges, and checked/unchecked
+  direct-column receivers or mutation-target wrappers: "SoA column range slices allocate arrays";
 - unsupported direct-column static `Array` calls outside pinned whole-column kernels, including named
   array-bearing arguments such as `array: table.column` and `destinationArray: table.column`:
   "SoA table member 'X' cannot be passed to Array.Y directly";

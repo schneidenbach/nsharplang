@@ -5932,6 +5932,46 @@ public class SoaRecordTests : ILCompilerTestBase
                 }
 
                 func bad(nodes: Nodes) {
+                    range := 0..1
+                    bump(ref (checked(nodes.kind))[range])
+                }
+                """,
+                Code: ErrorCode.InvalidSyntax,
+                Message: "SoA column range slices allocate arrays",
+                Suggestion: "table.column[row]"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func reset(out value: int) {
+                    value = 0
+                }
+
+                func bad(nodes: Nodes) {
+                    range := 0..1
+                    reset(out (unchecked(nodes.kind))[range])
+                }
+                """,
+                Code: ErrorCode.InvalidSyntax,
+                Message: "SoA column range slices allocate arrays",
+                Suggestion: "table.column[row]"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bump(ref value: int) {
+                    value += 1
+                }
+
+                func bad(nodes: Nodes) {
                     bump(ref (checked(nodes.kind))["0"])
                 }
                 """,
@@ -7851,6 +7891,30 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Theory]
+    [InlineData("slice := (checked(nodes.kind))[range]")]
+    [InlineData("slice := (unchecked(nodes.kind))[range]")]
+    public void Analyzer_SoaTableCheckedAndUncheckedColumnRangeValueReadWouldAllocate(string statement)
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var result = Analyze($$"""
+            soa record NodeTable {
+                kind: int
+            }
+
+            func bad(nodes: NodeTable): int {
+                range := 0..1;
+                {{statement}}
+                return slice[0]
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("SoA column range slices allocate arrays", error.Message);
+        Assert.Contains("allocation-free view lowering", error.Suggestion);
+    }
+
+    [Theory]
     [InlineData("(nodes.kind)[range] = [1]")]
     [InlineData("(nodes.kind)[range] += [1]")]
     [InlineData("(nodes.kind)[range] ??= [1]")]
@@ -7881,6 +7945,10 @@ public class SoaRecordTests : ILCompilerTestBase
     [InlineData("unchecked((nodes.kind[range])) += [1]")]
     [InlineData("checked(nodes.kind[range])++")]
     [InlineData("unchecked((nodes.kind[range]))--")]
+    [InlineData("(checked(nodes.kind))[range] = [1]")]
+    [InlineData("(unchecked(nodes.kind))[range] += [1]")]
+    [InlineData("((checked(nodes.kind))[range])++")]
+    [InlineData("((unchecked(nodes.kind))[range])--")]
     public void Analyzer_SoaTableCheckedAndUncheckedColumnRangeValueMutationWouldAllocate(string statement)
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

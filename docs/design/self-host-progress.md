@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA checked direct-column variable ranges reject before lowering
+
+Checked/unchecked direct-column receiver wrappers now have analyzer evidence for variable-held
+`System.Range` slices across reads, mutations, and `ref`/`out` address targets. The compiler keeps
+the SoA allocation diagnostic before any direct-column wrapper can fall into ordinary array-slice
+lowering.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter
+"FullyQualifiedName~Analyzer_SoaTableCheckedAndUncheckedColumnRangeValue|FullyQualifiedName~Analyzer_SoaDirectColumnRefOutIndexesAreRejectedBeforeEmission"`.
+
 ## 2026-06-18 — SoA checked direct-column non-int ref/out indexes reject before lowering
 
 Checked/unchecked direct-column receiver wrappers now have analyzer evidence for invalid non-int
