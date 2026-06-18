@@ -1412,6 +1412,66 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void HardCastedRowProjectionRefAndOutArguments_UseColumnArrayElementAddress()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                kind: int
+                start: int
+            }
+
+            type Nodes = NodeTable
+
+            func bump(ref value: int) {
+                value += 5
+            }
+
+            func reset(out value: int) {
+                value = 13
+            }
+
+            func mutate(nodes: Nodes, row: int): int {
+                bump(ref ((NodeTable)nodes)[row].kind)
+                reset(out ((Nodes)((NodeTable)nodes))[row].start)
+                return ((NodeTable)nodes)[row].kind * 10 + ((Nodes)((NodeTable)nodes))[row].start
+            }
+
+            func main(): int {
+                nodes := new Nodes(1)
+                row := nodes.add()
+                nodes[row].kind = 3
+                nodes[row].start = 4
+                return mutate(nodes, row)
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var mutate = ILShapeInspector.GetProgramMethod(assembly, "mutate");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(93, Assert.IsType<int>(main.Invoke(null, null)));
+
+            ILShapeInspector.AssertNoBoxing(mutate);
+            Assert.Equal(0, ILShapeInspector.CountOpcode(mutate, OpCodes.Newobj));
+            Assert.Equal(0, ILShapeInspector.CountOpcode(mutate, OpCodes.Newarr));
+            Assert.Equal(0, ILShapeInspector.CountDelegateConstructions(mutate));
+            Assert.Equal(0, ILShapeInspector.CountOpcode(mutate, OpCodes.Callvirt));
+            Assert.Equal(2, ILShapeInspector.CountOpcode(mutate, OpCodes.Call));
+            Assert.Equal(2, ILShapeInspector.CountOpcode(mutate, OpCodes.Ldelema));
+            Assert.True(
+                ILShapeInspector.CountOpcode(mutate, OpCodes.Ldfld) >= 4,
+                "Hard-casted row ref/out arguments should load backing column arrays directly.");
+            Assert.Equal(4, CountArrayElementLoads(mutate));
+            Assert.Equal(0, CountArrayElementStores(mutate));
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void DirectColumnRefAndOutArguments_UseColumnArrayElementAddress()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

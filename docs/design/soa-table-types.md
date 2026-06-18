@@ -544,7 +544,8 @@ mutations update caller-visible storage instead of a cast temporary. The proof a
 default stores across the
 verified scalar/reference element-type set, row-projection `ref`/`out` argument addresses through
 backing-column `ldelema` across the verified scalar/reference/int-backed-enum element-type set,
-including parenthesized row-projection lvalues, expression-valued default stores without old-element
+including hard-cast table/alias receivers and parenthesized row-projection lvalues,
+expression-valued default stores without old-element
 reads, and parenthesized row-column assignment/update targets, including expression-valued compound
 assignment, null-coalescing assignment, and prefix/postfix update operands; explicit direct column
 element operations (`table.column[row]`) have the same

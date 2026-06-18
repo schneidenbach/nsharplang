@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Hard-cast SoA row projection ref/out addresses stay direct
+
+Row-projection `ref`/`out` arguments now have IL-shape evidence when the table receiver is hard-cast
+through table and alias types. `ref ((NodeTable)nodes)[row].kind` and nested alias casts lower to
+backing-column `ldelema` addresses without row allocation, boxing, delegate construction, heap array
+allocation, or virtual dispatch. Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~HardCastedRowProjectionRefAndOutArguments_UseColumnArrayElementAddress"`.
+
 ## 2026-06-18 — Hard-cast SoA row projections keep direct IL shape
 
 Row projection reads, stores, and compound assignments now have IL-shape evidence when the table
