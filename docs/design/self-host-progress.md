@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA direct-column qualified named Array calls keep backing-array IL shape
+
+Accepted direct-column `System.Array.Fill`/`System.Array.Copy`/`System.Array.Clear` calls now have
+named-argument IL-shape evidence alongside the short `Array.*` spelling. The qualified calls still load
+generated backing column fields directly, call the BCL helpers once each, and allocate no rows, arrays,
+delegates, boxes, or virtual dispatch in the hot function.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter
+"FullyQualifiedName~DirectColumnBulkArrayOperationQualifiedNamedArguments_UseBackingArraysWithoutRowAllocation"`.
+
 ## 2026-06-18 — SoA direct-column named ranged Array.Clear keeps backing-array IL shape
 
 Accepted direct-column `Array.Clear` now has named-argument IL-shape evidence for the ranged overload,

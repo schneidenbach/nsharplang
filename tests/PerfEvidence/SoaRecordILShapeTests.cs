@@ -328,6 +328,68 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void DirectColumnBulkArrayOperationQualifiedNamedArguments_UseBackingArraysWithoutRowAllocation()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            import System
+
+            soa record NodeTable {
+                kind: int
+                start: int
+            }
+
+            func bulk(nodes: NodeTable, source: int[]): int {
+                System.Array.Fill(value: 6, array: nodes.kind)
+                System.Array.Copy(length: 2, destinationArray: nodes.kind, sourceArray: source)
+                System.Array.Clear(length: 1, index: 0, array: nodes.start)
+                return nodes.length * 1000
+                    + nodes.kind[0] * 100
+                    + nodes.kind[1] * 10
+                    + nodes.start[0]
+                    + nodes.start[1]
+            }
+
+            func main(): int {
+                nodes := new NodeTable(2)
+                first := nodes.add()
+                second := nodes.add()
+                nodes.start[first] = 8
+                nodes.start[second] = 9
+                source := new int[](2)
+                source[0] = 3
+                source[1] = 4
+                return bulk(nodes, source)
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var bulk = ILShapeInspector.GetProgramMethod(assembly, "bulk");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(2349, Assert.IsType<int>(main.Invoke(null, null)));
+
+            ILShapeInspector.AssertNoBoxing(bulk);
+            Assert.Equal(0, ILShapeInspector.CountOpcode(bulk, OpCodes.Newobj));
+            Assert.Equal(0, ILShapeInspector.CountOpcode(bulk, OpCodes.Newarr));
+            Assert.Equal(0, ILShapeInspector.CountDelegateConstructions(bulk));
+            Assert.Equal(0, ILShapeInspector.CountOpcode(bulk, OpCodes.Callvirt));
+            Assert.Equal(1, ILShapeInspector.CountCallsTo(bulk, typeof(Array), nameof(Array.Fill)));
+            Assert.Equal(1, ILShapeInspector.CountCallsTo(bulk, typeof(Array), nameof(Array.Copy)));
+            Assert.Equal(1, ILShapeInspector.CountCallsTo(bulk, typeof(Array), nameof(Array.Clear)));
+            Assert.True(
+                ILShapeInspector.CountOpcode(bulk, OpCodes.Ldfld) >= 6,
+                "Qualified named direct SoA column bulk operations should load backing column arrays directly.");
+            Assert.Equal(4, CountArrayElementLoads(bulk));
+            Assert.Equal(0, CountArrayElementStores(bulk));
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void RowProjectionRefAndOutArguments_UseColumnArrayElementAddress()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
