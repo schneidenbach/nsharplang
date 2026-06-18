@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Hard-cast SoA checked scalar expressions stay direct
+
+Scalar arithmetic, bitwise, shift, and comparison expressions now have IL-shape evidence when
+hard-cast direct-column receivers are wrapped in `checked(...)` or `unchecked(...)`. Mixed
+`int`/`uint`/`long` columns reached through nested table and alias casts keep backing-column field
+loads, direct array element loads/stores, and the expected arithmetic/bitwise/shift/comparison
+opcodes without row allocation, boxing, delegate construction, heap array allocation, slicing, or
+virtual dispatch. Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~HardCastedDirectColumnScalarExpressionsCheckedUncheckedWrappers_UseColumnArrayLoadsAndOpcodesWithoutRowAllocation"`.
+
 ## 2026-06-18 — Hard-cast SoA checked numeric updates stay direct
 
 Numeric compound assignments and prefix/postfix updates now have IL-shape evidence when hard-cast

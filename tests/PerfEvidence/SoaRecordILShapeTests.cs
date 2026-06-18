@@ -599,6 +599,83 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void HardCastedDirectColumnScalarExpressionsCheckedUncheckedWrappers_UseColumnArrayLoadsAndOpcodesWithoutRowAllocation()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                kind: int
+                flags: uint
+                mask: long
+            }
+
+            type Nodes = NodeTable
+
+            func evaluate(nodes: Nodes, row: int): int {
+                idx := ^1
+
+                (checked(((NodeTable)nodes).kind))[row] = 10
+                (unchecked(((Nodes)((NodeTable)nodes)).flags))[row] = (uint)12
+                (checked(((NodeTable)((Nodes)nodes)).mask))[row] = 3L
+                (unchecked(((NodeTable)nodes).kind))[^1] = -16
+                (checked(((Nodes)((NodeTable)nodes)).flags))[^1] = (uint)8
+                (unchecked(((NodeTable)((Nodes)nodes)).mask))[^1] = 5L
+
+                rowScore := (checked(((NodeTable)nodes).kind))[row] + 2
+                rowScore += (int)((unchecked(((Nodes)((NodeTable)nodes)).flags))[row] & (uint)10)
+                rowScore += (int)((checked(((NodeTable)((Nodes)nodes)).mask))[row] << 2)
+                rowScore += (checked(((NodeTable)nodes).kind))[row] == 10 ? 100 : 0
+                rowScore += (unchecked(((Nodes)((NodeTable)nodes)).flags))[row] > (uint)10 ? 1000 : 0
+
+                tailScore := (unchecked(((NodeTable)nodes).kind))[idx] >> 2
+                tailScore += (int)((checked(((Nodes)((NodeTable)nodes)).flags))[idx] >> 1)
+                tailScore += (int)(~((unchecked(((NodeTable)((Nodes)nodes)).mask))[idx]))
+                tailScore += (unchecked(((NodeTable)nodes).kind))[idx] < 0 ? 10000 : 0
+                tailScore += (checked(((NodeTable)((Nodes)nodes)).mask))[idx] >= 5L ? 100000 : 0
+
+                return rowScore + tailScore
+            }
+
+            func main(): int {
+                nodes := new Nodes(2)
+                first := nodes.add()
+                nodes.add()
+                return evaluate(nodes, first)
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var evaluate = ILShapeInspector.GetProgramMethod(assembly, "evaluate");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(111126, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoFromEndSliceAllocation(evaluate);
+            Assert.True(
+                ILShapeInspector.CountOpcode(evaluate, OpCodes.Ldfld) >= 16,
+                "Hard-casted checked/unchecked direct SoA column scalar expressions should load backing column fields directly.");
+            Assert.Equal(10, CountArrayElementLoads(evaluate));
+            Assert.Equal(6, CountArrayElementStores(evaluate));
+            Assert.True(ILShapeInspector.CountOpcode(evaluate, OpCodes.Add) >= 3);
+            Assert.True(ILShapeInspector.CountOpcode(evaluate, OpCodes.And) >= 1);
+            Assert.True(ILShapeInspector.CountOpcode(evaluate, OpCodes.Shl) >= 1);
+            Assert.True(ILShapeInspector.CountOpcode(evaluate, OpCodes.Shr) >= 1);
+            Assert.True(ILShapeInspector.CountOpcode(evaluate, OpCodes.Shr_Un) >= 1);
+            Assert.True(ILShapeInspector.CountOpcode(evaluate, OpCodes.Not) >= 1);
+            Assert.True(
+                ILShapeInspector.CountOpcode(evaluate, OpCodes.Ceq)
+                + ILShapeInspector.CountOpcode(evaluate, OpCodes.Clt)
+                + ILShapeInspector.CountOpcode(evaluate, OpCodes.Cgt)
+                + ILShapeInspector.CountOpcode(evaluate, OpCodes.Clt_Un)
+                + ILShapeInspector.CountOpcode(evaluate, OpCodes.Cgt_Un) >= 3);
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void DirectColumnReferenceAndBoolExpressionsCheckedUncheckedWrappers_UseColumnArrayLoadsWithoutRowAllocation()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
