@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA checked direct-column array instance calls reject before lowering
+
+Checked/unchecked direct-column receiver wrappers now have analyzer evidence across array instance
+method families that would otherwise box, dispatch, or bypass pinned whole-column kernels. `SetValue`,
+`GetValue`, `GetEnumerator`, `ToString`, and `GetLength` keep the SoA direct-column array-method
+diagnostic before IL emission when the receiver is wrapped.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter
+"FullyQualifiedName~Analyzer_SoaDirectColumnsCannotUseArrayInstanceMethods"`.
+
 ## 2026-06-18 — SoA checked direct-column variable ranges reject before lowering
 
 Checked/unchecked direct-column receiver wrappers now have analyzer evidence for variable-held

@@ -6570,7 +6570,33 @@ public class SoaRecordTests : ILCompilerTestBase
                 type Nodes = NodeTable
 
                 func bad(nodes: Nodes) {
+                    checked(nodes.kind).SetValue(1, 0)
+                }
+                """,
+                Method: "SetValue"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
                     value := (nodes.kind).GetValue(0)
+                }
+                """,
+                Method: "GetValue"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    value := unchecked(nodes.kind).GetValue(0)
                 }
                 """,
                 Method: "GetValue"),
@@ -6622,6 +6648,19 @@ public class SoaRecordTests : ILCompilerTestBase
                 type Nodes = NodeTable
 
                 func bad(nodes: Nodes) {
+                    iterator := checked(nodes.kind).GetEnumerator()
+                }
+                """,
+                Method: "GetEnumerator"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
                     unchecked(nodes.kind).Initialize()
                 }
                 """,
@@ -6647,8 +6686,34 @@ public class SoaRecordTests : ILCompilerTestBase
 
                 type Nodes = NodeTable
 
+                func bad(nodes: Nodes): string {
+                    return unchecked(nodes.kind).ToString()
+                }
+                """,
+                Method: "ToString"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
                 func bad(nodes: Nodes): int {
                     return (nodes.kind).GetLength(0)
+                }
+                """,
+                Method: "GetLength"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes): int {
+                    return checked(nodes.kind).GetLength(0)
                 }
                 """,
                 Method: "GetLength")
