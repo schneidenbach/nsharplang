@@ -9836,16 +9836,18 @@ internal sealed class ColumnarIlEmitter
         return false;
     }
 
-    // Postfix `++`/`--` (kind 44) on a bare LOCAL/PARAM of int/long/ulong: load, step by one, store —
+    // Postfix `++`/`--` (kind 44) on a bare LOCAL/PARAM or field of int/long/ulong: load, step by one, store —
     // keeping the PRE-step value on the stack when `keepValue` (C# post-semantics; `m := n++` reads the
     // old n). double/float decline (the pipeline's `++` on them silently no-ops — oracle defect bundle);
-    // lifted/boxed captures and non-identifier targets decline.
+    // lifted/boxed captures, property targets, and unsupported receivers decline.
     private bool TryEmitPostfixUnary(int idx, bool keepValue, out Type type)
     {
         type = null!;
         if (_nodes.ChildCount(idx) != 1)
             return false;
-        var target = Child(idx, 0);
+        var target = UnwrapParenthesizedNode(Child(idx, 0));
+        if (_nodes.Kind(target) == 8)
+            return TryEmitMemberPostfixUnary(idx, target, keepValue, out type);
         if (_nodes.Kind(target) != 6 || _nodes.ValueStart(target) < 0)
             return false;
         var name = Text(target);
@@ -9877,16 +9879,55 @@ internal sealed class ColumnarIlEmitter
             EmitLoadArgument(paramOrdinal);
         if (keepValue)
             _il.Emit(OpCodes.Dup);
-        _il.Emit(OpCodes.Ldc_I4_1);
-        if (targetType != typeof(int))
-            _il.Emit(OpCodes.Conv_I8); // long AND ulong step by an i8 one (u8 shares the slot).
-        _il.Emit(Text(idx) == "++" ? OpCodes.Add : OpCodes.Sub);
+        EmitPostfixStep(targetType, Text(idx));
         if (local != null)
             _il.Emit(OpCodes.Stloc, local);
         else
             EmitStoreArgument(paramOrdinal);
         type = targetType;
         return true;
+    }
+
+    private bool TryEmitMemberPostfixUnary(int idx, int target, bool keepValue, out Type type)
+    {
+        type = null!;
+        if (!TryResolveMemberWriteChain(Child(target, 0), out var chain)
+            || chain.ReceiverType is not TypeBuilder ownerBuilder
+            || FindDefByBuilder(ownerBuilder) is not { } ownerDef
+            || !TryFindFieldOnChain(ownerDef, Text(target), out var field))
+        {
+            return false;
+        }
+
+        var targetType = field.FieldType;
+        if (targetType != typeof(int) && targetType != typeof(long) && targetType != typeof(ulong))
+            return false;
+
+        EmitMemberWriteLocator(chain);
+        _il.Emit(OpCodes.Dup);
+        _il.Emit(OpCodes.Ldfld, field);
+        LocalBuilder? oldValue = null;
+        if (keepValue)
+        {
+            oldValue = _il.DeclareLocal(targetType);
+            _il.Emit(OpCodes.Stloc, oldValue);
+            _il.Emit(OpCodes.Ldloc, oldValue);
+        }
+        EmitPostfixStep(targetType, Text(idx));
+        _il.Emit(OpCodes.Stfld, field);
+        if (oldValue != null)
+            _il.Emit(OpCodes.Ldloc, oldValue);
+
+        type = targetType;
+        return true;
+    }
+
+    private void EmitPostfixStep(Type targetType, string op)
+    {
+        _il.Emit(OpCodes.Ldc_I4_1);
+        if (targetType != typeof(int))
+            _il.Emit(OpCodes.Conv_I8); // long AND ulong step by an i8 one (u8 shares the slot).
+        _il.Emit(op == "++" ? OpCodes.Add : OpCodes.Sub);
     }
 
     // Rewrites a named tuple member to its ItemN spelling when the receiver's tracked names contain it;

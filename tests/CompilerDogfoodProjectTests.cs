@@ -9684,19 +9684,29 @@ func outer(x: int): int {
     // SCALAR COMPLETENESS SC-2 (Phase D) — POSTFIX `++`/`--` (kernel kind 44 PostfixUnary, single wrap
     // after the suffix chain). Statement position steps in place; expression position keeps the PRE-step
     // value (C# post-semantics, probe-pinned: `m := n++` reads the old n). int/long/ulong on bare
-    // locals/params; double/float DECLINE because production rejects non-integral increment operands
-    // with NL202. Prefix `++n` is pipeline-rejected (NL313). The write scans treat kind 44 like an
-    // assignment (capture-lifting soundness).
+    // locals/params and int/long/ulong member fields; double/float DECLINE because production rejects
+    // non-integral increment operands with NL202. Prefix `++n` is pipeline-rejected (NL313). The
+    // write scans treat kind 44 like an assignment (capture-lifting soundness).
     [Fact]
     public void ColumnarCodegen_Parity_PostfixIncrementDecrement()
     {
         var prog =
+            "struct P {\n    x: int\n}\n\n" +
+            "struct InnerPost {\n    x: int\n}\n\n" +
+            "struct OuterPost {\n    inner: InnerPost\n}\n\n" +
+            "class CPost {\n    x: int\n    constructor(v: int) {\n        x = v\n    }\n}\n\n" +
             "func stepLocal(n: int): int {\n    a := n\n    a++\n    a++\n    a--\n    return a\n}\n\n" +
             "func stepParam(n: int): int {\n    n++\n    return n\n}\n\n" +
             "func stepLong(l: long): long {\n    l++\n    l--\n    l++\n    return l\n}\n\n" +
             "func stepUlong(u: ulong): ulong {\n    u++\n    return u\n}\n\n" +
             // EXPRESSION position: the value is the PRE-step value.
             "func postValue(n: int): int {\n    m := n++\n    return m * 100 + n\n}\n\n" +
+            "func memberStruct(): int {\n    p := new P { x: 4 }\n    old := p.x++\n    after := p.x\n    p.x--\n    return old * 100 + after * 10 + p.x\n}\n\n" +
+            "func memberParam(p: P): int {\n    old := p.x++\n    return old * 10 + p.x\n}\n\n" +
+            "func memberParamDriver(): int {\n    return memberParam(new P { x: 6 })\n}\n\n" +
+            "func memberClass(): int {\n    c := new CPost(8)\n    old := c.x--\n    return old * 100 + c.x\n}\n\n" +
+            "func memberNested(): int {\n    o := new OuterPost { inner: new InnerPost { x: 2 } }\n    old := o.inner.x++\n    return old * 100 + o.inner.x\n}\n\n" +
+            "func memberStatement(): int {\n    p := new P { x: 1 }\n    p.x++\n    p.x++\n    return p.x\n}\n\n" +
             // the classic counting FOR loop increment.
             "func countUp(n: int): int {\n    sum := 0\n    for i := 0; i < n; i++ {\n        sum += i\n    }\n    return sum\n}\n";
         AssertColumnarProgramMatchesCSharp(prog,
@@ -9705,6 +9715,11 @@ func outer(x: int): int {
             ("stepLong", new object[] { 100L }),
             ("stepUlong", new object[] { 7UL }),
             ("postValue", new object[] { 5 }),
+            ("memberStruct", System.Array.Empty<object>()),
+            ("memberParamDriver", System.Array.Empty<object>()),
+            ("memberClass", System.Array.Empty<object>()),
+            ("memberNested", System.Array.Empty<object>()),
+            ("memberStatement", System.Array.Empty<object>()),
             ("countUp", new object[] { 5 }), ("countUp", new object[] { 0 }));
 
         // DECLINES:
@@ -9712,10 +9727,11 @@ func outer(x: int): int {
         var doubleIncrement = "func f(): double {\n    d := 1.5\n    d++\n    return d\n}\n";
         Assert.False(RouteColumnarProgram(doubleIncrement).Ok);
         AssertPipelineRejects(doubleIncrement, "NL202");
+        var doubleMemberIncrement = "struct D {\n    x: double\n}\n\nfunc f(): double {\n    d := new D { x: 1.5 }\n    d.x++\n    return d.x\n}\n";
+        Assert.False(RouteColumnarProgram(doubleMemberIncrement).Ok);
+        AssertPipelineRejects(doubleMemberIncrement, "NL202");
         // prefix `++n` is pipeline-rejected (NL313) — and unparsed by the kernel.
         Assert.False(RouteColumnarProgram("func f(): int {\n    n := 5\n    ++n\n    return n\n}\n").Ok);
-        // `++` through a MEMBER path (storage-addressing rung).
-        Assert.False(RouteColumnarProgram("struct P {\n    x: int\n}\n\nfunc f(): int {\n    p := new P { x: 1 }\n    p.x++\n    return p.x\n}\n").Ok);
     }
 
     // SCALAR COMPLETENESS SC-1+3 (Phase D) — COMPOUND ASSIGNMENT (`+=` `-=` `*=` `/=`) and the TERNARY

@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Columnar member postfix updates use the member-write chain
+
+Columnar codegen now emits postfix `++`/`--` for `int`/`long`/`ulong` member fields through the
+same member-write locator used by assignment and compound assignment. Struct locals/params,
+class fields, and nested value-field chains preserve C# postfix result semantics and mutate the
+same storage; unsupported non-integral member updates still decline with the front-door analyzer.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~ColumnarCodegen_Parity_PostfixIncrementDecrement|FullyQualifiedName~ColumnarCodegen_Parity_MemberWrites"`.
+
 ## 2026-06-18 — Hard-cast SoA ref/out range slices reject before emission
 
 Direct-column `ref`/`out` range diagnostics now have focused hard-cast receiver pins. Range slices
@@ -7678,7 +7686,7 @@ MissingFieldException. NL322 RESIDUAL: BCL PROPERTY hops (`kvp.Value.X = 5` in a
 still accept-and-lose pipeline-side — the conservative classifier cannot resolve
 GenericTypeInfo-typed owners (KeyValuePair) so it stays silent by design; columnar declines the
 shape. Postfix `s.X++` on member targets: pipeline accepts (columnar declines — a small later
-rung).
+rung; flipped on 2026-06-18 by the member-postfix slice above).
 
 Parity: `ColumnarCodegen_Parity_MemberWrites` — 16 value functions (struct param local-vis +
 caller-copy, class/record locals + params, nested struct-in-struct, struct-of-class, 3-deep
