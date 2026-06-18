@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA direct-column named Array.Copy sources keep backing-array IL shape
+
+Accepted direct-column `Array.Copy` calls now have IL-shape evidence when the direct column is the
+named `sourceArray`, not only the destination. Both `Array.Copy(length: n, sourceArray: table.column,
+destinationArray: target)` and the explicit `System.Array.Copy(..., sourceArray: table.column)` offset
+overload load generated backing column fields directly, call the BCL copy helper, and allocate no rows,
+arrays, delegates, boxes, or virtual dispatch in the hot function.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter
+"FullyQualifiedName~DirectColumnBulkArrayOperationSourceColumnNamedArguments_UseBackingArraysWithoutRowAllocation"`.
+
 ## 2026-06-18 — SoA direct-column qualified named Array calls keep backing-array IL shape
 
 Accepted direct-column `System.Array.Fill`/`System.Array.Copy`/`System.Array.Clear` calls now have

@@ -258,8 +258,8 @@ Whole-column BCL calls that preserve row identity, such as `Array.Fill(table.col
 backing-array operations for the supported whole-array, ranged, and offset-copy overloads. They are
 pinned to load the generated column field directly without row allocation, boxing, delegate
 construction, array allocation, or virtual dispatch in the hot function. Named argument calls over
-the same overloads, such as `array: table.column` and `destinationArray: table.column`, keep the same
-backing-array IL shape, including ranged clear calls such as
+the same overloads, such as `array: table.column`, `sourceArray: table.column`, and
+`destinationArray: table.column`, keep the same backing-array IL shape, including ranged clear calls such as
 `Array.Clear(length: n, array: table.column, index: i)` and explicit `System.Array` targets. Other
 static `Array` methods
 that receive a direct column, such as `Array.IndexOf(table.column, ...)`,
