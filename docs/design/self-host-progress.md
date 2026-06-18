@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA direct columns cannot escape through index, allocation, pattern, or event contexts
+
+Direct backing columns now reject the remaining row-only semantic value sites before lowering:
+ternary conditions, index values, array and stackalloc lengths, match guards, relational/literal
+pattern values, generator yields, event/off operands, explicit allocation-policy operands, and
+object/with initializer indexes. These routes now report the SoA direct-column diagnostic instead of
+falling through to generic type or event errors. Focused evidence: `dotnet test tests/Tests.csproj
+--no-restore --filter
+"FullyQualifiedName~Analyzer_SoaDirectColumnsCannotEscapeThroughIndexAllocationPatternAndEventContexts"`.
+
 ## 2026-06-18 — SoA direct columns cannot escape through control or operand contexts
 
 Direct backing columns now reject remaining non-storage value contexts before lowering. Conditions,

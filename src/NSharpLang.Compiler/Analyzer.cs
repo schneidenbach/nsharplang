@@ -3864,8 +3864,10 @@ public class Analyzer : IDisposable
                 {
                     var yieldedType = AnalyzeExpression(yieldStmt.Value);
                     var isSoaRowYield = ReportSoaRowEscapeIfNeeded(yieldStmt.Value, yieldedType, "yielded");
+                    var isSoaDirectColumnYield = ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(yieldStmt.Value, "yielded");
                     if (isGeneratorYield
                         && !isSoaRowYield
+                        && !isSoaDirectColumnYield
                         && _currentReturnType != null
                         && TryGetGeneratorYieldElementType(_currentReturnType, out var elementType)
                         && !BuiltInTypes.IsUnknown(yieldedType)
@@ -6500,6 +6502,7 @@ public class Analyzer : IDisposable
                 // Just analyze the literal expression for type checking
                 var literalType = AnalyzeExpression(literalPattern.Literal);
                 ReportSoaRowEscapeIfNeeded(literalPattern.Literal, literalType, "used as a pattern value");
+                ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(literalPattern.Literal, "used as a pattern value");
                 break;
 
             case UnionCasePattern unionPattern:
@@ -6578,7 +6581,8 @@ public class Analyzer : IDisposable
 
             case RelationalPattern relationalPattern:
                 var relationalValueType = AnalyzeExpression(relationalPattern.Value);
-                if (!ReportSoaRowEscapeIfNeeded(relationalPattern.Value, relationalValueType, "used as a relational pattern value"))
+                if (!ReportSoaRowEscapeIfNeeded(relationalPattern.Value, relationalValueType, "used as a relational pattern value")
+                    && !ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(relationalPattern.Value, "used as a relational pattern value"))
                 {
                     ValidateRelationalPattern(relationalPattern, valueType, relationalValueType);
                 }
@@ -7416,6 +7420,10 @@ public class Analyzer : IDisposable
         if (innerType is SoaRowTypeInfo)
         {
             ReportSoaRowHiddenAllocation(alloc.Expression);
+            return BuiltInTypes.Unknown;
+        }
+        if (ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(alloc.Expression, "used in an alloc expression"))
+        {
             return BuiltInTypes.Unknown;
         }
 
@@ -8670,12 +8678,13 @@ public class Analyzer : IDisposable
 
         var isSoaRowReceiver = receiverType is SoaRowTypeInfo;
         var isSoaRowIndex = ReportSoaRowEscapeIfNeeded(index.Index, indexType, "used as an index value");
+        var isSoaDirectColumnIndex = ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(index.Index, "used as an index value");
         if (isSoaRowReceiver)
         {
             ReportSoaRowEscape(index.Object, "used as an index receiver");
         }
 
-        if (isSoaRowReceiver || isSoaRowIndex)
+        if (isSoaRowReceiver || isSoaRowIndex || isSoaDirectColumnIndex)
         {
             return BuiltInTypes.Unknown;
         }
@@ -15105,6 +15114,11 @@ public class Analyzer : IDisposable
                 AnalyzeLambda(on.Handler, reportInferenceFailure: false);
                 return subscriptionType;
             }
+            if (ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(on.Target, "used as an event target"))
+            {
+                AnalyzeLambda(on.Handler, reportInferenceFailure: false);
+                return subscriptionType;
+            }
 
             // Don't pile a "not an event" error on top of an already-reported resolution failure.
             if (!BuiltInTypes.IsUnknown(targetType))
@@ -15166,6 +15180,10 @@ public class Analyzer : IDisposable
         var handleType = AnalyzeExpression(off.Handle);
 
         if (ReportSoaRowEscapeIfNeeded(off.Handle, handleType, "used as an off handle"))
+        {
+            return;
+        }
+        if (ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(off.Handle, "used as an off handle"))
         {
             return;
         }
@@ -17033,7 +17051,8 @@ public class Analyzer : IDisposable
         var expectedResultType = _currentExpectedType;
         var condType = AnalyzeExpressionWithExpectedType(ternary.Condition, BuiltInTypes.Bool);
         var isSoaRowCondition = ReportSoaRowEscapeIfNeeded(ternary.Condition, condType, "used as a ternary condition");
-        if (!isSoaRowCondition && !IsBoolType(condType))
+        var isSoaDirectColumnCondition = ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(ternary.Condition, "used as a ternary condition");
+        if (!isSoaRowCondition && !isSoaDirectColumnCondition && !IsBoolType(condType))
         {
             ReportBooleanConditionTypeMismatch(ternary.Condition, "a ternary expression", condType);
         }
@@ -17572,9 +17591,10 @@ public class Analyzer : IDisposable
             }
 
             var lengthType = AnalyzeExpression(newExpr.ArrayLengthExpression);
-            if (ReportSoaRowEscapeIfNeeded(newExpr.ArrayLengthExpression, lengthType, "used as an array length"))
+            if (ReportSoaRowEscapeIfNeeded(newExpr.ArrayLengthExpression, lengthType, "used as an array length")
+                || ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(newExpr.ArrayLengthExpression, "used as an array length"))
             {
-                // A row-view diagnostic is more useful than the generic int-length mismatch.
+                // A SoA-specific diagnostic is more useful than the generic int-length mismatch.
             }
             else if (lengthType != BuiltInTypes.Int)
             {
@@ -17595,6 +17615,7 @@ public class Analyzer : IDisposable
                 {
                     var indexType = AnalyzeExpression(prop.IndexExpression);
                     ReportSoaRowEscapeIfNeeded(prop.IndexExpression, indexType, "used as an initializer index");
+                    ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(prop.IndexExpression, "used as an initializer index");
                 }
 
                 AnalyzeObjectInitializerPropertyValue(type, unionCaseConstructionName, prop);
@@ -18051,9 +18072,10 @@ public class Analyzer : IDisposable
     private TypeInfo AnalyzeStackAllocExpression(StackAllocExpression stackAlloc)
     {
         var lengthType = AnalyzeExpression(stackAlloc.LengthExpression);
-        if (ReportSoaRowEscapeIfNeeded(stackAlloc.LengthExpression, lengthType, "used as a stackalloc length"))
+        if (ReportSoaRowEscapeIfNeeded(stackAlloc.LengthExpression, lengthType, "used as a stackalloc length")
+            || ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(stackAlloc.LengthExpression, "used as a stackalloc length"))
         {
-            // A row-view diagnostic is more useful than the generic int-length mismatch.
+            // A SoA-specific diagnostic is more useful than the generic int-length mismatch.
         }
         else if (!BuiltInTypes.IsUnknown(lengthType) && !IsImplicitlyIntStackAllocLength(lengthType))
         {
@@ -18531,6 +18553,7 @@ public class Analyzer : IDisposable
             {
                 var indexType = AnalyzeExpression(property.IndexExpression);
                 ReportSoaRowEscapeIfNeeded(property.IndexExpression, indexType, "used as a with initializer index");
+                ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(property.IndexExpression, "used as a with initializer index");
             }
 
             TypeInfo? memberType = null;
@@ -18596,7 +18619,8 @@ public class Analyzer : IDisposable
             {
                 var guardType = AnalyzeExpressionWithExpectedType(matchCase.Guard, BuiltInTypes.Bool);
                 var isSoaRowGuard = ReportSoaRowEscapeIfNeeded(matchCase.Guard, guardType, "used as a match guard");
-                if (!isSoaRowGuard && !IsAssignable(BuiltInTypes.Bool, guardType))
+                var isSoaDirectColumnGuard = ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(matchCase.Guard, "used as a match guard");
+                if (!isSoaRowGuard && !isSoaDirectColumnGuard && !IsAssignable(BuiltInTypes.Bool, guardType))
                 {
                     var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetExpressionDiagnosticSpan(matchCase.Guard);
                     Error(ErrorCode.GuardNotBoolean, $"A match guard must be a boolean, but this expression is '{guardType}'",

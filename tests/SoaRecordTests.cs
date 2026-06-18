@@ -6096,6 +6096,260 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaDirectColumnsCannotEscapeThroughIndexAllocationPatternAndEventContexts()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var cases = new[]
+        {
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes): int {
+                    return checked(nodes.kind) ? 1 : 0
+                }
+                """,
+                Action: "used as a ternary condition"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes): int {
+                    values := [1, 2]
+                    return values[unchecked(nodes.kind)]
+                }
+                """,
+                Action: "used as an index value"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    values := new int[checked(nodes.kind)]
+                }
+                """,
+                Action: "used as an array length"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    span := stackalloc int[unchecked(nodes.kind)]
+                }
+                """,
+                Action: "used as a stackalloc length"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes, ok: bool): int {
+                    return match ok {
+                        true when nodes.kind => 1,
+                        _ => 0
+                    }
+                }
+                """,
+                Action: "used as a match guard"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes): int {
+                    return match 5 {
+                        < checked(nodes.kind) => 1,
+                        _ => 0
+                    }
+                }
+                """,
+                Action: "used as a relational pattern value"),
+            (
+                Source: """
+                import System.Collections.Generic
+
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func* bad(nodes: Nodes): IEnumerable<object> {
+                    yield checked(nodes.kind)
+                }
+                """,
+                Action: "yielded"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    on nodes.kind (sender, args) => { }
+                }
+                """,
+                Action: "used as an event target"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    off nodes.kind
+                }
+                """,
+                Action: "used as an off handle"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    value := alloc checked(nodes.kind)
+                }
+                """,
+                Action: "used in an alloc expression"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                class Holder {
+                    func this[index: int]: int {
+                        get {
+                            return 0
+                        }
+                        set {
+                        }
+                    }
+                }
+
+                func bad(nodes: Nodes) {
+                    holder := new Holder { [checked(nodes.kind)] = 1 }
+                }
+                """,
+                Action: "used as an initializer index")
+        };
+
+        foreach (var testCase in cases)
+        {
+            var result = Analyze(testCase.Source);
+            var error = Assert.Single(
+                result.Errors,
+                e => e.Code == ErrorCode.InvalidSyntax
+                    && e.Message.Contains("SoA table member 'kind' cannot be"));
+            Assert.Contains($"SoA table member 'kind' cannot be {testCase.Action} directly", error.Message);
+            Assert.Contains("Table.wrap", error.Suggestion);
+            Assert.Contains("Array.Fill, Array.Copy, and Array.Clear", error.Suggestion);
+            Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.UndefinedMember);
+        }
+
+        var patternSource = """
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
+            func bad(nodes: Nodes): int {
+                return match 5 {
+                    0 => 1,
+                    _ => 0
+                }
+            }
+            """;
+        var patternUnit = ParseForAnalysis(patternSource);
+        var patternFunction = Assert.IsType<FunctionDeclaration>(patternUnit.Declarations[2]);
+        var patternReturn = Assert.IsType<ReturnStatement>(patternFunction.Body!.Statements[0]);
+        var patternMatch = Assert.IsType<MatchExpression>(patternReturn.Value);
+        patternMatch.Cases[0] = patternMatch.Cases[0] with
+        {
+            Pattern = new LiteralPattern(CreateSoaDirectColumn("nodes", "kind"), Line: 8, Column: 17)
+        };
+
+        var patternResult = Analyze(patternUnit, patternSource);
+        var patternError = Assert.Single(
+            patternResult.Errors,
+            e => e.Code == ErrorCode.InvalidSyntax
+                && e.Message.Contains("SoA table member 'kind' cannot be"));
+        Assert.Contains("SoA table member 'kind' cannot be used as a pattern value directly", patternError.Message);
+        Assert.Contains("Table.wrap", patternError.Suggestion);
+        Assert.Contains("Array.Fill, Array.Copy, and Array.Clear", patternError.Suggestion);
+
+        var withSource = """
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
+            record Holder {
+                Value: int
+            }
+
+            func bad(nodes: Nodes) {
+                original := new Holder { Value: 1 }
+                updated := original with { Value: 1 }
+            }
+            """;
+        var withUnit = ParseForAnalysis(withSource);
+        var withFunction = Assert.IsType<FunctionDeclaration>(withUnit.Declarations[3]);
+        var updated = Assert.IsType<VariableDeclarationStatement>(withFunction.Body!.Statements[1]);
+        var with = Assert.IsType<WithExpression>(updated.Initializer);
+        with.Properties.Clear();
+        with.Properties.Add(new PropertyInitializer(
+            null,
+            CreateSoaDirectColumn("nodes", "kind"),
+            new IntLiteralExpression("1", Line: 13, Column: 42),
+            NameLine: 13,
+            NameColumn: 42));
+
+        var withResult = Analyze(withUnit, withSource);
+        var withError = Assert.Single(
+            withResult.Errors,
+            e => e.Code == ErrorCode.InvalidSyntax
+                && e.Message.Contains("SoA table member 'kind' cannot be"));
+        Assert.Contains("SoA table member 'kind' cannot be used as a with initializer index directly", withError.Message);
+        Assert.Contains("Table.wrap", withError.Suggestion);
+        Assert.Contains("Array.Fill, Array.Copy, and Array.Clear", withError.Suggestion);
+    }
+
+    [Fact]
     public void Analyzer_SoaTableRowIndexMustBeInt()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
@@ -14216,6 +14470,14 @@ public class SoaRecordTests : ILCompilerTestBase
         => new(
             new IdentifierExpression(tableName, Line: 1, Column: 1),
             new IntLiteralExpression("0", Line: 1, Column: 1),
+            IsNullConditional: false,
+            Line: 1,
+            Column: 1);
+
+    private static MemberAccessExpression CreateSoaDirectColumn(string tableName, string columnName)
+        => new(
+            new IdentifierExpression(tableName, Line: 1, Column: 1),
+            columnName,
             IsNullConditional: false,
             Line: 1,
             Column: 1);
