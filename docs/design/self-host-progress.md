@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Columnar `List<T>` equality mutators stay key-safe
+
+The standalone columnar emitter now lowers `List<T>.Contains(T)`, `List<T>.Remove(T)`, and
+`List<T>.Clear()` on the existing BCL collection surface. `Contains` and `Remove` are restricted to
+baked/key-safe element shapes, including int-backed enums, because they depend on
+`EqualityComparer<T>.Default`; builder-bound record/struct elements still decline until generated
+equality through collection methods has dedicated parity evidence. `Clear` remains accepted for
+builder-element lists because it does not compare `T`.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_Parity_Collections|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_Parity_EnumCollections|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_Parity_CollectionsBuilderElements"`;
+`./scripts/dev.sh ColumnarCodegen_Parity_Collections`.
+
 ## 2026-06-18 — Full product compiler-service corpus emits as one columnar shard
 
 The standalone columnar backend now has a pinned multi-file product-corpus route: every shipped

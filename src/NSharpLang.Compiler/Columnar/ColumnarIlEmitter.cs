@@ -9877,7 +9877,7 @@ internal sealed class ColumnarIlEmitter
 
         // BCL COLLECTION instance methods on a closed List<T>/Dictionary<K,V>/HashSet<T> (the runtime constructed
         // type reflects normally; the receiver is already on the stack). The modelled set is the
-        // probe-pinned examples surface: List.Add(T)/RemoveAt(int),
+        // probe-pinned examples surface: List.Add(T)/RemoveAt(int)/Contains(T)/Remove(T)/Clear(),
         // Dictionary.Add(K,V)/ContainsKey(K)/TryGetValue(K,out V)/Remove(K)/Clear(),
         // HashSet.Add(T)/Contains(T)/Remove(T)/Clear().
         // Everything else declines.
@@ -9898,6 +9898,28 @@ internal sealed class ColumnarIlEmitter
                 if (!EmitArg(callIdx, 1, typeof(int)))
                     return false;
                 _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(List<>).GetMethod("RemoveAt")!));
+                type = typeof(void);
+                return true;
+            }
+            if (collectionDef == typeof(List<>) && member == "Contains" && argCount == 1)
+            {
+                if (ContainsNonEnumBuilderBoundType(collectionArgs[0]) || !EmitArg(callIdx, 1, collectionArgs[0]))
+                    return false;
+                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(List<>).GetMethod("Contains")!));
+                type = typeof(bool);
+                return true;
+            }
+            if (collectionDef == typeof(List<>) && member == "Remove" && argCount == 1)
+            {
+                if (ContainsNonEnumBuilderBoundType(collectionArgs[0]) || !EmitArg(callIdx, 1, collectionArgs[0]))
+                    return false;
+                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(List<>).GetMethod("Remove")!));
+                type = typeof(bool);
+                return true;
+            }
+            if (collectionDef == typeof(List<>) && member == "Clear" && argCount == 0)
+            {
+                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(List<>).GetMethod("Clear")!));
                 type = typeof(void);
                 return true;
             }
