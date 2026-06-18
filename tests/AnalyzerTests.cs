@@ -3772,6 +3772,22 @@ func Main() {
     }
 
     [Fact]
+    public void CollectionExpression_UnsupportedReflectionSequenceTarget_ReportsFeatureNotImplemented()
+    {
+        var result = AnalyzeWithInteropProbe(@"
+            import NSharpLang.Tests
+
+            func Main() {
+                let items: IntEnumerableOnlyBox = [1, 2, 3]
+            }
+        ");
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.FeatureNotImplemented);
+        Assert.Contains("Collection expressions for 'IntEnumerableOnlyBox'", error.Message);
+        Assert.Contains("not implemented yet", error.Message);
+    }
+
+    [Fact]
     public void GenericInterfaceAssignment_ListToICollection_Valid()
     {
         AssertNoErrors(@"

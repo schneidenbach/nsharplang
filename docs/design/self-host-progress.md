@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Unsupported reflection collection targets reject before lowering
+
+Collection-expression analysis now rejects reflection-backed sequence targets that the IL backend
+cannot materialize. A target must be an array, a supported interface/abstract type that can receive
+`List<T>`, `HashSet<T>`, or `Queue<T>`, a concrete type with an `IEnumerable<T>` constructor, or a
+concrete type with a parameterless constructor plus `Add`/`Enqueue`. Concrete `IEnumerable<T>`
+targets with no construction path now report NL323 instead of reaching the backend collection
+sentinel.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~AnalyzerTests.CollectionExpression_UnsupportedReflectionSequenceTarget|FullyQualifiedName~AnalyzerTests.CollectionExpression_IEnumerableAssignment_Valid|FullyQualifiedName~AnalyzerTests.CollectionExpression_ListAssignment_Valid"`.
+
 ## 2026-06-18 — Collection expressions discard non-void mutator results
 
 Collection-expression lowering now discards return values from target collection mutators such as

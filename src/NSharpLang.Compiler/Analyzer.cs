@@ -14761,13 +14761,202 @@ public class Analyzer : IDisposable
         {
             GenericTypeInfo { Name: "IQueryable" } => true,
             ReflectionTypeInfo reflectionType when IsIQueryableType(reflectionType.Type) => true,
+            ReflectionTypeInfo reflectionType
+                when IsReflectionCollectionExpressionTarget(reflectionType.Type)
+                     && !CanMaterializeReflectionCollectionExpressionTarget(reflectionType.Type) => true,
             ExternalTypeInfo externalType when externalType.Name.Contains("IQueryable<", StringComparison.Ordinal) => true,
             _ => false
         };
     }
 
     private static bool IsIQueryableType(Type type)
-        => type.IsGenericType && type.GetGenericTypeDefinition() == typeof(IQueryable<>);
+        => IsGenericDefinition(type, typeof(IQueryable<>));
+
+    private static bool IsReflectionCollectionExpressionTarget(Type type)
+        => TryGetReflectionCollectionExpressionElementType(type, out _);
+
+    private static bool CanMaterializeReflectionCollectionExpressionTarget(Type targetType)
+    {
+        if (targetType == typeof(object))
+        {
+            return false;
+        }
+
+        if (targetType.IsArray)
+        {
+            return true;
+        }
+
+        if (!TryGetReflectionCollectionExpressionElementType(targetType, out var elementType))
+        {
+            return false;
+        }
+
+        if (!targetType.IsInterface && !targetType.IsAbstract)
+        {
+            return HasSingleEnumerableConstructor(targetType)
+                || (HasParameterlessConstructor(targetType) && HasCollectionExpressionMutator(targetType));
+        }
+
+        return IsSupportedCollectionExpressionInterfaceTarget(targetType)
+            || IsAssignableFromConstructed(targetType, typeof(List<>), elementType)
+            || IsAssignableFromConstructed(targetType, typeof(HashSet<>), elementType)
+            || IsAssignableFromConstructed(targetType, typeof(Queue<>), elementType);
+    }
+
+    private static bool TryGetReflectionCollectionExpressionElementType(Type type, out Type elementType)
+    {
+        elementType = typeof(object);
+        if (type.IsArray)
+        {
+            elementType = type.GetElementType() ?? typeof(object);
+            return true;
+        }
+
+        foreach (var candidate in EnumerateReflectionCollectionExpressionSequenceTypes(type))
+        {
+            if (!candidate.IsGenericType)
+            {
+                continue;
+            }
+
+            if (IsGenericDefinition(candidate, typeof(IEnumerable<>))
+                || IsGenericDefinition(candidate, typeof(ICollection<>))
+                || IsGenericDefinition(candidate, typeof(IList<>))
+                || IsGenericDefinition(candidate, typeof(IReadOnlyCollection<>))
+                || IsGenericDefinition(candidate, typeof(IReadOnlyList<>))
+                || IsGenericDefinition(candidate, typeof(IEnumerator<>))
+                || IsGenericDefinition(candidate, typeof(IAsyncEnumerable<>))
+                || IsGenericDefinition(candidate, typeof(IAsyncEnumerator<>)))
+            {
+                elementType = candidate.GetGenericArguments()[0];
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static IEnumerable<Type> EnumerateReflectionCollectionExpressionSequenceTypes(Type type)
+    {
+        yield return type;
+
+        Type[] interfaces;
+        try
+        {
+            interfaces = type.GetInterfaces();
+        }
+        catch (NotSupportedException)
+        {
+            yield break;
+        }
+
+        foreach (var interfaceType in interfaces)
+        {
+            yield return interfaceType;
+        }
+    }
+
+    private static bool HasParameterlessConstructor(Type targetType)
+        => HasPublicInstanceConstructor(targetType, constructor => constructor.GetParameters().Length == 0);
+
+    private static bool HasSingleEnumerableConstructor(Type targetType)
+        => HasPublicInstanceConstructor(targetType, HasSingleEnumerableParameter);
+
+    private static bool HasPublicInstanceConstructor(Type targetType, Func<ConstructorInfo, bool> predicate)
+    {
+        try
+        {
+            return targetType
+                .GetConstructors(BindingFlags.Public | BindingFlags.Instance)
+                .Any(predicate);
+        }
+        catch (NotSupportedException)
+        {
+            return false;
+        }
+    }
+
+    private static bool HasSingleEnumerableParameter(MethodBase method)
+    {
+        try
+        {
+            var parameters = method.GetParameters();
+            return parameters.Length == 1
+                && IsGenericDefinition(parameters[0].ParameterType, typeof(IEnumerable<>));
+        }
+        catch (NotSupportedException)
+        {
+            return false;
+        }
+    }
+
+    private static bool HasCollectionExpressionMutator(Type targetType)
+    {
+        try
+        {
+            return targetType
+                .GetMethods(BindingFlags.Public | BindingFlags.Instance)
+                .Any(method => method.Name is "Add" or "Enqueue" && method.GetParameters().Length == 1);
+        }
+        catch (NotSupportedException)
+        {
+            return false;
+        }
+    }
+
+    private static bool IsSupportedCollectionExpressionInterfaceTarget(Type targetType)
+    {
+        if (!targetType.IsInterface)
+        {
+            return false;
+        }
+
+        var definitionName = GetGenericDefinitionFullName(targetType);
+        return definitionName is
+            "System.Collections.Generic.IEnumerable`1" or
+            "System.Collections.Generic.ICollection`1" or
+            "System.Collections.Generic.IList`1" or
+            "System.Collections.Generic.IReadOnlyCollection`1" or
+            "System.Collections.Generic.IReadOnlyList`1" or
+            "System.Collections.Generic.ISet`1" or
+            "System.Collections.Generic.IReadOnlySet`1";
+    }
+
+    private static bool IsGenericDefinition(Type type, Type openGenericType)
+        => string.Equals(
+            GetGenericDefinitionFullName(type),
+            openGenericType.FullName,
+            StringComparison.Ordinal);
+
+    private static string? GetGenericDefinitionFullName(Type type)
+    {
+        if (!type.IsGenericType)
+        {
+            return null;
+        }
+
+        try
+        {
+            return type.GetGenericTypeDefinition().FullName;
+        }
+        catch (NotSupportedException)
+        {
+            return type.FullName;
+        }
+    }
+
+    private static bool IsAssignableFromConstructed(Type targetType, Type openGenericType, Type elementType)
+    {
+        try
+        {
+            return targetType.IsAssignableFrom(openGenericType.MakeGenericType(elementType));
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException)
+        {
+            return false;
+        }
+    }
 
     private TypeInfo AnalyzeNewExpression(NewExpression newExpr)
     {

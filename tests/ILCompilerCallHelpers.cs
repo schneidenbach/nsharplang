@@ -359,6 +359,19 @@ public sealed class IntBoolAddBag : IEnumerable<int>
     }
 }
 
+public sealed class IntEnumerableOnlyBox : IEnumerable<int>
+{
+    public IEnumerator<int> GetEnumerator()
+    {
+        yield return 1;
+    }
+
+    IEnumerator IEnumerable.GetEnumerator()
+    {
+        return GetEnumerator();
+    }
+}
+
 public sealed class IntEnqueueBag : IEnumerable<int>
 {
     private readonly Queue<int> _values = new();
