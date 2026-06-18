@@ -262,8 +262,9 @@ prefix/postfix update operands, expression-valued default stores without old-ele
 nullable-column `??` and `??=` element operations.
 The same nullability rule applies to both row projection and direct column elements: `??` and `??=`
 require a nullable/reference column element and non-nullable columns reject the operation during
-analysis, including when the column member is the parenthesized index receiver. Direct-column range
-slices remain rejected before IL lowering instead of falling into the allocating array-slice backend.
+analysis, including when the column member is the parenthesized index receiver or the direct column
+receiver is wrapped in `checked(...)`/`unchecked(...)`. Direct-column range slices remain rejected
+before IL lowering instead of falling into the allocating array-slice backend.
 Whole-column BCL calls that preserve row identity, such as `Array.Fill(table.column, ...)`,
 `Array.Copy(source, table.column, ...)`, `Array.Copy(table.column, target, ...)`, and
 `Array.Clear(table.column, ...)`, are accepted direct backing-array operations for the supported

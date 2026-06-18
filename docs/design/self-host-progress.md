@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA checked direct-column non-nullable coalescing rejects before lowering
+
+Checked/unchecked direct-column receiver wrappers now have analyzer evidence for invalid `??` and
+`??=` on non-nullable `int` and enum columns. Row, literal from-end, and variable-held from-end
+direct-column indexes keep the ordinary nullability diagnostics and suggestions instead of entering
+the SoA element IL lowering path.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter
+"FullyQualifiedName~Analyzer_SoaRecordCheckedUncheckedColumnMemberNullCoalesce"`.
+
 ## 2026-06-18 — SoA checked direct-column unsupported compound assignments reject before lowering
 
 Checked/unchecked direct-column receiver wrappers now have analyzer evidence for the unsupported
