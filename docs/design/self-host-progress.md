@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — CLI dogfood positional loaders share one host boundary
+
+The `add`, `check`, `fix`, `remove`, and `update` positional command kernel wrappers now share a tiny
+`DogfoodKernelLoader` for dogfood assembly loading and delegate binding instead of each carrying its
+own reflection fallback copy. The wrappers still own their typed bindings and fallback behavior, but
+the repeated C# transition code is smaller and easier to delete as those CLI paths move further into
+N#. Focused evidence:
+`dotnet build src/NSharpLang.Cli/Cli.csproj --no-restore` and
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CheckCommandKernels_SelectsProjectOperand|FullyQualifiedName~FixCommandArgumentKernels_SelectsProjectOperand|FullyQualifiedName~UpdateCommandKernels_SelectsTargetPackage|FullyQualifiedName~AddCommandKernels_SelectsPackageOperand|FullyQualifiedName~RemoveCommandKernels_SelectsPackageOperand"`.
+
 ## 2026-06-18 — SoA hard-cast direct-column Array kernels stay pinned
 
 Accepted whole-column `Array.Fill`, `Array.Copy`, and `Array.Clear` kernels now have IL-shape
