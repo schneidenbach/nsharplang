@@ -7401,16 +7401,17 @@ explicit args required everywhere, unlike union cases).
 adapter flip routing unmodeled shapes — fixed by adapter declines + pins:** (1) a MEMBER name colliding
 with a TYPE-PARAMETER name (`record W<T> { T: int }`, methods/properties too) — pipeline NL306, columnar
 accepted; now declined (union CASE fields are a DIFFERENT scope — `union U<T> { A { T: int } }` is
-pipeline-ACCEPTED, probe-pinned with a parity case). (2) RECORDS with USER CONSTRUCTORS: **the pipeline
-silently DROPS record ctor-body field assignments** (`new R(5)` → x==0; columnar's faithful emit → 5) — a
-pre-existing, previously-unpinned behavior divergence LIVE for non-generic records too; records with user
-ctors now decline (generic AND non-generic) until the oracle is fixed. Also declined: STATIC FIELD use on
-generic types (BOTH pipelines emit an invalid open-generic static-field token → BadImageFormatException —
+pipeline-ACCEPTED, probe-pinned with a parity case). (2) RECORDS with USER CONSTRUCTORS: at the time,
+**the pipeline silently dropped record ctor-body field assignments** (`new R(5)` → x==0; columnar's
+faithful emit → 5), so record user ctors declined (generic AND non-generic) to avoid routing a
+known divergence. Closed on 2026-06-18: the C# oracle now emits record constructor bodies and the
+columnar route accepts the parity-backed surface. Also declined: STATIC FIELD use on generic types
+(BOTH pipelines emit an invalid open-generic static-field token → BadImageFormatException —
 parity-by-accident on broken IL).
 
 **ORACLE DEFECT BUNDLE grows to 10:** (7) generic VALUE-STRUCT object-init = NL103 emit crash ("Specified
-method is not supported"; analyzer accepts); (8) record user-ctor body assignments DROPPED (the HIGH above
-— harms real users silently); (9) static-field tokens on open generics = BadImageFormatException (both
+method is not supported"; analyzer accepts); (8) record user-ctor body assignments DROPPED (the HIGH above,
+closed on 2026-06-18); (9) static-field tokens on open generics = BadImageFormatException (both
 emitters); (10) duplicate type-parameter names (`record W<T, T>`) accepted undiagnosed (columnar declines).
 Bundle items 4 (unchecked object-init field initializers) is confirmed FULLY GENERAL — records, unions,
 generic and non-generic alike.
