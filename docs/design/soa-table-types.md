@@ -443,6 +443,7 @@ The compiler must produce direct diagnostics for common misuse:
   because it would reorder that column independently from the rest of the row storage; named
   array-bearing arguments such as `array: table.column`, `keys: table.column`, and
   `items: table.column`, checked/unchecked direct-column wrappers on those named arguments,
+  hard-cast table/alias receivers such as `((TableAlias)table).column`,
   explicit generic method spelling, and explicit `System.Array` targets are rejected the same way;
 - non-int direct column element indexes, including checked/unchecked direct-column receivers and
   `ref`/`out` address targets: "Array indexes must be int, System.Index, or System.Range";
@@ -533,7 +534,10 @@ array element loads/stores with no row allocation, boxing, delegate construction
 allocation, or virtual dispatch. Hard-cast table/alias receivers, such as `((Nodes)table)[row].column`
 and `((Nodes)table).column[row]`, keep the same direct backing-array shape; unsupported hard-cast
 direct-column escapes, null-conditional access, range slices, and generated-member mutations still
-report SoA diagnostics before emission. Hard-cast generated operations (`ensureCapacity`, `add`,
+report SoA diagnostics before emission. Accepted hard-cast direct-column `Array.Fill`, `Array.Copy`,
+and `Array.Clear` kernels also load backing arrays directly with no row allocation or dispatch, while
+hard-cast direct-column `Array.Resize`, `Array.Sort`, and `Array.Reverse` cases reject before
+emission. Hard-cast generated operations (`ensureCapacity`, `add`,
 `copyRow`, and `clear`) preserve the original table receiver address, so metadata and backing-column
 mutations update caller-visible storage instead of a cast temporary. The proof also includes
 default stores across the

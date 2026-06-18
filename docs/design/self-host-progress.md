@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA hard-cast direct-column Array kernels stay pinned
+
+Accepted whole-column `Array.Fill`, `Array.Copy`, and `Array.Clear` kernels now have IL-shape
+evidence when their direct columns are reached through hard-cast table/alias receivers. Those calls
+load the backing arrays directly and still avoid row allocation, boxing, delegate construction, array
+allocation, and virtual dispatch. The rejected whole-column mutation APIs are pinned on the same
+receiver surface: `Array.Resize`, `Array.Sort`, and `Array.Reverse` over
+`((NodeTable)nodes).column` or nested alias casts keep SoA diagnostics before emission. Focused
+evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~HardCastedDirectColumnBulkArrayOperations_UseBackingArraysWithoutRowAllocation|FullyQualifiedName~Analyzer_SoaDirectColumnsCannotBeResizedThroughArrayResize|FullyQualifiedName~Analyzer_SoaDirectColumnsCannotBeSortedThroughArraySort|FullyQualifiedName~Analyzer_SoaDirectColumnsCannotBeReversedThroughArrayReverse"`.
+
 ## 2026-06-18 — SoA hard-cast row views stay pre-emission diagnostics
 
 Hard-cast table/alias row projections now have analyzer pins for row-view escapes, non-int row
