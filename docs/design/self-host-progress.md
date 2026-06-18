@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Record user constructors emit bodies on the C# oracle path
+
+Record declarations with user constructors now emit those constructor bodies instead of only
+declaring the metadata. Assignments like `x = v` in `record R { constructor(v: int) { x = v } }`
+now run on the C# oracle path for both generic and non-generic records, eliminating the old
+`new R(5)` -> `x == 0` defect. Columnar keeps record user constructors as explicit route declines
+for now; the C# oracle bug is fixed, but the record-constructor columnar surface still needs a
+separate parity-backed implementation before product code can route through it.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter
+"FullyQualifiedName~ILCompiler_RecordUserConstructor_EmitsBodyAssignments|FullyQualifiedName~ILCompiler_GenericRecordUserConstructor_EmitsBodyAssignments|FullyQualifiedName~ColumnarCodegen_Parity_GenericRecords"`;
+`./scripts/dev.sh --since`.
+
 ## 2026-06-18 — Generic static members reject before IL emission
 
 Generic class/record/struct declarations now report `NL323` for static fields, static properties,

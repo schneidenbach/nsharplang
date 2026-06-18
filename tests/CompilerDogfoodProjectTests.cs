@@ -12531,9 +12531,8 @@ func outer(x: int): int {
         Assert.False(RouteColumnarProgram("record W<T> {\n    T: int\n}\n\nfunc f(): int {\n    w := new W<string> { T: 3 }\n    return w.T\n}\n").Ok);
         Assert.False(RouteColumnarProgram("class W<T> {\n    x: int\n    func T(): int {\n        return 2\n    }\n}\n\nfunc f(): int {\n    return 1\n}\n").Ok);
         Assert.False(RouteColumnarProgram("class W<T> {\n    x: int\n    T: int {\n        get {\n            return x\n        }\n    }\n}\n\nfunc f(): int {\n    return 1\n}\n").Ok);
-        // a RECORD with a USER CONSTRUCTOR (generic or not): the pipeline DROPS the ctor body's field
-        // assignments (`new R(5)` yields x==0 — oracle defect bundle); columnar's faithful emit would
-        // DIVERGE (5), so records with user ctors decline until the oracle is fixed.
+        // RECORD user constructors (generic or not): the C# oracle now emits constructor bodies correctly, but
+        // columnar still declines record constructor declarations until that surface is wired and parity-pinned.
         Assert.False(RouteColumnarProgram("record R<T> {\n    x: T\n\n    constructor(v: T) {\n        x = v\n    }\n}\n\nfunc f(): int {\n    r := new R<int>(5)\n    return r.x\n}\n").Ok);
         Assert.False(RouteColumnarProgram("record R {\n    x: int\n\n    constructor(v: int) {\n        x = v\n    }\n}\n\nfunc f(): int {\n    r := new R(5)\n    return r.x\n}\n").Ok);
         // STATIC FIELD use on a generic type: generic types cannot declare static members yet; the

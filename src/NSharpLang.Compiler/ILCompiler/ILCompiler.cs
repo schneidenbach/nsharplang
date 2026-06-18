@@ -23579,7 +23579,11 @@ public partial class ILCompiler
     /// <summary>
     /// Emit constructor body
     /// </summary>
-    private void EmitConstructorBody(TypeBuilder typeBuilder, ConstructorDeclaration ctorDecl, IReadOnlyList<Declaration>? members = null)
+    private void EmitConstructorBody(
+        TypeBuilder typeBuilder,
+        ConstructorDeclaration ctorDecl,
+        IReadOnlyList<Declaration>? members = null,
+        FieldOwnerKind? fieldOwnerKind = null)
     {
         if (!_constructorBuildersByDeclaration.TryGetValue(ctorDecl, out var constructorBuilder))
         {
@@ -23619,7 +23623,10 @@ public partial class ILCompiler
         // the field initializers; running them again here would double-initialize fields.
         if (members != null && !delegatesToThis)
         {
-            EmitDeclaredInstanceFieldInitializers(typeBuilder, members, isValueType ? FieldOwnerKind.Struct : FieldOwnerKind.Class);
+            EmitDeclaredInstanceFieldInitializers(
+                typeBuilder,
+                members,
+                fieldOwnerKind ?? (isValueType ? FieldOwnerKind.Struct : FieldOwnerKind.Class));
         }
 
         // Emit constructor body
@@ -25611,6 +25618,7 @@ public partial class ILCompiler
             recordDecl.Members,
             recordDecl.Interfaces,
             typeGenericParameters);
+        var hasConstructor = recordDecl.Members.Any(m => m is ConstructorDeclaration);
 
         // Declare fields for primary constructor parameters (as backing fields for auto-properties)
         if (recordDecl.PrimaryConstructorParameters != null && recordDecl.PrimaryConstructorParameters.Count > 0)
@@ -25688,7 +25696,7 @@ public partial class ILCompiler
 
             _constructors[GetConstructorKey(typeBuilder)] = constructor;
         }
-        else
+        else if (!hasConstructor)
         {
             // No primary constructor - create default parameterless constructor
             var defaultCtor = typeBuilder.DefineConstructor(
@@ -25816,9 +25824,10 @@ public partial class ILCompiler
         // struct's — without this call a record's `static x: T = v` was silently DROPPED (the field stayed CLR
         // zero/null at runtime).
         EmitDeclaredStaticFieldInitializers(typeBuilder, recordDecl.Members, FieldOwnerKind.Record);
+        var hasConstructor = recordDecl.Members.Any(m => m is ConstructorDeclaration);
 
         // Emit property getters for primary constructor parameters
-        if (recordDecl.PrimaryConstructorParameters != null && recordDecl.PrimaryConstructorParameters.Count > 0)
+        if (!hasConstructor && recordDecl.PrimaryConstructorParameters != null && recordDecl.PrimaryConstructorParameters.Count > 0)
         {
             foreach (var param in recordDecl.PrimaryConstructorParameters)
             {
@@ -25889,7 +25898,7 @@ public partial class ILCompiler
                 _currentGenericParameters = null;
             }
         }
-        else
+        else if (!hasConstructor)
         {
             // Emit default parameterless constructor
             var ctorKey = GetConstructorKey(typeBuilder);
@@ -25943,6 +25952,9 @@ public partial class ILCompiler
             {
                 case FieldDeclaration fieldDecl:
                     EmitFieldBody(typeBuilder, fieldDecl, FieldOwnerKind.Record);
+                    break;
+                case ConstructorDeclaration ctorDecl:
+                    EmitConstructorBody(typeBuilder, ctorDecl, recordDecl.Members, FieldOwnerKind.Record);
                     break;
                 case FunctionDeclaration funcDecl:
                     EmitMethodBody(typeBuilder, funcDecl);

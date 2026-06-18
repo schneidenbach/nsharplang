@@ -2135,6 +2135,46 @@ record Point(x: int, y: int) {}";
     }
 
     [Fact]
+    public void ILCompiler_RecordUserConstructor_EmitsBodyAssignments()
+    {
+        // Record user constructors used to be declared but never emitted; the field stayed
+        // at the CLR default value even though the constructor body assigned it.
+        var source = @"
+record R {
+    x: int
+
+    constructor(v: int) {
+        x = v
+    }
+}
+
+func main(): int {
+    r := new R(5)
+    return r.x
+}";
+        Assert.Equal(5, Assert.IsType<int>(CompileAndInvoke(source)));
+    }
+
+    [Fact]
+    public void ILCompiler_GenericRecordUserConstructor_EmitsBodyAssignments()
+    {
+        var source = @"
+record R<T> {
+    x: T
+
+    constructor(v: T) {
+        x = v
+    }
+}
+
+func main(): int {
+    r := new R<int>(7)
+    return r.x
+}";
+        Assert.Equal(7, Assert.IsType<int>(CompileAndInvoke(source)));
+    }
+
+    [Fact]
     public void ILCompiler_CanCompileRecordStruct()
     {
         var source = @"
