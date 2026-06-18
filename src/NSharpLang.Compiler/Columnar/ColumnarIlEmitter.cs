@@ -4660,7 +4660,7 @@ internal sealed class ColumnarIlEmitter
 
             case 23: // ExpressionStatement — a SIMPLE `=` assignment (kind 14) to a `:=` local OR an array
             {        // element `a[i] = value`, OR a bare CALL statement (a void BCL call such as `Array.Fill(...)`,
-                     // `Array.Clear(...)`, `Array.Copy(...)`,
+                     // `Array.Clear(...)`, `Array.Copy(...)`, `Array.Resize(...)`,
                      // or a sibling/BCL call whose non-void result is discarded), OR a COMPOUND assignment
                      // (`+=` `-=` `*=` `/=` on a bare local/param — lowered to load/op/store below).
                 var expr = UnwrapParenthesizedNode(Child(idx, 0));
@@ -9381,6 +9381,29 @@ internal sealed class ColumnarIlEmitter
             type = typeof(void);
             return true;
         }
+        if (typeName == "Array" && member == "Resize" && argCount == 2)
+        {
+            // Array.Resize<T>(ref T[] array, int newSize) -> void. Keep this as an exact ref-to-SZ-array
+            // special case instead of opening general byref reference slots in IsSupportedParameterType.
+            var refArg = Child(callIdx, 1);
+            if (_nodes.Kind(refArg) != 54 || _nodes.ChildCount(refArg) != 1 || Text(refArg) != "ref")
+                return false;
+            if (!TryGetAddressableTargetType(Child(refArg, 0), out var arrayType)
+                || !arrayType.IsSZArray)
+                return false;
+            var elementType = arrayType.GetElementType()!;
+            if (!IsSupportedElementType(elementType))
+                return false;
+            if (!EmitByRefCallArgument(refArg, arrayType.MakeByRefType())
+                || !EmitArg(callIdx, 2, typeof(int)))
+                return false;
+            var resize = ResolveArrayResize();
+            if (resize == null)
+                return false;
+            _il.Emit(OpCodes.Call, resize.MakeGenericMethod(elementType));
+            type = typeof(void);
+            return true;
+        }
         if (typeName == "Array" && member == "Clear" && (argCount == 1 || argCount == 3))
         {
             // Array.Clear(Array) and Array.Clear(Array, int, int) -> void. The emitted argument remains the
@@ -9459,6 +9482,20 @@ internal sealed class ColumnarIlEmitter
         foreach (var m in typeof(System.Array).GetMethods(BindingFlags.Public | BindingFlags.Static))
         {
             if (m.Name == "Fill" && m.IsGenericMethodDefinition && m.GetParameters().Length == parameterCount)
+                return m;
+        }
+        return null;
+    }
+
+    // System.Array.Resize<T>(ref T[] array, int newSize) as a generic method DEFINITION.
+    private static MethodInfo? ResolveArrayResize()
+    {
+        foreach (var m in typeof(System.Array).GetMethods(BindingFlags.Public | BindingFlags.Static))
+        {
+            if (m.Name != "Resize" || !m.IsGenericMethodDefinition)
+                continue;
+            var parameters = m.GetParameters();
+            if (parameters.Length == 2 && parameters[0].ParameterType.IsByRef && parameters[1].ParameterType == typeof(int))
                 return m;
         }
         return null;
@@ -10384,6 +10421,38 @@ internal sealed class ColumnarIlEmitter
         if (modifier != "ref" && modifier != "out")
             return false;
         return EmitAddressOfByRefTarget(Child(argNode, 0), expectedByRefType.GetElementType()!);
+    }
+
+    private bool TryGetAddressableTargetType(int targetNode, out Type targetType)
+    {
+        targetType = typeof(void);
+        targetNode = UnwrapParenthesizedNode(targetNode);
+
+        if (_nodes.Kind(targetNode) == 6)
+        {
+            var name = Text(targetNode);
+            if (_liftedLocals.ContainsKey(name) || (_boxedCaptures != null && _boxedCaptures.ContainsKey(name)))
+                return false;
+            if (_locals.TryGetValue(name, out var local))
+            {
+                targetType = local.LocalType;
+                return true;
+            }
+            if (_paramTypes.TryGetValue(name, out var paramType))
+            {
+                targetType = paramType.IsByRef ? paramType.GetElementType()! : paramType;
+                return true;
+            }
+            return false;
+        }
+
+        if (_nodes.Kind(targetNode) == 8 && TryResolveMemberWriteChain(targetNode, out var memberChain))
+        {
+            targetType = memberChain.ReceiverType;
+            return true;
+        }
+
+        return false;
     }
 
     private bool EmitAddressOfByRefTarget(int targetNode, Type expectedElementType)

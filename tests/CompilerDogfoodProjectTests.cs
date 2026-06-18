@@ -6695,6 +6695,34 @@ func outer(x: int): int {
             "func f(dst: int[]): int {\n    Array.Copy(5, dst, 1)\n    return 0\n}\n").Ok);
     }
 
+    // Array.Resize<T>(ref T[] array, int newSize) -> void, invoked as a bare statement. This is the compiler-table
+    // growth primitive for owned backing buffers; the columnar slice is exact `ref T[]` over the existing supported
+    // element set and does not open general reference-slot byrefs.
+    [Fact]
+    public void ColumnarCodegen_Parity_ArrayResize()
+    {
+        var resizeIntGrow = "func resizeIntGrow(size: int): int {\n    a := new int[](2)\n    a[0] = 3\n    a[1] = 4\n    Array.Resize(ref a, size)\n    a[2] = 9\n    return a.Length * 100 + a[0] * 10 + a[1] + a[2]\n}\n\n";
+        var resizeIntShrink = "func resizeIntShrink(): int {\n    a := new int[](3)\n    a[0] = 7\n    a[1] = 8\n    a[2] = 9\n    Array.Resize(ref a, 2)\n    return a.Length * 100 + a[0] * 10 + a[1]\n}\n\n";
+        var resizeParamSlot = "func resizeParamSlot(a: int[], size: int): int {\n    Array.Resize(ref a, size)\n    a[0] = 5\n    return a.Length * 10 + a[0]\n}\n\n";
+        var resizeString = "func resizeString(): int {\n    a := new string[](1)\n    a[0] = \"x\"\n    Array.Resize(ref a, 3)\n    score := 0\n    if a[0] == \"x\" {\n        score = score + 1\n    }\n    if a[1] == null {\n        score = score + 10\n    }\n    if a[2] == null {\n        score = score + 100\n    }\n    return a.Length * 1000 + score\n}\n";
+        var prog = resizeIntGrow + resizeIntShrink + resizeParamSlot + resizeString;
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("resizeIntGrow", new object[] { 4 }),
+            ("resizeIntShrink", Array.Empty<object>()),
+            ("resizeParamSlot", new object[] { new[] { 1, 2 }, 3 }),
+            ("resizeString", Array.Empty<object>()));
+
+        // DECLINE SURFACE — keep the C# path authoritative for forms the backend does not model.
+        Assert.False(RouteColumnarProgram(  // the array argument must be an exact `ref` argument.
+            "func f(a: int[]): int {\n    Array.Resize(a, 4)\n    return 0\n}\n").Ok);
+        Assert.False(RouteColumnarProgram(  // `out` is not valid for Array.Resize's ref parameter.
+            "func f(a: int[]): int {\n    Array.Resize(out a, 4)\n    return 0\n}\n").Ok);
+        Assert.False(RouteColumnarProgram(  // newSize must be int, not the long-index family.
+            "func f(a: int[]): int {\n    Array.Resize(ref a, 4L)\n    return 0\n}\n").Ok);
+        Assert.False(RouteColumnarProgram(  // bool[] element opcodes are still outside the columnar array surface.
+            "func f(a: bool[]): int {\n    Array.Resize(ref a, 4)\n    return 0\n}\n").Ok);
+    }
+
     // A bare CALL statement whose result is DISCARDED: emit the call, then `pop` the non-void result (a void
     // call leaves nothing). The C# path emits the same pop, so the side effects + ignored result are identical.
     // This is the `helper(args)`-as-statement idiom (LinterImports.nl calls a flag-clearing helper for its side

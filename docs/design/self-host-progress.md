@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Columnar `Array.Resize` grows owned compiler buffers
+
+The standalone columnar emitter now lowers generic `Array.Resize<T>(ref T[], int)` for the existing
+supported single-dimensional array element set. The first argument is intentionally an exact `ref`
+addressable array target, so product buffer growth can route through the N# backend without opening
+general reference-slot byrefs; missing `ref`, `out`, non-int lengths, and unsupported element arrays
+continue to decline to the C# path.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_Parity_ArrayResize"`;
+`./scripts/dev.sh ColumnarCodegen_Parity_Array`.
+
 ## 2026-06-18 — Columnar `Array.Fill` covers whole-buffer fills
 
 The standalone columnar emitter now lowers both generic `Array.Fill<T>(T[], T)` and the existing
