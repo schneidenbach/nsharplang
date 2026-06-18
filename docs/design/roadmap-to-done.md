@@ -1,18 +1,44 @@
-# Roadmap to Done — N# self-host + Rust-class performance + language strategy
+# Roadmap to Done — complete N# compiler and tooling
 
-The standing execution plan. Work this top-to-bottom autonomously. It exists so there is never a "which next?"
-question — only genuine architectural forks surface. Living evidence in
+The standing execution plan. Work this top-to-bottom autonomously, but keep the objective narrow and concrete:
+**WRITE THE N# COMPILER AND COMPILER TOOLING COMPLETELY.** Living evidence in
 [`self-host-progress.md`](self-host-progress.md), [`columnar-pipeline.md`](columnar-pipeline.md),
 [`systems-vs-native.md`](systems-vs-native.md).
+
+## Current objective
+
+N# owns the compiler and compiler tooling. That means parser, symbol tables, semantic model, diagnostics,
+IL lowering, compiler-service APIs, and the `nlc` command logic (`check`, `fix`, `query`, `format`, `lint`,
+`build`, `run`, `test`) move out of transition-era C# and into N#/columnar implementations where they are not
+true host boundaries.
+
+- C# remains only for CLR/BCL host boundaries, bootstrap loading, MSBuild/VS Code/LSP glue, public .NET object
+  materialization, or a measured fallback while an N# implementation has not cleared parity and the required
+  performance gate.
+- Every C#-side change must identify itself as exactly one of: `host-boundary`, `oracle-bug`,
+  `pre-emission-safety`, `temporary-SoA-proof`, or `C#-surface-shrink`. If it is none of those, it is not roadmap
+  progress.
+- SoA is an emitter-port/table-migration proof until a real compiler table moves onto it. Do not add more
+  hard-cast/checked/Array/ref-out permutation pins unless they block a named product compiler migration or close
+  a currently accepted invalid-IL path.
+- Parity-only probes stay in parity fixtures/corpora. They do not route product traffic and do not count as
+  product compiler ownership.
+- Process, gate, and documentation-only work is subordinate to compiler/tooling implementation. Do it only when
+  it directly preserves the compiler migration path or records a completed implementation change.
 
 ## Operating contract (how this gets executed)
 
 - Execute this roadmap top-to-bottom, **one verified + committed slice at a time**, without pausing for
   approval between slices. After a slice lands, take the next item automatically.
-- Every slice: build → correctness/parity test → adversarial-verify (a read-only workflow) for any new
-  non-trivial logic → `VSCODE_TESTS=skip ./scripts/test-all.sh --commit` is GREEN → commit. **No shortcuts,
-  no faked parity, no weakened tests, no regressions.** A failed gate that is a known thermal flake
-  (HotResultCombinations ≈1.0×, systems compile/build-perf tests) is re-run cool & serially, not worked around.
+- Every implementation slice: build → the narrowest relevant focused evidence (`./scripts/dev.sh <pattern>`,
+  `./scripts/dev.sh --since`, or a targeted `dotnet test --filter ...`) → commit. Use
+  `VSCODE_TESTS=skip ./scripts/test-all.sh --commit` only at integration checkpoints: before merge/push/handoff,
+  after broad shared compiler changes, after SDK/runtime/build-script/package changes, after benchmark-gate
+  changes, or when focused evidence is ambiguous. IDE/LSP/VS Code changes must run the VS Code-enabled gate and
+  be visually verified in VS Code.
+- New non-trivial compiler logic still needs correctness/parity evidence and review-level adversarial thinking.
+  No shortcuts, no faked parity, no weakened tests, no regressions. A failed gate that is a known thermal flake
+  (HotResultCombinations ≈1.0×, systems compile/build-perf tests) is re-run cool and serially, not worked around.
 - **Decompose large efforts into verified sub-slices** (e.g. vectorization codegen = detection → single-lane
   emission → unrolling → widen types → default-on). Never defer a large item wholesale to "a future session."
 - **Surface to the user ONLY for:** (a) a genuine architectural fork this roadmap does not pre-decide where a
@@ -24,13 +50,16 @@ question — only genuine architectural forks surface. Living evidence in
 
 ## Definition of DONE
 
-1. **C#-free:** the compiler, compiler-service, and CLI command logic run on the N# columnar pipeline
-   end-to-end; the C# binder/analyzer/codegen and the `*DogfoodAdapter` bridges are deleted. Only the CLR/BCL
-   host boundary + bootstrap loader remain in C# (AGENTS.md-permitted).
-2. **Rust-class perf:** systems-N# generated code is within ~2× of Rust/C on the vectorizable hot kernels
+1. **Compiler/tooling complete:** parser, symbol model, semantic model, diagnostics, IL lowering,
+   compiler-service APIs, and `nlc` command logic are production-quality, schema-stable, and owned by N#/columnar
+   code except for explicit host boundaries.
+2. **C#-free product core:** the C# binder/analyzer/codegen and the `*DogfoodAdapter` bridges are deleted or
+   reduced to documented host/fallback edges. Only AGENTS.md-permitted CLR/BCL, bootstrap, MSBuild, VS Code/LSP,
+   and public-object materialization boundaries remain in C#.
+3. **Rust-class perf:** systems-N# generated code is within ~2× of Rust/C on the vectorizable hot kernels
    (checksum-sum, count-ascii) and ties-or-better elsewhere; the SystemsFastGate never-regress bar holds.
-3. **Top-of-class language + tooling:** general-purpose and systems surfaces are feature-complete for the
-   corpus + examples; LSP/CLI run on the columnar pipeline; docs current.
+4. **Top-of-class developer tooling:** LSP/CLI operate on semantic data instead of grep-shaped shortcuts;
+   JSON schemas are versioned and stable; diagnostics are product-quality; docs current.
 
 ## End deliverable — what "done" ships
 
@@ -52,10 +81,6 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
 - [x] Routing-via-materialization proven a dead end; columnar pipeline chosen (slices 25–27)
 - [x] Stage 1 — columnar declared-symbol model
 - [x] Stage 2 — columnar name resolution
-- [ ] **Stage 3 — columnar type checking.** Expression type inference over the columnar + symbol tables for
-      the pure-N# surface (literals, locals/params, function returns, operators, index, cast, new); BCL
-      member/call types via a typed host boundary (reflection — AGENTS.md-permitted). Parity vs the C# binder's
-      inferred types on the corpus.
 - [x] Stage 3 — columnar type checking (expression inference; reviewed against the real binder; binder/output
       parity deferred to stages 4-5). Surfaced two C# binder ECMA gaps (fixed below).
 - [x] **Binder reconciliation** (correctness improvement surfaced by stage-3 adversarial review): the C#
@@ -234,6 +259,12 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       shrink/remove the `*DogfoodAdapter` bridges. Track C# LOC deleted. **Current cursor (2026-06-16):**
       route-all/default-on has landed, including the Phase-P vectorization port and IF-2 residuals; the C#
       backend remains as the explicit `NSHARP_COLUMNAR_BACKEND=0/false` fallback and as the parity oracle.
+      **Current directive (2026-06-18):** Stage 6 is about compiler/tooling ownership, not broadening the C#
+      analyzer or building a SoA conformance matrix. A valid Stage 6 slice must do at least one of these:
+      delete/shrink a transition surface, route a real compiler/tooling product path through N#/columnar code,
+      close a currently accepted invalid-IL path before emission, or fix a C# oracle bug proven by product
+      parity. SoA-only work is paused unless it is the named blocker for migrating an actual compiler table or
+      for rejecting an accepted invalid-IL product path.
       The active blocker is no longer rich-language route coverage. It is replacing transition-era C# surface
       only where columnar ownership is complete, and proving the emitter-port table model before moving hot
       compiler tables. The production emit entry has moved from `NSharpCompilerDogfoodAdapter.TryEmitColumnarProgram*`
@@ -302,8 +333,9 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       interface-signature shim now extracted to the parity corpus when no product caller remains. The
       SoA table-type design gate is complete in [`soa-table-types.md`](soa-table-types.md);
       non-generic `soa record` parsing/lowering and the cold overload-candidate fixture are in place behind
-      `NSHARP_EXPERIMENTAL_SOA=1`. Next slices should either shrink redundant adapter/C# transition surface
-      or migrate the next compiler table only when the wrapper ABI/lowering evidence is present.
+      `NSHARP_EXPERIMENTAL_SOA=1`. Next slices must either shrink redundant adapter/C# transition surface or
+      migrate a named compiler/tooling table only when the wrapper ABI, lowering evidence, parity evidence, and
+      product route are present.
 - [ ] **Coverage expansion** (pulled in as stages need them): class/struct/enum/record/interface/union decls
       + members; for/foreach/let/match/lambdas/generics/tuples/is-as/range/`new[size]`/`new{init}`. Each is a
       parser-kernel form added + parity-gated, then threaded through stages 1–4.
