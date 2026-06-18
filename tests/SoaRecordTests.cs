@@ -15704,6 +15704,44 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void ILCompiler_SoaRecordWrap_StoresColumnsWithoutElementTraffic()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var source = """
+            soa record NodeTable {
+                kind: int
+                start: int
+            }
+
+            func main(): int {
+                kinds := new int[](2)
+                starts := new int[](2)
+                nodes := NodeTable.wrap(kinds, starts, 1)
+                return nodes.length
+            }
+            """;
+
+        var opCodes = CompileAndInspect(source, assembly =>
+        {
+            var wrap = assembly.GetType("NodeTable")!.GetMethod(
+                "wrap",
+                BindingFlags.Public | BindingFlags.Static);
+            Assert.NotNull(wrap);
+            return GetMethodOpCodes(wrap!);
+        });
+
+        Assert.Equal(4, opCodes.Count(opCode => opCode == OpCodes.Stfld));
+        Assert.Contains(OpCodes.Ldlen, opCodes);
+        Assert.DoesNotContain(opCodes, IsArrayElementLoad);
+        Assert.DoesNotContain(opCodes, IsArrayElementStore);
+        Assert.DoesNotContain(OpCodes.Newarr, opCodes);
+        Assert.DoesNotContain(OpCodes.Box, opCodes);
+        Assert.DoesNotContain(OpCodes.Ldftn, opCodes);
+        Assert.DoesNotContain(OpCodes.Callvirt, opCodes);
+    }
+
+    [Fact]
     public void ILCompiler_SoaRecordWrapBindsNamedArguments()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

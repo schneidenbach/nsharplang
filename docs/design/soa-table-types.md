@@ -643,7 +643,8 @@ hard-cast table/alias receiver forms of `add`, `clear`, `ensureCapacity`, and `c
 function/delegate values before IL emission.
 Construction allocates exactly one array per column and stores column/metadata fields; `wrap` stores
 incoming column references without
-allocating arrays or copying elements; `add` updates only length metadata after calling
+allocating arrays or copying elements, with a method-body IL-shape pin proving no array element
+traffic; `add` updates only length metadata after calling
 `ensureCapacity`; `clear` resets only length; `ensureCapacity` emits one `Array.Resize<T>` per column;
 and `copyRow` emits one element load/store pair per column while still calling `ensureCapacity` for
 explicit growth. These generated methods avoid row object construction, backing-column element

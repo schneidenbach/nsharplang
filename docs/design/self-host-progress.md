@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA wrap method body is pinned zero-copy
+
+The generated `Table.wrap(...)` method now has direct method-body IL-shape evidence. The pin inspects
+`NodeTable.wrap`, requires only column/metadata field stores for a two-column table, and rejects
+array element loads/stores, new array allocation, boxing, delegate construction, and virtual
+dispatch in the wrapper body. Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~ILCompiler_SoaRecordWrap_StoresColumnsWithoutElementTraffic"`.
+
 ## 2026-06-18 — SoA hard-cast generated operations keep receiver-address shape
 
 Hard-cast table and alias receivers now have a generated-operation call-site pin. Calls like
