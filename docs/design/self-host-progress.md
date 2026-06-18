@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Product/parity dogfood boundary becomes generated
+
+`ColumnarCodegen_ParityOnlyFiles_AreAbsentFromProductCoverage` now derives every parity-only N#
+function directly from `src/NSharpLang.Compiler.Dogfood.ParityCorpus/*.nl` and compares it against the
+matching shipped product dogfood file. This prevents benchmark-only or rejected probes from slipping
+back into product coverage when a new parity function is added without updating a manual list.
+
 ## 2026-06-18 — Analyzer exhaustiveness parity probes get product-boundary pins
 
 `AnalyzerExhaustiveness.nl` product coverage now explicitly excludes the benchmark/parity-only checksum

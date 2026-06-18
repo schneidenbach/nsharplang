@@ -12034,6 +12034,33 @@ func outer(x: int): int {
             Assert.NotEmpty(methodNames!);
         }
 
+        var repoRoot = FindRepoRoot();
+        var corpusDir = Path.Combine(repoRoot, "src", "NSharpLang.Compiler.Dogfood.ParityCorpus");
+        var generatedBoundaryPins = new List<(string FileName, string FunctionName)>();
+        foreach (var corpusPath in Directory.EnumerateFiles(corpusDir, "*.nl").OrderBy(p => p, StringComparer.Ordinal))
+        {
+            var fileName = Path.GetFileName(corpusPath);
+            var parityFunctionNames = ExtractDogfoodFunctionNames(File.ReadAllText(corpusPath));
+            var productPath = DogfoodProductFilePath(fileName);
+            var productFunctionNames = File.Exists(productPath)
+                ? ExtractDogfoodFunctionNames(File.ReadAllText(productPath))
+                : new HashSet<string>(StringComparer.Ordinal);
+            var mergedFunctionNames = ExtractDogfoodFunctionNames(ReadDogfoodFileWithParityCorpus(fileName));
+
+            foreach (var functionName in parityFunctionNames.OrderBy(n => n, StringComparer.Ordinal))
+            {
+                generatedBoundaryPins.Add((fileName, functionName));
+                Assert.False(
+                    productFunctionNames.Contains(functionName),
+                    $"{fileName}:{functionName} is still in the parity corpus but is also shipped by the product dogfood source.");
+                Assert.True(
+                    mergedFunctionNames.Contains(functionName),
+                    $"{fileName}:{functionName} must be present when the parity corpus is explicitly merged.");
+            }
+        }
+
+        Assert.NotEmpty(generatedBoundaryPins);
+
         foreach (var (fileName, functionName) in new[]
         {
             ("ParserDeclarations.nl", "PackageNameSpanInto"),
@@ -24442,6 +24469,11 @@ func main() {
         var repoRoot = FindRepoRoot();
         return File.ReadAllText(Path.Combine(repoRoot, "src", "NSharpLang.Compiler.Dogfood.ParityCorpus", fileName));
     }
+
+    private static HashSet<string> ExtractDogfoodFunctionNames(string source)
+        => Regex.Matches(source, @"(?m)^func\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(")
+            .Select(match => match.Groups[1].Value)
+            .ToHashSet(StringComparer.Ordinal);
 
     private static string DogfoodProductFilePath(string fileName)
     {
