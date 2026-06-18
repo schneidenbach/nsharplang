@@ -99,6 +99,56 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void DirectColumnElementAccessCheckedUncheckedWrappers_UseColumnArrayLoadStoreWithoutRowAllocation()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                kind: int
+                start: int
+            }
+
+            func update(nodes: NodeTable, row: int): int {
+                (checked(nodes.kind))[row] = 3
+                (unchecked(nodes.kind))[row] += 4
+                old := (checked(nodes.kind))[row]++
+                (unchecked(nodes.start))[^1] = old
+                idx := ^1
+                total := old * 1000
+                total += (checked(nodes.kind))[row] * 100
+                total += (unchecked(nodes.start))[idx] * 10
+                total += checked(nodes.start).Length
+                return total
+            }
+
+            func main(): int {
+                nodes := new NodeTable(1)
+                row := nodes.add()
+                return update(nodes, row)
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var update = ILShapeInspector.GetProgramMethod(assembly, "update");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(7871, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoFromEndSliceAllocation(update);
+            Assert.True(
+                ILShapeInspector.CountOpcode(update, OpCodes.Ldfld) >= 7,
+                "Checked/unchecked direct SoA column element operations should load backing column fields directly.");
+            Assert.Equal(3, ILShapeInspector.CountOpcode(update, OpCodes.Ldlen));
+            Assert.Equal(4, CountArrayElementLoads(update));
+            Assert.Equal(4, CountArrayElementStores(update));
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void DirectColumnMetadataProperties_UseBackingArrayLengthWithoutDispatch()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

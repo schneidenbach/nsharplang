@@ -249,6 +249,9 @@ The same direct-column update shapes also apply to literal and variable-held `Sy
 element access such as `table.column[^1]` and `table.column[idx]`, including expression-valued simple
 stores, default stores without old-element reads, prefix/postfix increment/decrement,
 null-coalescing reads, and null-coalescing assignments.
+Checked/unchecked wrappers around the direct column, such as `(checked(table.column))[row]` and
+`(unchecked(table.column))[^1]`, keep the same direct element lowering and do not introduce row
+materialization, array slicing, boxing, or dispatch.
 The same nullability rule applies to both row projection and direct column elements: `??` and `??=`
 require a nullable/reference column element and non-nullable columns reject the operation during
 analysis, including when the column member is the parenthesized index receiver. Direct-column range

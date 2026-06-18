@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA checked direct-column element access keeps IL shape
+
+Direct-column element reads, writes, compound assignment, postfix update, and from-end stores now
+have IL-shape evidence when the column receiver is wrapped in `checked(...)` or `unchecked(...)`,
+such as `(checked(table.column))[row]` and `(unchecked(table.column))[^1]`. The accepted lowering
+still loads the generated backing array fields directly, uses `ldlen` only for from-end offset or
+metadata, and allocates no slices, rows, arrays, delegates, boxes, or virtual dispatch.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter
+"FullyQualifiedName~DirectColumnElementAccessCheckedUncheckedWrappers_UseColumnArrayLoadStoreWithoutRowAllocation"`.
+
 ## 2026-06-18 — SoA named checked Array rejections stay pre-emission
 
 The SoA direct-column Array rejection matrix now pins named array-bearing arguments when the column
