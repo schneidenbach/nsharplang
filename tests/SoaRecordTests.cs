@@ -9629,6 +9629,81 @@ public class SoaRecordTests : ILCompilerTestBase
                     return Array.AsReadOnly(array: unchecked(nodes.kind))
                 }
                 """,
+                Method: "AsReadOnly"),
+            (
+                Source: """
+                import System
+
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes): int {
+                    return Array.IndexOf(((NodeTable)nodes).kind, 2)
+                }
+                """,
+                Method: "IndexOf"),
+            (
+                Source: """
+                import System
+
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes): int {
+                    return System.Array.BinarySearch<int>(array: checked(((Nodes)((NodeTable)nodes)).kind), value: 2)
+                }
+                """,
+                Method: "BinarySearch"),
+            (
+                Source: """
+                import System
+
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes, source: int[]) {
+                    Array.ConstrainedCopy(source, 0, ((NodeTable)nodes).kind, 0, 1)
+                }
+                """,
+                Method: "ConstrainedCopy"),
+            (
+                Source: """
+                import System
+
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes, target: int[]) {
+                    System.Array.ConstrainedCopy(length: 1, destinationIndex: 0, destinationArray: target, sourceIndex: 0, sourceArray: unchecked(((Nodes)((NodeTable)nodes)).kind))
+                }
+                """,
+                Method: "ConstrainedCopy"),
+            (
+                Source: """
+                import System
+
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes): object {
+                    return Array.AsReadOnly(array: unchecked(((Nodes)((NodeTable)nodes)).kind))
+                }
+                """,
                 Method: "AsReadOnly")
         };
 

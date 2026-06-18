@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Hard-cast SoA unpinned Array calls reject before lowering
+
+Unsupported static `Array` methods outside the pinned `Fill`/`Copy`/`Clear` kernels now have analyzer
+pins when direct columns are reached through hard-cast table/alias receivers.
+`Array.IndexOf(((NodeTable)nodes).kind, ...)`, checked hard-cast `BinarySearch`, hard-cast
+`ConstrainedCopy` source/destination array arguments, and unchecked hard-cast `AsReadOnly` all keep
+the SoA-specific Array diagnostic before ordinary BCL binding or backend array handling can run.
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~Analyzer_SoaDirectColumnsCannotUseUnpinnedStaticArrayMethods"`.
+
 ## 2026-06-18 — Hard-cast SoA array instance methods reject before lowering
 
 Direct-column array instance calls and method-value escapes now have analyzer pins when the column is

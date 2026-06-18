@@ -456,7 +456,8 @@ The compiler must produce direct diagnostics for common misuse:
   ranges, and checked/unchecked direct-column receivers or mutation-target wrappers:
   "SoA column range slices allocate arrays";
 - unsupported direct-column static `Array` calls outside pinned whole-column kernels, including named
-  array-bearing arguments such as `array: table.column` and `destinationArray: table.column`:
+  array-bearing arguments such as `array: table.column` and `destinationArray: table.column`,
+  checked/unchecked wrappers, and hard-cast table/alias receivers:
   "SoA table member 'X' cannot be passed to Array.Y directly";
 - unsupported direct-column array escapes through arbitrary calls, extension receivers, or
   constructors, including hard-cast table/alias receivers:
