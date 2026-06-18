@@ -4650,14 +4650,19 @@ public class Analyzer : IDisposable
             collectionType = BuiltInTypes.Unknown;
         }
 
-        // Check if collection is enumerable
-        // For now, just check if it's an array or has a known collection type
-        // TODO: More sophisticated enumerable checking
+        TypeInfo elementType = BuiltInTypes.Unknown;
+        if (!TryGetLoopSequenceElementType(collectionType, requireAsync: false, out elementType)
+            && ShouldReportLoopSequenceTypeMismatch(collectionType))
+        {
+            ReportLoopSequenceTypeMismatch(
+                foreachStmt.Collection,
+                collectionType,
+                "foreach",
+                "enumerable",
+                "Use an array, Span<T>, or IEnumerable<T> value as the foreach collection.");
+        }
 
         PushScope(new Scope(ScopeKind.Block), foreachStmt.Line, foreachStmt.Column);
-
-        // Infer element type
-        TypeInfo elementType = InferElementType(collectionType);
 
         DeclareSymbol(foreachStmt.VariableName, elementType, foreachStmt.Line, foreachStmt.Column);
 
@@ -4686,14 +4691,19 @@ public class Analyzer : IDisposable
             collectionType = BuiltInTypes.Unknown;
         }
 
-        // Check if collection is IAsyncEnumerable<T>
-        // For now, similar to regular foreach, we'll check for async enumerable types
-        // TODO: More sophisticated async enumerable checking
+        TypeInfo elementType = BuiltInTypes.Unknown;
+        if (!TryGetLoopSequenceElementType(collectionType, requireAsync: true, out elementType)
+            && ShouldReportLoopSequenceTypeMismatch(collectionType))
+        {
+            ReportLoopSequenceTypeMismatch(
+                awaitForeachStmt.Collection,
+                collectionType,
+                "await foreach",
+                "async enumerable",
+                "Use an IAsyncEnumerable<T> value as the await foreach collection.");
+        }
 
         PushScope(new Scope(ScopeKind.Block), awaitForeachStmt.Line, awaitForeachStmt.Column);
-
-        // Infer element type
-        TypeInfo elementType = InferElementType(collectionType);
 
         DeclareSymbol(awaitForeachStmt.VariableName, elementType, awaitForeachStmt.Line, awaitForeachStmt.Column);
 
@@ -4714,52 +4724,262 @@ public class Analyzer : IDisposable
         PopScope();
     }
 
-    /// <summary>
-    /// Infer the element type from a collection type for foreach loops
-    /// </summary>
-    private TypeInfo InferElementType(TypeInfo collectionType)
+    private bool TryGetLoopSequenceElementType(TypeInfo collectionType, bool requireAsync, out TypeInfo elementType)
     {
-        // Handle arrays: Employee[] → Employee
-        if (collectionType is ArrayTypeInfo arrayType)
+        elementType = BuiltInTypes.Unknown;
+
+        var resolved = NormalizeLoopCollectionType(collectionType);
+        if (BuiltInTypes.IsUnknown(resolved) || resolved is ExternalTypeInfo)
         {
-            return arrayType.ElementType;
+            return false;
         }
 
-        // Handle generic collections: List<Employee> → Employee
-        // This also handles IEnumerable<T>, ICollection<T>, etc.
-        if (IsCollectionType(collectionType, out var elementType))
+        switch (resolved)
         {
-            return elementType;
+            case ArrayTypeInfo arrayType when !requireAsync:
+                elementType = arrayType.ElementType;
+                return true;
+            case GenericTypeInfo genericType when TryGetGenericLoopSequenceElementType(genericType, requireAsync, out elementType):
+                return true;
+            case ReflectionTypeInfo reflectionType when TryGetReflectionLoopSequenceElementType(reflectionType.Type, requireAsync, out elementType):
+                return true;
+            case ClassTypeInfo classType when TryGetSourceLoopSequenceElementType(classType.Declaration.Interfaces, requireAsync, out elementType):
+                return true;
+            case StructTypeInfo structType when TryGetSourceLoopSequenceElementType(structType.Declaration.Interfaces, requireAsync, out elementType):
+                return true;
+            case RecordTypeInfo recordType when TryGetSourceLoopSequenceElementType(recordType.Declaration.Interfaces, requireAsync, out elementType):
+                return true;
+            case InterfaceTypeInfo interfaceType when TryGetSourceLoopSequenceElementType(interfaceType.Declaration.BaseInterfaces, requireAsync, out elementType):
+                return true;
+            default:
+                return false;
         }
+    }
 
-        // Handle .NET reflection types that implement IEnumerable<T>
-        if (collectionType is ReflectionTypeInfo reflectionType)
+    private TypeInfo NormalizeLoopCollectionType(TypeInfo collectionType)
+    {
+        var resolved = ResolveTypeAlias(GetNonNullableType(collectionType));
+        while (true)
         {
-            var type = reflectionType.Type;
-
-            // Check if it's an array
-            if (type.IsArray)
+            switch (resolved)
             {
-                var elementReflectionType = type.GetElementType();
-                if (elementReflectionType != null)
-                {
-                    return new ReflectionTypeInfo(elementReflectionType);
-                }
+                case ObliviousTypeInfo oblivious:
+                    resolved = ResolveTypeAlias(GetNonNullableType(oblivious.InnerType));
+                    continue;
+                case ByRefTypeInfo byRef:
+                    resolved = ResolveTypeAlias(GetNonNullableType(byRef.InnerType));
+                    continue;
+                case SimpleTypeInfo simple when LookupType(simple.Name) is { } namedType && !ReferenceEquals(namedType, resolved):
+                    resolved = ResolveTypeAlias(GetNonNullableType(namedType));
+                    continue;
+                default:
+                    return resolved;
+            }
+        }
+    }
+
+    private bool ShouldReportLoopSequenceTypeMismatch(TypeInfo collectionType)
+    {
+        var resolved = NormalizeLoopCollectionType(collectionType);
+        return !BuiltInTypes.IsUnknown(resolved) && resolved is not ExternalTypeInfo;
+    }
+
+    private void ReportLoopSequenceTypeMismatch(
+        Expression collection,
+        TypeInfo collectionType,
+        string loopKind,
+        string expectedKind,
+        string suggestion)
+    {
+        var (line, column, length) = GetExpressionDiagnosticSpan(collection);
+        Error(
+            ErrorCode.TypeMismatch,
+            $"{loopKind} collection must be {expectedKind}, but this collection is '{collectionType}'",
+            line,
+            column,
+            suggestion,
+            length);
+    }
+
+    private bool TryGetGenericLoopSequenceElementType(GenericTypeInfo genericType, bool requireAsync, out TypeInfo elementType)
+    {
+        elementType = BuiltInTypes.Unknown;
+        if (genericType.TypeArguments.Count != 1)
+        {
+            return false;
+        }
+
+        var name = GetUnqualifiedTypeName(genericType.Name);
+        var tickIndex = name.IndexOf('`', StringComparison.Ordinal);
+        if (tickIndex >= 0)
+        {
+            name = name[..tickIndex];
+        }
+
+        if (requireAsync)
+        {
+            if (name != "IAsyncEnumerable")
+            {
+                return false;
             }
 
-            // Check if type implements IEnumerable<T>
-            var enumerableInterface = type.GetInterfaces()
-                .FirstOrDefault(i => i.IsGenericType &&
-                                   i.GetGenericTypeDefinition().FullName == "System.Collections.Generic.IEnumerable`1");
+            elementType = genericType.TypeArguments[0];
+            return true;
+        }
 
-            if (enumerableInterface != null)
+        if (IsSpanTypeName(name) || IsCollectionType(genericType, out elementType))
+        {
+            if (BuiltInTypes.IsUnknown(elementType))
             {
-                var elementReflectionType = enumerableInterface.GetGenericArguments()[0];
-                return new ReflectionTypeInfo(elementReflectionType);
+                elementType = genericType.TypeArguments[0];
+            }
+
+            return true;
+        }
+
+        return false;
+    }
+
+    private bool TryGetSourceLoopSequenceElementType(
+        IEnumerable<TypeReference> interfaceReferences,
+        bool requireAsync,
+        out TypeInfo elementType)
+    {
+        foreach (var interfaceReference in interfaceReferences)
+        {
+            var interfaceType = ResolveType(interfaceReference);
+            if (TryGetLoopSequenceElementType(interfaceType, requireAsync, out elementType))
+            {
+                return true;
             }
         }
 
-        return BuiltInTypes.Unknown;
+        elementType = BuiltInTypes.Unknown;
+        return false;
+    }
+
+    private bool TryGetReflectionLoopSequenceElementType(Type type, bool requireAsync, out TypeInfo elementType)
+    {
+        elementType = BuiltInTypes.Unknown;
+
+        var runtimeType = Nullable.GetUnderlyingType(type) ?? type;
+        if (!requireAsync && runtimeType.IsArray)
+        {
+            var elementReflectionType = runtimeType.GetElementType();
+            if (elementReflectionType != null)
+            {
+                elementType = ConvertReflectionType(elementReflectionType);
+                return true;
+            }
+        }
+
+        if (!requireAsync && TryGetReflectionGenericElementType(runtimeType, "System.Span`1", out elementType))
+        {
+            return true;
+        }
+
+        if (!requireAsync && TryGetReflectionGenericElementType(runtimeType, "System.ReadOnlySpan`1", out elementType))
+        {
+            return true;
+        }
+
+        var expectedInterface = requireAsync ? typeof(IAsyncEnumerable<>) : typeof(IEnumerable<>);
+        if (TryGetReflectionInterfaceElementType(runtimeType, expectedInterface, out elementType))
+        {
+            return true;
+        }
+
+        if (!requireAsync && TryGetReflectionEnumeratorPatternElementType(runtimeType, out elementType))
+        {
+            return true;
+        }
+
+        if (!requireAsync && typeof(System.Collections.IEnumerable).IsAssignableFrom(runtimeType))
+        {
+            elementType = BuiltInTypes.Object;
+            return true;
+        }
+
+        return false;
+    }
+
+    private bool TryGetReflectionGenericElementType(Type type, string genericDefinitionFullName, out TypeInfo elementType)
+    {
+        elementType = BuiltInTypes.Unknown;
+        if (!type.IsGenericType
+            || type.GetGenericTypeDefinition().FullName != genericDefinitionFullName
+            || type.GenericTypeArguments.Length != 1)
+        {
+            return false;
+        }
+
+        elementType = ConvertReflectionType(type.GenericTypeArguments[0]);
+        return true;
+    }
+
+    private bool TryGetReflectionInterfaceElementType(Type type, Type expectedInterfaceDefinition, out TypeInfo elementType)
+    {
+        elementType = BuiltInTypes.Unknown;
+        try
+        {
+            var sequenceInterface = type.IsGenericType && type.GetGenericTypeDefinition() == expectedInterfaceDefinition
+                ? type
+                : type.GetInterfaces()
+                    .FirstOrDefault(candidate =>
+                        candidate.IsGenericType && candidate.GetGenericTypeDefinition() == expectedInterfaceDefinition);
+
+            if (sequenceInterface == null || sequenceInterface.GenericTypeArguments.Length != 1)
+            {
+                return false;
+            }
+
+            elementType = ConvertReflectionType(sequenceInterface.GenericTypeArguments[0]);
+            return true;
+        }
+        catch (NotSupportedException)
+        {
+            return false;
+        }
+    }
+
+    private bool TryGetReflectionEnumeratorPatternElementType(Type type, out TypeInfo elementType)
+    {
+        elementType = BuiltInTypes.Unknown;
+        try
+        {
+            var getEnumeratorMethod = type.GetMethod(
+                "GetEnumerator",
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance,
+                binder: null,
+                types: Type.EmptyTypes,
+                modifiers: null);
+            if (getEnumeratorMethod == null)
+            {
+                return false;
+            }
+
+            var enumeratorType = getEnumeratorMethod.ReturnType;
+            var moveNextMethod = enumeratorType.GetMethod(
+                "MoveNext",
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance,
+                binder: null,
+                types: Type.EmptyTypes,
+                modifiers: null);
+            var currentProperty = enumeratorType.GetProperty(
+                "Current",
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+            if (moveNextMethod?.ReturnType != typeof(bool) || currentProperty?.GetMethod == null)
+            {
+                return false;
+            }
+
+            elementType = ConvertReflectionType(currentProperty.PropertyType);
+            return true;
+        }
+        catch (NotSupportedException)
+        {
+            return false;
+        }
     }
 
     private void AnalyzeReturnStatement(ReturnStatement returnStmt)

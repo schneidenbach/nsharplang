@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Foreach collections validate sequence shape before lowering
+
+The analyzer now validates `foreach` and `await foreach` collections before the IL backend tries to
+resolve `GetEnumerator`/`GetAsyncEnumerator`. Synchronous loops accept arrays, `Span<T>`/
+`ReadOnlySpan<T>`, known generic collection types, CLR `IEnumerable<T>` implementations, non-generic
+`IEnumerable`, reflection enumerator-pattern types, and source types with enumerable interfaces.
+Async loops accept `IAsyncEnumerable<T>` through source or CLR interfaces. Known non-sequences such as
+`foreach value in 1` and `await foreach value in [1, 2, 3]` now stop during analysis with typed loop
+variable recovery, while unknown/external cases still defer to avoid follow-on noise.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~AnalyzerTests.ForeachLoop"`;
+`./scripts/dev.sh Foreach`.
+
 ## 2026-06-18 — Tuple deconstruction validates tuple shape before emission
 
 Normal tuple deconstruction now binds the initializer as a tuple-like value during analysis instead of

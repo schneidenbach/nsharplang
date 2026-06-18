@@ -2197,6 +2197,65 @@ func Main() {
     }
 
     [Fact]
+    public void ForeachLoop_SpanCollection_Valid()
+    {
+        var result = AnalyzeWithSource("""
+            import System
+
+            func Sum(numbers: ReadOnlySpan<int>): int {
+                total := 0
+                foreach value in numbers {
+                    total += value
+                }
+
+                return total
+            }
+            """);
+
+        Assert.Empty(result.Errors);
+        Assert.Equal("int", result.SemanticModel.LookupIdentifier("value")?.ToString());
+    }
+
+    [Fact]
+    public void AwaitForeachLoop_AsyncEnumerableCollection_Valid()
+    {
+        var result = AnalyzeWithSource("""
+            import System.Collections.Generic
+            import System.Threading.Tasks
+
+            async func Sum(numbers: IAsyncEnumerable<int>): Task<int> {
+                total := 0
+                await foreach value in numbers {
+                    total += value
+                }
+
+                return total
+            }
+            """);
+
+        Assert.Empty(result.Errors);
+        Assert.Equal("int", result.SemanticModel.LookupIdentifier("value")?.ToString());
+    }
+
+    [Theory]
+    [InlineData("foreach value in 1 { }", "foreach collection must be enumerable")]
+    [InlineData("await foreach value in [1, 2, 3] { }", "await foreach collection must be async enumerable")]
+    public void ForeachLoop_NonEnumerableCollection_Error(string statement, string message)
+    {
+        var result = AnalyzeWithSource($$"""
+            import System.Threading.Tasks
+
+            async func Main(): Task<int> {
+                {{statement}}
+                return 0
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains(message, error.Message);
+    }
+
+    [Fact]
     public void NestedScopes_AccessOuterVariable()
     {
         AssertNoErrors(@"
