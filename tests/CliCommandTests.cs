@@ -1028,6 +1028,31 @@ func Main() {
     }
 
     [Fact]
+    public void WatchCommandKernels_SelectsForwardedArgs()
+    {
+        var args = new[]
+        {
+            "test",
+            "--project",
+            "samples/demo",
+            "--filter",
+            "AddPerson",
+            "--debounce-ms",
+            "50",
+            "--json",
+            "--max-runs",
+            "2",
+            "--coverage",
+            "-h",
+            "--backend",
+            "il"
+        };
+
+        Assert.True(WatchCommandKernels.TryGetForwardedArgs(args, out var forwardedArgs));
+        Assert.Equal(new[] { "--filter", "AddPerson", "--json", "--coverage", "--backend", "il" }, forwardedArgs);
+    }
+
+    [Fact]
     public void RemoveCommandKernels_SelectsPackageOperand()
     {
         Assert.True(RemoveCommandKernels.TryGetPackageOperand(

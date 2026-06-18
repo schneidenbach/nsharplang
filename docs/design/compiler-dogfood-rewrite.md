@@ -1159,8 +1159,9 @@ Current CLI dogfood benchmarks:
   mirrors the current command shape: copy `args.Skip(1).ToArray()`, scan with a list, skip watch-only
   options and help flags, then materialize the forwarded argument array. The N# pressure candidate
   scans the original argv from index one and writes forwarded source indices through
-  `CliWatchForwardedArgIndicesInto`, but it remains benchmark-only because measured wall-clock speed
-  missed the production gate.
+  `CliWatchForwardedArgIndicesInto`. It originally remained benchmark-only because measured
+  wall-clock speed missed the production gate, then Stage 6 routed it through `WatchCommandKernels`
+  as a `C#-surface-shrink` product path.
 - `CliTestFilterMatchingBenchmarks` targeted `nlc test --filter` test-case selection. The C# baseline
   mirrored the current per-candidate predicate: split the public filter on `|`, trim/remove empty
   parts, and run ordinal-ignore-case contains checks against display and fully-qualified names. The
@@ -1386,9 +1387,9 @@ comparison/helper-call overhead clears the 5x gate.
 `nlc watch` forwarded-argument selection. The production-shaped benchmark, including final string
 array materialization, measured 99.541 us vs 150.750 us on the representative corpus and 717.333 us
 vs 1.142 ms on the large generated corpus, while reducing managed allocation to about 16% of the C#
-command shape. This is useful allocation-pressure evidence only: the best dry run reached about
-1.5x to 1.6x, so `WatchCommand` must stay on the current C# forwarded-argument helper until N#
-string option classification and host-boundary materialization can clear the 5x route gate.
+command shape. That benchmark remains allocation-pressure evidence rather than 5x acceptance
+evidence; Stage 6 now routes `WatchCommand` through the kernel to shrink the C# product surface, with
+the C# forwarded-argument helper retained as fallback/oracle logic.
 
 `CliBuildOptionSummaryInto` passed parity but missed the dry BenchmarkDotNet speed gate for the
 remaining `nlc build` option-discovery work. The production-shaped benchmark measured 81.791 us vs
@@ -2117,10 +2118,12 @@ CLI stable string de-duplication for stale generated cleanup and target-framewor
 add/remove package operand discovery, tidy dependency-line keep flags,
 DocQuery reference-pack assembly-name and type-candidate de-duplication,
 CLI test outcome summaries,
+CLI build/test option summaries,
+watch forwarded-argument selection,
 and the accepted batch result packed-count kernel through the compiled N# methods. The same suite
-also compiles and exercises the pressure-only path-matching, all-positionals CLI argument, build
-option summary, and watch forwarded-argument parity kernels from the parity corpus without routing
-them through product adapters; `CliCommandTests` verifies both
+also compiles and exercises the pressure-only path-matching and all-positionals CLI argument parity
+kernels from the parity corpus without routing them through product adapters; `CliCommandTests`
+verifies both
 packaged CLI dogfood routes for duplicate batch request ids, `nlc update` target package
 selection, `nlc doc` symbol/member ordering and slug generation, `nlc tree` dependency deduplication, and
 `nlc query diagnostics --severity` filtering plus compiler-error severity filtering, skipped-fix

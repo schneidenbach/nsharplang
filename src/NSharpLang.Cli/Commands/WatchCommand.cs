@@ -20,7 +20,7 @@ public static class WatchCommand
         if (!SupportedCommands.Contains(watchedCommand, StringComparer.Ordinal))
             return Error($"Unsupported watch target '{watchedCommand}'. Expected check, build, test, lint, or format.");
 
-        var forwardedArgs = GetForwardedArgs(args.Skip(1).ToArray());
+        var forwardedArgs = GetForwardedArgs(args);
         var projectRoot = GetOption(args, "--project") ?? Directory.GetCurrentDirectory();
         projectRoot = Path.GetFullPath(projectRoot);
 
@@ -133,9 +133,18 @@ public static class WatchCommand
 
     private static string[] GetForwardedArgs(string[] args)
     {
+        if (WatchCommandKernels.TryGetForwardedArgs(args, out var forwardedArgs))
+            return forwardedArgs;
+
+        return GetForwardedArgsWithCSharp(args);
+    }
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product watch forwarding routes through WatchCommandKernels.
+    private static string[] GetForwardedArgsWithCSharp(string[] args)
+    {
         var forwarded = new List<string>();
 
-        for (var i = 0; i < args.Length; i++)
+        for (var i = 1; i < args.Length; i++)
         {
             if (WatchOptionsWithValues.Contains(args[i], StringComparer.Ordinal))
             {
