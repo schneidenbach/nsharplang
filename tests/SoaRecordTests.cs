@@ -6769,7 +6769,37 @@ public class SoaRecordTests : ILCompilerTestBase
                 type Nodes = NodeTable
 
                 func bad(nodes: Nodes): int {
+                    return System.Array.IndexOf<int>(array: checked(nodes.kind), value: 2)
+                }
+                """,
+                Method: "IndexOf"),
+            (
+                Source: """
+                import System
+
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes): int {
                     return System.Array.BinarySearch((nodes).kind, 2)
+                }
+                """,
+                Method: "BinarySearch"),
+            (
+                Source: """
+                import System
+
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes): int {
+                    return Array.BinarySearch<int>(array: unchecked((nodes).kind), value: 2)
                 }
                 """,
                 Method: "BinarySearch"),
@@ -6813,6 +6843,21 @@ public class SoaRecordTests : ILCompilerTestBase
 
                 type Nodes = NodeTable
 
+                func bad(nodes: Nodes, source: int[]) {
+                    Array.ConstrainedCopy(length: 1, destinationIndex: 0, destinationArray: checked(nodes.kind), sourceIndex: 0, sourceArray: source)
+                }
+                """,
+                Method: "ConstrainedCopy"),
+            (
+                Source: """
+                import System
+
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
                 func bad(nodes: Nodes, target: int[]) {
                     Array.ConstrainedCopy(nodes.kind, 0, target, 0, 1)
                 }
@@ -6830,6 +6875,21 @@ public class SoaRecordTests : ILCompilerTestBase
 
                 func bad(nodes: Nodes, target: int[]) {
                     System.Array.ConstrainedCopy(length: 1, destinationIndex: 0, destinationArray: target, sourceIndex: 0, sourceArray: nodes.kind)
+                }
+                """,
+                Method: "ConstrainedCopy"),
+            (
+                Source: """
+                import System
+
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes, target: int[]) {
+                    System.Array.ConstrainedCopy(length: 1, destinationIndex: 0, destinationArray: target, sourceIndex: 0, sourceArray: unchecked(nodes.kind))
                 }
                 """,
                 Method: "ConstrainedCopy"),
@@ -6875,6 +6935,21 @@ public class SoaRecordTests : ILCompilerTestBase
 
                 func bad(nodes: Nodes): object {
                     return Array.AsReadOnly(array: nodes.kind)
+                }
+                """,
+                Method: "AsReadOnly"),
+            (
+                Source: """
+                import System
+
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes): object {
+                    return Array.AsReadOnly(array: unchecked(nodes.kind))
                 }
                 """,
                 Method: "AsReadOnly")
@@ -6994,6 +7069,28 @@ public class SoaRecordTests : ILCompilerTestBase
             func bad(nodes: Nodes) {
                 System.Array.Resize<int>(newSize: 4, ref array: (nodes).kind)
             }
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
+            func bad(nodes: Nodes) {
+                Array.Resize(newSize: 4, ref array: checked(nodes.kind))
+            }
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
+            func bad(nodes: Nodes) {
+                System.Array.Resize<int>(newSize: 4, ref array: unchecked((nodes).kind))
+            }
             """
         };
 
@@ -7087,6 +7184,17 @@ public class SoaRecordTests : ILCompilerTestBase
             type Nodes = NodeTable
 
             func bad(nodes: Nodes) {
+                Array.Sort(index: 0, length: 1, array: checked(nodes.kind))
+            }
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
+            func bad(nodes: Nodes) {
                 System.Array.Sort(nodes.kind)
             }
             """,
@@ -7141,8 +7249,30 @@ public class SoaRecordTests : ILCompilerTestBase
 
             type Nodes = NodeTable
 
+            func bad(nodes: Nodes, keys: int[]) {
+                Array.Sort<int, int>(index: 0, length: 1, keys: keys, items: unchecked(nodes.kind))
+            }
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
             func bad(nodes: Nodes, items: int[]) {
                 Array.Sort<int, int>(index: 0, length: 1, keys: nodes.kind, items: items)
+            }
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
+            func bad(nodes: Nodes, items: int[]) {
+                Array.Sort<int, int>(index: 0, length: 1, keys: checked(nodes.kind), items: items)
             }
             """,
             """
@@ -7270,6 +7400,17 @@ public class SoaRecordTests : ILCompilerTestBase
             type Nodes = NodeTable
 
             func bad(nodes: Nodes) {
+                Array.Reverse(index: 0, length: 1, array: checked(nodes.kind))
+            }
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
+            func bad(nodes: Nodes) {
                 System.Array.Reverse(nodes.kind)
             }
             """,
@@ -7293,6 +7434,17 @@ public class SoaRecordTests : ILCompilerTestBase
 
             func bad(nodes: Nodes) {
                 System.Array.Reverse<int>((nodes).kind)
+            }
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
+            func bad(nodes: Nodes) {
+                System.Array.Reverse<int>(array: unchecked((nodes).kind))
             }
             """
         };

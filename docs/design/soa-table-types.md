@@ -271,7 +271,8 @@ that receive a direct column, such as `Array.IndexOf(table.column, ...)`,
 `Array.AsReadOnly(table.column)`, decline before IL emission
 until they have explicit row-identity semantics and IL-shape evidence; named array-bearing arguments
 such as `array: table.column`, `sourceArray: table.column`, and `destinationArray: table.column`
-decline the same way.
+decline the same way, including when the named direct-column expression is wrapped in
+`checked(...)` or `unchecked(...)`.
 Direct column metadata properties remain available: `table.column.Length` and
 `table.column.LongLength` lower through `ldlen`, while `table.column.Rank` lowers to the known SZ-array
 rank constant. Checked/unchecked wrappers around the direct column keep that same metadata lowering.
@@ -375,7 +376,8 @@ The compiler must produce direct diagnostics for common misuse:
 - direct table member mutation: "SoA table member 'X' cannot be assigned directly" for simple,
   compound, and null-coalescing assignment, or "SoA table member 'X' cannot be incremented or
   decremented directly", and the same member cannot be used as a `ref`/`out` argument, including
-  `Array.Resize(ref table.column, n)` and `Array.Resize(ref array: table.column, newSize: n)`,
+  `Array.Resize(ref table.column, n)`, `Array.Resize(ref array: table.column, newSize: n)`, and
+  `Array.Resize(ref array: checked(table.column), newSize: n)`,
   aliases to SoA tables plus parenthesized and checked/unchecked target-wrapper forms,
   parenthesized table receivers, explicit generic method spelling, and explicit
   `System.Array.Resize` targets; mutating one physical backing column through
@@ -384,8 +386,8 @@ The compiler must produce direct diagnostics for common misuse:
   `Array.Reverse(table.column)`, or `Array.Reverse(table.column, index, length)` is also rejected
   because it would reorder that column independently from the rest of the row storage; named
   array-bearing arguments such as `array: table.column`, `keys: table.column`, and
-  `items: table.column`, explicit
-  generic method spelling, and explicit `System.Array` targets are rejected the same way;
+  `items: table.column`, checked/unchecked direct-column wrappers on those named arguments,
+  explicit generic method spelling, and explicit `System.Array` targets are rejected the same way;
 - non-int direct column element indexes: "Array indexes must be int, System.Index, or System.Range";
 - direct column slice reads, mutations, and `ref`/`out` argument addresses, including aliases to SoA
   tables, parenthesized column-member receivers, and

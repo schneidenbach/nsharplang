@@ -11,6 +11,19 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA named checked Array rejections stay pre-emission
+
+The SoA direct-column Array rejection matrix now pins named array-bearing arguments when the column
+expression is wrapped in `checked(...)` or `unchecked(...)`. Unsupported static calls such as
+`Array.IndexOf(array: checked(table.column), value: n)`,
+`Array.ConstrainedCopy(sourceArray: unchecked(table.column), ...)`, and
+`Array.AsReadOnly(array: unchecked(table.column))` still report the SoA direct-column Array
+diagnostic before emission. Mutating named `Array.Resize`, `Array.Sort`, and `Array.Reverse`
+arguments with checked/unchecked direct-column wrappers also keep their mutation diagnostics instead
+of replacing or reordering one backing column independently.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter
+"FullyQualifiedName~Analyzer_SoaDirectColumnsCannotUseUnpinnedStaticArrayMethods|FullyQualifiedName~Analyzer_SoaDirectColumnsCannotBeResizedThroughArrayResize|FullyQualifiedName~Analyzer_SoaDirectColumnsCannotBeSortedThroughArraySort|FullyQualifiedName~Analyzer_SoaDirectColumnsCannotBeReversedThroughArrayReverse"`.
+
 ## 2026-06-18 — SoA direct-column metadata mutations reject through checked wrappers
 
 Direct-column metadata mutation diagnostics now have explicit analyzer pins through `checked(...)`
