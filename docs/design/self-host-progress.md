@@ -11,6 +11,19 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Product example analyzer compatibility restored after stricter checks
+
+The stricter pre-lowering diagnostics now preserve the product examples that depend on source nested
+type identity, async omitted-return calls, and dictionary foreach variables. Declared dotted nested
+types such as `BankAccount.Status` resolve to their source enum declarations, omitted-return
+`async func` calls type as unit `Task` values for await analysis while keeping body return checking
+source-level `void`, and `Dictionary<K,V>` foreach binds the loop variable as `KeyValuePair<K,V>` so
+`Key`/`Value` members are semantic instead of grep-shaped. This keeps the new equality/await/foreach
+diagnostics from rejecting valid product code before IL emission.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~EqualityOperator_NestedEnumOperands_AreValid|FullyQualifiedName~AwaitOmittedAsyncReturn_IsValid|FullyQualifiedName~ForeachDictionary_BindsKeyValuePairMembers"`;
+targeted `nlc build` and `nlc check` on `examples/06-classes-and-records`, `examples/08-async`, and
+`examples/16-task-cli`; `./scripts/dev.sh --since`.
+
 ## 2026-06-18 — Range and from-end index operands validate before lowering
 
 Range bounds now validate during analysis before the IL backend constructs `System.Index`/`System.Range`

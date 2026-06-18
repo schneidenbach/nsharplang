@@ -1244,20 +1244,66 @@ public class Analyzer : IDisposable
         {
             if (stmt is VariableDeclarationStatement varDecl)
             {
-                TypeInfo type;
-                if (varDecl.Type != null)
-                {
-                    type = ResolveType(varDecl.Type);
-                }
-                else
-                {
-                    // Inferred type — use a generic object type since we can't fully
-                    // resolve the initializer without a scope. The C# exporter handles
-                    // the actual type via C#'s var keyword.
-                    type = BuiltInTypes.Object;
-                }
+                var type = ResolveSetupSymbolType(varDecl);
                 _setupSymbols.Add((varDecl.Name, type, varDecl.Line, varDecl.Column));
             }
+        }
+    }
+
+    private TypeInfo ResolveSetupSymbolType(VariableDeclarationStatement varDecl)
+    {
+        if (varDecl.Type != null)
+        {
+            return ResolveType(varDecl.Type);
+        }
+
+        if (varDecl.Initializer != null
+            && TryInferSetupInitializerType(varDecl.Initializer, out var inferredType))
+        {
+            return inferredType;
+        }
+
+        return BuiltInTypes.Object;
+    }
+
+    private bool TryInferSetupInitializerType(Expression expression, out TypeInfo type)
+    {
+        switch (expression)
+        {
+            case IntLiteralExpression:
+                type = BuiltInTypes.Int;
+                return true;
+            case FloatLiteralExpression:
+                type = BuiltInTypes.Double;
+                return true;
+            case CharLiteralExpression:
+                type = BuiltInTypes.Char;
+                return true;
+            case StringLiteralExpression or InterpolatedStringExpression:
+                type = BuiltInTypes.String;
+                return true;
+            case BoolLiteralExpression:
+                type = BuiltInTypes.Bool;
+                return true;
+            case NullLiteralExpression:
+                type = BuiltInTypes.Null;
+                return true;
+            case NewExpression { Type: { } newType }:
+                type = ResolveType(newType);
+                return !BuiltInTypes.IsUnknown(type);
+            case ArrayLiteralExpression { Elements.Count: > 0 } array
+                when TryInferSetupInitializerType(array.Elements[0], out var elementType):
+                type = new ArrayTypeInfo(elementType);
+                return true;
+            case ParenthesizedExpression parenthesized:
+                return TryInferSetupInitializerType(parenthesized.Inner, out type);
+            case CheckedExpression checkedExpression:
+                return TryInferSetupInitializerType(checkedExpression.Expression, out type);
+            case UncheckedExpression uncheckedExpression:
+                return TryInferSetupInitializerType(uncheckedExpression.Expression, out type);
+            default:
+                type = BuiltInTypes.Unknown;
+                return false;
         }
     }
 
@@ -4838,10 +4884,6 @@ public class Analyzer : IDisposable
     private bool TryGetGenericLoopSequenceElementType(GenericTypeInfo genericType, bool requireAsync, out TypeInfo elementType)
     {
         elementType = BuiltInTypes.Unknown;
-        if (genericType.TypeArguments.Count != 1)
-        {
-            return false;
-        }
 
         var name = GetUnqualifiedTypeName(genericType.Name);
         var tickIndex = name.IndexOf('`', StringComparison.Ordinal);
@@ -4861,6 +4903,17 @@ public class Analyzer : IDisposable
             return true;
         }
 
+        if (!requireAsync && IsDictionaryTypeName(name) && genericType.TypeArguments.Count == 2)
+        {
+            elementType = new GenericTypeInfo("KeyValuePair", genericType.TypeArguments.ToList());
+            return true;
+        }
+
+        if (genericType.TypeArguments.Count != 1)
+        {
+            return false;
+        }
+
         if (IsSpanTypeName(name) || IsCollectionType(genericType, out elementType))
         {
             if (BuiltInTypes.IsUnknown(elementType))
@@ -4873,6 +4926,15 @@ public class Analyzer : IDisposable
 
         return false;
     }
+
+    private static bool IsDictionaryTypeName(string name)
+        => name is "Dictionary" or "IDictionary" or "IReadOnlyDictionary"
+            or "SortedDictionary" or "SortedList"
+            || name.EndsWith(".Dictionary", StringComparison.Ordinal)
+            || name.EndsWith(".IDictionary", StringComparison.Ordinal)
+            || name.EndsWith(".IReadOnlyDictionary", StringComparison.Ordinal)
+            || name.EndsWith(".SortedDictionary", StringComparison.Ordinal)
+            || name.EndsWith(".SortedList", StringComparison.Ordinal);
 
     private bool TryGetSourceLoopSequenceElementType(
         IEnumerable<TypeReference> interfaceReferences,
@@ -9001,6 +9063,12 @@ public class Analyzer : IDisposable
                 objectType = new ReflectionTypeInfo(clrType);
         }
 
+        if (!includeStaticMembers
+            && TryResolveKnownGenericStructuralMember(objectType, memberName, out var structuralMemberType))
+        {
+            return structuralMemberType;
+        }
+
         if (objectType is GenericTypeInfo or ArrayTypeInfo)
         {
             var clrType = TryConvertTypeInfoToClrType(objectType);
@@ -9195,6 +9263,36 @@ public class Analyzer : IDisposable
 
         // Member not found on type, try extension methods
         return TryResolveExtensionMethod(objectType, memberName);
+    }
+
+    private static bool TryResolveKnownGenericStructuralMember(
+        TypeInfo objectType,
+        string memberName,
+        out TypeInfo memberType)
+    {
+        if (objectType is GenericTypeInfo genericType
+            && GetUnqualifiedGenericTypeName(genericType.Name) == "KeyValuePair"
+            && genericType.TypeArguments.Count == 2)
+        {
+            memberType = memberName switch
+            {
+                "Key" => genericType.TypeArguments[0],
+                "Value" => genericType.TypeArguments[1],
+                _ => BuiltInTypes.Unknown
+            };
+
+            return !BuiltInTypes.IsUnknown(memberType);
+        }
+
+        memberType = BuiltInTypes.Unknown;
+        return false;
+    }
+
+    private static string GetUnqualifiedGenericTypeName(string name)
+    {
+        name = GetUnqualifiedTypeName(name);
+        var tickIndex = name.IndexOf('`', StringComparison.Ordinal);
+        return tickIndex >= 0 ? name[..tickIndex] : name;
     }
 
     private static BindingFlags GetReflectionMemberFlags(bool includeStaticMembers)
@@ -10167,7 +10265,7 @@ public class Analyzer : IDisposable
         {
             ParameterTypes = func.Parameters.Select(parameter => ResolveType(parameter.Type)).ToList(),
             ParameterModifiers = func.Parameters.Select(parameter => parameter.Modifier).ToList(),
-            ReturnType = func.ReturnType != null ? ResolveType(func.ReturnType) : BuiltInTypes.Void
+            ReturnType = ResolveDeclaredFunctionCallReturnType(func)
         };
     }
 
@@ -10746,9 +10844,7 @@ public class Analyzer : IDisposable
 
                 // Validate arguments against the selected overload
                 ValidateNSharpCallArguments(boundDecl, call, argTypes);
-                return boundDecl.ReturnType != null
-                    ? ResolveNSharpReturnType(boundDecl, call, argTypes)
-                    : BuiltInTypes.Void;
+                return ResolveNSharpReturnType(boundDecl, call, argTypes);
             }
 
             ReportNoMatchingNSharpOverload(nsharpGroup, call, argTypes);
@@ -12304,11 +12400,21 @@ public class Analyzer : IDisposable
     private TypeInfo ResolveNSharpReturnType(FunctionDeclaration decl, CallExpression call, List<TypeInfo> argTypes)
     {
         if (decl.ReturnType == null)
-            return BuiltInTypes.Void;
+            return ResolveDeclaredFunctionCallReturnType(decl);
 
         var returnType = ResolveType(decl.ReturnType);
         var genericBindings = TryInferNSharpGenericBindings(decl, call, argTypes);
         return ApplyNSharpGenericBindings(returnType, genericBindings);
+    }
+
+    private TypeInfo ResolveDeclaredFunctionCallReturnType(FunctionDeclaration decl)
+    {
+        if (decl.ReturnType != null)
+            return ResolveType(decl.ReturnType);
+
+        return decl.Modifiers.HasFlag(Modifiers.Async)
+            ? new ReflectionTypeInfo(typeof(System.Threading.Tasks.Task))
+            : BuiltInTypes.Void;
     }
 
     /// <summary>
@@ -18635,6 +18741,11 @@ public class Analyzer : IDisposable
             return localType;
         }
 
+        if (TryResolveDottedNestedType(name, out var nestedType))
+        {
+            return nestedType;
+        }
+
         // Check using aliases
         if (_usingAliases.TryGetValue(name, out var fullName))
         {
@@ -18672,6 +18783,33 @@ public class Analyzer : IDisposable
         }
 
         return new ExternalTypeInfo(name);
+    }
+
+    private bool TryResolveDottedNestedType(string name, out TypeInfo type)
+    {
+        var parts = name.Split('.', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 2)
+        {
+            type = BuiltInTypes.Unknown;
+            return false;
+        }
+
+        type = ResolveTypeAlias(LookupType(parts[0]) ?? BuiltInTypes.Unknown);
+        if (BuiltInTypes.IsUnknown(type))
+        {
+            return false;
+        }
+
+        for (var i = 1; i < parts.Length; i++)
+        {
+            if (!TryResolveNestedTypeOnOwner(type, parts[i], out type))
+            {
+                type = BuiltInTypes.Unknown;
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private string BuildUnresolvedTypeSuggestion(string name)

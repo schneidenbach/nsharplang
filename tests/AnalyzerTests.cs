@@ -1801,6 +1801,63 @@ func CompareReflectedChars(left: string, right: string): bool {
     }
 
     [Fact]
+    public void EqualityOperator_NestedEnumOperands_AreValid()
+    {
+        AssertNoErrors(@"
+class BankAccount {
+    enum Status {
+        Active,
+        Frozen
+    }
+
+    CurrentStatus: BankAccount.Status
+
+    constructor() {
+        CurrentStatus = BankAccount.Status.Active
+    }
+
+    func IsActive(): bool {
+        return CurrentStatus == BankAccount.Status.Active
+    }
+}
+        ");
+    }
+
+    [Fact]
+    public void AwaitOmittedAsyncReturn_IsValid()
+    {
+        AssertNoErrors(@"
+async func Work() {
+}
+
+async func Main() {
+    await Work()
+}
+        ");
+    }
+
+    [Fact]
+    public void ForeachDictionary_BindsKeyValuePairMembers()
+    {
+        AssertNoErrors(@"
+import System.Collections.Generic
+
+record Stat {
+    Count: int
+}
+
+func Main(items: Dictionary<string, Stat>): int {
+    total := 0
+    for kvp in items {
+        total = total + kvp.Key.Length + kvp.Value.Count
+    }
+
+    return total
+}
+        ");
+    }
+
+    [Fact]
     public void StringConcatenation_Valid()
     {
         AssertNoErrors(@"
@@ -8058,7 +8115,7 @@ func Main() {
                 ? $"Expected no errors but got: {string.Join(", ", result.Errors.Select(e => e.Message))}"
                 : "");
 
-        Assert.Equal("IQueryable<Char>", result.SemanticModel.LookupIdentifier("chars")?.ToString());
+        Assert.Equal("IQueryable<char>", result.SemanticModel.LookupIdentifier("chars")?.ToString());
     }
 
     [Fact]
@@ -9240,9 +9297,11 @@ func Main() {
     public void Nullability_StrictFlow_ThrowGuardNarrowsAfterEarlyExit()
     {
         var result = Analyze(@"
+            import System
+
             func Length(s: string?): int {
                 if s == null {
-                    throw ""value was null""
+                    throw new Exception(""value was null"")
                 }
 
                 return s.Length
