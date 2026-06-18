@@ -265,6 +265,47 @@ func main(): int {
         ");
     }
 
+    [Theory]
+    [InlineData("throw 1", "int")]
+    [InlineData("throw \"bad\"", "string")]
+    [InlineData("value: object = \"bad\"\n                throw value", "object")]
+    public void ThrowStatement_NonExceptionOperand_ReportsTypeMismatch(string statement, string operandType)
+    {
+        var result = AnalyzeWithSource($$"""
+            func Main() {
+                {{statement}}
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains("Throw expressions must be assignable to System.Exception", error.Message);
+        Assert.Contains($"'{operandType}'", error.Message);
+        Assert.Contains("Exception-derived", error.Suggestion);
+    }
+
+    [Fact]
+    public void ThrowStatement_ExceptionOperands_AreValid()
+    {
+        AssertNoErrors("""
+            import System
+
+            class DomainFailure : Exception {
+            }
+
+            func ThrowRuntime() {
+                throw new InvalidOperationException("boom")
+            }
+
+            func ThrowCustom() {
+                throw new DomainFailure()
+            }
+
+            func ThrowNull() {
+                throw null
+            }
+            """);
+    }
+
     /// <summary>
     /// Analyze source code with full source context so the rich error path (ErrorMessageBuilder) is taken,
     /// populating ContextualHint with conversion suggestions.

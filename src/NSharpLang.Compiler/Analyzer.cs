@@ -3228,7 +3228,10 @@ public class Analyzer : IDisposable
                 break;
             case ThrowStatement throwStmt:
                 var thrownType = AnalyzeExpression(throwStmt.Expression);
-                ReportSoaRowEscapeIfNeeded(throwStmt.Expression, thrownType, "thrown");
+                if (!ReportSoaRowEscapeIfNeeded(throwStmt.Expression, thrownType, "thrown"))
+                {
+                    ReportNonThrowableThrowOperandIfNeeded(throwStmt.Expression, thrownType);
+                }
                 break;
             case TryStatement tryStmt:
                 AnalyzeTryStatement(tryStmt);
@@ -5265,6 +5268,81 @@ public class Analyzer : IDisposable
                 $"Move the `{keyword}` outside the `finally` block.",
                 keyword.Length);
         }
+    }
+
+    private void ReportNonThrowableThrowOperandIfNeeded(Expression expression, TypeInfo thrownType)
+    {
+        if (IsThrowableType(thrownType))
+        {
+            return;
+        }
+
+        var (line, column, length) = GetExpressionDiagnosticSpan(expression);
+        Error(
+            ErrorCode.TypeMismatch,
+            $"Throw expressions must be assignable to System.Exception, but this expression is '{thrownType}'",
+            line,
+            column,
+            "Throw an Exception-derived value, or wrap this value in an exception type.",
+            length);
+    }
+
+    private bool IsThrowableType(TypeInfo type)
+    {
+        var resolved = ResolveTypeAlias(type);
+
+        while (resolved is ObliviousTypeInfo oblivious)
+        {
+            resolved = ResolveTypeAlias(oblivious.InnerType);
+        }
+
+        if (resolved == BuiltInTypes.Null || resolved == BuiltInTypes.Never)
+        {
+            return true;
+        }
+
+        if (BuiltInTypes.IsUnknown(resolved) || resolved is ExternalTypeInfo)
+        {
+            return true;
+        }
+
+        if (resolved is NullableTypeInfo nullable)
+        {
+            return IsThrowableType(nullable.InnerType);
+        }
+
+        if (resolved is ReflectionTypeInfo reflectionType)
+        {
+            return IsReflectionAssignableFrom(typeof(Exception), reflectionType.Type);
+        }
+
+        if (resolved is SimpleTypeInfo simple)
+        {
+            if (simple.Name is "Exception" or "System.Exception")
+            {
+                return true;
+            }
+
+            if (LookupType(simple.Name) is { } namedType && !ReferenceEquals(namedType, resolved))
+            {
+                return IsThrowableType(namedType);
+            }
+
+            if (TryConvertTypeInfoToClrType(resolved) is { } clrType)
+            {
+                return IsReflectionAssignableFrom(typeof(Exception), clrType);
+            }
+
+            return false;
+        }
+
+        if (resolved is ClassTypeInfo classType)
+        {
+            return classType.Declaration.BaseClass != null
+                && IsThrowableType(ResolveType(classType.Declaration.BaseClass));
+        }
+
+        return false;
     }
 
     private void AnalyzeUsingStatement(UsingStatement usingStmt)

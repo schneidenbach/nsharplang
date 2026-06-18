@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — `throw` operands require Exception-derived values before emission
+
+The analyzer now checks `throw` operands against `System.Exception` before the IL backend emits the
+`throw` opcode. Known invalid operands such as `throw 1`, `throw "bad"`, and object-typed locals now
+stop during analysis with a typed diagnostic instead of leaving an invalid stack shape for IL emission.
+CLR exception values, N# classes deriving from `Exception`, nullable exception values, and `throw null`
+remain accepted; unknown/external shapes still defer rather than producing speculative follow-on noise.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~AnalyzerTests.ThrowStatement"`;
+`./scripts/dev.sh ThrowStatement`.
+
 ## 2026-06-18 — `yield` validates generator context and element type before emission
 
 The analyzer now rejects `yield` and `yield break` in ordinary functions before the IL backend reaches
