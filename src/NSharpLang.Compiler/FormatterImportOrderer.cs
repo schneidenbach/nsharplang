@@ -95,23 +95,10 @@ internal static class FormatterImportOrderer
     }
 
     private static Bindings? LoadBindings()
-    {
-        try
-        {
-            var programType = DogfoodKernelLoader.TryGetProgramType();
-            if (programType == null)
-                return null;
-
-            return new Bindings(
-                DogfoodKernelLoader.CreateDelegate<FormatterImportOrderIndicesInto>(
-                    programType,
-                    "FormatterImportOrderIndicesInto"));
-        }
-        catch
-        {
-            return null;
-        }
-    }
+        => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
+            DogfoodKernelLoader.CreateDelegate<FormatterImportOrderIndicesInto>(
+                programType,
+                "FormatterImportOrderIndicesInto")));
 
     private delegate int FormatterImportOrderIndicesInto(
         int[] systemFlags,

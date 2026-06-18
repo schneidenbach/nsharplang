@@ -51,23 +51,10 @@ internal static class StructCopyInitOnlySelector
     }
 
     private static Bindings? LoadBindings()
-    {
-        try
-        {
-            var programType = DogfoodKernelLoader.TryGetProgramType();
-            if (programType == null)
-                return null;
-
-            return new Bindings(
-                DogfoodKernelLoader.CreateDelegate<StructCopyAllInstanceFieldsInitOnly>(
-                    programType,
-                    "StructCopyAllInstanceFieldsInitOnly"));
-        }
-        catch
-        {
-            return null;
-        }
-    }
+        => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
+            DogfoodKernelLoader.CreateDelegate<StructCopyAllInstanceFieldsInitOnly>(
+                programType,
+                "StructCopyAllInstanceFieldsInitOnly")));
 
     private delegate int StructCopyAllInstanceFieldsInitOnly(int[] fieldFlags, int count);
 

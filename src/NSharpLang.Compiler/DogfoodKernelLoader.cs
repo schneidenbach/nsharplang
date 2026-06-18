@@ -25,6 +25,20 @@ internal static class DogfoodKernelLoader
         return (TDelegate)Delegate.CreateDelegate(typeof(TDelegate), method);
     }
 
+    internal static TBindings? TryCreateBindings<TBindings>(Func<Type, TBindings> createBindings)
+        where TBindings : class
+    {
+        try
+        {
+            var programType = TryGetProgramType();
+            return programType == null ? null : createBindings(programType);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     private static Assembly? TryLoadDogfoodAssembly()
     {
         try

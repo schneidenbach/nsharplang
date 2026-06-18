@@ -152,23 +152,10 @@ internal static class OutputFormatterReferenceFileKernels
     }
 
     private static Bindings? LoadBindings()
-    {
-        try
-        {
-            var programType = DogfoodKernelLoader.TryGetProgramType();
-            if (programType == null)
-                return null;
-
-            return new Bindings(
-                DogfoodKernelLoader.CreateDelegate<ReferenceFileSummaryRanksInto>(
-                    programType,
-                    "ReferenceFileSummaryRanksInto"));
-        }
-        catch
-        {
-            return null;
-        }
-    }
+        => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
+            DogfoodKernelLoader.CreateDelegate<ReferenceFileSummaryRanksInto>(
+                programType,
+                "ReferenceFileSummaryRanksInto")));
 
     private static string NormalizePath(string path) => path.Replace('\\', '/');
 

@@ -67,23 +67,10 @@ internal static class ParserTokenCompactor
     }
 
     private static Bindings? LoadBindings()
-    {
-        try
-        {
-            var programType = DogfoodKernelLoader.TryGetProgramType();
-            if (programType == null)
-                return null;
-
-            return new Bindings(
-                DogfoodKernelLoader.CreateDelegate<ParserTokenCompactionIndicesCountedInto>(
-                    programType,
-                    "ParserTokenCompactionIndicesCountedInto"));
-        }
-        catch
-        {
-            return null;
-        }
-    }
+        => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
+            DogfoodKernelLoader.CreateDelegate<ParserTokenCompactionIndicesCountedInto>(
+                programType,
+                "ParserTokenCompactionIndicesCountedInto")));
 
     private delegate int ParserTokenCompactionIndicesCountedInto(int[] tokenKinds, int tokenCount, int[] resultIndices);
 

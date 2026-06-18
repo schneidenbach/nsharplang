@@ -89,23 +89,10 @@ internal static class ProjectSourceFileFilter
     }
 
     private static Bindings? LoadBindings()
-    {
-        try
-        {
-            var programType = DogfoodKernelLoader.TryGetProgramType();
-            if (programType == null)
-                return null;
-
-            return new Bindings(
-                DogfoodKernelLoader.CreateDelegate<ProjectSourceFilterKeptIndicesInto>(
-                    programType,
-                    "ProjectSourceFilterKeptIndicesInto"));
-        }
-        catch
-        {
-            return null;
-        }
-    }
+        => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
+            DogfoodKernelLoader.CreateDelegate<ProjectSourceFilterKeptIndicesInto>(
+                programType,
+                "ProjectSourceFilterKeptIndicesInto")));
 
     private delegate int ProjectSourceFilterKeptIndicesInto(
         string[] relativePaths,

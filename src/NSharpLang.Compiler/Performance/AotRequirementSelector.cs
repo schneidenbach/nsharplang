@@ -130,23 +130,10 @@ internal static class AotRequirementSelector
     }
 
     private static Bindings? LoadBindings()
-    {
-        try
-        {
-            var programType = DogfoodKernelLoader.TryGetProgramType();
-            if (programType == null)
-                return null;
-
-            return new Bindings(
-                DogfoodKernelLoader.CreateDelegate<AotRequirementGroupsInto>(
-                    programType,
-                    "AotRequirementGroupsInto"));
-        }
-        catch
-        {
-            return null;
-        }
-    }
+        => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
+            DogfoodKernelLoader.CreateDelegate<AotRequirementGroupsInto>(
+                programType,
+                "AotRequirementGroupsInto")));
 
     private static int GetAotSafetyKindId(AotSafetyKind kind) =>
         kind switch

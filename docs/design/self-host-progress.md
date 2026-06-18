@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Compiler dogfood bindings share loader fallback handling
+
+Compiler-owned one-delegate dogfood wrappers now use `DogfoodKernelLoader.TryCreateBindings(...)`
+for the shared assembly-load/delegate-bind/fallback boundary. The wrappers still own their typed
+delegate shapes, scratch buffers, result validation, and C# fallback behavior, but the repeated
+`TryGetProgramType`/catch/null pattern has moved back into the compiler host boundary instead of
+being copied across parser compaction, source filtering/deduplication, import ordering,
+code-intelligence formatting, IL selection, and systems-performance selectors. Focused evidence:
+`dotnet build src/NSharpLang.Compiler/Compiler.csproj --no-restore`; `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~ParserTokenCompactor_CompactsParserTokens|FullyQualifiedName~SourceFileDeduplicator_DeduplicatesFirstStringsOrdinalIgnoreCase|FullyQualifiedName~ProjectSourceFileFilter_FiltersSourceFilesThroughDogfoodKernel|FullyQualifiedName~FormatterImportOrderer_|FullyQualifiedName~CompilationStubNamespaceOrderer_DistinctOrdersStringsOrdinal|FullyQualifiedName~StructCopyInitOnlySelector_ChecksStructCopyFieldReadonlyShape|FullyQualifiedName~AnonymousUnionShimSelector_ChecksAnonymousUnionShimEligibility|FullyQualifiedName~OverloadCandidateSelector_SelectsBestCandidateThroughDogfoodKernel|FullyQualifiedName~AotRequirementSelector_|FullyQualifiedName~CodeIntelligenceKernels_LoadsPackagedNSharpAssembly|FullyQualifiedName~DocQueryTests.DeduplicateReferencePackAssemblyNames_PreservesFirstSourceOrder|FullyQualifiedName~FixApplicatorTests.DogfoodTextEditOrdering"`.
+
 ## 2026-06-18 — CLI dogfood loader reuses the compiler host boundary
 
 The CLI no longer carries its own dogfood assembly loader. `Cli` now has friend access to the
