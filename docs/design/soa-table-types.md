@@ -446,8 +446,9 @@ The compiler must produce direct diagnostics for common misuse:
 - non-int direct column element indexes, including checked/unchecked direct-column receivers and
   `ref`/`out` address targets: "Array indexes must be int, System.Index, or System.Range";
 - direct column slice reads, mutations, and `ref`/`out` argument addresses, including aliases to SoA
-  tables, parenthesized column-member receivers, variable-held ranges, and checked/unchecked
-  direct-column receivers or mutation-target wrappers: "SoA column range slices allocate arrays";
+  tables, hard-cast table/alias receivers, parenthesized column-member receivers, variable-held
+  ranges, and checked/unchecked direct-column receivers or mutation-target wrappers:
+  "SoA column range slices allocate arrays";
 - unsupported direct-column static `Array` calls outside pinned whole-column kernels, including named
   array-bearing arguments such as `array: table.column` and `destinationArray: table.column`:
   "SoA table member 'X' cannot be passed to Array.Y directly";
@@ -471,6 +472,8 @@ The compiler must produce direct diagnostics for common misuse:
   allocation-policy operands: "SoA table member 'X' cannot be used as an operator operand directly";
 - unsupported direct-column array instance calls, including parenthesized, checked, and unchecked
   column receivers: "SoA table member 'X' cannot call array method 'Y' directly";
+- unsupported direct-column null-conditional member/index access, including hard-cast table/alias
+  receivers: "SoA table member 'X' cannot use null-conditional Y directly";
 - read-only direct-column metadata property writes, including simple assignment, compound assignment,
   and prefix/postfix update operands: "Property 'Length' is read-only";
 - top-level `checked(...)`/`unchecked(...)` wrappers around `ref`/`out` arguments are not
@@ -528,8 +531,8 @@ parenthesized row projection such as `(table[row]).column`, emits direct column 
 array element loads/stores with no row allocation, boxing, delegate construction, heap array
 allocation, or virtual dispatch. Hard-cast table/alias receivers, such as `((Nodes)table)[row].column`
 and `((Nodes)table).column[row]`, keep the same direct backing-array shape; unsupported hard-cast
-direct-column escapes and generated-member mutations still report SoA diagnostics before emission.
-The proof also includes
+direct-column escapes, null-conditional access, range slices, and generated-member mutations still
+report SoA diagnostics before emission. The proof also includes
 default stores across the
 verified scalar/reference element-type set, row-projection `ref`/`out` argument addresses through
 backing-column `ldelema` across the verified scalar/reference/int-backed-enum element-type set,

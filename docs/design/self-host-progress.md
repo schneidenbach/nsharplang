@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA hard-cast receivers keep slice/null diagnostics
+
+Hard-cast table/alias receivers now have analyzer pins for direct-column null-conditional member/index
+access and direct-column range slices. `((NodeTable)nodes).kind?.Length`,
+`((Nodes)((NodeTable)nodes)).kind?[0]`, and hard-cast range reads/mutations all stop with the
+SoA-specific diagnostics before array slicing or null-conditional lowering can treat the backing
+column as an ordinary escaped array. Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~Analyzer_SoaDirectColumnsCannotUseNullConditionalAccess|FullyQualifiedName~Analyzer_SoaTableAliasColumnRangeSlicesWouldAllocate"`.
+
 ## 2026-06-18 — SoA hard-cast receivers keep pre-emission diagnostics
 
 The SoA analyzer suite now pins hard-cast table/alias receivers for unsupported direct-column

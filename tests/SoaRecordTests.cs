@@ -5394,6 +5394,19 @@ public class SoaRecordTests : ILCompilerTestBase
                 type Nodes = NodeTable
 
                 func bad(nodes: Nodes) {
+                    value := ((NodeTable)nodes).kind?.Length
+                }
+                """,
+                AccessKind: "member access"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
                     value := checked(nodes.kind)?.GetHashCode()
                 }
                 """,
@@ -5408,6 +5421,19 @@ public class SoaRecordTests : ILCompilerTestBase
 
                 func bad(nodes: Nodes) {
                     value := nodes.kind?[0]
+                }
+                """,
+                AccessKind: "index access"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    value := ((Nodes)((NodeTable)nodes)).kind?[0]
                 }
                 """,
                 AccessKind: "index access"),
@@ -12198,6 +12224,31 @@ public class SoaRecordTests : ILCompilerTestBase
             func bad(nodes: Nodes) {
                 range := 0..1
                 (nodes.kind)[range] = [1]
+            }
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
+            func bad(nodes: Nodes): int {
+                range := 0..1
+                slice := ((NodeTable)nodes).kind[range]
+                return slice[0]
+            }
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
+            func bad(nodes: Nodes) {
+                range := 0..1
+                ((Nodes)((NodeTable)nodes)).kind[range] = [1]
             }
             """,
             """
