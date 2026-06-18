@@ -30,6 +30,17 @@ internal readonly record struct BuildOptionSummary(
     bool PerfReport,
     bool Aot);
 
+internal readonly record struct TestOptionSummary(
+    string? ProjectOption,
+    string? BackendOption,
+    string? Filter,
+    string? Timeout,
+    bool Verbose,
+    bool JsonOutput,
+    bool CoverageReport,
+    bool CollectCoverage,
+    bool NoCache);
+
 partial class Program
 {
     private static readonly string[] NewProjectOptionsWithValues = ["--template", "--type"];
@@ -1159,34 +1170,27 @@ Exit codes:
             return 0;
         }
 
-        var projectRoot = GetOptionValue(args, "--project") ?? Directory.GetCurrentDirectory();
+        var testOptions = GetTestOptionSummary(args);
+        var projectRoot = testOptions.ProjectOption ?? Directory.GetCurrentDirectory();
         projectRoot = Path.GetFullPath(projectRoot);
-        var filter = GetOptionValue(args, "--filter");
-        var verbose = args.Contains("--verbose");
-        var jsonOutput = args.Contains("--json");
-        var coverageReport = args.Contains("--coverage-report");
-        var collectCoverage = args.Contains("--coverage") || coverageReport;
-        var timeoutStr = GetOptionValue(args, "--timeout");
-        var noCache = args.Contains("--no-cache");
-        var backendOption = GetOptionValue(args, "--backend");
 
         // Parse timeout to milliseconds
         int? timeoutMs = null;
-        if (timeoutStr != null)
+        if (testOptions.Timeout != null)
         {
-            timeoutMs = ParseDurationToMs(timeoutStr);
+            timeoutMs = ParseDurationToMs(testOptions.Timeout);
             if (timeoutMs == null)
-                return Error($"Invalid timeout format '{timeoutStr}'. Expected a duration like 30s, 5m, or 1h.");
+                return Error($"Invalid timeout format '{testOptions.Timeout}'. Expected a duration like 30s, 5m, or 1h.");
         }
 
         var sw = System.Diagnostics.Stopwatch.StartNew();
         try
         {
-            if (!jsonOutput) Console.WriteLine($"Testing project in {projectRoot}...");
+            if (!testOptions.JsonOutput) Console.WriteLine($"Testing project in {projectRoot}...");
 
-            if (collectCoverage || coverageReport)
+            if (testOptions.CollectCoverage || testOptions.CoverageReport)
             {
-                if (jsonOutput)
+                if (testOptions.JsonOutput)
                 {
                     OutputNativeTestJson(projectRoot, false, Array.Empty<NativeTestResult>(), CoverageUnsupportedMessage);
                     return 1;
@@ -1200,7 +1204,7 @@ Exit codes:
 
             if (testFiles.Length == 0)
             {
-                if (jsonOutput)
+                if (testOptions.JsonOutput)
                 {
                     OutputNativeTestJson(projectRoot, true, Array.Empty<NativeTestResult>());
                     return 0;
@@ -1209,27 +1213,27 @@ Exit codes:
                 return 0;
             }
 
-            if (!jsonOutput) Console.WriteLine($"Found {testFiles.Length} test file(s)");
+            if (!testOptions.JsonOutput) Console.WriteLine($"Found {testFiles.Length} test file(s)");
 
             var projectConfig = ProjectFileParser.ParseFromDirectory(projectRoot);
-            _ = ResolveCompilationBackend(backendOption, projectConfig);
+            _ = ResolveCompilationBackend(testOptions.BackendOption, projectConfig);
 
             return TestWithIlBackend(
                 projectRoot,
                 projectConfig,
-                filter,
-                verbose,
-                jsonOutput,
+                testOptions.Filter,
+                testOptions.Verbose,
+                testOptions.JsonOutput,
                 timeoutMs,
-                noCache,
-                collectCoverage,
-                coverageReport,
+                testOptions.NoCache,
+                testOptions.CollectCoverage,
+                testOptions.CoverageReport,
                 sw);
         }
         catch (Exception ex)
         {
-            if (!jsonOutput) Console.WriteLine($"  Tests failed in {FormatElapsed(sw.Elapsed)}");
-            if (jsonOutput) { OutputNativeTestJson(projectRoot, false, Array.Empty<NativeTestResult>(), ex.Message); return 1; }
+            if (!testOptions.JsonOutput) Console.WriteLine($"  Tests failed in {FormatElapsed(sw.Elapsed)}");
+            if (testOptions.JsonOutput) { OutputNativeTestJson(projectRoot, false, Array.Empty<NativeTestResult>(), ex.Message); return 1; }
             return Error($"Test failed: {ex.Message}");
         }
     }
@@ -1642,6 +1646,30 @@ Exit codes:
             args.Contains("--timings"),
             args.Contains("--perf-report"),
             args.Contains("--aot"));
+
+    static TestOptionSummary GetTestOptionSummary(string[] args)
+    {
+        if (TestCommandKernels.TryGetOptionSummary(args, out var summary))
+            return summary;
+
+        return GetTestOptionSummaryWithCSharp(args);
+    }
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product test option parsing routes through TestCommandKernels.
+    static TestOptionSummary GetTestOptionSummaryWithCSharp(string[] args)
+    {
+        var coverageReport = args.Contains("--coverage-report");
+        return new TestOptionSummary(
+            GetOptionValue(args, "--project"),
+            GetOptionValue(args, "--backend"),
+            GetOptionValue(args, "--filter"),
+            GetOptionValue(args, "--timeout"),
+            args.Contains("--verbose"),
+            args.Contains("--json"),
+            coverageReport,
+            args.Contains("--coverage") || coverageReport,
+            args.Contains("--no-cache"));
+    }
 
     static BuildOperandSummary GetBuildOperandSummary(string[] args)
     {

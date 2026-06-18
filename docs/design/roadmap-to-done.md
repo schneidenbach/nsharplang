@@ -308,7 +308,7 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       source operand selection now lives beside `Program.RunCommand` in `RunCommandKernels`; publish
       no-argument option summary now lives beside `Program.PublishCommand` in
       `PublishCommandKernels`; build option and operand summaries now live beside `Program.BuildCommand`
-      in `BuildCommandKernels`; test outcome summary now lives beside `Program.TestCommand` in
+      in `BuildCommandKernels`; test option and outcome summaries now live beside `Program.TestCommand` in
       `TestCommandKernels`; fix-applicator text-edit ordering now lives beside `FixApplicator` in
       `FixApplicatorTextEditOrderer`; output-format diagnostic severity summary/filtering now lives
       beside `OutputFormatter` in `OutputFormatterDiagnosticKernels`; output-format diagnostic-cluster

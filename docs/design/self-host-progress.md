@@ -11,6 +11,19 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Test option parsing routes through product N#
+
+`Program.TestCommand` now gets `--project`, `--backend`, `--filter`, `--timeout`, `--verbose`,
+`--json`, `--coverage`, `--coverage-report`, and `--no-cache` from `TestCommandKernels` instead of
+scanning those options directly in C# on the product path. `CliTestOptionSummaryInto/Core` moved from
+the parity corpus into the shipped `CliArguments.nl`; the parity corpus keeps only
+`CliTestOptionSummaryChecksumInto`. The old C# option scan remains as fallback/oracle logic. This is
+a Stage 6 `C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`./scripts/dev.sh TestCommandKernels`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilationBackendTests.TestCommand_CoverageJson_ReturnsUnsupportedErrorBeforeDiscovery|FullyQualifiedName~CompilationBackendTests.TestCommand_BackendOverrideToIl_RunsTestsThroughSdkProject|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_ParityOnlyFiles_AreAbsentFromProductCoverage|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-18 — Build option parsing routes through product N#
 
 `Program.BuildCommand` now gets `--output`/`-o`, `--backend`, `--project`, `--release`,
@@ -666,7 +679,7 @@ this lowering.
 
 `ColumnarCodegen_ParityOnlyFiles_AreAbsentFromProductCoverage` now enumerates the full
 `CliArguments.nl` parity-only function surface, including benchmark-only format-discovery,
-reference-resolution score, build/test option, watch forwarding, batch positional, fix flattening,
+reference-resolution score, build option, watch forwarding, batch positional, fix flattening,
 and checksum oracle helpers. Product dogfood coverage must keep those helpers absent, while the
 product+parity merge still compiles them for historical parity and benchmark evidence.
 

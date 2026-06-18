@@ -1453,15 +1453,12 @@ probed first and was slower than C# on every row, so the native xUnit/reflection
 remain in C# until N# has a faster string-search primitive or a filter automaton that can clear 5x.
 
 `CliTestOptionSummaryInto` preserves the current `nlc test` command-parser behavior for help,
-`--project`, `--filter`, `--timeout`, `--backend`, and the verbose/json/coverage/cache switches, but
-also missed the speed gate and is not routed through production. The accepted-shaped probe scans argv
-once, writes original value indexes and switch bits into a caller-owned buffer, and inlines its
-length/character classifier to avoid a per-argument helper call. A dry run still measured slower on
-18 arguments (`84.667 us` N# vs `62.834 us` C#), roughly parity on 64 arguments (`64.250 us` N# vs
-`66.084 us` C#), and slower on 1024 arguments (`91.667 us` N# vs `70.208 us` C#). Keep `nlc test`
-option parsing in C# until CLI command orchestration can move as a broader parser/argv
-representation, or until N# string/branch lowering makes one-pass option classification clearly beat
-the repeated `Contains`/`GetOptionValue` shape.
+`--project`, `--filter`, `--timeout`, `--backend`, and the verbose/json/coverage/cache switches. It
+originally missed the speed gate as a standalone adapter, but Stage 6 routed it through
+`TestCommandKernels` as a `C#-surface-shrink` product path once CLI command ownership became the
+priority. The kernel scans argv once, writes original value indexes and switch bits into a
+caller-owned buffer, and inlines its length/character classifier to avoid a per-argument helper call.
+The C# parser shape remains as fallback/oracle logic until broader CLI parser ownership can delete it.
 
 `CliShouldFormatDiscoveredPath` and `CliFormatDiscoveredPathFlagsInto` preserve the current
 `nlc format` discovered-file skip semantics for VCS/build/cache/tooling segments and
@@ -2368,10 +2365,11 @@ produce a production-shaped win:
   parse path or the surrounding test-command option parsing moves into one N# batch.
 - CLI test option summary parsing: a one-pass N# argv classifier for `nlc test` preserved current
   help, option-value, and switch semantics without allocation, and the final probe inlined the
-  classifier into the scan, but dry timings still missed the gate (`84.667 us` N# vs `62.834 us` C#
-  on 18 args, `64.250 us` N# vs `66.084 us` C# on 64 args, and `91.667 us` N# vs `70.208 us` C# on
-  1024 args). Do not route `Program.TestCommand` through this adapter; revisit only with a broader
-  CLI parser representation or lower-overhead string/branch lowering.
+  classifier into the scan. Dry timings missed the original benchmark gate (`84.667 us` N# vs
+  `62.834 us` C# on 18 args, `64.250 us` N# vs `66.084 us` C# on 64 args, and `91.667 us` N# vs
+  `70.208 us` C# on 1024 args), but this is no longer a parity-only probe: Stage 6 now routes
+  `Program.TestCommand` through `TestCommandKernels` to shrink the C# product surface, with the C#
+  option scan retained as fallback/oracle logic.
 - Analyzer overload parameter-signature distinctness via compact type-rank rows: the N# kernel
   (`AnalyzerOverloadSignatureDistinct` / `AnalyzerOverloadSignatureDistinctChecksumInto` in
   `CompilerServices/AnalyzerExhaustiveness.nl`) reframes `Analyzer.HasDistinctParameterSignature` /

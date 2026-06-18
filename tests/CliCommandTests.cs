@@ -1719,6 +1719,37 @@ dependencies:
     }
 
     [Fact]
+    public void TestCommandKernels_SummarizesOptions()
+    {
+        var args = new[]
+        {
+            "--project",
+            "samples/demo",
+            "--backend",
+            "il",
+            "--filter",
+            "Adds",
+            "--timeout",
+            "30s",
+            "--verbose",
+            "--json",
+            "--coverage-report",
+            "--no-cache"
+        };
+
+        Assert.True(TestCommandKernels.TryGetOptionSummary(args, out var summary));
+        Assert.Equal("samples/demo", summary.ProjectOption);
+        Assert.Equal("il", summary.BackendOption);
+        Assert.Equal("Adds", summary.Filter);
+        Assert.Equal("30s", summary.Timeout);
+        Assert.True(summary.Verbose);
+        Assert.True(summary.JsonOutput);
+        Assert.True(summary.CoverageReport);
+        Assert.True(summary.CollectCoverage);
+        Assert.True(summary.NoCache);
+    }
+
+    [Fact]
     public void TidyCommandKernels_FiltersRemovalLines()
     {
         var lines = new[]

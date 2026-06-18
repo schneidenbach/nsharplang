@@ -7,6 +7,9 @@ internal static class TestCommandKernels
     [ThreadStatic]
     private static int[]? t_summaryCounts;
 
+    [ThreadStatic]
+    private static int[]? t_optionResultIndices;
+
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
 
     internal static bool TrySummarizeOutcomeRanks(
@@ -64,16 +67,80 @@ internal static class TestCommandKernels
         }
     }
 
+    internal static bool TryGetOptionSummary(string[] args, out TestOptionSummary summary)
+    {
+        summary = default;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        var resultIndices = t_optionResultIndices ??= new int[10];
+        try
+        {
+            var code = bindings.TestOptionSummary(args, resultIndices);
+            if (code != 0)
+                return false;
+
+            if (!TryGetOptionalArg(args, resultIndices[0], out var project)
+                || !TryGetOptionalArg(args, resultIndices[1], out var filter)
+                || !TryGetOptionalArg(args, resultIndices[2], out var timeout)
+                || !TryGetOptionalArg(args, resultIndices[3], out var backend))
+            {
+                summary = default;
+                return false;
+            }
+
+            var coverageReport = resultIndices[6] != 0;
+            summary = new TestOptionSummary(
+                project,
+                backend,
+                filter,
+                timeout,
+                resultIndices[4] != 0,
+                resultIndices[5] != 0,
+                coverageReport,
+                resultIndices[7] != 0 || coverageReport,
+                resultIndices[8] != 0);
+            return true;
+        }
+        catch
+        {
+            summary = default;
+            return false;
+        }
+    }
+
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
             DogfoodKernelLoader.CreateDelegate<CliTestOutcomeSummaryInto>(
                 programType,
-                "CliTestOutcomeSummaryInto")));
+                "CliTestOutcomeSummaryInto"),
+            DogfoodKernelLoader.CreateDelegate<CliTestOptionSummaryInto>(
+                programType,
+                "CliTestOptionSummaryInto")));
 
     private delegate int CliTestOutcomeSummaryInto(
         int[] outcomeRanks,
         int count,
         int[] resultCounts);
 
-    private sealed record Bindings(CliTestOutcomeSummaryInto TestOutcomeSummary);
+    private delegate int CliTestOptionSummaryInto(string[] args, int[] resultIndices);
+
+    private sealed record Bindings(
+        CliTestOutcomeSummaryInto TestOutcomeSummary,
+        CliTestOptionSummaryInto TestOptionSummary);
+
+    private static bool TryGetOptionalArg(string[] args, int index, out string? value)
+    {
+        value = null;
+        if (index == -1)
+            return true;
+
+        if (index < 0 || index >= args.Length)
+            return false;
+
+        value = args[index];
+        return true;
+    }
 }
