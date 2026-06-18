@@ -587,7 +587,7 @@ operator, iterator, resource, async, unary/must/type-test/await, index, allocati
 pattern/guard, event/off, range/spread, initializer/with-index, allocation, cast, throw, ternary,
 and discard contexts, variable-held direct-column range mutation diagnostics
 including parenthesized column members, direct-column `ref`/`out` range and negative-index
-diagnostics, variable-held from-end
+diagnostics, hard-cast checked/unchecked negative-index diagnostics, variable-held from-end
 null-coalescing reads/assignments, receiver-parenthesized bool logical and bitwise expression stores,
 receiver-parenthesized numeric arithmetic/shift/bitwise expression stores,
 receiver-parenthesized signed numeric negation and unary bitwise-not stores,

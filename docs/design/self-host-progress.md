@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Hard-cast SoA negative indexes reject before emission
+
+Negative row ids inside `checked(...)` and `unchecked(...)` wrappers now have analyzer pins when the
+table or direct-column receiver is hard-cast through the table or alias type. Row projections such as
+`((NodeTable)nodes)[checked(-1)].kind` and direct columns such as
+`((Nodes)((NodeTable)nodes)).kind[unchecked((-1))]` keep the SoA-specific non-negative row-id
+diagnostics before any row-view or backing-array lowering path can run. Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~Analyzer_SoaTableNegativeIndexLiteralsInCheckedAndUncheckedWrappersAreRejected"`.
+
 ## 2026-06-18 — Hard-cast SoA table null-conditional access rejects early
 
 Null-conditional access on hard-cast SoA table and row receivers now has analyzer pins. Table member

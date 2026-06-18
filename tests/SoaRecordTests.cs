@@ -7752,6 +7752,54 @@ public class SoaRecordTests : ILCompilerTestBase
                     return nodes.kind[unchecked((-1))]
                 }
                 """,
+                Message: "SoA column row indexes must not be negative"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable): int {
+                    return ((NodeTable)nodes)[checked(-1)].kind
+                }
+                """,
+                Message: "SoA table row indexes must not be negative"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    ((Nodes)((NodeTable)nodes))[unchecked((-1))].kind = 1
+                }
+                """,
+                Message: "SoA table row indexes must not be negative"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable) {
+                    ((NodeTable)nodes).kind[checked(-1)] = 1
+                }
+                """,
+                Message: "SoA column row indexes must not be negative"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes): int {
+                    return ((Nodes)((NodeTable)nodes)).kind[unchecked((-1))]
+                }
+                """,
                 Message: "SoA column row indexes must not be negative")
         };
 
