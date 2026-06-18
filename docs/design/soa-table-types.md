@@ -351,7 +351,8 @@ The compiler must produce direct diagnostics for common misuse:
   target-wrapper forms; mutating one physical backing column through `Array.Sort(table.column)`,
   `Array.Sort(table.column, index, length)`, `Array.Reverse(table.column)`, or
   `Array.Reverse(table.column, index, length)` is also rejected because it would reorder that column
-  independently from the rest of the row storage;
+  independently from the rest of the row storage; explicit `System.Array` targets are rejected the
+  same way;
 - non-int direct column element indexes: "Array indexes must be int, System.Index, or System.Range";
 - direct column slice reads, mutations, and `ref`/`out` argument addresses, including aliases to SoA
   tables, parenthesized column-member receivers, and
