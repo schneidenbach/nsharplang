@@ -216,7 +216,9 @@ public partial class ILCompiler
             return;
         }
 
-        var enumerableCtor = ResolveCollectionConstructor(targetType, HasSingleEnumerableParameter);
+        var enumerableCtor = ResolveCollectionConstructor(
+            targetType,
+            constructor => HasSingleCompatibleEnumerableParameter(constructor, elementType));
         if (enumerableCtor != null)
         {
             _currentIL.Emit(OpCodes.Ldloc, listLocal);
@@ -278,7 +280,52 @@ public partial class ILCompiler
 
     private static MethodInfo? ResolveCollectionAddMethod(Type targetType, Type elementType)
     {
-        return ResolveCollectionMethod(targetType, "Add", method => HasParameterCount(method, 1))
-            ?? ResolveCollectionMethod(targetType, "Enqueue", method => HasParameterCount(method, 1));
+        return ResolveCollectionMethod(targetType, "Add", method => HasSingleCollectionElementParameter(method, elementType))
+            ?? ResolveCollectionMethod(targetType, "Enqueue", method => HasSingleCollectionElementParameter(method, elementType));
+    }
+
+    private static bool HasSingleCompatibleEnumerableParameter(MethodBase method, Type elementType)
+    {
+        try
+        {
+            var parameters = method.GetParameters();
+            if (parameters.Length != 1)
+            {
+                return false;
+            }
+
+            var parameterType = parameters[0].ParameterType;
+            return parameterType.IsGenericType
+                && parameterType.GetGenericTypeDefinition() == typeof(IEnumerable<>)
+                && parameterType.IsAssignableFrom(typeof(IEnumerable<>).MakeGenericType(elementType));
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool HasSingleCollectionElementParameter(MethodBase method, Type elementType)
+    {
+        try
+        {
+            var parameters = method.GetParameters();
+            if (parameters.Length != 1)
+            {
+                return false;
+            }
+
+            var parameterType = parameters[0].ParameterType;
+            if (elementType.IsValueType)
+            {
+                return parameterType == elementType;
+            }
+
+            return parameterType.IsAssignableFrom(elementType);
+        }
+        catch
+        {
+            return false;
+        }
     }
 }

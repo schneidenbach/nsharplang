@@ -918,6 +918,21 @@ func main(): int {
     }
 
     [Fact]
+    public void ILCompiler_CanExecuteCollectionExpressionIntoOverloadedAddCollection()
+    {
+        var source = @"
+import NSharpLang.Tests
+
+func main(): int {
+    bag: IntOverloadedAddBag = [3, 5, 8]
+    return bag.Sum()
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal(16, Assert.IsType<int>(result));
+    }
+
+    [Fact]
     public void ILCompiler_CanExecuteCollectionExpressionIntoCustomEnqueueCollection()
     {
         var source = @"
@@ -946,6 +961,21 @@ func main(): int {
 
         var result = CompileAndInvoke(source);
         Assert.Equal(403, Assert.IsType<int>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_CanExecuteCollectionExpressionIntoOverloadedEnumerableConstructorCollection()
+    {
+        var source = @"
+import NSharpLang.Tests
+
+func main(): int {
+    box: IntOverloadedEnumerableBox = [4, 2, 9]
+    return box.Signature()
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal(429, Assert.IsType<int>(result));
     }
 
     [Fact]

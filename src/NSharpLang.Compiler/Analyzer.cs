@@ -14794,8 +14794,8 @@ public class Analyzer : IDisposable
 
         if (!targetType.IsInterface && !targetType.IsAbstract)
         {
-            return HasSingleEnumerableConstructor(targetType)
-                || (HasParameterlessConstructor(targetType) && HasCollectionExpressionMutator(targetType));
+            return HasSingleEnumerableConstructor(targetType, elementType)
+                || (HasParameterlessConstructor(targetType) && HasCollectionExpressionMutator(targetType, elementType));
         }
 
         return IsSupportedCollectionExpressionInterfaceTarget(targetType)
@@ -14860,8 +14860,8 @@ public class Analyzer : IDisposable
     private static bool HasParameterlessConstructor(Type targetType)
         => HasPublicInstanceConstructor(targetType, constructor => constructor.GetParameters().Length == 0);
 
-    private static bool HasSingleEnumerableConstructor(Type targetType)
-        => HasPublicInstanceConstructor(targetType, HasSingleEnumerableParameter);
+    private static bool HasSingleEnumerableConstructor(Type targetType, Type elementType)
+        => HasPublicInstanceConstructor(targetType, method => HasSingleEnumerableParameter(method, elementType));
 
     private static bool HasPublicInstanceConstructor(Type targetType, Func<ConstructorInfo, bool> predicate)
     {
@@ -14877,13 +14877,34 @@ public class Analyzer : IDisposable
         }
     }
 
-    private static bool HasSingleEnumerableParameter(MethodBase method)
+    private static bool HasSingleEnumerableParameter(MethodBase method, Type elementType)
     {
         try
         {
             var parameters = method.GetParameters();
-            return parameters.Length == 1
-                && IsGenericDefinition(parameters[0].ParameterType, typeof(IEnumerable<>));
+            if (parameters.Length != 1)
+            {
+                return false;
+            }
+
+            var parameterType = parameters[0].ParameterType;
+            return IsGenericDefinition(parameterType, typeof(IEnumerable<>))
+                && IsReflectionAssignableFrom(parameterType, typeof(IEnumerable<>).MakeGenericType(elementType));
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException)
+        {
+            return false;
+        }
+    }
+
+    private static bool HasCollectionExpressionMutator(Type targetType, Type elementType)
+    {
+        try
+        {
+            return targetType
+                .GetMethods(BindingFlags.Public | BindingFlags.Instance)
+                .Any(method => method.Name is "Add" or "Enqueue"
+                    && HasSingleCollectionElementParameter(method, elementType));
         }
         catch (NotSupportedException)
         {
@@ -14891,13 +14912,23 @@ public class Analyzer : IDisposable
         }
     }
 
-    private static bool HasCollectionExpressionMutator(Type targetType)
+    private static bool HasSingleCollectionElementParameter(MethodBase method, Type elementType)
     {
         try
         {
-            return targetType
-                .GetMethods(BindingFlags.Public | BindingFlags.Instance)
-                .Any(method => method.Name is "Add" or "Enqueue" && method.GetParameters().Length == 1);
+            var parameters = method.GetParameters();
+            if (parameters.Length != 1)
+            {
+                return false;
+            }
+
+            var parameterType = parameters[0].ParameterType;
+            if (elementType.IsValueType)
+            {
+                return HaveSameReflectionTypeIdentity(parameterType, elementType);
+            }
+
+            return IsReflectionAssignableFrom(parameterType, elementType);
         }
         catch (NotSupportedException)
         {

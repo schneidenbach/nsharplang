@@ -372,6 +372,89 @@ public sealed class IntEnumerableOnlyBox : IEnumerable<int>
     }
 }
 
+public sealed class IntStringAddBag : IEnumerable<int>
+{
+    public void Add(string value)
+    {
+    }
+
+    public IEnumerator<int> GetEnumerator()
+    {
+        yield return 1;
+    }
+
+    IEnumerator IEnumerable.GetEnumerator()
+    {
+        return GetEnumerator();
+    }
+}
+
+public sealed class IntOverloadedAddBag : IEnumerable<int>
+{
+    private readonly List<int> _values = new();
+
+    public void Add(string value)
+    {
+        throw new InvalidOperationException("The string overload must not be used for int collection expressions.");
+    }
+
+    public void Add(int value)
+    {
+        _values.Add(value);
+    }
+
+    public int Sum()
+    {
+        return _values.Sum();
+    }
+
+    public IEnumerator<int> GetEnumerator()
+    {
+        return _values.GetEnumerator();
+    }
+
+    IEnumerator IEnumerable.GetEnumerator()
+    {
+        return GetEnumerator();
+    }
+}
+
+public sealed class IntOverloadedEnumerableBox : IEnumerable<int>
+{
+    private readonly List<int> _values;
+
+    public IntOverloadedEnumerableBox(IEnumerable<string> values)
+    {
+        throw new InvalidOperationException("The string enumerable constructor must not be used for int collection expressions.");
+    }
+
+    public IntOverloadedEnumerableBox(IEnumerable<int> values)
+    {
+        _values = values.ToList();
+    }
+
+    public int Signature()
+    {
+        var result = 0;
+        foreach (var value in _values)
+        {
+            result = result * 10 + value;
+        }
+
+        return result;
+    }
+
+    public IEnumerator<int> GetEnumerator()
+    {
+        return _values.GetEnumerator();
+    }
+
+    IEnumerator IEnumerable.GetEnumerator()
+    {
+        return GetEnumerator();
+    }
+}
+
 public sealed class IntEnqueueBag : IEnumerable<int>
 {
     private readonly Queue<int> _values = new();

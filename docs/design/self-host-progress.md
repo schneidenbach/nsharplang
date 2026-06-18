@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Collection materialization requires compatible element parameters
+
+Collection-expression analysis now rejects reflection-backed concrete sequence targets whose
+materialization path only exposes incompatible `IEnumerable<T>` constructors or `Add`/`Enqueue`
+parameters. The IL lowerer also selects those constructors and mutator overloads by element
+compatibility instead of arity alone, so overloaded custom collections cannot accidentally bind to
+an invalid path and emit bad IL.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CollectionExpression"`.
+
 ## 2026-06-18 — Unsupported reflection collection targets reject before lowering
 
 Collection-expression analysis now rejects reflection-backed sequence targets that the IL backend

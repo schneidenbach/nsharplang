@@ -3788,6 +3788,22 @@ func Main() {
     }
 
     [Fact]
+    public void CollectionExpression_IncompatibleReflectionMutator_ReportsFeatureNotImplemented()
+    {
+        var result = AnalyzeWithInteropProbe(@"
+            import NSharpLang.Tests
+
+            func Main() {
+                let items: IntStringAddBag = [1, 2, 3]
+            }
+        ");
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.FeatureNotImplemented);
+        Assert.Contains("Collection expressions for 'IntStringAddBag'", error.Message);
+        Assert.Contains("not implemented yet", error.Message);
+    }
+
+    [Fact]
     public void GenericInterfaceAssignment_ListToICollection_Valid()
     {
         AssertNoErrors(@"
