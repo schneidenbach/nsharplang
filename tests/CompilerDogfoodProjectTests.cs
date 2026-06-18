@@ -12024,7 +12024,31 @@ func outer(x: int): int {
     [Fact]
     public void ColumnarCodegen_ParityOnlyFiles_AreAbsentFromProductCoverage()
     {
-        foreach (var name in new[] { "ErrorSuggestions.nl", "FormatterSafetyScan.nl", "LinterImports.nl", "PathMatching.nl", "SemanticScopesCore.nl", "SourceTextLines.nl" })
+        var repoRoot = FindRepoRoot();
+        var corpusDir = Path.Combine(repoRoot, "src", "NSharpLang.Compiler.Dogfood.ParityCorpus");
+        var parityOnlyFileNames = Directory.EnumerateFiles(corpusDir, "*.nl")
+            .Select(Path.GetFileName)
+            .Where(name => name != null && !File.Exists(DogfoodProductFilePath(name)))
+            .Select(name => name!)
+            .OrderBy(name => name, StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.True(
+            parityOnlyFileNames.Length >= 7,
+            $"Expected at least the known standalone parity-only corpus files; found {parityOnlyFileNames.Length}: {string.Join(", ", parityOnlyFileNames)}.");
+        Assert.Contains("ErrorSuggestions.nl", parityOnlyFileNames);
+        Assert.Contains("FormatterSafetyScan.nl", parityOnlyFileNames);
+        Assert.Contains("LinterImports.nl", parityOnlyFileNames);
+        Assert.Contains("PathMatching.nl", parityOnlyFileNames);
+        Assert.Contains("SemanticScopes.nl", parityOnlyFileNames);
+        Assert.Contains("SemanticScopesCore.nl", parityOnlyFileNames);
+        Assert.Contains("SourceTextLines.nl", parityOnlyFileNames);
+
+        var standaloneParityOnlyFileNames = parityOnlyFileNames
+            .Where(name => !string.Equals(name, "SemanticScopes.nl", StringComparison.Ordinal))
+            .ToArray();
+
+        foreach (var name in standaloneParityOnlyFileNames)
         {
             Assert.False(File.Exists(DogfoodProductFilePath(name)), $"{name} must live only in the parity corpus.");
 
@@ -12034,8 +12058,6 @@ func outer(x: int): int {
             Assert.NotEmpty(methodNames!);
         }
 
-        var repoRoot = FindRepoRoot();
-        var corpusDir = Path.Combine(repoRoot, "src", "NSharpLang.Compiler.Dogfood.ParityCorpus");
         var generatedBoundaryPins = new List<(string FileName, string FunctionName)>();
         foreach (var corpusPath in Directory.EnumerateFiles(corpusDir, "*.nl").OrderBy(p => p, StringComparer.Ordinal))
         {
@@ -12120,6 +12142,7 @@ func outer(x: int): int {
         }
 
         Assert.False(File.Exists(DogfoodProductFilePath("SemanticScopes.nl")), "SemanticScopes.nl must live only in the parity corpus.");
+        Assert.False(File.Exists(DogfoodProductFilePath("SemanticScopesCore.nl")), "SemanticScopesCore.nl must live only in the parity corpus.");
         var semanticSources = new[] { ReadDogfoodParityFile("SemanticScopesCore.nl"), ReadDogfoodParityFile("SemanticScopes.nl") };
         var (semanticParityOk, _, _, semanticParityMethods) = RouteColumnarMultiFile(semanticSources);
         Assert.True(semanticParityOk, "SemanticScopes.nl parity corpus should still compile with the extracted core and wrappers.");

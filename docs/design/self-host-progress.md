@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Parity-only file boundary derives from the corpus
+
+The product/parity boundary test now derives standalone parity-only dogfood files from
+`NSharpLang.Compiler.Dogfood.ParityCorpus` minus shipped `CompilerServices` files instead of relying
+only on a hand-maintained list. The known rejected probes (`ErrorSuggestions`, formatter safety,
+linter imports, path matching, semantic scopes, and source-text lines) are still explicitly anchored,
+standalone parity-only files compile from the parity corpus while remaining absent from product
+coverage, and the semantic-scope pair stays covered by its existing multi-file parity check. Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~ColumnarCodegen_ParityOnlyFiles_AreAbsentFromProductCoverage"`.
+
 ## 2026-06-18 — Hard-cast SoA value-only operands reject before lowering
 
 Direct-column value-only escape contexts now have hard-cast pins for ternary conditions and
