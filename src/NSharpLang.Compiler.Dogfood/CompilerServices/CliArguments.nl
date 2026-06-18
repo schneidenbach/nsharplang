@@ -2469,6 +2469,105 @@ func CliTestOutcomeSummaryCore(
     return count
 }
 
+func CliShouldFormatDiscoveredPath(relativePath: string): int {
+    previousWasTestRoot := false
+    segmentStart := 0
+    i := 0
+
+    while i <= relativePath.Length {
+        atEnd := i == relativePath.Length
+        isSeparator := false
+        if !atEnd {
+            ch := relativePath[i]
+            isSeparator = ch == '/' || ch == '\\'
+        }
+
+        if atEnd || isSeparator {
+            if i > segmentStart {
+                if CliFormatPathSegmentIsExcluded(relativePath, segmentStart, i) {
+                    return 0
+                }
+
+                if previousWasTestRoot && CliFormatPathSegmentEquals(relativePath, segmentStart, i, "fixtures") {
+                    return 0
+                }
+
+                previousWasTestRoot =
+                    CliFormatPathSegmentEquals(relativePath, segmentStart, i, "test")
+                    || CliFormatPathSegmentEquals(relativePath, segmentStart, i, "tests")
+            }
+
+            segmentStart = i + 1
+        }
+
+        i = i + 1
+    }
+
+    return 1
+}
+
+func CliFormatPathSegmentIsExcluded(text: string, start: int, end: int): bool {
+    length := end - start
+    if length == 3 {
+        return CliFormatPathSegmentEquals(text, start, end, ".hg")
+            || CliFormatPathSegmentEquals(text, start, end, "bin")
+            || CliFormatPathSegmentEquals(text, start, end, "obj")
+    }
+
+    if length == 4 {
+        return CliFormatPathSegmentEquals(text, start, end, ".git")
+            || CliFormatPathSegmentEquals(text, start, end, ".svn")
+            || CliFormatPathSegmentEquals(text, start, end, ".nlc")
+    }
+
+    if length == 7 {
+        return CliFormatPathSegmentEquals(text, start, end, ".hermes")
+    }
+
+    if length == 10 {
+        return CliFormatPathSegmentEquals(text, start, end, ".worktrees")
+    }
+
+    if length == 12 {
+        return CliFormatPathSegmentEquals(text, start, end, "node_modules")
+    }
+
+    return false
+}
+
+func CliFormatPathSegmentEquals(text: string, start: int, end: int, value: string): bool {
+    length := end - start
+    if length != value.Length {
+        return false
+    }
+
+    i := 0
+    while i < value.Length {
+        if !CliFormatPathCharsEqualAsciiIgnoreCase(text[start + i], value[i]) {
+            return false
+        }
+
+        i = i + 1
+    }
+
+    return true
+}
+
+func CliFormatPathCharsEqualAsciiIgnoreCase(left: char, right: char): bool {
+    leftCode := (int)left
+    rightCode := (int)right
+
+    if left >= 'A' && left <= 'Z' {
+        leftCode = leftCode + 32
+    }
+
+    if right >= 'A' && right <= 'Z' {
+        rightCode = rightCode + 32
+    }
+
+    return leftCode == rightCode
+}
+
 func CliArgumentIsOptionWithValueCore(arg: string, optionsWithValues: &CliOptionValueTable): bool {
     i := 0
     while i < optionsWithValues.Options.Length {

@@ -11,6 +11,19 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Format discovery path filtering moves into product N#
+
+`nlc format` project discovery now routes each normalized relative path through
+`CliShouldFormatDiscoveredPath` in the shipped `CliArguments.nl` dogfood source, with
+`FormatCommandKernels` as the owner-local host boundary. The previous C# segment scan remains only
+as fallback/oracle logic. The parity corpus keeps `CliFormatDiscoveredPathFlagsCore` and its checksum
+oracle, but the exclusion predicate and segment helpers are product-owned and invoked by the real
+formatter discovery path. This is a Stage 6 `C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`./scripts/dev.sh FormatCommandKernels`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliParityAuditTests.FormatCommand_ProjectDiscovery_SkipsGeneratedAndInvalidFixtureTrees|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_ParityOnlyFiles_AreAbsentFromProductCoverage|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-18 — Reference resolver best-score selection leaves parity-only C#
 
 NuGet dependency-group and asset-folder best-score selection now routes through the shipped

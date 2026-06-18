@@ -7003,6 +7003,7 @@ func outer(x: int): int {
         Assert.Contains("CliSymbolNameContainsAsciiIgnoreCase", methodNames!); // IndexOf(string, StringComparison)
         Assert.Contains("CliExportCSharpFirstOperandChecksumInto", methodNames!); // char/int promotion
         Assert.Contains("CliReferenceResolutionBestScoreIndex", methodNames!); // product resolver best-score selection.
+        Assert.Contains("CliShouldFormatDiscoveredPath", methodNames!); // product format discovery filtering.
 
         AssertColumnarProgramMatchesCSharp(source,
             ("CliSymbolNameContainsAsciiIgnoreCase", new object[] { "FooBarBaz", "barbaz" }),
@@ -7011,7 +7012,9 @@ func outer(x: int): int {
             ("CliExportCSharpFirstOperandChecksumInto", new object[] { new[] { "a", "bb" }, new int[2], new int[2], new int[2], new int[2], new int[2] }),
             ("CliExportCSharpFirstOperandChecksumInto", new object[] { new string[0], new int[0], new int[0], new int[0], new int[0], new int[0] }),
             ("CliReferenceResolutionBestScoreIndex", new object[] { new[] { -1, 40, 900, 120, 900, 30 }, 6 }),
-            ("CliReferenceResolutionBestScoreChecksum", new object[] { new[] { -1, 40, 900, 120, 900, 30 }, new[] { 0, 11, 19, 23, 31, 37 }, 6 }));
+            ("CliReferenceResolutionBestScoreChecksum", new object[] { new[] { -1, 40, 900, 120, 900, 30 }, new[] { 0, 11, 19, 23, 31, 37 }, 6 }),
+            ("CliShouldFormatDiscoveredPath", new object[] { "tests/fixtures/generated/Bad.nl" }),
+            ("CliShouldFormatDiscoveredPath", new object[] { "src/Program.nl" }));
     }
 
     // StringBuilder — the first mutable reference type: new StringBuilder([capacity]); .Append(char/string/int)
@@ -12309,16 +12312,12 @@ func outer(x: int): int {
             "CliFixSkippedChecksumInto",
             "CliFormatDiscoveredPathChecksumInto",
             "CliFormatDiscoveredPathFlagsCore",
-            "CliFormatPathCharsEqualAsciiIgnoreCase",
-            "CliFormatPathSegmentEquals",
-            "CliFormatPathSegmentIsExcluded",
             "CliLintFileArgChecksumInto",
             "CliPositionalArgChecksumInto",
             "CliPositionalArgIndicesCore",
             "CliPositionalArgIndicesInto",
             "CliReferenceResolutionBestScoreChecksum",
             "CliReferenceTypeFilterChecksumInto",
-            "CliShouldFormatDiscoveredPath",
             "CliStableDistinctRankChecksumInto",
             "CliTestOptionSummaryChecksumInto",
             "CliTestOptionSummaryCore",

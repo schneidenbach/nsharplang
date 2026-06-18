@@ -1452,6 +1452,15 @@ Exit codes:
     static bool ShouldFormatDiscoveredFile(string projectRoot, string file)
     {
         var relativePath = NormalizePath(Path.GetRelativePath(projectRoot, file));
+        if (FormatCommandKernels.TryShouldFormatDiscoveredPath(relativePath, out var shouldFormat))
+            return shouldFormat;
+
+        return ShouldFormatDiscoveredPathWithCSharp(relativePath);
+    }
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product discovery routes through FormatCommandKernels.
+    static bool ShouldFormatDiscoveredPathWithCSharp(string relativePath)
+    {
         var segments = relativePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
         if (segments.Any(segment => segment.Equals(".git", StringComparison.OrdinalIgnoreCase)
             || segment.Equals(".hg", StringComparison.OrdinalIgnoreCase)

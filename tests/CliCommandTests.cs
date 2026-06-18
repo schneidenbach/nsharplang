@@ -1353,6 +1353,20 @@ func Main() {
         Assert.False(CompilationReferenceResolverKernels.TrySelectBestScoreIndex(scores, scores.Length + 1, out _));
     }
 
+    [Theory]
+    [InlineData("src/Program.nl", true)]
+    [InlineData("bin/Debug/Generated.nl", false)]
+    [InlineData("obj/generated/Temporary.nl", false)]
+    [InlineData("Tests/FIXTURES/format/case.nl", false)]
+    [InlineData("editors\\vscode\\test\\fixtures\\errors\\Bad.nl", false)]
+    [InlineData(".nlc/cache/File.nl", false)]
+    [InlineData("src/node_modulesx/File.nl", true)]
+    public void FormatCommandKernels_SelectsDiscoveredPaths(string relativePath, bool expected)
+    {
+        Assert.True(FormatCommandKernels.TryShouldFormatDiscoveredPath(relativePath, out var shouldFormat));
+        Assert.Equal(expected, shouldFormat);
+    }
+
     [Fact]
     public void RestoreCommand_DeduplicatesProjectReferencesInGeneratedProps()
     {
