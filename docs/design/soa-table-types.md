@@ -316,6 +316,8 @@ for-loop iterators, using/lock resources, switch/match subjects, operator operan
 await/throw/yield operands, index values, allocation lengths, pattern values, event handles, range
 bounds, spread expressions, or explicit allocation-policy operands; otherwise a later use of the
 alias could bypass the SoA row-identity checks and mutate one backing column independently.
+The storage/result branch recognizes hard-cast table/alias receivers and checked/unchecked wrappers
+before ordinary binding or initializer inference can hide the backing-array escape.
 Direct column metadata properties remain available: `table.column.Length` and
 `table.column.LongLength` lower through `ldlen`, while `table.column.Rank` lowers to the known SZ-array
 rank constant. `nameof(table.column)` and member accesses whose table receiver is parenthesized, such
@@ -468,8 +470,8 @@ The compiler must produce direct diagnostics for common misuse:
 - unsupported direct-column array escapes through storage/result contexts, including locals,
   assignments, returns, lambda returns, array/collection/tuple literals, tuple deconstruction
   initializers, typed array initializer values, object-initializer indexer values, ternary/match
-  result arms, hard-cast table/alias receivers, and field/object/collection/with initializers plus
-  `with` targets:
+  result arms, hard-cast table/alias receivers, checked/unchecked wrappers, and
+  field/object/collection/with initializers plus `with` targets:
   "SoA table member 'X' cannot be stored in a variable directly";
 - unsupported direct-column array escapes through display/discard contexts, including print,
   assertion conditions/messages, interpolation holes, explicit discards, and bare expression

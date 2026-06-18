@@ -5979,7 +5979,33 @@ public class SoaRecordTests : ILCompilerTestBase
                 type Nodes = NodeTable
 
                 func bad(nodes: Nodes) {
+                    first, err := checked(((Nodes)((NodeTable)nodes)).kind)
+                }
+                """,
+                Action: "deconstructed"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
                     let values: int[] = checked(nodes.kind)
+                }
+                """,
+                Action: "stored in a variable"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    let values: int[] = checked(((NodeTable)nodes).kind)
                 }
                 """,
                 Action: "stored in a variable"),
@@ -5994,6 +6020,20 @@ public class SoaRecordTests : ILCompilerTestBase
                 func bad(nodes: Nodes) {
                     values := new int[](1)
                     values = unchecked(nodes.kind)
+                }
+                """,
+                Action: "assigned"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    values := new int[](1)
+                    values = unchecked(((Nodes)((NodeTable)nodes)).kind)
                 }
                 """,
                 Action: "assigned"),
@@ -6029,8 +6069,32 @@ public class SoaRecordTests : ILCompilerTestBase
 
                 type Nodes = NodeTable
 
+                func bad(nodes: Nodes): int[] => checked(((NodeTable)nodes).kind)
+                """,
+                Action: "returned"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
                 func bad(nodes: Nodes) {
                     let leak: Func<int[]> = () => nodes.kind
+                }
+                """,
+                Action: "returned"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    let leak: Func<int[]> = () => ((Nodes)((NodeTable)nodes)).kind
                 }
                 """,
                 Action: "returned"),
@@ -6064,6 +6128,21 @@ public class SoaRecordTests : ILCompilerTestBase
                 Action: "stored in a collection literal"),
             (
                 Source: """
+                import System.Collections.Generic
+
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    let values: List<int[]> = [((NodeTable)nodes).kind]
+                }
+                """,
+                Action: "stored in a collection literal"),
+            (
+                Source: """
                 soa record NodeTable {
                     kind: int
                 }
@@ -6072,6 +6151,19 @@ public class SoaRecordTests : ILCompilerTestBase
 
                 func bad(nodes: Nodes) {
                     pair := (nodes.kind, 1)
+                }
+                """,
+                Action: "stored in a tuple"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    pair := (((Nodes)((NodeTable)nodes)).kind, 1)
                 }
                 """,
                 Action: "stored in a tuple"),
@@ -6112,6 +6204,22 @@ public class SoaRecordTests : ILCompilerTestBase
 
                 type Nodes = NodeTable
 
+                func bad(nodes: Nodes, other: int[], code: int): int[] {
+                    return match code {
+                        0 => ((Nodes)((NodeTable)nodes)).kind,
+                        _ => other
+                    }
+                }
+                """,
+                Action: "used as a match result"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
                 class Holder {
                     Nodes: Nodes = new Nodes(1)
                     Values: int[] = checked(Nodes.kind)
@@ -6128,6 +6236,19 @@ public class SoaRecordTests : ILCompilerTestBase
 
                 func bad(nodes: Nodes) {
                     values := new int[][] { nodes.kind }
+                }
+                """,
+                Action: "stored in an initializer"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    values := new int[][] { ((NodeTable)nodes).kind }
                 }
                 """,
                 Action: "stored in an initializer"),
@@ -6199,6 +6320,23 @@ public class SoaRecordTests : ILCompilerTestBase
 
                 func bad(nodes: Nodes) {
                     holder := new Holder { values: nodes.kind }
+                }
+                """,
+                Action: "stored in an object initializer"),
+            (
+                Source: """
+                class Holder {
+                    values: int[]
+                }
+
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    holder := new Holder { values: ((Nodes)((NodeTable)nodes)).kind }
                 }
                 """,
                 Action: "stored in an object initializer")

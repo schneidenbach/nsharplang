@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Hard-cast SoA storage and result escapes reject before lowering
+
+Direct-column storage/result escapes now have hard-cast pins for deconstruction, typed locals,
+assignments, expression-bodied returns, lambda returns, collection and tuple literals, match result
+arms, typed array initializers, and object initializer values. Hard-cast table/alias receivers wrapped
+in `checked(...)` or `unchecked(...)` keep the SoA direct-column escape diagnostic before initializer
+inference or ordinary result binding can treat the backing column as an ordinary array. Focused
+evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~Analyzer_SoaDirectColumnsCannotEscapeThroughStorageOrResultValues"`.
+
 ## 2026-06-18 — Hard-cast SoA arbitrary call escapes reject before lowering
 
 Direct-column arbitrary-call escapes now have hard-cast pins for the common call shapes that can reach
