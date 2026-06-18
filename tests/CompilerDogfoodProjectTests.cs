@@ -8212,7 +8212,7 @@ func outer(x: int): int {
     // COLLECTIONS (Phase D) — List<T>/Dictionary<K,V>/HashSet<T> over BAKED runtime type args (scalars/string/
     // nested collections; builder-typed elements decline this rung). TryResolveType closes the runtime
     // generics AFTER user generics (the Action precedent); construction = newobj .ctor()/(int capacity);
-    // members = List Add/RemoveAt/Contains/Remove/Clear, Dictionary Add/ContainsKey/TryGetValue/Remove/Clear,
+    // members = List Add/RemoveAt/Contains/Remove/Clear, Dictionary Add/TryAdd/ContainsKey/TryGetValue/Remove/Clear,
     // HashSet Add/Contains/Remove/Clear + get_Count + get_Item/set_Item (probe-pinned exception parity:
     // ArgumentOutOfRangeException, KeyNotFoundException). FOREACH over supported BCL collections mirrors the
     // ORACLE's exact lowering — the enumerator comes from the IEnumerable<T> INTERFACE (the struct enumerator is BOXED),
@@ -8244,6 +8244,7 @@ func outer(x: int): int {
             "func dictCore(): int {\n    d := new Dictionary<string, int>()\n    d[\"a\"] = 1\n    d[\"b\"] = 2\n    if d.ContainsKey(\"a\") {\n        return d[\"a\"] + d[\"b\"]\n    }\n    return 0\n}\n\n" +
             "func dictOverwrite(): int {\n    d := new Dictionary<string, int>()\n    d[\"k\"] = 1\n    d[\"k\"] = 7\n    return d[\"k\"]\n}\n\n" +
             "func dictAdd(): int {\n    d := new Dictionary<string, int>()\n    d.Add(\"k\", 4)\n    d.Add(\"q\", 5)\n    return d[\"k\"] + d[\"q\"] + d.Count\n}\n\n" +
+            "func dictTryAdd(): int {\n    d := new Dictionary<string, int>()\n    first := d.TryAdd(\"k\", 4)\n    second := d.TryAdd(\"k\", 9)\n    score := d[\"k\"] + d.Count * 10\n    if first {\n        score = score + 100\n    }\n    if second {\n        score = score + 1000\n    }\n    return score\n}\n\n" +
             "func dictTryGetValue(): int {\n    d := new Dictionary<string, int>()\n    d.Add(\"a\", 7)\n    hit := 0\n    missing := 9\n    score := 0\n    if d.TryGetValue(\"a\", out hit) {\n        score = score + hit * 10\n    }\n    if d.TryGetValue(\"x\", out missing) {\n        score = score + 1000\n    }\n    return score + missing\n}\n\n" +
             "func dictRemove(): int {\n    d := new Dictionary<string, int>()\n    d.Add(\"a\", 1)\n    d.Add(\"b\", 2)\n    removed := d.Remove(\"a\")\n    missing := d.Remove(\"x\")\n    score := d.Count\n    if removed {\n        score = score + 10\n    }\n    if missing {\n        score = score + 100\n    }\n    if d.ContainsKey(\"b\") {\n        score = score + 1000\n    }\n    return score + d[\"b\"]\n}\n\n" +
             "func dictClear(): int {\n    d := new Dictionary<string, int>()\n    d.Add(\"a\", 1)\n    d.Add(\"b\", 2)\n    d.Clear()\n    d.Add(\"c\", 3)\n    score := d.Count * 10\n    if d.ContainsKey(\"c\") {\n        score = score + 1\n    }\n    if d.ContainsKey(\"a\") {\n        score = score + 100\n    }\n    return score + d[\"c\"]\n}\n\n" +
@@ -8278,6 +8279,7 @@ func outer(x: int): int {
             ("dictCore", System.Array.Empty<object>()),
             ("dictOverwrite", System.Array.Empty<object>()),
             ("dictAdd", System.Array.Empty<object>()),
+            ("dictTryAdd", System.Array.Empty<object>()),
             ("dictTryGetValue", System.Array.Empty<object>()),
             ("dictRemove", System.Array.Empty<object>()),
             ("dictClear", System.Array.Empty<object>()),
@@ -8341,7 +8343,7 @@ func outer(x: int): int {
 
         AssertColumnarProgramMatchesCSharp(
             enumPrefix +
-            "func dictEnumKey(): int {\n    d := new Dictionary<Color, int>()\n    d[Color.Red] = 4\n    d.Add(Color.Blue, 6)\n    if d.ContainsKey(Color.Blue) {\n        return d[Color.Red] + d[Color.Blue] + d.Count * 100\n    }\n    return 0\n}\n",
+            "func dictEnumKey(): int {\n    d := new Dictionary<Color, int>()\n    d[Color.Red] = 4\n    first := d.TryAdd(Color.Blue, 6)\n    second := d.TryAdd(Color.Blue, 9)\n    score := d[Color.Red] + d[Color.Blue] + d.Count * 100\n    if d.ContainsKey(Color.Blue) {\n        score = score + 1000\n    }\n    if first {\n        score = score + 10000\n    }\n    if second {\n        score = score + 100000\n    }\n    return score\n}\n",
             ("dictEnumKey", System.Array.Empty<object>()));
 
         AssertColumnarProgramMatchesCSharp(
@@ -8377,6 +8379,7 @@ func outer(x: int): int {
             // Dictionary with a builder VALUE: set/ContainsKey/get + member through the value (probed: 4).
             "func dval(): int {\n    d := new Dictionary<string, Pt>()\n    d[\"a\"] = new Pt { X: 3 }\n    bonus := 0\n    if d.ContainsKey(\"a\") {\n        bonus = 1\n    }\n    return d[\"a\"].X + bonus\n}\n\n" +
             "func daddval(): int {\n    d := new Dictionary<string, Pt>()\n    d.Add(\"a\", new Pt { X: 4 })\n    return d[\"a\"].X + d.Count\n}\n\n" +
+            "func dtryaddval(): int {\n    d := new Dictionary<string, Pt>()\n    first := d.TryAdd(\"a\", new Pt { X: 4 })\n    second := d.TryAdd(\"a\", new Pt { X: 9 })\n    score := d[\"a\"].X + d.Count\n    if first {\n        score = score + 10\n    }\n    if second {\n        score = score + 100\n    }\n    return score\n}\n\n" +
             // Dictionary foreach with a builder VALUE — KVP<string,Pt> getters rebind and the result
             // type substitutes from the closed args (the open-TValue leak hazard).
             "func dvfe(): int {\n    d := new Dictionary<string, Pt>()\n    d[\"a\"] = new Pt { X: 1 }\n    d[\"bb\"] = new Pt { X: 2 }\n    s := 0\n    foreach kvp in d {\n        s = s + kvp.Value.X + kvp.Key.Length * 10\n    }\n    return s\n}\n\n" +
@@ -8413,6 +8416,7 @@ func outer(x: int): int {
             ("lclear", System.Array.Empty<object>()),
             ("dval", System.Array.Empty<object>()),
             ("daddval", System.Array.Empty<object>()),
+            ("dtryaddval", System.Array.Empty<object>()),
             ("dvfe", System.Array.Empty<object>()),
             ("lstruct", System.Array.Empty<object>()),
             ("nest", System.Array.Empty<object>()),

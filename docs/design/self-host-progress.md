@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Columnar `Dictionary.TryAdd` preserves duplicate-key booleans
+
+The standalone columnar emitter now lowers `Dictionary<K,V>.TryAdd(K,V)` for the same key-safe
+dictionary surface as `Add`, `ContainsKey`, `TryGetValue`, `Remove`, and `Clear`. The parity probes
+pin first-add success, duplicate-key failure without overwriting the existing value, enum-keyed
+dictionaries, and builder-bound dictionary values through the generic member rebinding path.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_Parity_Collections|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_Parity_EnumCollections|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_Parity_CollectionsBuilderElements"`;
+`./scripts/dev.sh ColumnarCodegen_Parity_Collections`.
+
 ## 2026-06-18 — Columnar `List<T>` equality mutators stay key-safe
 
 The standalone columnar emitter now lowers `List<T>.Contains(T)`, `List<T>.Remove(T)`, and

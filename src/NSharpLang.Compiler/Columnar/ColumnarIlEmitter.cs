@@ -9878,7 +9878,7 @@ internal sealed class ColumnarIlEmitter
         // BCL COLLECTION instance methods on a closed List<T>/Dictionary<K,V>/HashSet<T> (the runtime constructed
         // type reflects normally; the receiver is already on the stack). The modelled set is the
         // probe-pinned examples surface: List.Add(T)/RemoveAt(int)/Contains(T)/Remove(T)/Clear(),
-        // Dictionary.Add(K,V)/ContainsKey(K)/TryGetValue(K,out V)/Remove(K)/Clear(),
+        // Dictionary.Add(K,V)/TryAdd(K,V)/ContainsKey(K)/TryGetValue(K,out V)/Remove(K)/Clear(),
         // HashSet.Add(T)/Contains(T)/Remove(T)/Clear().
         // Everything else declines.
         if (IsSupportedCollectionType(receiverType))
@@ -9949,6 +9949,15 @@ internal sealed class ColumnarIlEmitter
                     return false;
                 _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(Dictionary<,>).GetMethod("Add")!));
                 type = typeof(void);
+                return true;
+            }
+            if (collectionDef == typeof(Dictionary<,>) && member == "TryAdd" && argCount == 2)
+            {
+                if (!EmitArg(callIdx, 1, collectionArgs[0])
+                    || !EmitArg(callIdx, 2, collectionArgs[1]))
+                    return false;
+                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(Dictionary<,>).GetMethod("TryAdd")!));
+                type = typeof(bool);
                 return true;
             }
             if (collectionDef == typeof(Dictionary<,>) && member == "Remove" && argCount == 1)
