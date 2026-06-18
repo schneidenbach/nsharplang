@@ -5568,6 +5568,32 @@ public class SoaRecordTests : ILCompilerTestBase
                 type Nodes = NodeTable
 
                 func bad(nodes: Nodes) {
+                    first, second := nodes.kind
+                }
+                """,
+                Action: "deconstructed"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    first, err := checked(nodes.kind)
+                }
+                """,
+                Action: "deconstructed"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
                     let values: int[] = checked(nodes.kind)
                 }
                 """,

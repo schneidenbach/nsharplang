@@ -4921,7 +4921,8 @@ public class Analyzer : IDisposable
 
             // Analyze the initializer expression to ensure it's valid
             var initType = AnalyzeExpression(tupleDecl.Initializer);
-            if (ReportSoaRowEscapeIfNeeded(tupleDecl.Initializer, initType, "deconstructed"))
+            if (ReportSoaRowEscapeIfNeeded(tupleDecl.Initializer, initType, "deconstructed")
+                || ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(tupleDecl.Initializer, "deconstructed"))
             {
                 initType = BuiltInTypes.Unknown;
             }
@@ -4948,7 +4949,8 @@ public class Analyzer : IDisposable
             // Normal tuple deconstruction
             // Analyze the initializer expression
             var initType = AnalyzeExpression(tupleDecl.Initializer);
-            if (ReportSoaRowEscapeIfNeeded(tupleDecl.Initializer, initType, "deconstructed"))
+            if (ReportSoaRowEscapeIfNeeded(tupleDecl.Initializer, initType, "deconstructed")
+                || ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(tupleDecl.Initializer, "deconstructed"))
             {
                 initType = BuiltInTypes.Unknown;
             }

@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA direct columns cannot escape through tuple deconstruction
+
+Tuple deconstruction now rejects direct backing columns before tuple-shape or error-pattern handling.
+Both ordinary deconstruction (`a, b := table.column`) and the `value, err := ...` error-pattern
+branch now report the direct-column diagnostic and keep the backing array from being treated as an
+ordinary deconstruction initializer.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter
+"FullyQualifiedName~Analyzer_SoaDirectColumnsCannotEscapeThroughStorageOrResultValues"`.
+
 ## 2026-06-18 — SoA direct columns cannot escape through field or with storage contexts
 
 Direct backing columns now reject the remaining storage-like analyzer sites before lowering:
