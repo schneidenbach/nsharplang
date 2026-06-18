@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Local-function calls bind lambda arguments before emission
+
+Direct local-function calls now reuse the same declared-parameter binder as normal function and
+method calls after local generic type substitution. Inline lambda arguments are therefore checked
+against the local function's delegate parameter type instead of being treated as untyped `object` and
+falling through to `NL103` "No matching overload for local function". This keeps local-function call
+binding aligned for lambdas, named/default arguments, params, null/default literals, and contextual
+method groups while preserving the existing capture-argument prefix used by direct local-function
+lowering. Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter
+"FullyQualifiedName~ILCompiler_CanPassLambdaArgumentToLocalFunction|FullyQualifiedName~ILCompiler_CanBindNamedAndDefaultArgumentsForLocalFunction|FullyQualifiedName~ILCompiler_CanExpandParamsArgumentsForLocalFunction|FullyQualifiedName~ILCompiler_CanPassLocalFunctionAsDelegate"`;
+`./scripts/dev.sh LocalFunction`.
+
 ## 2026-06-18 — Applied attribute types validate before emission
 
 Applied attribute names now resolve during semantic analysis before the IL backend builds custom

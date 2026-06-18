@@ -3589,6 +3589,24 @@ func main(value: int): int {
     }
 
     [Fact]
+    public void ILCompiler_CanPassLambdaArgumentToLocalFunction()
+    {
+        var source = @"
+func main(value: int): int {
+    offset := 5
+
+    func apply(transform: Func<int, int>, input: int): int {
+        return transform(input)
+    }
+
+    return apply(x => x * 3 + offset, value)
+}";
+
+        var result = CompileAndInvoke(source, "main", 7);
+        Assert.Equal(26, Assert.IsType<int>(result));
+    }
+
+    [Fact]
     public void ILCompiler_CanExecuteGenericLocalFunctionCall()
     {
         var source = @"
