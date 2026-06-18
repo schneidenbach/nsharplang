@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Binary relational operators validate operands before raw IL
+
+Ordering operators now stop unsupported operands during analysis instead of falling through to raw
+`clt`/`cgt` lowering. Primitive numeric comparisons still type-check through the existing promotion
+rules, runtime/user comparison operator overloads such as `decimal.op_GreaterThan` and N# `operator <`
+are resolved before rejection, and unsupported string/object/bool/nullable or incompatible numeric
+shapes report `NL202` before emission. Reflection-returned CLR primitives now normalize to the N#
+built-ins for this path too, so dogfood service code such as `Char.ToLowerInvariant(...)` compares as
+`char` instead of a raw `Char` external shape.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~AnalyzerTests.RelationalOperator"`;
+`./scripts/dev.sh RelationalOperator`.
+
 ## 2026-06-18 — Relational patterns validate comparable types before emission
 
 Relational match patterns now reject unsupported comparison shapes during analysis instead of letting

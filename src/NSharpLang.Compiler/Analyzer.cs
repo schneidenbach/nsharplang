@@ -6806,8 +6806,9 @@ public class Analyzer : IDisposable
                 => AnalyzeBitwiseOp(leftT, rightT, binary),
             BinaryOperator.LeftShift or BinaryOperator.RightShift
                 => AnalyzeShiftOp(leftT, rightT, binary),
-            BinaryOperator.Equal or BinaryOperator.NotEqual or BinaryOperator.Less
-                or BinaryOperator.LessOrEqual or BinaryOperator.Greater or BinaryOperator.GreaterOrEqual => BuiltInTypes.Bool,
+            BinaryOperator.Less or BinaryOperator.LessOrEqual or BinaryOperator.Greater or BinaryOperator.GreaterOrEqual
+                => AnalyzeRelationalOp(leftT, rightT, binary),
+            BinaryOperator.Equal or BinaryOperator.NotEqual => BuiltInTypes.Bool,
             BinaryOperator.Range => GetRangeType(),
             _ => BuiltInTypes.Unknown
         };
@@ -6980,6 +6981,71 @@ public class Analyzer : IDisposable
         return BuiltInTypes.Unknown;
     }
 
+    private TypeInfo AnalyzeRelationalOp(TypeInfo left, TypeInfo right, BinaryExpression expr)
+    {
+        if (BuiltInTypes.IsUnknown(left) || BuiltInTypes.IsUnknown(right))
+        {
+            return BuiltInTypes.Unknown;
+        }
+
+        if (TryResolveBinaryOperatorOverloadResult(expr.Operator, left, right, out var overloadResult))
+        {
+            if (IsAssignable(BuiltInTypes.Bool, overloadResult))
+            {
+                return BuiltInTypes.Bool;
+            }
+
+            var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetBinaryOperatorDiagnosticSpan(expr);
+            var opText = GetBinaryOperatorText(expr.Operator);
+            Error(
+                ErrorCode.TypeMismatch,
+                $"The '{opText}' operator on '{left}' and '{right}' returns '{overloadResult}', but comparison operators must return 'bool'",
+                diagnosticLine,
+                diagnosticColumn,
+                "Change the operator overload to return bool.",
+                diagnosticLength);
+            return BuiltInTypes.Unknown;
+        }
+
+        if (!IsPrimitiveRelationalType(left) || !IsPrimitiveRelationalType(right))
+        {
+            var leftIsWrong = !IsPrimitiveRelationalType(left);
+            var rightIsWrong = !IsPrimitiveRelationalType(right);
+            var (diagnosticLine, diagnosticColumn, diagnosticLength) =
+                GetBinaryOperandDiagnosticSpan(expr, leftIsWrong, rightIsWrong);
+            var opText = GetBinaryOperatorText(expr.Operator);
+            var sideText = leftIsWrong == rightIsWrong
+                ? $"I found '{left}' and '{right}'"
+                : leftIsWrong
+                    ? $"the left side is '{left}'"
+                    : $"the right side is '{right}'";
+            Error(
+                ErrorCode.TypeMismatch,
+                $"The '{opText}' operator doesn't work with '{left}' and '{right}' — both sides need primitive numeric values or a comparison operator overload, but {sideText}",
+                diagnosticLine,
+                diagnosticColumn,
+                "Use primitive numeric operands, convert the non-numeric value, or define an operator overload for this type.",
+                diagnosticLength);
+            return BuiltInTypes.Unknown;
+        }
+
+        if (GetWiderType(left, right) == null)
+        {
+            var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetBinaryOperatorDiagnosticSpan(expr);
+            var opText = GetBinaryOperatorText(expr.Operator);
+            Error(
+                ErrorCode.TypeMismatch,
+                $"The '{opText}' operator doesn't work with '{left}' and '{right}'",
+                diagnosticLine,
+                diagnosticColumn,
+                "Use numeric operands with a compatible common type, or add an explicit conversion.",
+                diagnosticLength);
+            return BuiltInTypes.Unknown;
+        }
+
+        return BuiltInTypes.Bool;
+    }
+
     /// <summary>
     /// Maps an overloadable N# binary operator to its CLR special-method name (e.g. <c>+</c> →
     /// <c>op_Addition</c>). Operators that the analyzer does not resolve through this path return
@@ -6997,6 +7063,10 @@ public class Analyzer : IDisposable
         BinaryOperator.BitwiseXor => "op_ExclusiveOr",
         BinaryOperator.LeftShift => "op_LeftShift",
         BinaryOperator.RightShift => "op_RightShift",
+        BinaryOperator.Less => "op_LessThan",
+        BinaryOperator.Greater => "op_GreaterThan",
+        BinaryOperator.LessOrEqual => "op_LessThanOrEqual",
+        BinaryOperator.GreaterOrEqual => "op_GreaterThanOrEqual",
         _ => null
     };
 
@@ -7012,6 +7082,10 @@ public class Analyzer : IDisposable
         BinaryOperator.BitwiseXor => "^",
         BinaryOperator.LeftShift => "<<",
         BinaryOperator.RightShift => ">>",
+        BinaryOperator.Less => "<",
+        BinaryOperator.Greater => ">",
+        BinaryOperator.LessOrEqual => "<=",
+        BinaryOperator.GreaterOrEqual => ">=",
         _ => null
     };
 
@@ -9604,10 +9678,18 @@ public class Analyzer : IDisposable
         // Handle primitive types by FullName (works with both runtime and MLC types)
         return type.FullName switch
         {
+            "System.Byte" => BuiltInTypes.Byte,
+            "System.SByte" => BuiltInTypes.SByte,
+            "System.Int16" => BuiltInTypes.Short,
+            "System.UInt16" => BuiltInTypes.UShort,
             "System.Int32" => BuiltInTypes.Int,
+            "System.UInt32" => BuiltInTypes.UInt,
             "System.Int64" => BuiltInTypes.Long,
+            "System.UInt64" => BuiltInTypes.ULong,
+            "System.Char" => BuiltInTypes.Char,
             "System.Single" => BuiltInTypes.Float,
             "System.Double" => BuiltInTypes.Double,
+            "System.Decimal" => BuiltInTypes.Decimal,
             "System.Boolean" => BuiltInTypes.Bool,
             "System.String" => BuiltInTypes.String,
             "System.Void" => BuiltInTypes.Void,
@@ -20287,6 +20369,58 @@ public class Analyzer : IDisposable
             || type == BuiltInTypes.SByte || type == BuiltInTypes.Short
             || type == BuiltInTypes.UShort || type == BuiltInTypes.UInt
             || type == BuiltInTypes.ULong || type == BuiltInTypes.Char;
+    }
+
+    private bool IsPrimitiveRelationalType(TypeInfo type)
+    {
+        var resolved = ResolveTypeAlias(type);
+        if (IsNumericType(resolved) && resolved != BuiltInTypes.Decimal)
+        {
+            return true;
+        }
+
+        if (resolved is SimpleTypeInfo simple && IsPrimitiveRelationalTypeName(simple.Name))
+        {
+            return true;
+        }
+
+        if (resolved is ExternalTypeInfo external && IsPrimitiveRelationalTypeName(external.Name))
+        {
+            return true;
+        }
+
+        return resolved is ReflectionTypeInfo reflection
+            && IsPrimitiveRelationalClrType(reflection.Type);
+    }
+
+    private static bool IsPrimitiveRelationalTypeName(string name)
+    {
+        return name is "byte" or "Byte"
+            or "sbyte" or "SByte"
+            or "short" or "Int16"
+            or "ushort" or "UInt16"
+            or "int" or "Int32"
+            or "uint" or "UInt32"
+            or "long" or "Int64"
+            or "ulong" or "UInt64"
+            or "char" or "Char"
+            or "float" or "Single"
+            or "double" or "Double";
+    }
+
+    private static bool IsPrimitiveRelationalClrType(Type type)
+    {
+        return type == typeof(byte)
+            || type == typeof(sbyte)
+            || type == typeof(short)
+            || type == typeof(ushort)
+            || type == typeof(int)
+            || type == typeof(uint)
+            || type == typeof(long)
+            || type == typeof(ulong)
+            || type == typeof(char)
+            || type == typeof(float)
+            || type == typeof(double);
     }
 
     private bool IsIntegralType(TypeInfo type)

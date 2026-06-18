@@ -1645,6 +1645,78 @@ func Main() {
     }
 
     [Fact]
+    public void RelationalOperator_InvalidOperands_ReportTypeMismatch()
+    {
+        var result = AnalyzeWithSource(@"
+func BadString(): bool {
+    return ""a"" < ""b""
+}
+
+func BadObject(value: object): bool {
+    return value > 0
+}
+
+func BadBool(left: bool, right: bool): bool {
+    return left <= right
+}
+
+func BadNullable(value: int?): bool {
+    return value >= 0
+}
+
+func BadMixed(left: ulong, right: long): bool {
+    return left < right
+}
+");
+
+        var errors = result.Errors.Where(e => e.Code == ErrorCode.TypeMismatch).ToList();
+        Assert.Equal(5, errors.Count);
+        Assert.Contains(errors, e => e.Message.Contains("'<' operator") && e.Message.Contains("'string' and 'string'"));
+        Assert.Contains(errors, e => e.Message.Contains("'>' operator") && e.Message.Contains("'object' and 'int'"));
+        Assert.Contains(errors, e => e.Message.Contains("'<=' operator") && e.Message.Contains("'bool' and 'bool'"));
+        Assert.Contains(errors, e => e.Message.Contains("'>=' operator") && e.Message.Contains("'int?' and 'int'"));
+        Assert.Contains(errors, e => e.Message.Contains("'<' operator") && e.Message.Contains("'ulong' and 'long'"));
+    }
+
+    [Fact]
+    public void RelationalOperator_NumericAndOverloadedOperands_AreValid()
+    {
+        AssertNoErrors(@"
+struct Version {
+    Major: int
+
+    static func operator <(left: Version, right: Version): bool {
+        return left.Major < right.Major
+    }
+}
+
+func ComparePrimitives(a: int, b: double, c: char, d: uint, e: long): bool {
+    return a < b && c >= 0 && d <= e
+}
+
+func CompareDecimals(left: decimal, right: decimal): bool {
+    return left > right
+}
+
+func CompareVersions(left: Version, right: Version): bool {
+    return left < right
+}
+        ");
+    }
+
+    [Fact]
+    public void RelationalOperator_ReflectedPrimitiveReturn_IsValid()
+    {
+        AssertNoErrors(@"
+func CompareLower(left: string, right: string): bool {
+    leftChar := Char.ToLowerInvariant(left[0])
+    rightChar := Char.ToLowerInvariant(right[0])
+    return leftChar < rightChar
+}
+        ");
+    }
+
+    [Fact]
     public void StringConcatenation_Valid()
     {
         AssertNoErrors(@"
