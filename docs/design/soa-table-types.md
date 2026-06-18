@@ -253,11 +253,11 @@ Checked/unchecked wrappers around the direct column, such as `(checked(table.col
 `(unchecked(table.column))[^1]`, keep the same direct element lowering and do not introduce row
 materialization, array slicing, boxing, or dispatch. That wrapper rule includes numeric scalar,
 `char`, string, bool, and int-backed enum read expressions and comparisons, promoted char
-arithmetic/bitwise operands, string concatenation, bool logical operators, enum bitwise operators,
-enum unary bitwise-not, `ref`/`out` address-taking over verified element types, statement-context and
-expression-valued simple stores, compound assignment, prefix/postfix update operands,
-expression-valued default stores without old-element reads, plus nullable-column `??` and `??=`
-element operations.
+arithmetic/bitwise operands, string concatenation and concatenating string/string? `+=`, bool logical
+operators, enum bitwise operators, enum unary bitwise-not, `ref`/`out` address-taking over verified
+element types, statement-context and expression-valued simple stores, numeric compound assignment,
+prefix/postfix update operands, expression-valued default stores without old-element reads, plus
+nullable-column `??` and `??=` element operations.
 The same nullability rule applies to both row projection and direct column elements: `??` and `??=`
 require a nullable/reference column element and non-nullable columns reject the operation during
 analysis, including when the column member is the parenthesized index receiver. Direct-column range
