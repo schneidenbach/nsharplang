@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Columnar `HashSet.Remove` joins the bool-mutator surface
+
+The standalone columnar emitter now lowers `HashSet<T>.Remove(T)` for the same baked-element
+HashSet surface as `Add` and `Contains`, preserving the returned `bool` both in expressions and
+discarded statement calls. Broader set mutators such as `Clear` remain declined until their surface
+is explicitly pinned.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_Parity_Collections"`;
+`./scripts/dev.sh ColumnarCodegen_Parity_Collections`.
+
 ## 2026-06-18 — Columnar `HashSet<T>` joins the safe collection surface
 
 The standalone columnar emitter now resolves and lowers `HashSet<T>` for baked element types:

@@ -9810,7 +9810,7 @@ internal sealed class ColumnarIlEmitter
         // BCL COLLECTION instance methods on a closed List<T>/Dictionary<K,V>/HashSet<T> (the runtime constructed
         // type reflects normally; the receiver is already on the stack). The modelled set is the
         // probe-pinned examples surface: List.Add(T)/RemoveAt(int), Dictionary.Add(K,V)/ContainsKey(K),
-        // HashSet.Add(T)/Contains(T).
+        // HashSet.Add(T)/Contains(T)/Remove(T).
         // Everything else declines.
         if (IsSupportedCollectionType(receiverType))
         {
@@ -9862,6 +9862,14 @@ internal sealed class ColumnarIlEmitter
                 if (!EmitArg(callIdx, 1, collectionArgs[0]))
                     return false;
                 _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(HashSet<>).GetMethod("Contains")!));
+                type = typeof(bool);
+                return true;
+            }
+            if (collectionDef == typeof(HashSet<>) && member == "Remove" && argCount == 1)
+            {
+                if (!EmitArg(callIdx, 1, collectionArgs[0]))
+                    return false;
+                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(HashSet<>).GetMethod("Remove")!));
                 type = typeof(bool);
                 return true;
             }
