@@ -301,7 +301,8 @@ table/alias receivers and checked/unchecked wrappers.
 Dedicated rejections for `Array.Resize`, `Array.Sort`, and `Array.Reverse` are parameter-specific as
 well: array-bearing `array`/`keys`/`items` slots keep the mutation or `ref` diagnostic, while direct
 columns in `newSize`, `index`, `length`, or comparer slots use the generic direct-column `Array`
-diagnostic before ordinary method-binding errors can obscure the backing-array escape.
+diagnostic before ordinary method-binding errors can obscure the backing-array escape, including
+through hard-cast table/alias receivers and checked/unchecked wrappers.
 Direct columns also cannot escape as ordinary array values through arbitrary calls, extension-method
 receivers, or constructors: `take(table.column)`, `checked(table.column).ext()`, and
 `new Holder(table.column)` decline before lowering unless the call is `Table.wrap(...)` or one of

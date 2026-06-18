@@ -10507,7 +10507,33 @@ public class SoaRecordTests : ILCompilerTestBase
                 type Nodes = NodeTable
 
                 func bad(nodes: Nodes, target: int[]) {
+                    Array.Resize(ref array: target, newSize: ((NodeTable)nodes).kind)
+                }
+                """,
+                Method: "Resize"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes, target: int[]) {
                     System.Array.Resize<int>(newSize: checked(nodes.kind), ref array: target)
+                }
+                """,
+                Method: "Resize"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes, target: int[]) {
+                    System.Array.Resize<int>(newSize: checked(((Nodes)((NodeTable)nodes)).kind), ref array: target)
                 }
                 """,
                 Method: "Resize"),
@@ -10526,6 +10552,19 @@ public class SoaRecordTests : ILCompilerTestBase
                 Method: "Sort"),
             (
                 Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes, target: int[]) {
+                    Array.Sort(array: target, index: ((NodeTable)nodes).kind, length: 1)
+                }
+                """,
+                Method: "Sort"),
+            (
+                Source: """
                 import System.Collections.Generic
 
                 soa record NodeTable {
@@ -10536,6 +10575,21 @@ public class SoaRecordTests : ILCompilerTestBase
 
                 func bad(nodes: Nodes, target: int[]) {
                     Array.Sort<int>(array: target, comparer: nodes.kind)
+                }
+                """,
+                Method: "Sort"),
+            (
+                Source: """
+                import System.Collections.Generic
+
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes, target: int[]) {
+                    Array.Sort<int>(array: target, comparer: unchecked(((Nodes)((NodeTable)nodes)).kind))
                 }
                 """,
                 Method: "Sort"),
@@ -10561,7 +10615,33 @@ public class SoaRecordTests : ILCompilerTestBase
                 type Nodes = NodeTable
 
                 func bad(nodes: Nodes, target: int[]) {
+                    Array.Reverse(target, ((Nodes)((NodeTable)nodes)).kind, 1)
+                }
+                """,
+                Method: "Reverse"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes, target: int[]) {
                     System.Array.Reverse<int>(array: target, index: 0, length: unchecked(nodes.kind))
+                }
+                """,
+                Method: "Reverse"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes, target: int[]) {
+                    System.Array.Reverse<int>(array: target, index: 0, length: unchecked(((NodeTable)nodes).kind))
                 }
                 """,
                 Method: "Reverse")

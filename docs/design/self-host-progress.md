@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Hard-cast SoA dedicated Array argument guards stay parameter-specific
+
+The dedicated `Array.Resize`/`Array.Sort`/`Array.Reverse` rejection path now has hard-cast receiver
+pins for wrong non-array argument slots. Direct columns reached through hard-cast table/alias receivers
+in `newSize`, `index`, `length`, and comparer arguments keep the generic direct-column `Array`
+diagnostic, while array-bearing slots stay on the dedicated mutation/ref diagnostics. Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~Analyzer_SoaDirectColumnsCannotUseDedicatedArrayMethodsThroughNonArrayArguments"`.
+
 ## 2026-06-18 — Hard-cast SoA pinned Array argument guards stay parameter-specific
 
 The accepted `Array.Fill`/`Array.Copy`/`Array.Clear` names remain parameter-specific when a direct
