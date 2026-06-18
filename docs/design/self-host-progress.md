@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Columnar `List<T>.Reverse` reorders without equality assumptions
+
+The standalone columnar emitter now lowers the zero-argument `List<T>.Reverse()` overload. It is
+accepted for baked and builder-element lists because it only reorders stored entries and does not
+invoke equality, hashing, or ordering over `T`; range reversal remains declined until separately
+pinned.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_Parity_Collections|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_Parity_CollectionsBuilderElements"`;
+`./scripts/dev.sh ColumnarCodegen_Parity_Collections`.
+
 ## 2026-06-18 — Columnar `List<T>.Insert` supports builder elements
 
 The standalone columnar emitter now lowers `List<T>.Insert(int,T)` on the existing closed BCL list

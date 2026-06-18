@@ -8212,7 +8212,7 @@ func outer(x: int): int {
     // COLLECTIONS (Phase D) — List<T>/Dictionary<K,V>/HashSet<T> over BAKED runtime type args (scalars/string/
     // nested collections; builder-typed elements decline this rung). TryResolveType closes the runtime
     // generics AFTER user generics (the Action precedent); construction = newobj .ctor()/(int capacity);
-    // members = List Add/Insert/RemoveAt/Contains/IndexOf/Remove/Clear, Dictionary Add/TryAdd/ContainsKey/TryGetValue/Remove/Clear,
+    // members = List Add/Insert/RemoveAt/Contains/IndexOf/Remove/Reverse/Clear, Dictionary Add/TryAdd/ContainsKey/TryGetValue/Remove/Clear,
     // HashSet Add/Contains/Remove/Clear + get_Count + get_Item/set_Item (probe-pinned exception parity:
     // ArgumentOutOfRangeException, KeyNotFoundException). FOREACH over supported BCL collections mirrors the
     // ORACLE's exact lowering — the enumerator comes from the IEnumerable<T> INTERFACE (the struct enumerator is BOXED),
@@ -8238,6 +8238,7 @@ func outer(x: int): int {
             "func listContains(): int {\n    lst := new List<int>()\n    lst.Add(2)\n    lst.Add(4)\n    score := lst.Count\n    if lst.Contains(2) {\n        score = score + 10\n    }\n    if lst.Contains(9) {\n        score = score + 100\n    }\n    return score\n}\n\n" +
             "func listIndexOf(): int {\n    lst := new List<string>()\n    lst.Add(\"a\")\n    lst.Add(\"b\")\n    lst.Add(\"a\")\n    return (lst.IndexOf(\"b\") + 1) * 100 + (lst.IndexOf(\"x\") + 1) * 10 + (lst.IndexOf(\"a\") + 1)\n}\n\n" +
             "func listRemove(): int {\n    lst := new List<int>()\n    lst.Add(1)\n    lst.Add(3)\n    removed := lst.Remove(1)\n    missing := lst.Remove(9)\n    score := lst.Count\n    if removed {\n        score = score + 10\n    }\n    if missing {\n        score = score + 100\n    }\n    return score + lst[0]\n}\n\n" +
+            "func listReverse(): int {\n    lst := new List<int>()\n    lst.Add(1)\n    lst.Add(2)\n    lst.Add(4)\n    lst.Reverse()\n    return lst[0] * 100 + lst[1] * 10 + lst[2] + lst.Count\n}\n\n" +
             "func listClear(): int {\n    lst := new List<int>()\n    lst.Add(1)\n    lst.Add(2)\n    lst.Clear()\n    lst.Add(4)\n    return lst.Count * 10 + lst[0]\n}\n\n" +
             // foreach over a List + break/continue through the dispose label (probed: 6 / 4).
             "func feSum(): int {\n    l := new List<int>()\n    l.Add(1)\n    l.Add(2)\n    l.Add(3)\n    s := 0\n    foreach v in l {\n        s = s + v\n    }\n    return s\n}\n\n" +
@@ -8277,6 +8278,7 @@ func outer(x: int): int {
             ("listContains", System.Array.Empty<object>()),
             ("listIndexOf", System.Array.Empty<object>()),
             ("listRemove", System.Array.Empty<object>()),
+            ("listReverse", System.Array.Empty<object>()),
             ("listClear", System.Array.Empty<object>()),
             ("feSum", System.Array.Empty<object>()),
             ("feBreak", System.Array.Empty<object>()),
@@ -8380,6 +8382,7 @@ func outer(x: int): int {
             "func lset(): int {\n    l := new List<Pt>()\n    l.Add(new Pt { X: 1 })\n    l[0] = new Pt { X: 5 }\n    return l[0].X\n}\n\n" +
             "func linsert(): int {\n    l := new List<Pt>()\n    l.Add(new Pt { X: 1 })\n    l.Add(new Pt { X: 3 })\n    l.Insert(1, new Pt { X: 2 })\n    return l[0].X * 100 + l[1].X * 10 + l[2].X + l.Count\n}\n\n" +
             "func lrem(): int {\n    l := new List<Pt>()\n    l.Add(new Pt { X: 1 })\n    l.Add(new Pt { X: 7 })\n    l.RemoveAt(0)\n    return l[0].X\n}\n\n" +
+            "func lreverse(): int {\n    l := new List<Pt>()\n    l.Add(new Pt { X: 1 })\n    l.Add(new Pt { X: 2 })\n    l.Add(new Pt { X: 4 })\n    l.Reverse()\n    return l[0].X * 100 + l[1].X * 10 + l[2].X + l.Count\n}\n\n" +
             "func lclear(): int {\n    l := new List<Pt>()\n    l.Add(new Pt { X: 1 })\n    l.Clear()\n    l.Add(new Pt { X: 8 })\n    return l[0].X + l.Count\n}\n\n" +
             // Dictionary with a builder VALUE: set/ContainsKey/get + member through the value (probed: 4).
             "func dval(): int {\n    d := new Dictionary<string, Pt>()\n    d[\"a\"] = new Pt { X: 3 }\n    bonus := 0\n    if d.ContainsKey(\"a\") {\n        bonus = 1\n    }\n    return d[\"a\"].X + bonus\n}\n\n" +
@@ -8419,6 +8422,7 @@ func outer(x: int): int {
             ("lset", System.Array.Empty<object>()),
             ("linsert", System.Array.Empty<object>()),
             ("lrem", System.Array.Empty<object>()),
+            ("lreverse", System.Array.Empty<object>()),
             ("lclear", System.Array.Empty<object>()),
             ("dval", System.Array.Empty<object>()),
             ("daddval", System.Array.Empty<object>()),
