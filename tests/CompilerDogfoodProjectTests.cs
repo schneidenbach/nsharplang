@@ -6723,6 +6723,36 @@ func outer(x: int): int {
             "func f(a: bool[]): int {\n    Array.Resize(ref a, 4)\n    return 0\n}\n").Ok);
     }
 
+    // Array.Sort<T>(T[] array) and Array.Sort<T>(T[] array, int index, int length) -> void. The columnar slice
+    // covers one supported single-dimensional array at a time; parallel key/value arrays and custom comparer/
+    // delegate overloads stay declined until separately pinned.
+    [Fact]
+    public void ColumnarCodegen_Parity_ArraySort()
+    {
+        var sortIntWhole = "func sortIntWhole(): int {\n    a := new int[](4)\n    a[0] = 4\n    a[1] = 1\n    a[2] = 3\n    a[3] = 2\n    Array.Sort(a)\n    return a[0] * 1000 + a[1] * 100 + a[2] * 10 + a[3]\n}\n\n";
+        var sortIntRange = "func sortIntRange(): int {\n    a := new int[](5)\n    a[0] = 9\n    a[1] = 4\n    a[2] = 2\n    a[3] = 3\n    a[4] = 8\n    Array.Sort(a, 1, 3)\n    return a[0] * 10000 + a[1] * 1000 + a[2] * 100 + a[3] * 10 + a[4]\n}\n\n";
+        var sortLong = "func sortLong(): long {\n    a := new long[](3)\n    a[0] = 3L\n    a[1] = 1L\n    a[2] = 2L\n    Array.Sort(a)\n    return a[0] * 100L + a[1] * 10L + a[2]\n}\n\n";
+        var sortChar = "func sortChar(): int {\n    a := new char[](3)\n    a[0] = 'c'\n    a[1] = 'a'\n    a[2] = 'b'\n    Array.Sort(a)\n    return (int)a[0] * 10000 + (int)a[1] * 100 + (int)a[2]\n}\n\n";
+        var sortString = "func sortString(): string {\n    a := new string[](3)\n    a[0] = \"b\"\n    a[1] = \"a\"\n    a[2] = \"c\"\n    Array.Sort(a)\n    return a[0] + a[1] + a[2]\n}\n";
+        var prog = sortIntWhole + sortIntRange + sortLong + sortChar + sortString;
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("sortIntWhole", Array.Empty<object>()),
+            ("sortIntRange", Array.Empty<object>()),
+            ("sortLong", Array.Empty<object>()),
+            ("sortChar", Array.Empty<object>()),
+            ("sortString", Array.Empty<object>()));
+
+        // DECLINE SURFACE — keep the C# path authoritative for overload/type shapes the backend does not model.
+        Assert.False(RouteColumnarProgram(  // range index/count must be int.
+            "func f(a: int[]): int {\n    Array.Sort(a, 0L, 1)\n    return 0\n}\n").Ok);
+        Assert.False(RouteColumnarProgram(  // parallel key/value array overloads are not modelled.
+            "func f(keys: int[], values: int[]): int {\n    Array.Sort(keys, values)\n    return 0\n}\n").Ok);
+        Assert.False(RouteColumnarProgram(  // first argument must be a supported single-dimensional array.
+            "func f(): int {\n    Array.Sort(5)\n    return 0\n}\n").Ok);
+        Assert.False(RouteColumnarProgram(  // bool[] element opcodes are still outside the columnar array surface.
+            "func f(a: bool[]): int {\n    Array.Sort(a)\n    return 0\n}\n").Ok);
+    }
+
     // A bare CALL statement whose result is DISCARDED: emit the call, then `pop` the non-void result (a void
     // call leaves nothing). The C# path emits the same pop, so the side effects + ignored result are identical.
     // This is the `helper(args)`-as-statement idiom (LinterImports.nl calls a flag-clearing helper for its side

@@ -4660,7 +4660,7 @@ internal sealed class ColumnarIlEmitter
 
             case 23: // ExpressionStatement — a SIMPLE `=` assignment (kind 14) to a `:=` local OR an array
             {        // element `a[i] = value`, OR a bare CALL statement (a void BCL call such as `Array.Fill(...)`,
-                     // `Array.Clear(...)`, `Array.Copy(...)`, `Array.Resize(...)`,
+                     // `Array.Clear(...)`, `Array.Copy(...)`, `Array.Resize(...)`, `Array.Sort(...)`,
                      // or a sibling/BCL call whose non-void result is discarded), OR a COMPOUND assignment
                      // (`+=` `-=` `*=` `/=` on a bare local/param — lowered to load/op/store below).
                 var expr = UnwrapParenthesizedNode(Child(idx, 0));
@@ -9404,6 +9404,24 @@ internal sealed class ColumnarIlEmitter
             type = typeof(void);
             return true;
         }
+        if (typeName == "Array" && member == "Sort" && (argCount == 1 || argCount == 3))
+        {
+            // Array.Sort<T>(T[] array) and Array.Sort<T>(T[] array, int index, int length) -> void. Keep this
+            // to one supported SZ array; key/value parallel arrays and comparer/delegate overloads stay declined.
+            if (!EmitExpression(Child(callIdx, 1), out var arrayType) || !arrayType.IsSZArray)
+                return false;
+            var elementType = arrayType.GetElementType()!;
+            if (!IsSupportedElementType(elementType))
+                return false;
+            if (argCount == 3 && (!EmitArg(callIdx, 2, typeof(int)) || !EmitArg(callIdx, 3, typeof(int))))
+                return false;
+            var sort = ResolveArraySort(argCount);
+            if (sort == null)
+                return false;
+            _il.Emit(OpCodes.Call, sort.MakeGenericMethod(elementType));
+            type = typeof(void);
+            return true;
+        }
         if (typeName == "Array" && member == "Clear" && (argCount == 1 || argCount == 3))
         {
             // Array.Clear(Array) and Array.Clear(Array, int, int) -> void. The emitted argument remains the
@@ -9496,6 +9514,25 @@ internal sealed class ColumnarIlEmitter
                 continue;
             var parameters = m.GetParameters();
             if (parameters.Length == 2 && parameters[0].ParameterType.IsByRef && parameters[1].ParameterType == typeof(int))
+                return m;
+        }
+        return null;
+    }
+
+    // System.Array.Sort<T>(T[] array[, int index, int length]) as a generic method DEFINITION.
+    private static MethodInfo? ResolveArraySort(int parameterCount)
+    {
+        foreach (var m in typeof(System.Array).GetMethods(BindingFlags.Public | BindingFlags.Static))
+        {
+            if (m.Name != "Sort" || !m.IsGenericMethodDefinition)
+                continue;
+            var parameters = m.GetParameters();
+            if (parameters.Length != parameterCount
+                || !parameters[0].ParameterType.IsSZArray
+                || !parameters[0].ParameterType.GetElementType()!.IsGenericParameter)
+                continue;
+            if (parameterCount == 1
+                || (parameters[1].ParameterType == typeof(int) && parameters[2].ParameterType == typeof(int)))
                 return m;
         }
         return null;

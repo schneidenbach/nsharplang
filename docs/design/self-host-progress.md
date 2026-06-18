@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Columnar `Array.Sort` orders compiler buffers
+
+The standalone columnar emitter now lowers generic `Array.Sort<T>(T[])` and
+`Array.Sort<T>(T[], int, int)` for the existing supported single-dimensional array element set.
+This keeps compiler-owned buffer ordering inside the N# columnar backend while declining parallel
+key/value arrays, comparer/delegate overloads, non-int range arguments, and unsupported array
+element shapes so the C# path remains authoritative outside the verified surface.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_Parity_ArraySort"`;
+`./scripts/dev.sh ColumnarCodegen_Parity_Array`.
+
 ## 2026-06-18 — SoA direct columns reject `Array.Resize` before emission
 
 The SoA analyzer regression matrix now pins the exact BCL growth shape
