@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA direct columns cannot escape through arbitrary array calls
+
+Direct backing columns now reject ordinary array-value escapes before lowering. Calls such as
+`take(nodes.kind)`, BCL calls such as `System.Console.WriteLine(nodes.kind)`, extension receivers
+such as `nodes.kind.first()`, and constructor arguments such as `new Holder(nodes.kind)` all report a
+SoA direct-column diagnostic instead of treating the backing column as an ordinary `int[]`. The guard
+preserves the accepted `Table.wrap(...)` view path and the pinned `Array.Fill`/`Array.Copy`/
+`Array.Clear` whole-column kernels.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter
+"FullyQualifiedName~Analyzer_SoaDirectColumnsCannotEscapeThroughArbitraryCalls|FullyQualifiedName~Analyzer_SoaTableAliasTypesGeneratedMembersAndRowProjection|FullyQualifiedName~DirectColumnBulkArrayOperations_UseBackingArraysWithoutRowAllocation|FullyQualifiedName~DirectColumnBulkArrayOperationOverloads_UseBackingArraysWithoutRowAllocation|FullyQualifiedName~DirectColumnBulkArrayOperationNamedArguments_UseBackingArraysWithoutRowAllocation|FullyQualifiedName~DirectColumnBulkArrayOperationCheckedUncheckedWrappers_UseBackingArraysWithoutRowAllocation|FullyQualifiedName~Analyzer_SoaDirectColumnsCannotUseUnpinnedStaticArrayMethods|FullyQualifiedName~Analyzer_SoaDirectColumnsCannotUseArrayInstanceMethods"`.
+
 ## 2026-06-18 — SoA direct-column null-conditionals reject before lowering
 
 Direct-column null-conditional member and index access now report SoA diagnostics before ordinary

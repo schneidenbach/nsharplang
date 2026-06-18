@@ -289,6 +289,10 @@ until they have explicit row-identity semantics and IL-shape evidence; named arr
 such as `array: table.column`, `sourceArray: table.column`, and `destinationArray: table.column`
 decline the same way, including when the named direct-column expression is wrapped in
 `checked(...)` or `unchecked(...)`.
+Direct columns also cannot escape as ordinary array values through arbitrary calls, extension-method
+receivers, or constructors: `take(table.column)`, `checked(table.column).ext()`, and
+`new Holder(table.column)` decline before lowering unless the call is `Table.wrap(...)` or one of
+the pinned `Array.Fill`/`Array.Copy`/`Array.Clear` kernels.
 Direct column metadata properties remain available: `table.column.Length` and
 `table.column.LongLength` lower through `ldlen`, while `table.column.Rank` lowers to the known SZ-array
 rank constant. Checked/unchecked wrappers around the direct column keep that same metadata lowering.
@@ -423,6 +427,8 @@ The compiler must produce direct diagnostics for common misuse:
 - unsupported direct-column static `Array` calls outside pinned whole-column kernels, including named
   array-bearing arguments such as `array: table.column` and `destinationArray: table.column`:
   "SoA table member 'X' cannot be passed to Array.Y directly";
+- unsupported direct-column array escapes through arbitrary calls, extension receivers, or
+  constructors: "SoA table member 'X' cannot be passed as an argument directly";
 - unsupported direct-column array instance calls, including parenthesized, checked, and unchecked
   column receivers: "SoA table member 'X' cannot call array method 'Y' directly";
 - read-only direct-column metadata property writes, including simple assignment, compound assignment,

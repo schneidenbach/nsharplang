@@ -5437,6 +5437,109 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_SoaDirectColumnsCannotEscapeThroughArbitraryCalls()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var cases = new[]
+        {
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func take(values: int[]) {
+                }
+
+                func bad(nodes: Nodes) {
+                    take(nodes.kind)
+                }
+                """,
+                Action: "passed as an argument"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func take(values: int[]) {
+                }
+
+                func bad(nodes: Nodes) {
+                    take(checked((nodes).kind))
+                }
+                """,
+                Action: "passed as an argument"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    System.Console.WriteLine(nodes.kind)
+                }
+                """,
+                Action: "passed as an argument"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func first(this values: int[]): int {
+                    return values[0]
+                }
+
+                func bad(nodes: Nodes): int {
+                    return nodes.kind.first()
+                }
+                """,
+                Action: "used as the receiver for 'first'"),
+            (
+                Source: """
+                class Holder {
+                    values: int[]
+
+                    constructor(values: int[]) {
+                        this.values = values
+                    }
+                }
+
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    holder := new Holder(nodes.kind)
+                }
+                """,
+                Action: "passed as a constructor argument")
+        };
+
+        foreach (var testCase in cases)
+        {
+            var result = Analyze(testCase.Source);
+            var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+            Assert.Contains($"SoA table member 'kind' cannot be {testCase.Action} directly", error.Message);
+            Assert.Contains("Table.wrap", error.Suggestion);
+            Assert.Contains("Array.Fill, Array.Copy, and Array.Clear", error.Suggestion);
+            Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.UndefinedMember);
+        }
+    }
+
+    [Fact]
     public void Analyzer_SoaTableRowIndexMustBeInt()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

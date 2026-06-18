@@ -11260,6 +11260,8 @@ public class Analyzer : IDisposable
             return BuiltInTypes.Unknown;
         if (ReportUnsupportedSoaDirectColumnArrayInstanceCallIfNeeded(call, calleeType))
             return BuiltInTypes.Unknown;
+        if (ReportUnsupportedSoaDirectColumnCallArgumentIfNeeded(call, calleeType))
+            return BuiltInTypes.Unknown;
 
         // Resolve return type from function type
         if (calleeType is FunctionTypeInfo funcType)
@@ -15616,6 +15618,70 @@ public class Analyzer : IDisposable
         return false;
     }
 
+    private bool ReportUnsupportedSoaDirectColumnCallArgumentIfNeeded(CallExpression call, TypeInfo calleeType)
+    {
+        if (IsAllowedSoaDirectColumnCall(call, calleeType))
+        {
+            return false;
+        }
+
+        if (call.Callee is MemberAccessExpression memberAccess
+            && !BuiltInTypes.IsUnknown(calleeType)
+            && TryGetSoaColumnMemberAccess(memberAccess.Object, out var receiverColumn))
+        {
+            ReportUnsupportedSoaDirectColumnValueArgument(
+                memberAccess.Object,
+                receiverColumn,
+                $"used as the receiver for '{memberAccess.MemberName}'");
+            return true;
+        }
+
+        foreach (var argument in call.Arguments)
+        {
+            if (argument.Modifier is ArgumentModifier.Ref or ArgumentModifier.Out)
+            {
+                continue;
+            }
+
+            if (ReportUnsupportedSoaDirectColumnValueArgumentIfNeeded(argument.Value, "passed as an argument"))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private bool IsAllowedSoaDirectColumnCall(CallExpression call, TypeInfo calleeType)
+        => calleeType is FunctionTypeInfo { SyntheticName: "wrap" }
+           || call.Callee is MemberAccessExpression memberAccess && IsStaticArrayTarget(memberAccess.Object);
+
+    private bool ReportUnsupportedSoaDirectColumnValueArgumentIfNeeded(Expression expression, string action)
+    {
+        if (!TryGetSoaColumnMemberAccess(expression, out var columnMember))
+        {
+            return false;
+        }
+
+        ReportUnsupportedSoaDirectColumnValueArgument(expression, columnMember, action);
+        return true;
+    }
+
+    private void ReportUnsupportedSoaDirectColumnValueArgument(
+        Expression expression,
+        MemberAccessExpression columnMember,
+        string action)
+    {
+        var (line, column, length) = GetExpressionDiagnosticSpan(expression);
+        Error(
+            ErrorCode.InvalidSyntax,
+            $"SoA table member '{columnMember.MemberName}' cannot be {action} directly",
+            line,
+            column,
+            "Use table.column[row] for element access, Table.wrap for table views, or Array.Fill, Array.Copy, and Array.Clear for supported whole-column operations.",
+            length);
+    }
+
     private bool ReportUnsupportedSoaDirectColumnArrayInstanceCallIfNeeded(CallExpression call, TypeInfo calleeType)
         => ReportUnsupportedSoaDirectColumnArrayInstanceMethodReferenceIfNeeded(call.Callee, calleeType, isCall: true);
 
@@ -17413,6 +17479,7 @@ public class Analyzer : IDisposable
             _currentExpectedType = previousExpectedType;
             constructorArgumentTypes.Add(argType);
             ReportSoaRowEscapeIfNeeded(arg.Value, argType, "passed as a constructor argument");
+            ReportUnsupportedSoaDirectColumnValueArgumentIfNeeded(arg.Value, "passed as a constructor argument");
         }
 
         if (soaConstructionType != null)
