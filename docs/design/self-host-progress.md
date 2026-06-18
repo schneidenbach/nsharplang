@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Hard-cast SoA row-view diagnostics cover advanced contexts
+
+Hard-cast table/alias row projections now have analyzer pins beyond the core store/return/call
+escapes. `((NodeTable)nodes)[0]` and nested alias casts keep the SoA row-view diagnostic when used as
+operator operands, control-flow conditions, checked-expression values, `with` targets, `nameof`
+targets, and resource expressions, so those row-view values still fail before emission instead of
+materializing wrapper rows. Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~Analyzer_HardCastedSoaRowViewCannotEscapeFromAdvancedContexts"`.
+
 ## 2026-06-18 — Command helper dogfood wrappers share the kernel loader
 
 The remaining command-helper and orderer dogfood wrappers now bind through `DogfoodKernelLoader`

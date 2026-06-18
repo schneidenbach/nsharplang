@@ -2419,6 +2419,90 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_HardCastedSoaRowViewCannotEscapeFromAdvancedContexts()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var cases = new[]
+        {
+            (Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable): bool {
+                    return ((NodeTable)nodes)[0] == null
+                }
+                """,
+                Message: "SoA row views cannot be used as an operator operand"),
+            (Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    if ((Nodes)((NodeTable)nodes))[0] {
+                    }
+                }
+                """,
+                Message: "SoA row views cannot be used as an 'if' condition"),
+            (Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable) {
+                    value := checked(((NodeTable)nodes)[0])
+                }
+                """,
+                Message: "SoA row views cannot be used in a checked expression"),
+            (Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable) {
+                    value := (((NodeTable)nodes)[0]) with { kind: 1 }
+                }
+                """,
+                Message: "SoA row views cannot be used as a with target"),
+            (Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable): string {
+                    return nameof(((NodeTable)nodes)[0])
+                }
+                """,
+                Message: "SoA row views cannot be used as a nameof target"),
+            (Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    using (((Nodes)((NodeTable)nodes))[0]) {
+                    }
+                }
+                """,
+                Message: "SoA row views cannot be used as a using resource")
+        };
+
+        foreach (var testCase in cases)
+        {
+            var result = Analyze(testCase.Source);
+            var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+            Assert.Contains(testCase.Message, error.Message);
+            Assert.Contains("table[index].column", error.Suggestion);
+        }
+    }
+
+    [Fact]
     public void Analyzer_ParenthesizedSoaRowViewCannotEscapeFromAdvancedContexts()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
