@@ -57,6 +57,51 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void HardCastedRowProjection_UsesColumnArrayLoadStoreWithoutRowAllocation()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                kind: int
+                start: int
+            }
+
+            type Nodes = NodeTable
+
+            func rowOps(nodes: Nodes, row: int): int {
+                ((NodeTable)nodes)[row].kind = 10
+                ((Nodes)((NodeTable)nodes))[row].start = ((NodeTable)nodes)[row].kind + 2
+                ((NodeTable)((Nodes)nodes))[row].kind += ((Nodes)((NodeTable)nodes))[row].start
+                return ((Nodes)((NodeTable)nodes))[row].kind + ((NodeTable)nodes)[row].start
+            }
+
+            func main(): int {
+                nodes := new Nodes(1)
+                row := nodes.add()
+                return rowOps(nodes, row)
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var rowOps = ILShapeInspector.GetProgramMethod(assembly, "rowOps");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(34, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoAllocationOrDispatch(rowOps);
+            Assert.True(
+                ILShapeInspector.CountOpcode(rowOps, OpCodes.Ldfld) >= 6,
+                "Hard-casted SoA row projections should load backing column fields directly.");
+            Assert.Equal(5, CountArrayElementLoads(rowOps));
+            Assert.Equal(3, CountArrayElementStores(rowOps));
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void DirectColumnElementAccess_UsesColumnArrayLoadStoreWithoutRowAllocation()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
