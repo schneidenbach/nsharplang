@@ -8212,7 +8212,7 @@ func outer(x: int): int {
     // COLLECTIONS (Phase D) — List<T>/Dictionary<K,V>/HashSet<T> over BAKED runtime type args (scalars/string/
     // nested collections; builder-typed elements decline this rung). TryResolveType closes the runtime
     // generics AFTER user generics (the Action precedent); construction = newobj .ctor()/(int capacity);
-    // members = List Add/RemoveAt/Contains/IndexOf/Remove/Clear, Dictionary Add/TryAdd/ContainsKey/TryGetValue/Remove/Clear,
+    // members = List Add/Insert/RemoveAt/Contains/IndexOf/Remove/Clear, Dictionary Add/TryAdd/ContainsKey/TryGetValue/Remove/Clear,
     // HashSet Add/Contains/Remove/Clear + get_Count + get_Item/set_Item (probe-pinned exception parity:
     // ArgumentOutOfRangeException, KeyNotFoundException). FOREACH over supported BCL collections mirrors the
     // ORACLE's exact lowering — the enumerator comes from the IEnumerable<T> INTERFACE (the struct enumerator is BOXED),
@@ -8233,6 +8233,7 @@ func outer(x: int): int {
             "func mkEmpty(): List<int> {\n    return new List<int>()\n}\n\nfunc argReturnPos(): int {\n    return countOf(new List<string>()) + mkEmpty().Count\n}\n\n" +
             // index WRITE + RemoveAt (probed: 5 / 21).
             "func idxWrite(): int {\n    lst := new List<int>()\n    lst.Add(1)\n    lst[0] = 5\n    return lst[0]\n}\n\n" +
+            "func listInsert(): int {\n    lst := new List<int>()\n    lst.Add(1)\n    lst.Add(3)\n    lst.Insert(1, 2)\n    lst.Insert(0, 9)\n    return lst[0] * 1000 + lst[1] * 100 + lst[2] * 10 + lst.Count\n}\n\n" +
             "func removeAt(): int {\n    lst := new List<int>()\n    lst.Add(1)\n    lst.Add(2)\n    lst.RemoveAt(0)\n    return lst[0] * 10 + lst.Count\n}\n\n" +
             "func listContains(): int {\n    lst := new List<int>()\n    lst.Add(2)\n    lst.Add(4)\n    score := lst.Count\n    if lst.Contains(2) {\n        score = score + 10\n    }\n    if lst.Contains(9) {\n        score = score + 100\n    }\n    return score\n}\n\n" +
             "func listIndexOf(): int {\n    lst := new List<string>()\n    lst.Add(\"a\")\n    lst.Add(\"b\")\n    lst.Add(\"a\")\n    return (lst.IndexOf(\"b\") + 1) * 100 + (lst.IndexOf(\"x\") + 1) * 10 + (lst.IndexOf(\"a\") + 1)\n}\n\n" +
@@ -8271,6 +8272,7 @@ func outer(x: int): int {
             ("listFlow", System.Array.Empty<object>()),
             ("argReturnPos", System.Array.Empty<object>()),
             ("idxWrite", System.Array.Empty<object>()),
+            ("listInsert", System.Array.Empty<object>()),
             ("removeAt", System.Array.Empty<object>()),
             ("listContains", System.Array.Empty<object>()),
             ("listIndexOf", System.Array.Empty<object>()),
@@ -8374,8 +8376,9 @@ func outer(x: int): int {
             "func lrec(): int {\n    l := new List<Pt>()\n    l.Add(new Pt { X: 9 })\n    return l[0].X + l.Count\n}\n\n" +
             // foreach over builder elements (probed: 7).
             "func lfe(): int {\n    l := new List<Pt>()\n    l.Add(new Pt { X: 3 })\n    l.Add(new Pt { X: 4 })\n    sum := 0\n    foreach v in l {\n        sum = sum + v.X\n    }\n    return sum\n}\n\n" +
-            // index WRITE of a builder element (probed: 5) + RemoveAt (probed: 7).
+            // index WRITE of a builder element (probed: 5) + Insert/RemoveAt (probed: reorder/7).
             "func lset(): int {\n    l := new List<Pt>()\n    l.Add(new Pt { X: 1 })\n    l[0] = new Pt { X: 5 }\n    return l[0].X\n}\n\n" +
+            "func linsert(): int {\n    l := new List<Pt>()\n    l.Add(new Pt { X: 1 })\n    l.Add(new Pt { X: 3 })\n    l.Insert(1, new Pt { X: 2 })\n    return l[0].X * 100 + l[1].X * 10 + l[2].X + l.Count\n}\n\n" +
             "func lrem(): int {\n    l := new List<Pt>()\n    l.Add(new Pt { X: 1 })\n    l.Add(new Pt { X: 7 })\n    l.RemoveAt(0)\n    return l[0].X\n}\n\n" +
             "func lclear(): int {\n    l := new List<Pt>()\n    l.Add(new Pt { X: 1 })\n    l.Clear()\n    l.Add(new Pt { X: 8 })\n    return l[0].X + l.Count\n}\n\n" +
             // Dictionary with a builder VALUE: set/ContainsKey/get + member through the value (probed: 4).
@@ -8414,6 +8417,7 @@ func outer(x: int): int {
             ("lrec", System.Array.Empty<object>()),
             ("lfe", System.Array.Empty<object>()),
             ("lset", System.Array.Empty<object>()),
+            ("linsert", System.Array.Empty<object>()),
             ("lrem", System.Array.Empty<object>()),
             ("lclear", System.Array.Empty<object>()),
             ("dval", System.Array.Empty<object>()),

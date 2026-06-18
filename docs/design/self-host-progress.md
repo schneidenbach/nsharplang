@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Columnar `List<T>.Insert` supports builder elements
+
+The standalone columnar emitter now lowers `List<T>.Insert(int,T)` on the existing closed BCL list
+surface. Unlike equality methods, `Insert` does not compare or hash `T`, so it is accepted for both
+baked element lists and builder-element lists such as `List<Pt>` using the same closed-method rebind
+path as `Add` and `RemoveAt`.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_Parity_Collections|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_Parity_CollectionsBuilderElements"`;
+`./scripts/dev.sh ColumnarCodegen_Parity_Collections`.
+
 ## 2026-06-18 — Columnar `List<T>.IndexOf` follows equality-method gates
 
 The standalone columnar emitter now lowers `List<T>.IndexOf(T)` for the same key-safe element
