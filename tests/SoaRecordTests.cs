@@ -5565,7 +5565,9 @@ public class SoaRecordTests : ILCompilerTestBase
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
 
-        var result = Analyze("""
+        var cases = new[]
+        {
+            """
             class Array {
                 static func Capture(values: int[]) {
                 }
@@ -5580,12 +5582,59 @@ public class SoaRecordTests : ILCompilerTestBase
             func bad(nodes: Nodes) {
                 Array.Capture(nodes.kind)
             }
-            """);
+            """,
+            """
+            class Holder {
+                func Capture(values: int[]) {
+                }
+            }
 
-        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
-        Assert.Contains("SoA table member 'kind' cannot be passed as an argument directly", error.Message);
-        Assert.DoesNotContain("Array method", error.Message);
-        Assert.Contains("Table.wrap", error.Suggestion);
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
+            func bad(nodes: Nodes) {
+                Array := new Holder()
+                Array.Capture(nodes.kind)
+            }
+            """,
+            """
+            class Holder {
+                func Capture(values: int[]) {
+                }
+            }
+
+            class NamespaceLike {
+                Array: Holder
+
+                constructor(array: Holder) {
+                    this.Array = array
+                }
+            }
+
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
+            func bad(nodes: Nodes) {
+                System := new NamespaceLike(new Holder())
+                System.Array.Capture(nodes.kind)
+            }
+            """
+        };
+
+        foreach (var source in cases)
+        {
+            var result = Analyze(source);
+            var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+            Assert.Contains("SoA table member 'kind' cannot be passed as an argument directly", error.Message);
+            Assert.DoesNotContain("Array method", error.Message);
+            Assert.Contains("Table.wrap", error.Suggestion);
+        }
     }
 
     [Fact]

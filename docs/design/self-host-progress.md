@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA Array target shadowing gets value-symbol pins
+
+The SoA static `Array` diagnostic pin now covers value-symbol shadowing as well as type shadowing.
+Locals named `Array` and `System` keep ordinary direct-column call-argument diagnostics instead of
+being classified by spelling as the BCL `System.Array` target. Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~Analyzer_SoaDirectColumnsRespectUserArrayTypeShadowing"`.
+
 ## 2026-06-18 — SoA static Array diagnostics respect type shadowing
 
 The SoA direct-column static `Array` classifier now resolves a bare `Array` identifier through the type
