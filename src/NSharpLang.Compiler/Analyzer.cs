@@ -2954,6 +2954,10 @@ public class Analyzer : IDisposable
                 {
                     fieldType = BuiltInTypes.Unknown;
                 }
+                else if (ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(field.Initializer, "stored in a field"))
+                {
+                    fieldType = BuiltInTypes.Unknown;
+                }
                 else if (BuiltInTypes.IsUnknown(fieldType))
                 {
                     Error($"I can't figure out the type of '{field.Name}' from its initializer — try adding an explicit type annotation", field.Line, field.Column);
@@ -2971,7 +2975,8 @@ public class Analyzer : IDisposable
                 var initType = AnalyzeExpression(field.Initializer);
                 _currentExpectedType = previousExpectedType;
                 var isSoaRowInitializer = ReportSoaRowEscapeIfNeeded(field.Initializer, initType, "stored in a field");
-                if (!isSoaRowInitializer && !IsAssignable(fieldType, initType))
+                var isSoaDirectColumnInitializer = ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(field.Initializer, "stored in a field");
+                if (!isSoaRowInitializer && !isSoaDirectColumnInitializer && !IsAssignable(fieldType, initType))
                 {
                     var (diagnosticLine, diagnosticColumn, diagnosticLength) =
                         GetExpressionDiagnosticSpan(field.Initializer);
@@ -18544,6 +18549,11 @@ public class Analyzer : IDisposable
     {
         var targetType = AnalyzeExpression(with.Target);
         var targetIsSoaRow = ReportSoaRowEscapeIfNeeded(with.Target, targetType, "used as a with target");
+        var targetIsSoaDirectColumn = ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(with.Target, "used as a with target");
+        if (targetIsSoaRow || targetIsSoaDirectColumn)
+        {
+            targetType = BuiltInTypes.Unknown;
+        }
 
         foreach (var property in with.Properties)
         {
@@ -18573,8 +18583,9 @@ public class Analyzer : IDisposable
             var valueType = memberType != null
                 ? AnalyzeExpressionWithExpectedType(property.Value, memberType)
                 : AnalyzeExpression(property.Value);
-            ReportSoaRowEscapeIfNeeded(property.Value, valueType, "stored in a with expression");
-            if (memberType != null && !IsAssignable(memberType, valueType))
+            var valueIsSoaRow = ReportSoaRowEscapeIfNeeded(property.Value, valueType, "stored in a with expression");
+            var valueIsSoaDirectColumn = ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(property.Value, "stored in a with expression");
+            if (memberType != null && !valueIsSoaRow && !valueIsSoaDirectColumn && !IsAssignable(memberType, valueType))
             {
                 var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetExpressionDiagnosticSpan(property.Value);
                 Error(
@@ -18586,7 +18597,7 @@ public class Analyzer : IDisposable
             }
         }
 
-        return targetIsSoaRow ? BuiltInTypes.Unknown : targetType;
+        return targetIsSoaRow || targetIsSoaDirectColumn ? BuiltInTypes.Unknown : targetType;
     }
 
     private TypeInfo AnalyzeMatchExpression(MatchExpression match)

@@ -294,12 +294,13 @@ receivers, or constructors: `take(table.column)`, `checked(table.column).ext()`,
 `new Holder(table.column)` decline before lowering unless the call is `Table.wrap(...)` or one of
 the pinned `Array.Fill`/`Array.Copy`/`Array.Clear` kernels. They also cannot be stored or returned as
 ordinary array values through locals, assignments, function/property/lambda results, array or tuple
-literals, ternary/match result arms, object/collection initializers, display contexts such as
-`print`/assertion messages/interpolation, discarded expression statements, control-flow values,
-foreach collections, using/lock resources, switch/match subjects, operator operands, casts/type
-tests, await/throw/yield operands, index values, allocation lengths, pattern values, event handles,
-range bounds, spread expressions, or explicit allocation-policy operands; otherwise a later use of
-the alias could bypass the SoA row-identity checks and mutate one backing column independently.
+literals, ternary/match result arms, field initializers, object/collection/with initializers, `with`
+targets, display contexts such as `print`/assertion messages/interpolation, discarded expression
+statements, control-flow values, foreach collections, using/lock resources, switch/match subjects,
+operator operands, casts/type tests, await/throw/yield operands, index values, allocation lengths,
+pattern values, event handles, range bounds, spread expressions, or explicit allocation-policy
+operands; otherwise a later use of the alias could bypass the SoA row-identity checks and mutate one
+backing column independently.
 Direct column metadata properties remain available: `table.column.Length` and
 `table.column.LongLength` lower through `ldlen`, while `table.column.Rank` lowers to the known SZ-array
 rank constant. Checked/unchecked wrappers around the direct column keep that same metadata lowering.
@@ -438,7 +439,8 @@ The compiler must produce direct diagnostics for common misuse:
   constructors: "SoA table member 'X' cannot be passed as an argument directly";
 - unsupported direct-column array escapes through storage/result contexts, including locals,
   assignments, returns, lambda returns, array/tuple literals, ternary/match result arms, and
-  object/collection initializers: "SoA table member 'X' cannot be stored in a variable directly";
+  field/object/collection/with initializers plus `with` targets:
+  "SoA table member 'X' cannot be stored in a variable directly";
 - unsupported direct-column array escapes through display/discard contexts, including print,
   assertion conditions/messages, interpolation holes, explicit discards, and bare expression
   statements: "SoA table member 'X' cannot be printed directly";

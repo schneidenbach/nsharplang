@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA direct columns cannot escape through field or with storage contexts
+
+Direct backing columns now reject the remaining storage-like analyzer sites before lowering:
+field initializers, `with` targets, and `with` initializer values. These cases now report the SoA
+direct-column diagnostic and suppress the generic assignability/member follow-up diagnostics.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter
+"FullyQualifiedName~Analyzer_SoaDirectColumnsCannotEscapeThroughStorageOrResultValues"`.
+
 ## 2026-06-18 — SoA direct columns cannot escape through index, allocation, pattern, or event contexts
 
 Direct backing columns now reject the remaining row-only semantic value sites before lowering:

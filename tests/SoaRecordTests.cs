@@ -5680,6 +5680,51 @@ public class SoaRecordTests : ILCompilerTestBase
                 Action: "used as a match result"),
             (
                 Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                class Holder {
+                    Nodes: Nodes = new Nodes(1)
+                    Values: int[] = checked(Nodes.kind)
+                }
+                """,
+                Action: "stored in a field"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    updated := nodes.kind with { Length: 1 }
+                }
+                """,
+                Action: "used as a with target"),
+            (
+                Source: """
+                record Holder {
+                    Value: object
+                }
+
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    original := new Holder { Value: 1 }
+                    updated := original with { Value: unchecked(nodes.kind) }
+                }
+                """,
+                Action: "stored in a with expression"),
+            (
+                Source: """
                 class Holder {
                     values: int[]
                 }
