@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA generated-member ref/out wrappers reject before emission
+
+Direct generated SoA table members now have explicit analyzer coverage when used as `ref`/`out`
+arguments through `checked(...)` and `unchecked(...)` target wrappers. These forms keep the
+SoA-specific pre-emission diagnostic for column arrays and generated bookkeeping members such as
+`capacity`, rather than falling through to generic addressability checks or IL lowering failures.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~SoaRecordTests.Analyzer_SoaDirectMembersCannotBeRefOutArguments"`.
+
 ## 2026-06-18 — Unknown enum members reject during analysis
 
 Enum member access now distinguishes declared static enum members from ordinary instance object

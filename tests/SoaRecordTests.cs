@@ -6302,6 +6302,43 @@ public class SoaRecordTests : ILCompilerTestBase
                 """,
                 Member: "length",
                 Modifier: "out",
+                Suggestion: "add, clear, ensureCapacity, or copyRow"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func replace(ref values: int[]) {
+                }
+
+                func bad(nodes: Nodes) {
+                    replace(ref checked(nodes.kind))
+                }
+                """,
+                Member: "kind",
+                Modifier: "ref",
+                Suggestion: "construct/wrap"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func set(out value: int) {
+                    value = 0
+                }
+
+                func bad(nodes: Nodes) {
+                    set(out unchecked(nodes.capacity))
+                }
+                """,
+                Member: "capacity",
+                Modifier: "out",
                 Suggestion: "add, clear, ensureCapacity, or copyRow")
         };
 
