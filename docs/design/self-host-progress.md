@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA checked direct-column array bound methods reject before lowering
+
+Checked/unchecked direct-column receiver wrappers now have analyzer evidence for the remaining SZ-array
+bound methods. `GetLowerBound` and `GetUpperBound` reject both as calls and as method-value escapes
+before IL emission, matching the existing `GetLength` dimension-method rule.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter
+"FullyQualifiedName~Analyzer_SoaDirectColumnsCannotUseArrayInstanceMethods|FullyQualifiedName~Analyzer_SoaDirectColumnArrayInstanceMethodsCannotBeUsedAsValues"`.
+
 ## 2026-06-18 — SoA checked direct-column array instance calls reject before lowering
 
 Checked/unchecked direct-column receiver wrappers now have analyzer evidence across array instance

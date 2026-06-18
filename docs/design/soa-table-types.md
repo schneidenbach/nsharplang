@@ -300,7 +300,8 @@ because they would box, allocate, virtually dispatch, or bypass the pinned stati
 element access methods such as `table.column.GetValue(...)`/`SetValue(...)`, method-value escapes such
 as `table.column.Clone`, checked/unchecked wrapper escapes such as `checked(table.column).Clone`,
 inherited methods such as `table.column.GetEnumerator()`/`ToString()`, and dimension methods such as
-`table.column.GetLength(...)`. Use direct element indexing, metadata
+`table.column.GetLength(...)`, `table.column.GetLowerBound(...)`, and
+`table.column.GetUpperBound(...)`. Use direct element indexing, metadata
 properties, or the pinned static `Array.Fill`/`Array.Copy`/`Array.Clear` operations instead.
 Replacing wrapper column arrays, mutating `length`/`capacity` directly, or mutating column slices is
 not allowed: shape changes must go through construction, `wrap`, `add`, `clear`, `ensureCapacity`, or

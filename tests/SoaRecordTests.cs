@@ -6716,7 +6716,46 @@ public class SoaRecordTests : ILCompilerTestBase
                     return checked(nodes.kind).GetLength(0)
                 }
                 """,
-                Method: "GetLength")
+                Method: "GetLength"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes): int {
+                    return unchecked(nodes.kind).GetLowerBound(0)
+                }
+                """,
+                Method: "GetLowerBound"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes): int {
+                    return checked(nodes.kind).GetUpperBound(0)
+                }
+                """,
+                Method: "GetUpperBound"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes): int {
+                    return (nodes.kind).GetLowerBound(0)
+                }
+                """,
+                Method: "GetLowerBound")
         };
 
         foreach (var testCase in cases)
@@ -6778,6 +6817,40 @@ public class SoaRecordTests : ILCompilerTestBase
                 }
                 """,
                 Method: "GetLength"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func pull(getBound: Func<int, int>): int {
+                    return getBound(0)
+                }
+
+                func bad(nodes: Nodes): int {
+                    return pull(checked(nodes.kind).GetLowerBound)
+                }
+                """,
+                Method: "GetLowerBound"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func pull(getBound: Func<int, int>): int {
+                    return getBound(0)
+                }
+
+                func bad(nodes: Nodes): int {
+                    return pull(unchecked(nodes.kind).GetUpperBound)
+                }
+                """,
+                Method: "GetUpperBound"),
             (
                 Source: """
                 soa record NodeTable {
