@@ -1598,6 +1598,61 @@ func Main() {
     }
 
     [Fact]
+    public void EnumMemberAccess_UnknownStaticMember_ReportsUndefinedMember()
+    {
+        var error = AssertHasErrorCode(@"
+            enum Status {
+                Pending,
+                Active,
+                Done
+            }
+
+            func Main(): Status {
+                return Status.Activ
+            }
+        ", ErrorCode.UndefinedMember);
+
+        Assert.Contains("Member 'Activ' not found on type 'Status'", error.Message);
+        Assert.Contains("Active", error.Suggestion ?? string.Join(",", error.Suggestions ?? new List<string>()));
+    }
+
+    [Fact]
+    public void EnumValueObjectMemberAccess_Resolves()
+    {
+        AssertNoErrorCode(@"
+            enum Status {
+                Pending,
+                Active,
+                Done
+            }
+
+            func Main(): string {
+                status := Status.Active
+                return status.ToString()
+            }
+        ", ErrorCode.UndefinedMember);
+    }
+
+    [Fact]
+    public void EnumValueMemberAccess_EnumMemberName_ReportsUndefinedMember()
+    {
+        var error = AssertHasErrorCode(@"
+            enum Status {
+                Pending,
+                Active,
+                Done
+            }
+
+            func Main(): Status {
+                status := Status.Active
+                return status.Done
+            }
+        ", ErrorCode.UndefinedMember);
+
+        Assert.Contains("Member 'Done' not found on type 'Status'", error.Message);
+    }
+
+    [Fact]
     public void EnumDeclaration_DuplicateMembers()
     {
         AssertHasError(@"

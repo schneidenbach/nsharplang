@@ -7349,7 +7349,82 @@ public class Analyzer : IDisposable
 
     private bool IsStaticMemberAccessTarget(Expression target)
     {
-        return target is IdentifierExpression identifier && LookupSymbol(identifier.Name) == null;
+        if (target is ParenthesizedExpression parenthesized)
+            return IsStaticMemberAccessTarget(parenthesized.Inner);
+
+        if (target is IdentifierExpression identifier)
+            return LookupSymbol(identifier.Name) == null;
+
+        return TryResolveTypeValuedMemberAccess(target, out _);
+    }
+
+    private bool TryResolveTypeValuedMemberAccess(Expression expression, out TypeInfo type)
+    {
+        type = BuiltInTypes.Unknown;
+
+        switch (expression)
+        {
+            case ParenthesizedExpression parenthesized:
+                return TryResolveTypeValuedMemberAccess(parenthesized.Inner, out type);
+
+            case IdentifierExpression identifier:
+                if (LookupSymbol(identifier.Name) != null)
+                    return false;
+
+                type = ResolveTypeAlias(LookupType(identifier.Name) ?? BuiltInTypes.Unknown);
+                if (!BuiltInTypes.IsUnknown(type))
+                    return true;
+
+                if (TryResolveBuiltInTypeKeyword(identifier.Name) is { } builtInType)
+                {
+                    type = new ReflectionTypeInfo(builtInType);
+                    return true;
+                }
+
+                if (TryResolveExternalType(identifier.Name) is { } externalType)
+                {
+                    type = externalType;
+                    return true;
+                }
+
+                return false;
+
+            case MemberAccessExpression memberAccess:
+                if (!TryResolveTypeValuedMemberAccess(memberAccess.Object, out var ownerType))
+                    return false;
+
+                return TryResolveNestedTypeOnOwner(ownerType, memberAccess.MemberName, out type);
+
+            default:
+                return false;
+        }
+    }
+
+    private bool TryResolveNestedTypeOnOwner(TypeInfo ownerType, string memberName, out TypeInfo nestedType)
+    {
+        ownerType = ResolveTypeAlias(ownerType);
+
+        var members = ownerType switch
+        {
+            ClassTypeInfo classType => classType.Declaration.Members,
+            StructTypeInfo structType => structType.Declaration.Members,
+            RecordTypeInfo recordType => recordType.Declaration.Members,
+            InterfaceTypeInfo interfaceType => interfaceType.Declaration.Members,
+            _ => null
+        };
+
+        if (members != null)
+            return TryResolveNestedTypeMember(members, memberName, out nestedType);
+
+        if (ownerType is ReflectionTypeInfo reflectionType
+            && reflectionType.Type.GetNestedType(memberName, BindingFlags.Public | BindingFlags.NonPublic) is { } nestedReflectionType)
+        {
+            nestedType = new ReflectionTypeInfo(nestedReflectionType);
+            return true;
+        }
+
+        nestedType = BuiltInTypes.Unknown;
+        return false;
     }
 
     private void TryRecordMemberBinding(TypeInfo objectType, MemberAccessExpression member)
@@ -7766,7 +7841,11 @@ public class Analyzer : IDisposable
         }
 
         if (receiverType is EnumTypeInfo enumType)
-            return enumType.Declaration.Members.Select(member => member.Name).ToList();
+        {
+            var members = enumType.Declaration.Members.Select(member => member.Name).ToList();
+            members.AddRange(GetSourceObjectMemberNames(includeStaticMembers));
+            return members;
+        }
 
         if (receiverType is TupleTypeInfo tupleType)
         {
@@ -8167,9 +8246,13 @@ public class Analyzer : IDisposable
                 return objectMember;
         }
 
-        if (objectType is EnumTypeInfo)
+        if (objectType is EnumTypeInfo enumType)
         {
-            return objectType;
+            if (includeStaticMembers && enumType.Declaration.Members.Any(member => member.Name == memberName))
+                return objectType;
+
+            if (!includeStaticMembers && TryResolveSourceObjectMember(memberName, out var objectMember))
+                return objectMember;
         }
 
         if (objectType is UnionTypeInfo { IsAnonymous: true })

@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Unknown enum members reject during analysis
+
+Enum member access now distinguishes declared static enum members from ordinary instance object
+members, including nested enum type chains such as `BankAccount.Status.Active`. Misspelled static
+enum members such as `Status.Activ` report NL303 during analysis with enum-member suggestions
+instead of surviving to IL emission as a backend "static member not found" failure. Enum values
+still resolve normal object members such as `ToString`, and cannot access enum members as instance
+members.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~AnalyzerTests.EnumMemberAccess_UnknownStaticMember_ReportsUndefinedMember|FullyQualifiedName~AnalyzerTests.EnumValueObjectMemberAccess_Resolves|FullyQualifiedName~AnalyzerTests.EnumValueMemberAccess_EnumMemberName_ReportsUndefinedMember|FullyQualifiedName~AnalyzerTests.NestedTypeMemberAccess_DoesNotReportUndefinedMember"`.
+
 ## 2026-06-18 — SoA enum ref/out column addresses are pinned
 
 SoA int-backed enum columns now have direct IL-shape coverage for `ref`/`out` arguments across row
