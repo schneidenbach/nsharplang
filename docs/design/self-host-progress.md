@@ -11,6 +11,19 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA direct-column named Array rejections stay pre-emission
+
+The SoA analyzer matrix now pins named-argument forms for the remaining direct-column `Array` rejection
+surface. Unsupported static calls such as `Array.IndexOf(value: ..., array: table.column)`,
+`Array.ConstrainedCopy(destinationArray: table.column, ...)`, and
+`Array.AsReadOnly(array: table.column)` report the SoA direct-column array diagnostic before
+emission, while named
+`Array.Resize(ref array: table.column, newSize: n)` and explicit `System.Array.Resize<T>(newSize: n,
+ref array: (table).column)` continue to report the direct-member mutation diagnostic instead of
+letting a backing column be replaced through a BCL ref parameter.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter
+"FullyQualifiedName~Analyzer_SoaDirectColumnsCannotUseUnpinnedStaticArrayMethods|FullyQualifiedName~Analyzer_SoaDirectColumnsCannotBeResizedThroughArrayResize"`.
+
 ## 2026-06-18 — SoA direct-column bulk Array named arguments keep backing-array IL shape
 
 Accepted direct-column `Array.Fill`/`Array.Copy`/`Array.Clear` calls now have IL-shape evidence for

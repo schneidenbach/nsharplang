@@ -263,7 +263,8 @@ backing-array IL shape. Other static `Array` methods
 that receive a direct column, such as `Array.IndexOf(table.column, ...)`,
 `Array.BinarySearch(table.column, ...)`, `Array.ConstrainedCopy(..., table.column, ...)`,
 `Array.Exists(table.column, ...)`, or `Array.AsReadOnly(table.column)`, decline before IL emission
-until they have explicit row-identity semantics and IL-shape evidence.
+until they have explicit row-identity semantics and IL-shape evidence; named array-bearing arguments
+such as `array: table.column` and `destinationArray: table.column` decline the same way.
 Direct column metadata properties remain available: `table.column.Length` and
 `table.column.LongLength` lower through `ldlen`, while `table.column.Rank` lowers to the known SZ-array
 rank constant. Those metadata properties are read-only: `table.column.Length = n`,
@@ -364,8 +365,9 @@ The compiler must produce direct diagnostics for common misuse:
 - direct table member mutation: "SoA table member 'X' cannot be assigned directly" for simple,
   compound, and null-coalescing assignment, or "SoA table member 'X' cannot be incremented or
   decremented directly", and the same member cannot be used as a `ref`/`out` argument, including
-  `Array.Resize(ref table.column, n)`, aliases to SoA tables plus parenthesized and checked/unchecked
-  target-wrapper forms, parenthesized table receivers, explicit generic method spelling, and explicit
+  `Array.Resize(ref table.column, n)` and `Array.Resize(ref array: table.column, newSize: n)`,
+  aliases to SoA tables plus parenthesized and checked/unchecked target-wrapper forms,
+  parenthesized table receivers, explicit generic method spelling, and explicit
   `System.Array.Resize` targets; mutating one physical backing column through
   `Array.Sort(table.column)`, `Array.Sort(table.column, index, length)`,
   `Array.Sort(keys, table.column)`, `Array.Sort(keys, table.column, index, length)`,
@@ -377,6 +379,9 @@ The compiler must produce direct diagnostics for common misuse:
 - direct column slice reads, mutations, and `ref`/`out` argument addresses, including aliases to SoA
   tables, parenthesized column-member receivers, and
   checked/unchecked mutation-target wrappers: "SoA column range slices allocate arrays";
+- unsupported direct-column static `Array` calls outside pinned whole-column kernels, including named
+  array-bearing arguments such as `array: table.column` and `destinationArray: table.column`:
+  "SoA table member 'X' cannot be passed to Array.Y directly";
 - unsupported direct-column array instance calls, including parenthesized, checked, and unchecked
   column receivers: "SoA table member 'X' cannot call array method 'Y' directly";
 - read-only direct-column metadata property writes, including simple assignment, compound assignment,
