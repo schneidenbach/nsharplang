@@ -13518,6 +13518,7 @@ public class Analyzer : IDisposable
         var action = memberAccess.MemberName switch
         {
             "Sort" => "sorted directly",
+            "Reverse" => "reversed directly",
             _ => null
         };
         if (action == null)

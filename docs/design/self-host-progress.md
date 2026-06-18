@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA direct columns reject `Array.Reverse` before emission
+
+The SoA analyzer now rejects `Array.Reverse(table.column)` and
+`Array.Reverse(table.column, index, length)` on direct backing columns before overload binding or IL
+emission. Reversing one physical column has the same row-identity hazard as sorting it: values move
+independently from sibling columns, so the diagnostic points users back to row-wise writes or
+constructing/wrapping a table with replacement column storage. The guard covers parenthesized,
+checked/unchecked, and explicit `System.Array` column expressions.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~SoaRecordTests.Analyzer_SoaDirectColumnsCannotBeReversedThroughArrayReverse"`;
+`./scripts/dev.sh SoaDirectColumnsCannotBe`.
+
 ## 2026-06-18 — SoA direct columns reject `Array.Sort` before emission
 
 The SoA analyzer now rejects `Array.Sort(table.column)` and
