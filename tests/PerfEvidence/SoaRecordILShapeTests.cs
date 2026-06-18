@@ -914,6 +914,96 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void HardCastedDirectColumnCharAndEnumExpressionsCheckedUncheckedWrappers_UseColumnArrayLoadsAndOpcodesWithoutRowAllocation()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                marker: char
+                kind: NodeKind
+            }
+
+            type Nodes = NodeTable
+
+            enum NodeKind {
+                Unknown = 0,
+                Identifier = 1,
+                Literal = 2,
+                Both = 3
+            }
+
+            func evaluate(nodes: Nodes, row: int): int {
+                idx := ^1
+
+                (checked(((NodeTable)nodes).marker))[row] = 'A'
+                (unchecked(((Nodes)((NodeTable)nodes)).kind))[row] = NodeKind.Identifier
+                (checked(((NodeTable)((Nodes)nodes)).marker))[^1] = 'C'
+                (unchecked(((NodeTable)nodes).kind))[^1] = NodeKind.Both
+
+                rowScore := (checked(((NodeTable)nodes).marker))[row] == 'A' ? 1 : 0
+                rowScore += (unchecked(((Nodes)((NodeTable)nodes)).marker))[row] < 'B' ? 2 : 0
+                rowScore += ((checked(((NodeTable)((Nodes)nodes)).marker))[row] + 1) == 66 ? 4 : 0
+                rowScore += ((unchecked(((NodeTable)nodes).marker))[row] & 15) == 1 ? 8 : 0
+                rowKind := (checked(((Nodes)((NodeTable)nodes)).kind))[row] | NodeKind.Literal
+                rowScore += rowKind == NodeKind.Both ? 16 : 0
+                rowScore += (unchecked(((NodeTable)((Nodes)nodes)).kind))[row] < NodeKind.Both ? 32 : 0
+                rowScore += (int)(~((checked(((NodeTable)nodes).kind))[row])) == -2 ? 64 : 0
+
+                tailScore := (checked(((Nodes)((NodeTable)nodes)).marker))[idx] == 'C' ? 128 : 0
+                tailScore += ((unchecked(((NodeTable)((Nodes)nodes)).marker))[idx] - 60) == 7 ? 256 : 0
+                tailKind := (unchecked(((NodeTable)nodes).kind))[idx] & NodeKind.Literal
+                tailScore += tailKind == NodeKind.Literal ? 512 : 0
+                tailScore += (checked(((Nodes)((NodeTable)nodes)).kind))[idx] >= NodeKind.Literal ? 1024 : 0
+                return rowScore + tailScore
+            }
+
+            func main(): int {
+                nodes := new Nodes(2)
+                first := nodes.add()
+                nodes.add()
+                return evaluate(nodes, first)
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var evaluate = ILShapeInspector.GetProgramMethod(assembly, "evaluate");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(2047, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoFromEndSliceAllocation(evaluate);
+            Assert.True(
+                ILShapeInspector.CountOpcode(evaluate, OpCodes.Ldfld) >= 15,
+                "Hard-casted checked/unchecked direct SoA char and enum expressions should load backing column fields directly.");
+            Assert.Equal(11, CountArrayElementLoads(evaluate));
+            Assert.Equal(4, CountArrayElementStores(evaluate));
+            Assert.True(ILShapeInspector.CountOpcode(evaluate, OpCodes.And) >= 2);
+            Assert.True(ILShapeInspector.CountOpcode(evaluate, OpCodes.Or) >= 1);
+            Assert.True(ILShapeInspector.CountOpcode(evaluate, OpCodes.Not) >= 1);
+            Assert.True(
+                CountOpcodes(
+                    evaluate,
+                    OpCodes.Clt,
+                    OpCodes.Cgt,
+                    OpCodes.Clt_Un,
+                    OpCodes.Cgt_Un,
+                    OpCodes.Blt,
+                    OpCodes.Blt_S,
+                    OpCodes.Blt_Un,
+                    OpCodes.Blt_Un_S,
+                    OpCodes.Bge,
+                    OpCodes.Bge_S,
+                    OpCodes.Bge_Un,
+                    OpCodes.Bge_Un_S) >= 2,
+                "Hard-casted checked/unchecked direct SoA char and enum relational expressions should use comparison opcodes or branches.");
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void DirectColumnStringCompoundAssignmentsCheckedUncheckedWrappers_UseStringConcatWithoutRowAllocation()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

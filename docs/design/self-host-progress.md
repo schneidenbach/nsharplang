@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Hard-cast SoA checked char/enum expressions stay direct
+
+Char promotion/comparison and int-backed enum bitwise/comparison expressions now have IL-shape
+evidence when hard-cast direct-column receivers are wrapped in `checked(...)` or `unchecked(...)`.
+Char and enum columns reached through nested table and alias casts keep direct backing-column
+loads/stores and the expected `and`/`or`/`not`/comparison opcodes without row allocation, boxing,
+delegate construction, heap array allocation, slicing, or virtual dispatch. Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~HardCastedDirectColumnCharAndEnumExpressionsCheckedUncheckedWrappers_UseColumnArrayLoadsAndOpcodesWithoutRowAllocation"`.
+
 ## 2026-06-18 — Hard-cast SoA checked reference/bool expressions stay direct
 
 Reference, nullable-reference, and bool expressions now have IL-shape evidence when hard-cast
