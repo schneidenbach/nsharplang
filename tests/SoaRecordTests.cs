@@ -5983,6 +5983,46 @@ public class SoaRecordTests : ILCompilerTestBase
                 }
 
                 func bad(nodes: NodeTable): int {
+                    return (unchecked(nodes.kind))["0"]
+                }
+                """,
+                Code: ErrorCode.TypeMismatch,
+                Message: "Array indexes must be int, System.Index, or System.Range",
+                Suggestion: "^n"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable) {
+                    (checked(nodes.kind))["0"] = 1
+                }
+                """,
+                Code: ErrorCode.TypeMismatch,
+                Message: "Array indexes must be int, System.Index, or System.Range",
+                Suggestion: "^n"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable): int {
+                    idx := "0"
+                    return (checked(nodes.kind))[idx]
+                }
+                """,
+                Code: ErrorCode.TypeMismatch,
+                Message: "Array indexes must be int, System.Index, or System.Range",
+                Suggestion: "^n"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable): int {
                     values := (checked(nodes.kind))[0..1]
                     return values.Length
                 }

@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA checked direct-column non-int indexes reject before lowering
+
+Checked/unchecked direct-column receiver wrappers now have analyzer evidence for invalid non-int
+element indexes. String literal and variable indexes keep the ordinary array-index type diagnostic
+before IL emission when the column receiver is wrapped in `checked(...)` or `unchecked(...)`.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter
+"FullyQualifiedName~Analyzer_SoaTableCheckedAndUncheckedColumnMemberAccessKeepsDirectColumnDiagnostics"`.
+
 ## 2026-06-18 — SoA checked direct-column numeric promotion rejections stay pre-lowering
 
 Checked/unchecked direct-column receiver wrappers now have analyzer evidence for promoted numeric
