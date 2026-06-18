@@ -2132,6 +2132,58 @@ func Main() {
     }
 
     [Fact]
+    public void TupleDeconstruction_InferredElementTypes_Valid()
+    {
+        var result = AnalyzeWithSource("""
+            func Main() {
+                count, text := (3, "abc")
+                total := count + text.Length
+            }
+        """);
+
+        Assert.Empty(result.Errors);
+        Assert.Equal("int", result.SemanticModel.LookupIdentifier("count")?.ToString());
+        Assert.Equal("string", result.SemanticModel.LookupIdentifier("text")?.ToString());
+        Assert.Equal("int", result.SemanticModel.LookupIdentifier("total")?.ToString());
+    }
+
+    [Fact]
+    public void TupleDeconstruction_CallResultElementTypes_Valid()
+    {
+        var result = AnalyzeWithSource("""
+            func pair(): (left: int, right: string) {
+                return (left: 2, right: "ab")
+            }
+
+            func Main() {
+                number, label := pair()
+                total := number + label.Length
+            }
+        """);
+
+        Assert.Empty(result.Errors);
+        Assert.Equal("int", result.SemanticModel.LookupIdentifier("number")?.ToString());
+        Assert.Equal("string", result.SemanticModel.LookupIdentifier("label")?.ToString());
+        Assert.Equal("int", result.SemanticModel.LookupIdentifier("total")?.ToString());
+    }
+
+    [Theory]
+    [InlineData("x, y := 1", "needs a tuple value")]
+    [InlineData("x, y, z := (1, 2)", "has 3 target(s), but the initializer has 2 element(s)")]
+    [InlineData("x, y := (1, 2, 3)", "has 2 target(s), but the initializer has 3 element(s)")]
+    public void TupleDeconstruction_InvalidInitializer_Error(string statement, string message)
+    {
+        var result = AnalyzeWithSource($$"""
+            func Main() {
+                {{statement}}
+            }
+        """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains(message, error.Message);
+    }
+
+    [Fact]
     public void ForeachLoop_Valid()
     {
         AssertNoErrors(@"

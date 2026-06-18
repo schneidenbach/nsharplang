@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Tuple deconstruction validates tuple shape before emission
+
+Normal tuple deconstruction now binds the initializer as a tuple-like value during analysis instead of
+declaring every target as an inference hole and leaving `ItemN` lookup failures for IL emission. Tuple
+literals, tuple-returning source functions, and reflected `System.ValueTuple` values provide the target
+element types; non-tuple initializers and arity mismatches stop with a direct diagnostic before the
+backend can attempt invalid field loads. SoA row-escape recovery still reports the SoA diagnostic and
+records recovery locals with unknown type.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~AnalyzerTests.TupleDeconstruction"`;
+`./scripts/dev.sh TupleDeconstruction`.
+
 ## 2026-06-18 — `using` resources require disposable semantics before emission
 
 The analyzer now validates `using` resources instead of leaving non-disposable values for the IL

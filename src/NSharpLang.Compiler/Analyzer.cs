@@ -4203,19 +4203,117 @@ public class Analyzer : IDisposable
             // Normal tuple deconstruction
             // Analyze the initializer expression
             var initType = AnalyzeExpression(tupleDecl.Initializer);
-            ReportSoaRowEscapeIfNeeded(tupleDecl.Initializer, initType, "deconstructed");
-
-            // TODO: Check if initType is a tuple type and has the right number of elements
-            // For now, just declare all variables with Unknown type
-            foreach (var name in tupleDecl.Names)
+            if (ReportSoaRowEscapeIfNeeded(tupleDecl.Initializer, initType, "deconstructed"))
             {
-                if (name != "_")  // Skip discard
-                {
-                    DeclareSymbol(name, BuiltInTypes.InferenceHole, tupleDecl.Line, tupleDecl.Column);
-                    RecordVariableInCurrentScope(name, BuiltInTypes.InferenceHole);
-                }
+                initType = BuiltInTypes.Unknown;
+            }
+
+            if (BuiltInTypes.IsUnknown(initType))
+            {
+                DeclareTupleDeconstructionTargets(tupleDecl, BuiltInTypes.Unknown);
+                return;
+            }
+
+            if (!TryGetTupleDeconstructionElements(initType, out var elements))
+            {
+                var (line, column, length) = GetExpressionDiagnosticSpan(tupleDecl.Initializer);
+                Error(
+                    ErrorCode.InvalidSyntax,
+                    $"Tuple deconstruction needs a tuple value, but this initializer is '{initType}'",
+                    line,
+                    column,
+                    "Return or construct a tuple with the same number of elements as the deconstruction targets.",
+                    length);
+                DeclareTupleDeconstructionTargets(tupleDecl, BuiltInTypes.Unknown);
+                return;
+            }
+
+            if (elements.Count != tupleDecl.Names.Count)
+            {
+                var (line, column, length) = GetExpressionDiagnosticSpan(tupleDecl.Initializer);
+                Error(
+                    ErrorCode.InvalidSyntax,
+                    $"Tuple deconstruction has {tupleDecl.Names.Count} target(s), but the initializer has {elements.Count} element(s)",
+                    line,
+                    column,
+                    "Match the number of target names to the tuple element count.",
+                    length);
+                DeclareTupleDeconstructionTargets(tupleDecl, BuiltInTypes.Unknown);
+                return;
+            }
+
+            for (var i = 0; i < tupleDecl.Names.Count; i++)
+            {
+                DeclareTupleDeconstructionTarget(tupleDecl, tupleDecl.Names[i], elements[i]);
             }
         }
+    }
+
+    private void DeclareTupleDeconstructionTargets(TupleDeconstructionStatement tupleDecl, TypeInfo fallbackType)
+    {
+        foreach (var name in tupleDecl.Names)
+        {
+            DeclareTupleDeconstructionTarget(tupleDecl, name, fallbackType);
+        }
+    }
+
+    private void DeclareTupleDeconstructionTarget(TupleDeconstructionStatement tupleDecl, string name, TypeInfo type)
+    {
+        if (name == "_")
+        {
+            return;
+        }
+
+        DeclareSymbol(name, type, tupleDecl.Line, tupleDecl.Column);
+        RecordVariableInCurrentScope(name, type);
+        SetNullStateInCurrentScope(name, GetDefaultNullState(type));
+    }
+
+    private bool TryGetTupleDeconstructionElements(TypeInfo initType, out List<TypeInfo> elements)
+    {
+        var resolved = ResolveTypeAlias(initType);
+        switch (resolved)
+        {
+            case TupleTypeInfo tupleType:
+                elements = tupleType.Elements.Select(element => element.Type).ToList();
+                return true;
+            case GenericTypeInfo { Name: "ValueTuple" } valueTuple:
+                elements = valueTuple.TypeArguments.ToList();
+                return true;
+            case ReflectionTypeInfo reflectionType when TryGetReflectionValueTupleElements(reflectionType.Type, out elements):
+                return true;
+            default:
+                elements = new List<TypeInfo>();
+                return false;
+        }
+    }
+
+    private bool TryGetReflectionValueTupleElements(Type type, out List<TypeInfo> elements)
+    {
+        elements = new List<TypeInfo>();
+
+        var valueTupleType = Nullable.GetUnderlyingType(type) ?? type;
+        if (!valueTupleType.IsValueType
+            || !valueTupleType.IsGenericType
+            || valueTupleType.GetGenericTypeDefinition().FullName is not { } genericDefinitionName
+            || !genericDefinitionName.StartsWith("System.ValueTuple`", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var fields = valueTupleType.GetFields(BindingFlags.Public | BindingFlags.Instance);
+        for (var i = 1; ; i++)
+        {
+            var field = fields.FirstOrDefault(candidate => candidate.Name == $"Item{i}");
+            if (field == null)
+            {
+                break;
+            }
+
+            elements.Add(ConvertReflectionType(field.FieldType));
+        }
+
+        return elements.Count > 0;
     }
 
     private void AnalyzeIfStatement(IfStatement ifStmt)
