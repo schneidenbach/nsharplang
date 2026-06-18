@@ -9812,6 +9812,96 @@ public class SoaRecordTests : ILCompilerTestBase
                     System.Array.Clear(array: target, index: 0, length: unchecked(nodes.kind))
                 }
                 """,
+                Method: "Clear"),
+            (
+                Source: """
+                import System
+
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes, target: int[][]) {
+                    Array.Fill(target, ((NodeTable)nodes).kind)
+                }
+                """,
+                Method: "Fill"),
+            (
+                Source: """
+                import System
+
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes, target: int[][]) {
+                    Array.Fill(array: target, value: checked(((Nodes)((NodeTable)nodes)).kind))
+                }
+                """,
+                Method: "Fill"),
+            (
+                Source: """
+                import System
+
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes, source: int[], target: int[]) {
+                    Array.Copy(source, ((NodeTable)nodes).kind, target, 0, 1)
+                }
+                """,
+                Method: "Copy"),
+            (
+                Source: """
+                import System
+
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes, source: int[], target: int[]) {
+                    System.Array.Copy(sourceArray: source, sourceIndex: checked(((Nodes)((NodeTable)nodes)).kind), destinationArray: target, destinationIndex: 0, length: 1)
+                }
+                """,
+                Method: "Copy"),
+            (
+                Source: """
+                import System
+
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes, target: int[]) {
+                    Array.Clear(target, ((Nodes)((NodeTable)nodes)).kind, 1)
+                }
+                """,
+                Method: "Clear"),
+            (
+                Source: """
+                import System
+
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes, target: int[]) {
+                    System.Array.Clear(array: target, index: 0, length: unchecked(((NodeTable)nodes).kind))
+                }
+                """,
                 Method: "Clear")
         };
 

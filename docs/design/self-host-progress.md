@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Hard-cast SoA pinned Array argument guards stay parameter-specific
+
+The accepted `Array.Fill`/`Array.Copy`/`Array.Clear` names remain parameter-specific when a direct
+column is reached through hard-cast table/alias receivers. Hard-cast columns passed as the fill
+value, source index, clear index, or clear length now keep the SoA direct-column Array diagnostic
+instead of falling through to ordinary overload binding just because the method name is otherwise
+pinned for array-bearing parameters. Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~Analyzer_SoaDirectColumnsCannotUsePinnedArrayMethodsThroughNonArrayArguments"`.
+
 ## 2026-06-18 — Hard-cast SoA unpinned Array calls reject before lowering
 
 Unsupported static `Array` methods outside the pinned `Fill`/`Copy`/`Clear` kernels now have analyzer

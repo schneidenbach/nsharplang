@@ -296,7 +296,8 @@ named `System` is not the BCL namespace and must not trigger the static `Array` 
 The pinned `Array.Fill`, `Array.Copy`, and `Array.Clear` allowance is parameter-specific: direct
 columns are accepted only for array-bearing parameters such as `array`, `sourceArray`, and
 `destinationArray`. Passing a direct column as a fill value, index, length, or count argument declines
-before lowering even though the method name itself is otherwise pinned.
+before lowering even though the method name itself is otherwise pinned, including through hard-cast
+table/alias receivers and checked/unchecked wrappers.
 Dedicated rejections for `Array.Resize`, `Array.Sort`, and `Array.Reverse` are parameter-specific as
 well: array-bearing `array`/`keys`/`items` slots keep the mutation or `ref` diagnostic, while direct
 columns in `newSize`, `index`, `length`, or comparer slots use the generic direct-column `Array`
