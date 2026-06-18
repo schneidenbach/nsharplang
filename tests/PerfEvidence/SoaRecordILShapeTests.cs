@@ -276,6 +276,7 @@ public class SoaRecordILShapeTests
                 Array.Fill(count: 2, startIndex: 1, value: 7, array: nodes.kind)
                 Array.Copy(length: 2, destinationIndex: 0, destinationArray: nodes.kind, sourceIndex: 1, sourceArray: source)
                 Array.Clear(array: nodes.start)
+                Array.Clear(length: 1, array: nodes.kind, index: 1)
                 return nodes.length * 1000
                     + nodes.kind[0] * 100
                     + nodes.kind[1] * 10
@@ -306,7 +307,7 @@ public class SoaRecordILShapeTests
             var bulk = ILShapeInspector.GetProgramMethod(assembly, "bulk");
             var main = ILShapeInspector.GetProgramMethod(assembly, "main");
 
-            Assert.Equal(3457, Assert.IsType<int>(main.Invoke(null, null)));
+            Assert.Equal(3407, Assert.IsType<int>(main.Invoke(null, null)));
 
             ILShapeInspector.AssertNoBoxing(bulk);
             Assert.Equal(0, ILShapeInspector.CountOpcode(bulk, OpCodes.Newobj));
@@ -315,7 +316,7 @@ public class SoaRecordILShapeTests
             Assert.Equal(0, ILShapeInspector.CountOpcode(bulk, OpCodes.Callvirt));
             Assert.Equal(1, ILShapeInspector.CountCallsTo(bulk, typeof(Array), nameof(Array.Fill)));
             Assert.Equal(1, ILShapeInspector.CountCallsTo(bulk, typeof(Array), nameof(Array.Copy)));
-            Assert.Equal(1, ILShapeInspector.CountCallsTo(bulk, typeof(Array), nameof(Array.Clear)));
+            Assert.Equal(2, ILShapeInspector.CountCallsTo(bulk, typeof(Array), nameof(Array.Clear)));
             Assert.True(
                 ILShapeInspector.CountOpcode(bulk, OpCodes.Ldfld) >= 9,
                 "Named direct SoA column bulk operations should load backing column arrays directly.");

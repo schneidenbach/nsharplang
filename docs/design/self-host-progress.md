@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA direct-column named ranged Array.Clear keeps backing-array IL shape
+
+Accepted direct-column `Array.Clear` now has named-argument IL-shape evidence for the ranged overload,
+not only the whole-array `array:` form. `Array.Clear(length: n, array: table.column, index: i)` stays
+on the direct backing-array path, calls the BCL helper, and still allocates no rows, arrays, delegates,
+boxes, or virtual dispatch in the hot function.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter
+"FullyQualifiedName~DirectColumnBulkArrayOperationNamedArguments_UseBackingArraysWithoutRowAllocation"`.
+
 ## 2026-06-18 — SoA direct-column named Array.Sort keys reject before emission
 
 The SoA direct-column mutation suite now pins named `Array.Sort` key arrays as mutating too, not only

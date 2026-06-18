@@ -259,7 +259,8 @@ backing-array operations for the supported whole-array, ranged, and offset-copy 
 pinned to load the generated column field directly without row allocation, boxing, delegate
 construction, array allocation, or virtual dispatch in the hot function. Named argument calls over
 the same overloads, such as `array: table.column` and `destinationArray: table.column`, keep the same
-backing-array IL shape. Other static `Array` methods
+backing-array IL shape, including ranged clear calls such as
+`Array.Clear(length: n, array: table.column, index: i)`. Other static `Array` methods
 that receive a direct column, such as `Array.IndexOf(table.column, ...)`,
 `Array.BinarySearch(table.column, ...)`, `Array.ConstrainedCopy(..., table.column, ...)`,
 `Array.Exists(table.column, ...)`, or `Array.AsReadOnly(table.column)`, decline before IL emission
