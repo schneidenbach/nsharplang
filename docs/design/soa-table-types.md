@@ -253,6 +253,10 @@ The same nullability rule applies to both row projection and direct column eleme
 require a nullable/reference column element and non-nullable columns reject the operation during
 analysis, including when the column member is the parenthesized index receiver. Direct-column range
 slices remain rejected before IL lowering instead of falling into the allocating array-slice backend.
+Whole-column BCL calls that preserve row identity, such as `Array.Fill(table.column, ...)`,
+`Array.Copy(source, table.column, ...)`, and `Array.Clear(table.column, ...)`, are accepted direct
+backing-array operations and are pinned to load the generated column field directly without row
+allocation, boxing, delegate construction, array allocation, or virtual dispatch in the hot function.
 Replacing wrapper column arrays, mutating `length`/`capacity` directly, or mutating column slices is
 not allowed: shape changes must go through construction, `wrap`, `add`, `clear`, `ensureCapacity`, or
 `copyRow`. Direct `length`/`capacity` simple assignment, compound assignment, and increment/decrement

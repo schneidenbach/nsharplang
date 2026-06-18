@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA direct-column bulk array operations pin backing-array IL shape
+
+Accepted direct-column BCL operations now have an explicit IL-shape pin: `Array.Fill(table.column, ...)`,
+`Array.Copy(source, table.column, ...)`, and `Array.Clear(table.column, ...)` load the generated backing
+array field directly, call the BCL array primitive, and do not allocate row objects, box values,
+construct delegates, allocate arrays, or dispatch virtually in the hot function. This distinguishes
+ordinary value-preserving column mutation from the row-identity-breaking `Array.Sort`/`Array.Reverse`
+cases that the analyzer rejects before emission.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~SoaRecordILShapeTests.DirectColumnBulkArrayOperations_UseBackingArraysWithoutRowAllocation"`;
+`./scripts/dev.sh DirectColumnBulkArrayOperations`.
+
 ## 2026-06-18 — Columnar `Array.Reverse` flips compiler buffers
 
 The standalone columnar emitter now lowers generic `Array.Reverse<T>(T[])` and
