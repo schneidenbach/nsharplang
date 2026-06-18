@@ -793,7 +793,7 @@ internal sealed class ColumnarIlEmitter
         || (t.IsSZArray && IsSupportedElementType(t.GetElementType()!))
         || IsSupportedValueTuple(t)
         || IsSupportedDelegateType(t)             // a closed System.Func/Action over baked runtime types (L1a)
-        || IsSupportedCollectionType(t);          // a closed List<T>/Dictionary<K,V> over baked runtime types
+        || IsSupportedCollectionType(t);          // a closed List<T>/Dictionary<K,V>/HashSet<T> over supported runtime types
 
     // By-ref types are valid only in PARAMETER slots for this slice. The element must be a supported value type:
     // refs to reference slots need ldind/ref-owner handling that is outside the ParserState migration proof.
@@ -812,7 +812,7 @@ internal sealed class ColumnarIlEmitter
         => t.IsGenericType && !t.IsGenericTypeDefinition && t is not TypeBuilder
            && t.GetGenericTypeDefinition() == typeof(KeyValuePair<,>);
 
-    // A closed BCL List<T>/Dictionary<K,V>. Type arguments may be baked runtime types OR builder-bound
+    // A closed BCL List<T>/Dictionary<K,V>/HashSet<T>. Type arguments may be baked runtime types OR builder-bound
     // (a user TypeBuilder element / a generic function's own T) — TryResolveType's collection branches
     // gate WHICH arguments are admissible; member binding routes through ResolveClosedGenericMethod/Ctor
     // so builder-bound instantiations rebind from the open definition.
@@ -829,6 +829,14 @@ internal sealed class ColumnarIlEmitter
         {
             return false;
         }
+        return def == typeof(List<>) || def == typeof(Dictionary<,>) || def == typeof(HashSet<>);
+    }
+
+    private static bool IsSupportedIndexableCollectionType(Type t)
+    {
+        if (!IsSupportedCollectionType(t))
+            return false;
+        var def = t.GetGenericTypeDefinition();
         return def == typeof(List<>) || def == typeof(Dictionary<,>);
     }
 
@@ -924,16 +932,16 @@ internal sealed class ColumnarIlEmitter
         return true;
     }
 
-    // The production pipeline REJECTS closed-generic uses of `List<...>`/`Dictionary<...>` whenever a USER
+    // The production pipeline REJECTS closed-generic uses of `List<...>`/`Dictionary<...>`/`HashSet<...>` whenever a USER
     // type with that name is also declared — NL207 for a non-generic user type, and for a user GENERIC
-    // List<T> the analyzer binds the BCL List and rejects its members (NL303, probe-pinned) — so neither
+    // List<T>/HashSet<T> the analyzer binds the BCL collection and rejects its members (NL303, probe-pinned) — so neither
     // the BCL collection arms nor the user-generic resolution may claim these heads: decline the canonical
     // entirely (parity by rejection via the C# fallback). Adversarial-review finding, probe-confirmed.
     private static bool IsCollectionHeadShadowedByUserType(string headName,
         IReadOnlyDictionary<string, ColumnarEnumDef>? enumRegistry,
         IReadOnlyDictionary<string, ColumnarStructDef>? structRegistry,
         IReadOnlyDictionary<string, ColumnarUnionDef>? unionRegistry)
-        => (headName == "List" || headName == "Dictionary")
+        => (headName == "List" || headName == "Dictionary" || headName == "HashSet")
            && ((enumRegistry?.ContainsKey(headName) ?? false)
                || (structRegistry?.ContainsKey(headName) ?? false)
                || (unionRegistry?.ContainsKey(headName) ?? false));
@@ -954,7 +962,7 @@ internal sealed class ColumnarIlEmitter
 
     // The element/value types a collection may close over (the builder-element rebind rung):
     // - a user TypeBuilder (record/class/struct under construction) — members rebind, probe-pinned working;
-    // - a nested admissible collection (List<List<Pt>>) — its own resolution already vetted the inner args;
+    // - a nested admissible collection (List<List<Pt>>, List<HashSet<int>>) — its own resolution already vetted the inner args;
     // - the BAKED surface (scalars/string/baked closed generics) exactly as before.
     // PINNED DECLINES (oracle-accepted, flip in later rungs): EnumBuilder elements (an un-baked EnumBuilder
     // dies at ILGenerator.Emit token resolution — spike-proven; baking-first is a separate rung), user-headed
@@ -976,13 +984,18 @@ internal sealed class ColumnarIlEmitter
             {
                 return false;
             }
-            if (def == typeof(List<>) || def == typeof(Dictionary<,>))
+            if (def == typeof(List<>) || def == typeof(Dictionary<,>) || def == typeof(HashSet<>))
                 return true;
             if (ContainsBuilderBoundType(t))
                 return false;
         }
         return IsSupportedType(t) && !ContainsBuilderBoundType(t);
     }
+
+    // HashSet<T> elements are keys: accepting builder-bound elements would make lookup behavior depend on
+    // generated Equals/GetHashCode synthesis before that key path has parity evidence.
+    private static bool IsAdmissibleHashSetElement(Type t)
+        => IsAdmissibleCollectionElement(t) && !ContainsBuilderBoundType(t);
 
     // A closed System.Func/Action delegate over BAKED runtime types (the L1a delegate surface), or the bare
     // System.Action — valid as a param/return/local so delegate-typed parameters can be received and invoked
@@ -1873,7 +1886,8 @@ internal sealed class ColumnarIlEmitter
             }
             else if (declared.IsGenericType && !declared.IsGenericTypeDefinition)
             {
-                // A generic-CONTAINER parameter (`items: List<T>`, `Dictionary<string, T>`, or a fully
+                // A generic-CONTAINER parameter (`items: List<T>`, `Dictionary<string, T>`,
+                // `HashSet<T>`, or a fully
                 // concrete List<Pt>): unify structurally — List<int> against List<T> binds T=int.
                 if (!TryUnifyGenericContainer(target.TypeParams, binding, declared, gArgType))
                     return false;
@@ -1974,7 +1988,7 @@ internal sealed class ColumnarIlEmitter
         return ReferenceEquals(binding[pos], actual) || binding[pos] == actual;
     }
 
-    // Structurally unify a declared generic-CONTAINER parameter (List<T>, Dictionary<string,T>, nested
+    // Structurally unify a declared generic-CONTAINER parameter (List<T>, Dictionary<string,T>, HashSet<T>, nested
     // shapes, or a fully concrete List<Pt>) against the argument's actual type: the definitions must
     // match, then each declared argument either IS one of the callee's type parameters (TryUnifyTypeParam
     // binds or checks it), recurses as a nested container, or must be structurally the same type.
@@ -2087,7 +2101,7 @@ internal sealed class ColumnarIlEmitter
             {
                 return false;
             }
-            if (returnDef != typeof(List<>) && returnDef != typeof(Dictionary<,>))
+            if (returnDef != typeof(List<>) && returnDef != typeof(Dictionary<,>) && returnDef != typeof(HashSet<>))
                 return false; // an unmodelled builder-bound generic return — decline, never leak it open.
             var collectionArgs = declaredReturn.GetGenericArguments();
             var substitutedCollectionArgs = new Type[collectionArgs.Length];
@@ -2239,7 +2253,7 @@ internal sealed class ColumnarIlEmitter
         var genericOpen = canonical.IndexOf('<');
         if (genericOpen > 0 && canonical[^1] == '>' && canonical[0] != '(')
         {
-            // The same List/Dictionary head-shadowing decline as TryResolveType's generic block.
+            // The same List/Dictionary/HashSet head-shadowing decline as TryResolveType's generic block.
             if (IsCollectionHeadShadowedByUserType(canonical.Substring(0, genericOpen), enumRegistry, structRegistry, unionRegistry))
             {
                 type = null!;
@@ -2247,7 +2261,8 @@ internal sealed class ColumnarIlEmitter
             }
             if (TryResolveClosedUserGeneric(canonical, genericOpen, typeParams, enumRegistry, structRegistry, unionRegistry, out type))
                 return true;
-            // BCL COLLECTIONS over in-scope type parameters (`items: List<T>`, `Dictionary<string, T>`
+            // BCL COLLECTIONS over in-scope type parameters (`items: List<T>`, `Dictionary<string, T>`,
+            // `HashSet<T>`
             // in a generic function's SIGNATURE): close the runtime definition over the threaded
             // resolution so the element lands on the GenericTypeParameterBuilder. The same key/element
             // rules as TryResolveType's collection branches apply — keys must be baked (no T keys).
@@ -2259,6 +2274,19 @@ internal sealed class ColumnarIlEmitter
                     && (listElement is GenericTypeParameterBuilder || IsAdmissibleCollectionElement(listElement)))
                 {
                     type = typeof(List<>).MakeGenericType(listElement);
+                    return true;
+                }
+                type = null!;
+                return false;
+            }
+            if (genericOpen == 7 && canonical.StartsWith("HashSet<", StringComparison.Ordinal))
+            {
+                var hashArgCanons = SplitTopLevelCommas(canonical.Substring(8, canonical.Length - 9));
+                if (hashArgCanons.Count == 1
+                    && TryResolveTypeWithTypeParams(hashArgCanons[0], typeParams, enumRegistry, structRegistry, unionRegistry, out var hashElement)
+                    && (hashElement is GenericTypeParameterBuilder || IsAdmissibleHashSetElement(hashElement)))
+                {
+                    type = typeof(HashSet<>).MakeGenericType(hashElement);
                     return true;
                 }
                 type = null!;
@@ -2516,7 +2544,7 @@ internal sealed class ColumnarIlEmitter
         var closedGenericOpen = canonical.IndexOf('<');
         if (closedGenericOpen > 0 && canonical[^1] == '>')
         {
-            // A user type NAMED List/Dictionary shadows the BCL heads → the pipeline rejects every
+            // A user type NAMED List/Dictionary/HashSet shadows the BCL heads → the pipeline rejects every
             // closed-generic use of that head (and binds inconsistently between analyzer and emitter
             // for generic ones) — decline before EITHER resolution can claim it.
             if (IsCollectionHeadShadowedByUserType(canonical.Substring(0, closedGenericOpen), enumRegistry, structRegistry, unionRegistry))
@@ -2532,13 +2560,13 @@ internal sealed class ColumnarIlEmitter
                     canonical.Substring(7, canonical.Length - 8), hasReturnSlot: false,
                     enumRegistry, structRegistry, unionRegistry, out type);
             }
-            // BCL COLLECTIONS — `List<T>` / `Dictionary<K,V>` close over the runtime generics. A USER type
-            // named List/Dictionary shadows the head entirely (declined above — the pipeline REJECTS such
+            // BCL COLLECTIONS — `List<T>` / `Dictionary<K,V>` / `HashSet<T>` close over the runtime generics. A USER type
+            // named List/Dictionary/HashSet shadows the head entirely (declined above — the pipeline REJECTS such
             // uses; the Action-style "user wins" ordering does NOT hold for these heads). Elements may be
             // user TypeBuilders or nested collections (the builder-element rebind rung — member binding
             // rebinds via ResolveClosedGenericMethod/Ctor); IsAdmissibleCollectionElement pins what stays
-            // out. Dictionary KEYS must stay BAKED: a builder-keyed dictionary's runtime hashing rides the
-            // key type's synthesized Equals/GetHashCode, and the columnar PASS 0e synthesis-skip rules
+            // out. Dictionary KEYS and HashSet ELEMENTS must stay BAKED: hashing over a builder type rides the
+            // key/element type's synthesized Equals/GetHashCode, and the columnar PASS 0e synthesis-skip rules
             // (builder-typed-field records get none) would diverge from the oracle — pinned decline.
             if (closedGenericOpen == 4 && canonical.StartsWith("List<", StringComparison.Ordinal))
             {
@@ -2548,6 +2576,19 @@ internal sealed class ColumnarIlEmitter
                     && IsAdmissibleCollectionElement(listElement))
                 {
                     type = typeof(List<>).MakeGenericType(listElement);
+                    return true;
+                }
+                type = null!;
+                return false;
+            }
+            if (closedGenericOpen == 7 && canonical.StartsWith("HashSet<", StringComparison.Ordinal))
+            {
+                var hashArgCanons = SplitTopLevelCommas(canonical.Substring(8, canonical.Length - 9));
+                if (hashArgCanons.Count == 1
+                    && TryResolveType(hashArgCanons[0], enumRegistry, structRegistry, unionRegistry, out var hashElement)
+                    && IsAdmissibleHashSetElement(hashElement))
+                {
+                    type = typeof(HashSet<>).MakeGenericType(hashElement);
                     return true;
                 }
                 type = null!;
@@ -4618,7 +4659,7 @@ internal sealed class ColumnarIlEmitter
                     if (_nodes.Kind(compoundTarget) == 10)
                     {
                         if (!EmitExpression(Child(compoundTarget, 0), out var idxRecvType)
-                            || !IsSupportedCollectionType(idxRecvType))
+                            || !IsSupportedIndexableCollectionType(idxRecvType))
                             return false;
                         // Builder-bound collections never have the scalar/string elements compound
                         // assignment requires — decline BEFORE reflecting (plain GetMethod below
@@ -4789,7 +4830,7 @@ internal sealed class ColumnarIlEmitter
                     // A closed List<T>/Dictionary<K,V> indexer WRITE — callvirt set_Item(int|K, T|V)
                     // (the dominant Dictionary shape `d[k] = v`, probe-pinned incl. overwrite);
                     // resolved from the open definition so builder-bound receivers rebind.
-                    if (IsSupportedCollectionType(arrayType))
+                    if (IsSupportedIndexableCollectionType(arrayType))
                     {
                         var setDef = arrayType.GetGenericTypeDefinition();
                         var setIdxType = setDef == typeof(List<>)
@@ -5200,10 +5241,9 @@ internal sealed class ColumnarIlEmitter
                 return true;
             }
 
-            case 29: // Foreach [collection, body] — `foreach <var> in <array> { body }` lowered to an index loop
-            {        // over the array, mirroring the C# ILCompiler's EmitForeachForArray: arr := collection; i := 0;
-                     // check: if i >= arr.Length goto end; <var> := arr[i]; body; cont: i = i+1; br check; end:.
-                     // ARRAY collections only (others decline -> C# fallback). The var name is in the value span.
+            case 29: // Foreach [collection, body] — arrays lower to an index loop; supported BCL
+            {        // collections lower through the same interface-enumerator shape as the C# oracle.
+                     // Everything else declines -> C# fallback. The var name is in the value span.
                 var collectionNode = Child(idx, 0);
                 var body = Child(idx, 1);
                 var varName = Text(idx);
@@ -5218,13 +5258,13 @@ internal sealed class ColumnarIlEmitter
                 var outerLocals = new HashSet<string>(_locals.Keys, StringComparer.Ordinal);
                 var outerLifted = new HashSet<string>(_liftedLocals.Keys, StringComparer.Ordinal);
 
-                // Evaluate the collection; a List<T> takes the enumerator branch, a single-dim array the
+                // Evaluate the collection; a List<T>/Dictionary<K,V>/HashSet<T> takes the enumerator branch, a single-dim array the
                 // index loop; everything else declines -> C# fallback.
                 if (!EmitExpression(collectionNode, out var collectionType))
                     return false;
                 if (IsSupportedCollectionType(collectionType))
                 {
-                    // `foreach v in list` / `foreach kvp in dict` — the ORACLE's exact lowering
+                    // `foreach v in list` / `foreach kvp in dict` / `foreach v in set` — the ORACLE's exact lowering
                     // (probe-pinned, incl. the mutation-during-iteration InvalidOperationException,
                     // which an index loop would silently miss): the enumerator is fetched via the
                     // IEnumerable<T> INTERFACE (the struct enumerator is BOXED — the oracle resolves
@@ -5234,9 +5274,10 @@ internal sealed class ColumnarIlEmitter
                     // as the oracle does; the boxed enumerator's Dispose is a no-op so value parity
                     // holds). A Dictionary enumerates KeyValuePair<K,V> — the loop var binds the pair
                     // (kvp.Key/.Value resolve via the case-8 KVP arms).
-                    var listElementType = collectionType.GetGenericTypeDefinition() == typeof(List<>)
-                        ? collectionType.GetGenericArguments()[0]
-                        : typeof(KeyValuePair<,>).MakeGenericType(collectionType.GetGenericArguments());
+                    var collectionDef = collectionType.GetGenericTypeDefinition();
+                    var listElementType = collectionDef == typeof(Dictionary<,>)
+                        ? typeof(KeyValuePair<,>).MakeGenericType(collectionType.GetGenericArguments())
+                        : collectionType.GetGenericArguments()[0];
                     if (!IsSupportedType(listElementType) && !IsSupportedKeyValuePairType(listElementType))
                         return false;
                     // Builder-bound elements rebind the two generic-interface handles from the open
@@ -5245,7 +5286,7 @@ internal sealed class ColumnarIlEmitter
                     // for builder elements (TBI.GetInterfaces() throws so its interface lookup comes
                     // back empty) — the boxed-interface shape kept here is VALUE-identical: MoveNext
                     // runs the same version check (mutation-during-iteration IOE parity is pinned in
-                    // the tests) and the List/Dictionary enumerators' Dispose is a no-op either way.
+                    // the tests) and the supported collection enumerators' Dispose is a no-op either way.
                     var enumerableInterface = typeof(IEnumerable<>).MakeGenericType(listElementType);
                     var enumeratorInterface = typeof(IEnumerator<>).MakeGenericType(listElementType);
                     _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(enumerableInterface, typeof(IEnumerable<>).GetMethod("GetEnumerator")!));
@@ -7679,7 +7720,7 @@ internal sealed class ColumnarIlEmitter
                         type = typeof(string);
                         return true;
                     }
-                    // `.Count` on a closed List<T>/Dictionary<K,V> — callvirt get_Count -> int
+                    // `.Count` on a closed List<T>/Dictionary<K,V>/HashSet<T> — callvirt get_Count -> int
                     // (resolved from the open definition so builder-bound receivers rebind).
                     if (member == "Count" && IsSupportedCollectionType(structReceiverType))
                     {
@@ -7827,7 +7868,7 @@ internal sealed class ColumnarIlEmitter
                 // pipeline's emit does — probe-pinned exception parity). The result type comes from the
                 // CLOSED arguments: a REBOUND get_Item reports the OPEN T/TValue as ReturnType
                 // (spike-proven) — propagating that would leak an open parameter into downstream typing.
-                if (IsSupportedCollectionType(indexedType))
+                if (IsSupportedIndexableCollectionType(indexedType))
                 {
                     var indexedDef = indexedType.GetGenericTypeDefinition();
                     var idxParamType = indexedDef == typeof(List<>)
@@ -7974,7 +8015,7 @@ internal sealed class ColumnarIlEmitter
                     if (!TryBuildTypeNodeCanonical(typeNode, out var closedCanonical)
                         || !TryResolveType(closedCanonical, _enumRegistry, _structRegistry, _unionRegistry, out var closedType))
                         return false;
-                    // A closed BCL COLLECTION (`new List<int>()` / `new Dictionary<string,int>(10)` /
+                    // A closed BCL COLLECTION (`new List<int>()` / `new Dictionary<string,int>(10)` / `new HashSet<int>()` /
                     // `new List<Pt>()` over a user TypeBuilder): newobj the parameterless ctor, or the
                     // int-capacity ctor (both probe-pinned oracle-working) — resolved from the OPEN
                     // definition so builder-bound instantiations rebind. Other overloads decline.
@@ -8220,10 +8261,10 @@ internal sealed class ColumnarIlEmitter
                 if (_nodes.Kind(typeRootNode) == 1 && _structRegistry.TryGetValue(Text(typeRootNode), out var closedInitDef)
                     && closedInitDef.Builder.IsGenericTypeDefinition)
                 {
-                    // A user GENERIC type named List/Dictionary: the pipeline's analyzer binds the BCL
+                    // A user GENERIC type named List/Dictionary/HashSet: the pipeline's analyzer binds the BCL
                     // head for `new List<int> { ... }` and rejects its members (NL303, probe-pinned) —
                     // the user definition must not claim the construction. Decline (parity by rejection).
-                    if (Text(typeRootNode) is "List" or "Dictionary")
+                    if (Text(typeRootNode) is "List" or "Dictionary" or "HashSet")
                         return false;
                     if (!closedInitDef.IsReference || closedInitDef.DefaultCtor == null)
                         return false;
@@ -9766,9 +9807,10 @@ internal sealed class ColumnarIlEmitter
     {
         type = null!;
 
-        // BCL COLLECTION instance methods on a closed List<T>/Dictionary<K,V> (the runtime constructed
+        // BCL COLLECTION instance methods on a closed List<T>/Dictionary<K,V>/HashSet<T> (the runtime constructed
         // type reflects normally; the receiver is already on the stack). The modelled set is the
-        // probe-pinned examples surface: List.Add(T)/RemoveAt(int), Dictionary.Add(K,V)/ContainsKey(K).
+        // probe-pinned examples surface: List.Add(T)/RemoveAt(int), Dictionary.Add(K,V)/ContainsKey(K),
+        // HashSet.Add(T)/Contains(T).
         // Everything else declines.
         if (IsSupportedCollectionType(receiverType))
         {
@@ -9805,6 +9847,22 @@ internal sealed class ColumnarIlEmitter
                     return false;
                 _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(Dictionary<,>).GetMethod("Add")!));
                 type = typeof(void);
+                return true;
+            }
+            if (collectionDef == typeof(HashSet<>) && member == "Add" && argCount == 1)
+            {
+                if (!EmitArg(callIdx, 1, collectionArgs[0]))
+                    return false;
+                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(HashSet<>).GetMethod("Add")!));
+                type = typeof(bool);
+                return true;
+            }
+            if (collectionDef == typeof(HashSet<>) && member == "Contains" && argCount == 1)
+            {
+                if (!EmitArg(callIdx, 1, collectionArgs[0]))
+                    return false;
+                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(HashSet<>).GetMethod("Contains")!));
+                type = typeof(bool);
                 return true;
             }
             return false;

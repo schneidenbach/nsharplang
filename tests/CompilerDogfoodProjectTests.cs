@@ -8209,12 +8209,12 @@ func outer(x: int): int {
         Assert.False(RouteColumnarProgram("func f(n: int): int {\n    try {\n        return 100 / n\n    } catch (e: System.FormatException) {\n        return 0 - 1\n    }\n}\n").Ok);
     }
 
-    // COLLECTIONS (Phase D) — List<T>/Dictionary<K,V> over BAKED runtime type args (scalars/string/
+    // COLLECTIONS (Phase D) — List<T>/Dictionary<K,V>/HashSet<T> over BAKED runtime type args (scalars/string/
     // nested collections; builder-typed elements decline this rung). TryResolveType closes the runtime
     // generics AFTER user generics (the Action precedent); construction = newobj .ctor()/(int capacity);
-    // members = Add/RemoveAt/ContainsKey + get_Count + get_Item/set_Item (probe-pinned exception parity:
-    // ArgumentOutOfRangeException, KeyNotFoundException). FOREACH over a List mirrors the ORACLE's exact
-    // lowering — the enumerator comes from the IEnumerable<T> INTERFACE (the struct enumerator is BOXED),
+    // members = Add/RemoveAt/ContainsKey/Contains + get_Count + get_Item/set_Item (probe-pinned exception parity:
+    // ArgumentOutOfRangeException, KeyNotFoundException). FOREACH over supported BCL collections mirrors the
+    // ORACLE's exact lowering — the enumerator comes from the IEnumerable<T> INTERFACE (the struct enumerator is BOXED),
     // Dispose sits at a dispose label after the loop (break branches to it; NOT try/finally) — which is
     // what makes mutation-during-iteration throw InvalidOperationException identically (an index loop
     // would silently diverge; probe-pinned). The 20-probe oracle sweep was ALL green; the unmodeled
@@ -8249,7 +8249,11 @@ func outer(x: int): int {
             // boxed-interface enumerator shape, element = KeyValuePair<K,V>).
             "func dictForeach(): int {\n    d := new Dictionary<string, int>()\n    d[\"a\"] = 1\n    d[\"bb\"] = 2\n    s := 0\n    foreach kvp in d {\n        s = s + kvp.Value + kvp.Key.Length * 10\n    }\n    return s\n}\n\n" +
             // COMPOUND indexer assignment on both collection kinds (probed: 36).
-            "func compoundIdx(): int {\n    d := new Dictionary<string, int>()\n    d[\"k\"] = 1\n    d[\"k\"] += 2\n    lst := new List<int>()\n    lst.Add(5)\n    lst[0] += 1\n    return d[\"k\"] * 10 + lst[0]\n}\n";
+            "func compoundIdx(): int {\n    d := new Dictionary<string, int>()\n    d[\"k\"] = 1\n    d[\"k\"] += 2\n    lst := new List<int>()\n    lst.Add(5)\n    lst[0] += 1\n    return d[\"k\"] * 10 + lst[0]\n}\n\n" +
+            // HashSet core: ctor + Add return value + discarded Add + Count + Contains + foreach
+            // (probed: set uniqueness, bool Add result, order-independent foreach sum).
+            "func hashSetCore(): int {\n    h := new HashSet<int>()\n    first := h.Add(1)\n    second := h.Add(1)\n    h.Add(3)\n    score := h.Count\n    if first {\n        score = score + 10\n    }\n    if second {\n        score = score + 100\n    }\n    if h.Contains(3) {\n        score = score + 1000\n    }\n    return score\n}\n\n" +
+            "func hashSetForeach(): int {\n    h := new HashSet<int>()\n    h.Add(1)\n    h.Add(2)\n    h.Add(2)\n    s := 0\n    foreach v in h {\n        s = s + v\n    }\n    return s + h.Count * 10\n}\n";
         AssertColumnarProgramMatchesCSharp(prog,
             ("listCore", System.Array.Empty<object>()),
             ("listStr", System.Array.Empty<object>()),
@@ -8266,7 +8270,9 @@ func outer(x: int): int {
             ("nestedDict", System.Array.Empty<object>()),
             ("nestedList", System.Array.Empty<object>()),
             ("dictForeach", System.Array.Empty<object>()),
-            ("compoundIdx", System.Array.Empty<object>()));
+            ("compoundIdx", System.Array.Empty<object>()),
+            ("hashSetCore", System.Array.Empty<object>()),
+            ("hashSetForeach", System.Array.Empty<object>()));
 
         // EXCEPTION parity (route-only; exact types — all probe-pinned against the oracle).
         {
@@ -8275,7 +8281,8 @@ func outer(x: int): int {
                 "func missKey(): int {\n    d := new Dictionary<string, int>()\n    return d[\"nope\"]\n}\n\n" +
                 "func dupKey(): int {\n    d := new Dictionary<string, int>()\n    d.Add(\"k\", 1)\n    d.Add(\"k\", 2)\n    return d.Count\n}\n\n" +
                 // mutation during foreach — the boxed enumerator's version check MUST fire.
-                "func mutate(): int {\n    l := new List<int>()\n    l.Add(1)\n    s := 0\n    foreach v in l {\n        s = s + v\n        l.Add(99)\n    }\n    return s\n}\n");
+                "func mutate(): int {\n    l := new List<int>()\n    l.Add(1)\n    s := 0\n    foreach v in l {\n        s = s + v\n        l.Add(99)\n    }\n    return s\n}\n\n" +
+                "func mutateSet(): int {\n    h := new HashSet<int>()\n    h.Add(1)\n    s := 0\n    foreach v in h {\n        s = s + v\n        h.Add(2)\n    }\n    return s\n}\n");
             Assert.True(ok, "columnar must emit the collections exception program");
             using var scope = CollectibleAssemblyScope.Load(asm!);
             var progType = scope.Assembly.GetType(typeName!)!;
@@ -8291,14 +8298,17 @@ func outer(x: int): int {
             var mut = Assert.Throws<System.Reflection.TargetInvocationException>(
                 () => progType.GetMethod("mutate")!.Invoke(null, null));
             Assert.IsType<InvalidOperationException>(mut.InnerException);
+            var mutSet = Assert.Throws<System.Reflection.TargetInvocationException>(
+                () => progType.GetMethod("mutateSet")!.Invoke(null, null));
+            Assert.IsType<InvalidOperationException>(mutSet.InnerException);
         }
 
         // DECLINES (every shape oracle-ACCEPTED in the probe sweep — pins flip as later rungs land):
         // (compound indexer assignment FLIPPED — the compoundIdx parity case above covers it.)
         // (List-over-USER-type and List<T>-in-generic-funcs FLIPPED — the builder-element rebind rung;
         // parity lives in ColumnarCodegen_Parity_CollectionsBuilderElements below.)
-        // other BCL generics (HashSet) stay out.
-        Assert.False(RouteColumnarProgram("func f(): int {\n    h := new HashSet<int>()\n    h.Add(1)\n    return h.Count\n}\n").Ok);
+        // unsupported HashSet mutators stay out until their bool-return surface is pinned.
+        Assert.False(RouteColumnarProgram("func f(): int {\n    h := new HashSet<int>()\n    h.Add(1)\n    if h.Remove(1) {\n        return h.Count\n    }\n    return 9\n}\n").Ok);
     }
 
     // BUILDER-ELEMENT REBIND (Phase D collections, rung 4) — List<T>/Dictionary<K,V> closed over types
@@ -8420,11 +8430,12 @@ func outer(x: int): int {
         // NL102) that the adapter's whitespace strip would FUSE into a valid canonical; the kernel
         // rejects the token run so the program declines.
         Assert.False(RouteColumnarProgram("record H {\n    Items: List<i nt>\n}\n\nfunc f(): int {\n    h := new H { Items: new List<int>() }\n    h.Items.Add(8)\n    return h.Items[0]\n}\n").Ok);
-        // a USER type named List/Dictionary shadows the BCL head: the pipeline rejects every
+        // a USER type named List/Dictionary/HashSet shadows the BCL head: the pipeline rejects every
         // closed-generic use (NL207 non-generic / NL303 generic) — columnar declines the head outright.
         Assert.False(RouteColumnarProgram("record List {\n    X: int\n}\n\nfunc f(): int {\n    l := new List<int>()\n    l.Add(3)\n    return l[0]\n}\n").Ok);
         Assert.False(RouteColumnarProgram("record List<T> {\n    v: T\n}\n\nfunc f(): int {\n    l := new List<int> { v: 5 }\n    return l.v\n}\n").Ok);
         Assert.False(RouteColumnarProgram("record Dictionary {\n    X: int\n}\n\nfunc f(): int {\n    d := new Dictionary<string, int>()\n    d[\"k\"] = 2\n    return d[\"k\"]\n}\n").Ok);
+        Assert.False(RouteColumnarProgram("record HashSet<T> {\n    v: T\n}\n\nfunc f(): int {\n    h := new HashSet<int> { v: 5 }\n    return h.v\n}\n").Ok);
     }
 
     // D-18b: MEMBER WRITES through resolved receiver chains — struct PARAM receivers (ldarga),

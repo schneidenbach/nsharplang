@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Columnar `HashSet<T>` joins the safe collection surface
+
+The standalone columnar emitter now resolves and lowers `HashSet<T>` for baked element types:
+construction, `Count`, `Add(T)` with its `bool` result, `Contains(T)`, discarded mutator calls, and
+foreach through the same interface-enumerator shape used for List/Dictionary parity. HashSet indexers
+still decline, and builder-bound HashSet elements stay out because they are key-like and would depend
+on generated equality/hash semantics that do not yet have parity evidence.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_Parity_Collections"`.
+`./scripts/dev.sh ColumnarCodegen_Parity_Collections`.
+
 ## 2026-06-18 — Columnar `Dictionary.Add` joins the collection surface
 
 The standalone columnar emitter now lowers `Dictionary<K,V>.Add(K,V)` through the same closed-generic
@@ -6114,10 +6124,11 @@ nested/conflicting/explicit unification, foreach divergence, record-field aliasi
 scan). Over-accept lens found **one slice-introduced CONFIRMED-BREAK, fixed in-slice:** the
 whitespace strip FUSED adjacent identifiers (`List&lt;i nt&gt;` → `List&lt;int&gt;` routed; pipeline rejects
 NL102) — the kernel scan now rejects identifier-after-identifier; **plus the List/Dictionary
-HEAD-SHADOWING divergence (fixed):** a user type NAMED List/Dictionary makes the pipeline reject
-every closed-generic use (NL207 non-generic, NL303 generic — the "user wins, Action precedent"
-ordering is WRONG for these heads), so columnar now declines shadowed heads outright (the
-pre-existing baked-element variant of this hole closed too). Decline-cleanliness lens: regression
+HEAD-SHADOWING divergence (fixed, with HashSet added when that surface flipped):** a user type NAMED
+one of these BCL collection heads makes the pipeline reject every closed-generic use (NL207
+non-generic, NL303 generic — the "user wins, Action precedent" ordering is WRONG for these heads),
+so columnar now declines shadowed heads outright (the pre-existing baked-element variant of this
+hole closed too). Decline-cleanliness lens: regression
 sweep fully green; `ContainsBuilderBoundType` gained the user-headed-definition check (the
 `List&lt;Box&lt;int&gt;&gt;` pin was declining only via a swallowed NotSupportedException — now a clean
 resolution decline, which also restored the PASS 0e skip for closed-user-generic fields).
@@ -6133,7 +6144,7 @@ ILGenerator.Emit token resolution, bake-first is a later rung; builder dict KEYS
 hashing rides synthesized equality, PASS 0e skew; `List&lt;Box&lt;int&gt;&gt;`; body-side `new List&lt;T&gt;()`
 — no type-param map at body resolution, signature surface only this rung; T=Pt inference;
 tuple-over-collection; `.Equals` on collection-field records; identifier fusion; head shadowing
-×3). The two old decline pins flipped; HashSet stays out; Dictionary.Add later flipped on 2026-06-18.
+×3). The two old decline pins flipped; Dictionary.Add and the baked-element HashSet surface later flipped on 2026-06-18.
 311/311 dogfood; full
 unit suite green (`dev.sh --since` escalated to it); gate (see commit). NEXT (retirement-map
 queue): pinned collection rungs DONE → **D-18 member writes (param receivers / nested receivers /
@@ -6191,7 +6202,7 @@ Parity: `ColumnarCodegen_Parity_Collections` — 15 value functions + 3 exceptio
 (ArgumentOutOfRangeException / KeyNotFoundException / mutation InvalidOperationException) + 4
 decline pins at the time (List-of-user-type, List&lt;T&gt;-in-generic-func, HashSet, Dictionary.Add —
 every one oracle-ACCEPTED; the first two flipped in the builder-element rung and Dictionary.Add
-flipped on 2026-06-18). 307/307; gate (see commit). NEXT: the builder-element rebind rung or the
+plus the baked-element HashSet surface flipped on 2026-06-18). 307/307; gate (see commit). NEXT: the builder-element rebind rung or the
 queue's async/interfaces.
 
 ---
