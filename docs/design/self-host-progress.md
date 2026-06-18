@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA direct column for-loop iterators stay pre-emission diagnostics
+
+Direct backing columns are now pinned in the `for` iterator slot, including checked/unchecked direct
+column wrappers. This closes the remaining untested control-flow route in the direct-column escape
+suite: the analyzer reports the SoA direct-column diagnostic before generic invalid-iterator or array
+value lowering can treat the backing column as an ordinary array.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter
+"FullyQualifiedName~Analyzer_SoaDirectColumnsCannotEscapeThroughControlOrOperandContexts"`.
+
 ## 2026-06-18 — SoA direct column increments keep mutation diagnostics
 
 Direct generated table members now report the precise mutation diagnostic for `++`/`--` before the

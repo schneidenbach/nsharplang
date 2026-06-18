@@ -297,7 +297,7 @@ ordinary array values through locals, assignments, function/property/lambda resu
 literals, tuple deconstruction initializers, ternary/match result arms, field initializers,
 object/collection/with initializers, `with` targets, display contexts such as `print`/assertion
 messages/interpolation, discarded expression statements, control-flow values, foreach collections,
-using/lock resources, switch/match subjects, operator operands, casts/type tests,
+for-loop iterators, using/lock resources, switch/match subjects, operator operands, casts/type tests,
 await/throw/yield operands, index values, allocation lengths, pattern values, event handles, range
 bounds, spread expressions, or explicit allocation-policy operands; otherwise a later use of the
 alias could bypass the SoA row-identity checks and mutate one backing column independently.

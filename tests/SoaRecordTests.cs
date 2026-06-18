@@ -5943,6 +5943,20 @@ public class SoaRecordTests : ILCompilerTestBase
                 type Nodes = NodeTable
 
                 func bad(nodes: Nodes) {
+                    for i := 0; i < 1; checked(nodes.kind) {
+                    }
+                }
+                """,
+                Action: "used as a 'for' iterator"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
                     foreach value in nodes.kind {
                     }
                 }
