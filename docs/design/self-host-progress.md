@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — `yield` outside generators rejects before IL emission
+
+The analyzer now rejects `yield` and `yield break` in ordinary functions before the IL backend reaches
+its generator-context guard. Valid `func*` and `async func*` generator paths remain unchanged, while
+non-generator bodies now get a direct source diagnostic that points users to `func*`/`async func*` or
+ordinary `return`.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~AnalyzerTests.YieldOutsideGenerator|FullyQualifiedName~AnalyzerTests.Generator"`;
+`./scripts/dev.sh Yield`.
+
 ## 2026-06-18 — Await expressions bind task result types during analysis
 
 `await` now returns the awaited result type in the analyzer instead of always recording `unknown`.

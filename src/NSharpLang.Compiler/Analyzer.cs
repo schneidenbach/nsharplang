@@ -3157,6 +3157,16 @@ public class Analyzer : IDisposable
                 _continueTargetFinallyDepth = whileContinueDepth;
                 break;
             case YieldStatement yieldStmt:
+                if (_currentFunction?.Modifiers.HasFlag(Modifiers.Generator) != true)
+                {
+                    Error(
+                        ErrorCode.InvalidSyntax,
+                        "'yield' can only be used inside a generator function",
+                        yieldStmt.Line,
+                        yieldStmt.Column,
+                        "Mark the function as `func*`/`async func*`, or replace `yield` with `return` in an ordinary function.",
+                        "yield".Length);
+                }
                 if (yieldStmt.Value != null)
                 {
                     var yieldedType = AnalyzeExpression(yieldStmt.Value);

@@ -688,6 +688,22 @@ func Main() {
         Assert.Contains("yield value", error.Suggestion);
     }
 
+    [Theory]
+    [InlineData("yield 1")]
+    [InlineData("yield break")]
+    public void YieldOutsideGenerator_ReportsInvalidSyntax(string statement)
+    {
+        var result = AnalyzeWithSource($$"""
+            func Main() {
+                {{statement}}
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+        Assert.Contains("'yield' can only be used inside a generator function", error.Message);
+        Assert.Contains("func*", error.Suggestion);
+    }
+
     [Fact]
     public void GeneratorSequenceReturnTypes_AreValid()
     {
