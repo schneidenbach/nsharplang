@@ -568,9 +568,9 @@ parenthesized row-view diagnostics for advanced escape, type-test, result, contr
 contexts plus receiver/null-conditional/with-value/`nameof`, literal/initializer, statement, and
 resource contexts, expression-bodied function/property/lambda contexts, storage and mutation
 contexts, pattern/event/off/async contexts, hard-cast row-view diagnostics for operator, control,
-checked-expression, with-target, `nameof`, and resource contexts, hard-cast direct-column
-diagnostics for storage, display, control, operator, iterator, allocation, cast, throw, ternary, and
-discard contexts, variable-held direct-column range mutation diagnostics
+checked-expression, with-target, `nameof`, and resource contexts, hard-cast direct-column `nameof`
+metadata-only IL shape, hard-cast direct-column diagnostics for storage, display, control, operator,
+iterator, allocation, cast, throw, ternary, and discard contexts, variable-held direct-column range mutation diagnostics
 including parenthesized column members, direct-column `ref`/`out` range and negative-index
 diagnostics, variable-held from-end
 null-coalescing reads/assignments, receiver-parenthesized bool logical and bitwise expression stores,

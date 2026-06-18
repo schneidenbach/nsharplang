@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Hard-cast SoA direct-column nameof stays metadata-only
+
+Direct-column `nameof` now has accepted-shape pins for hard-cast table and alias receivers.
+`nameof(((NodeTable)nodes).kind)` and nested alias casts analyze without SoA escape diagnostics and
+lower to string literals without loading generated backing arrays, row views, boxing, allocation, or
+dispatch. Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~Analyzer_SoaDirectColumnsAllowNameofTargets|FullyQualifiedName~ILCompiler_SoaRecordDirectColumnNameof_LowersToStringLiteral"`.
+
 ## 2026-06-18 — Hard-cast SoA direct-column escapes cover advanced contexts
 
 Hard-cast table/alias direct-column projections now have analyzer pins beyond the existing

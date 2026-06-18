@@ -5615,7 +5615,7 @@ public class SoaRecordTests : ILCompilerTestBase
             type Nodes = NodeTable
 
             func name(nodes: Nodes): string {
-                return nameof(nodes.kind) + ":" + nameof((nodes).start)
+                return nameof(nodes.kind) + ":" + nameof((nodes).start) + ":" + nameof(((NodeTable)nodes).kind) + ":" + nameof(((Nodes)((NodeTable)nodes)).start)
             }
             """);
 
@@ -12719,7 +12719,7 @@ public class SoaRecordTests : ILCompilerTestBase
             type Nodes = NodeTable
 
             func name(nodes: Nodes): string {
-                return nameof(nodes.kind) + ":" + nameof((nodes).start)
+                return nameof(nodes.kind) + ":" + nameof((nodes).start) + ":" + nameof(((NodeTable)nodes).kind) + ":" + nameof(((Nodes)((NodeTable)nodes)).start)
             }
 
             func main(): string {
@@ -12743,7 +12743,7 @@ public class SoaRecordTests : ILCompilerTestBase
         Assert.DoesNotContain(opCodes, IsArrayElementStore);
         Assert.DoesNotContain(OpCodes.Newarr, opCodes);
         Assert.DoesNotContain(OpCodes.Box, opCodes);
-        Assert.Equal("kind:start", Assert.IsType<string>(CompileAndInvoke(source)));
+        Assert.Equal("kind:start:kind:start", Assert.IsType<string>(CompileAndInvoke(source)));
     }
 
     [Fact]
