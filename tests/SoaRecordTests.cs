@@ -13028,6 +13028,20 @@ public class SoaRecordTests : ILCompilerTestBase
 
                 type Nodes = NodeTable
 
+                func bad(nodes: Nodes): int {
+                    return ((NodeTable)nodes)?.length
+                }
+                """,
+                Message: "SoA tables cannot use null-conditional member access",
+                Suggestion: "direct table.member access"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
                 func bad(nodes: Nodes) {
                     row := nodes?[0]
                 }
@@ -13042,8 +13056,36 @@ public class SoaRecordTests : ILCompilerTestBase
 
                 type Nodes = NodeTable
 
+                func bad(nodes: Nodes) {
+                    row := ((Nodes)((NodeTable)nodes))?[0]
+                }
+                """,
+                Message: "SoA row views cannot be used with null-conditional indexing",
+                Suggestion: "table[index].column"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
                 func bad(nodes: Nodes): int {
                     return nodes[0]?.kind
+                }
+                """,
+                Message: "SoA row views cannot be used with null-conditional member access",
+                Suggestion: "table[index].column"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes): int {
+                    return ((NodeTable)nodes)[0]?.kind
                 }
                 """,
                 Message: "SoA row views cannot be used with null-conditional member access",

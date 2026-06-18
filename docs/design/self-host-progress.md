@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Hard-cast SoA table null-conditional access rejects early
+
+Null-conditional access on hard-cast SoA table and row receivers now has analyzer pins. Table member
+access, row projection indexing, and row-column member access through shapes such as
+`((NodeTable)nodes)?.length`, `((Nodes)((NodeTable)nodes))?[0]`, and
+`((NodeTable)nodes)[0]?.kind` keep the SoA-specific diagnostics before ordinary nullable access or
+undefined-member paths can obscure the row/table-storage invariant. Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~Analyzer_SoaTableAliasRejectsNullConditionalAccessBeforeEmission"`.
+
 ## 2026-06-18 — Hard-cast SoA checked diagnostics reject before emission
 
 Hard-cast direct-column null-conditional access and whole-argument `checked(...)`/`unchecked(...)`

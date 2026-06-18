@@ -580,7 +580,7 @@ parenthesized row-view diagnostics for advanced escape, type-test, result, contr
 contexts plus receiver/null-conditional/with-value/`nameof`, literal/initializer, statement, and
 resource contexts, expression-bodied function/property/lambda contexts, storage and mutation
 contexts, pattern/event/off/async contexts, hard-cast row-view diagnostics for operator, control,
-checked-expression, with-target, `nameof`, and resource contexts, hard-cast direct-column `nameof`
+checked-expression, null-conditional, with-target, `nameof`, and resource contexts, hard-cast direct-column `nameof`
 metadata-only IL shape, hard-cast direct-column `Length`/`LongLength`/`Rank` metadata IL shape with
 checked/unchecked wrappers, hard-cast direct-column diagnostics for storage, display, control,
 operator, iterator, resource, async, unary/must/type-test/await, index, allocation-length,
