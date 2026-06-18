@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-17 — SoA row views reject for-loop iterators before emission
+
+C-style `for` iterator expressions now use the same SoA row-view escape guard as conditions and
+bare expression statements. `for i := 0; i < n; nodes[i] { ... }` now reports a SoA-specific
+analysis diagnostic instead of letting a row projection survive into loop-update lowering. The SoA
+contract now explicitly lists for-loop iterators among row-view escape contexts.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~SoaRecordTests.Analyzer_SoaRowViewCannotBeUsedAsForIterator"`.
+
 ## 2026-06-17 — SoA row views reject tuple deconstruction before emission
 
 Tuple-deconstruction initializers now get the same SoA row-view escape guard as locals, returns,

@@ -4438,7 +4438,10 @@ public class Analyzer : IDisposable
         }
 
         if (forStmt.Iterator != null)
-            AnalyzeExpression(forStmt.Iterator);
+        {
+            var iteratorType = AnalyzeExpression(forStmt.Iterator);
+            ReportSoaRowEscapeIfNeeded(forStmt.Iterator, iteratorType, "used as a 'for' iterator");
+        }
 
         var wasInLoop = _inLoop;
         var savedBreakDepth = _breakTargetFinallyDepth;
