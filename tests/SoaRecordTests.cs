@@ -6787,6 +6787,19 @@ public class SoaRecordTests : ILCompilerTestBase
 
                 type Nodes = NodeTable
 
+                func bad(nodes: Nodes): int {
+                    return checked(((NodeTable)nodes).kind) ? 1 : 0
+                }
+                """,
+                Action: "used as a ternary condition"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
                 func bad(nodes: Nodes) {
                     throw nodes.kind
                 }
@@ -6920,6 +6933,19 @@ public class SoaRecordTests : ILCompilerTestBase
                 }
                 """,
                 Action: "used as a stackalloc length"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    value := alloc checked(((NodeTable)nodes).kind)
+                }
+                """,
+                Action: "used in an alloc expression"),
             (
                 Source: """
                 soa record NodeTable {

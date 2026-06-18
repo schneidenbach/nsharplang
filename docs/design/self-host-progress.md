@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Hard-cast SoA value-only operands reject before lowering
+
+Direct-column value-only escape contexts now have hard-cast pins for ternary conditions and
+allocation-policy operands. `checked(((NodeTable)nodes).kind) ? ...` and
+`alloc checked(((NodeTable)nodes).kind)` keep the SoA direct-column diagnostic before condition or
+allocation lowering can treat the generated backing array as a normal value. Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~Analyzer_HardCastedSoaDirectColumnsCannotEscapeFromResourcePatternAndIndexContexts"`.
+
 ## 2026-06-18 — Hard-cast SoA loop operands reject before lowering
 
 Direct-column control/operand escapes now have focused pins for the hard-cast forms not covered by

@@ -318,6 +318,9 @@ bounds, spread expressions, or explicit allocation-policy operands; otherwise a 
 alias could bypass the SoA row-identity checks and mutate one backing column independently.
 The storage/result branch recognizes hard-cast table/alias receivers and checked/unchecked wrappers
 before ordinary binding or initializer inference can hide the backing-array escape.
+The control/operand branch applies the same rule for ternary conditions, allocation-policy operands,
+and other value-only contexts, so hard-cast direct columns wrapped in `checked(...)` or
+`unchecked(...)` still reject before lowering.
 Direct column metadata properties remain available: `table.column.Length` and
 `table.column.LongLength` lower through `ldlen`, while `table.column.Rank` lowers to the known SZ-array
 rank constant. `nameof(table.column)` and member accesses whose table receiver is parenthesized, such
