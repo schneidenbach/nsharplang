@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Hard-cast SoA checked bulk array wrappers stay direct
+
+Pinned `System.Array` bulk operations now have IL-shape evidence when hard-cast direct-column
+receivers are wrapped in `checked(...)` or `unchecked(...)`. `Array.Fill`, `Array.Copy`, and
+`Array.Clear` over columns reached through nested table and alias casts pass backing arrays directly
+without boxing, row allocation, delegate construction, heap array allocation, or virtual dispatch.
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~HardCastedDirectColumnBulkArrayOperationCheckedUncheckedWrappers_UseBackingArraysWithoutRowAllocation"`.
+
 ## 2026-06-18 — Hard-cast SoA checked default stores avoid old reads
 
 Statement and expression-valued default stores now have IL-shape evidence when hard-cast
