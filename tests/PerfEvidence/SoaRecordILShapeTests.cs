@@ -750,6 +750,82 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void HardCastedDirectColumnReferenceAndBoolExpressionsCheckedUncheckedWrappers_UseColumnArrayLoadsWithoutRowAllocation()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                name: string
+                alias: string?
+                active: bool
+            }
+
+            type Nodes = NodeTable
+
+            func evaluate(nodes: Nodes, row: int): int {
+                idx := ^1
+
+                (checked(((NodeTable)nodes).name))[row] = "alpha"
+                (unchecked(((Nodes)((NodeTable)nodes)).alias))[row] = null
+                (checked(((NodeTable)((Nodes)nodes)).active))[row] = true
+                (unchecked(((NodeTable)nodes).name))[^1] = "tail"
+                (checked(((Nodes)((NodeTable)nodes)).alias))[^1] = "tag"
+                (unchecked(((NodeTable)((Nodes)nodes)).active))[^1] = false
+
+                rowScore := (checked(((NodeTable)nodes).name))[row] == "alpha" ? 1 : 0
+                rowScore += (unchecked(((Nodes)((NodeTable)nodes)).name))[row] != "beta" ? 2 : 0
+                rowScore += (checked(((NodeTable)((Nodes)nodes)).alias))[row] == null ? 4 : 0
+                rowScore += !(unchecked(((Nodes)((NodeTable)nodes)).active))[row] ? 0 : 8
+                rowScore += ((checked(((NodeTable)nodes).active))[row] && (unchecked(((Nodes)((NodeTable)nodes)).name))[row] == "alpha") ? 16 : 0
+                rowScore += ((checked(((NodeTable)((Nodes)nodes)).active))[row] || false) ? 32 : 0
+
+                tailText := (unchecked(((NodeTable)nodes).name))[idx] + (checked(((Nodes)((NodeTable)nodes)).alias))[idx]
+                tailScore := tailText == "tailtag" ? 64 : 0
+                tailScore += (unchecked(((NodeTable)((Nodes)nodes)).active))[idx] == false ? 128 : 0
+                return rowScore + tailScore
+            }
+
+            func main(): int {
+                nodes := new Nodes(2)
+                first := nodes.add()
+                nodes.add()
+                return evaluate(nodes, first)
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var evaluate = ILShapeInspector.GetProgramMethod(assembly, "evaluate");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(255, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoFromEndSliceAllocation(evaluate);
+            Assert.True(
+                ILShapeInspector.CountOpcode(evaluate, OpCodes.Ldfld) >= 16,
+                "Hard-casted checked/unchecked direct SoA column reference and bool expressions should load backing column fields directly.");
+            Assert.Equal(10, CountArrayElementLoads(evaluate));
+            Assert.Equal(6, CountArrayElementStores(evaluate));
+            Assert.True(
+                ILShapeInspector.CountCallsTo(evaluate, typeof(string), nameof(string.Concat)) >= 1,
+                "Hard-casted checked/unchecked direct SoA string concatenation should call String.Concat without materializing rows or slices.");
+            Assert.True(
+                ILShapeInspector.CountCallsTo(evaluate, typeof(string), "op_Equality")
+                + ILShapeInspector.CountCallsTo(evaluate, typeof(string), "op_Inequality") >= 3,
+                "Hard-casted checked/unchecked direct SoA string comparisons should use string comparison operators.");
+            Assert.True(
+                CountOpcodes(evaluate, OpCodes.Brfalse, OpCodes.Brfalse_S) >= 1,
+                "Hard-casted checked/unchecked direct SoA bool logical-and should lower through short-circuit false branches.");
+            Assert.True(
+                CountOpcodes(evaluate, OpCodes.Brtrue, OpCodes.Brtrue_S) >= 1,
+                "Hard-casted checked/unchecked direct SoA bool logical-or should lower through short-circuit true branches.");
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void DirectColumnCharAndEnumExpressionsCheckedUncheckedWrappers_UseColumnArrayLoadsAndOpcodesWithoutRowAllocation()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

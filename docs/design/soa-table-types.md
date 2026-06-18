@@ -559,7 +559,7 @@ column `ref`/`out` argument addresses through backing-column `ldelema` including
 hard-cast table/alias receiver element reads/stores/compound assignments/prefix-postfix updates,
 checked/unchecked hard-cast table/alias direct-column element wrappers including expression-valued
 simple stores, numeric compound/update operands, and scalar arithmetic/shift/bitwise/comparison
-expressions, parenthesized direct-column lvalues,
+expressions, plus reference/string and bool expression shapes, parenthesized direct-column lvalues,
 receiver-parenthesized direct-column `ref`/`out` arguments over row and literal/variable-held
 from-end indexes, and the verified scalar/reference/int-backed-enum
 element-type set, with mixed verified element types also pinned for literal and variable-held

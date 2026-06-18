@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Hard-cast SoA checked reference/bool expressions stay direct
+
+Reference, nullable-reference, and bool expressions now have IL-shape evidence when hard-cast
+direct-column receivers are wrapped in `checked(...)` or `unchecked(...)`. String/string? and bool
+columns reached through nested table and alias casts keep direct backing-column loads/stores, string
+comparison/concat calls only for the ordinary string operations, and short-circuit bool branches
+without row allocation, boxing, delegate construction, heap array allocation, slicing, or virtual
+dispatch. Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~HardCastedDirectColumnReferenceAndBoolExpressionsCheckedUncheckedWrappers_UseColumnArrayLoadsWithoutRowAllocation"`.
+
 ## 2026-06-18 — Hard-cast SoA checked scalar expressions stay direct
 
 Scalar arithmetic, bitwise, shift, and comparison expressions now have IL-shape evidence when
