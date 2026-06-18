@@ -19,7 +19,7 @@ namespace NSharpLang.Tests;
 
 public class CompilerDogfoodProjectTests
 {
-    private const int MinimumProductDogfoodFileCountAfterParityExtraction = 26;
+    private const int MinimumProductDogfoodFileCount = 36;
 
     // The production-routed parser token-compaction kernel
     // (LexerTokenKindScanner.nl: ParserTokenCompactionIndicesCountedInto) filters newline tokens by the
@@ -24195,8 +24195,8 @@ func main() {
     private static void AssertFullProductDogfoodCorpusCoverage(IReadOnlyCollection<string> files, int covered, string verb)
     {
         Assert.True(
-            files.Count >= MinimumProductDogfoodFileCountAfterParityExtraction,
-            $"Expected at least {MinimumProductDogfoodFileCountAfterParityExtraction} shipped dogfood files after parity extraction; found {files.Count}.");
+            files.Count >= MinimumProductDogfoodFileCount,
+            $"Expected at least {MinimumProductDogfoodFileCount} shipped compiler-service dogfood files; found {files.Count}.");
         Assert.True(
             covered == files.Count,
             $"Expected the full product dogfood corpus to {verb}; only {covered} of {files.Count} did.");

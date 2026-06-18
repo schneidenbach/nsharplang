@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Product dogfood corpus ratchet tracks all 36 shipped files
+
+The product-corpus semantic checks now require the current 36 shipped
+`src/NSharpLang.Compiler.Dogfood/CompilerServices/*.nl` files instead of the stale post-extraction
+26-file floor. The roadmap status now describes the current product route as full-corpus multi-file
+emission, with the 37-file parity corpus kept separate from product routing evidence.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarSymbols_TopLevelFunctions_MatchProductionBinderModel|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarNames_Resolution_MatchesAstWalk|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarTypes_Inference_MatchesAstWalk|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarDiagnostics_DefiniteReturn_MatchesAstWalk|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarDiagnostics_UnusedLocal_MatchesAstWalk|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_EligibleClusterCompiles"`;
+`./scripts/dev.sh ColumnarSymbols_TopLevelFunctions_MatchProductionBinderModel`.
+
 ## 2026-06-18 — Columnar `Dictionary.TryAdd` preserves duplicate-key booleans
 
 The standalone columnar emitter now lowers `Dictionary<K,V>.TryAdd(K,V)` for the same key-safe
