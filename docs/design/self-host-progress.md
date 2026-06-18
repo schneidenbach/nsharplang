@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA checked direct-column default stores avoid old reads
+
+Direct-column `= default` stores now have IL-shape evidence when the column receiver is wrapped in
+`checked(...)` or `unchecked(...)`, including expression-valued stores and literal or variable-held
+from-end indexes. `(checked(table.column))[row] = default`,
+`(unchecked(table.column))[^1] = default`, and `(checked(table.column))[idx] = default` still write
+the generated backing arrays directly and produce default expression values without reading the old
+element, materializing rows, slicing arrays, boxing, constructing delegates, or dispatching.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter
+"FullyQualifiedName~DirectColumnDefaultStoresCheckedUncheckedWrappers_DoNotReadOldElement"`.
+
 ## 2026-06-18 — SoA checked direct-column null coalescing keeps IL shape
 
 Direct-column null-coalescing reads and assignments now have IL-shape evidence when the nullable

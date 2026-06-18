@@ -196,6 +196,94 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void DirectColumnDefaultStoresCheckedUncheckedWrappers_DoNotReadOldElement()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                kind: int
+                text: string?
+            }
+
+            func clear(nodes: NodeTable, row: int) {
+                (checked(nodes.kind))[row] = default
+                (unchecked(nodes.text))[row] = default
+                (checked(nodes.kind))[^1] = default
+                (unchecked(nodes.text))[^1] = default
+                idx := ^1
+                (checked(nodes.kind))[idx] = default
+                (unchecked(nodes.text))[idx] = default
+            }
+
+            func clearAsExpression(nodes: NodeTable, row: int): int {
+                idx := ^1
+                directKind := (checked(nodes.kind))[row] = default
+                directText := (unchecked(nodes.text))[row] = default
+                literalKind := (checked(nodes.kind))[^1] = default
+                literalText := (unchecked(nodes.text))[^1] = default
+                variableKind := (checked(nodes.kind))[idx] = default
+                variableText := (unchecked(nodes.text))[idx] = default
+                total := directKind + literalKind + variableKind
+                total += (directText == null ? 10 : 0)
+                total += (literalText == null ? 100 : 0)
+                total += (variableText == null ? 1000 : 0)
+                return total
+            }
+
+            func main(): int {
+                nodes := new NodeTable(2)
+                first := nodes.add()
+                last := nodes.add()
+
+                nodes.kind[first] = 9
+                nodes.text[first] = "first"
+                nodes.kind[last] = 8
+                nodes.text[last] = "last"
+                clear(nodes, first)
+                afterStatement := nodes.kind[first] + nodes.kind[last]
+                afterStatement += (nodes.text[first] == null ? 10 : 0)
+                afterStatement += (nodes.text[last] == null ? 100 : 0)
+
+                nodes.kind[first] = 7
+                nodes.text[first] = "again"
+                nodes.kind[last] = 6
+                nodes.text[last] = "tail"
+                expression := clearAsExpression(nodes, first)
+                afterExpression := nodes.kind[first] + nodes.kind[last]
+                afterExpression += (nodes.text[first] == null ? 10000 : 0)
+                afterExpression += (nodes.text[last] == null ? 100000 : 0)
+                return afterStatement + expression + afterExpression
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var clear = ILShapeInspector.GetProgramMethod(assembly, "clear");
+            var clearAsExpression = ILShapeInspector.GetProgramMethod(assembly, "clearAsExpression");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(111220, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoFromEndSliceAllocation(clear);
+            Assert.True(
+                ILShapeInspector.CountOpcode(clear, OpCodes.Ldfld) >= 6,
+                "Checked/unchecked direct SoA column default stores should load backing column fields directly.");
+            Assert.Equal(0, CountArrayElementLoads(clear));
+            Assert.Equal(6, CountArrayElementStores(clear));
+
+            AssertNoFromEndSliceAllocation(clearAsExpression);
+            Assert.True(
+                ILShapeInspector.CountOpcode(clearAsExpression, OpCodes.Ldfld) >= 6,
+                "Checked/unchecked direct SoA column default store expressions should load backing column fields directly.");
+            Assert.Equal(0, CountArrayElementLoads(clearAsExpression));
+            Assert.Equal(6, CountArrayElementStores(clearAsExpression));
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void DirectColumnMetadataProperties_UseBackingArrayLengthWithoutDispatch()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
