@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA direct columns reject `Array.Sort` item-array overloads
+
+The SoA analyzer now rejects direct backing columns passed as the item array in `Array.Sort` overloads,
+including `Array.Sort(keys, table.column)`, `Array.Sort(keys, table.column, index, length)`, and explicit
+generic `System.Array.Sort<TKey, TValue>(keys, table.column)`. Sorting a column as the item array still
+reorders that physical column independently from sibling columns, so the guard reports the SoA direct-member
+mutation diagnostic before overload binding or IL emission.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~SoaRecordTests.Analyzer_SoaDirectColumnsCannotBeSortedThroughArraySort"`;
+`./scripts/dev.sh SoaDirectColumnsCannotBeSortedThroughArraySort`.
+
 ## 2026-06-18 — SoA direct-column generic Array mutations stay rejected
 
 The SoA direct-column mutation diagnostics now pin explicit generic BCL method spelling and

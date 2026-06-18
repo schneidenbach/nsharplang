@@ -13527,11 +13527,29 @@ public class Analyzer : IDisposable
         if (!IsStaticArrayTarget(memberAccess.Object))
             return false;
 
-        if (!TryGetSoaColumnMemberAccess(call.Arguments[0].Value, out var columnMember))
+        if (!TryGetSoaMutatingArrayCallColumnArgument(call, memberAccess.MemberName, out var columnMember))
             return false;
 
         ReportSoaTableMemberMutation(columnMember, action, isColumn: true);
         return true;
+    }
+
+    private bool TryGetSoaMutatingArrayCallColumnArgument(
+        CallExpression call,
+        string methodName,
+        out MemberAccessExpression member)
+    {
+        var argumentCount = methodName == "Sort"
+            ? Math.Min(call.Arguments.Count, 2)
+            : Math.Min(call.Arguments.Count, 1);
+        for (var i = 0; i < argumentCount; i++)
+        {
+            if (TryGetSoaColumnMemberAccess(call.Arguments[i].Value, out member))
+                return true;
+        }
+
+        member = null!;
+        return false;
     }
 
     private bool IsStaticArrayTarget(Expression expression)

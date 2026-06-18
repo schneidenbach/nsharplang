@@ -352,6 +352,7 @@ The compiler must produce direct diagnostics for common misuse:
   target-wrapper forms, parenthesized table receivers, explicit generic method spelling, and explicit
   `System.Array.Resize` targets; mutating one physical backing column through
   `Array.Sort(table.column)`, `Array.Sort(table.column, index, length)`,
+  `Array.Sort(keys, table.column)`, `Array.Sort(keys, table.column, index, length)`,
   `Array.Reverse(table.column)`, or `Array.Reverse(table.column, index, length)` is also rejected
   because it would reorder that column independently from the rest of the row storage; explicit
   generic method spelling and explicit `System.Array` targets are rejected the same way;
