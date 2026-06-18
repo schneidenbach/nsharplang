@@ -6606,19 +6606,20 @@ func outer(x: int): int {
         Assert.False(RouteColumnarProgram("func f(x: int, x: int): int {\n    return x\n}\n").Ok);
     }
 
-    // Array.Fill<T>(T[] array, T value, int startIndex, int count) -> void, invoked as a bare VOID STATEMENT
-    // (the new void-call-statement form). The 4-arg span-fill is the generic static SourceTextLines.nl uses.
+    // Array.Fill<T>(T[] array, T value) and Array.Fill<T>(T[] array, T value, int startIndex, int count) -> void,
+    // invoked as bare VOID statements. The ranged span-fill is the generic static SourceTextLines.nl uses; the
+    // whole-array overload is the compiler-table reset shape for dense scratch buffers.
     // Each function FULLY/idempotently overwrites the slots it then reads, so the array reference shared
     // between the columnar and C# invocations is benign (both write the same values). Covers int/long/char/
     // string elements (a distinct generic instantiation per element type) plus a partial (start/count) range.
     [Fact]
     public void ColumnarCodegen_Parity_ArrayFill()
     {
-        var fillIntWhole = "func fillIntWhole(a: int[], value: int): int {\n    Array.Fill(a, value, 0, a.Length)\n    total := 0\n    i := 0\n    while i < a.Length {\n        total = total + a[i]\n        i = i + 1\n    }\n    return total\n}\n\n";
+        var fillIntWhole = "func fillIntWhole(a: int[], value: int): int {\n    Array.Fill(a, value)\n    total := 0\n    i := 0\n    while i < a.Length {\n        total = total + a[i]\n        i = i + 1\n    }\n    return total\n}\n\n";
         var fillIntPartial = "func fillIntPartial(a: int[], value: int, start: int, count: int): int {\n    Array.Fill(a, value, start, count)\n    total := 0\n    i := 0\n    while i < a.Length {\n        total = total + a[i]\n        i = i + 1\n    }\n    return total\n}\n\n";
-        var fillLong = "func fillLong(a: long[], value: long): long {\n    Array.Fill(a, value, 0, a.Length)\n    total := 0L\n    i := 0\n    while i < a.Length {\n        total = total + a[i]\n        i = i + 1\n    }\n    return total\n}\n\n";
-        var fillChar = "func fillChar(a: char[], value: char): int {\n    Array.Fill(a, value, 0, a.Length)\n    total := 0\n    i := 0\n    while i < a.Length {\n        total = total + (int)a[i]\n        i = i + 1\n    }\n    return total\n}\n\n";
-        var fillString = "func fillString(a: string[], value: string): int {\n    Array.Fill(a, value, 0, a.Length)\n    matches := 0\n    i := 0\n    while i < a.Length {\n        if a[i] == value {\n            matches = matches + 1\n        }\n        i = i + 1\n    }\n    return matches\n}\n";
+        var fillLong = "func fillLong(a: long[], value: long): long {\n    Array.Fill(a, value)\n    total := 0L\n    i := 0\n    while i < a.Length {\n        total = total + a[i]\n        i = i + 1\n    }\n    return total\n}\n\n";
+        var fillChar = "func fillChar(a: char[], value: char): int {\n    Array.Fill(a, value)\n    total := 0\n    i := 0\n    while i < a.Length {\n        total = total + (int)a[i]\n        i = i + 1\n    }\n    return total\n}\n\n";
+        var fillString = "func fillString(a: string[], value: string): int {\n    Array.Fill(a, value)\n    matches := 0\n    i := 0\n    while i < a.Length {\n        if a[i] == value {\n            matches = matches + 1\n        }\n        i = i + 1\n    }\n    return matches\n}\n";
         var prog = fillIntWhole + fillIntPartial + fillLong + fillChar + fillString;
         AssertColumnarProgramMatchesCSharp(prog,
             ("fillIntWhole", new object[] { new int[5], 7 }),
@@ -6630,8 +6631,8 @@ func outer(x: int): int {
             ("fillString", new object[] { new string[4], "z" }));
 
         // DECLINE SURFACE — keep the C# path authoritative for forms the backend does not model.
-        Assert.False(RouteColumnarProgram(  // the 2-arg Array.Fill<T>(T[], T) overload is not modelled.
-            "func f(a: int[], v: int): int {\n    Array.Fill(a, v)\n    return 0\n}\n").Ok);
+        Assert.False(RouteColumnarProgram(  // the fill value's type must match the element type (long into int[]).
+            "func f(a: int[]): int {\n    Array.Fill(a, 5L)\n    return 0\n}\n").Ok);
         Assert.False(RouteColumnarProgram(  // the fill value's type must match the element type (long into int[]).
             "func f(a: int[]): int {\n    Array.Fill(a, 5L, 0, a.Length)\n    return 0\n}\n").Ok);
     }

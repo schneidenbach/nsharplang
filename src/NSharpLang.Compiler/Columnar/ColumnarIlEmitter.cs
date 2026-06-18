@@ -9360,19 +9360,21 @@ internal sealed class ColumnarIlEmitter
             }
             return false;
         }
-        if (typeName == "Array" && member == "Fill" && argCount == 4)
+        if (typeName == "Array" && member == "Fill" && (argCount == 2 || argCount == 4))
         {
-            // Array.Fill<T>(T[] array, T value, int startIndex, int count) -> void. The array's element type
-            // drives the generic instantiation; the value must match the element type; startIndex/count are int.
-            // (The 2-arg Fill<T>(T[], T) is a separate overload — only the 4-arg span-fill is modelled here.)
+            // Array.Fill<T>(T[] array, T value) and Array.Fill<T>(T[] array, T value, int startIndex, int count)
+            // -> void. The array's element type drives the generic instantiation; the value must match the
+            // element type; ranged fills additionally require int startIndex/count.
             if (!EmitExpression(Child(callIdx, 1), out var arrayType) || !arrayType.IsSZArray)
                 return false;
             var elementType = arrayType.GetElementType()!;
             if (!IsSupportedElementType(elementType))
                 return false;
-            if (!EmitArg(callIdx, 2, elementType) || !EmitArg(callIdx, 3, typeof(int)) || !EmitArg(callIdx, 4, typeof(int)))
+            if (!EmitArg(callIdx, 2, elementType))
                 return false;
-            var fill = ResolveArrayFill4();
+            if (argCount == 4 && (!EmitArg(callIdx, 3, typeof(int)) || !EmitArg(callIdx, 4, typeof(int))))
+                return false;
+            var fill = ResolveArrayFill(argCount);
             if (fill == null)
                 return false;
             _il.Emit(OpCodes.Call, fill.MakeGenericMethod(elementType));
@@ -9450,14 +9452,13 @@ internal sealed class ColumnarIlEmitter
         return sourceElementType == destinationElementType && IsSupportedElementType(sourceElementType);
     }
 
-    // System.Array.Fill&lt;T&gt;(T[] array, T value, int startIndex, int count) — the 4-arg overload as a generic
-    // method DEFINITION (the 2-arg Fill&lt;T&gt;(T[], T) is excluded by the parameter count). The caller binds T via
-    // MakeGenericMethod(elementType). Returns null if the method is unexpectedly absent (then the call declines).
-    private static MethodInfo? ResolveArrayFill4()
+    // System.Array.Fill<T> as a generic method DEFINITION. The caller binds T via MakeGenericMethod(elementType).
+    // Returns null if the requested overload is unexpectedly absent (then the call declines).
+    private static MethodInfo? ResolveArrayFill(int parameterCount)
     {
         foreach (var m in typeof(System.Array).GetMethods(BindingFlags.Public | BindingFlags.Static))
         {
-            if (m.Name == "Fill" && m.IsGenericMethodDefinition && m.GetParameters().Length == 4)
+            if (m.Name == "Fill" && m.IsGenericMethodDefinition && m.GetParameters().Length == parameterCount)
                 return m;
         }
         return null;
