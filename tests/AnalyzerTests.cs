@@ -5080,6 +5080,66 @@ func Main() {
     }
 
     [Fact]
+    public void AwaitExpression_TaskResult_InfersResultType()
+    {
+        var result = AnalyzeWithSource("""
+            import System.Threading.Tasks
+
+            async func GetCount(): Task<int> {
+                return 3
+            }
+
+            async func Main(): Task<int> {
+                count := await GetCount()
+                total := count + 1
+                return total
+            }
+            """);
+
+        Assert.Empty(result.Errors);
+        Assert.Equal("int", result.SemanticModel.LookupIdentifier("count")?.ToString());
+        Assert.Equal("int", result.SemanticModel.LookupIdentifier("total")?.ToString());
+    }
+
+    [Fact]
+    public void AwaitExpression_ValueTaskResult_InfersResultType()
+    {
+        var result = AnalyzeWithSource("""
+            import System.Threading.Tasks
+
+            async func GetLabel(): ValueTask<string> {
+                return "abc"
+            }
+
+            async func Main(): Task<int> {
+                label := await GetLabel()
+                length := label.Length
+                return length
+            }
+            """);
+
+        Assert.Empty(result.Errors);
+        Assert.Equal("string", result.SemanticModel.LookupIdentifier("label")?.ToString());
+        Assert.Equal("int", result.SemanticModel.LookupIdentifier("length")?.ToString());
+    }
+
+    [Fact]
+    public void AwaitExpression_NonAwaitableValue_Error()
+    {
+        var result = AnalyzeWithSource("""
+            import System.Threading.Tasks
+
+            async func Main(): Task<int> {
+                value := await 1
+                return 0
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains("await expression needs an awaitable value", error.Message);
+    }
+
+    [Fact]
     public void AssemblyResolution_FileInfo_Resolved()
     {
         AssertNoErrors(@"

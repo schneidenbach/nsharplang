@@ -4728,7 +4728,7 @@ public class Analyzer : IDisposable
     {
         elementType = BuiltInTypes.Unknown;
 
-        var resolved = NormalizeLoopCollectionType(collectionType);
+        var resolved = NormalizeShapeType(collectionType);
         if (BuiltInTypes.IsUnknown(resolved) || resolved is ExternalTypeInfo)
         {
             return false;
@@ -4756,9 +4756,9 @@ public class Analyzer : IDisposable
         }
     }
 
-    private TypeInfo NormalizeLoopCollectionType(TypeInfo collectionType)
+    private TypeInfo NormalizeShapeType(TypeInfo type)
     {
-        var resolved = ResolveTypeAlias(GetNonNullableType(collectionType));
+        var resolved = ResolveTypeAlias(GetNonNullableType(type));
         while (true)
         {
             switch (resolved)
@@ -4780,7 +4780,7 @@ public class Analyzer : IDisposable
 
     private bool ShouldReportLoopSequenceTypeMismatch(TypeInfo collectionType)
     {
-        var resolved = NormalizeLoopCollectionType(collectionType);
+        var resolved = NormalizeShapeType(collectionType);
         return !BuiltInTypes.IsUnknown(resolved) && resolved is not ExternalTypeInfo;
     }
 
@@ -16927,9 +16927,111 @@ public class Analyzer : IDisposable
     private TypeInfo AnalyzeAwaitExpression(AwaitExpression await)
     {
         var exprType = AnalyzeExpression(await.Expression);
-        ReportSoaRowEscapeIfNeeded(await.Expression, exprType, "awaited");
-        // TODO: Unwrap Task<T> to get T
+        if (ReportSoaRowEscapeIfNeeded(await.Expression, exprType, "awaited"))
+        {
+            return BuiltInTypes.Unknown;
+        }
+
+        if (TryGetAwaitExpressionResultType(exprType, out var resultType))
+        {
+            return resultType;
+        }
+
+        if (ShouldReportAwaitExpressionTypeMismatch(exprType))
+        {
+            var (line, column, length) = GetExpressionDiagnosticSpan(await.Expression);
+            Error(
+                ErrorCode.TypeMismatch,
+                $"await expression needs an awaitable value, but this expression is '{exprType}'",
+                line,
+                column,
+                "Await a Task, ValueTask, or another value with a GetAwaiter() pattern.",
+                length);
+        }
+
         return BuiltInTypes.Unknown;
+    }
+
+    private bool TryGetAwaitExpressionResultType(TypeInfo awaitableType, out TypeInfo resultType)
+    {
+        resultType = BuiltInTypes.Unknown;
+
+        var resolved = NormalizeShapeType(awaitableType);
+        if (BuiltInTypes.IsUnknown(resolved) || resolved is ExternalTypeInfo)
+        {
+            return false;
+        }
+
+        if (TryGetTaskLikeResultType(resolved, out resultType))
+        {
+            return true;
+        }
+
+        if (IsUnitTaskLikeType(resolved))
+        {
+            resultType = BuiltInTypes.Void;
+            return true;
+        }
+
+        if (resolved is ReflectionTypeInfo reflectionType
+            && TryGetReflectionAwaitResultType(reflectionType.Type, out resultType))
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    private bool ShouldReportAwaitExpressionTypeMismatch(TypeInfo awaitableType)
+    {
+        var resolved = NormalizeShapeType(awaitableType);
+        return !BuiltInTypes.IsUnknown(resolved)
+            && resolved is not ExternalTypeInfo
+            && resolved is not ClassTypeInfo
+            && resolved is not StructTypeInfo
+            && resolved is not RecordTypeInfo
+            && resolved is not InterfaceTypeInfo;
+    }
+
+    private bool TryGetReflectionAwaitResultType(Type type, out TypeInfo resultType)
+    {
+        resultType = BuiltInTypes.Unknown;
+
+        try
+        {
+            var runtimeType = Nullable.GetUnderlyingType(type) ?? type;
+            var getAwaiterMethod = runtimeType.GetMethod(
+                "GetAwaiter",
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance,
+                binder: null,
+                types: Type.EmptyTypes,
+                modifiers: null);
+            if (getAwaiterMethod == null)
+            {
+                return false;
+            }
+
+            var awaiterType = getAwaiterMethod.ReturnType;
+            var getResultMethod = awaiterType.GetMethod(
+                "GetResult",
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance,
+                binder: null,
+                types: Type.EmptyTypes,
+                modifiers: null);
+            if (getResultMethod == null)
+            {
+                return false;
+            }
+
+            resultType = getResultMethod.ReturnType == typeof(void)
+                ? BuiltInTypes.Void
+                : ConvertReflectionType(getResultMethod.ReturnType);
+            return true;
+        }
+        catch (NotSupportedException)
+        {
+            return false;
+        }
     }
 
     private TypeInfo AnalyzeThrowExpression(ThrowExpression throwExpr)

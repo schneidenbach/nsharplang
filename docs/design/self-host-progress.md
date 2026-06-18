@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Await expressions bind task result types during analysis
+
+`await` now returns the awaited result type in the analyzer instead of always recording `unknown`.
+`Task<T>`/`ValueTask<T>` produce `T`, unit `Task`/`ValueTask` produce `void`, and reflected awaiter
+patterns use `GetAwaiter().GetResult()` for the result type. Known non-awaitable values such as
+`await 1` now report a type diagnostic before IL emission; source/custom awaitable shapes still defer
+unless the analyzer can prove the awaiter pattern, avoiding premature rejection while the fuller
+pattern binder is pending.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~AnalyzerTests.AwaitExpression"`;
+`./scripts/dev.sh Await`.
+
 ## 2026-06-18 — Foreach collections validate sequence shape before lowering
 
 The analyzer now validates `foreach` and `await foreach` collections before the IL backend tries to
