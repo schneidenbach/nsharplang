@@ -12578,6 +12578,29 @@ func bad(a: Vec2, b: Vec2): Vec2 {
         Assert.Contains(result.Errors, e => e.Code == ErrorCode.TypeNotFound && e.Message.Contains("'Nope'"));
     }
 
+    [Theory]
+    [InlineData("class", "static count: int", "field", "count")]
+    [InlineData("record", "static func mk(): int {\n        return 1\n    }", "method", "mk")]
+    [InlineData("struct", "static value: int {\n        get {\n            return 1\n        }\n    }", "property", "value")]
+    public void GenericTypes_StaticMembers_ReportBeforeEmission(
+        string typeKind,
+        string memberSource,
+        string memberKind,
+        string memberName)
+    {
+        var result = Analyze($@"{typeKind} Box<T> {{
+    item: T
+    {memberSource}
+}}
+
+func Use(): int {{
+    return 0
+}}");
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.FeatureNotImplemented);
+        Assert.Contains($"Static {memberKind} '{memberName}'", error.Message);
+        Assert.Contains("generic type 'Box<T>'", error.Message);
+    }
+
     [Fact]
     public void GenericNew_CorrectArity_HasNoArityDiagnostics()
     {

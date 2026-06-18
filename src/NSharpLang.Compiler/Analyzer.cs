@@ -2459,6 +2459,8 @@ public class Analyzer : IDisposable
             }
         }
 
+        ValidateNoStaticMembersOnGenericType(classDecl.Name, classDecl.TypeParameters, classDecl.Members);
+
         ResolveTypeReferenceIfPresent(classDecl.BaseClass);
         ResolveTypeReferences(classDecl.Interfaces);
 
@@ -2524,6 +2526,8 @@ public class Analyzer : IDisposable
             }
         }
 
+        ValidateNoStaticMembersOnGenericType(structDecl.Name, structDecl.TypeParameters, structDecl.Members);
+
         ResolveTypeReferences(structDecl.Interfaces);
 
         var structType = new StructTypeInfo(structDecl);
@@ -2572,6 +2576,8 @@ public class Analyzer : IDisposable
             }
         }
 
+        ValidateNoStaticMembersOnGenericType(recordDecl.Name, recordDecl.TypeParameters, recordDecl.Members);
+
         ResolveTypeReferences(recordDecl.Interfaces);
 
         var recordType = new RecordTypeInfo(recordDecl);
@@ -2598,6 +2604,51 @@ public class Analyzer : IDisposable
 
         PopScope();
         _currentTypeName = previousTypeName;
+    }
+
+    private void ValidateNoStaticMembersOnGenericType(
+        string typeName,
+        IReadOnlyList<TypeParameter>? typeParameters,
+        IEnumerable<Declaration> members)
+    {
+        if (typeParameters == null || typeParameters.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var member in members)
+        {
+            switch (member)
+            {
+                case FieldDeclaration field when field.Modifiers.HasFlag(Modifiers.Static):
+                    ReportUnsupportedGenericStaticMember(typeName, typeParameters, "field", field.Name, field.Line, field.Column);
+                    break;
+                case PropertyDeclaration property when property.Modifiers.HasFlag(Modifiers.Static):
+                    ReportUnsupportedGenericStaticMember(typeName, typeParameters, "property", property.Name, property.Line, property.Column);
+                    break;
+                case FunctionDeclaration function when function.Modifiers.HasFlag(Modifiers.Static):
+                    ReportUnsupportedGenericStaticMember(typeName, typeParameters, "method", function.Name, function.Line, function.Column);
+                    break;
+            }
+        }
+    }
+
+    private void ReportUnsupportedGenericStaticMember(
+        string typeName,
+        IReadOnlyList<TypeParameter> typeParameters,
+        string memberKind,
+        string memberName,
+        int line,
+        int column)
+    {
+        var typeDisplay = $"{typeName}<{string.Join(", ", typeParameters.Select(parameter => parameter.Name))}>";
+        Error(
+            ErrorCode.FeatureNotImplemented,
+            $"Static {memberKind} '{memberName}' is not supported on generic type '{typeDisplay}' yet",
+            line,
+            column,
+            "Move the static member to a non-generic helper type, or make it an instance member.",
+            Math.Max(1, memberName.Length));
     }
 
     private void AnalyzeSoaRecordDeclaration(SoaRecordDeclaration soaRecordDecl)

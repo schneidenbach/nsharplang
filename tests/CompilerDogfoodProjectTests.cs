@@ -12536,9 +12536,9 @@ func outer(x: int): int {
         // DIVERGE (5), so records with user ctors decline until the oracle is fixed.
         Assert.False(RouteColumnarProgram("record R<T> {\n    x: T\n\n    constructor(v: T) {\n        x = v\n    }\n}\n\nfunc f(): int {\n    r := new R<int>(5)\n    return r.x\n}\n").Ok);
         Assert.False(RouteColumnarProgram("record R {\n    x: int\n\n    constructor(v: int) {\n        x = v\n    }\n}\n\nfunc f(): int {\n    r := new R(5)\n    return r.x\n}\n").Ok);
-        // STATIC FIELD use on a generic type: BOTH pipelines today emit an invalid static-field token
-        // against the open generic (BadImageFormatException at JIT — oracle defect bundle); columnar
-        // declines rather than ship invalid IL.
+        // STATIC FIELD use on a generic type: generic types cannot declare static members yet; the
+        // analyzer rejects before the old open-generic static-field token could reach IL emission.
+        // Columnar declines at declaration parsing for the same unsupported surface.
         Assert.False(RouteColumnarProgram("record S<T> {\n    x: T\n    static count: int\n}\n\nfunc f(): int {\n    S.count = 7\n    return S.count\n}\n").Ok);
         // DUPLICATE type-parameter names: the columnar struct parser wrapper rejects these before emission.
         Assert.False(RouteColumnarProgram("record W<T, T> {\n    x: int\n}\n\nfunc f(): int {\n    return 1\n}\n").Ok);

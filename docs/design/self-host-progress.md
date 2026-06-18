@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Generic static members reject before IL emission
+
+Generic class/record/struct declarations now report `NL323` for static fields, static properties,
+and static methods during semantic analysis. This aligns the C# oracle with the columnar parser
+wrapper, which already declined generic static members before route selection, and prevents the old
+open-generic static-field token path from reaching IL emission/JIT. The diagnostic points at the
+unsupported member declaration and suggests moving the member to a non-generic helper type or making
+it an instance member.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter
+"FullyQualifiedName~GenericTypes_StaticMembers_ReportBeforeEmission|FullyQualifiedName~ColumnarCodegen_Parity_GenericRecords"`.
+
 ## 2026-06-18 — Generic value-struct object initializers route through rebound field stores
 
 Closed generic value-struct object initializers now use the same open-definition bookkeeping as
