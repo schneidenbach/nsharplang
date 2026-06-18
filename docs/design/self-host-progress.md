@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Root CLI dogfood wrappers share the kernel loader
+
+The remaining root-level CLI dogfood wrappers for batch queries, `nlc new`, `nlc run`, `nlc build`,
+`nlc publish`, `nlc test`, and compilation-reference filtering now bind through
+`DogfoodKernelLoader` instead of carrying local dogfood assembly loading and delegate reflection
+copies. Command-specific scratch buffers, typed delegates, and fallback validation remain owned by
+the individual wrappers, while the repeated C# host-boundary code continues to shrink. Focused
+evidence:
+`dotnet build src/NSharpLang.Cli/Cli.csproj --no-restore`,
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~NewCommandKernels_SelectsProjectNameOperand|FullyQualifiedName~BuildCommandKernels_SelectsFirstOperandAfterOptionStripping|FullyQualifiedName~RunCommandKernels_SelectsSourceOperandAfterBackendStripping|FullyQualifiedName~PublishCommandKernels_NormalizesDefaultOptionsAndFallbackValidation|FullyQualifiedName~CompilationReferenceResolverKernels_FiltersReferenceValuesByType|FullyQualifiedName~TestCommandKernels_SummarizesTestOutcomeRanks"`,
+and `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~BatchCommand_DuplicateRequestIds_AreRejectedInOrdinalOrder"`.
+
 ## 2026-06-18 — CLI dogfood positional loaders share one host boundary
 
 The `add`, `check`, `fix`, `remove`, and `update` positional command kernel wrappers now share a tiny

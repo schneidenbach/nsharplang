@@ -1,13 +1,9 @@
 using System;
-using System.IO;
-using System.Reflection;
 
 namespace NSharpLang.Cli;
 
 internal static class TestCommandKernels
 {
-    private const string DogfoodAssemblyName = "NSharpLang.Compiler.Dogfood";
-
     [ThreadStatic]
     private static int[]? t_summaryCounts;
 
@@ -72,13 +68,12 @@ internal static class TestCommandKernels
     {
         try
         {
-            var assembly = TryLoadDogfoodAssembly();
-            var programType = assembly?.GetType("Program");
+            var programType = DogfoodKernelLoader.TryGetProgramType();
             if (programType == null)
                 return null;
 
             return new Bindings(
-                CreateDelegate<CliTestOutcomeSummaryInto>(
+                DogfoodKernelLoader.CreateDelegate<CliTestOutcomeSummaryInto>(
                     programType,
                     "CliTestOutcomeSummaryInto"));
         }
@@ -86,32 +81,6 @@ internal static class TestCommandKernels
         {
             return null;
         }
-    }
-
-    private static Assembly? TryLoadDogfoodAssembly()
-    {
-        try
-        {
-            return Assembly.Load(new AssemblyName(DogfoodAssemblyName));
-        }
-        catch
-        {
-            var assemblyPath = Path.Combine(AppContext.BaseDirectory, $"{DogfoodAssemblyName}.dll");
-            return File.Exists(assemblyPath)
-                ? Assembly.LoadFrom(assemblyPath)
-                : null;
-        }
-    }
-
-    private static TDelegate CreateDelegate<TDelegate>(Type programType, string methodName)
-        where TDelegate : Delegate
-    {
-        var method = programType.GetMethod(
-                methodName,
-                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
-            ?? throw new MissingMethodException(programType.FullName, methodName);
-
-        return (TDelegate)Delegate.CreateDelegate(typeof(TDelegate), method);
     }
 
     private delegate int CliTestOutcomeSummaryInto(
