@@ -33,6 +33,9 @@
     <!-- Lets the test project assert on internal dogfood adapters (e.g. that the dogfood path is
          actually loaded/exercised, and differential ordering parity) without widening the public API. -->
     <InternalsVisibleTo Include="Tests" />
+    <!-- Lets the CLI use the compiler-owned dogfood assembly loader instead of carrying a duplicate
+         reflection host boundary. -->
+    <InternalsVisibleTo Include="Cli" />
   </ItemGroup>
 
   <ItemGroup>

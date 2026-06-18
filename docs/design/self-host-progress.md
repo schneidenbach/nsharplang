@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — CLI dogfood loader reuses the compiler host boundary
+
+The CLI no longer carries its own dogfood assembly loader. `Cli` now has friend access to the
+compiler-owned `DogfoodKernelLoader`, and a global alias keeps command-specific wrappers binding
+through the same typed delegate calls while deleting the duplicated assembly-load/reflection helper
+from `src/NSharpLang.Cli`. Command wrappers still own their scratch buffers, fallback validation, and
+delegate shapes; only the host-boundary loader is shared.
+
 ## 2026-06-18 — SoA wrap method body is pinned zero-copy
 
 The generated `Table.wrap(...)` method now has direct method-body IL-shape evidence. The pin inspects
