@@ -18593,6 +18593,20 @@ public partial class ILCompiler
             return;
         }
 
+        if (memberName == "LongLength" && objectType.IsSZArray)
+        {
+            _currentIL.Emit(OpCodes.Ldlen);
+            _currentIL.Emit(OpCodes.Conv_I8);
+            return;
+        }
+
+        if (memberName == "Rank" && objectType.IsSZArray)
+        {
+            _currentIL.Emit(OpCodes.Pop);
+            _currentIL.Emit(OpCodes.Ldc_I4_1);
+            return;
+        }
+
         if (objectType is TypeBuilder typeBuilder)
         {
             var fieldBuilder = FindInstanceFieldOnBaseChain(typeBuilder, memberName);
@@ -19165,6 +19179,20 @@ public partial class ILCompiler
         {
             _currentIL.Emit(OpCodes.Ldlen);
             _currentIL.Emit(OpCodes.Conv_I4);
+            return;
+        }
+
+        if (memberAccess.MemberName == "LongLength" && memberOwnerType.IsSZArray)
+        {
+            _currentIL.Emit(OpCodes.Ldlen);
+            _currentIL.Emit(OpCodes.Conv_I8);
+            return;
+        }
+
+        if (memberAccess.MemberName == "Rank" && memberOwnerType.IsSZArray)
+        {
+            _currentIL.Emit(OpCodes.Pop);
+            _currentIL.Emit(OpCodes.Ldc_I4_1);
             return;
         }
 

@@ -117,14 +117,6 @@ public class Analyzer : IDisposable
         "CopyTo"
     };
 
-    private static readonly HashSet<string> UnsupportedSoaDirectColumnArrayInstanceMethods = new(StringComparer.Ordinal)
-    {
-        "GetValue",
-        "SetValue",
-        "Clone",
-        "CopyTo"
-    };
-
     private readonly List<CompilerError> _errors = new();
     private readonly Stack<Scope> _scopes = new();
     private readonly List<string> _usingNamespaces = new();
@@ -194,6 +186,7 @@ public class Analyzer : IDisposable
     private bool _suppressErrorTupleResultUse;
     private bool _allowUnboundCallableReference;
     private bool _allowSyntheticSoaOperationReference;
+    private bool _analyzingCallCallee;
     // When false (the default), a bare reference to a .NET event is an error — events may only
     // be used with `on`/`off`. AnalyzeOnSubscription and AnalyzeAssignment flip this while
     // resolving the event member so they can emit their own, more specific diagnostics.
@@ -5573,6 +5566,12 @@ public class Analyzer : IDisposable
             return BuiltInTypes.Unknown;
         }
 
+        if (!_analyzingCallCallee
+            && ReportUnsupportedSoaDirectColumnArrayInstanceMethodReferenceIfNeeded(expr, flowType, isCall: false))
+        {
+            return BuiltInTypes.Unknown;
+        }
+
         if (!_allowUnboundCallableReference && IsUnboundCallableReference(expr, flowType))
         {
             ReportMethodGroupUsedAsValue(expr, flowType);
@@ -5609,14 +5608,17 @@ public class Analyzer : IDisposable
     {
         var previousAllowUnbound = _allowUnboundCallableReference;
         var previousAllowSyntheticSoaOperation = _allowSyntheticSoaOperationReference;
+        var previousAnalyzingCallCallee = _analyzingCallCallee;
         _allowUnboundCallableReference = true;
         _allowSyntheticSoaOperationReference = true;
+        _analyzingCallCallee = true;
         try
         {
             return AnalyzeExpression(expression);
         }
         finally
         {
+            _analyzingCallCallee = previousAnalyzingCallCallee;
             _allowSyntheticSoaOperationReference = previousAllowSyntheticSoaOperation;
             _allowUnboundCallableReference = previousAllowUnbound;
         }
@@ -9567,7 +9569,7 @@ public class Analyzer : IDisposable
 
         if (ReportSoaDirectColumnMutatingArrayCallIfNeeded(call))
             return BuiltInTypes.Unknown;
-        if (ReportUnsupportedSoaDirectColumnArrayInstanceCallIfNeeded(call))
+        if (ReportUnsupportedSoaDirectColumnArrayInstanceCallIfNeeded(call, calleeType))
             return BuiltInTypes.Unknown;
 
         // Resolve return type from function type
@@ -13562,10 +13564,16 @@ public class Analyzer : IDisposable
         return false;
     }
 
-    private bool ReportUnsupportedSoaDirectColumnArrayInstanceCallIfNeeded(CallExpression call)
+    private bool ReportUnsupportedSoaDirectColumnArrayInstanceCallIfNeeded(CallExpression call, TypeInfo calleeType)
+        => ReportUnsupportedSoaDirectColumnArrayInstanceMethodReferenceIfNeeded(call.Callee, calleeType, isCall: true);
+
+    private bool ReportUnsupportedSoaDirectColumnArrayInstanceMethodReferenceIfNeeded(
+        Expression expression,
+        TypeInfo type,
+        bool isCall)
     {
-        if (call.Callee is not MemberAccessExpression memberAccess
-            || !UnsupportedSoaDirectColumnArrayInstanceMethods.Contains(memberAccess.MemberName)
+        if (expression is not MemberAccessExpression memberAccess
+            || !IsRuntimeArrayInstanceMethodReference(type)
             || !TryGetSoaColumnMemberAccess(memberAccess.Object, out var columnMember))
         {
             return false;
@@ -13574,15 +13582,32 @@ public class Analyzer : IDisposable
         var line = memberAccess.Line;
         var column = GetMemberNameColumn(memberAccess);
         var length = Math.Max(1, memberAccess.MemberName.Length);
+        var action = isCall ? "call" : "use";
+        var suffix = isCall ? " directly" : " as a value";
         Error(
             ErrorCode.InvalidSyntax,
-            $"SoA table member '{columnMember.MemberName}' cannot call array method '{memberAccess.MemberName}' directly",
+            $"SoA table member '{columnMember.MemberName}' cannot {action} array method '{memberAccess.MemberName}'{suffix}",
             line,
             column,
             "Use table.column[row] for element access, or Array.Fill, Array.Copy, and Array.Clear for supported whole-column operations.",
             length);
         return true;
     }
+
+    private bool IsRuntimeArrayInstanceMethodReference(TypeInfo type)
+    {
+        var resolvedType = ResolveTypeAlias(type);
+        return resolvedType switch
+        {
+            ReflectionMethodInfo methodInfo => IsRuntimeArrayInstanceMethod(methodInfo.Method),
+            ReflectionMethodGroupInfo methodGroup => methodGroup.Methods.Length > 0
+                && methodGroup.Methods.All(IsRuntimeArrayInstanceMethod),
+            _ => false
+        };
+    }
+
+    private static bool IsRuntimeArrayInstanceMethod(MethodInfo method)
+        => !method.IsStatic;
 
     private bool IsStaticArrayTarget(Expression expression)
     {

@@ -6480,7 +6480,59 @@ public class SoaRecordTests : ILCompilerTestBase
                     unchecked((nodes).kind).CopyTo(dst, 0)
                 }
                 """,
-                Method: "CopyTo")
+                Method: "CopyTo"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    iterator := nodes.kind.GetEnumerator()
+                }
+                """,
+                Method: "GetEnumerator"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    unchecked(nodes.kind).Initialize()
+                }
+                """,
+                Method: "Initialize"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes): string {
+                    return nodes.kind.ToString()
+                }
+                """,
+                Method: "ToString"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes): int {
+                    return (nodes.kind).GetLength(0)
+                }
+                """,
+                Method: "GetLength")
         };
 
         foreach (var testCase in cases)
@@ -6488,6 +6540,67 @@ public class SoaRecordTests : ILCompilerTestBase
             var result = Analyze(testCase.Source);
             var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
             Assert.Contains($"SoA table member 'kind' cannot call array method '{testCase.Method}' directly", error.Message);
+            Assert.Contains("Array.Fill, Array.Copy, and Array.Clear", error.Suggestion);
+        }
+    }
+
+    [Fact]
+    public void Analyzer_SoaDirectColumnArrayInstanceMethodsCannotBeUsedAsValues()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var cases = new[]
+        {
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    let clone: Func<object> = nodes.kind.Clone
+                }
+                """,
+                Method: "Clone"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func pull(getLength: Func<int, int>): int {
+                    return getLength(0)
+                }
+
+                func bad(nodes: Nodes): int {
+                    return pull((nodes.kind).GetLength)
+                }
+                """,
+                Method: "GetLength"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    copy := unchecked((nodes).kind).CopyTo
+                }
+                """,
+                Method: "CopyTo")
+        };
+
+        foreach (var testCase in cases)
+        {
+            var result = Analyze(testCase.Source);
+            var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+            Assert.Contains($"SoA table member 'kind' cannot use array method '{testCase.Method}' as a value", error.Message);
             Assert.Contains("Array.Fill, Array.Copy, and Array.Clear", error.Suggestion);
         }
     }

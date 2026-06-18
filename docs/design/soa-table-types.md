@@ -258,10 +258,14 @@ Whole-column BCL calls that preserve row identity, such as `Array.Fill(table.col
 backing-array operations for the supported whole-array, ranged, and offset-copy overloads. They are
 pinned to load the generated column field directly without row allocation, boxing, delegate
 construction, array allocation, or virtual dispatch in the hot function.
-Array instance methods on direct columns that would box, allocate, virtually dispatch, or bypass the
-pinned static kernels, including `table.column.GetValue(...)`, `table.column.SetValue(...)`,
-`table.column.Clone()`, and `table.column.CopyTo(...)`, decline before IL emission. Use direct
-element indexing or the pinned static `Array.Fill`/`Array.Copy`/`Array.Clear` operations instead.
+Direct column metadata properties remain available: `table.column.Length` and
+`table.column.LongLength` lower through `ldlen`, while `table.column.Rank` lowers to the known SZ-array
+rank constant. Array instance methods on direct columns decline before IL emission because they would
+box, allocate, virtually dispatch, or bypass the pinned static kernels. This includes element access
+methods such as `table.column.GetValue(...)`/`SetValue(...)`, method-value escapes such as
+`table.column.Clone`, inherited methods such as `table.column.GetEnumerator()`/`ToString()`, and
+dimension methods such as `table.column.GetLength(...)`. Use direct element indexing, metadata
+properties, or the pinned static `Array.Fill`/`Array.Copy`/`Array.Clear` operations instead.
 Replacing wrapper column arrays, mutating `length`/`capacity` directly, or mutating column slices is
 not allowed: shape changes must go through construction, `wrap`, `add`, `clear`, `ensureCapacity`, or
 `copyRow`. Direct `length`/`capacity` simple assignment, compound assignment, and increment/decrement
