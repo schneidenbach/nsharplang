@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Columnar keeps `System.Array.*` outside product routing until oracle support exists
+
+The columnar BCL array primitive whitelist remains limited to the product-valid `Array.*` call shape.
+An attempted fully qualified `System.Array.*` acceptance was rejected by the C# oracle path today:
+qualified BCL type receivers still report `System` as an unresolved value in this surface. A route-only
+decline pin now covers `System.Array.Fill/Clear/Copy/Resize/Sort/Reverse` so the columnar backend cannot
+over-accept invalid product N# while SoA-specific diagnostics continue to catch direct-column misuse before
+emission.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_DeclinesSystemArrayStaticCallsUntilOracleSupportsQualifiedBclTypes"`.
+
 ## 2026-06-18 — SoA direct-column bulk array operations pin backing-array IL shape
 
 Accepted direct-column BCL operations now have an explicit IL-shape pin: `Array.Fill(table.column, ...)`,

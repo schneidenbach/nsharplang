@@ -6781,6 +6781,23 @@ func outer(x: int): int {
             "func f(a: bool[]): int {\n    Array.Reverse(a)\n    return 0\n}\n").Ok);
     }
 
+    [Fact]
+    public void ColumnarCodegen_DeclinesSystemArrayStaticCallsUntilOracleSupportsQualifiedBclTypes()
+    {
+        Assert.False(RouteColumnarProgram(
+            "func f(a: int[]): int {\n    System.Array.Fill(a, 1)\n    return a[0]\n}\n").Ok);
+        Assert.False(RouteColumnarProgram(
+            "func f(a: int[]): int {\n    System.Array.Clear(a)\n    return 0\n}\n").Ok);
+        Assert.False(RouteColumnarProgram(
+            "func f(src: int[], dst: int[]): int {\n    System.Array.Copy(src, dst, 1)\n    return 0\n}\n").Ok);
+        Assert.False(RouteColumnarProgram(
+            "func f(a: int[]): int {\n    System.Array.Resize(ref a, 4)\n    return a.Length\n}\n").Ok);
+        Assert.False(RouteColumnarProgram(
+            "func f(a: int[]): int {\n    System.Array.Sort(a)\n    return a[0]\n}\n").Ok);
+        Assert.False(RouteColumnarProgram(
+            "func f(a: int[]): int {\n    System.Array.Reverse(a)\n    return a[0]\n}\n").Ok);
+    }
+
     // A bare CALL statement whose result is DISCARDED: emit the call, then `pop` the non-void result (a void
     // call leaves nothing). The C# path emits the same pop, so the side effects + ignored result are identical.
     // This is the `helper(args)`-as-statement idiom (LinterImports.nl calls a flag-clearing helper for its side
