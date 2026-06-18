@@ -8240,6 +8240,7 @@ func outer(x: int): int {
             "func dictCore(): int {\n    d := new Dictionary<string, int>()\n    d[\"a\"] = 1\n    d[\"b\"] = 2\n    if d.ContainsKey(\"a\") {\n        return d[\"a\"] + d[\"b\"]\n    }\n    return 0\n}\n\n" +
             "func dictOverwrite(): int {\n    d := new Dictionary<string, int>()\n    d[\"k\"] = 1\n    d[\"k\"] = 7\n    return d[\"k\"]\n}\n\n" +
             "func dictAdd(): int {\n    d := new Dictionary<string, int>()\n    d.Add(\"k\", 4)\n    d.Add(\"q\", 5)\n    return d[\"k\"] + d[\"q\"] + d.Count\n}\n\n" +
+            "func dictRemove(): int {\n    d := new Dictionary<string, int>()\n    d.Add(\"a\", 1)\n    d.Add(\"b\", 2)\n    removed := d.Remove(\"a\")\n    missing := d.Remove(\"x\")\n    score := d.Count\n    if removed {\n        score = score + 10\n    }\n    if missing {\n        score = score + 100\n    }\n    if d.ContainsKey(\"b\") {\n        score = score + 1000\n    }\n    return score + d[\"b\"]\n}\n\n" +
             // capacity ctors (probed: 7).
             "func capacity(): int {\n    l := new List<int>(8)\n    d := new Dictionary<string, int>(10)\n    l.Add(3)\n    d[\"x\"] = 4\n    return l[0] + d[\"x\"]\n}\n\n" +
             // NESTED generics compose (probed: \"localhost\" / 8).
@@ -8268,6 +8269,7 @@ func outer(x: int): int {
             ("dictCore", System.Array.Empty<object>()),
             ("dictOverwrite", System.Array.Empty<object>()),
             ("dictAdd", System.Array.Empty<object>()),
+            ("dictRemove", System.Array.Empty<object>()),
             ("capacity", System.Array.Empty<object>()),
             ("nestedDict", System.Array.Empty<object>()),
             ("nestedList", System.Array.Empty<object>()),

@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Columnar `Dictionary.Remove` joins the bool-mutator surface
+
+The standalone columnar emitter now lowers `Dictionary<K,V>.Remove(K)` for the same closed-generic
+collection surface as `Add` and `ContainsKey`, preserving the returned `bool`, post-remove `Count`,
+and remaining-key lookup behavior against the C# oracle. Unsupported dictionary mutators remain
+declined until they have parity probes.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_Parity_Collections"`;
+`./scripts/dev.sh ColumnarCodegen_Parity_Collections`.
+
 ## 2026-06-18 — Columnar enum collections use baked enum handles
 
 The standalone columnar emitter now bakes user enums before function signatures and collection
