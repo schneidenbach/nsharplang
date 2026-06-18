@@ -528,6 +528,36 @@ public partial class ILCompiler
         return false;
     }
 
+    private bool TryGetAddressPreservingSoaCastOperand(
+        CastExpression cast,
+        Type expressionType,
+        out Expression operand,
+        out Type operandType)
+    {
+        if (cast.Kind != CastKind.Hard)
+        {
+            operand = null!;
+            operandType = null!;
+            return false;
+        }
+
+        var targetType = ResolveType(cast.TargetType, _currentGenericParameters);
+        var sourceType = GetExpressionType(cast.Expression);
+        if (!AreTypeIdentitiesEquivalent(targetType, expressionType)
+            || !AreTypeIdentitiesEquivalent(sourceType, targetType)
+            || !TryGetSoaRecordInfo(GetByRefElementType(sourceType), out _)
+            || !TryGetSoaRecordInfo(GetByRefElementType(targetType), out _))
+        {
+            operand = null!;
+            operandType = null!;
+            return false;
+        }
+
+        operand = cast.Expression;
+        operandType = sourceType;
+        return true;
+    }
+
     private bool TryResolveSoaRowColumnAccess(
         MemberAccessExpression memberAccess,
         out IndexAccessExpression rowAccess,

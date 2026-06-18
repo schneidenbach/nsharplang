@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA hard-cast generated operations preserve receiver storage
+
+Hard-cast table/alias receivers for generated SoA operations now emit the receiver address through the
+original table storage instead of spilling the cast wrapper into a temporary. `ensureCapacity`, `add`,
+`copyRow`, and `clear` therefore mutate the caller-visible `length`, `capacity`, and backing columns
+when invoked through `((NodeTable)nodes)` or nested alias casts. Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~HardCastedAliasedSoaGeneratedOperations_MutateOriginalTableShape|FullyQualifiedName~HardCastedAliasedSoaTableReceivers_UseGeneratedTableShape|FullyQualifiedName~AliasedSoaTableGeneratedOperations_UseUnderlyingTableShape"`.
+
 ## 2026-06-18 — SoA hard-cast receivers keep slice/null diagnostics
 
 Hard-cast table/alias receivers now have analyzer pins for direct-column null-conditional member/index

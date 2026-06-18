@@ -532,7 +532,9 @@ array element loads/stores with no row allocation, boxing, delegate construction
 allocation, or virtual dispatch. Hard-cast table/alias receivers, such as `((Nodes)table)[row].column`
 and `((Nodes)table).column[row]`, keep the same direct backing-array shape; unsupported hard-cast
 direct-column escapes, null-conditional access, range slices, and generated-member mutations still
-report SoA diagnostics before emission. The proof also includes
+report SoA diagnostics before emission. Hard-cast generated operations (`ensureCapacity`, `add`,
+`copyRow`, and `clear`) preserve the original table receiver address, so metadata and backing-column
+mutations update caller-visible storage instead of a cast temporary. The proof also includes
 default stores across the
 verified scalar/reference element-type set, row-projection `ref`/`out` argument addresses through
 backing-column `ldelema` across the verified scalar/reference/int-backed-enum element-type set,

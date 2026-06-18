@@ -9510,6 +9510,10 @@ public partial class ILCompiler
                 EmitAddressableExpression(parenthesized.Inner, expressionType);
                 return;
 
+            case CastExpression cast when TryGetAddressPreservingSoaCastOperand(cast, expressionType, out var operand, out var operandType):
+                EmitAddressableExpression(operand, operandType);
+                return;
+
             // A value-type `this`/`base` receiver is reached here only for a struct member read or
             // write (the guards at the call sites use IsValueTypeLike). arg0 already holds the
             // managed pointer to the receiver, so load it as the address directly — spilling it into

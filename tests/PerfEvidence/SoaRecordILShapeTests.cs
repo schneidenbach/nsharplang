@@ -5454,6 +5454,57 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void HardCastedAliasedSoaGeneratedOperations_MutateOriginalTableShape()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
+            func mutate(nodes: Nodes): int {
+                ((NodeTable)nodes).ensureCapacity(4)
+                first := ((NodeTable)nodes).add()
+                ((NodeTable)nodes)[first].kind = 9
+                second := ((Nodes)((NodeTable)nodes)).add()
+                ((Nodes)((NodeTable)nodes))[second].kind = 4
+                ((NodeTable)nodes).copyRow(first, 3)
+                ((Nodes)((NodeTable)nodes)).clear()
+                return nodes.length * 100000
+                    + nodes.capacity * 1000
+                    + nodes.kind[first] * 100
+                    + nodes.kind[second] * 10
+                    + nodes.kind[3]
+            }
+
+            func main(): int {
+                nodes := new Nodes(1)
+                return mutate(nodes)
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var mutate = ILShapeInspector.GetProgramMethod(assembly, "mutate");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(4949, Assert.IsType<int>(main.Invoke(null, null)));
+
+            ILShapeInspector.AssertNoBoxing(mutate);
+            Assert.Equal(0, ILShapeInspector.CountOpcode(mutate, OpCodes.Newarr));
+            Assert.Equal(0, ILShapeInspector.CountOpcode(mutate, OpCodes.Newobj));
+            Assert.Equal(0, ILShapeInspector.CountDelegateConstructions(mutate));
+            Assert.Equal(0, ILShapeInspector.CountOpcode(mutate, OpCodes.Callvirt));
+            Assert.Equal(5, ILShapeInspector.CountOpcode(mutate, OpCodes.Call));
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void AliasedSoaTableGeneratedOperations_UseUnderlyingTableShape()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
