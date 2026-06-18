@@ -15744,6 +15744,68 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void ILCompiler_SoaRecordAliasGeneratedOperationDynamicGuards_ReportUnderlyingTableMessages()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var source = """
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
+            func make(capacity: int): int {
+                nodes := new Nodes(capacity)
+                return nodes.capacity
+            }
+
+            func ensure(capacity: int): int {
+                nodes := new Nodes(1)
+                nodes.ensureCapacity(capacity)
+                return nodes.capacity
+            }
+
+            func wrapLength(length: int): int {
+                kinds := new int[](2)
+                nodes := Nodes.wrap(kinds, length)
+                return nodes.length
+            }
+
+            func copyFrom(from: int): int {
+                nodes := new Nodes(1)
+                row := nodes.add()
+                nodes[row].kind = 7
+                nodes.copyRow(from, 0)
+                return nodes.length
+            }
+
+            func copyTo(to: int): int {
+                nodes := new Nodes(1)
+                row := nodes.add()
+                nodes[row].kind = 7
+                nodes.copyRow(0, to)
+                return nodes.length
+            }
+            """;
+
+        var capacityError = Assert.Throws<ArgumentException>(() => CompileAndInvoke(source, "make", -1));
+        Assert.Equal("capacity for NodeTable must be non-negative", capacityError.Message);
+
+        var ensureError = Assert.Throws<ArgumentException>(() => CompileAndInvoke(source, "ensure", -1));
+        Assert.Equal("capacity for NodeTable.ensureCapacity must be non-negative", ensureError.Message);
+
+        var wrapError = Assert.Throws<ArgumentException>(() => CompileAndInvoke(source, "wrapLength", -1));
+        Assert.Equal("length for NodeTable.wrap must be between 0 and column length", wrapError.Message);
+
+        var sourceRowError = Assert.Throws<ArgumentException>(() => CompileAndInvoke(source, "copyFrom", -1));
+        Assert.Equal("source row for NodeTable.copyRow must be non-negative", sourceRowError.Message);
+
+        var targetRowError = Assert.Throws<ArgumentException>(() => CompileAndInvoke(source, "copyTo", -1));
+        Assert.Equal("target row for NodeTable.copyRow must be non-negative", targetRowError.Message);
+    }
+
+    [Fact]
     public void ILCompiler_SoaRecordAddDynamicMaxLength_ReportsLengthMessage()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA alias generated operations keep runtime guard messages
+
+Alias-generated `new`, `wrap`, `ensureCapacity`, and `copyRow` calls now have dynamic runtime guard
+pins. Calls through `type Nodes = NodeTable` still report the underlying `NodeTable` guard messages
+for negative capacities, wrap lengths, and copy-row source/target ids instead of losing the table
+identity through alias lowering. Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~ILCompiler_SoaRecordAliasGeneratedOperationDynamicGuards_ReportUnderlyingTableMessages"`.
+
 ## 2026-06-18 — Parity-only file boundary derives from the corpus
 
 The product/parity boundary test now derives standalone parity-only dogfood files from
