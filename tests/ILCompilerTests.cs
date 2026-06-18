@@ -4386,6 +4386,29 @@ class MarkerAttribute: Attribute {
     }
 
     [Fact]
+    public void ILCompiler_SkipsMustUsePolicyAttribute()
+    {
+        var source = @"
+[MustUse]
+func Compute(): int {
+    return 42
+}
+
+func main(): int {
+    value := Compute()
+    return value
+}";
+
+        CompileAndInspect(source, assembly =>
+        {
+            var compute = assembly.GetType("Program")!.GetMethod("Compute", BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+            Assert.NotNull(compute);
+            Assert.DoesNotContain(compute!.CustomAttributes, attribute => attribute.AttributeType.Name.Contains("MustUse", StringComparison.Ordinal));
+            return 0;
+        });
+    }
+
+    [Fact]
     public void ILCompiler_CanExecuteTupleDeconstruction()
     {
         var source = @"

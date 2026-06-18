@@ -1108,7 +1108,7 @@ public static class CompilationStubEmitter
                 name = name[..^"Attribute".Length];
             }
 
-            return name is "hot" or "boundary" or "alloc" or "allow" or "trusted" or "memory";
+            return name is "hot" or "boundary" or "alloc" or "allow" or "trusted" or "memory" or "MustUse";
         }
 
         private static string FormatAttributeArgument(Argument argument)

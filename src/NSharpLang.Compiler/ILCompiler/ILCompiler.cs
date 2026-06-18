@@ -4288,7 +4288,7 @@ public partial class ILCompiler
             policyName = policyName[..^"Attribute".Length];
         }
 
-        return policyName is "hot" or "boundary" or "alloc" or "allow" or "trusted" or "memory" or "aotSafe";
+        return policyName is "hot" or "boundary" or "alloc" or "allow" or "trusted" or "memory" or "aotSafe" or "MustUse";
     }
 
     private bool TryGetNativeImportInfo(

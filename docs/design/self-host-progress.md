@@ -11,6 +11,23 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Applied attribute types validate before emission
+
+Applied attribute names now resolve during semantic analysis before the IL backend builds custom
+attribute metadata. Missing attribute types report `NL201` at the attribute name, CLR or source
+types that do not derive from `System.Attribute` report `NL202`, and source-defined attributes that
+do derive from `System.Attribute` report the current unsupported-emission surface as `NL323` instead
+of falling through to line-zero `NL103`. Attribute AST nodes now carry source positions so
+no-argument attribute diagnostics point at the attribute name rather than a fallback location.
+Compiler-known non-emitted policy markers now include `[MustUse]`, keeping analyzer enforcement
+compatible with IL/C# export/stub emission instead of requiring a fake CLR attribute definition.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~AttributeArguments_MissingAttributeType_ReportBeforeEmission|FullyQualifiedName~AttributeArguments_ClrNonAttributeType_ReportBeforeEmission|FullyQualifiedName~AttributeArguments_SourceNonAttributeType_ReportBeforeEmission|FullyQualifiedName~AttributeArguments_SourceDefinedAttribute_ReportBeforeEmission"`;
+`./scripts/dev.sh AttributeArguments`; targeted `nlc build <file> --backend il` probes for
+`[Marker]`, `[Plain]`, `[System.String]`, and a definitely missing attribute now report
+`NL323`/`NL202`/`NL201` before emission instead of `NL103`; a used `[MustUse]` function builds
+successfully through the IL backend; `./scripts/dev.sh --since`; fresh isolated
+`VSCODE_TESTS=skip ./scripts/test-all.sh --commit`.
+
 ## 2026-06-18 — Attribute static member misses report before emission
 
 Resolved attribute enum/static member accesses now validate the selected member during semantic

@@ -669,9 +669,31 @@ public class Analyzer : IDisposable
                     isNull));
             }
 
-            if (allConstantsValid && TryResolveClrAttributeType(attribute.Name, out var attributeType))
+            if (TryResolveClrAttributeType(attribute.Name, out var attributeType))
             {
-                ValidateClrAttributeArguments(attribute, attributeType, argumentInfos);
+                if (allConstantsValid)
+                {
+                    ValidateClrAttributeArguments(attribute, attributeType, argumentInfos);
+                }
+            }
+            else if (TryResolveNonAttributeClrAttributeCandidate(attribute.Name, out var nonAttributeType))
+            {
+                ReportAttributeTypeMustDeriveFromAttribute(attribute, FormatReflectionTypeName(nonAttributeType));
+            }
+            else if (TryResolveSourceAttributeCandidate(attribute.Name, out var sourceType))
+            {
+                if (SourceTypeDerivesFromAttribute(sourceType))
+                {
+                    ReportSourceDefinedAttributeUnsupported(attribute);
+                }
+                else
+                {
+                    ReportAttributeTypeMustDeriveFromAttribute(attribute, sourceType.ToString() ?? attribute.Name);
+                }
+            }
+            else
+            {
+                ReportAttributeTypeNotFound(attribute);
             }
         }
     }
@@ -689,7 +711,7 @@ public class Analyzer : IDisposable
             policyName = policyName[..^"Attribute".Length];
         }
 
-        return policyName is "hot" or "boundary" or "alloc" or "allow" or "trusted" or "memory" or "aotSafe";
+        return policyName is "hot" or "boundary" or "alloc" or "allow" or "trusted" or "memory" or "aotSafe" or "MustUse";
     }
 
     private static (string? Name, Expression Value) NormalizeAttributeArgument(Argument argument)
@@ -1124,6 +1146,56 @@ public class Analyzer : IDisposable
         return false;
     }
 
+    private bool TryResolveNonAttributeClrAttributeCandidate(string attributeName, [NotNullWhen(true)] out Type? type)
+    {
+        foreach (var candidate in GetClrAttributeNameCandidates(attributeName))
+        {
+            if (TryResolveExternalType(candidate) is ReflectionTypeInfo { Type: var resolvedType })
+            {
+                type = resolvedType;
+                return true;
+            }
+        }
+
+        type = null;
+        return false;
+    }
+
+    private bool TryResolveSourceAttributeCandidate(string attributeName, [NotNullWhen(true)] out TypeInfo? type)
+    {
+        foreach (var candidate in GetClrAttributeNameCandidates(attributeName))
+        {
+            var candidateType = LookupType(candidate);
+            if (candidateType == null && TryResolveDottedNestedType(candidate, out var nestedType))
+            {
+                candidateType = nestedType;
+            }
+
+            if (candidateType != null)
+            {
+                candidateType = ResolveTypeAlias(candidateType);
+                if (IsSourceDeclaredAttributeCandidate(candidateType))
+                {
+                    type = candidateType;
+                    return true;
+                }
+            }
+        }
+
+        type = null;
+        return false;
+    }
+
+    private static bool IsSourceDeclaredAttributeCandidate(TypeInfo type)
+        => type is ClassTypeInfo
+            or StructTypeInfo
+            or RecordTypeInfo
+            or InterfaceTypeInfo
+            or UnionTypeInfo
+            or EnumTypeInfo
+            or SoaRecordTypeInfo
+            or NewtypeInfo;
+
     private static bool IsClrAttributeType(Type type)
     {
         for (var current = type; current != null; current = current.BaseType)
@@ -1145,6 +1217,74 @@ public class Analyzer : IDisposable
             yield return attributeName + "Attribute";
         }
     }
+
+    private bool SourceTypeDerivesFromAttribute(TypeInfo type)
+        => SourceTypeDerivesFromAttribute(type, new HashSet<ClassDeclaration>(ReferenceEqualityComparer.Instance));
+
+    private bool SourceTypeDerivesFromAttribute(TypeInfo type, HashSet<ClassDeclaration> seenClasses)
+    {
+        type = ResolveTypeAlias(type);
+        if (type is ReflectionTypeInfo { Type: var reflectionType })
+        {
+            return IsClrAttributeType(reflectionType);
+        }
+
+        if (type is not ClassTypeInfo classType || classType.Declaration.BaseClass == null)
+        {
+            return false;
+        }
+
+        if (!seenClasses.Add(classType.Declaration))
+        {
+            return false;
+        }
+
+        var baseType = ResolveTypeAlias(ResolveType(classType.Declaration.BaseClass));
+        return baseType is ReflectionTypeInfo { Type: var baseReflectionType } && IsClrAttributeType(baseReflectionType)
+            || SourceTypeDerivesFromAttribute(baseType, seenClasses);
+    }
+
+    private void ReportAttributeTypeNotFound(AttributeNode attribute)
+    {
+        var (line, column, length) = GetAttributeTypeDiagnosticSpan(attribute);
+        var suggestedAttributeName = attribute.Name.EndsWith("Attribute", StringComparison.Ordinal)
+            ? attribute.Name
+            : attribute.Name + "Attribute";
+        Error(
+            ErrorCode.TypeNotFound,
+            $"Attribute type '{attribute.Name}' not found",
+            line,
+            column,
+            $"Check the spelling, add the missing 'import', or define an attribute class named '{suggestedAttributeName}'.",
+            length);
+    }
+
+    private void ReportAttributeTypeMustDeriveFromAttribute(AttributeNode attribute, string typeName)
+    {
+        var (line, column, length) = GetAttributeTypeDiagnosticSpan(attribute);
+        Error(
+            ErrorCode.TypeMismatch,
+            $"Attribute type '{typeName}' must derive from System.Attribute",
+            line,
+            column,
+            "Use a CLR attribute type or define a class that inherits System.Attribute.",
+            length);
+    }
+
+    private void ReportSourceDefinedAttributeUnsupported(AttributeNode attribute)
+    {
+        var (line, column, length) = GetAttributeTypeDiagnosticSpan(attribute);
+        Error(
+            ErrorCode.FeatureNotImplemented,
+            $"Source-defined attribute '{attribute.Name}' is not supported by IL emission yet",
+            line,
+            column,
+            "Use an attribute type from a referenced CLR assembly for now.",
+            length);
+    }
+
+    private static (int Line, int Column, int Length) GetAttributeTypeDiagnosticSpan(AttributeNode attribute)
+        => (attribute.Line, attribute.Column, Math.Max(1, attribute.Name.Length));
 
     private void ValidateClrAttributeArguments(
         AttributeNode attribute,

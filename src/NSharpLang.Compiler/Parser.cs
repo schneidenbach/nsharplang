@@ -307,6 +307,8 @@ public class Parser
         var attributes = new List<AttributeNode>();
         while (Check(TokenType.LeftBracket))
         {
+            var attributeLine = Current.Line;
+            var attributeColumn = Current.Column + 1;
             Advance();
             // Support qualified attribute names (e.g., System.Runtime.CompilerServices.InlineArray)
             var name = ConsumeAttributeIdentifier("Expected attribute name");
@@ -323,7 +325,7 @@ public class Parser
                 args = ParseArgumentList();
             }
 
-            attributes.Add(new AttributeNode(name, args));
+            attributes.Add(new AttributeNode(name, args, attributeLine, attributeColumn));
             Consume(TokenType.RightBracket, "Expected ']'");
         }
         return attributes;

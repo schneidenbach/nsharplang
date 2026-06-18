@@ -11666,6 +11666,79 @@ func Main() {
     }
 
     [Fact]
+    public void AttributeArguments_MissingAttributeType_ReportBeforeEmission()
+    {
+        var result = AnalyzeWithSource("""
+            [DefinitelyMissingNSharpCompilerAttribute]
+            func Bad(): int {
+                return 0
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeNotFound);
+        Assert.Contains("Attribute type 'DefinitelyMissingNSharpCompilerAttribute' not found", error.Message);
+        Assert.Equal(1, error.Line);
+        Assert.Equal(2, error.Column);
+    }
+
+    [Fact]
+    public void AttributeArguments_ClrNonAttributeType_ReportBeforeEmission()
+    {
+        var result = AnalyzeWithSource("""
+            [System.String]
+            func Bad(): int {
+                return 0
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains("string", error.Message);
+        Assert.Contains("System.Attribute", error.Message);
+        Assert.Equal(1, error.Line);
+        Assert.Equal(2, error.Column);
+    }
+
+    [Fact]
+    public void AttributeArguments_SourceNonAttributeType_ReportBeforeEmission()
+    {
+        var result = AnalyzeWithSource("""
+            class Plain {
+            }
+
+            [Plain]
+            func Bad(): int {
+                return 0
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains("Plain", error.Message);
+        Assert.Contains("System.Attribute", error.Message);
+        Assert.Equal(4, error.Line);
+        Assert.Equal(2, error.Column);
+    }
+
+    [Fact]
+    public void AttributeArguments_SourceDefinedAttribute_ReportBeforeEmission()
+    {
+        var result = AnalyzeWithSource("""
+            class MarkerAttribute: System.Attribute {
+            }
+
+            [Marker]
+            func Bad(): int {
+                return 0
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.FeatureNotImplemented);
+        Assert.Contains("Source-defined attribute 'Marker'", error.Message);
+        Assert.Contains("IL emission", error.Message);
+        Assert.Equal(4, error.Line);
+        Assert.Equal(2, error.Column);
+    }
+
+    [Fact]
     public void TableDrivenTestCases_SupportedInlineDataConstants_AreValid()
     {
         AssertNoErrors("""

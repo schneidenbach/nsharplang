@@ -3785,7 +3785,7 @@ public class Transpiler
             name = name[..^"Attribute".Length];
         }
 
-        return name is "hot" or "boundary" or "alloc" or "allow" or "trusted" or "memory";
+        return name is "hot" or "boundary" or "alloc" or "allow" or "trusted" or "memory" or "MustUse";
     }
 
     private string TranspileAttributeInline(AttributeNode attr)

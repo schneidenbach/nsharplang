@@ -310,7 +310,9 @@ public enum Modifiers
 // Attributes
 public record AttributeNode(
     string Name,
-    List<Argument> Arguments);
+    List<Argument> Arguments,
+    int Line = 1,
+    int Column = 1);
 
 // Source ranges use 1-based lines/columns and an exclusive end column.
 public readonly record struct SourceSpan(int StartLine, int StartColumn, int EndLine, int EndColumn)
