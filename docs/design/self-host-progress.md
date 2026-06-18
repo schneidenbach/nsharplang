@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Closed-generic columnar calls preserve by-ref parameters
+
+Closed user-generic receiver calls now route through the same declared-argument helper as non-generic
+call sites, and closed-signature substitution preserves managed-pointer parameters before array
+substitution. This closes the previous `&RefState` rebind gap where `&RefState` could be mistaken for
+`RefState[]` while checking `GenericOps<string>.Store(ref st, ...)`. The proof pins value parity, the
+callee parameter's CLR by-ref shape, and the caller's `ldloca` address passing, while the existing
+generic class/record fixtures guard normal closed-receiver behavior. Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~ColumnarCodegen_Parity_ByRefUserCallSites"`; `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~ColumnarCodegen_Parity_ByRefStateParameter|FullyQualifiedName~ColumnarCodegen_Parity_ByRefUserCallSites|FullyQualifiedName~ColumnarCodegen_Parity_GenericClass_CtorFieldMethodProperty|FullyQualifiedName~ColumnarCodegen_Parity_GenericClass_TwoParamsAndNested|FullyQualifiedName~ColumnarCodegen_Parity_GenericRecords"`.
+
 ## 2026-06-18 — Columnar user call sites carry by-ref state arguments
 
 Columnar codegen now accepts supported by-ref parameter types on class/interface/constructor method

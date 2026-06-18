@@ -2396,6 +2396,8 @@ internal sealed class ColumnarIlEmitter
                 return closedArguments[signatureType.GenericParameterPosition];
             return signatureType;
         }
+        if (signatureType.IsByRef)
+            return SubstituteClosedTypeArguments(signatureType.GetElementType()!, closedArguments).MakeByRefType();
         if (signatureType.IsSZArray)
             return SubstituteClosedTypeArguments(signatureType.GetElementType()!, closedArguments).MakeArrayType();
         if (signatureType.IsGenericType && !signatureType.IsGenericTypeDefinition)
@@ -10318,8 +10320,7 @@ internal sealed class ColumnarIlEmitter
             for (var a = 0; a < argCount; a++)
             {
                 var expectedParam = SubstituteClosedTypeArguments(closedMethod.ParamTypes[a], closedArgs);
-                if (!EmitExpression(Child(callIdx, 1 + a), out var argType)
-                    || (!TypesEquivalent(argType, expectedParam) && !TryEmitInterfaceUpcast(argType, expectedParam)))
+                if (!EmitDeclaredCallArgument(Child(callIdx, 1 + a), expectedParam, allowLambdaLiteral: true))
                     return false;
             }
             _il.Emit(closedDef.IsReference ? OpCodes.Callvirt : OpCodes.Call, TypeBuilder.GetMethod(receiverType, closedMethod.Builder));

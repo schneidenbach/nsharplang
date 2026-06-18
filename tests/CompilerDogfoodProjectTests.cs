@@ -6267,8 +6267,26 @@ func outer(x: int): int {
             ("implicitThis", new object[] { 6 }), ("implicitThis", new object[] { -8 }),
             ("directImplicit", new object[] { 1 }));
 
-        // Closed-generic receivers with by-ref parameters remain a separate rebind/token proof; keep this slice on
-        // non-generic user call sites, which are the ParserState/table-kernel migration shape.
+        var closedGenericCalls = stateTypes +
+            "class GenericOps<T> {\n" +
+            "    Label: T\n" +
+            "    constructor(label: T) {\n        Label = label\n    }\n\n" +
+            "    func Store(st: &RefState, value: int): int {\n        st.Value = value\n        return st.Value\n    }\n" +
+            "}\n\n" +
+            "func closedGeneric(seed: int): int {\n    g := new GenericOps<string>(\"x\")\n    st := new RefState { Value: seed }\n    got := g.Store(ref st, 13)\n    return got * 10 + st.Value\n}\n";
+        AssertColumnarProgramMatchesCSharp(closedGenericCalls,
+            ("closedGeneric", new object[] { 1 }), ("closedGeneric", new object[] { -3 }));
+
+        var (closedGenericOk, closedGenericAsm, closedGenericTypeName, _) = RouteColumnarProgram(closedGenericCalls);
+        Assert.True(closedGenericOk, $"Columnar program codegen declined the closed-generic by-ref call-site proof:\n{closedGenericCalls}");
+        using (var loadScope = CollectibleAssemblyScope.Load(closedGenericAsm!))
+        {
+            var programType = loadScope.Assembly.GetType(closedGenericTypeName!)!;
+            var genericOps = loadScope.Assembly.GetTypes().Single(t => t.Name is "GenericOps" or "GenericOps`1");
+            var store = genericOps.GetMethod("Store")!;
+            Assert.True(store.GetParameters()[0].ParameterType.IsByRef);
+            Assert.True(ILShapeInspector.CountOpcode(programType.GetMethod("closedGeneric")!, OpCodes.Ldloca) + ILShapeInspector.CountOpcode(programType.GetMethod("closedGeneric")!, OpCodes.Ldloca_S) >= 1);
+        }
     }
 
     // Stage 4b-i — the type-aware emitter, proven by adding BOOL alongside int. Comparisons now produce bool in
