@@ -324,7 +324,9 @@ and `table.column.Rank++` decline during analysis instead of reaching the IL bac
 setters, including through checked/unchecked direct-column wrappers. Null-conditional member or index
 access over direct columns, such as `table.column?.Length`, `checked(table.column)?.GetHashCode()`,
 and `table.column?[row]`, declines before ordinary nullable array lowering can hide the non-null
-table-storage invariant; use direct metadata or element access instead. Array instance methods on
+table-storage invariant. The same rejection applies when the direct column is reached through
+hard-cast table/alias receivers and then wrapped in `checked(...)` or `unchecked(...)`; use direct
+metadata or element access instead. Array instance methods on
 direct columns decline before IL emission
 because they would box, allocate, virtually dispatch, or bypass the pinned static kernels. This includes
 element access methods such as `table.column.GetValue(...)`/`SetValue(...)`, method-value escapes
@@ -480,8 +482,9 @@ The compiler must produce direct diagnostics for common misuse:
   and prefix/postfix update operands: "Property 'Length' is read-only";
 - top-level `checked(...)`/`unchecked(...)` wrappers around `ref`/`out` arguments are not
   addressable lvalues, including when the wrapped expression is a SoA row projection or direct
-  column element; if the wrapped expression already reports a SoA-specific error, such as a range
-  slice, that diagnostic is preserved;
+  column element reached through table aliases or hard-cast table receivers; if the wrapped
+  expression already reports a SoA-specific error, such as a range slice, that diagnostic is
+  preserved;
 - hidden allocation request: "this operation would allocate row objects; use column access instead".
 
 These diagnostics must point at the row access or column declaration, not at generated lowering code.

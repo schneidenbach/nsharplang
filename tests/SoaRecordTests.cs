@@ -5559,6 +5559,19 @@ public class SoaRecordTests : ILCompilerTestBase
                 type Nodes = NodeTable
 
                 func bad(nodes: Nodes) {
+                    value := checked(((NodeTable)nodes).kind)?.GetHashCode()
+                }
+                """,
+                AccessKind: "member access"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
                     value := nodes.kind?[0]
                 }
                 """,
@@ -5573,6 +5586,19 @@ public class SoaRecordTests : ILCompilerTestBase
 
                 func bad(nodes: Nodes) {
                     value := ((Nodes)((NodeTable)nodes)).kind?[0]
+                }
+                """,
+                AccessKind: "index access"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    value := unchecked(((Nodes)((NodeTable)nodes)).kind)?[0]
                 }
                 """,
                 AccessKind: "index access"),
@@ -8443,7 +8469,41 @@ public class SoaRecordTests : ILCompilerTestBase
                     bump(ref checked((nodes.kind)[0]))
                 }
                 """,
-                Modifier: "ref")
+                Modifier: "ref"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bump(ref value: int) {
+                    value += 1
+                }
+
+                func bad(nodes: Nodes) {
+                    bump(ref checked(((NodeTable)nodes).kind[0]))
+                }
+                """,
+                Modifier: "ref"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func reset(out value: int) {
+                    value = 0
+                }
+
+                func bad(nodes: Nodes) {
+                    reset(out unchecked(((Nodes)((NodeTable)nodes))[0].kind))
+                }
+                """,
+                Modifier: "out")
         };
 
         foreach (var testCase in cases)

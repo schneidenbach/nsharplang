@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Hard-cast SoA checked diagnostics reject before emission
+
+Hard-cast direct-column null-conditional access and whole-argument `checked(...)`/`unchecked(...)`
+`ref`/`out` wrappers now have analyzer pins. `checked(((NodeTable)nodes).kind)?.GetHashCode()`,
+`unchecked(((Nodes)((NodeTable)nodes)).kind)?[0]`, `ref checked(((NodeTable)nodes).kind[0])`, and
+`out unchecked(((Nodes)((NodeTable)nodes))[0].kind)` all fail before IL emission with the intended
+SoA/null-conditional or addressability diagnostics instead of falling through to undefined members or
+backend address lowering. Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~Analyzer_SoaDirectColumnsCannotUseNullConditionalAccess|FullyQualifiedName~Analyzer_SoaRefOutCheckedAndUncheckedWholeArgumentsRejectBeforeEmission"`.
+
 ## 2026-06-18 — Hard-cast SoA checked ref/out wrappers stay direct
 
 Direct-column `ref` and `out` arguments now have IL-shape evidence when hard-cast receivers are
