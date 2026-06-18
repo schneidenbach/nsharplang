@@ -4660,6 +4660,7 @@ internal sealed class ColumnarIlEmitter
 
             case 23: // ExpressionStatement — a SIMPLE `=` assignment (kind 14) to a `:=` local OR an array
             {        // element `a[i] = value`, OR a bare CALL statement (a void BCL call such as `Array.Fill(...)`,
+                     // `Array.Clear(...)`,
                      // or a sibling/BCL call whose non-void result is discarded), OR a COMPOUND assignment
                      // (`+=` `-=` `*=` `/=` on a bare local/param — lowered to load/op/store below).
                 var expr = UnwrapParenthesizedNode(Child(idx, 0));
@@ -4671,8 +4672,8 @@ internal sealed class ColumnarIlEmitter
 
                 if (_nodes.Kind(expr) == 9) // a bare call statement.
                 {
-                    // Emit the call. A void call (e.g. Array.Fill) leaves nothing on the stack; a NON-void call
-                    // leaves its result, which is unused in statement position — discard it with `pop` (exactly
+                    // Emit the call. A void call (e.g. Array.Fill/Array.Clear) leaves nothing on the stack; a
+                    // NON-void call leaves its result, which is unused in statement position — discard it with `pop` (exactly
                     // what the C# path emits for a discarded call result, so the side effects + result are
                     // identical). This is the `helper(args)`-as-statement idiom (e.g. LinterImports.nl clearing
                     // flags for its side effect and ignoring the returned count).
@@ -9375,6 +9376,33 @@ internal sealed class ColumnarIlEmitter
             if (fill == null)
                 return false;
             _il.Emit(OpCodes.Call, fill.MakeGenericMethod(elementType));
+            type = typeof(void);
+            return true;
+        }
+        if (typeName == "Array" && member == "Clear" && (argCount == 1 || argCount == 3))
+        {
+            // Array.Clear(Array) and Array.Clear(Array, int, int) -> void. The emitted argument remains the
+            // concrete T[] reference; the BCL parameter is System.Array, so no copy or element loop is introduced.
+            if (!EmitExpression(Child(callIdx, 1), out var arrayType) || !arrayType.IsSZArray)
+                return false;
+            var elementType = arrayType.GetElementType()!;
+            if (!IsSupportedElementType(elementType))
+                return false;
+
+            MethodInfo? clear;
+            if (argCount == 1)
+            {
+                clear = typeof(Array).GetMethod(nameof(Array.Clear), new[] { typeof(Array) });
+            }
+            else
+            {
+                clear = typeof(Array).GetMethod(nameof(Array.Clear), new[] { typeof(Array), typeof(int), typeof(int) });
+                if (!EmitArg(callIdx, 2, typeof(int)) || !EmitArg(callIdx, 3, typeof(int)))
+                    return false;
+            }
+            if (clear == null)
+                return false;
+            _il.Emit(OpCodes.Call, clear);
             type = typeof(void);
             return true;
         }

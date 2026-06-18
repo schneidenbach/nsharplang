@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Columnar `Array.Clear` resets compiler table slices
+
+The standalone columnar emitter now lowers `Array.Clear(Array)` and
+`Array.Clear(Array, int, int)` for the existing supported single-dimensional array element set. The
+parity probe covers whole-column resets, touched-range resets, scalar/reference default values, and
+declines unsupported overload/type shapes so the C# path remains authoritative outside the modeled
+surface.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_Parity_ArrayClear"`;
+`./scripts/dev.sh ColumnarCodegen_Parity_Array`.
+
 ## 2026-06-18 — SoA table default/new diagnostics cover typed lambdas
 
 The SoA analyzer regression matrix now pins target-typed `default` and `new()` table diagnostics

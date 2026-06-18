@@ -6636,6 +6636,36 @@ func outer(x: int): int {
             "func f(a: int[]): int {\n    Array.Fill(a, 5L, 0, a.Length)\n    return 0\n}\n").Ok);
     }
 
+    // Array.Clear(Array) and Array.Clear(Array, int, int) -> void, invoked as bare VOID statements. This is the
+    // compiler-table reset primitive: clear a whole backing column or just the touched slice, preserving BCL
+    // default-value semantics for scalar and reference element arrays.
+    [Fact]
+    public void ColumnarCodegen_Parity_ArrayClear()
+    {
+        var clearIntWhole = "func clearIntWhole(a: int[]): int {\n    Array.Fill(a, 7, 0, a.Length)\n    Array.Clear(a)\n    total := 0\n    i := 0\n    while i < a.Length {\n        total = total + a[i]\n        i = i + 1\n    }\n    return total\n}\n\n";
+        var clearIntPartial = "func clearIntPartial(a: int[], start: int, count: int): int {\n    Array.Fill(a, 5, 0, a.Length)\n    Array.Clear(a, start, count)\n    return a[0] * 1000 + a[1] * 100 + a[2] * 10 + a[3]\n}\n\n";
+        var clearLong = "func clearLong(a: long[]): long {\n    Array.Fill(a, 5000000000L, 0, a.Length)\n    Array.Clear(a)\n    total := 0L\n    i := 0\n    while i < a.Length {\n        total = total + a[i]\n        i = i + 1\n    }\n    return total\n}\n\n";
+        var clearChar = "func clearChar(a: char[]): int {\n    Array.Fill(a, 'x', 0, a.Length)\n    Array.Clear(a)\n    return (int)a[0] + a.Length\n}\n\n";
+        var clearString = "func clearString(a: string[]): int {\n    Array.Fill(a, \"x\", 0, a.Length)\n    Array.Clear(a, 1, 2)\n    score := 0\n    if a[0] == \"x\" {\n        score = score + 1\n    }\n    if a[1] == null {\n        score = score + 10\n    }\n    if a[2] == null {\n        score = score + 100\n    }\n    if a[3] == \"x\" {\n        score = score + 1000\n    }\n    return score\n}\n";
+        var prog = clearIntWhole + clearIntPartial + clearLong + clearChar + clearString;
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("clearIntWhole", new object[] { new int[5] }),
+            ("clearIntWhole", new object[] { new int[0] }),
+            ("clearIntPartial", new object[] { new int[4], 1, 2 }),
+            ("clearIntPartial", new object[] { new int[4], 0, 0 }),
+            ("clearLong", new object[] { new long[4] }),
+            ("clearChar", new object[] { new char[3] }),
+            ("clearString", new object[] { new string[4] }));
+
+        // DECLINE SURFACE — keep the C# path authoritative for forms the backend does not model.
+        Assert.False(RouteColumnarProgram(  // the 2-arg Array.Clear form is not modelled.
+            "func f(a: int[]): int {\n    Array.Clear(a, 0)\n    return 0\n}\n").Ok);
+        Assert.False(RouteColumnarProgram(  // range index/count must be int.
+            "func f(a: int[]): int {\n    Array.Clear(a, 0L, 1)\n    return 0\n}\n").Ok);
+        Assert.False(RouteColumnarProgram(  // first argument must be a supported single-dimensional array.
+            "func f(): int {\n    Array.Clear(5)\n    return 0\n}\n").Ok);
+    }
+
     // A bare CALL statement whose result is DISCARDED: emit the call, then `pop` the non-void result (a void
     // call leaves nothing). The C# path emits the same pop, so the side effects + ignored result are identical.
     // This is the `helper(args)`-as-statement idiom (LinterImports.nl calls a flag-clearing helper for its side
