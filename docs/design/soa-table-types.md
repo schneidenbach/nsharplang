@@ -426,7 +426,7 @@ The compiler must produce direct diagnostics for common misuse:
   "SoA table row indexes must not be negative" or "SoA column row indexes must not be negative",
   including parenthesized whole-expression or unary-operand, checked/unchecked, signed
   integer-cast forms, and row-projection or direct-column `ref`/`out` argument addresses including
-  aliases and parenthesized column-member receivers;
+  aliases, hard-cast table/alias receivers, and parenthesized column-member receivers;
 - direct table member mutation: "SoA table member 'X' cannot be assigned directly" for simple,
   compound, and null-coalescing assignment, or "SoA table member 'X' cannot be incremented or
   decremented directly", and the same member cannot be used as a `ref`/`out` argument, including
@@ -549,8 +549,9 @@ the verified scalar/reference
 element-type set, direct column null-coalescing reads/assignments, and from-end `System.Index` access
 including parenthesized literal and variable-held from-end direct-column element lvalues, direct
 column `ref`/`out` argument addresses through backing-column `ldelema` including from-end indexes,
-parenthesized direct-column lvalues, receiver-parenthesized direct-column `ref`/`out` arguments over
-row and literal/variable-held from-end indexes, and the verified scalar/reference/int-backed-enum
+hard-cast table/alias receivers, parenthesized direct-column lvalues,
+receiver-parenthesized direct-column `ref`/`out` arguments over row and literal/variable-held
+from-end indexes, and the verified scalar/reference/int-backed-enum
 element-type set, with mixed verified element types also pinned for literal and variable-held
 from-end `ref`/`out` addresses, expression-valued simple stores, default stores across the verified scalar/reference element-type set,
 including expression-valued default stores, without old-element reads, variable-held from-end default

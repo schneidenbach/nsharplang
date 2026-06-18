@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA hard-cast direct-column ref/out stays pinned
+
+Hard-cast direct-column element `ref`/`out` arguments now have IL-shape evidence for direct
+backing-array `ldelema`, including nested table/alias casts and from-end indexes. Whole direct members
+still reject before emission when used as `ref`/`out` targets through hard-cast table/alias receivers,
+so `((NodeTable)nodes).kind` and `((Nodes)((NodeTable)nodes)).capacity` cannot mutate the generated
+storage surface directly. Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~HardCastedDirectColumnRefAndOutArguments_UseColumnArrayElementAddress|FullyQualifiedName~Analyzer_SoaDirectMembersCannotBeRefOutArguments"`.
+
 ## 2026-06-18 — SoA generated-operation value diagnostics cover hard casts
 
 Generated SoA operations still cannot be materialized as function/delegate values when reached through

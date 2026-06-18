@@ -1312,6 +1312,61 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void HardCastedDirectColumnRefAndOutArguments_UseColumnArrayElementAddress()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                kind: int
+                start: int
+            }
+
+            type Nodes = NodeTable
+
+            func bump(ref value: int) {
+                value += 5
+            }
+
+            func reset(out value: int) {
+                value = 17
+            }
+
+            func mutate(nodes: Nodes, row: int): int {
+                bump(ref ((NodeTable)nodes).kind[row])
+                reset(out ((Nodes)((NodeTable)nodes)).start[^1])
+                return nodes.kind[row] * 10 + nodes.start[row]
+            }
+
+            func main(): int {
+                nodes := new Nodes(1)
+                row := nodes.add()
+                nodes.kind[row] = 2
+                nodes.start[row] = 3
+                return mutate(nodes, row)
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var mutate = ILShapeInspector.GetProgramMethod(assembly, "mutate");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(87, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoFromEndSliceAllocation(mutate);
+            Assert.True(
+                ILShapeInspector.CountOpcode(mutate, OpCodes.Ldfld) >= 4,
+                "Hard-cast direct column ref/out arguments should load backing column arrays directly.");
+            Assert.Equal(2, ILShapeInspector.CountOpcode(mutate, OpCodes.Ldelema));
+            Assert.Equal(4, CountArrayElementLoads(mutate));
+            Assert.Equal(0, CountArrayElementStores(mutate));
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void DirectColumnRefAndOutArgumentsCheckedUncheckedWrappers_UseColumnArrayElementAddress()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
