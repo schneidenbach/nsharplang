@@ -8212,7 +8212,7 @@ func outer(x: int): int {
     // COLLECTIONS (Phase D) — List<T>/Dictionary<K,V>/HashSet<T> over BAKED runtime type args (scalars/string/
     // nested collections; builder-typed elements decline this rung). TryResolveType closes the runtime
     // generics AFTER user generics (the Action precedent); construction = newobj .ctor()/(int capacity);
-    // members = List Add/RemoveAt/Contains/Remove/Clear, Dictionary Add/TryAdd/ContainsKey/TryGetValue/Remove/Clear,
+    // members = List Add/RemoveAt/Contains/IndexOf/Remove/Clear, Dictionary Add/TryAdd/ContainsKey/TryGetValue/Remove/Clear,
     // HashSet Add/Contains/Remove/Clear + get_Count + get_Item/set_Item (probe-pinned exception parity:
     // ArgumentOutOfRangeException, KeyNotFoundException). FOREACH over supported BCL collections mirrors the
     // ORACLE's exact lowering — the enumerator comes from the IEnumerable<T> INTERFACE (the struct enumerator is BOXED),
@@ -8235,6 +8235,7 @@ func outer(x: int): int {
             "func idxWrite(): int {\n    lst := new List<int>()\n    lst.Add(1)\n    lst[0] = 5\n    return lst[0]\n}\n\n" +
             "func removeAt(): int {\n    lst := new List<int>()\n    lst.Add(1)\n    lst.Add(2)\n    lst.RemoveAt(0)\n    return lst[0] * 10 + lst.Count\n}\n\n" +
             "func listContains(): int {\n    lst := new List<int>()\n    lst.Add(2)\n    lst.Add(4)\n    score := lst.Count\n    if lst.Contains(2) {\n        score = score + 10\n    }\n    if lst.Contains(9) {\n        score = score + 100\n    }\n    return score\n}\n\n" +
+            "func listIndexOf(): int {\n    lst := new List<string>()\n    lst.Add(\"a\")\n    lst.Add(\"b\")\n    lst.Add(\"a\")\n    return (lst.IndexOf(\"b\") + 1) * 100 + (lst.IndexOf(\"x\") + 1) * 10 + (lst.IndexOf(\"a\") + 1)\n}\n\n" +
             "func listRemove(): int {\n    lst := new List<int>()\n    lst.Add(1)\n    lst.Add(3)\n    removed := lst.Remove(1)\n    missing := lst.Remove(9)\n    score := lst.Count\n    if removed {\n        score = score + 10\n    }\n    if missing {\n        score = score + 100\n    }\n    return score + lst[0]\n}\n\n" +
             "func listClear(): int {\n    lst := new List<int>()\n    lst.Add(1)\n    lst.Add(2)\n    lst.Clear()\n    lst.Add(4)\n    return lst.Count * 10 + lst[0]\n}\n\n" +
             // foreach over a List + break/continue through the dispose label (probed: 6 / 4).
@@ -8272,6 +8273,7 @@ func outer(x: int): int {
             ("idxWrite", System.Array.Empty<object>()),
             ("removeAt", System.Array.Empty<object>()),
             ("listContains", System.Array.Empty<object>()),
+            ("listIndexOf", System.Array.Empty<object>()),
             ("listRemove", System.Array.Empty<object>()),
             ("listClear", System.Array.Empty<object>()),
             ("feSum", System.Array.Empty<object>()),
@@ -8338,7 +8340,7 @@ func outer(x: int): int {
 
         AssertColumnarProgramMatchesCSharp(
             enumPrefix +
-            "func listEnum(): int {\n    l := new List<Color>()\n    l.Add(Color.Red)\n    l.Add(Color.Green)\n    score := 0\n    foreach c in l {\n        if c == Color.Green {\n            score = score + 10\n        }\n    }\n    if l[0] == Color.Red {\n        score = score + 1\n    }\n    if l.Contains(Color.Green) {\n        score = score + 1000\n    }\n    if l.Remove(Color.Red) {\n        score = score + 10000\n    }\n    l.Clear()\n    l.Add(Color.Blue)\n    return score + l.Count * 100\n}\n",
+            "func listEnum(): int {\n    l := new List<Color>()\n    l.Add(Color.Red)\n    l.Add(Color.Green)\n    score := 0\n    foreach c in l {\n        if c == Color.Green {\n            score = score + 10\n        }\n    }\n    if l[0] == Color.Red {\n        score = score + 1\n    }\n    if l.Contains(Color.Green) {\n        score = score + 1000\n    }\n    score = score + l.IndexOf(Color.Green) * 100000\n    score = score + (l.IndexOf(Color.Blue) + 1) * 1000000\n    if l.Remove(Color.Red) {\n        score = score + 10000\n    }\n    l.Clear()\n    l.Add(Color.Blue)\n    return score + l.Count * 100\n}\n",
             ("listEnum", System.Array.Empty<object>()));
 
         AssertColumnarProgramMatchesCSharp(
@@ -8463,6 +8465,7 @@ func outer(x: int): int {
         // List equality methods over builder elements stay declined until generated equality/hash semantics
         // have a dedicated collection-method proof. Clear remains accepted above because it does not compare T.
         Assert.False(RouteColumnarProgram("record Pt {\n    X: int\n}\n\nfunc f(): bool {\n    l := new List<Pt>()\n    l.Add(new Pt { X: 1 })\n    return l.Contains(new Pt { X: 1 })\n}\n").Ok);
+        Assert.False(RouteColumnarProgram("record Pt {\n    X: int\n}\n\nfunc f(): int {\n    l := new List<Pt>()\n    l.Add(new Pt { X: 1 })\n    return l.IndexOf(new Pt { X: 1 })\n}\n").Ok);
         // a TUPLE over a builder-bound collection element — the closed ValueTuple is itself a TBI whose
         // ctor/ItemN lookups throw; the tuple-element gate declines it cleanly.
         Assert.False(RouteColumnarProgram("record Pt {\n    X: int\n}\n\nfunc f(): int {\n    l := new List<Pt>()\n    t := (1, l)\n    return t.Item1\n}\n").Ok);

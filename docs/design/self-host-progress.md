@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Columnar `List<T>.IndexOf` follows equality-method gates
+
+The standalone columnar emitter now lowers `List<T>.IndexOf(T)` for the same key-safe element
+surface as `List<T>.Contains(T)` and `List<T>.Remove(T)`. Baked scalar/string elements and baked
+int-backed enums route through the closed BCL method, while builder-bound record/struct elements
+still decline until collection equality over generated types has dedicated evidence.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_Parity_Collections|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_Parity_EnumCollections|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_Parity_CollectionsBuilderElements"`;
+`./scripts/dev.sh ColumnarCodegen_Parity_Collections`.
+
 ## 2026-06-18 — Product dogfood corpus ratchet tracks all 36 shipped files
 
 The product-corpus semantic checks now require the current 36 shipped

@@ -9877,7 +9877,7 @@ internal sealed class ColumnarIlEmitter
 
         // BCL COLLECTION instance methods on a closed List<T>/Dictionary<K,V>/HashSet<T> (the runtime constructed
         // type reflects normally; the receiver is already on the stack). The modelled set is the
-        // probe-pinned examples surface: List.Add(T)/RemoveAt(int)/Contains(T)/Remove(T)/Clear(),
+        // probe-pinned examples surface: List.Add(T)/RemoveAt(int)/Contains(T)/IndexOf(T)/Remove(T)/Clear(),
         // Dictionary.Add(K,V)/TryAdd(K,V)/ContainsKey(K)/TryGetValue(K,out V)/Remove(K)/Clear(),
         // HashSet.Add(T)/Contains(T)/Remove(T)/Clear().
         // Everything else declines.
@@ -9907,6 +9907,17 @@ internal sealed class ColumnarIlEmitter
                     return false;
                 _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, typeof(List<>).GetMethod("Contains")!));
                 type = typeof(bool);
+                return true;
+            }
+            if (collectionDef == typeof(List<>) && member == "IndexOf" && argCount == 1)
+            {
+                if (ContainsNonEnumBuilderBoundType(collectionArgs[0]) || !EmitArg(callIdx, 1, collectionArgs[0]))
+                    return false;
+                var openIndexOf = Array.Find(
+                    typeof(List<>).GetMethods(),
+                    method => method.Name == "IndexOf" && method.GetParameters().Length == 1)!;
+                _il.Emit(OpCodes.Callvirt, ResolveClosedGenericMethod(receiverType, openIndexOf));
+                type = typeof(int);
                 return true;
             }
             if (collectionDef == typeof(List<>) && member == "Remove" && argCount == 1)
