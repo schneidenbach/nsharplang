@@ -2364,6 +2364,61 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void Analyzer_HardCastedSoaRowViewCannotEscapeFromCoreContexts()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var cases = new[]
+        {
+            (Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func bad(nodes: NodeTable): int {
+                    row := ((NodeTable)nodes)[0]
+                    return 0
+                }
+                """,
+                Message: "SoA row views cannot be stored in a variable"),
+            (Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes): object {
+                    return ((Nodes)((NodeTable)nodes))[0]
+                }
+                """,
+                Message: "SoA row views cannot be returned"),
+            (Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                func consume(value: object) {
+                }
+
+                func bad(nodes: NodeTable): int {
+                    consume(((NodeTable)nodes)[0])
+                    return 0
+                }
+                """,
+                Message: "SoA row views cannot be passed as an argument")
+        };
+
+        foreach (var testCase in cases)
+        {
+            var result = Analyze(testCase.Source);
+            var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSyntax);
+            Assert.Contains(testCase.Message, error.Message);
+            Assert.Contains("table[index].column", error.Suggestion);
+        }
+    }
+
+    [Fact]
     public void Analyzer_ParenthesizedSoaRowViewCannotEscapeFromAdvancedContexts()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
@@ -6769,6 +6824,8 @@ public class SoaRecordTests : ILCompilerTestBase
     [InlineData("idx := ^1", "nodes[idx].kind = 1", "System.Index")]
     [InlineData("range := 0..1", "value := nodes[range].kind", "range")]
     [InlineData("range := 0..1", "nodes[range].kind = 1", "range")]
+    [InlineData("idx := ^1", "value := ((NodeTable)nodes)[idx].kind", "System.Index")]
+    [InlineData("range := 0..1", "((NodeTable)((NodeTable)nodes))[range].kind = 1", "range")]
     public void Analyzer_SoaTableVariableNonIntRowIndexesAreRejected(
         string declaration,
         string statement,
@@ -6797,8 +6854,10 @@ public class SoaRecordTests : ILCompilerTestBase
     [InlineData("", "bump(ref nodes[^1].kind)", "SoA table indexes must be int row ids", "System.Index", "table[index].column")]
     [InlineData("", "reset(out nodes[0..1].kind)", "SoA table indexes must be int row ids", "range", "table[index].column")]
     [InlineData("idx := ^1", "bump(ref nodes[idx].kind)", "SoA table indexes must be int row ids", "System.Index", "table[index].column")]
+    [InlineData("", "bump(ref ((NodeTable)nodes)[^1].kind)", "SoA table indexes must be int row ids", "System.Index", "table[index].column")]
     [InlineData("", "bump(ref nodes[(short)0].kind)", "SoA table indexes must be int row ids", "'short'", "table[index].column")]
     [InlineData("", "reset(out nodes[-1].kind)", "SoA table row indexes must not be negative", null, "non-negative row id")]
+    [InlineData("", "reset(out ((Nodes)((NodeTable)nodes))[-1].kind)", "SoA table row indexes must not be negative", null, "non-negative row id")]
     [InlineData("", "bump(ref nodes[checked(-1)].kind)", "SoA table row indexes must not be negative", null, "non-negative row id")]
     [InlineData("", "reset(out nodes[unchecked((-1))].kind)", "SoA table row indexes must not be negative", null, "non-negative row id")]
     [InlineData("", "bump(ref nodes[(short)-1].kind)", "SoA table row indexes must not be negative", null, "non-negative row id")]

@@ -361,7 +361,8 @@ The compiler must produce direct diagnostics for common misuse:
 - duplicate or reserved column names: "SoA column 'X' is already defined" or
   "SoA column 'X' conflicts with a generated table member";
 - row value escapes: "SoA row views cannot be stored or returned; use the table and row index" (including
-  locals, tuple-deconstruction initializers, assignments, explicit returns, expression-bodied
+  hard-cast table/alias receivers, locals, tuple-deconstruction initializers, assignments, explicit
+  returns, expression-bodied
   functions/local functions/properties/lambdas, explicit discards, call/constructor arguments,
   array literals, tuple literals, initializer values, yielding, throwing, printing, string
   interpolation, assertions, assertion messages, using resources, locks, and switch subjects,
@@ -420,7 +421,7 @@ The compiler must produce direct diagnostics for common misuse:
 - non-nullable row/direct column null coalescing, including enum columns:
   "The left side of '??' has type 'X', which can't be null";
 - non-int, `System.Index`, or range row indexes, including variable-held `System.Index`/`System.Range`
-  values and `ref`/`out` row-projection argument addresses:
+  values, hard-cast table/alias receivers, and `ref`/`out` row-projection argument addresses:
   "SoA table indexes must be int row ids";
 - statically negative row indexes on row/direct-column reads or writes:
   "SoA table row indexes must not be negative" or "SoA column row indexes must not be negative",

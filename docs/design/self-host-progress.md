@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA hard-cast row views stay pre-emission diagnostics
+
+Hard-cast table/alias row projections now have analyzer pins for row-view escapes, non-int row
+indexes, and `ref`/`out` row-index diagnostics. `((NodeTable)nodes)[0]` still cannot be stored,
+returned, or passed as an object row value, and `((NodeTable)nodes)[idx].kind` plus hard-cast range,
+from-end, and negative row-index forms report before emission. Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~Analyzer_HardCastedSoaRowViewCannotEscapeFromCoreContexts|FullyQualifiedName~Analyzer_SoaTableVariableNonIntRowIndexesAreRejected|FullyQualifiedName~Analyzer_SoaTableRefOutRowIndexesAreRejectedBeforeEmission"`.
+
 ## 2026-06-18 — SoA hard-cast direct-column ref/out stays pinned
 
 Hard-cast direct-column element `ref`/`out` arguments now have IL-shape evidence for direct
