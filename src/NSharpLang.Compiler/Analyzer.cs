@@ -6806,9 +6806,10 @@ public class Analyzer : IDisposable
                 => AnalyzeBitwiseOp(leftT, rightT, binary),
             BinaryOperator.LeftShift or BinaryOperator.RightShift
                 => AnalyzeShiftOp(leftT, rightT, binary),
+            BinaryOperator.Equal or BinaryOperator.NotEqual
+                => AnalyzeEqualityOp(leftT, rightT, binary),
             BinaryOperator.Less or BinaryOperator.LessOrEqual or BinaryOperator.Greater or BinaryOperator.GreaterOrEqual
                 => AnalyzeRelationalOp(leftT, rightT, binary),
-            BinaryOperator.Equal or BinaryOperator.NotEqual => BuiltInTypes.Bool,
             BinaryOperator.Range => GetRangeType(),
             _ => BuiltInTypes.Unknown
         };
@@ -7046,6 +7047,50 @@ public class Analyzer : IDisposable
         return BuiltInTypes.Bool;
     }
 
+    private TypeInfo AnalyzeEqualityOp(TypeInfo left, TypeInfo right, BinaryExpression expr)
+    {
+        if (BuiltInTypes.IsUnknown(left) || BuiltInTypes.IsUnknown(right))
+        {
+            return BuiltInTypes.Unknown;
+        }
+
+        if (TryResolveBinaryOperatorOverloadResult(expr.Operator, left, right, out var overloadResult))
+        {
+            if (IsAssignable(BuiltInTypes.Bool, overloadResult))
+            {
+                return BuiltInTypes.Bool;
+            }
+
+            var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetBinaryOperatorDiagnosticSpan(expr);
+            var opText = GetBinaryOperatorText(expr.Operator);
+            Error(
+                ErrorCode.TypeMismatch,
+                $"The '{opText}' operator on '{left}' and '{right}' returns '{overloadResult}', but equality operators must return 'bool'",
+                diagnosticLine,
+                diagnosticColumn,
+                "Change the operator overload to return bool.",
+                diagnosticLength);
+            return BuiltInTypes.Unknown;
+        }
+
+        if (CanCompareWithEqualityOperator(left, right))
+        {
+            return BuiltInTypes.Bool;
+        }
+
+        var (diagnosticLine2, diagnosticColumn2, diagnosticLength2) =
+            GetBinaryOperandDiagnosticSpan(expr, leftIsWrong: true, rightIsWrong: true);
+        var opText2 = GetBinaryOperatorText(expr.Operator);
+        Error(
+            ErrorCode.TypeMismatch,
+            $"The '{opText2}' operator doesn't work with '{left}' and '{right}' — equality needs compatible primitive values, reference values, null, record structs, or an equality operator overload",
+            diagnosticLine2,
+            diagnosticColumn2,
+            "Use matching comparable operands, compare to null, convert explicitly, or define an equality operator for this type.",
+            diagnosticLength2);
+        return BuiltInTypes.Unknown;
+    }
+
     /// <summary>
     /// Maps an overloadable N# binary operator to its CLR special-method name (e.g. <c>+</c> →
     /// <c>op_Addition</c>). Operators that the analyzer does not resolve through this path return
@@ -7058,6 +7103,8 @@ public class Analyzer : IDisposable
         BinaryOperator.Multiply => "op_Multiply",
         BinaryOperator.Divide => "op_Division",
         BinaryOperator.Modulo => "op_Modulus",
+        BinaryOperator.Equal => "op_Equality",
+        BinaryOperator.NotEqual => "op_Inequality",
         BinaryOperator.BitwiseAnd => "op_BitwiseAnd",
         BinaryOperator.BitwiseOr => "op_BitwiseOr",
         BinaryOperator.BitwiseXor => "op_ExclusiveOr",
@@ -7077,6 +7124,8 @@ public class Analyzer : IDisposable
         BinaryOperator.Multiply => "*",
         BinaryOperator.Divide => "/",
         BinaryOperator.Modulo => "%",
+        BinaryOperator.Equal => "==",
+        BinaryOperator.NotEqual => "!=",
         BinaryOperator.BitwiseAnd => "&",
         BinaryOperator.BitwiseOr => "|",
         BinaryOperator.BitwiseXor => "^",
@@ -20421,6 +20470,80 @@ public class Analyzer : IDisposable
             || type == typeof(char)
             || type == typeof(float)
             || type == typeof(double);
+    }
+
+    private bool CanCompareWithEqualityOperator(TypeInfo left, TypeInfo right)
+    {
+        var resolvedLeft = ResolveTypeAlias(left);
+        var resolvedRight = ResolveTypeAlias(right);
+
+        if (resolvedLeft == BuiltInTypes.Null || resolvedRight == BuiltInTypes.Null)
+        {
+            return true;
+        }
+
+        if (ArePrimitiveEqualityTypesCompatible(resolvedLeft, resolvedRight))
+        {
+            return true;
+        }
+
+        if (IsSameBitwiseEnumType(resolvedLeft, resolvedRight))
+        {
+            return true;
+        }
+
+        if (IsSameRecordStructType(resolvedLeft, resolvedRight))
+        {
+            return true;
+        }
+
+        return IsReferenceType(resolvedLeft) && IsReferenceType(resolvedRight);
+    }
+
+    private bool ArePrimitiveEqualityTypesCompatible(TypeInfo left, TypeInfo right)
+    {
+        var leftIsBool = IsBoolLikeType(left);
+        var rightIsBool = IsBoolLikeType(right);
+        if (leftIsBool || rightIsBool)
+        {
+            return leftIsBool && rightIsBool;
+        }
+
+        if (!IsPrimitiveRelationalType(left) || !IsPrimitiveRelationalType(right))
+        {
+            return false;
+        }
+
+        return GetWiderType(left, right) != null;
+    }
+
+    private bool IsBoolLikeType(TypeInfo type)
+    {
+        var resolved = ResolveTypeAlias(type);
+        if (resolved == BuiltInTypes.Bool)
+        {
+            return true;
+        }
+
+        if (resolved is SimpleTypeInfo { Name: "bool" or "Boolean" })
+        {
+            return true;
+        }
+
+        if (resolved is ExternalTypeInfo { Name: "bool" or "Boolean" })
+        {
+            return true;
+        }
+
+        return resolved is ReflectionTypeInfo { Type: var typeInfoType }
+            && typeInfoType == typeof(bool);
+    }
+
+    private static bool IsSameRecordStructType(TypeInfo left, TypeInfo right)
+    {
+        return left is RecordTypeInfo { Declaration.IsStruct: true } leftRecord
+            && right is RecordTypeInfo { Declaration.IsStruct: true } rightRecord
+            && ReferenceEquals(leftRecord.Declaration, rightRecord.Declaration);
     }
 
     private bool IsIntegralType(TypeInfo type)

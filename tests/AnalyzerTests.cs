@@ -1717,6 +1717,90 @@ func CompareLower(left: string, right: string): bool {
     }
 
     [Fact]
+    public void EqualityOperator_InvalidOperands_ReportTypeMismatch()
+    {
+        var result = AnalyzeWithSource(@"
+struct Plain {
+    Value: int
+}
+
+func BadObjectInt(value: object): bool {
+    return value == 1
+}
+
+func BadPlain(left: Plain, right: Plain): bool {
+    return left == right
+}
+
+func BadNullable(left: int?, right: int?): bool {
+    return left != right
+}
+
+func BadMixedDecimal(left: decimal, right: int): bool {
+    return left == right
+}
+");
+
+        var errors = result.Errors.Where(e => e.Code == ErrorCode.TypeMismatch).ToList();
+        Assert.Equal(4, errors.Count);
+        Assert.Contains(errors, e => e.Message.Contains("'==' operator") && e.Message.Contains("'object' and 'int'"));
+        Assert.Contains(errors, e => e.Message.Contains("'==' operator") && e.Message.Contains("'Plain' and 'Plain'"));
+        Assert.Contains(errors, e => e.Message.Contains("'!=' operator") && e.Message.Contains("'int?' and 'int?'"));
+        Assert.Contains(errors, e => e.Message.Contains("'==' operator") && e.Message.Contains("'decimal' and 'int'"));
+    }
+
+    [Fact]
+    public void EqualityOperator_SupportedOperands_AreValid()
+    {
+        AssertNoErrors(@"
+record struct Measurement(value: int) {
+}
+
+struct Key {
+    Value: int
+
+    static func operator ==(left: Key, right: Key): bool {
+        return left.Value == right.Value
+    }
+
+    static func operator !=(left: Key, right: Key): bool {
+        return left.Value != right.Value
+    }
+}
+
+func ComparePrimitives(a: int, b: double, flag: bool, ch: char): bool {
+    return a == b && flag != false && ch == 'x'
+}
+
+func CompareDecimals(left: decimal, right: decimal): bool {
+    return left == right
+}
+
+func CompareReferences(text: string, other: object, values: int[]): bool {
+    return text == ""x"" && text != other && values == null && null != other
+}
+
+func CompareValueToNull(value: int): bool {
+    return value != null
+}
+
+func CompareRecordStructs(left: Measurement, right: Measurement): bool {
+    return left == right
+}
+
+func CompareKeys(left: Key, right: Key): bool {
+    return left == right && left != right
+}
+
+func CompareReflectedChars(left: string, right: string): bool {
+    leftChar := Char.ToLowerInvariant(left[0])
+    rightChar := Char.ToLowerInvariant(right[0])
+    return leftChar == rightChar
+}
+        ");
+    }
+
+    [Fact]
     public void StringConcatenation_Valid()
     {
         AssertNoErrors(@"

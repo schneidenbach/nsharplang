@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Binary equality validates operands before `ceq`
+
+`==` and `!=` now use analyzer-side shape checks instead of accepting every operand pair and letting
+the IL backend fall through to raw `ceq`. The accepted surface matches current lowering: primitive and
+boolean equality, same enum equality, null checks, reference equality, synthesized record-struct
+equality, and runtime/user `op_Equality`/`op_Inequality` overloads. Unsupported shapes such as
+`object == int`, ordinary structs without equality operators, nullable-to-nullable equality, and
+mixed decimal/primitive equality now report `NL202` before emission.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~AnalyzerTests.EqualityOperator"`;
+`./scripts/dev.sh EqualityOperator`.
+
 ## 2026-06-18 — Binary relational operators validate operands before raw IL
 
 Ordering operators now stop unsupported operands during analysis instead of falling through to raw
