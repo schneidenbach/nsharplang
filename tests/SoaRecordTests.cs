@@ -5685,6 +5685,21 @@ public class SoaRecordTests : ILCompilerTestBase
                 Action: "stored in an array"),
             (
                 Source: """
+                import System.Collections.Generic
+
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    let values: List<int[]> = [nodes.kind]
+                }
+                """,
+                Action: "stored in a collection literal"),
+            (
+                Source: """
                 soa record NodeTable {
                     kind: int
                 }

@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA direct-column collection literals keep storage diagnostics
+
+Typed collection literals that would store a direct backing column, such as
+`let values: List<int[]> = [table.column]`, are now pinned to the SoA direct-column storage diagnostic.
+This covers the expected-element collection-literal analyzer path separately from ordinary array
+literals and object/array initializer values.
+
 ## 2026-06-18 — SoA direct-column initializer escapes stay pre-emission diagnostics
 
 Direct backing columns are now pinned in the remaining initializer-value escape shapes: typed array

@@ -441,9 +441,9 @@ The compiler must produce direct diagnostics for common misuse:
 - unsupported direct-column array escapes through arbitrary calls, extension receivers, or
   constructors: "SoA table member 'X' cannot be passed as an argument directly";
 - unsupported direct-column array escapes through storage/result contexts, including locals,
-  assignments, returns, lambda returns, array/tuple literals, tuple deconstruction initializers,
-  typed array initializer values, object-initializer indexer values, ternary/match result arms, and
-  field/object/collection/with initializers plus `with` targets:
+  assignments, returns, lambda returns, array/collection/tuple literals, tuple deconstruction
+  initializers, typed array initializer values, object-initializer indexer values, ternary/match
+  result arms, and field/object/collection/with initializers plus `with` targets:
   "SoA table member 'X' cannot be stored in a variable directly";
 - unsupported direct-column array escapes through display/discard contexts, including print,
   assertion conditions/messages, interpolation holes, explicit discards, and bare expression
