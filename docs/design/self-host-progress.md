@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Command helper dogfood wrappers share the kernel loader
+
+The remaining command-helper and orderer dogfood wrappers now bind through `DogfoodKernelLoader`
+instead of carrying local dogfood assembly loading and delegate reflection copies. This removes the
+duplicate host-boundary code from export/restore/fix/tidy/doc/lint helpers, query symbol and compiler
+severity filters, dependency filters and deduplicators, generated-output cleanup ordering, and
+unified-diff hunk range construction. The helpers still own their typed delegates, scratch buffers,
+and fallback validation; the C# transition surface is now centralized in the shared loader. Focused
+evidence:
+`dotnet build src/NSharpLang.Cli/Cli.csproj --no-restore` and
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CleanArtifactDirectoryOrderer_OrdersArtifactDirectories|FullyQualifiedName~CompilerErrorSeverityFilter_FiltersCompilerErrorsBySeverity|FullyQualifiedName~DocCommandKernels_OrdersSymbolsForGeneration|FullyQualifiedName~DocCommandKernels_OrdersMembersForGeneration|FullyQualifiedName~DocCommandKernels_CreatesSlugs|FullyQualifiedName~ExportCommandKernels_SelectsInputOperandAfterOrderedOptionStripping|FullyQualifiedName~ExportCommandKernels_FiltersReferenceValuesByType|FullyQualifiedName~ExportCommandKernels_DeduplicatesReferenceValues|FullyQualifiedName~FixCommandKernels_FiltersFixesBySafety|FullyQualifiedName~FixCommandKernels_SelectsSkippedFixEntries|FullyQualifiedName~FixCommandKernels_GroupsAppliedFixEntriesByFile|FullyQualifiedName~LintCommandKernels_SelectsFileArgsAfterProjectValueExclusion|FullyQualifiedName~QuerySymbolNameFilter_FiltersSymbolsByNamePattern|FullyQualifiedName~RestoreCommandKernels_DeduplicatesProjectReferences|FullyQualifiedName~RestoreCommandKernels_FiltersProjectReferences|FullyQualifiedName~TidyCommandKernels_SelectsAndClassifiesDependencies|FullyQualifiedName~TidyCommandKernels_FiltersRemovalLines|FullyQualifiedName~TreeDependencyDeduplicator_DeduplicatesAndOrdersDependencies|FullyQualifiedName~TreeDependencyDeduplicator_DeduplicatesTargetFrameworks|FullyQualifiedName~UpdateDependencyFilter_FiltersTargetNuGetDependencies|FullyQualifiedName~GeneratedOutputDirectoryDeduplicator_DeduplicatesStaleGeneratedDirectories|FullyQualifiedName~UnifiedDiff_Create_EmitsStableMultiHunkDiff"`.
+
 ## 2026-06-18 — Root CLI dogfood wrappers share the kernel loader
 
 The remaining root-level CLI dogfood wrappers for batch queries, `nlc new`, `nlc run`, `nlc build`,

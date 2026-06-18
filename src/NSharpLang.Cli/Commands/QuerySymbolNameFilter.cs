@@ -1,15 +1,11 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
-using System.Reflection;
 using NSharpLang.Compiler.CodeIntelligence;
 
 namespace NSharpLang.Cli.Commands;
 
 internal static class QuerySymbolNameFilter
 {
-    private const string DogfoodAssemblyName = "NSharpLang.Compiler.Dogfood";
-
     [ThreadStatic]
     private static Scratch? t_scratch;
 
@@ -97,45 +93,18 @@ internal static class QuerySymbolNameFilter
     {
         try
         {
-            var assembly = TryLoadDogfoodAssembly();
-            var programType = assembly?.GetType("Program");
+            var programType = DogfoodKernelLoader.TryGetProgramType();
             if (programType == null)
                 return null;
 
             return new Bindings(
-                CreateDelegate<CliSymbolNameGlobFilterIndicesInto>(programType, "CliSymbolNameGlobFilterIndicesInto"),
-                CreateDelegate<CliSymbolNameSubstringFilterIndicesInto>(programType, "CliSymbolNameSubstringFilterIndicesInto"));
+                DogfoodKernelLoader.CreateDelegate<CliSymbolNameGlobFilterIndicesInto>(programType, "CliSymbolNameGlobFilterIndicesInto"),
+                DogfoodKernelLoader.CreateDelegate<CliSymbolNameSubstringFilterIndicesInto>(programType, "CliSymbolNameSubstringFilterIndicesInto"));
         }
         catch
         {
             return null;
         }
-    }
-
-    private static Assembly? TryLoadDogfoodAssembly()
-    {
-        try
-        {
-            return Assembly.Load(new AssemblyName(DogfoodAssemblyName));
-        }
-        catch
-        {
-            var assemblyPath = Path.Combine(AppContext.BaseDirectory, $"{DogfoodAssemblyName}.dll");
-            return File.Exists(assemblyPath)
-                ? Assembly.LoadFrom(assemblyPath)
-                : null;
-        }
-    }
-
-    private static TDelegate CreateDelegate<TDelegate>(Type programType, string methodName)
-        where TDelegate : Delegate
-    {
-        var method = programType.GetMethod(
-                methodName,
-                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
-            ?? throw new MissingMethodException(programType.FullName, methodName);
-
-        return (TDelegate)Delegate.CreateDelegate(typeof(TDelegate), method);
     }
 
     private static bool IsAscii(string value)
