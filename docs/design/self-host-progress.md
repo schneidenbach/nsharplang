@@ -11,14 +11,27 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Record user constructors route through columnar
+
+The columnar product parser no longer blanket-declines record declarations with user constructors.
+With the C# oracle constructor-body defect fixed, record user constructors now use the existing
+reference-constructor path shared with classes: constructor signatures/bodies are parsed in the N#
+product wrapper, duplicate/local-function hazards still decline, reference constructors validate own
+field assignment before emission, and closed generic constructor calls substitute type arguments
+before rebinding `newobj`. The generic-record parity suite now accepts both
+`record R { constructor(v: int) { x = v } }` and
+`record R<T> { constructor(v: T) { x = v } }`.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter
+"FullyQualifiedName~ColumnarCodegen_Parity_GenericRecords|FullyQualifiedName~ILCompiler_RecordUserConstructor_EmitsBodyAssignments|FullyQualifiedName~ILCompiler_GenericRecordUserConstructor_EmitsBodyAssignments"`;
+`./scripts/dev.sh --since`.
+
 ## 2026-06-18 — Record user constructors emit bodies on the C# oracle path
 
 Record declarations with user constructors now emit those constructor bodies instead of only
 declaring the metadata. Assignments like `x = v` in `record R { constructor(v: int) { x = v } }`
 now run on the C# oracle path for both generic and non-generic records, eliminating the old
-`new R(5)` -> `x == 0` defect. Columnar keeps record user constructors as explicit route declines
-for now; the C# oracle bug is fixed, but the record-constructor columnar surface still needs a
-separate parity-backed implementation before product code can route through it.
+`new R(5)` -> `x == 0` defect. This first slice left columnar record user constructors declined
+until the route surface could be verified separately; see the follow-up entry above.
 Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter
 "FullyQualifiedName~ILCompiler_RecordUserConstructor_EmitsBodyAssignments|FullyQualifiedName~ILCompiler_GenericRecordUserConstructor_EmitsBodyAssignments|FullyQualifiedName~ColumnarCodegen_Parity_GenericRecords"`;
 `./scripts/dev.sh --since`.

@@ -12487,7 +12487,9 @@ func outer(x: int): int {
     // field-type substitution; member reads/methods ride the existing D-16 closed-receiver machinery.
     // Generic VALUE-STRUCT object-init now takes the same rebound-field route, with the value local
     // initialized by `initobj` before address-based stores. Records do NOT adopt the expected type
-    // (probe-pinned NL207 — explicit args required everywhere, unlike union cases).
+    // (probe-pinned NL207 — explicit args required everywhere, unlike union cases). Record USER
+    // constructors route through the same reference-constructor model as classes: own-field assignment
+    // validation before emission, substituted closed generic ctor parameters, then `newobj`.
     [Fact]
     public void ColumnarCodegen_Parity_GenericRecords()
     {
@@ -12506,14 +12508,23 @@ func outer(x: int): int {
             "func boxed(n: int): int {\n    b := new Box<int> { v: n }\n    return b.v\n}\n\n" +
             // A generic VALUE struct object-init (closed-field rebinding plus struct initobj/address stores).
             "struct Pt<T> {\n    x: T\n}\n\n" +
-            "func valueStruct(n: int): int {\n    p := new Pt<int> { x: n }\n    text := new Pt<string> { x: \"abcd\" }\n    return p.x + text.x.Length\n}\n";
+            "func valueStruct(n: int): int {\n    p := new Pt<int> { x: n }\n    text := new Pt<string> { x: \"abcd\" }\n    return p.x + text.x.Length\n}\n\n" +
+            // Generic and non-generic RECORD user constructors, including a method returning T from the record body.
+            "record Built<T> {\n    x: T\n\n    constructor(v: T) {\n        x = v\n    }\n\n    func get(): T {\n        return x\n    }\n}\n\n" +
+            "record Plain {\n    x: int\n\n    constructor(v: int) {\n        x = v\n    }\n\n    func value(): int {\n        return x\n    }\n}\n\n" +
+            "func genericRecordCtor(n: int): int {\n    r := new Built<int>(n)\n    return r.x + r.get()\n}\n\n" +
+            "func genericRecordCtorString(s: string): int {\n    r := new Built<string>(s)\n    return r.x.Length + r.get().Length\n}\n\n" +
+            "func plainRecordCtor(n: int): int {\n    r := new Plain(n)\n    return r.x + r.value()\n}\n";
         AssertColumnarProgramMatchesCSharp(prog,
             ("roundTrip", new object[] { 3, 4 }), ("roundTrip", new object[] { -2, 2 }),
             ("strLens", new object[] { "ab", "cde" }), ("strLens", new object[] { "", "" }),
             ("viaMethod", new object[] { 9 }),
             ("nested", new object[] { 5 }),
             ("boxed", new object[] { 11 }),
-            ("valueStruct", new object[] { 6 }));
+            ("valueStruct", new object[] { 6 }),
+            ("genericRecordCtor", new object[] { 7 }),
+            ("genericRecordCtorString", new object[] { "abcd" }),
+            ("plainRecordCtor", new object[] { 8 }));
 
         // DECLINES (slice scope / forms the pipeline rejects):
         // a BARE generic record name in construction (records never adopt — NL207, probe-pinned).
@@ -12531,10 +12542,6 @@ func outer(x: int): int {
         Assert.False(RouteColumnarProgram("record W<T> {\n    T: int\n}\n\nfunc f(): int {\n    w := new W<string> { T: 3 }\n    return w.T\n}\n").Ok);
         Assert.False(RouteColumnarProgram("class W<T> {\n    x: int\n    func T(): int {\n        return 2\n    }\n}\n\nfunc f(): int {\n    return 1\n}\n").Ok);
         Assert.False(RouteColumnarProgram("class W<T> {\n    x: int\n    T: int {\n        get {\n            return x\n        }\n    }\n}\n\nfunc f(): int {\n    return 1\n}\n").Ok);
-        // RECORD user constructors (generic or not): the C# oracle now emits constructor bodies correctly, but
-        // columnar still declines record constructor declarations until that surface is wired and parity-pinned.
-        Assert.False(RouteColumnarProgram("record R<T> {\n    x: T\n\n    constructor(v: T) {\n        x = v\n    }\n}\n\nfunc f(): int {\n    r := new R<int>(5)\n    return r.x\n}\n").Ok);
-        Assert.False(RouteColumnarProgram("record R {\n    x: int\n\n    constructor(v: int) {\n        x = v\n    }\n}\n\nfunc f(): int {\n    r := new R(5)\n    return r.x\n}\n").Ok);
         // STATIC FIELD use on a generic type: generic types cannot declare static members yet; the
         // analyzer rejects before the old open-generic static-field token could reach IL emission.
         // Columnar declines at declaration parsing for the same unsupported surface.

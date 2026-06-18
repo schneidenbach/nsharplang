@@ -50,7 +50,7 @@ func ParseColumnarStructInfoInto(source: string, tokenKinds: int[], tokenStarts:
     return ParseColumnarStructInfoCore(source, ref tokens, structIndex, isReference, isRecord, ref scratch, ref outputs, ref result)
 }
 
-func ParseColumnarStructInfoCore(source: string, tokens: &ColumnarStructTokenTable, structIndex: int, isReference: int, isRecord: int, scratch: &ColumnarStructScratchTable, outputs: &ColumnarStructOutputTable, result: &ColumnarStructResultTable): int {
+func ParseColumnarStructInfoCore(source: string, tokens: &ColumnarStructTokenTable, structIndex: int, isReference: int, _isRecord: int, scratch: &ColumnarStructScratchTable, outputs: &ColumnarStructOutputTable, result: &ColumnarStructResultTable): int {
     declarationTokens := new ParserDeclarationTokenTable { Kinds: tokens.Kinds, Starts: tokens.Starts, ValueLengths: tokens.ValueLengths }
     decl := new StructDeclarationTable { FieldNameStarts: scratch.FieldNameStarts, FieldNameLengths: scratch.FieldNameLengths, FieldTypeStarts: scratch.FieldTypeStarts, FieldTypeLengths: scratch.FieldTypeLengths, FieldStaticFlags: outputs.FieldStaticFlags, FieldInitKinds: outputs.FieldInitKinds, FieldInitStarts: scratch.FieldInitStarts, FieldInitLengths: scratch.FieldInitLengths, MethodFuncIndices: outputs.MethodFuncIndices, MethodStaticFlags: outputs.MethodStaticFlags, CtorIndices: outputs.CtorIndices, PropIndices: outputs.PropIndices, PropStaticFlags: outputs.PropStaticFlags, TypeParamStarts: scratch.TypeParamStarts, TypeParamLengths: scratch.TypeParamLengths, BaseNameStarts: scratch.BaseNameStarts, BaseNameLengths: scratch.BaseNameLengths }
     declarationResult := new ParserDeclarationResultTable { Values: result.Values }
@@ -93,10 +93,6 @@ func ParseColumnarStructInfoCore(source: string, tokens: &ColumnarStructTokenTab
         if instanceFieldCount == 0 {
             return -1
         }
-    }
-
-    if isRecord == 1 && ctorCount > 0 {
-        return -1
     }
 
     if isReference == 0 && propCount > 0 {
