@@ -5748,6 +5748,42 @@ public class SoaRecordTests : ILCompilerTestBase
                 type Nodes = NodeTable
 
                 func bad(nodes: Nodes) {
+                    values := new int[][] { nodes.kind }
+                }
+                """,
+                Action: "stored in an initializer"),
+            (
+                Source: """
+                class Bag {
+                    func this[index: int]: int[] {
+                        get {
+                            return new int[](0)
+                        }
+                        set {
+                        }
+                    }
+                }
+
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    bag := new Bag { [0] = checked(nodes.kind) }
+                }
+                """,
+                Action: "stored in an initializer"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
                     updated := nodes.kind with { Length: 1 }
                 }
                 """,

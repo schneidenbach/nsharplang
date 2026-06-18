@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA direct-column initializer escapes stay pre-emission diagnostics
+
+Direct backing columns are now pinned in the remaining initializer-value escape shapes: typed array
+initializers (`new int[][] { table.column }`) and object-initializer indexer values. Both report the
+SoA direct-column diagnostic before ordinary initializer lowering can store the backing array as a
+value.
+
 ## 2026-06-18 — SoA direct-column nameof stays metadata-only
 
 Direct-column `nameof` targets are now pinned as an accepted metadata-only shape: `nameof(table.column)`
