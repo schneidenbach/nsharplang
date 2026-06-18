@@ -297,10 +297,12 @@ and `table.column.Rank++` decline during analysis instead of reaching the IL bac
 setters, including through checked/unchecked direct-column wrappers. Array instance methods on direct
 columns decline before IL emission
 because they would box, allocate, virtually dispatch, or bypass the pinned static kernels. This includes
-element access methods such as `table.column.GetValue(...)`/`SetValue(...)`, method-value escapes such
-as `table.column.Clone`, checked/unchecked wrapper escapes such as `checked(table.column).Clone`,
-inherited methods such as `table.column.GetEnumerator()`/`ToString()`, and dimension methods such as
-`table.column.GetLength(...)`, `table.column.GetLowerBound(...)`, and
+element access methods such as `table.column.GetValue(...)`/`SetValue(...)`, method-value escapes
+such as `table.column.Clone`, checked/unchecked wrapper escapes such as `checked(table.column).Clone`,
+inherited methods such as `table.column.GetEnumerator()`, `table.column.Equals(...)`,
+`table.column.GetHashCode()`, `table.column.GetType()`, and `table.column.ToString()`, and dimension
+methods such as `table.column.GetLength(...)`,
+`table.column.GetLowerBound(...)`, and
 `table.column.GetUpperBound(...)`. Use direct element indexing, metadata
 properties, or the pinned static `Array.Fill`/`Array.Copy`/`Array.Clear` operations instead.
 Replacing wrapper column arrays, mutating `length`/`capacity` directly, or mutating column slices is

@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA checked direct-column inherited object methods reject before lowering
+
+Direct-column inherited object methods now have analyzer evidence through wrapper forms.
+`Equals`, `GetHashCode`, and `GetType` reject as calls or method-value escapes before ordinary array
+dispatch can reach IL emission, matching the existing `ToString`/`GetEnumerator` rule.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter
+"FullyQualifiedName~Analyzer_SoaDirectColumnsCannotUseArrayInstanceMethods|FullyQualifiedName~Analyzer_SoaDirectColumnArrayInstanceMethodsCannotBeUsedAsValues"`.
+
 ## 2026-06-18 — SoA checked direct-column array bound methods reject before lowering
 
 Checked/unchecked direct-column receiver wrappers now have analyzer evidence for the remaining SZ-array

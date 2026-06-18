@@ -6738,6 +6738,45 @@ public class SoaRecordTests : ILCompilerTestBase
 
                 type Nodes = NodeTable
 
+                func bad(nodes: Nodes, other: object): bool {
+                    return checked(nodes.kind).Equals(other)
+                }
+                """,
+                Method: "Equals"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes): int {
+                    return unchecked(nodes.kind).GetHashCode()
+                }
+                """,
+                Method: "GetHashCode"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes): object {
+                    return (nodes.kind).GetType()
+                }
+                """,
+                Method: "GetType"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
                 func bad(nodes: Nodes): int {
                     return checked(nodes.kind).GetUpperBound(0)
                 }
@@ -6851,6 +6890,32 @@ public class SoaRecordTests : ILCompilerTestBase
                 }
                 """,
                 Method: "GetUpperBound"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    hash := unchecked(nodes.kind).GetHashCode
+                }
+                """,
+                Method: "GetHashCode"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    typeGetter := (nodes.kind).GetType
+                }
+                """,
+                Method: "GetType"),
             (
                 Source: """
                 soa record NodeTable {
