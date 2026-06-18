@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA direct-column array method values reject through checked wrappers
+
+Direct-column array instance method-value escapes now have an explicit analyzer pin through
+`checked(table.column).Method` wrappers. This keeps the same pre-emission diagnostic used by plain,
+parenthesized, and unchecked receivers, so direct backing arrays cannot escape through method-group
+conversion while SoA lowering is still table/index based.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter
+"FullyQualifiedName~Analyzer_SoaDirectColumnArrayInstanceMethodsCannotBeUsedAsValues"`.
+
 ## 2026-06-18 — SoA direct-column ConstrainedCopy sources reject before emission
 
 The static `Array` rejection matrix now pins `ConstrainedCopy` when the direct SoA column appears as

@@ -6572,6 +6572,19 @@ public class SoaRecordTests : ILCompilerTestBase
 
                 type Nodes = NodeTable
 
+                func bad(nodes: Nodes) {
+                    let clone: Func<object> = checked(nodes.kind).Clone
+                }
+                """,
+                Method: "Clone"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
                 func pull(getLength: Func<int, int>): int {
                     return getLength(0)
                 }
