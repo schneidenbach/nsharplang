@@ -3939,6 +3939,7 @@ public class Analyzer : IDisposable
             case PrintStatement printStmt:
                 var printValueType = AnalyzeExpression(printStmt.Value);
                 ReportSoaRowEscapeIfNeeded(printStmt.Value, printValueType, "printed");
+                ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(printStmt.Value, "printed");
                 break;
             case OffStatement off:
                 AnalyzeOffStatement(off);
@@ -3982,6 +3983,9 @@ public class Analyzer : IDisposable
             return;
 
         if (_errors.Count == errorsBefore && ReportSoaRowEscapeIfNeeded(expression, expressionType, soaUsage))
+            return;
+
+        if (_errors.Count == errorsBefore && ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(expression, soaUsage))
             return;
 
         if (!IsValidExpressionStatement(expression) && _errors.Count == errorsBefore)
@@ -4655,12 +4659,14 @@ public class Analyzer : IDisposable
         // Analyze the condition expression
         var condType = AnalyzeExpression(assertStmt.Condition);
         ReportSoaRowEscapeIfNeeded(assertStmt.Condition, condType, "asserted");
+        ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(assertStmt.Condition, "asserted");
 
         // Analyze optional message expression
         if (assertStmt.Message != null)
         {
             var messageType = AnalyzeExpression(assertStmt.Message);
             ReportSoaRowEscapeIfNeeded(assertStmt.Message, messageType, "used as an assertion message");
+            ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(assertStmt.Message, "used as an assertion message");
         }
 
         // We don't strictly require boolean type because we support various comparison patterns
@@ -7452,6 +7458,7 @@ public class Analyzer : IDisposable
             {
                 var holeType = AnalyzeExpression(hole.Expression);
                 ReportSoaRowEscapeIfNeeded(hole.Expression, holeType, "formatted in an interpolated string");
+                ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(hole.Expression, "formatted in an interpolated string");
             }
         }
         return BuiltInTypes.String;
@@ -14706,6 +14713,7 @@ public class Analyzer : IDisposable
 
             var discardedType = AnalyzeExpression(assignment.Value);
             ReportSoaRowEscapeIfNeeded(assignment.Value, discardedType, "discarded");
+            ReportUnsupportedSoaDirectColumnValueEscapeIfNeeded(assignment.Value, "discarded");
             return discardedType;
         }
 

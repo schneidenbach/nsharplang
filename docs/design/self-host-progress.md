@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA direct columns cannot escape through display or discard contexts
+
+Direct backing columns now reject non-call display and discard contexts before lowering. `print
+table.column`, assertion conditions/messages, interpolation holes, explicit discards, and bare
+checked/unchecked direct-column expression statements all report the SoA direct-column diagnostic
+instead of flowing to formatter, assertion, or invalid-expression-statement lowering as ordinary
+arrays.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter
+"FullyQualifiedName~Analyzer_SoaDirectColumnsCannotEscapeThroughDisplayOrDiscardContexts"`.
+
 ## 2026-06-18 — SoA direct columns cannot escape through storage or result values
 
 Direct backing columns now reject array-value aliasing before lowering. A direct column cannot be
