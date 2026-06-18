@@ -6924,6 +6924,17 @@ public class SoaRecordTests : ILCompilerTestBase
             type Nodes = NodeTable
 
             func bad(nodes: Nodes) {
+                Array.Sort(index: 0, length: 1, array: nodes.kind)
+            }
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
+            func bad(nodes: Nodes) {
                 System.Array.Sort(nodes.kind)
             }
             """,
@@ -6958,6 +6969,17 @@ public class SoaRecordTests : ILCompilerTestBase
 
             func bad(nodes: Nodes, keys: int[]) {
                 System.Array.Sort<int, int>(keys, (nodes).kind)
+            }
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
+            func bad(nodes: Nodes, keys: int[]) {
+                Array.Sort<int, int>(index: 0, length: 1, keys: keys, items: nodes.kind)
             }
             """,
             """
@@ -7053,6 +7075,17 @@ public class SoaRecordTests : ILCompilerTestBase
 
             func bad(nodes: Nodes) {
                 Array.Reverse(nodes.kind, 0, 1)
+            }
+            """,
+            """
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
+            func bad(nodes: Nodes) {
+                Array.Reverse(index: 0, length: 1, array: nodes.kind)
             }
             """,
             """

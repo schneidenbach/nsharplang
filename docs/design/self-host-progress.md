@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA direct-column Array mutations honor named array arguments
+
+The SoA analyzer now rejects direct backing columns passed to mutating `Array.Sort`/`Array.Reverse`
+through named array-bearing parameters, not only positional arguments. Calls such as
+`Array.Sort(index: 0, length: 1, array: nodes.kind)`,
+`Array.Sort<int, int>(index: 0, length: 1, keys: keys, items: nodes.kind)`, and
+`Array.Reverse(index: 0, length: 1, array: nodes.kind)` now report the same SoA direct-member
+mutation diagnostic as the positional forms before overload binding or IL lowering.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter
+"FullyQualifiedName~Analyzer_SoaDirectColumnsCannotBeSortedThroughArraySort|FullyQualifiedName~Analyzer_SoaDirectColumnsCannotBeReversedThroughArrayReverse"`.
+
 ## 2026-06-18 — External generic arity errors report NL207
 
 Wrong-arity generic annotations over compiler-known and CLR generic heads now report `NL207` instead

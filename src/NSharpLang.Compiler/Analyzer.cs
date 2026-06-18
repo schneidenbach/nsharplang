@@ -15512,17 +15512,38 @@ public class Analyzer : IDisposable
         string methodName,
         out MemberAccessExpression member)
     {
-        var argumentCount = methodName == "Sort"
-            ? Math.Min(call.Arguments.Count, 2)
-            : Math.Min(call.Arguments.Count, 1);
-        for (var i = 0; i < argumentCount; i++)
+        for (var i = 0; i < call.Arguments.Count; i++)
         {
-            if (TryGetSoaColumnMemberAccess(call.Arguments[i].Value, out member))
+            var argument = call.Arguments[i];
+            if (IsSoaMutatingArrayParameter(methodName, argument, i)
+                && TryGetSoaColumnMemberAccess(argument.Value, out member))
+            {
                 return true;
+            }
         }
 
         member = null!;
         return false;
+    }
+
+    private static bool IsSoaMutatingArrayParameter(string methodName, Argument argument, int positionalIndex)
+    {
+        if (argument.Name != null)
+        {
+            return methodName switch
+            {
+                "Sort" => argument.Name is "array" or "keys" or "items",
+                "Reverse" => argument.Name == "array",
+                _ => false
+            };
+        }
+
+        return methodName switch
+        {
+            "Sort" => positionalIndex <= 1,
+            "Reverse" => positionalIndex == 0,
+            _ => false
+        };
     }
 
     private bool ReportUnsupportedSoaDirectColumnStaticArrayCallIfNeeded(CallExpression call)
