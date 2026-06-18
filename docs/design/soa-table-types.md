@@ -633,10 +633,10 @@ generated `new`, `wrap`, `add`, `clear`, `ensureCapacity`, and
 aliases to that set. Calls to generated operations through an alias-typed table receiver are pinned
 too: `nodes.ensureCapacity(...)`, `nodes.add()`, `nodes.copyRow(...)`, and `nodes.clear()` where
 `nodes: Nodes` and `type Nodes = NodeTable` route through the underlying generated table methods
-without caller-side row allocation, boxing, delegate construction, array allocation, or virtual
-dispatch. Alias-generated `new`, `wrap`, `add`, `ensureCapacity`, and `copyRow` dynamic guard and
-bounds failures preserve the underlying table name in runtime messages. The analyzer rejects
-materializing those generated operations, including `wrap` and
+with a call-site IL-shape pin proving no caller-side row allocation, boxing, delegate construction,
+array allocation, or virtual dispatch. Alias-generated `new`, `wrap`, `add`, `ensureCapacity`, and
+`copyRow` dynamic guard and bounds failures preserve the underlying table name in runtime messages.
+The analyzer rejects materializing those generated operations, including `wrap` and
 hard-cast table/alias receiver forms of `add`, `clear`, `ensureCapacity`, and `copyRow`, as
 function/delegate values before IL emission.
 Construction allocates exactly one array per column and stores column/metadata fields; `wrap` stores

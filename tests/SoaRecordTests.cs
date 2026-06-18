@@ -14848,6 +14848,58 @@ public class SoaRecordTests : ILCompilerTestBase
     }
 
     [Fact]
+    public void ILCompiler_SoaRecordAliasGeneratedOperationCalls_UseDirectCallILShape()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        var source = """
+            soa record NodeTable {
+                kind: int
+                start: int
+            }
+
+            type Nodes = NodeTable
+
+            func ops(nodes: Nodes): int {
+                first := nodes.add()
+                nodes[first].kind = 5
+                nodes[first].start = 7
+                nodes.ensureCapacity(3)
+                nodes.copyRow(first, 2)
+                before := nodes.length * 100 + nodes.capacity * 10 + nodes[2].kind + nodes[2].start
+                nodes.clear()
+                return before * 10 + nodes.length
+            }
+
+            func main(): int {
+                nodes := new NodeTable(1)
+                return ops(nodes)
+            }
+            """;
+
+        Assert.Equal(3520, Assert.IsType<int>(CompileAndInvoke(source)));
+
+        var opCodes = CompileAndInspect(source, assembly =>
+        {
+            var ops = assembly.GetType("Program")!.GetMethod(
+                "ops",
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(ops);
+            return GetMethodOpCodes(ops!);
+        });
+
+        Assert.Contains(OpCodes.Call, opCodes);
+        Assert.Contains(OpCodes.Ldfld, opCodes);
+        Assert.Contains(opCodes, IsArrayElementLoad);
+        Assert.Contains(opCodes, IsArrayElementStore);
+        Assert.DoesNotContain(OpCodes.Newobj, opCodes);
+        Assert.DoesNotContain(OpCodes.Newarr, opCodes);
+        Assert.DoesNotContain(OpCodes.Box, opCodes);
+        Assert.DoesNotContain(OpCodes.Ldftn, opCodes);
+        Assert.DoesNotContain(OpCodes.Callvirt, opCodes);
+    }
+
+    [Fact]
     public void ILCompiler_SoaRecordCapacityConstructorBindsNamedArgument()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

@@ -11,6 +11,13 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA alias generated operation calls keep direct IL shape
+
+Alias-typed receivers now have a call-site IL-shape pin for generated `add`, `ensureCapacity`,
+`copyRow`, and `clear` calls. The inspected helper receives `nodes: Nodes`, routes through the
+underlying `NodeTable` methods, and contains no caller-side row object construction, array
+allocation, boxing, delegate construction, or virtual dispatch. Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~ILCompiler_SoaRecordAliasGeneratedOperationCalls_UseDirectCallILShape"`.
+
 ## 2026-06-18 — SoA alias generated operation bounds keep runtime table names
 
 Alias-generated `add`, `wrap`, and `copyRow` calls now have dynamic bounds pins. Calls through
