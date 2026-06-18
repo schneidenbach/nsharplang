@@ -433,6 +433,7 @@ The compiler must produce direct diagnostics for common misuse:
   `Array.Resize(ref table.column, n)`, `Array.Resize(ref array: table.column, newSize: n)`, and
   `Array.Resize(ref array: checked(table.column), newSize: n)`,
   aliases to SoA tables plus parenthesized and checked/unchecked target-wrapper forms,
+  hard-cast table/alias receivers such as `((TableAlias)table).column`,
   parenthesized table receivers, explicit generic method spelling, and explicit
   `System.Array.Resize` targets; mutating one physical backing column through
   `Array.Sort(table.column)`, `Array.Sort(table.column, index, length)`,
@@ -451,11 +452,13 @@ The compiler must produce direct diagnostics for common misuse:
   array-bearing arguments such as `array: table.column` and `destinationArray: table.column`:
   "SoA table member 'X' cannot be passed to Array.Y directly";
 - unsupported direct-column array escapes through arbitrary calls, extension receivers, or
-  constructors: "SoA table member 'X' cannot be passed as an argument directly";
+  constructors, including hard-cast table/alias receivers:
+  "SoA table member 'X' cannot be passed as an argument directly";
 - unsupported direct-column array escapes through storage/result contexts, including locals,
   assignments, returns, lambda returns, array/collection/tuple literals, tuple deconstruction
   initializers, typed array initializer values, object-initializer indexer values, ternary/match
-  result arms, and field/object/collection/with initializers plus `with` targets:
+  result arms, hard-cast table/alias receivers, and field/object/collection/with initializers plus
+  `with` targets:
   "SoA table member 'X' cannot be stored in a variable directly";
 - unsupported direct-column array escapes through display/discard contexts, including print,
   assertion conditions/messages, interpolation holes, explicit discards, and bare expression
@@ -524,7 +527,9 @@ IL-shape tests pin the current wrapper proof: row projection over an existing ta
 parenthesized row projection such as `(table[row]).column`, emits direct column field loads and
 array element loads/stores with no row allocation, boxing, delegate construction, heap array
 allocation, or virtual dispatch. Hard-cast table/alias receivers, such as `((Nodes)table)[row].column`
-and `((Nodes)table).column[row]`, keep the same direct backing-array shape. The proof also includes
+and `((Nodes)table).column[row]`, keep the same direct backing-array shape; unsupported hard-cast
+direct-column escapes and generated-member mutations still report SoA diagnostics before emission.
+The proof also includes
 default stores across the
 verified scalar/reference element-type set, row-projection `ref`/`out` argument addresses through
 backing-column `ldelema` across the verified scalar/reference/int-backed-enum element-type set,

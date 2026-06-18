@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA hard-cast receivers keep pre-emission diagnostics
+
+The SoA analyzer suite now pins hard-cast table/alias receivers for unsupported direct-column
+escapes and generated-member mutations. `((NodeTable)nodes).kind` reports the ordinary direct-column
+argument/storage diagnostics, and hard-cast receivers for `kind`, `length`, and `capacity` still fail
+before emission when assigned or incremented directly. Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~Analyzer_SoaDirectColumnsCannotEscapeThroughArbitraryCalls|FullyQualifiedName~Analyzer_SoaDirectColumnsCannotEscapeThroughStorageOrResultValues|FullyQualifiedName~Analyzer_SoaTableAliasRejectsDirectMemberMutationsBeforeEmission"`.
+
 ## 2026-06-18 — SoA hard-cast alias receivers get IL-shape pins
 
 The SoA IL-shape suite now pins hard-cast table/alias receivers for both row projection and direct

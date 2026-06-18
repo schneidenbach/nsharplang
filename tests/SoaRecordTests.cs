@@ -5504,6 +5504,22 @@ public class SoaRecordTests : ILCompilerTestBase
 
                 type Nodes = NodeTable
 
+                func take(values: int[]) {
+                }
+
+                func bad(nodes: Nodes) {
+                    take(((NodeTable)nodes).kind)
+                }
+                """,
+                Action: "passed as an argument"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
                 func bad(nodes: Nodes) {
                     System.Console.WriteLine(nodes.kind)
                 }
@@ -5654,6 +5670,19 @@ public class SoaRecordTests : ILCompilerTestBase
 
                 func bad(nodes: Nodes) {
                     values := nodes.kind
+                }
+                """,
+                Action: "stored in a variable"),
+            (
+                Source: """
+                soa record NodeTable {
+                    kind: int
+                }
+
+                type Nodes = NodeTable
+
+                func bad(nodes: Nodes) {
+                    values := ((NodeTable)nodes).kind
                 }
                 """,
                 Action: "stored in a variable"),
@@ -12108,9 +12137,12 @@ public class SoaRecordTests : ILCompilerTestBase
 
     [Theory]
     [InlineData("nodes.kind = new int[](1)", "kind", "assigned directly", "table[index].column")]
+    [InlineData("((NodeTable)nodes).kind = new int[](1)", "kind", "assigned directly", "table[index].column")]
     [InlineData("checked(nodes.kind) ??= new int[](1)", "kind", "assigned directly", "table[index].column")]
     [InlineData("nodes.length += 1", "length", "assigned directly", "add, clear, ensureCapacity, or copyRow")]
+    [InlineData("((NodeTable)nodes).length += 1", "length", "assigned directly", "add, clear, ensureCapacity, or copyRow")]
     [InlineData("++checked(nodes.capacity)", "capacity", "incremented or decremented directly", "add, clear, ensureCapacity, or copyRow")]
+    [InlineData("++((Nodes)((NodeTable)nodes)).capacity", "capacity", "incremented or decremented directly", "add, clear, ensureCapacity, or copyRow")]
     public void Analyzer_SoaTableAliasRejectsDirectMemberMutationsBeforeEmission(
         string statement,
         string member,
