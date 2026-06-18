@@ -338,6 +338,80 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void DirectColumnReferenceAndBoolExpressionsCheckedUncheckedWrappers_UseColumnArrayLoadsWithoutRowAllocation()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                name: string
+                alias: string?
+                active: bool
+            }
+
+            func evaluate(nodes: NodeTable, row: int): int {
+                idx := ^1
+
+                (checked(nodes.name))[row] = "alpha"
+                (unchecked(nodes.alias))[row] = null
+                (checked(nodes.active))[row] = true
+                (unchecked(nodes.name))[^1] = "tail"
+                (checked(nodes.alias))[^1] = "tag"
+                (unchecked(nodes.active))[^1] = false
+
+                rowScore := (checked(nodes.name))[row] == "alpha" ? 1 : 0
+                rowScore += (unchecked(nodes.name))[row] != "beta" ? 2 : 0
+                rowScore += (checked(nodes.alias))[row] == null ? 4 : 0
+                rowScore += !(unchecked(nodes.active))[row] ? 0 : 8
+                rowScore += ((checked(nodes.active))[row] && (unchecked(nodes.name))[row] == "alpha") ? 16 : 0
+                rowScore += ((checked(nodes.active))[row] || false) ? 32 : 0
+
+                tailText := (unchecked(nodes.name))[idx] + (checked(nodes.alias))[idx]
+                tailScore := tailText == "tailtag" ? 64 : 0
+                tailScore += (unchecked(nodes.active))[idx] == false ? 128 : 0
+                return rowScore + tailScore
+            }
+
+            func main(): int {
+                nodes := new NodeTable(2)
+                first := nodes.add()
+                nodes.add()
+                return evaluate(nodes, first)
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var evaluate = ILShapeInspector.GetProgramMethod(assembly, "evaluate");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(255, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoFromEndSliceAllocation(evaluate);
+            Assert.True(
+                ILShapeInspector.CountOpcode(evaluate, OpCodes.Ldfld) >= 16,
+                "Checked/unchecked direct SoA column reference and bool expressions should load backing column fields directly.");
+            Assert.Equal(10, CountArrayElementLoads(evaluate));
+            Assert.Equal(6, CountArrayElementStores(evaluate));
+            Assert.True(
+                ILShapeInspector.CountCallsTo(evaluate, typeof(string), nameof(string.Concat)) >= 1,
+                "Checked/unchecked direct SoA string concatenation should call String.Concat without materializing rows or slices.");
+            Assert.True(
+                ILShapeInspector.CountCallsTo(evaluate, typeof(string), "op_Equality")
+                + ILShapeInspector.CountCallsTo(evaluate, typeof(string), "op_Inequality") >= 3,
+                "Checked/unchecked direct SoA string comparisons should use string comparison operators.");
+            Assert.True(
+                CountOpcodes(evaluate, OpCodes.Brfalse, OpCodes.Brfalse_S) >= 1,
+                "Checked/unchecked direct SoA bool logical-and should lower through short-circuit false branches.");
+            Assert.True(
+                CountOpcodes(evaluate, OpCodes.Brtrue, OpCodes.Brtrue_S) >= 1,
+                "Checked/unchecked direct SoA bool logical-or should lower through short-circuit true branches.");
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void DirectColumnNullCoalescingCheckedUncheckedWrappers_UseColumnArrayLoadStoreWithoutRowAllocation()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

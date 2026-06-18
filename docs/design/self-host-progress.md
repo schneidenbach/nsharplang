@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA checked direct-column reference and bool expressions keep IL shape
+
+Direct-column string/reference and bool read expressions now have IL-shape evidence when the column
+receiver is wrapped in `checked(...)` or `unchecked(...)`. Checked/unchecked wrappers preserve direct
+backing-array loads for string equality/inequality, nullable null checks, string concatenation,
+logical-not, and short-circuit `&&`/`||` over row and from-end indexes, with no row materialization,
+array slicing, boxing, delegate construction, or virtual dispatch.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter
+"FullyQualifiedName~DirectColumnReferenceAndBoolExpressionsCheckedUncheckedWrappers_UseColumnArrayLoadsWithoutRowAllocation"`.
+
 ## 2026-06-18 — SoA checked direct-column scalar expressions keep IL shape
 
 Direct-column scalar read expressions now have IL-shape evidence when the column receiver is wrapped
