@@ -220,11 +220,13 @@ Numeric scalar columns support equality/inequality and relational comparisons,
 including unsigned comparisons for `uint`, plus arithmetic expression stores, arithmetic compound
 assignments, signed `int`/`long` unary negation, same-type bitwise expressions, and unary bitwise-not.
 `uint` unary negation still promotes to `long`, so assigning it back to a `uint` column is rejected
-before lowering, including when the column member is the parenthesized index receiver. Numeric scalar
+before lowering, including when the column member is the parenthesized index receiver or the direct
+column receiver is wrapped in `checked(...)`/`unchecked(...)`. Numeric scalar
 columns also support shift expressions with direct signed and unsigned right-shift lowering. Char
 columns support equality/inequality, relational comparisons,
 increment/decrement update forms, and promoted numeric expressions that produce `int`; assigning those
-promoted results back into a `char` column is rejected before lowering. Char arithmetic compound
+promoted results back into a `char` column is rejected before lowering, including when the direct
+column receiver is wrapped in `checked(...)`/`unchecked(...)`. Char arithmetic compound
 assignments reject for the same reason: the compound operator result promotes to `int`, which is not
 assignable to the `char` column, including when the column member is the parenthesized index receiver
 or the direct column receiver is wrapped in `checked(...)`/`unchecked(...)`.

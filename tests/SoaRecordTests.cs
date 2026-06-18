@@ -10578,6 +10578,9 @@ public class SoaRecordTests : ILCompilerTestBase
     [InlineData("", "(nodes.flags)[row]")]
     [InlineData("", "(nodes.flags)[^1]")]
     [InlineData("idx := ^1;", "(nodes.flags)[idx]")]
+    [InlineData("", "(checked(nodes.flags))[row]")]
+    [InlineData("", "(unchecked(nodes.flags))[^1]")]
+    [InlineData("idx := ^1;", "(checked(nodes.flags))[idx]")]
     public void Analyzer_SoaRecordUintUnaryNegationAssignment_IsRejected(string declaration, string target)
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
@@ -10695,6 +10698,10 @@ public class SoaRecordTests : ILCompilerTestBase
     [InlineData("idx := ^1;", "(nodes.marker)[idx]", "{target} & 1")]
     [InlineData("idx := ^1;", "(nodes.marker)[idx]", "{target} << 1")]
     [InlineData("idx := ^1;", "(nodes.marker)[idx]", "~{target}")]
+    [InlineData("", "(checked(nodes.marker))[row]", "{target} + 1")]
+    [InlineData("", "(unchecked(nodes.marker))[^1]", "{target} & 1")]
+    [InlineData("idx := ^1;", "(checked(nodes.marker))[idx]", "{target} << 1")]
+    [InlineData("idx := ^1;", "(unchecked(nodes.marker))[idx]", "~{target}")]
     public void Analyzer_SoaRecordCharPromotedExpressionAssignment_IsRejected(
         string declaration,
         string target,

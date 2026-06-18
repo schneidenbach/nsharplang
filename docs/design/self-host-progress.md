@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA checked direct-column numeric promotion rejections stay pre-lowering
+
+Checked/unchecked direct-column receiver wrappers now have analyzer evidence for promoted numeric
+expressions that cannot be stored back into the original column type. `uint` unary negation still
+promotes to `long`, and `char` arithmetic/bitwise/shift expressions still promote to `int`; assigning
+those results back through row, literal from-end, and variable-held from-end direct-column indexes
+keeps the ordinary type mismatch diagnostics before IL emission.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter
+"FullyQualifiedName~Analyzer_SoaRecordUintUnaryNegationAssignment_IsRejected|FullyQualifiedName~Analyzer_SoaRecordCharPromotedExpressionAssignment_IsRejected"`.
+
 ## 2026-06-18 — SoA checked direct-column non-bool logical operators reject before lowering
 
 Checked/unchecked direct-column receiver wrappers now have analyzer evidence for invalid `!`, `&&`,
