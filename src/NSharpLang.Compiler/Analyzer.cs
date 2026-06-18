@@ -5227,11 +5227,16 @@ public class Analyzer : IDisposable
         {
             PushScope(new Scope(ScopeKind.Block), tryStmt.Line, tryStmt.Column);
 
+            var exceptionType = catchClause.ExceptionType != null
+                ? ResolveDeclaredType(catchClause.ExceptionType)
+                : new SimpleTypeInfo("Exception");
+            if (catchClause.ExceptionType != null)
+            {
+                ReportNonThrowableCatchTypeIfNeeded(catchClause.ExceptionType, exceptionType);
+            }
+
             if (catchClause.VariableName != null)
             {
-                var exceptionType = catchClause.ExceptionType != null
-                    ? ResolveType(catchClause.ExceptionType)
-                    : new SimpleTypeInfo("Exception");
                 DeclareSymbol(catchClause.VariableName, exceptionType, tryStmt.Line, tryStmt.Column);
                 RecordVariableInCurrentScope(catchClause.VariableName, exceptionType);
             }
@@ -5268,6 +5273,23 @@ public class Analyzer : IDisposable
                 $"Move the `{keyword}` outside the `finally` block.",
                 keyword.Length);
         }
+    }
+
+    private void ReportNonThrowableCatchTypeIfNeeded(TypeReference typeReference, TypeInfo exceptionType)
+    {
+        if (IsThrowableType(exceptionType))
+        {
+            return;
+        }
+
+        var span = GetTypeReferenceStartSpan(typeReference);
+        Error(
+            ErrorCode.TypeMismatch,
+            $"Catch type must be assignable to System.Exception, but this type is '{exceptionType}'",
+            span.StartLine,
+            span.StartColumn,
+            "Catch Exception or an Exception-derived type, or use a bare catch for all exceptions.",
+            span.Length);
     }
 
     private void ReportNonThrowableThrowOperandIfNeeded(Expression expression, TypeInfo thrownType)

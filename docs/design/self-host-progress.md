@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Catch clauses validate exception types before lowering
+
+Catch clause type annotations now resolve through the declared-type path and must be assignable to
+`System.Exception` before the IL backend calls `BeginCatchBlock`. Misspelled catch types such as
+`MissingException` now report `NL201` instead of silently degrading to a catch-all, while known
+non-exception types such as `int`, `string`, and `object` report `NL202` at the catch type span.
+Bare catches, CLR exception catches, and N# classes deriving from `Exception` remain accepted. This
+closes the previously queued exception oracle defects #16/#17 without changing catch lowering.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~AnalyzerTests.CatchClause|FullyQualifiedName~AnalyzerTests.TryCatch"`;
+`./scripts/dev.sh CatchClause`.
+
 ## 2026-06-18 — `throw` operands require Exception-derived values before emission
 
 The analyzer now checks `throw` operands against `System.Exception` before the IL backend emits the

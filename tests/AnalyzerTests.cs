@@ -2137,6 +2137,60 @@ func Main() {
         ");
     }
 
+    [Theory]
+    [InlineData("catch ex: int { }", "int")]
+    [InlineData("catch ex: string { }", "string")]
+    [InlineData("catch ex: object { }", "object")]
+    public void CatchClause_NonExceptionType_ReportsTypeMismatch(string catchClause, string catchType)
+    {
+        var result = AnalyzeWithSource($$"""
+            func Main() {
+                try {
+                } {{catchClause}}
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.Contains("Catch type must be assignable to System.Exception", error.Message);
+        Assert.Contains($"'{catchType}'", error.Message);
+        Assert.Contains("Exception-derived", error.Suggestion);
+    }
+
+    [Fact]
+    public void CatchClause_UnknownType_ReportsTypeNotFoundOnly()
+    {
+        var result = AnalyzeWithSource("""
+            func Main() {
+                try {
+                } catch ex: MissingException {
+                }
+            }
+            """);
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeNotFound);
+        Assert.Contains("MissingException", error.Message);
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+    }
+
+    [Fact]
+    public void CatchClause_ExceptionTypes_AreValid()
+    {
+        AssertNoErrors("""
+            import System
+
+            class DomainFailure : Exception {
+            }
+
+            func Main() {
+                try {
+                } catch ex: InvalidOperationException {
+                } catch custom: DomainFailure {
+                } catch {
+                }
+            }
+            """);
+    }
+
     [Fact]
     public void UsingStatement_Valid()
     {
