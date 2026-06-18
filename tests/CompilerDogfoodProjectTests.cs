@@ -11724,31 +11724,28 @@ func outer(x: int): int {
             ("ParseFunctionSignatureInto", FuncG()));
     }
 
-    // MULTI-FILE COVERAGE (ratcheting): the feature-eligible shipped dogfood files that form a CLOSED cross-file
-    // cluster all compile MERGED into one columnar program. Parity-only rejected probes stay out of this product
-    // cluster and are covered by ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines instead. The
-    // merge declines on ANY unresolved cross-file call, so success proves the product kernels are closed under
-    // their public calls. Deep cross-file VALUE parity lives in ColumnarCodegen_MultiFile_RealParserCluster.
+    // MULTI-FILE PRODUCT COVERAGE (ratcheting): every shipped dogfood compiler-service source compiles MERGED
+    // into one columnar program. Parity-only rejected probes stay out of this product cluster and are covered by
+    // ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines instead. The merge declines on ANY unresolved
+    // cross-file call, so success proves the product kernels are closed under their public calls. Deep cross-file
+    // VALUE parity lives in ColumnarCodegen_MultiFile_RealParserCluster.
     [Fact]
     public void ColumnarCodegen_MultiFile_EligibleClusterCompiles()
     {
         var dir = Path.Combine(FindRepoRoot(), "src", "NSharpLang.Compiler.Dogfood", "CompilerServices");
-        var cluster = new[]
-        {
-            "AnalyzerExhaustiveness.nl", "AnonymousUnionShims.nl", "AotRequirements.nl", "BindingLookup.nl",
-            "CliArguments.nl", "CliDocOrdering.nl", "CliQueryParsing.nl", "CliTreeDependencies.nl",
-            "CompletionGrouping.nl", "CompletionReceivers.nl", "DiagnosticClusters.nl", "DiagnosticDeduplication.nl", "DocQuery.nl",
-            "FormatterImportOrdering.nl", "IdentifierSpans.nl",
-            "LexerTokenKindScanner.nl", "OverloadCandidates.nl", "ParserColumnarConstructors.nl", "ParserColumnarEnums.nl", "ParserColumnarFunctions.nl", "ParserColumnarInterfaces.nl", "ParserColumnarProperties.nl", "ParserColumnarStructs.nl", "ParserColumnarUnions.nl", "ParserDeclarations.nl",
-            "ParserConstructorSignatures.nl", "ParserExpressions.nl", "ParserFunctionSignatures.nl", "ParserInterfaceSignatures.nl", "ParserLocalFunctions.nl", "ParserStatements.nl", "ParserTypeReferences.nl",
-            "ProjectSourceFilter.nl", "StructCopyAnalysis.nl",
-            "TextEditOrdering.nl", "TypeLookup.nl",
-        };
-        var sources = cluster.Select(n => File.ReadAllText(Path.Combine(dir, n))).ToArray();
+        var productFiles = Directory.EnumerateFiles(dir, "*.nl")
+            .OrderBy(p => p, StringComparer.Ordinal)
+            .ToArray();
+        Assert.True(productFiles.Length >= 36,
+            $"Product dogfood corpus coverage regressed: expected at least 36 files, found {productFiles.Length}.");
+
+        var sources = productFiles.Select(File.ReadAllText).ToArray();
         var (ok, assembly, _, methodNames) = RouteColumnarMultiFile(sources);
-        Assert.True(ok, $"Columnar backend declined the merged {cluster.Length}-file eligible cluster.");
+        Assert.True(ok, $"Columnar backend declined the merged {productFiles.Length}-file product corpus.");
         using var loadScope = CollectibleAssemblyScope.Load(assembly!); // the merged IL is a valid, loadable assembly.
         Assert.NotNull(loadScope.Assembly);
+        Assert.True(methodNames!.Length >= 429,
+            $"Product dogfood corpus method coverage regressed: expected at least 429 emitted methods, found {methodNames.Length}.");
         // Files eligible ONLY via cross-file resolution must contribute their public functions —
         // i.e. the merge actually emitted them (single-file each declines; see ColumnarCodegen_MultiFile_*).
         Assert.Contains("TokenizeColumnarSourceInto", methodNames!); // composed lexer metadata + parser-token compaction routing

@@ -11,6 +11,20 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Full product compiler-service corpus emits as one columnar shard
+
+The standalone columnar backend now has a pinned multi-file product-corpus route: every shipped
+`src/NSharpLang.Compiler.Dogfood/CompilerServices/*.nl` source is emitted together through
+`TryEmitProgramMultiFile`, producing a loadable assembly with at least 429 emitted methods. The
+coverage test enumerates the product directory directly, so new product N# compiler-service files
+must either join the columnar route or fail the ratchet instead of being missed by a hand-maintained
+file list. This distinguishes true lowering gaps from single-file cross-kernel dependency declines;
+parser-heavy files such as `ParserColumnarFunctions.nl`, `ParserStatements.nl`, and
+`ParserExpressions.nl` are covered as shipped product code rather than only through extracted parity
+probes.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_EligibleClusterCompiles"`;
+`./scripts/dev.sh ColumnarCodegen_MultiFile_EligibleClusterCompiles`.
+
 ## 2026-06-18 — Columnar `Dictionary.TryGetValue` routes existing `out` locals
 
 The standalone columnar emitter now lowers `Dictionary<K,V>.TryGetValue(K, out V)` for dictionary
