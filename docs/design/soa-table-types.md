@@ -343,7 +343,8 @@ The compiler must produce direct diagnostics for common misuse:
 - direct table member mutation: "SoA table member 'X' cannot be assigned directly" for simple,
   compound, and null-coalescing assignment, or "SoA table member 'X' cannot be incremented or
   decremented directly", and the same member cannot be used as a `ref`/`out` argument, including
-  aliases to SoA tables plus parenthesized and checked/unchecked target-wrapper forms;
+  `Array.Resize(ref table.column, n)`, aliases to SoA tables plus parenthesized and checked/unchecked
+  target-wrapper forms;
 - non-int direct column element indexes: "Array indexes must be int, System.Index, or System.Range";
 - direct column slice reads, mutations, and `ref`/`out` argument addresses, including aliases to SoA
   tables, parenthesized column-member receivers, and

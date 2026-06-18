@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA direct columns reject `Array.Resize` before emission
+
+The SoA analyzer regression matrix now pins the exact BCL growth shape
+`Array.Resize(ref table.column, n)` as a forbidden direct-column mutation. Direct backing columns
+already could not be used as custom `ref int[]` arguments; this closes the same safety contract over
+the generic BCL `ref T[]` API so table columns cannot be resized independently and desynchronize
+`length`/`capacity` metadata before IL lowering.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~SoaRecordTests.Analyzer_SoaDirectColumnsCannotBeResizedThroughArrayResize"`;
+`./scripts/dev.sh Analyzer_SoaDirect`.
+
 ## 2026-06-18 — Columnar `Array.Resize` grows owned compiler buffers
 
 The standalone columnar emitter now lowers generic `Array.Resize<T>(ref T[], int)` for the existing
