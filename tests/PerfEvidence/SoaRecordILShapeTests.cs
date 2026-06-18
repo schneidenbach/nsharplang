@@ -412,6 +412,94 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void DirectColumnCharAndEnumExpressionsCheckedUncheckedWrappers_UseColumnArrayLoadsAndOpcodesWithoutRowAllocation()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                marker: char
+                kind: NodeKind
+            }
+
+            enum NodeKind {
+                Unknown = 0,
+                Identifier = 1,
+                Literal = 2,
+                Both = 3
+            }
+
+            func evaluate(nodes: NodeTable, row: int): int {
+                idx := ^1
+
+                (checked(nodes.marker))[row] = 'A'
+                (unchecked(nodes.kind))[row] = NodeKind.Identifier
+                (checked(nodes.marker))[^1] = 'C'
+                (unchecked(nodes.kind))[^1] = NodeKind.Both
+
+                rowScore := (checked(nodes.marker))[row] == 'A' ? 1 : 0
+                rowScore += (unchecked(nodes.marker))[row] < 'B' ? 2 : 0
+                rowScore += ((checked(nodes.marker))[row] + 1) == 66 ? 4 : 0
+                rowScore += ((unchecked(nodes.marker))[row] & 15) == 1 ? 8 : 0
+                rowKind := (checked(nodes.kind))[row] | NodeKind.Literal
+                rowScore += rowKind == NodeKind.Both ? 16 : 0
+                rowScore += (unchecked(nodes.kind))[row] < NodeKind.Both ? 32 : 0
+                rowScore += (int)(~((checked(nodes.kind))[row])) == -2 ? 64 : 0
+
+                tailScore := (checked(nodes.marker))[idx] == 'C' ? 128 : 0
+                tailScore += ((unchecked(nodes.marker))[idx] - 60) == 7 ? 256 : 0
+                tailKind := (unchecked(nodes.kind))[idx] & NodeKind.Literal
+                tailScore += tailKind == NodeKind.Literal ? 512 : 0
+                tailScore += (checked(nodes.kind))[idx] >= NodeKind.Literal ? 1024 : 0
+                return rowScore + tailScore
+            }
+
+            func main(): int {
+                nodes := new NodeTable(2)
+                first := nodes.add()
+                nodes.add()
+                return evaluate(nodes, first)
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var evaluate = ILShapeInspector.GetProgramMethod(assembly, "evaluate");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(2047, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoFromEndSliceAllocation(evaluate);
+            Assert.True(
+                ILShapeInspector.CountOpcode(evaluate, OpCodes.Ldfld) >= 15,
+                "Checked/unchecked direct SoA char and enum expressions should load backing column fields directly.");
+            Assert.Equal(11, CountArrayElementLoads(evaluate));
+            Assert.Equal(4, CountArrayElementStores(evaluate));
+            Assert.True(ILShapeInspector.CountOpcode(evaluate, OpCodes.And) >= 2);
+            Assert.True(ILShapeInspector.CountOpcode(evaluate, OpCodes.Or) >= 1);
+            Assert.True(ILShapeInspector.CountOpcode(evaluate, OpCodes.Not) >= 1);
+            Assert.True(
+                CountOpcodes(
+                    evaluate,
+                    OpCodes.Clt,
+                    OpCodes.Cgt,
+                    OpCodes.Clt_Un,
+                    OpCodes.Cgt_Un,
+                    OpCodes.Blt,
+                    OpCodes.Blt_S,
+                    OpCodes.Blt_Un,
+                    OpCodes.Blt_Un_S,
+                    OpCodes.Bge,
+                    OpCodes.Bge_S,
+                    OpCodes.Bge_Un,
+                    OpCodes.Bge_Un_S) >= 2,
+                "Checked/unchecked direct SoA char and enum relational expressions should use comparison opcodes or branches.");
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void DirectColumnNullCoalescingCheckedUncheckedWrappers_UseColumnArrayLoadStoreWithoutRowAllocation()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");

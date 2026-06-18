@@ -251,11 +251,13 @@ stores, default stores without old-element reads, prefix/postfix increment/decre
 null-coalescing reads, and null-coalescing assignments.
 Checked/unchecked wrappers around the direct column, such as `(checked(table.column))[row]` and
 `(unchecked(table.column))[^1]`, keep the same direct element lowering and do not introduce row
-materialization, array slicing, boxing, or dispatch. That wrapper rule includes scalar, string, and
-bool read expressions and comparisons, string concatenation, bool logical operators, `ref`/`out`
-address-taking over verified element types, statement-context and expression-valued simple stores,
-compound assignment, prefix/postfix update operands, expression-valued default stores without
-old-element reads, plus nullable-column `??` and `??=` element operations.
+materialization, array slicing, boxing, or dispatch. That wrapper rule includes numeric scalar,
+`char`, string, bool, and int-backed enum read expressions and comparisons, promoted char
+arithmetic/bitwise operands, string concatenation, bool logical operators, enum bitwise operators,
+enum unary bitwise-not, `ref`/`out` address-taking over verified element types, statement-context and
+expression-valued simple stores, compound assignment, prefix/postfix update operands,
+expression-valued default stores without old-element reads, plus nullable-column `??` and `??=`
+element operations.
 The same nullability rule applies to both row projection and direct column elements: `??` and `??=`
 require a nullable/reference column element and non-nullable columns reject the operation during
 analysis, including when the column member is the parenthesized index receiver. Direct-column range

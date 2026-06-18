@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — SoA checked direct-column char and enum expressions keep IL shape
+
+Direct-column `char` and int-backed enum expressions now have IL-shape evidence when the column
+receiver is wrapped in `checked(...)` or `unchecked(...)`. Checked/unchecked wrappers preserve direct
+backing-array loads for char equality/relational comparisons, promoted char arithmetic/bitwise
+operands, enum comparisons, enum bitwise operators, and enum unary bitwise-not over row and from-end
+indexes, with no row materialization, array slicing, boxing, delegate construction, or virtual
+dispatch.
+Focused evidence: `dotnet test tests/Tests.csproj --no-restore --filter
+"FullyQualifiedName~DirectColumnCharAndEnumExpressionsCheckedUncheckedWrappers_UseColumnArrayLoadsAndOpcodesWithoutRowAllocation"`.
+
 ## 2026-06-18 — SoA checked direct-column ref/out arguments keep address IL shape
 
 Direct-column `ref`/`out` arguments now have IL-shape evidence when the column receiver is wrapped
