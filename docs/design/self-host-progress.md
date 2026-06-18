@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Hard-cast SoA checked numeric updates stay direct
+
+Numeric compound assignments and prefix/postfix updates now have IL-shape evidence when hard-cast
+direct-column receivers are wrapped in `checked(...)` or `unchecked(...)`. Row-index, literal
+from-end, and variable-held from-end forms such as
+`(unchecked(((Nodes)((NodeTable)nodes)).kind))[row] += value` keep direct backing-column field
+loads, old-element reads only where update semantics require them, backing-array stores, and direct
+`add`/`sub` opcodes without row allocation, boxing, delegate construction, heap array allocation,
+slicing, calls, or virtual dispatch. Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~HardCastedDirectColumnNumericUpdatesCheckedUncheckedWrappers_UseColumnArrayLoadStoreWithoutRowAllocation"`.
+
 ## 2026-06-18 — Hard-cast SoA checked assignment wrappers avoid old reads
 
 Expression-valued simple stores now have IL-shape evidence when hard-cast direct-column receivers are

@@ -459,6 +459,71 @@ public class SoaRecordILShapeTests
     }
 
     [Fact]
+    public void HardCastedDirectColumnNumericUpdatesCheckedUncheckedWrappers_UseColumnArrayLoadStoreWithoutRowAllocation()
+    {
+        using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
+
+        const string source = """
+            soa record NodeTable {
+                kind: int
+            }
+
+            type Nodes = NodeTable
+
+            func update(nodes: Nodes, row: int): int {
+                idx := ^1
+
+                (checked(((NodeTable)nodes).kind))[row] = 10
+                rowCompound := (unchecked(((Nodes)((NodeTable)nodes)).kind))[row] += 5
+                rowPost := (checked(((NodeTable)((Nodes)nodes)).kind))[row]++
+                rowPre := ++((unchecked(((Nodes)((NodeTable)nodes)).kind))[row])
+
+                (checked(((NodeTable)nodes).kind))[^1] = 20
+                literalCompound := (unchecked(((Nodes)((NodeTable)nodes)).kind))[^1] -= 3
+                literalPost := ((checked(((NodeTable)((Nodes)nodes)).kind))[^1])--
+                literalPre := --((unchecked(((Nodes)((NodeTable)nodes)).kind))[^1])
+
+                variableCompound := (checked(((NodeTable)nodes).kind))[idx] += 2
+                variablePost := ((unchecked(((Nodes)((NodeTable)nodes)).kind))[idx])++
+                variablePre := ++((checked(((NodeTable)((Nodes)nodes)).kind))[idx])
+
+                return rowCompound + rowPost + rowPre
+                    + literalCompound + literalPost + literalPre
+                    + variableCompound + variablePost + variablePre
+            }
+
+            func main(): int {
+                nodes := new Nodes(2)
+                first := nodes.add()
+                nodes.add()
+                total := update(nodes, first)
+                return total * 1000 + ((NodeTable)nodes).kind[first] * 10 + ((Nodes)((NodeTable)nodes)).kind[^1]
+            }
+            """;
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var update = ILShapeInspector.GetProgramMethod(assembly, "update");
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(149189, Assert.IsType<int>(main.Invoke(null, null)));
+
+            AssertNoFromEndSliceAllocation(update);
+            Assert.True(
+                ILShapeInspector.CountOpcode(update, OpCodes.Ldfld) >= 11,
+                "Hard-casted checked/unchecked direct SoA column numeric updates should load backing column fields directly.");
+            Assert.True(
+                CountArrayElementLoads(update) >= 9,
+                "Hard-casted checked/unchecked direct SoA column numeric updates should read current values from backing arrays.");
+            Assert.Equal(11, CountArrayElementStores(update));
+            Assert.True(ILShapeInspector.CountOpcode(update, OpCodes.Add) >= 4);
+            Assert.True(ILShapeInspector.CountOpcode(update, OpCodes.Sub) >= 3);
+
+            return 0;
+        });
+    }
+
+    [Fact]
     public void DirectColumnScalarExpressionsCheckedUncheckedWrappers_UseColumnArrayLoadsAndOpcodesWithoutRowAllocation()
     {
         using var _ = SetEnvironmentVariable(ExperimentalSoaEnvironmentVariable, "1");
