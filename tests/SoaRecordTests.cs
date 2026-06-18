@@ -11801,6 +11801,8 @@ public class SoaRecordTests : ILCompilerTestBase
     [InlineData("pull(nodes.add)", "add", "nodes.add()")]
     [InlineData("op := ((NodeTable)nodes).add", "add", "nodes.add()")]
     [InlineData("let op: Action = ((Nodes)((NodeTable)nodes)).clear", "clear", "nodes.clear()")]
+    [InlineData("op := ((NodeTable)nodes).ensureCapacity", "ensureCapacity", "nodes.ensureCapacity(...)")]
+    [InlineData("op := ((Nodes)((NodeTable)nodes)).copyRow", "copyRow", "nodes.copyRow(...)")]
     [InlineData("pull(((NodeTable)nodes).add)", "add", "nodes.add()")]
     public void Analyzer_SoaTableGeneratedOperationsCannotBeUsedAsValues(
         string statement,

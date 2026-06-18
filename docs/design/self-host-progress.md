@@ -282,9 +282,10 @@ storage surface directly. Focused evidence:
 ## 2026-06-18 — SoA generated-operation value diagnostics cover hard casts
 
 Generated SoA operations still cannot be materialized as function/delegate values when reached through
-hard-cast table/alias receivers. `((NodeTable)nodes).add`, `((Nodes)((NodeTable)nodes)).clear`, and
-call arguments such as `pull(((NodeTable)nodes).add)` now keep the SoA-specific diagnostic and render
-actionable call suggestions like `nodes.add()` instead of placeholder receiver text. Focused evidence:
+hard-cast table/alias receivers. `((NodeTable)nodes).add`, `((Nodes)((NodeTable)nodes)).clear`,
+`((NodeTable)nodes).ensureCapacity`, `((Nodes)((NodeTable)nodes)).copyRow`, and call arguments such
+as `pull(((NodeTable)nodes).add)` now keep the SoA-specific diagnostic and render actionable call
+suggestions like `nodes.add()` instead of placeholder receiver text. Focused evidence:
 `dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~Analyzer_SoaTableGeneratedOperationsCannotBeUsedAsValues"`.
 
 ## 2026-06-18 — SoA hard-cast generated operations preserve receiver storage
