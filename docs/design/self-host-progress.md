@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-19 — Restore option parsing routes through product N#
+
+`RestoreCommand` now gets help detection from `RestoreCommandKernels`, which binds the shipped
+`CliRestoreOptionSummaryInto` dogfood kernel beside the existing restore reference kernels. The
+previous direct C# scan remains only as fallback/oracle logic, and bare `help` remains non-help to
+preserve the command's existing `--help`/`-h` behavior. This is a Stage 6 `C#-surface-shrink`
+product-route slice.
+
+Focused evidence:
+`./scripts/dev.sh RestoreCommandKernels`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.RestoreCommandKernels_SummarizesOptions|FullyQualifiedName~CliCommandTests.RestoreCommandKernels_DeduplicatesProjectReferences|FullyQualifiedName~CliCommandTests.RestoreCommandKernels_FiltersProjectReferences|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-19 — Init option parsing routes through product N#
 
 `InitCommand` now gets help detection, `--name`, `--type`, and `--force` from

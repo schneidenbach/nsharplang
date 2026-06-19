@@ -297,8 +297,8 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       symbol/member ordering, and slug generation now live beside `DocCommand` in `DocCommandKernels`; tree option
       summary now lives beside `TreeCommand` in `TreeCommandKernels`, and tree dependency and
       target-framework deduplication now live beside `TreeCommand` in `TreeDependencyDeduplicator`;
-      restore reference filtering and project-reference deduplication now live beside `RestoreCommand`
-      in `RestoreCommandKernels`; stale generated-output directory de-duplication now lives beside
+      restore option summary, reference filtering, and project-reference deduplication now live beside
+      `RestoreCommand` in `RestoreCommandKernels`; stale generated-output directory de-duplication now lives beside
       `Program.CleanStaleGeneratedFiles` in `GeneratedOutputDirectoryDeduplicator`; native
       compilation-reference filtering now lives beside `CompilationReferenceResolver` in
       `CompilationReferenceResolverKernels`, and NuGet/framework best-score selection now routes through

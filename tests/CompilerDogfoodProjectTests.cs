@@ -7026,6 +7026,7 @@ func outer(x: int): int {
         Assert.Contains("CliDoctorOptionSummaryInto", methodNames!); // product doctor option parsing.
         Assert.Contains("CliAuditOptionSummaryInto", methodNames!); // product audit option parsing.
         Assert.Contains("CliInitOptionSummaryInto", methodNames!); // product init option parsing.
+        Assert.Contains("CliRestoreOptionSummaryInto", methodNames!); // product restore option parsing.
 
         AssertColumnarProgramMatchesCSharp(source,
             ("CliSymbolNameContainsAsciiIgnoreCase", new object[] { "FooBarBaz", "barbaz" }),
@@ -15287,6 +15288,10 @@ class OtherZetaType {
                     "CliInitOptionSummaryInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliInitOptionSummaryInto.");
+            var cliRestoreOptionSummaryInto = programType.GetMethod(
+                    "CliRestoreOptionSummaryInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliRestoreOptionSummaryInto.");
             var cliUpdateAllNuGetDependencyIndicesInto = programType.GetMethod(
                     "CliUpdateAllNuGetDependencyIndicesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -16254,6 +16259,7 @@ func main(customer: Customer, résumé: Profile) {
             AssertCliDoctorOptionsLikeProduction(cliDoctorOptionSummaryInto);
             AssertCliAuditOptionsLikeProduction(cliAuditOptionSummaryInto);
             AssertCliInitOptionsLikeProduction(cliInitOptionSummaryInto);
+            AssertCliRestoreOptionsLikeProduction(cliRestoreOptionSummaryInto);
             AssertCliUpdateAllNuGetDependencyFilteringLikeProduction(
                 cliUpdateAllNuGetDependencyIndicesInto,
                 cliUpdateAllNuGetDependencyChecksumInto);
@@ -20552,6 +20558,51 @@ func main() {
                     indices[3] = 1;
                     break;
             }
+        }
+
+        return indices;
+    }
+
+    private static void AssertCliRestoreOptionsLikeProduction(MethodInfo cliRestoreOptionSummaryInto)
+    {
+        var cases = new[]
+        {
+            Array.Empty<string>(),
+            new[] { "--help" },
+            new[] { "-h" },
+            new[] { "help" },
+            new[] { "ignored", "-h" },
+            new[] { string.Empty }
+        };
+
+        foreach (var args in cases)
+        {
+            var expected = CreateExpectedCliRestoreOptions(args);
+            var resultIndices = Enumerable.Repeat(-99, 1).ToArray();
+            var actualCode = (int)(cliRestoreOptionSummaryInto.Invoke(
+                null,
+                new object[] { args, resultIndices }) ?? -2);
+
+            Assert.Equal(0, actualCode);
+            Assert.Equal(expected, resultIndices);
+        }
+
+        Assert.Equal(
+            -1,
+            (int)(cliRestoreOptionSummaryInto.Invoke(
+                null,
+                new object[] { new[] { "--help" }, Array.Empty<int>() }) ?? 0));
+    }
+
+    private static int[] CreateExpectedCliRestoreOptions(string[] args)
+    {
+        var indices = new[] { 0 };
+
+        for (var i = 0; i < args.Length; i++)
+        {
+            var arg = args[i];
+            if (arg == "--help" || arg == "-h")
+                indices[0] = 1;
         }
 
         return indices;

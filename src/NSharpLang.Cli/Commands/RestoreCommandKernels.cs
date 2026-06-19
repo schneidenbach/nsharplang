@@ -4,14 +4,43 @@ using NSharpLang.Compiler;
 
 namespace NSharpLang.Cli.Commands;
 
+internal readonly record struct RestoreOptionSummary(bool ShowHelp);
+
 internal static class RestoreCommandKernels
 {
+    [ThreadStatic]
+    private static int[]? t_optionSummaryIndices;
     [ThreadStatic]
     private static ReferenceTypeFilterScratch? t_referenceTypeFilterScratch;
     [ThreadStatic]
     private static StableDistinctScratch? t_stableDistinctScratch;
 
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
+
+    internal static bool TryGetOptionSummary(string[] args, out RestoreOptionSummary summary)
+    {
+        summary = default;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        var resultIndices = t_optionSummaryIndices ??= new int[1];
+        try
+        {
+            var code = bindings.RestoreOptionSummary(args, resultIndices);
+            if (code != 0)
+                return false;
+
+            summary = new RestoreOptionSummary(resultIndices[0] != 0);
+            return true;
+        }
+        catch
+        {
+            summary = default;
+            return false;
+        }
+    }
 
     internal static bool TryDeduplicateProjectReferences(
         IReadOnlyList<string> projectReferences,
@@ -155,7 +184,14 @@ internal static class RestoreCommandKernels
                 "CliReferenceTypeFilterIndicesInto"),
             DogfoodKernelLoader.CreateDelegate<CliStableDistinctRankIndicesInto>(
                 programType,
-                "CliStableDistinctRankIndicesInto")));
+                "CliStableDistinctRankIndicesInto"),
+            DogfoodKernelLoader.CreateDelegate<CliRestoreOptionSummaryInto>(
+                programType,
+                "CliRestoreOptionSummaryInto")));
+
+    private delegate int CliRestoreOptionSummaryInto(
+        string[] args,
+        int[] resultIndices);
 
     private delegate int CliReferenceTypeFilterIndicesInto(
         int[] typeRanks,
@@ -170,7 +206,8 @@ internal static class RestoreCommandKernels
 
     private sealed record Bindings(
         CliReferenceTypeFilterIndicesInto ReferenceTypeFilterIndices,
-        CliStableDistinctRankIndicesInto StableDistinctRankIndices);
+        CliStableDistinctRankIndicesInto StableDistinctRankIndices,
+        CliRestoreOptionSummaryInto RestoreOptionSummary);
 
     private static int GetReferenceTypeRank(ReferenceType type) =>
         type switch

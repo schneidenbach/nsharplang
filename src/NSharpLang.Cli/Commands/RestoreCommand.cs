@@ -16,7 +16,8 @@ public static class RestoreCommand
 {
     public static int Execute(string[] args)
     {
-        if (args.Contains("--help") || args.Contains("-h"))
+        var options = GetOptionSummary(args);
+        if (options.ShowHelp)
         {
             ShowHelp();
             return 0;
@@ -150,6 +151,23 @@ NSharpLang.Sdk .csproj. Native 'nlc build' reads project.yml directly.
 
 Options:
   -h, --help    Show this help message");
+    }
+
+    internal static RestoreOptionSummary GetOptionSummary(string[] args)
+        => RestoreCommandKernels.TryGetOptionSummary(args, out var summary)
+            ? summary
+            : GetOptionSummaryWithCSharp(args);
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product restore option parsing routes through RestoreCommandKernels.
+    private static RestoreOptionSummary GetOptionSummaryWithCSharp(string[] args)
+        => new(ContainsArgWithCSharp(args, "--help") || ContainsArgWithCSharp(args, "-h"));
+
+    private static bool ContainsArgWithCSharp(string[] args, string value)
+    {
+        for (var i = 0; i < args.Length; i++)
+            if (args[i] == value)
+                return true;
+        return false;
     }
 
     internal static string[] DeduplicateProjectReferences(IReadOnlyList<string> projectReferences)

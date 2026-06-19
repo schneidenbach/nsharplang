@@ -964,6 +964,32 @@ func CliInitOptionSummaryCore(args: &CliArgumentTable, resultIndices: &CliIndexR
     return 0
 }
 
+func CliRestoreOptionSummaryInto(args: string[], resultIndices: int[]): int {
+    arguments := new CliArgumentTable { Args: args }
+    results := new CliIndexResultTable { Indices: resultIndices }
+    return CliRestoreOptionSummaryCore(ref arguments, ref results)
+}
+
+func CliRestoreOptionSummaryCore(args: &CliArgumentTable, resultIndices: &CliIndexResultTable): int {
+    if resultIndices.Indices.Length < 1 {
+        return -1
+    }
+
+    resultIndices.Indices[0] = 0
+
+    i := 0
+    while i < args.Args.Length {
+        arg := args.Args[i]
+        if arg == "--help" || arg == "-h" {
+            resultIndices.Indices[0] = 1
+        }
+
+        i = i + 1
+    }
+
+    return 0
+}
+
 func CliPublishOptionsInto(args: string[], resultIndices: int[]): int {
     arguments := new CliArgumentTable { Args: args }
     results := new CliIndexResultTable { Indices: resultIndices }

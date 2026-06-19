@@ -1820,6 +1820,19 @@ func Main() {
     }
 
     [Fact]
+    public void RestoreCommandKernels_SummarizesOptions()
+    {
+        Assert.True(RestoreCommandKernels.TryGetOptionSummary(new[] { "--help" }, out var longHelp));
+        Assert.True(longHelp.ShowHelp);
+
+        Assert.True(RestoreCommandKernels.TryGetOptionSummary(new[] { "-h" }, out var shortHelp));
+        Assert.True(shortHelp.ShowHelp);
+
+        Assert.False(RestoreCommand.GetOptionSummary(new[] { "help" }).ShowHelp);
+        Assert.False(RestoreCommand.GetOptionSummary(Array.Empty<string>()).ShowHelp);
+    }
+
+    [Fact]
     public void CompilationReferenceResolverKernels_FiltersReferenceValuesByType()
     {
         var references = new[]
