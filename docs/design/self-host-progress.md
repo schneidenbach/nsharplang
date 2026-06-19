@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-19 — Doc option parsing routes through product N#
+
+`DocCommand` now gets help detection, `--project`, `--output`, `--json`, and `--open` from
+`DocCommandKernels`, which binds the shipped `CliDocOptionSummaryInto` dogfood kernel beside the
+existing doc symbol/member ordering and slug routes. The previous C# option scan remains only as
+fallback/oracle logic, preserving permissive option-value handling. This is a Stage 6
+`C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`./scripts/dev.sh DocCommandKernels`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.DocCommandKernels_SummarizesOptions|FullyQualifiedName~CliParityAuditTests.DocCommand_GeneratesHtmlAndJsonManifest|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-19 — Tidy option parsing routes through product N#
 
 `TidyCommand` now gets help detection, `--project`, `--fix`, and `--json` from

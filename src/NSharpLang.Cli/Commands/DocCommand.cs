@@ -22,13 +22,14 @@ public static class DocCommand
 
     public static int Execute(string[] args)
     {
-        if (args.Contains("--help") || args.Contains("-h") || (args.Length > 0 && args[0] == "help"))
+        var options = GetOptionSummary(args);
+        if (options.ShowHelp)
             return ShowHelp();
 
-        var useJson = args.Contains("--json");
-        var openAfterGenerate = args.Contains("--open");
-        var projectRoot = GetOption(args, "--project") ?? Directory.GetCurrentDirectory();
-        var outputDir = GetOption(args, "--output") ?? Path.Combine(projectRoot, "nsharp", "docs");
+        var useJson = options.Json;
+        var openAfterGenerate = options.Open;
+        var projectRoot = options.ProjectOption ?? Directory.GetCurrentDirectory();
+        var outputDir = options.OutputOption ?? Path.Combine(projectRoot, "nsharp", "docs");
         projectRoot = Path.GetFullPath(projectRoot);
         outputDir = Path.GetFullPath(outputDir);
 
@@ -127,7 +128,21 @@ Exit codes:
         return 1;
     }
 
-    private static string? GetOption(string[] args, string flag)
+    internal static DocOptionSummary GetOptionSummary(string[] args)
+        => DocCommandKernels.TryGetOptionSummary(args, out var summary)
+            ? summary
+            : GetOptionSummaryWithCSharp(args);
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product doc option parsing routes through DocCommandKernels.
+    private static DocOptionSummary GetOptionSummaryWithCSharp(string[] args)
+        => new(
+            GetOptionValueWithCSharp(args, "--project"),
+            GetOptionValueWithCSharp(args, "--output"),
+            ContainsArgWithCSharp(args, "--json"),
+            ContainsArgWithCSharp(args, "--open"),
+            ContainsArgWithCSharp(args, "--help") || ContainsArgWithCSharp(args, "-h") || (args.Length > 0 && args[0] == "help"));
+
+    private static string? GetOptionValueWithCSharp(string[] args, string flag)
     {
         for (var i = 0; i < args.Length - 1; i++)
         {
@@ -136,6 +151,14 @@ Exit codes:
         }
 
         return null;
+    }
+
+    private static bool ContainsArgWithCSharp(string[] args, string value)
+    {
+        for (var i = 0; i < args.Length; i++)
+            if (args[i] == value)
+                return true;
+        return false;
     }
 
     private static bool TryOpen(string path, out string? error)

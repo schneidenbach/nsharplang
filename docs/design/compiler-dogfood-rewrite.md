@@ -2062,6 +2062,11 @@ Generated `nlc doc` symbol-page slug generation now batches raw kind/name/file s
 `DocCommandKernels` and the compiled N# `CliDocSlugsInto` route when the dogfood assembly is
 available, preserving the previous lower-case letter/digit-only slug text, with the previous
 LINQ/split/join slugifier kept as the fallback.
+`CliDocOptionSummaryInto` preserves the current `nlc doc` command-parser behavior for help,
+`--project`, `--output`, `--json`, and `--open`. Stage 6 routes `DocCommand` through
+`DocCommandKernels` as a C# surface-shrink product path beside the existing doc generation routes.
+The kernel writes option value indices and switch bits into a caller-owned buffer, while the previous
+C# parser shape remains as fallback/oracle logic.
 `nlc tree` dependency deduplication and kind/name ordering now routes through
 `TreeDependencyDeduplicator`, which calls the compiled N# stable counting-sort kernel when the
 dogfood assembly is available, preserving the previous first-source dependency selection for each
@@ -2150,7 +2155,7 @@ CLI stable string de-duplication for stale generated cleanup and target-framewor
 add/remove package operand discovery, tidy dependency-line keep flags,
 DocQuery reference-pack assembly-name and type-candidate de-duplication,
 CLI test outcome summaries,
-CLI build/test/pack/lint/tidy option summaries, check/fix argument summaries,
+CLI build/test/pack/lint/tidy/doc option summaries, check/fix argument summaries,
 watch forwarded-argument selection,
 shared positional-argument collection,
 and the accepted batch result packed-count kernel through the compiled N# methods. The same suite
@@ -2184,7 +2189,7 @@ strict semantic binding lookup, and LSP
 editor word/span lookup for hover, definition, references, and rename entry points, nearest
 same-file declaration index construction and lookup in the source-context definition fallback,
 reflected method overload grouping and grouped member-completion
-output, plus batch duplicate-id validation in `nlc query batch` and generated doc symbol/member
+output, plus batch duplicate-id validation in `nlc query batch`, option parsing and generated doc symbol/member
 ordering and slug generation in `nlc doc`, plus dependency deduplication and ordering in `nlc tree`, plus text-edit
 application ordering in `nlc fix`, plus diagnostic severity filtering in `nlc query diagnostics`,
 batch diagnostics, daemon diagnostics, and strict `nlc build` lint gating, plus first positional

@@ -7014,6 +7014,7 @@ func outer(x: int): int {
         Assert.Contains("CliCheckArgumentSummaryInto", methodNames!); // product check argument parsing.
         Assert.Contains("CliFixArgumentSummaryInto", methodNames!); // product fix argument parsing.
         Assert.Contains("CliTidyOptionSummaryInto", methodNames!); // product tidy option parsing.
+        Assert.Contains("CliDocOptionSummaryInto", methodNames!); // product doc option parsing.
 
         AssertColumnarProgramMatchesCSharp(source,
             ("CliSymbolNameContainsAsciiIgnoreCase", new object[] { "FooBarBaz", "barbaz" }),
@@ -15151,6 +15152,10 @@ class OtherZetaType {
                     "CliTidyOptionSummaryInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTidyOptionSummaryInto.");
+            var cliDocOptionSummaryInto = programType.GetMethod(
+                    "CliDocOptionSummaryInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDocOptionSummaryInto.");
             var cliLintFileArgIndicesInto = programType.GetMethod(
                     "CliLintFileArgIndicesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -16157,6 +16162,7 @@ func main(customer: Customer, résumé: Profile) {
                 cliPositionalArgChecksumInto);
             AssertCliLintOptionsLikeProduction(cliLintOptionSummaryInto);
             AssertCliTidyOptionsLikeProduction(cliTidyOptionSummaryInto);
+            AssertCliDocOptionsLikeProduction(cliDocOptionSummaryInto);
             AssertCliLintFileArgsLikeProduction(
                 cliLintFileArgIndicesInto,
                 cliLintFileArgChecksumInto);
@@ -19671,6 +19677,75 @@ func main() {
                 case "--help":
                 case "-h":
                     indices[3] = 1;
+                    break;
+            }
+        }
+
+        return indices;
+    }
+
+    private static void AssertCliDocOptionsLikeProduction(MethodInfo cliDocOptionSummaryInto)
+    {
+        var cases = new[]
+        {
+            Array.Empty<string>(),
+            new[] { "--project", "src", "--output", "docs/api", "--json", "--open", "-h" },
+            new[] { "--project", "--json", "--output", "--open" },
+            new[] { "--project" },
+            new[] { "--output" },
+            new[] { "help" },
+            new[] { "ignored", "-h" },
+            new[] { string.Empty }
+        };
+
+        foreach (var args in cases)
+        {
+            var expected = CreateExpectedCliDocOptions(args);
+            var resultIndices = Enumerable.Repeat(-99, 5).ToArray();
+            var actualCode = (int)(cliDocOptionSummaryInto.Invoke(
+                null,
+                new object[] { args, resultIndices }) ?? -2);
+
+            Assert.Equal(0, actualCode);
+            Assert.Equal(expected, resultIndices);
+        }
+
+        Assert.Equal(
+            -1,
+            (int)(cliDocOptionSummaryInto.Invoke(
+                null,
+                new object[] { new[] { "--json" }, new int[4] }) ?? 0));
+    }
+
+    private static int[] CreateExpectedCliDocOptions(string[] args)
+    {
+        var indices = new[] { -1, -1, 0, 0, 0 };
+
+        for (var i = 0; i < args.Length; i++)
+        {
+            var arg = args[i];
+            if (i == 0 && arg == "help")
+                indices[4] = 1;
+
+            switch (arg)
+            {
+                case "--project":
+                    if (indices[0] < 0 && i + 1 < args.Length)
+                        indices[0] = i + 1;
+                    break;
+                case "--output":
+                    if (indices[1] < 0 && i + 1 < args.Length)
+                        indices[1] = i + 1;
+                    break;
+                case "--json":
+                    indices[2] = 1;
+                    break;
+                case "--open":
+                    indices[3] = 1;
+                    break;
+                case "--help":
+                case "-h":
+                    indices[4] = 1;
                     break;
             }
         }

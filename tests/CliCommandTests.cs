@@ -2023,6 +2023,35 @@ dependencies:
     }
 
     [Fact]
+    public void DocCommandKernels_SummarizesOptions()
+    {
+        var args = new[] { "--json", "--open", "--project", "samples/demo", "--output", "docs/api" };
+
+        Assert.True(DocCommandKernels.TryGetOptionSummary(args, out var dogfoodSummary));
+        Assert.Equal("samples/demo", dogfoodSummary.ProjectOption);
+        Assert.Equal("docs/api", dogfoodSummary.OutputOption);
+        Assert.True(dogfoodSummary.Json);
+        Assert.True(dogfoodSummary.Open);
+        Assert.False(dogfoodSummary.ShowHelp);
+
+        var summary = DocCommand.GetOptionSummary(args);
+        Assert.Equal("samples/demo", summary.ProjectOption);
+        Assert.Equal("docs/api", summary.OutputOption);
+        Assert.True(summary.Json);
+        Assert.True(summary.Open);
+        Assert.False(summary.ShowHelp);
+
+        var permissiveValue = DocCommand.GetOptionSummary(new[] { "--project", "--json", "--output", "--open" });
+        Assert.Equal("--json", permissiveValue.ProjectOption);
+        Assert.Equal("--open", permissiveValue.OutputOption);
+        Assert.True(permissiveValue.Json);
+        Assert.True(permissiveValue.Open);
+
+        Assert.True(DocCommand.GetOptionSummary(new[] { "help" }).ShowHelp);
+        Assert.True(DocCommand.GetOptionSummary(new[] { "ignored", "-h" }).ShowHelp);
+    }
+
+    [Fact]
     public void DocCommandKernels_OrdersSymbolsForGeneration()
     {
         var symbols = new[]
