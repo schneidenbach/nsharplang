@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-19 — Audit option parsing routes through product N#
+
+`AuditCommand` now gets help detection, `--project`, and `--json` from `AuditCommandKernels`, which
+binds the shipped `CliAuditOptionSummaryInto` dogfood kernel beside the command implementation. The
+previous direct C# scans remain only as fallback/oracle logic, preserving permissive `--project`
+value handling. This is a Stage 6 `C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`./scripts/dev.sh AuditCommandKernels`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.AuditCommandKernels_SummarizesOptions|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-19 — Doctor option parsing routes through product N#
 
 `DoctorCommand` now gets help detection, `--json`, `--require-vscode`, and `--skip-vscode` from

@@ -883,6 +883,44 @@ func CliDoctorOptionSummaryCore(args: &CliArgumentTable, resultIndices: &CliInde
     return 0
 }
 
+func CliAuditOptionSummaryInto(args: string[], resultIndices: int[]): int {
+    arguments := new CliArgumentTable { Args: args }
+    results := new CliIndexResultTable { Indices: resultIndices }
+    return CliAuditOptionSummaryCore(ref arguments, ref results)
+}
+
+func CliAuditOptionSummaryCore(args: &CliArgumentTable, resultIndices: &CliIndexResultTable): int {
+    if resultIndices.Indices.Length < 3 {
+        return -1
+    }
+
+    resultIndices.Indices[0] = -1
+    resultIndices.Indices[1] = 0
+    resultIndices.Indices[2] = 0
+
+    i := 0
+    while i < args.Args.Length {
+        arg := args.Args[i]
+        if i == 0 && arg == "help" {
+            resultIndices.Indices[2] = 1
+        }
+
+        if arg == "--project" {
+            if resultIndices.Indices[0] < 0 && i + 1 < args.Args.Length {
+                resultIndices.Indices[0] = i + 1
+            }
+        } else if arg == "--json" {
+            resultIndices.Indices[1] = 1
+        } else if arg == "--help" || arg == "-h" {
+            resultIndices.Indices[2] = 1
+        }
+
+        i = i + 1
+    }
+
+    return 0
+}
+
 func CliPublishOptionsInto(args: string[], resultIndices: int[]): int {
     arguments := new CliArgumentTable { Args: args }
     results := new CliIndexResultTable { Indices: resultIndices }

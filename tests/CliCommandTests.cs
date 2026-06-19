@@ -392,6 +392,30 @@ func Main() {
     }
 
     [Fact]
+    public void AuditCommandKernels_SummarizesOptions()
+    {
+        var args = new[] { "--project", "samples/demo", "--json", "-h" };
+
+        Assert.True(AuditCommandKernels.TryGetOptionSummary(args, out var dogfoodSummary));
+        Assert.Equal("samples/demo", dogfoodSummary.ProjectOption);
+        Assert.True(dogfoodSummary.Json);
+        Assert.True(dogfoodSummary.ShowHelp);
+
+        var summary = AuditCommand.GetOptionSummary(args);
+        Assert.Equal("samples/demo", summary.ProjectOption);
+        Assert.True(summary.Json);
+        Assert.True(summary.ShowHelp);
+
+        var permissiveValue = AuditCommand.GetOptionSummary(new[] { "--project", "--json" });
+        Assert.Equal("--json", permissiveValue.ProjectOption);
+        Assert.True(permissiveValue.Json);
+        Assert.False(permissiveValue.ShowHelp);
+
+        Assert.True(AuditCommand.GetOptionSummary(new[] { "help" }).ShowHelp);
+        Assert.True(AuditCommand.GetOptionSummary(new[] { "ignored", "-h" }).ShowHelp);
+    }
+
+    [Fact]
     public void UpdateDependencyFilter_FiltersTargetNuGetDependencies()
     {
         var dependencies = new[]

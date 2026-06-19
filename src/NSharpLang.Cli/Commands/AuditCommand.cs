@@ -1,6 +1,5 @@
 using System;
 using System.IO;
-using System.Linq;
 using System.Text.Json;
 
 namespace NSharpLang.Cli.Commands;
@@ -9,11 +8,12 @@ public static class AuditCommand
 {
     public static int Execute(string[] args)
     {
-        if (args.Contains("--help") || args.Contains("-h") || (args.Length > 0 && args[0] == "help"))
+        var options = GetOptionSummary(args);
+        if (options.ShowHelp)
             return ShowHelp();
 
-        var projectRoot = GetProjectRoot(args);
-        var json = args.Contains("--json");
+        var projectRoot = GetProjectRoot(options);
+        var json = options.Json;
 
         if (!Directory.Exists(projectRoot))
             return Error($"Project directory not found: {projectRoot}");
@@ -151,12 +151,35 @@ public static class AuditCommand
         }
     }
 
-    static string GetProjectRoot(string[] args)
+    internal static AuditOptionSummary GetOptionSummary(string[] args)
+        => AuditCommandKernels.TryGetOptionSummary(args, out var summary)
+            ? summary
+            : GetOptionSummaryWithCSharp(args);
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product audit option parsing routes through AuditCommandKernels.
+    private static AuditOptionSummary GetOptionSummaryWithCSharp(string[] args)
+        => new(
+            GetOptionWithCSharp(args, "--project"),
+            ContainsArgWithCSharp(args, "--json"),
+            ContainsArgWithCSharp(args, "--help") || ContainsArgWithCSharp(args, "-h") || (args.Length > 0 && args[0] == "help"));
+
+    private static string GetProjectRoot(AuditOptionSummary options)
+        => Path.GetFullPath(options.ProjectOption ?? Directory.GetCurrentDirectory());
+
+    private static string? GetOptionWithCSharp(string[] args, string flag)
     {
         for (var i = 0; i < args.Length - 1; i++)
-            if (args[i] == "--project")
-                return Path.GetFullPath(args[i + 1]);
-        return Path.GetFullPath(Directory.GetCurrentDirectory());
+            if (args[i] == flag)
+                return args[i + 1];
+        return null;
+    }
+
+    private static bool ContainsArgWithCSharp(string[] args, string value)
+    {
+        for (var i = 0; i < args.Length; i++)
+            if (args[i] == value)
+                return true;
+        return false;
     }
 
     static int ShowHelp()
