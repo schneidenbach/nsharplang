@@ -1833,6 +1833,10 @@ distinct/filter/order path retained as the fallback.
 surface-shrink product path beside the existing clean artifact ordering route. The kernel writes the
 project value index and switch bits into a caller-owned buffer, while the previous C# parser shape
 remains as fallback/oracle logic.
+`CliEnvOptionSummaryInto` preserves the current `nlc env` command-parser behavior for help and
+`--json`. Stage 6 routes `EnvCommand` through `EnvCommandKernels` as a C# surface-shrink product
+path beside the command implementation. The kernel writes switch bits into a caller-owned buffer,
+while the previous C# parser shape remains as fallback/oracle logic.
 
 `CliUpdateAllNuGetDependencyIndicesInto` passed parity and reported zero managed allocation in the
 short BenchmarkDotNet evidence tier for `nlc update` all-NuGet dependency selection. The flag-based
@@ -2187,7 +2191,7 @@ candidate-column ordering, strict binding lookup, nearest declaration index cons
 semantic scope index construction, scoped visible-variable selection, CLI batch duplicate-id validation, CLI doc symbol/member
 ordering and slug generation, CLI tree option summaries and dependency deduplication, diagnostic severity filtering, symbol-kind filtering, symbol-name filtering, CLI first positional-argument
 discovery, CLI build first source-operand discovery, parser newline-token compaction,
-text-edit ordering, struct-copy readonly-field gating, skipped-fix selection, applied-fix file grouping, clean option summaries and artifact directory ordering, update all-NuGet and target-package dependency filtering,
+text-edit ordering, struct-copy readonly-field gating, skipped-fix selection, applied-fix file grouping, clean option summaries and artifact directory ordering, env option summaries, update all-NuGet and target-package dependency filtering,
 CLI reference-type filtering,
 AOT requirement grouping, anonymous-union overload-shim eligibility, declared-type suffix lookup, type-creation ordering, compiler source-file de-duplication,
 compiler stub namespace import ordering, inspect-summary reference-file summaries,
@@ -2195,7 +2199,7 @@ CLI stable string de-duplication for stale generated cleanup and target-framewor
 tidy dependency-line keep flags,
 DocQuery reference-pack assembly-name and type-candidate de-duplication,
 CLI test outcome summaries,
-CLI build/test/pack/lint/tidy/doc/export/tree/clean option summaries, new/check/fix/add/remove/update argument summaries,
+CLI build/test/pack/lint/tidy/doc/export/tree/clean/env option summaries, new/check/fix/add/remove/update argument summaries,
 watch forwarded-argument selection,
 shared positional-argument collection,
 and the accepted batch result packed-count kernel through the compiled N# methods. The same suite
@@ -2204,7 +2208,7 @@ without routing it through product adapters; `CliCommandTests` verifies both
 packaged CLI dogfood routes for duplicate batch request ids, `nlc update` target package
 selection, `nlc doc` symbol/member ordering and slug generation, `nlc tree` option parsing and dependency deduplication, and
 `nlc query diagnostics --severity` filtering plus compiler-error severity filtering, skipped-fix
-selection, applied-fix file grouping, `nlc clean` option parsing and artifact directory ordering, `nlc export csharp` option parsing and reference de-duplication,
+selection, applied-fix file grouping, `nlc clean` option parsing and artifact directory ordering, `nlc env` option parsing, `nlc export csharp` option parsing and reference de-duplication,
 CLI reference-type filtering,
 `nlc restore` project-reference de-duplication, `nlc update` dependency filtering, `nlc tidy`
 option/status summaries, `nlc test` outcome summaries, `nlc tidy --fix` possibly-unused dependency selection, and `nlc tidy --fix`

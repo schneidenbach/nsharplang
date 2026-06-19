@@ -1,6 +1,5 @@
 using System;
 using System.IO;
-using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using NSharpLang.Compiler;
@@ -11,10 +10,11 @@ public static class EnvCommand
 {
     public static int Execute(string[] args)
     {
-        if (args.Contains("--help") || args.Contains("-h") || (args.Length > 0 && args[0] == "help"))
+        var options = GetOptionSummary(args);
+        if (options.ShowHelp)
             return ShowHelp();
 
-        var json = args.Contains("--json");
+        var json = options.Json;
 
         var nlcVersion = Program.GetVersion();
         var dotnetVersion = RunCapture("--version")?.Trim() ?? "unknown";
@@ -113,6 +113,25 @@ public static class EnvCommand
         {
             return null;
         }
+    }
+
+    internal static EnvOptionSummary GetOptionSummary(string[] args)
+        => EnvCommandKernels.TryGetOptionSummary(args, out var summary)
+            ? summary
+            : GetOptionSummaryWithCSharp(args);
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product env option parsing routes through EnvCommandKernels.
+    private static EnvOptionSummary GetOptionSummaryWithCSharp(string[] args)
+        => new(
+            ContainsArgWithCSharp(args, "--json"),
+            ContainsArgWithCSharp(args, "--help") || ContainsArgWithCSharp(args, "-h") || (args.Length > 0 && args[0] == "help"));
+
+    private static bool ContainsArgWithCSharp(string[] args, string value)
+    {
+        for (var i = 0; i < args.Length; i++)
+            if (args[i] == value)
+                return true;
+        return false;
     }
 
     static int ShowHelp()

@@ -329,6 +329,47 @@ func Main() {
     }
 
     [Fact]
+    public void EnvCommandKernels_SummarizesOptions()
+    {
+        var args = new[] { "--json", "-h" };
+
+        Assert.True(EnvCommandKernels.TryGetOptionSummary(args, out var dogfoodSummary));
+        Assert.True(dogfoodSummary.Json);
+        Assert.True(dogfoodSummary.ShowHelp);
+
+        var summary = EnvCommand.GetOptionSummary(args);
+        Assert.True(summary.Json);
+        Assert.True(summary.ShowHelp);
+
+        Assert.True(EnvCommand.GetOptionSummary(new[] { "help" }).ShowHelp);
+        Assert.True(EnvCommand.GetOptionSummary(new[] { "ignored", "-h" }).ShowHelp);
+        Assert.True(EnvCommand.GetOptionSummary(new[] { "--json" }).Json);
+    }
+
+    [Fact]
+    public void EnvCommand_Json_EmitsStableEnvelope()
+    {
+        var (exitCode, stdout, stderr) = CaptureConsole(() => EnvCommand.Execute(new[] { "--json" }));
+
+        Assert.Equal(0, exitCode);
+        Assert.True(string.IsNullOrWhiteSpace(stderr));
+
+        using var doc = JsonDocument.Parse(stdout);
+        var root = doc.RootElement;
+        Assert.Equal(2, root.GetProperty("schemaVersion").GetInt32());
+        Assert.Equal("env", root.GetProperty("command").GetString());
+        Assert.True(root.GetProperty("ok").GetBoolean());
+        Assert.True(root.TryGetProperty("nlcVersion", out _));
+        Assert.True(root.TryGetProperty("dotnetVersion", out _));
+        Assert.True(root.TryGetProperty("runtime", out _));
+        Assert.True(root.TryGetProperty("os", out _));
+        Assert.True(root.TryGetProperty("arch", out _));
+        Assert.True(root.TryGetProperty("nugetCachePath", out _));
+        Assert.True(root.TryGetProperty("nsharpBinPath", out _));
+        Assert.True(root.TryGetProperty("nsharpPackageCachePath", out _));
+    }
+
+    [Fact]
     public void UpdateDependencyFilter_FiltersTargetNuGetDependencies()
     {
         var dependencies = new[]

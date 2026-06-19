@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-19 — Env option parsing routes through product N#
+
+`EnvCommand` now gets help detection and `--json` from `EnvCommandKernels`, which binds the shipped
+`CliEnvOptionSummaryInto` dogfood kernel beside the command implementation. The previous direct C#
+scans remain only as fallback/oracle logic, preserving first-argument `help` behavior. This is a
+Stage 6 `C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`./scripts/dev.sh EnvCommandKernels`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.EnvCommandKernels_SummarizesOptions|FullyQualifiedName~CliCommandTests.EnvCommand_Json_EmitsStableEnvelope|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-19 — Clean option parsing routes through product N#
 
 `CleanCommand` now gets help detection, `--project`, and `--all` from `CleanCommandKernels`, which
