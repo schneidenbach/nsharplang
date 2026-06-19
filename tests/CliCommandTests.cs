@@ -1613,6 +1613,34 @@ func Main() {
     }
 
     [Fact]
+    public void RunCommandKernels_SummarizesOptions()
+    {
+        Assert.True(RunCommandKernels.TryGetOptionSummary(
+            Array.Empty<string>(),
+            out var empty));
+        Assert.Null(empty.BackendOption);
+        Assert.False(empty.ShowHelp);
+
+        Assert.True(RunCommandKernels.TryGetOptionSummary(
+            new[] { "--backend", "il", "Program.nl" },
+            out var backend));
+        Assert.Equal("il", backend.BackendOption);
+        Assert.False(backend.ShowHelp);
+
+        Assert.True(RunCommandKernels.TryGetOptionSummary(
+            new[] { "help" },
+            out var help));
+        Assert.True(help.ShowHelp);
+
+        var permissive = Program.GetRunOptionSummary(new[] { "--backend", "--help" });
+        Assert.Equal("--help", permissive.BackendOption);
+        Assert.True(permissive.ShowHelp);
+
+        Assert.True(Program.GetRunOptionSummary(new[] { "-h" }).ShowHelp);
+        Assert.Null(Program.GetRunOptionSummary(new[] { "--backend" }).BackendOption);
+    }
+
+    [Fact]
     public void PublishCommandKernels_NormalizesOptionsAndValidation()
     {
         Assert.True(PublishCommandKernels.TryGetArgumentSummary(

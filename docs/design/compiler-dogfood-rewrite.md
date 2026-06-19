@@ -1572,6 +1572,11 @@ about 358x faster on the representative argument corpus (4.988 ns vs 1,786.022 n
 21,216 B) and about 2,701x faster on the large generated corpus (5.152 ns vs 13,915.787 ns, 0 B vs
 168,056 B). `RunCommand` now routes source operand discovery through
 `RunCommandKernels`, with the previous C# strip path retained as the exact fallback.
+`CliRunOptionSummaryInto` preserves current `nlc run` help and `--backend` parsing beside that
+source-operand route. Stage 6 routes `Program.RunCommand` through `RunCommandKernels`; `--define`
+extraction stays in C# as argv-mutation/build-define materialization, and backend parsing runs after
+that extraction to preserve the previous command behavior. The previous C# parser shape remains as
+fallback/oracle logic.
 
 `CliPublishOptionsInto` passed parity and reported zero managed allocation in the short
 BenchmarkDotNet evidence tier for the default no-argument `nlc publish` option summary. It ran
@@ -2219,7 +2224,7 @@ candidate-column ordering, strict binding lookup, nearest declaration index cons
 semantic scope index construction, scoped visible-variable selection, CLI batch duplicate-id validation, CLI doc symbol/member
 ordering and slug generation, CLI tree option summaries and dependency deduplication, diagnostic severity filtering, symbol-kind filtering, symbol-name filtering, CLI first positional-argument
 discovery, CLI build first source-operand discovery, parser newline-token compaction,
-text-edit ordering, struct-copy readonly-field gating, skipped-fix selection, applied-fix file grouping, clean option summaries and artifact directory ordering, env, doctor, audit, init, restore, watch, and completion option summaries, update all-NuGet and target-package dependency filtering,
+text-edit ordering, struct-copy readonly-field gating, skipped-fix selection, applied-fix file grouping, clean option summaries and artifact directory ordering, env, doctor, audit, init, restore, watch, completion, and run option summaries, update all-NuGet and target-package dependency filtering,
 CLI reference-type filtering,
 AOT requirement grouping, anonymous-union overload-shim eligibility, declared-type suffix lookup, type-creation ordering, compiler source-file de-duplication,
 compiler stub namespace import ordering, inspect-summary reference-file summaries,
@@ -2227,7 +2232,7 @@ CLI stable string de-duplication for stale generated cleanup and target-framewor
 tidy dependency-line keep flags,
 DocQuery reference-pack assembly-name and type-candidate de-duplication,
 CLI test outcome summaries,
-CLI build/test/pack/lint/tidy/doc/export/tree/clean/env/doctor/audit/init/restore/watch/completion option summaries, new/check/fix/add/remove/update argument summaries,
+CLI build/test/pack/lint/tidy/doc/export/tree/clean/env/doctor/audit/init/restore/watch/completion/run option summaries, new/check/fix/add/remove/update argument summaries,
 watch forwarded-argument selection,
 shared positional-argument collection,
 and the accepted batch result packed-count kernel through the compiled N# methods. The same suite

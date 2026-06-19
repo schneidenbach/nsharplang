@@ -11,6 +11,19 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-19 — Run option parsing routes through product N#
+
+`Program.RunCommand` now gets help detection and `--backend` from `RunCommandKernels`, which binds
+the shipped `CliRunOptionSummaryInto` dogfood kernel beside the existing run source-operand route.
+The command still extracts `--define` in C# because it mutates argv and materializes host build
+defines; backend parsing runs through the N# summary after that extraction to preserve the previous
+argument order. The previous direct scans remain only as fallback/oracle logic. This is a Stage 6
+`C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`./scripts/dev.sh RunCommandKernels`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.RunCommandKernels_SummarizesOptions|FullyQualifiedName~CliCommandTests.RunCommandKernels_SelectsSourceOperandAfterBackendStripping|FullyQualifiedName~CompilationBackendTests.RunCommand_UsesConfiguredIlBackendAndExecutesProject|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-19 — Completion option parsing routes through product N#
 
 `CompletionCommand` now gets help detection and shell-kind classification for `bash`, `zsh`, and

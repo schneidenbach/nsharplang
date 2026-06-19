@@ -332,6 +332,43 @@ func CliRunFirstOperandIndex(args: string[]): int {
     return CliRunFirstOperandIndexCore(ref arguments)
 }
 
+func CliRunOptionSummaryInto(args: string[], resultIndices: int[]): int {
+    arguments := new CliArgumentTable { Args: args }
+    results := new CliIndexResultTable { Indices: resultIndices }
+    return CliRunOptionSummaryCore(ref arguments, ref results)
+}
+
+func CliRunOptionSummaryCore(args: &CliArgumentTable, resultIndices: &CliIndexResultTable): int {
+    if resultIndices.Indices.Length < 2 {
+        return -1
+    }
+
+    resultIndices.Indices[0] = -1
+    resultIndices.Indices[1] = 0
+
+    i := 0
+    while i < args.Args.Length {
+        arg := args.Args[i]
+        if i == 0 && arg == "help" {
+            resultIndices.Indices[1] = 1
+        }
+
+        if arg == "--help" || arg == "-h" {
+            resultIndices.Indices[1] = 1
+        }
+
+        if arg == "--backend" {
+            if resultIndices.Indices[0] < 0 && i + 1 < args.Args.Length {
+                resultIndices.Indices[0] = i + 1
+            }
+        }
+
+        i = i + 1
+    }
+
+    return 0
+}
+
 func CliRunFirstOperandIndexCore(args: &CliArgumentTable): int {
     i := 0
     while i < args.Args.Length {

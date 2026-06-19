@@ -7012,6 +7012,7 @@ func outer(x: int): int {
         Assert.Contains("CliCompletionOptionSummaryInto", methodNames!); // product completion option parsing.
         Assert.Contains("CliWatchForwardedArgIndicesInto", methodNames!); // product watch forwarding.
         Assert.Contains("CliWatchOptionSummaryInto", methodNames!); // product watch option parsing.
+        Assert.Contains("CliRunOptionSummaryInto", methodNames!); // product run option parsing.
         Assert.Contains("CliPositionalArgIndicesInto", methodNames!); // product positional collection.
         Assert.Contains("CliLintOptionSummaryInto", methodNames!); // product lint option parsing.
         Assert.Contains("CliCheckArgumentSummaryInto", methodNames!); // product check argument parsing.
@@ -15134,6 +15135,10 @@ class OtherZetaType {
                     "CliRunFirstOperandIndex",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliRunFirstOperandIndex.");
+            var cliRunOptionSummaryInto = programType.GetMethod(
+                    "CliRunOptionSummaryInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliRunOptionSummaryInto.");
             var cliCheckArgumentSummaryInto = programType.GetMethod(
                     "CliCheckArgumentSummaryInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -16220,6 +16225,7 @@ func main(customer: Customer, résumé: Profile) {
                 cliExportCSharpFirstOperandChecksumInto);
             AssertCliExportCSharpOptionsLikeProduction(cliExportCSharpOptionSummaryInto);
             AssertCliRunSourceOperandLikeProduction(cliRunFirstOperandIndex);
+            AssertCliRunOptionsLikeProduction(cliRunOptionSummaryInto);
             AssertCliCheckArgumentsLikeProduction(cliCheckArgumentSummaryInto);
             AssertCliFixArgumentsLikeProduction(cliFixArgumentSummaryInto);
             AssertCliNewArgumentsLikeProduction(cliNewArgumentSummaryInto);
@@ -18958,6 +18964,61 @@ func main() {
         }
 
         return -1;
+    }
+
+    private static void AssertCliRunOptionsLikeProduction(MethodInfo cliRunOptionSummaryInto)
+    {
+        var cases = new[]
+        {
+            Array.Empty<string>(),
+            new[] { "help" },
+            new[] { "--help" },
+            new[] { "-h" },
+            new[] { "--backend", "il" },
+            new[] { "--backend", "--help" },
+            new[] { "--backend" },
+            new[] { "Program.nl", "--backend", "il" },
+            new[] { "--define", "FEATURE", "--backend", "il" },
+            new[] { string.Empty }
+        };
+
+        foreach (var args in cases)
+        {
+            var expected = CreateExpectedCliRunOptions(args);
+            var resultIndices = Enumerable.Repeat(-99, 2).ToArray();
+            var actualCode = (int)(cliRunOptionSummaryInto.Invoke(
+                null,
+                new object[] { args, resultIndices }) ?? -2);
+
+            Assert.Equal(0, actualCode);
+            Assert.Equal(expected, resultIndices);
+        }
+
+        Assert.Equal(
+            -1,
+            (int)(cliRunOptionSummaryInto.Invoke(
+                null,
+                new object[] { new[] { "--backend", "il" }, new int[1] }) ?? 0));
+    }
+
+    private static int[] CreateExpectedCliRunOptions(string[] args)
+    {
+        var indices = new[] { -1, 0 };
+
+        for (var i = 0; i < args.Length; i++)
+        {
+            var arg = args[i];
+            if (i == 0 && arg == "help")
+                indices[1] = 1;
+
+            if (arg == "--help" || arg == "-h")
+                indices[1] = 1;
+
+            if (arg == "--backend" && indices[0] < 0 && i + 1 < args.Length)
+                indices[0] = i + 1;
+        }
+
+        return indices;
     }
 
     private static void AssertCliCheckArgumentsLikeProduction(MethodInfo cliCheckArgumentSummaryInto)

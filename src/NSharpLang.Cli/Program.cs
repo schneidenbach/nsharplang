@@ -406,7 +406,8 @@ Exit codes:
 
     static int RunCommand(string[] args)
     {
-        if (args.Contains("--help") || args.Contains("-h") || (args.Length > 0 && args[0] == "help"))
+        var helpOptions = GetRunOptionSummary(args);
+        if (helpOptions.ShowHelp)
         {
             Console.WriteLine(@"N# Run
 
@@ -439,7 +440,8 @@ Exit codes:
         // Extract --define/-d before operand detection so their values are never
         // mistaken for the source-file operand.
         var cliDefines = ExtractDefineFlags(ref args);
-        var backendOption = GetOptionValue(args, "--backend");
+        var runOptions = GetRunOptionSummary(args);
+        var backendOption = runOptions.BackendOption;
         var sourceFile = GetRunSourceOperand(args);
 
         try
@@ -1733,6 +1735,20 @@ Exit codes:
         var strippedArgs = StripOptionWithValue(args, "--backend");
         return strippedArgs.Length > 0 ? strippedArgs[0] : null;
     }
+
+    internal static RunOptionSummary GetRunOptionSummary(string[] args)
+    {
+        if (RunCommandKernels.TryGetOptionSummary(args, out var summary))
+            return summary;
+
+        return GetRunOptionSummaryWithCSharp(args);
+    }
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product run option parsing routes through RunCommandKernels.
+    static RunOptionSummary GetRunOptionSummaryWithCSharp(string[] args)
+        => new(
+            GetOptionValue(args, "--backend"),
+            args.Contains("--help") || args.Contains("-h") || (args.Length > 0 && args[0] == "help"));
 
     static int? ParseDurationToMs(string duration)
     {
