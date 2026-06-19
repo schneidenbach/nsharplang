@@ -4233,6 +4233,73 @@ func CliReferenceResolutionBestScoreIndexCore(scoresTable: &CliRankTable, count:
     return bestIndex
 }
 
+func CliNuGetDependencyVersionRangeInto(version: string, result: int[]): int {
+    if result.Length < 2 {
+        return -1
+    }
+
+    result[0] = -1
+    result[1] = 0
+
+    start := 0
+    end := version.Length
+    while start < end && char.IsWhiteSpace(version[start]) {
+        start = start + 1
+    }
+
+    while end > start && char.IsWhiteSpace(version[end - 1]) {
+        end = end - 1
+    }
+
+    if start >= end {
+        return 0
+    }
+
+    while start < end && CliNuGetDependencyVersionIsBracket(version[start]) {
+        start = start + 1
+    }
+
+    while end > start && CliNuGetDependencyVersionIsBracket(version[end - 1]) {
+        end = end - 1
+    }
+
+    segmentStart := start
+    while segmentStart < end {
+        segmentEnd := segmentStart
+        while segmentEnd < end && version[segmentEnd] != ',' {
+            segmentEnd = segmentEnd + 1
+        }
+
+        trimStart := segmentStart
+        while trimStart < segmentEnd && char.IsWhiteSpace(version[trimStart]) {
+            trimStart = trimStart + 1
+        }
+
+        trimEnd := segmentEnd
+        while trimEnd > trimStart && char.IsWhiteSpace(version[trimEnd - 1]) {
+            trimEnd = trimEnd - 1
+        }
+
+        if trimStart < trimEnd {
+            result[0] = trimStart
+            result[1] = trimEnd - trimStart
+            return 1
+        }
+
+        if segmentEnd >= end {
+            break
+        }
+
+        segmentStart = segmentEnd + 1
+    }
+
+    return 0
+}
+
+func CliNuGetDependencyVersionIsBracket(ch: char): bool {
+    return ch == '[' || ch == ']' || ch == '(' || ch == ')'
+}
+
 func CliNuGetVersionCompareInto(x: string, y: string, result: int[]): int {
     if result.Length < 9 {
         return -1

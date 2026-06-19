@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-19 — NuGet dependency-version normalization moves into product N#
+
+`CompilationReferenceResolver` now normalizes NuGet dependency version ranges through
+`CompilationReferenceResolverKernels`, which binds the shipped `CliNuGetDependencyVersionRangeInto` dogfood
+kernel in `CliArguments.nl`. Nuspec XML materialization remains C# host-boundary work; selecting the first
+non-empty trimmed version segment from bracketed/ranged dependency declarations now lives in N#, with the previous
+C# trim/split implementation isolated as fallback/oracle.
+
+Focused evidence:
+`./scripts/dev.sh CompilationReferenceResolverKernels`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-19 — Framework compatibility scoring moves into product N#
 
 `CompilationReferenceResolver` now scores package asset and dependency-group target frameworks through

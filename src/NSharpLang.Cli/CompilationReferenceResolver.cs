@@ -726,6 +726,16 @@ internal static class CompilationReferenceResolver
 
     private static string? NormalizeNuGetDependencyVersion(string? version)
     {
+        if (CompilationReferenceResolverKernels.TryNormalizeNuGetDependencyVersion(version, out var dogfoodVersion))
+            return dogfoodVersion;
+
+        return NormalizeNuGetDependencyVersionWithCSharp(version);
+    }
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product NuGet dependency-version
+    // range normalization routes through CompilationReferenceResolverKernels.
+    private static string? NormalizeNuGetDependencyVersionWithCSharp(string? version)
+    {
         if (string.IsNullOrWhiteSpace(version))
         {
             return null;

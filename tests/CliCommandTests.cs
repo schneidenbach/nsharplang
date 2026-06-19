@@ -2502,6 +2502,30 @@ func Main() {
     }
 
     [Fact]
+    public void CompilationReferenceResolverKernels_NormalizesNuGetDependencyVersions()
+    {
+        AssertNormalized(null, null);
+        AssertNormalized(string.Empty, null);
+        AssertNormalized("   ", null);
+        AssertNormalized("13.0.3", "13.0.3");
+        AssertNormalized("[13.0.3]", "13.0.3");
+        AssertNormalized("(1.0.0, 2.0.0]", "1.0.0");
+        AssertNormalized("[, 2.0.0)", "2.0.0");
+        AssertNormalized("[ 1.2.3 , 2.0.0)", "1.2.3");
+        AssertNormalized(" (, 2.0.0 ] ", "2.0.0");
+        AssertNormalized("(,)", null);
+        AssertNormalized("[]", null);
+
+        static void AssertNormalized(string? version, string? expectedVersion)
+        {
+            Assert.True(CompilationReferenceResolverKernels.TryNormalizeNuGetDependencyVersion(
+                version,
+                out var normalizedVersion));
+            Assert.Equal(expectedVersion, normalizedVersion);
+        }
+    }
+
+    [Fact]
     public void CompilationReferenceResolverKernels_ParsesTargetFrameworkVersions()
     {
         AssertParsed("net10.0", 10, 0);

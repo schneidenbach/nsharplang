@@ -18,6 +18,9 @@ internal static class CompilationReferenceResolverKernels
     [ThreadStatic]
     private static int[]? t_frameworkCompatibilityScoreResult;
 
+    [ThreadStatic]
+    private static int[]? t_nuGetDependencyVersionRangeResult;
+
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
 
     internal static bool TryFilterReferencesByType(
@@ -204,6 +207,40 @@ internal static class CompilationReferenceResolverKernels
         }
     }
 
+    internal static bool TryNormalizeNuGetDependencyVersion(string? version, out string? normalizedVersion)
+    {
+        normalizedVersion = null;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        var source = version ?? string.Empty;
+        var result = t_nuGetDependencyVersionRangeResult ??= new int[2];
+        try
+        {
+            var code = bindings.NuGetDependencyVersionRange(source, result);
+            if (code == 0)
+                return true;
+
+            if (code != 1)
+                return false;
+
+            var start = result[0];
+            var length = result[1];
+            if (start < 0 || length <= 0 || start > source.Length || start + length > source.Length)
+                return false;
+
+            normalizedVersion = source.Substring(start, length);
+            return true;
+        }
+        catch
+        {
+            normalizedVersion = null;
+            return false;
+        }
+    }
+
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
             DogfoodKernelLoader.CreateDelegate<CliReferenceTypeFilterIndicesInto>(
@@ -220,7 +257,10 @@ internal static class CompilationReferenceResolverKernels
                 "CliNuGetVersionCompareInto"),
             DogfoodKernelLoader.CreateDelegate<CliFrameworkCompatibilityScoreInto>(
                 programType,
-                "CliFrameworkCompatibilityScoreInto")));
+                "CliFrameworkCompatibilityScoreInto"),
+            DogfoodKernelLoader.CreateDelegate<CliNuGetDependencyVersionRangeInto>(
+                programType,
+                "CliNuGetDependencyVersionRangeInto")));
 
     private delegate int CliReferenceTypeFilterIndicesInto(
         int[] typeRanks,
@@ -238,12 +278,15 @@ internal static class CompilationReferenceResolverKernels
         string targetFramework,
         int[] result);
 
+    private delegate int CliNuGetDependencyVersionRangeInto(string version, int[] result);
+
     private sealed record Bindings(
         CliReferenceTypeFilterIndicesInto ReferenceTypeFilterIndices,
         CliReferenceResolutionBestScoreIndex ReferenceResolutionBestScoreIndex,
         CliTargetFrameworkVersionInto TargetFrameworkVersion,
         CliNuGetVersionCompareInto NuGetVersionCompare,
-        CliFrameworkCompatibilityScoreInto FrameworkCompatibilityScore);
+        CliFrameworkCompatibilityScoreInto FrameworkCompatibilityScore,
+        CliNuGetDependencyVersionRangeInto NuGetDependencyVersionRange);
 
     private static int GetReferenceTypeRank(ReferenceType type) =>
         type switch

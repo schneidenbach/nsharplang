@@ -7008,6 +7008,7 @@ func outer(x: int): int {
         Assert.Contains("CliExportCSharpOptionSummaryInto", methodNames!); // product export csharp option parsing.
         Assert.Contains("CliReferenceResolutionBestScoreIndex", methodNames!); // product resolver best-score selection.
         Assert.Contains("CliNuGetVersionCompareInto", methodNames!); // product resolver NuGet version comparison.
+        Assert.Contains("CliNuGetDependencyVersionRangeInto", methodNames!); // product resolver NuGet dependency-version normalization.
         Assert.Contains("CliTargetFrameworkVersionInto", methodNames!); // product resolver target-framework version parsing.
         Assert.Contains("CliFrameworkCompatibilityScoreInto", methodNames!); // product resolver framework compatibility scoring.
         Assert.Contains("CliShouldFormatDiscoveredPath", methodNames!); // product format discovery filtering.
@@ -7060,6 +7061,11 @@ func outer(x: int): int {
             ("CliNuGetVersionCompareInto", new object[] { "1.2.0", "1.2", new int[9] }),
             ("CliNuGetVersionCompareInto", new object[] { "1.2.3.4.5", "1.0.0", new int[9] }),
             ("CliNuGetVersionCompareInto", new object[] { "2147483648.0.0", "1.0.0", new int[9] }),
+            ("CliNuGetDependencyVersionRangeInto", new object[] { "[13.0.3]", new int[2] }),
+            ("CliNuGetDependencyVersionRangeInto", new object[] { "(1.0.0, 2.0.0]", new int[2] }),
+            ("CliNuGetDependencyVersionRangeInto", new object[] { "[, 2.0.0)", new int[2] }),
+            ("CliNuGetDependencyVersionRangeInto", new object[] { "(,)", new int[2] }),
+            ("CliNuGetDependencyVersionRangeInto", new object[] { "13.0.3", new int[0] }),
             ("CliTargetFrameworkVersionInto", new object[] { "net10.0", new int[2] }),
             ("CliTargetFrameworkVersionInto", new object[] { "netstandard2.1", new int[2] }),
             ("CliTargetFrameworkVersionInto", new object[] { "net10..2", new int[2] }),
