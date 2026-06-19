@@ -11,6 +11,20 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-19 — Query position parsing moves into product N#
+
+`QueryCommand.TryParsePosition` now resolves `line:column` operands for hover, type, definition,
+references, completions, implementors, inspect, and perf queries through `QueryCommandKernels`,
+which binds the shipped `CliTryParsePositionInto` dogfood kernel in `CliQueryParsing.nl`. The N#
+parser preserves the legacy `Split(':')` + `int.TryParse` behavior for whitespace, signs, overflow,
+and invalid input; the previous C# parser remains only as fallback/oracle logic. The parity corpus
+keeps only the query-position batch/checksum probes layered over the product parser. This is a Stage
+6 `C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`./scripts/dev.sh QueryCommandKernels`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliQueryParsing|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-19 — Query top-level options move into product N#
 
 `QueryCommand.ParseOptions` now gets subcommand, `--project`, `--file`, `--pos`, output mode,

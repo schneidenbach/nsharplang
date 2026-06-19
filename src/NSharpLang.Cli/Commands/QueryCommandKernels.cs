@@ -42,6 +42,9 @@ internal static class QueryCommandKernels
     [ThreadStatic]
     private static int[]? t_topLevelRemainingIndices;
 
+    [ThreadStatic]
+    private static int[]? t_positionResult;
+
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
 
     internal static bool TryGetDaemonParameterSummary(string[] args, out QueryDaemonParameterSummary summary)
@@ -188,6 +191,37 @@ internal static class QueryCommandKernels
         }
     }
 
+    internal static bool TryParsePosition(string position, out bool parsed, out int line, out int column)
+    {
+        parsed = false;
+        line = 0;
+        column = 0;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        var result = t_positionResult ??= new int[2];
+        try
+        {
+            var code = bindings.TryParsePosition(position, result);
+            if (code is not 0 and not 1)
+                return false;
+
+            parsed = code == 1;
+            line = result[0];
+            column = result[1];
+            return true;
+        }
+        catch
+        {
+            parsed = false;
+            line = 0;
+            column = 0;
+            return false;
+        }
+    }
+
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
             DogfoodKernelLoader.CreateDelegate<CliQueryDaemonParameterSummaryInto>(
@@ -198,7 +232,10 @@ internal static class QueryCommandKernels
                 "CliQueryCommandOptionSummaryInto"),
             DogfoodKernelLoader.CreateDelegate<CliQueryTopLevelOptionSummaryInto>(
                 programType,
-                "CliQueryTopLevelOptionSummaryInto")));
+                "CliQueryTopLevelOptionSummaryInto"),
+            DogfoodKernelLoader.CreateDelegate<CliTryParsePositionInto>(
+                programType,
+                "CliTryParsePositionInto")));
 
     private static bool TryGetOptionalArg(string[] args, int index, out string? value)
     {
@@ -222,8 +259,11 @@ internal static class QueryCommandKernels
         int[] resultIndices,
         int[] remainingIndices);
 
+    private delegate int CliTryParsePositionInto(string position, int[] result);
+
     private sealed record Bindings(
         CliQueryDaemonParameterSummaryInto QueryDaemonParameterSummary,
         CliQueryCommandOptionSummaryInto QueryCommandOptionSummary,
-        CliQueryTopLevelOptionSummaryInto QueryTopLevelOptionSummary);
+        CliQueryTopLevelOptionSummaryInto QueryTopLevelOptionSummary,
+        CliTryParsePositionInto TryParsePosition);
 }

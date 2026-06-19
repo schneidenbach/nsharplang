@@ -1299,6 +1299,41 @@ func Main() {
     }
 
     [Fact]
+    public void QueryCommandKernels_ParsePositionsLikeCSharpFallback()
+    {
+        var cases = new[]
+        {
+            "1:1",
+            "42:17",
+            " 42 : 17 ",
+            "+64:+10",
+            "-1:5",
+            "2147483647:2147483647",
+            "-2147483648:-2147483648",
+            "0:0",
+            "12:",
+            ":34",
+            "12:abc",
+            "abc:12",
+            "12:34:56",
+            "2147483648:1",
+            "1:-2147483649",
+            "1_000:2",
+            "7 :\t8"
+        };
+
+        foreach (var input in cases)
+        {
+            var expectedParsed = TryParsePositionWithCSharpFallback(input, out var expectedLine, out var expectedColumn);
+
+            Assert.True(QueryCommandKernels.TryParsePosition(input, out var parsed, out var line, out var column));
+            Assert.Equal(expectedParsed, parsed);
+            Assert.Equal(expectedLine, line);
+            Assert.Equal(expectedColumn, column);
+        }
+    }
+
+    [Fact]
     public void NewCommandKernels_SummarizesArguments()
     {
         var args = new[] { "--template", "library", "--systems", "PacketCore", "-h" };
@@ -3963,6 +3998,17 @@ func Main() {
     }
 
     private static string NormalizePath(string path) => path.Replace('\\', '/');
+
+    private static bool TryParsePositionWithCSharpFallback(string position, out int line, out int column)
+    {
+        line = 0;
+        column = 0;
+        var parts = position.Split(':');
+        if (parts.Length != 2)
+            return false;
+
+        return int.TryParse(parts[0], out line) && int.TryParse(parts[1], out column);
+    }
 
     private sealed record ExportReferenceValue(string Name, string Version);
 

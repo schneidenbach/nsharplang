@@ -1081,6 +1081,15 @@ public static class QueryCommand
 
     private static bool TryParsePosition(string posStr, out int line, out int col)
     {
+        if (QueryCommandKernels.TryParsePosition(posStr, out var parsed, out line, out col))
+            return parsed;
+
+        return TryParsePositionWithCSharp(posStr, out line, out col);
+    }
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product query position parsing routes through QueryCommandKernels.
+    private static bool TryParsePositionWithCSharp(string posStr, out int line, out int col)
+    {
         line = 0;
         col = 0;
         var parts = posStr.Split(':');
