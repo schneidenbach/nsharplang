@@ -11,21 +11,17 @@ public static class DaemonCommand
 {
     public static int Execute(string[] args)
     {
-        if (args.Length == 0)
-        {
+        var options = GetOptionSummary(args);
+        if (options.ShowHelp)
             return ShowDaemonHelp();
-        }
 
-        var subcommand = args[0].ToLower();
-        var projectDir = GetProjectDir(args);
-
-        return subcommand switch
+        var projectDir = GetProjectDir(options);
+        return options.SubcommandKind switch
         {
-            "start" => StartCommand(projectDir),
-            "stop" => StopCommand(projectDir),
-            "status" => StatusCommand(projectDir),
-            "run" => RunCommand(projectDir), // Internal: runs the daemon in-process
-            "help" or "--help" or "-h" => ShowDaemonHelp(),
+            DaemonSubcommandKind.Start => StartCommand(projectDir),
+            DaemonSubcommandKind.Stop => StopCommand(projectDir),
+            DaemonSubcommandKind.Status => StatusCommand(projectDir),
+            DaemonSubcommandKind.Run => RunCommand(projectDir), // Internal: runs the daemon in-process
             _ => ShowDaemonHelp()
         };
     }
@@ -97,14 +93,52 @@ public static class DaemonCommand
         return 0;
     }
 
-    private static string GetProjectDir(string[] args)
+    internal static DaemonOptionSummary GetOptionSummary(string[] args)
+        => DaemonCommandKernels.TryGetOptionSummary(args, out var summary)
+            ? summary
+            : GetOptionSummaryWithCSharp(args);
+
+    private static string GetProjectDir(DaemonOptionSummary options)
+        => options.ProjectOption ?? Directory.GetCurrentDirectory();
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product daemon option parsing routes through DaemonCommandKernels.
+    private static DaemonOptionSummary GetOptionSummaryWithCSharp(string[] args)
+    {
+        if (args.Length == 0)
+            return new DaemonOptionSummary(DaemonSubcommandKind.Unknown, GetProjectOptionWithCSharp(args), ShowHelp: true);
+
+        var subcommandKind = args[0].ToLower() switch
+        {
+            "start" => DaemonSubcommandKind.Start,
+            "stop" => DaemonSubcommandKind.Stop,
+            "status" => DaemonSubcommandKind.Status,
+            "run" => DaemonSubcommandKind.Run,
+            _ => DaemonSubcommandKind.Unknown
+        };
+
+        return new DaemonOptionSummary(
+            subcommandKind,
+            GetProjectOptionWithCSharp(args),
+            args[0] is "help" or "--help" or "-h" || ContainsArgWithCSharp(args, "--help") || ContainsArgWithCSharp(args, "-h"));
+    }
+
+    private static string? GetProjectOptionWithCSharp(string[] args)
     {
         for (int i = 0; i < args.Length - 1; i++)
         {
             if (args[i] == "--project")
                 return args[i + 1];
         }
-        return Directory.GetCurrentDirectory();
+
+        return null;
+    }
+
+    private static bool ContainsArgWithCSharp(string[] args, string value)
+    {
+        for (var i = 0; i < args.Length; i++)
+            if (args[i] == value)
+                return true;
+        return false;
     }
 
     private static int ShowDaemonHelp()

@@ -2141,6 +2141,9 @@ as local C# parser shapes.
 Those command-specific flags now route through the sibling compiled N# command-option summary as
 well, including the leading operand used by batch, definition, and doc query forms; direct C#
 command-option scans are fallback/oracle-only.
+`nlc daemon` subcommand, project-option, and help parsing now route through `DaemonCommandKernels`,
+which calls the compiled N# daemon option summary when the dogfood assembly is available, with the
+previous direct C# scans kept as fallback/oracle logic.
 `nlc doc` symbol filtering and kind/name ordering now routes through `DocCommandKernels`, which
 calls the compiled N# stable counting-sort kernel when the dogfood assembly is available, preserving
 the previous `SymbolKind.ToString()`/ordinal name order and variable/parameter filtering, with the

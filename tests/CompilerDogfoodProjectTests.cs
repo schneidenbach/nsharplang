@@ -7011,6 +7011,7 @@ func outer(x: int): int {
         Assert.Contains("CliTestOptionSummaryInto", methodNames!); // product test option parsing.
         Assert.Contains("CliPackOptionSummaryInto", methodNames!); // product pack option parsing.
         Assert.Contains("CliCompletionOptionSummaryInto", methodNames!); // product completion option parsing.
+        Assert.Contains("CliDaemonOptionSummaryInto", methodNames!); // product daemon option parsing.
         Assert.Contains("CliWatchForwardedArgIndicesInto", methodNames!); // product watch forwarding.
         Assert.Contains("CliWatchOptionSummaryInto", methodNames!); // product watch option parsing.
         Assert.Contains("CliRunOptionSummaryInto", methodNames!); // product run option parsing.
@@ -15178,6 +15179,10 @@ class OtherZetaType {
                     "CliCompletionOptionSummaryInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliCompletionOptionSummaryInto.");
+            var cliDaemonOptionSummaryInto = programType.GetMethod(
+                    "CliDaemonOptionSummaryInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDaemonOptionSummaryInto.");
             var cliWatchForwardedArgIndicesInto = programType.GetMethod(
                     "CliWatchForwardedArgIndicesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -16250,6 +16255,7 @@ func main(customer: Customer, résumé: Profile) {
             AssertCliRemoveArgumentsLikeProduction(cliRemoveArgumentSummaryInto);
             AssertCliUpdateArgumentsLikeProduction(cliUpdateArgumentSummaryInto);
             AssertCliCompletionOptionsLikeProduction(cliCompletionOptionSummaryInto);
+            AssertCliDaemonOptionsLikeProduction(cliDaemonOptionSummaryInto);
             AssertCliWatchForwardedArgsLikeProduction(
                 cliWatchForwardedArgIndicesInto,
                 cliWatchForwardedArgChecksumInto);
@@ -19740,6 +19746,74 @@ func main() {
         for (var i = 0; i < args.Length; i++)
             if (args[i] == "--help" || args[i] == "-h")
                 indices[1] = 1;
+
+        return indices;
+    }
+
+    private static void AssertCliDaemonOptionsLikeProduction(MethodInfo cliDaemonOptionSummaryInto)
+    {
+        var cases = new[]
+        {
+            Array.Empty<string>(),
+            new[] { "help" },
+            new[] { "--help" },
+            new[] { "-h" },
+            new[] { "start", "--project", "samples/demo" },
+            new[] { "STOP", "--project", "--help" },
+            new[] { "status", "--project" },
+            new[] { "run", "--project", "samples/demo", "--help" },
+            new[] { "bogus", "--project", "samples/demo" }
+        };
+
+        foreach (var args in cases)
+        {
+            var expected = CreateExpectedCliDaemonOptions(args);
+            var resultIndices = Enumerable.Repeat(-99, 3).ToArray();
+            var actualCode = (int)(cliDaemonOptionSummaryInto.Invoke(
+                null,
+                new object[] { args, resultIndices }) ?? -2);
+
+            Assert.Equal(0, actualCode);
+            Assert.Equal(expected, resultIndices);
+        }
+
+        Assert.Equal(
+            -1,
+            (int)(cliDaemonOptionSummaryInto.Invoke(
+                null,
+                new object[] { new[] { "start" }, new int[2] }) ?? 0));
+    }
+
+    private static int[] CreateExpectedCliDaemonOptions(string[] args)
+    {
+        var indices = new[] { 0, -1, 0 };
+
+        if (args.Length == 0)
+        {
+            indices[2] = 1;
+            return indices;
+        }
+
+        indices[0] = args[0].ToLowerInvariant() switch
+        {
+            "start" => 1,
+            "stop" => 2,
+            "status" => 3,
+            "run" => 4,
+            _ => 0
+        };
+
+        if (args[0] == "help" || args[0] == "--help" || args[0] == "-h")
+            indices[2] = 1;
+
+        for (var i = 0; i < args.Length; i++)
+        {
+            if (args[i] == "--help" || args[i] == "-h")
+                indices[2] = 1;
+
+            if (args[i] == "--project" && indices[1] < 0 && i + 1 < args.Length)
+                indices[1] = i + 1;
+        }
 
         return indices;
     }

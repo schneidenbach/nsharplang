@@ -126,6 +126,58 @@ func CliCompletionOptionSummaryInto(args: string[], resultIndices: int[]): int {
     return CliCompletionOptionSummaryCore(ref arguments, ref results)
 }
 
+func CliDaemonOptionSummaryInto(args: string[], resultIndices: int[]): int {
+    arguments := new CliArgumentTable { Args: args }
+    results := new CliIndexResultTable { Indices: resultIndices }
+    return CliDaemonOptionSummaryCore(ref arguments, ref results)
+}
+
+func CliDaemonOptionSummaryCore(args: &CliArgumentTable, resultIndices: &CliIndexResultTable): int {
+    if resultIndices.Indices.Length < 3 {
+        return -1
+    }
+
+    resultIndices.Indices[0] = 0
+    resultIndices.Indices[1] = -1
+    resultIndices.Indices[2] = 0
+
+    if args.Args.Length == 0 {
+        resultIndices.Indices[2] = 1
+        return 0
+    }
+
+    firstArg := args.Args[0]
+    if String.Compare(firstArg, "start", StringComparison.OrdinalIgnoreCase) == 0 {
+        resultIndices.Indices[0] = 1
+    } else if String.Compare(firstArg, "stop", StringComparison.OrdinalIgnoreCase) == 0 {
+        resultIndices.Indices[0] = 2
+    } else if String.Compare(firstArg, "status", StringComparison.OrdinalIgnoreCase) == 0 {
+        resultIndices.Indices[0] = 3
+    } else if String.Compare(firstArg, "run", StringComparison.OrdinalIgnoreCase) == 0 {
+        resultIndices.Indices[0] = 4
+    } else if firstArg == "help" || firstArg == "--help" || firstArg == "-h" {
+        resultIndices.Indices[2] = 1
+    }
+
+    i := 0
+    while i < args.Args.Length {
+        arg := args.Args[i]
+        if arg == "--help" || arg == "-h" {
+            resultIndices.Indices[2] = 1
+        }
+
+        if arg == "--project" {
+            if resultIndices.Indices[1] < 0 && i + 1 < args.Args.Length {
+                resultIndices.Indices[1] = i + 1
+            }
+        }
+
+        i = i + 1
+    }
+
+    return 0
+}
+
 func CliCompletionOptionSummaryCore(args: &CliArgumentTable, resultIndices: &CliIndexResultTable): int {
     if resultIndices.Indices.Length < 2 {
         return -1

@@ -329,6 +329,36 @@ func Main() {
     }
 
     [Fact]
+    public void DaemonCommandKernels_SummarizesOptions()
+    {
+        var args = new[] { "status", "--project", "samples/demo" };
+
+        Assert.True(DaemonCommandKernels.TryGetOptionSummary(args, out var dogfoodSummary));
+        Assert.Equal(DaemonSubcommandKind.Status, dogfoodSummary.SubcommandKind);
+        Assert.Equal("samples/demo", dogfoodSummary.ProjectOption);
+        Assert.False(dogfoodSummary.ShowHelp);
+
+        var summary = DaemonCommand.GetOptionSummary(args);
+        Assert.Equal(dogfoodSummary, summary);
+
+        var help = DaemonCommand.GetOptionSummary(new[] { "start", "--project", "samples/demo", "--help" });
+        Assert.Equal(DaemonSubcommandKind.Start, help.SubcommandKind);
+        Assert.Equal("samples/demo", help.ProjectOption);
+        Assert.True(help.ShowHelp);
+
+        var permissiveValue = DaemonCommand.GetOptionSummary(new[] { "run", "--project", "--help" });
+        Assert.Equal(DaemonSubcommandKind.Run, permissiveValue.SubcommandKind);
+        Assert.Equal("--help", permissiveValue.ProjectOption);
+        Assert.True(permissiveValue.ShowHelp);
+
+        var unknown = DaemonCommand.GetOptionSummary(new[] { "bogus" });
+        Assert.Equal(DaemonSubcommandKind.Unknown, unknown.SubcommandKind);
+        Assert.False(unknown.ShowHelp);
+
+        Assert.True(DaemonCommand.GetOptionSummary(Array.Empty<string>()).ShowHelp);
+    }
+
+    [Fact]
     public void EnvCommandKernels_SummarizesOptions()
     {
         var args = new[] { "--json", "-h" };

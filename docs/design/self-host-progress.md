@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-19 — Daemon option parsing routes through product N#
+
+`DaemonCommand` now gets subcommand kind, `--project`, and help detection from
+`DaemonCommandKernels`, which binds the shipped `CliDaemonOptionSummaryInto` dogfood kernel in
+`CliArguments.nl`. The previous direct C# subcommand/project scans remain only as fallback/oracle
+logic. This is a Stage 6 `C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`./scripts/dev.sh DaemonCommandKernels`;
+`./scripts/dev.sh DaemonCommand`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-19 — Query command-specific options route through product N#
 
 `QueryCommand` now reads `--filter`, `--function`, `--limit`, `--requests`, and the leading
