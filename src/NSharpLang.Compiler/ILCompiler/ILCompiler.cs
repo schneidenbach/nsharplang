@@ -19473,6 +19473,14 @@ public partial class ILCompiler
 
         if (cast.Kind == CastKind.Safe)
         {
+            // `as` is a reference type-test (isinst), which requires an object reference on the stack. A VALUE-type
+            // source — notably a value-struct union — must be boxed first: `isinst` against an unboxed value type is
+            // invalid IL (a runtime crash). Boxing matches C#'s value-type `as` semantics (box, then the isinst
+            // yields the boxed object when it is the target type, else null). Reference sources need no box.
+            if (sourceType.IsValueType)
+            {
+                _currentIL.Emit(OpCodes.Box, sourceType);
+            }
             _currentIL.Emit(OpCodes.Isinst, targetType);
             return;
         }
@@ -19518,6 +19526,13 @@ public partial class ILCompiler
         }
 
         EmitExpression(isExpr.Expression);
+        // `is` against a reference type is an isinst, which requires an object reference. A VALUE-type source (e.g. a
+        // value-struct union tested against object/an interface) must be boxed first — isinst on an unboxed value type
+        // is invalid IL. (A value-struct union case `is` is the integer tag test handled above and never reaches here.)
+        if (sourceType.IsValueType)
+        {
+            _currentIL.Emit(OpCodes.Box, sourceType);
+        }
         _currentIL.Emit(OpCodes.Isinst, targetType);
 
         if (isExpr.VariableName != null)

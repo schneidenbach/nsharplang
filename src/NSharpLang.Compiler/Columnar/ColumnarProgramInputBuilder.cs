@@ -347,16 +347,14 @@ internal static class ColumnarProgramInputBuilder
 
                 var typeParamCount = outResult[2];
 
-                // Stage 6 union-ABI safety: a small, closed, payload-free, non-generic union is the C# oracle's
-                // allocation-free PUBLIC readonly tag struct (UnionValueLayout.IsValueStructEmittable →
+                // Stage 6 union-ABI ownership: a small, closed, payload-free, non-generic union is the public
+                // allocation-free readonly tag struct (UnionValueLayout.IsValueStructEmittable →
                 // DeclareValueStructUnion; ILCompiler_PayloadFreeUnion_IsEmittedAsValueStruct pins
-                // IsValueType==true). The columnar emitter only models the class-hierarchy layout, so it must
-                // DECLINE these to the oracle rather than silently emit heap case classes — otherwise a
-                // columnar-routed build swaps the public value-struct ABI for reference types (the documented
-                // Stage-6 caveat in performance-compiler-refactor.md). The eligibility decision is owned by N#
-                // (ColumnarUnionIsValueStructEmittable in ParserColumnarUnions.nl).
-                if (bindings.UnionIsValueStructEmittable(outCaseFieldCounts, caseCount, typeParamCount) == 1)
-                    return false;
+                // IsValueType==true). The columnar emitter now OWNS this layout (ColumnarIlEmitter emits the tag
+                // struct directly), so this flag selects the value-struct emit path instead of the class-hierarchy
+                // one — preserving the public value-struct ABI on the columnar-routed build. The eligibility
+                // decision is owned by N# (ColumnarUnionIsValueStructEmittable in ParserColumnarUnions.nl).
+                var isValueStruct = bindings.UnionIsValueStructEmittable(outCaseFieldCounts, caseCount, typeParamCount) == 1;
                 string[]? typeParamNames = null;
                 if (typeParamCount > 0)
                 {
@@ -399,7 +397,7 @@ internal static class ColumnarProgramInputBuilder
                     caseFieldTypes[c] = types;
                 }
 
-                unions.Add(new ColumnarUnionInput(unionName, caseNames, caseFieldNames, caseFieldTypes, typeParamNames));
+                unions.Add(new ColumnarUnionInput(unionName, caseNames, caseFieldNames, caseFieldTypes, typeParamNames, isValueStruct));
             }
             return true;
         }

@@ -8118,9 +8118,9 @@ func outer(x: int): int {
     // destructuring one with a `{ }` property pattern (NL503 — "doesn't carry any data — you can't destructure it
     // with property patterns"; a payload-free case is matched as a BARE type pattern instead). Tok carries a payload
     // case (Num), so it is NOT value-struct-emittable and stays on the columnar class-hierarchy path; a payload-FREE,
-    // non-generic union is the C# oracle's public value struct and columnar declines it (see
-    // ColumnarCodegen_Declines_ValueStructEmittableUnion). So columnar value-matches C# on construction + catch-all,
-    // and DECLINES a `Case {}` property pattern on a zero-field case — never accepting a destructuring C# refuses.
+    // non-generic union emits as a value struct via columnar (see ColumnarCodegen_EmitsValueStructUnion). So columnar
+    // value-matches C# on construction + catch-all, and DECLINES a `Case {}` property pattern on a zero-field case —
+    // never accepting a destructuring C# refuses.
     [Fact]
     public void ColumnarCodegen_Parity_UnionZeroFieldCases()
     {
@@ -8138,29 +8138,59 @@ func outer(x: int): int {
         Assert.False(RouteColumnarProgram("union Tok {\n    Eof {}\n    Num { value: int }\n}\n\nfunc f(t: Tok): int {\n    return match t {\n        Tok.Num { value } => value,\n        Tok.Eof {} => -1\n    }\n}\n").Ok);
     }
 
-    // A small (≤16-case), closed, payload-free, non-generic union is the C# oracle's allocation-free PUBLIC readonly
-    // tag struct (UnionValueLayout.IsValueStructEmittable → DeclareValueStructUnion; the value-struct ABI is pinned by
-    // ILCompiler_PayloadFreeUnion_IsEmittedAsValueStruct, which asserts IsValueType==true). The columnar emitter only
-    // models the class-hierarchy layout, so it MUST decline these to the oracle rather than silently swap the public
-    // value-struct ABI for heap case classes (the documented Stage-6 caveat in performance-compiler-refactor.md). The
-    // eligibility decision is owned by N# (ColumnarUnionIsValueStructEmittable in ParserColumnarUnions.nl).
+
+    // A small (≤16-case), closed, payload-free, non-generic union now emits THROUGH COLUMNAR as the public
+    // allocation-free readonly tag struct (ColumnarIlEmitter, mirroring the C# oracle's DeclareValueStructUnion), so
+    // the columnar-routed build preserves the public value-struct ABI (IsValueType==true, pinned for the oracle by
+    // ILCompiler_PayloadFreeUnion_IsEmittedAsValueStruct). Construction is an allocation-free `Create_<Case>` factory
+    // call; a bare `Union.Case` match tests the tag. The eligibility decision is owned by N#
+    // (ColumnarUnionIsValueStructEmittable in ParserColumnarUnions.nl). Larger/payload-bearing/generic unions keep the
+    // class hierarchy. This closes the documented Stage-6 union-ABI caveat (performance-compiler-refactor.md) by
+    // OWNING the layout in columnar rather than declining to the oracle.
     [Fact]
-    public void ColumnarCodegen_Declines_ValueStructEmittableUnion()
+    public void ColumnarCodegen_EmitsValueStructUnion()
     {
-        // payload-free, non-generic, 3 cases => value-struct-emittable => columnar DECLINES to the oracle.
-        Assert.False(RouteColumnarProgram("union Color {\n    Red {}\n    Green {}\n    Blue {}\n}\n\nfunc f(): int {\n    return 0\n}\n").Ok);
+        // construct + match a payload-free union through columnar, value-matched against the C# oracle.
+        var prog =
+            "union Color {\n    Red {}\n    Green {}\n    Blue {}\n}\n\n" +
+            "func makeC(n: int): Color {\n    if n == 0 {\n        return new Color.Red {}\n    }\n    if n == 1 {\n        return new Color.Green {}\n    }\n    return new Color.Blue {}\n}\n\n" +
+            "func code(n: int): int {\n    return match makeC(n) {\n        Color.Red => 10,\n        Color.Green => 20,\n        Color.Blue => 30\n    }\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("code", new object[] { 0 }), ("code", new object[] { 1 }), ("code", new object[] { 2 }));
 
-        // payload-bearing => NOT value-struct-emittable (HasPayloads) => columnar still emits (decline is specific).
-        Assert.True(RouteColumnarProgram("union Result {\n    Success { value: int }\n    Failure { code: int }\n}\n\nfunc f(): int {\n    return 0\n}\n").Ok);
+        // ABI: the columnar-routed union type is a VALUE type (IsValueType==true) with the nested case marker types
+        // preserved — matching the oracle's public value-struct layout the prior class-hierarchy emit silently violated.
+        var emitted = RouteColumnarProgram(prog);
+        Assert.True(emitted.Ok);
+        using (var scope = CollectibleAssemblyScope.Load(emitted.Assembly!))
+        {
+            var colorType = scope.Assembly.GetType("Color");
+            Assert.NotNull(colorType);
+            Assert.True(colorType!.IsValueType, "Payload-free union must emit as a value type via columnar.");
+            Assert.NotNull(colorType.GetNestedType("Red"));
+        }
 
-        // exactly MaxValueStructCases (16) payload-free cases => still value-struct-emittable => DECLINE.
-        Assert.False(RouteColumnarProgram(PayloadFreeUnionProgram(16)).Ok);
-        // 17 payload-free cases => exceeds MaxValueStructCases => NOT value-struct-emittable => columnar emits class form.
-        Assert.True(RouteColumnarProgram(PayloadFreeUnionProgram(17)).Ok);
+        // payload-bearing union => class hierarchy (reference type) => still emits via columnar.
+        var payloadUnion = RouteColumnarProgram("union Result {\n    Success { value: int }\n    Failure { code: int }\n}\n\nfunc f(r: Result): int {\n    return match r {\n        Result.Success { value } => value,\n        Result.Failure { code } => code\n    }\n}\n");
+        Assert.True(payloadUnion.Ok);
+        using (var scope = CollectibleAssemblyScope.Load(payloadUnion.Assembly!))
+            Assert.False(scope.Assembly.GetType("Result")!.IsValueType, "A payload-bearing union stays a reference type.");
+
+        // exactly MaxValueStructCases (16) payload-free cases => value-struct => IsValueType==true.
+        var big16 = RouteColumnarProgram(PayloadFreeUnionProgram(16));
+        Assert.True(big16.Ok);
+        using (var scope = CollectibleAssemblyScope.Load(big16.Assembly!))
+            Assert.True(scope.Assembly.GetType("Big")!.IsValueType, "A 16-case payload-free union is value-struct-emittable.");
+
+        // 17 payload-free cases => exceeds MaxValueStructCases => class hierarchy (reference type).
+        var big17 = RouteColumnarProgram(PayloadFreeUnionProgram(17));
+        Assert.True(big17.Ok);
+        using (var scope = CollectibleAssemblyScope.Load(big17.Assembly!))
+            Assert.False(scope.Assembly.GetType("Big")!.IsValueType, "A 17-case union exceeds the value-struct bound and stays a class.");
     }
 
     // A program declaring one payload-free union with `caseCount` bare cases plus a trivial function, used to pin the
-    // MaxValueStructCases (16) decline boundary in ColumnarCodegen_Declines_ValueStructEmittableUnion.
+    // MaxValueStructCases (16) value-struct boundary in ColumnarCodegen_EmitsValueStructUnion.
     private static string PayloadFreeUnionProgram(int caseCount)
     {
         var builder = new System.Text.StringBuilder("union Big {\n");
@@ -8168,6 +8198,40 @@ func outer(x: int): int {
             builder.Append("    C").Append(i).Append(" {}\n");
         builder.Append("}\n\nfunc f(): int {\n    return 0\n}\n");
         return builder.ToString();
+    }
+
+    // An `is`/`as` whose SOURCE is a VALUE-STRUCT union has no reference identity. Columnar declines every such form to
+    // the C# oracle, which boxes the value before the reference isinst (matching C#'s value-type `as`/`is` semantics)
+    // and lowers `is U.Case` to an integer tag test. The prior unboxed isinst was invalid IL — a hard segfault in BOTH
+    // backends that the value-struct emission surfaced (the analyzer models all unions as reference types, so the
+    // general value-type cast guard never fired). This pins both the columnar decline and the oracle's sound, correct,
+    // crash-free lowering for every target spelling.
+    [Fact]
+    public void ColumnarCodegen_ValueStructUnion_IsAsToReferenceTarget_BoxesNotCrashes()
+    {
+        // Columnar declines `is`/`as` on a value-struct union source (case-target AND reference-target).
+        foreach (var body in new[]
+        {
+            "return (c as Color.Red) == null",
+            "return (c as object) == null",
+            "return c is object",
+            "return c is Color.Red",
+        })
+        {
+            Assert.False(RouteColumnarProgram(
+                "union Color {\n    Red {}\n    Green {}\n    Blue {}\n}\n\nfunc f(c: Color): bool {\n    " + body + "\n}\n").Ok);
+        }
+
+        // The C# oracle lowers each form soundly (no segfault — a crash would tear down the test host) and correctly:
+        // `as U.Case` -> null (boxed isinst of a marker the boxed value never is); `as object` -> boxes (non-null);
+        // `is object` -> true; `is U.Case` -> tag test.
+        object? OracleResult(string body) => InvokeViaCSharpPath(
+            "union Color {\n    Red {}\n    Green {}\n    Blue {}\n}\n\nfunc f(): bool {\n    r := new Color.Red {}\n    " + body + "\n}\n",
+            "f", System.Array.Empty<object>());
+        Assert.True((bool)OracleResult("return (r as Color.Red) == null")!);
+        Assert.False((bool)OracleResult("return (r as object) == null")!);
+        Assert.True((bool)OracleResult("return r is object")!);
+        Assert.True((bool)OracleResult("return r is Color.Red")!);
     }
 
     // UNION BARE TYPE patterns — `Result.Success => …` (no `{ }`): match a case by TYPE without destructuring/binding
@@ -8178,10 +8242,9 @@ func outer(x: int): int {
     [Fact]
     public void ColumnarCodegen_Parity_UnionBareTypePatterns()
     {
-        // Bare patterns are exercised over PAYLOAD-bearing / MIXED unions, which stay on the columnar class path. A
-        // payload-FREE, non-generic union is the C# oracle's public value struct and columnar declines it (see
-        // ColumnarCodegen_Declines_ValueStructEmittableUnion), so the idiomatic payload-free bare-pattern match is no
-        // longer a columnar emit case — its bare-pattern surface is covered here by the mixed Tok union instead.
+        // Bare patterns are exercised here over PAYLOAD-bearing / MIXED unions, which stay on the columnar class path
+        // (isinst-based bare match). A payload-FREE, non-generic union emits as a value struct whose bare match is a
+        // tag compare — that path is covered separately by ColumnarCodegen_EmitsValueStructUnion.
         var prog =
             // bare patterns over a PAYLOAD union (no destructuring) — exhaustive by the two bare arms.
             "union Result {\n    Success { value: int }\n    Failure { code: int }\n}\n\n" +

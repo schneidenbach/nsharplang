@@ -11,6 +11,40 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-19 — Columnar OWNS value-struct union emission (real ownership transfer into N#)
+
+Supersedes the same-day decline below: instead of routing value-struct-emittable unions back to the C# oracle,
+`ColumnarIlEmitter` now EMITS the public allocation-free value-struct layout itself, so the form is owned by the
+columnar (N#) backend. For a small (≤16-case), closed, payload-free, non-generic union, PASS 0 emits a sealed
+readonly tag struct over `ValueType` (private `int _tag` InitOnly, private `U(int)` ctor, public `Tag` getter,
+per-case nested sealed-abstract marker with `public const int Tag`, per-case public static `Create_<Case>()`
+factory) — byte-for-shape mirror of the oracle's `DeclareValueStructUnion`. Construction (`new Color.Red {}`) routes
+through the existing `TryEmitUnionCaseConstruction` chokepoint to an allocation-free `call Create_<Case>`; a bare
+`Union.Case` match emits `ldloca; call get_Tag; ldc.i4 <ordinal>; ceq` instead of an isinst. The eligibility flag is
+owned by N# (`ColumnarUnionIsValueStructEmittable` in `ParserColumnarUnions.nl`), now computed in
+`ColumnarProgramInputBuilder` and threaded onto `ColumnarUnionInput.IsValueStruct` to select the PASS-0 branch (the
+prior decline gate is gone).
+
+Verify-first (the soundness arbiter) confirmed columnar EMITS the core forms and DECLINES the rest with NO divergence
+from the oracle: `param`/`return` adoption + bare-pattern match emit and value-match the oracle; `==`, `is`-to-case,
+and a default-init union field decline (`Ok=false`) to the oracle, which compiles them correctly.
+
+Adversarial review (codex) then surfaced a genuine PRE-EXISTING, SYSTEMIC soundness hole that the value-struct work
+exposed on the default path: an `is`/`as` from a value-struct union to ANY reference target (`c as U.Case`, `c as object`,
+`c is IFoo`, plus aliased/nullable/bare spellings) emitted `isinst` against an UNBOXED struct — invalid IL, a hard
+segfault in BOTH backends. The analyzer models all unions as reference types, so the general value-type cast guard
+never fired. Fixed at the emission root: the C# oracle (`ILCompiler.EmitCastExpression`/`EmitIsExpression`) now BOXES a
+value-type source before the reference `isinst`, matching C#'s value-type `as`/`is` semantics, and columnar DECLINES
+every `is`/`as` whose source is a value-struct union (`IsValueStructUnionType`) so the oracle owns that lowering. This
+covers every target spelling because it keys on the source being a value type, not the syntactic target name. Verified
+across both backends (consistent, no crash): `c as U.Case`/bare/nullable/aliased → null;
+`c as object`/`c is object` → boxed (non-null/true); `c is U.Case` → tag test; a hard `(U.Case)c` → a clean
+InvalidCastException (valid IL); class-hierarchy union `as`/cast unaffected. Closes the documented Stage-6 union-ABI
+caveat in [`performance-compiler-refactor.md`](performance-compiler-refactor.md) by ownership, not avoidance.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~ColumnarCodegen_Parity_Union|FullyQualifiedName~ColumnarCodegen_EmitsValueStructUnion|FullyQualifiedName~ColumnarCodegen_MultiFile_ParityCorpus|FullyQualifiedName~ColumnarCodegen_CompilesRealDogfoodFile|FullyQualifiedName~ILCompiler_PayloadFreeUnion|FullyQualifiedName~UnionValueLayout"` (29 passed). `ColumnarCodegen_EmitsValueStructUnion` pins IsValueType==true on the columnar-routed union + construct/match parity + the 16/17-case boundary. FUTURE: extend columnar value-struct support to `==`, `is`/`as`, and default-init-field uses so those stop declining.
+
 ## 2026-06-19 — Columnar declines value-struct-emittable unions (public-ABI parity fix)
 
 Closes the documented Stage-6 union-ABI divergence (the "Backend caveat (2026-06-10)" in

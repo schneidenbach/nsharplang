@@ -308,13 +308,14 @@ internal sealed class ColumnarStructInput
 /// </summary>
 internal sealed class ColumnarUnionInput
 {
-    internal ColumnarUnionInput(string name, string[] caseNames, string[][] caseFieldNames, string[][] caseFieldTypeCanonicals, string[]? typeParamNames = null)
+    internal ColumnarUnionInput(string name, string[] caseNames, string[][] caseFieldNames, string[][] caseFieldTypeCanonicals, string[]? typeParamNames = null, bool isValueStruct = false)
     {
         Name = name;
         CaseNames = caseNames;
         CaseFieldNames = caseFieldNames;
         CaseFieldTypeCanonicals = caseFieldTypeCanonicals;
         TypeParamNames = typeParamNames ?? System.Array.Empty<string>();
+        IsValueStruct = isValueStruct;
     }
 
     internal string Name { get; }
@@ -325,6 +326,10 @@ internal sealed class ColumnarUnionInput
     // union. The base declares them; every nested case REDECLARES them (CLR metadata does not inherit
     // generic parameters into nested types) and derives from the base closed over its own copies.
     internal string[] TypeParamNames { get; }
+    // True when this union qualifies for the allocation-free value-struct (readonly tag struct) layout
+    // (UnionValueLayout.IsValueStructEmittable, decided by the N# ColumnarUnionIsValueStructEmittable kernel):
+    // small, closed, payload-free, non-generic. PASS 0 emits the tag struct for these instead of a class hierarchy.
+    internal bool IsValueStruct { get; }
 }
 
 /// <summary>
@@ -442,6 +447,13 @@ internal sealed class ColumnarUnionDef
     // REDECLARE the base's parameters positionally, so a closed BASE's arguments apply to its cases 1:1).
     internal int TypeParamCount { get; }
     internal bool IsGeneric => TypeParamCount > 0;
+
+    // VALUE-STRUCT layout: a small, closed, payload-free, non-generic union emits as a readonly tag struct
+    // (mirroring the C# oracle's DeclareValueStructUnion) instead of a class hierarchy, so Base is the STRUCT and
+    // there is no abstract reference base. TagGetter is the public `get_Tag` used to read a scrutinee's
+    // discriminator during a match. Class-form unions leave IsValueStruct false / TagGetter null.
+    internal bool IsValueStruct { get; init; }
+    internal MethodInfo? TagGetter { get; init; }
 }
 
 /// <summary>
@@ -466,6 +478,16 @@ internal sealed class ColumnarUnionCaseDef
     internal string[] FieldOrder { get; }
     internal Dictionary<string, FieldBuilder> Fields { get; }
     internal TypeBuilder UnionBase { get; }
+
+    // VALUE-STRUCT layout (see ColumnarUnionDef.IsValueStruct): the case is a payload-free tag of its union
+    // struct. Construction is `call ValueStructFactory` (the union's static `Create_<Case>` → `new U(tag)`, no
+    // allocation) and a bare `Union.Case` match tests `scrutinee.Tag == ValueStructTag`. CaseType is the nested
+    // marker type (reflection/tooling parity with the oracle, never instantiated). Class-form cases leave
+    // IsValueStruct false.
+    internal bool IsValueStruct { get; init; }
+    internal int ValueStructTag { get; init; }
+    internal MethodInfo? ValueStructFactory { get; init; }
+    internal MethodInfo? ValueStructTagGetter { get; init; }
 }
 
 /// <summary>
@@ -3490,6 +3512,87 @@ internal sealed class ColumnarIlEmitter
         for (var u = 0; u < unions.Count; u++)
         {
             var un = unions[u];
+
+            // VALUE-STRUCT union (mirrors the C# oracle's DeclareValueStructUnion): a small, closed, payload-free,
+            // non-generic union emits as a SEALED readonly tag struct (over System.ValueType) instead of a class
+            // hierarchy, preserving the public allocation-free value-struct ABI (IsValueType==true). Shape: a private
+            // `int _tag` (InitOnly) discriminator, a private `U(int)` ctor, a public `Tag` getter, and per case a
+            // nested sealed-abstract marker type carrying a `public const int Tag` (reflection/tooling parity, never
+            // instantiated) plus a public static `Create_<Case>()` factory (`new U(tag)` — no allocation).
+            // Selected by the N# ColumnarUnionIsValueStructEmittable kernel.
+            if (un.IsValueStruct)
+            {
+                var structTb = module.DefineType(
+                    un.Name,
+                    TypeAttributes.Public | TypeAttributes.Sealed | TypeAttributes.SequentialLayout,
+                    typeof(ValueType));
+                var readOnlyCtor = typeof(System.Runtime.CompilerServices.IsReadOnlyAttribute).GetConstructor(Type.EmptyTypes);
+                if (readOnlyCtor != null)
+                    structTb.SetCustomAttribute(new CustomAttributeBuilder(readOnlyCtor, Array.Empty<object>()));
+
+                var tagField = structTb.DefineField("_tag", typeof(int), FieldAttributes.Private | FieldAttributes.InitOnly);
+                var tagCtor = structTb.DefineConstructor(
+                    MethodAttributes.Private | MethodAttributes.HideBySig | MethodAttributes.SpecialName | MethodAttributes.RTSpecialName,
+                    CallingConventions.Standard,
+                    new[] { typeof(int) });
+                var tcil = tagCtor.GetILGenerator();
+                tcil.Emit(OpCodes.Ldarg_0);
+                tcil.Emit(OpCodes.Ldarg_1);
+                tcil.Emit(OpCodes.Stfld, tagField);
+                tcil.Emit(OpCodes.Ret);
+
+                var tagGetter = structTb.DefineMethod(
+                    "get_Tag",
+                    MethodAttributes.Public | MethodAttributes.HideBySig | MethodAttributes.SpecialName,
+                    typeof(int),
+                    Type.EmptyTypes);
+                var tgil = tagGetter.GetILGenerator();
+                tgil.Emit(OpCodes.Ldarg_0);
+                tgil.Emit(OpCodes.Ldfld, tagField);
+                tgil.Emit(OpCodes.Ret);
+                var tagProp = structTb.DefineProperty("Tag", PropertyAttributes.None, typeof(int), Type.EmptyTypes);
+                tagProp.SetGetMethod(tagGetter);
+
+                var valueStructDef = new ColumnarUnionDef(structTb) { IsValueStruct = true, TagGetter = tagGetter };
+                unionRegistry[un.Name] = valueStructDef;
+                unionBaseBuilders.Add(structTb);
+
+                for (var vc = 0; vc < un.CaseNames.Length; vc++)
+                {
+                    var vsCaseName = un.CaseNames[vc];
+                    var markerTb = structTb.DefineNestedType(
+                        vsCaseName,
+                        TypeAttributes.NestedPublic | TypeAttributes.Class | TypeAttributes.Sealed | TypeAttributes.Abstract,
+                        typeof(object));
+                    var caseTagConst = markerTb.DefineField("Tag", typeof(int), FieldAttributes.Public | FieldAttributes.Static | FieldAttributes.Literal);
+                    caseTagConst.SetConstant(vc);
+
+                    var factory = structTb.DefineMethod(
+                        "Create_" + vsCaseName,
+                        MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.HideBySig,
+                        structTb,
+                        Type.EmptyTypes);
+                    var fil = factory.GetILGenerator();
+                    fil.Emit(OpCodes.Ldc_I4, vc);
+                    fil.Emit(OpCodes.Newobj, tagCtor);
+                    fil.Emit(OpCodes.Ret);
+
+                    var valueStructCaseDef = new ColumnarUnionCaseDef(
+                        markerTb, tagCtor, Array.Empty<string>(), new Dictionary<string, FieldBuilder>(StringComparer.Ordinal), structTb)
+                    {
+                        IsValueStruct = true,
+                        ValueStructTag = vc,
+                        ValueStructFactory = factory,
+                        ValueStructTagGetter = tagGetter,
+                    };
+                    var vsQualified = un.Name + "." + vsCaseName;
+                    valueStructDef.Cases[vsQualified] = valueStructCaseDef;
+                    unionCaseRegistry[vsQualified] = valueStructCaseDef;
+                    unionCaseBuilders.Add(markerTb);
+                }
+                continue;
+            }
+
             var isGenericUnion = un.TypeParamNames.Length > 0;
             var baseTb = module.DefineType(un.Name, TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.Abstract, typeof(object));
             if (isGenericUnion)
@@ -8484,6 +8587,12 @@ internal sealed class ColumnarIlEmitter
                      // types and unresolvable targets decline (`as` with a value type is pipeline-rejected).
                 if (_nodes.ChildCount(idx) != 2 || !EmitExpression(Child(idx, 0), out var testedType))
                     return false;
+                // A value-struct union has no reference identity: `is U.Case` is an integer tag test and an `is`/`as`
+                // against ANY reference target boxes the value before isinst (C# value-type `as`/`is` semantics). An
+                // isinst against the unboxed struct would be invalid IL. Decline so the C# oracle, which owns that
+                // boxing/tag lowering, handles every value-struct-union is/as form uniformly.
+                if (IsValueStructUnionType(testedType))
+                    return false;
                 var isAsTypeRoot = Child(idx, 1);
                 Type? targetTestType = null;
                 if (_nodes.Kind(isAsTypeRoot) == 0)
@@ -8878,6 +8987,20 @@ internal sealed class ColumnarIlEmitter
                 // closes the case over the scrutinee's arguments). No `dup`/`pop` needed: the isinst result is
                 // consumed by the branch.
                 var qualifiedCase = recvName + "." + Text(patternNode);
+                // VALUE-STRUCT union bare pattern: the scrutinee is a tag struct, so test `scrutinee.Tag == caseTag`
+                // (read via the public get_Tag) instead of an isinst — there is no reference identity to test.
+                if (_unionCaseRegistry.TryGetValue(qualifiedCase, out var bareValueStructCase) && bareValueStructCase.IsValueStruct
+                    && bareValueStructCase.UnionBase == matchValueType && bareValueStructCase.ValueStructTagGetter != null
+                    && !_locals.ContainsKey(recvName) && !_liftedLocals.ContainsKey(recvName) && !_paramOrdinals.ContainsKey(recvName) && !_siblings.ContainsKey(recvName))
+                {
+                    _il.Emit(OpCodes.Ldloca, matchLocal);
+                    _il.Emit(OpCodes.Call, bareValueStructCase.ValueStructTagGetter);
+                    _il.Emit(OpCodes.Ldc_I4, bareValueStructCase.ValueStructTag);
+                    _il.Emit(OpCodes.Ceq);
+                    _il.Emit(OpCodes.Brtrue, successLabel);
+                    _il.Emit(OpCodes.Br, failLabel);
+                    return true;
+                }
                 if (TryGetCaseTestType(qualifiedCase, matchValueType, out _, out var bareCaseTestType, out _)
                     && !_locals.ContainsKey(recvName) && !_liftedLocals.ContainsKey(recvName) && !_paramOrdinals.ContainsKey(recvName) && !_siblings.ContainsKey(recvName))
                 {
@@ -8941,6 +9064,19 @@ internal sealed class ColumnarIlEmitter
     private bool TryEmitUnionCaseConstruction(ColumnarUnionCaseDef caseDef, Type[] typeArgs, int initIdx, int pairCount, out Type type)
     {
         type = null!;
+
+        // VALUE-STRUCT union case: allocation-free construction through the union's static `Create_<Case>` factory
+        // (`new U(tag)`), mirroring the C# oracle. Value-struct unions are non-generic and payload-free, so a `{ }`
+        // with fields (pairCount > 0) or explicit type args never reach here for a valid program — guard and decline.
+        if (caseDef.IsValueStruct)
+        {
+            if (typeArgs.Length != 0 || pairCount != 0 || caseDef.ValueStructFactory == null)
+                return false;
+            _il.Emit(OpCodes.Call, caseDef.ValueStructFactory);
+            type = caseDef.UnionBase; // the union struct value.
+            return true;
+        }
+
         Type resultType;
         ConstructorInfo ctor;
         Type? closedCase = null;
@@ -9119,6 +9255,20 @@ internal sealed class ColumnarIlEmitter
         || t == typeof(bool) || t == typeof(double) || t == typeof(float) || t == typeof(string)
         || IsEnumType(t)
         || TryGetUnionDefForMatchValue(t, out _, out _);
+
+    // True when `type` is the struct of a value-struct (payload-free tag) union. Used to decline `is`/`as` whose
+    // SOURCE is such a union — those need value-type boxing before isinst (owned by the C# oracle), which columnar
+    // does not emit.
+    private bool IsValueStructUnionType(Type type)
+    {
+        foreach (var unionDef in _unionRegistry.Values)
+        {
+            if (unionDef.IsValueStruct && unionDef.Base == type)
+                return true;
+        }
+
+        return false;
+    }
 
     // Resolves a match VALUE type to its union def: the OPEN base TypeBuilder (a non-generic union's
     // scrutinee) or a CLOSED instantiation of a generic union's base (`Opt<int>`), yielding the
