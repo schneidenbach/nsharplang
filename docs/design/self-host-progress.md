@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-19 — Export target routing moves into product N#
+
+`ExportCommand.Execute` now gets empty/help/`csharp`/unknown target classification from
+`ExportCommandKernels`, which binds the shipped `CliExportTargetSummaryInto` dogfood kernel. The
+top-level command keeps only host dispatch and error text; the previous C# target scan remains as
+fallback/oracle logic. This is a Stage 6 `C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`./scripts/dev.sh ExportCommandKernels`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-19 — Build/run define extraction routes through product N#
 
 `Program.ExtractDefineFlags` now routes `--define`, `-d`, `--define=`, and `-d=` handling through

@@ -2586,6 +2586,38 @@ func CliExportCSharpOptionSummaryInto(args: string[], resultIndices: int[]): int
     return CliExportCSharpOptionSummaryCore(ref arguments, ref results)
 }
 
+func CliExportTargetSummaryInto(args: string[], resultIndices: int[]): int {
+    arguments := new CliArgumentTable { Args: args }
+    results := new CliIndexResultTable { Indices: resultIndices }
+    return CliExportTargetSummaryCore(ref arguments, ref results)
+}
+
+func CliExportTargetSummaryCore(args: &CliArgumentTable, resultIndices: &CliIndexResultTable): int {
+    if resultIndices.Indices.Length < 2 {
+        return -1
+    }
+
+    resultIndices.Indices[0] = 0
+    resultIndices.Indices[1] = 0
+
+    if args.Args.Length == 0 {
+        resultIndices.Indices[1] = 1
+        return 0
+    }
+
+    firstArg := args.Args[0]
+    if firstArg == "--help" || firstArg == "-h" || firstArg == "help" {
+        resultIndices.Indices[1] = 1
+        return 0
+    }
+
+    if String.Compare(firstArg, "csharp", StringComparison.OrdinalIgnoreCase) == 0 {
+        resultIndices.Indices[0] = 1
+    }
+
+    return 0
+}
+
 func CliExportCSharpOptionSummaryCore(args: &CliArgumentTable, resultIndices: &CliIndexResultTable): int {
     if resultIndices.Indices.Length < 3 {
         return -1

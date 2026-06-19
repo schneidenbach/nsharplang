@@ -9,6 +9,16 @@ internal readonly record struct ExportCSharpOptionSummary(
     string? OutputOption,
     bool ShowHelp);
 
+internal enum ExportTargetKind
+{
+    Unknown = 0,
+    CSharp = 1
+}
+
+internal readonly record struct ExportTargetSummary(
+    ExportTargetKind TargetKind,
+    bool ShowHelp);
+
 internal static class ExportCommandKernels
 {
     [ThreadStatic]
@@ -19,8 +29,41 @@ internal static class ExportCommandKernels
     private static StableDistinctScratch? t_stableDistinctScratch;
     [ThreadStatic]
     private static int[]? t_optionSummaryIndices;
+    [ThreadStatic]
+    private static int[]? t_targetSummaryIndices;
 
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
+
+    internal static bool TryGetTargetSummary(string[] args, out ExportTargetSummary summary)
+    {
+        summary = default;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        var resultIndices = t_targetSummaryIndices ??= new int[2];
+        try
+        {
+            var code = bindings.TargetSummary(args, resultIndices);
+            if (code != 0)
+                return false;
+
+            var targetKindValue = resultIndices[0];
+            if (targetKindValue is not 0 and not 1)
+                return false;
+
+            summary = new ExportTargetSummary(
+                (ExportTargetKind)targetKindValue,
+                resultIndices[1] != 0);
+            return true;
+        }
+        catch
+        {
+            summary = default;
+            return false;
+        }
+    }
 
     internal static bool TryGetCSharpOptionSummary(string[] args, out ExportCSharpOptionSummary summary)
     {
@@ -247,7 +290,10 @@ internal static class ExportCommandKernels
                 "CliStableDistinctRankIndicesInto"),
             DogfoodKernelLoader.CreateDelegate<CliExportCSharpOptionSummaryInto>(
                 programType,
-                "CliExportCSharpOptionSummaryInto")));
+                "CliExportCSharpOptionSummaryInto"),
+            DogfoodKernelLoader.CreateDelegate<CliExportTargetSummaryInto>(
+                programType,
+                "CliExportTargetSummaryInto")));
 
     private delegate int CliExportCSharpFirstOperandIndexInto(
         string[] args,
@@ -272,11 +318,16 @@ internal static class ExportCommandKernels
         string[] args,
         int[] resultIndices);
 
+    private delegate int CliExportTargetSummaryInto(
+        string[] args,
+        int[] resultIndices);
+
     private sealed record Bindings(
         CliExportCSharpFirstOperandIndexInto CSharpFirstOperandIndex,
         CliReferenceTypeFilterIndicesInto ReferenceTypeFilterIndices,
         CliStableDistinctRankIndicesInto StableDistinctRankIndices,
-        CliExportCSharpOptionSummaryInto CSharpOptionSummary);
+        CliExportCSharpOptionSummaryInto CSharpOptionSummary,
+        CliExportTargetSummaryInto TargetSummary);
 
     private static bool TryGetOptionalArg(string[] args, int index, out string? value)
     {

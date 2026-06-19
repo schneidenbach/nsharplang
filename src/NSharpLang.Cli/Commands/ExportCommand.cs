@@ -13,17 +13,35 @@ public static class ExportCommand
 {
     public static int Execute(string[] args)
     {
-        if (args.Length == 0 || args[0] is "--help" or "-h" or "help")
+        var targetSummary = GetTargetSummary(args);
+        if (targetSummary.ShowHelp)
         {
             return ShowHelp();
         }
 
-        var format = args[0].ToLowerInvariant();
-        return format switch
+        return targetSummary.TargetKind switch
         {
-            "csharp" => ExportCSharp(args.Skip(1).ToArray()),
+            ExportTargetKind.CSharp => ExportCSharp(args.Skip(1).ToArray()),
             _ => Error($"Unknown export target '{args[0]}'. Expected 'csharp'.")
         };
+    }
+
+    internal static ExportTargetSummary GetTargetSummary(string[] args)
+        => ExportCommandKernels.TryGetTargetSummary(args, out var summary)
+            ? summary
+            : GetTargetSummaryWithCSharp(args);
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product export target parsing routes through ExportCommandKernels.
+    private static ExportTargetSummary GetTargetSummaryWithCSharp(string[] args)
+    {
+        if (args.Length == 0 || args[0] is "--help" or "-h" or "help")
+            return new ExportTargetSummary(ExportTargetKind.Unknown, ShowHelp: true);
+
+        return new ExportTargetSummary(
+            string.Equals(args[0], "csharp", StringComparison.OrdinalIgnoreCase)
+                ? ExportTargetKind.CSharp
+                : ExportTargetKind.Unknown,
+            ShowHelp: false);
     }
 
     private static int ExportCSharp(string[] args)

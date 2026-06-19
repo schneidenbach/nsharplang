@@ -1588,6 +1588,40 @@ func Main() {
     }
 
     [Fact]
+    public void ExportCommandKernels_SummarizesTargets()
+    {
+        Assert.True(ExportCommandKernels.TryGetTargetSummary(
+            Array.Empty<string>(),
+            out var empty));
+        Assert.Equal(ExportTargetKind.Unknown, empty.TargetKind);
+        Assert.True(empty.ShowHelp);
+
+        Assert.True(ExportCommandKernels.TryGetTargetSummary(
+            new[] { "CSHARP", "--help" },
+            out var csharp));
+        Assert.Equal(ExportTargetKind.CSharp, csharp.TargetKind);
+        Assert.False(csharp.ShowHelp);
+
+        Assert.True(ExportCommandKernels.TryGetTargetSummary(
+            new[] { "python", "--help" },
+            out var unknown));
+        Assert.Equal(ExportTargetKind.Unknown, unknown.TargetKind);
+        Assert.False(unknown.ShowHelp);
+
+        var (helpExitCode, helpStdout, helpStderr) = CaptureConsole(() =>
+            ExportCommand.Execute(new[] { "CSHARP", "--help" }));
+        Assert.Equal(0, helpExitCode);
+        Assert.Contains("Usage:", helpStdout);
+        Assert.Contains("nlc export csharp <file.nl>", helpStdout);
+        Assert.True(string.IsNullOrWhiteSpace(helpStderr));
+
+        var (unknownExitCode, _, unknownStderr) = CaptureConsole(() =>
+            ExportCommand.Execute(new[] { "python", "--help" }));
+        Assert.Equal(1, unknownExitCode);
+        Assert.Contains("Unknown export target 'python'", unknownStderr);
+    }
+
+    [Fact]
     public void ExportCommandKernels_SummarizesCSharpOptions()
     {
         var args = new[] { "-o", "short.cs", "--project", "samples/demo", "--output", "long.cs" };

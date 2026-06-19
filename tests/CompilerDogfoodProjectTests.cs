@@ -7002,6 +7002,7 @@ func outer(x: int): int {
         Assert.True(ok, "Columnar backend declined the real CliArguments.nl (expected full support).");
         Assert.Contains("CliSymbolNameContainsAsciiIgnoreCase", methodNames!); // IndexOf(string, StringComparison)
         Assert.Contains("CliExportCSharpFirstOperandChecksumInto", methodNames!); // char/int promotion
+        Assert.Contains("CliExportTargetSummaryInto", methodNames!); // product export target routing.
         Assert.Contains("CliExportCSharpOptionSummaryInto", methodNames!); // product export csharp option parsing.
         Assert.Contains("CliReferenceResolutionBestScoreIndex", methodNames!); // product resolver best-score selection.
         Assert.Contains("CliShouldFormatDiscoveredPath", methodNames!); // product format discovery filtering.
