@@ -11,6 +11,19 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-19 — Query top-level options move into product N#
+
+`QueryCommand.ParseOptions` now gets subcommand, `--project`, `--file`, `--pos`, output mode,
+daemon mode, compact/summary mode, and remaining positional arguments from `QueryCommandKernels`,
+which binds the shipped `CliQueryTopLevelOptionSummaryInto` dogfood kernel in `CliQueryParsing.nl`.
+C# keeps query dispatch, project loading, daemon calls, and string materialization; the previous
+option scan remains only as fallback/oracle logic. This is a Stage 6 `C#-surface-shrink`
+product-route slice.
+
+Focused evidence:
+`./scripts/dev.sh QueryCommandKernels`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliQueryParsing|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-19 — Test timeout parsing moves into product N#
 
 `Program.TestCommand` now parses `--timeout` duration values through `TestCommandKernels`, which

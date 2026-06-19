@@ -1248,6 +1248,57 @@ func Main() {
     }
 
     [Fact]
+    public void QueryCommandKernels_SummarizesTopLevelOptions()
+    {
+        var args = new[]
+        {
+            "symbols",
+            "--project",
+            "demo",
+            "--file",
+            "Program.nl",
+            "--pos",
+            "12:4",
+            "--text",
+            "--json",
+            "--text",
+            "--no-daemon",
+            "--compact",
+            "loose",
+            "--project",
+            "other"
+        };
+
+        Assert.True(QueryCommandKernels.TryGetTopLevelOptionSummary(args, out var dogfoodSummary));
+        Assert.Equal("symbols", dogfoodSummary.Subcommand);
+        Assert.Equal("other", dogfoodSummary.ProjectDir);
+        Assert.Equal("Program.nl", dogfoodSummary.File);
+        Assert.Equal("12:4", dogfoodSummary.Pos);
+        Assert.True(dogfoodSummary.UseText);
+        Assert.True(dogfoodSummary.NoDaemon);
+        Assert.True(dogfoodSummary.InspectCompact);
+        Assert.Equal(new[] { "loose" }, dogfoodSummary.RemainingArgs);
+
+        var summary = QueryCommand.GetTopLevelOptionSummary(args);
+        Assert.Equal(dogfoodSummary.Subcommand, summary.Subcommand);
+        Assert.Equal(dogfoodSummary.ProjectDir, summary.ProjectDir);
+        Assert.Equal(dogfoodSummary.File, summary.File);
+        Assert.Equal(dogfoodSummary.Pos, summary.Pos);
+        Assert.Equal(dogfoodSummary.UseText, summary.UseText);
+        Assert.Equal(dogfoodSummary.NoDaemon, summary.NoDaemon);
+        Assert.Equal(dogfoodSummary.InspectCompact, summary.InspectCompact);
+        Assert.Equal(dogfoodSummary.RemainingArgs, summary.RemainingArgs);
+
+        var permissive = QueryCommand.GetTopLevelOptionSummary(new[] { "symbols", "--project", "--file" });
+        Assert.Equal("--file", permissive.ProjectDir);
+        Assert.Empty(permissive.RemainingArgs);
+
+        var trailingMissing = QueryCommand.GetTopLevelOptionSummary(new[] { "symbols", "--project" });
+        Assert.Null(trailingMissing.ProjectDir);
+        Assert.Equal(new[] { "--project" }, trailingMissing.RemainingArgs);
+    }
+
+    [Fact]
     public void NewCommandKernels_SummarizesArguments()
     {
         var args = new[] { "--template", "library", "--systems", "PacketCore", "-h" };

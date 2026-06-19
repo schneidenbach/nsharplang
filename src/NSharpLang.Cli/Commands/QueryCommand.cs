@@ -993,6 +993,29 @@ public static class QueryCommand
 
     private static QueryOptions ParseOptions(string[] args, out string subcommand, out string[] remainingArgs)
     {
+        var summary = GetTopLevelOptionSummary(args);
+        subcommand = summary.Subcommand ?? string.Empty;
+        remainingArgs = summary.RemainingArgs;
+        return new QueryOptions(
+            summary.ProjectDir,
+            summary.File,
+            summary.Pos,
+            summary.UseText,
+            summary.NoDaemon,
+            summary.InspectCompact);
+    }
+
+    internal static QueryTopLevelOptionSummary GetTopLevelOptionSummary(string[] args)
+    {
+        if (QueryCommandKernels.TryGetTopLevelOptionSummary(args, out var summary))
+            return summary;
+
+        return GetTopLevelOptionSummaryWithCSharp(args);
+    }
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product query top-level option parsing routes through QueryCommandKernels.
+    private static QueryTopLevelOptionSummary GetTopLevelOptionSummaryWithCSharp(string[] args)
+    {
         string? projectDir = null;
         string? file = null;
         string? pos = null;
@@ -1000,7 +1023,7 @@ public static class QueryCommand
         var noDaemon = false;
         var inspectCompact = false;
 
-        subcommand = args[0];
+        var subcommand = args.Length > 0 ? args[0] : null;
         var remaining = new List<string>();
 
         for (int i = 1; i < args.Length; i++)
@@ -1035,8 +1058,15 @@ public static class QueryCommand
             }
         }
 
-        remainingArgs = remaining.ToArray();
-        return new QueryOptions(projectDir, file, pos, useText, noDaemon, inspectCompact);
+        return new QueryTopLevelOptionSummary(
+            subcommand,
+            projectDir,
+            file,
+            pos,
+            useText,
+            noDaemon,
+            inspectCompact,
+            remaining.ToArray());
     }
 
     private static string? GetOption(string[] args, string flag)

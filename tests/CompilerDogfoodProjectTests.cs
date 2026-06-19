@@ -11854,6 +11854,7 @@ func outer(x: int): int {
         Assert.Contains("CliBatchResultPackedSuccessCount", methodNames!); // ulong[] + Shr_Un + PopCount.
         Assert.Contains("CliQueryDaemonParameterSummaryInto", methodNames!); // product query daemon parameter parsing.
         Assert.Contains("CliQueryCommandOptionSummaryInto", methodNames!); // product query command-option parsing.
+        Assert.Contains("CliQueryTopLevelOptionSummaryInto", methodNames!); // product query top-level option parsing.
 
         var full = 0xFFFFFFFFFFFFFFFFUL;
         AssertColumnarProgramMatchesCSharp(source,

@@ -18,6 +18,16 @@ internal readonly record struct QueryCommandOptionSummary(
     string? Requests,
     string? LeadingOperand);
 
+internal readonly record struct QueryTopLevelOptionSummary(
+    string? Subcommand,
+    string? ProjectDir,
+    string? File,
+    string? Pos,
+    bool UseText,
+    bool NoDaemon,
+    bool InspectCompact,
+    string[] RemainingArgs);
+
 internal static class QueryCommandKernels
 {
     [ThreadStatic]
@@ -25,6 +35,12 @@ internal static class QueryCommandKernels
 
     [ThreadStatic]
     private static int[]? t_commandOptionIndices;
+
+    [ThreadStatic]
+    private static int[]? t_topLevelOptionIndices;
+
+    [ThreadStatic]
+    private static int[]? t_topLevelRemainingIndices;
 
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
 
@@ -110,6 +126,68 @@ internal static class QueryCommandKernels
         }
     }
 
+    internal static bool TryGetTopLevelOptionSummary(string[] args, out QueryTopLevelOptionSummary summary)
+    {
+        summary = default;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        var resultIndices = t_topLevelOptionIndices ??= new int[7];
+        var remainingIndices = t_topLevelRemainingIndices;
+        if (remainingIndices == null || remainingIndices.Length < args.Length)
+        {
+            remainingIndices = new int[Math.Max(args.Length, 1)];
+            t_topLevelRemainingIndices = remainingIndices;
+        }
+
+        try
+        {
+            var remainingCount = bindings.QueryTopLevelOptionSummary(args, resultIndices, remainingIndices);
+            if (remainingCount < 0 || remainingCount > args.Length)
+                return false;
+
+            if (!TryGetOptionalArg(args, resultIndices[0], out var subcommand)
+                || !TryGetOptionalArg(args, resultIndices[1], out var projectDir)
+                || !TryGetOptionalArg(args, resultIndices[2], out var file)
+                || !TryGetOptionalArg(args, resultIndices[3], out var pos))
+            {
+                summary = default;
+                return false;
+            }
+
+            var remainingArgs = new string[remainingCount];
+            for (var i = 0; i < remainingCount; i++)
+            {
+                var index = remainingIndices[i];
+                if (index < 0 || index >= args.Length)
+                {
+                    summary = default;
+                    return false;
+                }
+
+                remainingArgs[i] = args[index];
+            }
+
+            summary = new QueryTopLevelOptionSummary(
+                subcommand,
+                projectDir,
+                file,
+                pos,
+                resultIndices[4] != 0,
+                resultIndices[5] != 0,
+                resultIndices[6] != 0,
+                remainingArgs);
+            return true;
+        }
+        catch
+        {
+            summary = default;
+            return false;
+        }
+    }
+
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
             DogfoodKernelLoader.CreateDelegate<CliQueryDaemonParameterSummaryInto>(
@@ -117,7 +195,10 @@ internal static class QueryCommandKernels
                 "CliQueryDaemonParameterSummaryInto"),
             DogfoodKernelLoader.CreateDelegate<CliQueryCommandOptionSummaryInto>(
                 programType,
-                "CliQueryCommandOptionSummaryInto")));
+                "CliQueryCommandOptionSummaryInto"),
+            DogfoodKernelLoader.CreateDelegate<CliQueryTopLevelOptionSummaryInto>(
+                programType,
+                "CliQueryTopLevelOptionSummaryInto")));
 
     private static bool TryGetOptionalArg(string[] args, int index, out string? value)
     {
@@ -136,7 +217,13 @@ internal static class QueryCommandKernels
 
     private delegate int CliQueryCommandOptionSummaryInto(string[] args, int[] resultIndices);
 
+    private delegate int CliQueryTopLevelOptionSummaryInto(
+        string[] args,
+        int[] resultIndices,
+        int[] remainingIndices);
+
     private sealed record Bindings(
         CliQueryDaemonParameterSummaryInto QueryDaemonParameterSummary,
-        CliQueryCommandOptionSummaryInto QueryCommandOptionSummary);
+        CliQueryCommandOptionSummaryInto QueryCommandOptionSummary,
+        CliQueryTopLevelOptionSummaryInto QueryTopLevelOptionSummary);
 }

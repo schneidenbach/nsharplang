@@ -190,6 +190,67 @@ func CliQueryCommandOptionSummaryInto(args: string[], resultIndices: int[]): int
     return 0
 }
 
+func CliQueryTopLevelOptionSummaryInto(args: string[], resultIndices: int[], remainingIndices: int[]): int {
+    if resultIndices.Length < 7 {
+        return -1
+    }
+
+    resultIndices[0] = -1
+    resultIndices[1] = -1
+    resultIndices[2] = -1
+    resultIndices[3] = -1
+    resultIndices[4] = 0
+    resultIndices[5] = 0
+    resultIndices[6] = 0
+
+    if args.Length > 0 {
+        resultIndices[0] = 0
+    }
+
+    resultCount := 0
+    i := 1
+    while i < args.Length {
+        arg := args[i]
+        if arg == "--project" && i + 1 < args.Length {
+            resultIndices[1] = i + 1
+            i = i + 2
+            continue
+        }
+
+        if arg == "--file" && i + 1 < args.Length {
+            resultIndices[2] = i + 1
+            i = i + 2
+            continue
+        }
+
+        if arg == "--pos" && i + 1 < args.Length {
+            resultIndices[3] = i + 1
+            i = i + 2
+            continue
+        }
+
+        if arg == "--text" {
+            resultIndices[4] = 1
+        } else if arg == "--json" {
+            resultIndices[4] = 0
+        } else if arg == "--no-daemon" {
+            resultIndices[5] = 1
+        } else if arg == "--summary" || arg == "--compact" {
+            resultIndices[6] = 1
+        } else {
+            if resultCount < remainingIndices.Length {
+                remainingIndices[resultCount] = i
+            }
+
+            resultCount = resultCount + 1
+        }
+
+        i = i + 1
+    }
+
+    return resultCount
+}
+
 func CliQueryIsLongOption(arg: string): bool {
     return arg.Length >= 2 && arg[0] == '-' && arg[1] == '-'
 }
