@@ -4667,6 +4667,47 @@ func CliTestDurationMilliseconds(duration: string): int {
     return value * multiplier
 }
 
+func CliTestFilterMatches(filter: string, displayName: string, alternateDisplayName: string, fullyQualifiedName: string): int {
+    segmentStart := 0
+    while segmentStart <= filter.Length {
+        segmentEnd := segmentStart
+        while segmentEnd < filter.Length && filter[segmentEnd] != '|' {
+            segmentEnd = segmentEnd + 1
+        }
+
+        trimStart := segmentStart
+        trimEnd := segmentEnd
+        while trimStart < trimEnd && char.IsWhiteSpace(filter[trimStart]) {
+            trimStart = trimStart + 1
+        }
+
+        while trimEnd > trimStart && char.IsWhiteSpace(filter[trimEnd - 1]) {
+            trimEnd = trimEnd - 1
+        }
+
+        if trimStart < trimEnd {
+            part := filter.Substring(trimStart, trimEnd - trimStart)
+            if CliTestFilterContainsIgnoreCase(displayName, part)
+                || CliTestFilterContainsIgnoreCase(alternateDisplayName, part)
+                || CliTestFilterContainsIgnoreCase(fullyQualifiedName, part) {
+                return 1
+            }
+        }
+
+        if segmentEnd >= filter.Length {
+            break
+        }
+
+        segmentStart = segmentEnd + 1
+    }
+
+    return 0
+}
+
+func CliTestFilterContainsIgnoreCase(text: string, part: string): bool {
+    return text.IndexOf(part, StringComparison.OrdinalIgnoreCase) >= 0
+}
+
 func CliTestOptionSummaryCore(args: &CliArgumentTable, resultIndices: &CliIndexResultTable): int {
     if resultIndices.Indices.Length < 10 {
         return -1

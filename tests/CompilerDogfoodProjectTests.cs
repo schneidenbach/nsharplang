@@ -7014,6 +7014,7 @@ func outer(x: int): int {
         Assert.Contains("CliBuildOperandSummaryInto", methodNames!); // product build operand summary.
         Assert.Contains("CliBuildOptionSummaryInto", methodNames!); // product build option parsing.
         Assert.Contains("CliTestOptionSummaryInto", methodNames!); // product test option parsing.
+        Assert.Contains("CliTestFilterMatches", methodNames!); // product test filter matching.
         Assert.Contains("CliPackOptionSummaryInto", methodNames!); // product pack option parsing.
         Assert.Contains("CliCompletionOptionSummaryInto", methodNames!); // product completion option parsing.
         Assert.Contains("CliDaemonOptionSummaryInto", methodNames!); // product daemon option parsing.
@@ -7066,6 +7067,11 @@ func outer(x: int): int {
             ("CliShouldFormatDiscoveredPath", new object[] { "src/Program.nl" }),
             ("CliBuildOptionSummaryChecksumInto", new object[] { new[] { "--release", "-o", "short", "--output", "dist", "--backend", "il", "--project", "demo", "--verbose", "--timings", "--perf-report", "--aot" }, new int[9] }),
             ("CliTestOptionSummaryChecksumInto", new object[] { new[] { "--project", "demo", "--backend", "il", "--filter", "Adds", "--timeout", "30s", "--verbose", "--json", "--coverage-report", "--no-cache" }, new int[10] }),
+            ("CliTestFilterMatches", new object[] { "addperson", "Add Person", "", "Tests.AddPerson" }),
+            ("CliTestFilterMatches", new object[] { "description", "Custom Description", "RawDisplayName", "Tests.Raw" }),
+            ("CliTestFilterMatches", new object[] { "rawdisplay", "Custom Description", "RawDisplayName", "Tests.Raw" }),
+            ("CliTestFilterMatches", new object[] { "missing | second", "First", "", "Tests.SecondCase" }),
+            ("CliTestFilterMatches", new object[] { " | ", "First", "", "Tests.SecondCase" }),
             ("CliTreeMaxDepthInto", new object[] { new[] { "--depth", "bad", "--depth", "2" }, 99, new int[1] }),
             ("CliTreeMaxDepthInto", new object[] { Array.Empty<string>(), 99, new int[1] }),
             ("CliTreeMaxDepthInto", new object[] { new[] { "--depth", "2147483648", "--depth", "-2147483648" }, 99, new int[1] }),

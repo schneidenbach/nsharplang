@@ -364,10 +364,30 @@ partial class Program
 
         var displayName = GetXunitDescription(testCase) ?? testCase.DisplayName;
         var fullyQualifiedName = GetXunitFullyQualifiedName(testCase);
+        if (TestCommandKernels.TryMatchesFilter(
+                filter,
+                displayName,
+                testCase.DisplayName,
+                fullyQualifiedName,
+                out var matches))
+        {
+            return matches;
+        }
+
+        return MatchesTestFilterWithCSharp(filter, displayName, testCase.DisplayName, fullyQualifiedName);
+    }
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product nlc test filter matching routes through TestCommandKernels.
+    private static bool MatchesTestFilterWithCSharp(
+        string filter,
+        string displayName,
+        string alternateDisplayName,
+        string fullyQualifiedName)
+    {
         return filter.Split('|', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Any(part =>
                 displayName.Contains(part, StringComparison.OrdinalIgnoreCase)
-                || testCase.DisplayName.Contains(part, StringComparison.OrdinalIgnoreCase)
+                || alternateDisplayName.Contains(part, StringComparison.OrdinalIgnoreCase)
                 || fullyQualifiedName.Contains(part, StringComparison.OrdinalIgnoreCase));
     }
 
@@ -581,10 +601,17 @@ partial class Program
             return true;
         }
 
-        return filter.Split('|', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Any(part =>
-                testCase.DisplayName.Contains(part, StringComparison.OrdinalIgnoreCase)
-                || testCase.FullyQualifiedName.Contains(part, StringComparison.OrdinalIgnoreCase));
+        if (TestCommandKernels.TryMatchesFilter(
+                filter,
+                testCase.DisplayName,
+                string.Empty,
+                testCase.FullyQualifiedName,
+                out var matches))
+        {
+            return matches;
+        }
+
+        return MatchesTestFilterWithCSharp(filter, testCase.DisplayName, string.Empty, testCase.FullyQualifiedName);
     }
 
     private static bool IsLifecycleMethod(MethodInfo method)

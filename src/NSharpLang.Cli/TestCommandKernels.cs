@@ -136,6 +136,35 @@ internal static class TestCommandKernels
         }
     }
 
+    internal static bool TryMatchesFilter(
+        string filter,
+        string displayName,
+        string alternateDisplayName,
+        string fullyQualifiedName,
+        out bool matches)
+    {
+        matches = false;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        try
+        {
+            var code = bindings.TestFilterMatches(filter, displayName, alternateDisplayName, fullyQualifiedName);
+            if (code is not 0 and not 1)
+                return false;
+
+            matches = code == 1;
+            return true;
+        }
+        catch
+        {
+            matches = false;
+            return false;
+        }
+    }
+
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
             DogfoodKernelLoader.CreateDelegate<CliTestOutcomeSummaryInto>(
@@ -146,7 +175,10 @@ internal static class TestCommandKernels
                 "CliTestOptionSummaryInto"),
             DogfoodKernelLoader.CreateDelegate<CliTestDurationMilliseconds>(
                 programType,
-                "CliTestDurationMilliseconds")));
+                "CliTestDurationMilliseconds"),
+            DogfoodKernelLoader.CreateDelegate<CliTestFilterMatches>(
+                programType,
+                "CliTestFilterMatches")));
 
     private delegate int CliTestOutcomeSummaryInto(
         int[] outcomeRanks,
@@ -157,10 +189,17 @@ internal static class TestCommandKernels
 
     private delegate int CliTestDurationMilliseconds(string duration);
 
+    private delegate int CliTestFilterMatches(
+        string filter,
+        string displayName,
+        string alternateDisplayName,
+        string fullyQualifiedName);
+
     private sealed record Bindings(
         CliTestOutcomeSummaryInto TestOutcomeSummary,
         CliTestOptionSummaryInto TestOptionSummary,
-        CliTestDurationMilliseconds TestDurationMilliseconds);
+        CliTestDurationMilliseconds TestDurationMilliseconds,
+        CliTestFilterMatches TestFilterMatches);
 
     private static bool TryGetOptionalArg(string[] args, int index, out string? value)
     {

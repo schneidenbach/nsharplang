@@ -333,8 +333,8 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       `PackCommandKernels`; build option/help and operand summaries now live beside `Program.BuildCommand`
       in `BuildCommandKernels`; build/run define extraction now lives beside `Program` in
       `DefineArgumentKernels`; top-level command routing now lives beside `Program` in
-      `ProgramCommandKernels`; test option/help, timeout parsing, and outcome summaries now live beside `Program.TestCommand` in
-      `TestCommandKernels`; watch target routing, option summary, numeric option parsing, and
+      `ProgramCommandKernels`; test option/help, timeout parsing, outcome summaries, and
+      `nlc test --filter` matching now live beside `Program.TestCommand` in `TestCommandKernels`; watch target routing, option summary, numeric option parsing, and
       forwarded-argument selection now live beside `WatchCommand` in `WatchCommandKernels`; daemon option/subcommand summary now lives beside
       `DaemonCommand` in `DaemonCommandKernels`; shared positional-argument collection now lives beside `Program` in
       `PositionalArgumentKernels`; fix-applicator text-edit ordering now lives beside `FixApplicator` in

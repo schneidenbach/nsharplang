@@ -2995,6 +2995,33 @@ dependencies:
     }
 
     [Fact]
+    public void TestCommandKernels_MatchFilters()
+    {
+        AssertFilter("addperson", "Add Person", string.Empty, "Tests.AddPerson", expected: true);
+        AssertFilter(" description ", "Custom Description", "RawDisplayName", "Tests.Raw", expected: true);
+        AssertFilter("rawdisplay", "Custom Description", "RawDisplayName", "Tests.Raw", expected: true);
+        AssertFilter("missing | second", "First", string.Empty, "Tests.SecondCase", expected: true);
+        AssertFilter(" | ", "First", string.Empty, "Tests.SecondCase", expected: false);
+        AssertFilter("missing", "First", string.Empty, "Tests.SecondCase", expected: false);
+
+        static void AssertFilter(
+            string filter,
+            string displayName,
+            string alternateDisplayName,
+            string fullyQualifiedName,
+            bool expected)
+        {
+            Assert.True(TestCommandKernels.TryMatchesFilter(
+                filter,
+                displayName,
+                alternateDisplayName,
+                fullyQualifiedName,
+                out var actual));
+            Assert.Equal(expected, actual);
+        }
+    }
+
+    [Fact]
     public void TidyCommandKernels_FiltersRemovalLines()
     {
         var lines = new[]

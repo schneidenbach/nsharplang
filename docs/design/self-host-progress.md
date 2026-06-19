@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-19 — `nlc test --filter` matching moves into product N#
+
+`Program.Testing` now routes xUnit and reflection test-case filter matching through `TestCommandKernels`, which
+binds the shipped `CliTestFilterMatches` dogfood kernel in `CliArguments.nl`. Assembly loading, xUnit discovery,
+reflection metadata, and invocation remain C# host-boundary work; the product semantics for splitting `|`
+filters, trimming empty segments, and case-insensitive display/FQN matching now live in N#, with the previous C#
+split/contains implementation isolated as fallback/oracle.
+
+Focused evidence:
+`./scripts/dev.sh TestCommandKernels`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-19 — NuGet version comparison moves into product N#
 
 `CompilationReferenceResolver` now compares normal numeric NuGet package versions through
