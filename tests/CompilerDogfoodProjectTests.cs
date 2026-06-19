@@ -11876,6 +11876,28 @@ func outer(x: int): int {
             ("AssemblyVersionMinInt", new object[] { 4, 9 }));
     }
 
+    // MILESTONE: SourceGeneratorReferences.nl compiles end-to-end with no C# AST and owns
+    // target-framework version parsing for source-generator asset compatibility.
+    [Fact]
+    public void ColumnarCodegen_CompilesRealDogfoodFile_SourceGeneratorReferences()
+    {
+        var source = ReadDogfoodProductFile("SourceGeneratorReferences.nl");
+        var (ok, _, _, methodNames) = RouteColumnarProgram(source);
+        Assert.True(ok, "Columnar backend declined the real SourceGeneratorReferences.nl (expected full support).");
+        Assert.Contains("SourceGeneratorTargetFrameworkVersionInto", methodNames!);
+
+        AssertColumnarProgramMatchesCSharp(source,
+            ("SourceGeneratorTargetFrameworkVersionInto", new object[] { "net10.0", new int[2] }),
+            ("SourceGeneratorTargetFrameworkVersionInto", new object[] { "netstandard2.1", new int[2] }),
+            ("SourceGeneratorTargetFrameworkVersionInto", new object[] { "net472", new int[2] }),
+            ("SourceGeneratorTargetFrameworkVersionInto", new object[] { "net10..2", new int[2] }),
+            ("SourceGeneratorTargetFrameworkVersionInto", new object[] { "net10.bad", new int[2] }),
+            ("SourceGeneratorTargetFrameworkVersionInto", new object[] { "net10.2147483648", new int[2] }),
+            ("SourceGeneratorTargetFrameworkVersionInto", new object[] { "net", new int[2] }),
+            ("SourceGeneratorTargetFrameworkVersionInto", new object[] { "net2147483648.0", new int[2] }),
+            ("SourceGeneratorMinInt", new object[] { 4, 9 }));
+    }
+
     // MILESTONE: CliQueryParsing.nl compiles end-to-end with no C# AST. Enabling features: the ulong scalar +
     // ulong[] + BitOperations.PopCount(ulong) and the query position parser's whitespace/sign/overflow handling.
     // The packed-success-count kernel masks a partial last word via `(word << shift) >> shift` (exercising Shr_Un)
@@ -12496,6 +12518,7 @@ func outer(x: int): int {
             "EditorConfigParsing.nl", "FormatterImportOrdering.nl", "IdentifierSpans.nl",
             "LexerTokenKindScanner.nl", "OverloadCandidates.nl", "ParserDeclarations.nl",
             "ParserTypeReferences.nl", "ProjectSourceFilter.nl",
+            "SourceGeneratorReferences.nl",
             "StructCopyAnalysis.nl", "TextEditOrdering.nl", "TypeLookup.nl",
         };
         var dir = Path.Combine(FindRepoRoot(), "src", "NSharpLang.Compiler.Dogfood", "CompilerServices");

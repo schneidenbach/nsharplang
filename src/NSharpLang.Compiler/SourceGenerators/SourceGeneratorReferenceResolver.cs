@@ -783,6 +783,21 @@ public static class SourceGeneratorReferenceResolver
 
     private static (int Major, int Minor)? ParseTargetFrameworkVersion(string targetFramework)
     {
+        if (SourceGeneratorReferenceResolverKernels.TryParseTargetFrameworkVersion(
+                targetFramework,
+                out var parsed,
+                out var major,
+                out var minor))
+        {
+            return parsed ? (major, minor) : null;
+        }
+
+        return ParseTargetFrameworkVersionWithCSharp(targetFramework);
+    }
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product source-generator target-framework parsing routes through SourceGeneratorReferenceResolverKernels.
+    private static (int Major, int Minor)? ParseTargetFrameworkVersionWithCSharp(string targetFramework)
+    {
         var digits = new string(targetFramework
             .SkipWhile(character => !char.IsDigit(character))
             .TakeWhile(character => char.IsDigit(character) || character == '.')

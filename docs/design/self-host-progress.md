@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-19 — Source-generator target-framework parsing moves into product N#
+
+`SourceGeneratorReferenceResolver` now parses target-framework major/minor versions through
+`SourceGeneratorReferenceResolverKernels`, which binds the shipped `SourceGeneratorTargetFrameworkVersionInto`
+dogfood kernel in `SourceGeneratorReferences.nl`. Package probing and analyzer-reference materialization remain
+C# host-boundary work; the normal product compatibility filter now routes its TFM version parsing through N# with
+the prior LINQ/string-split parser retained only as fallback/oracle.
+
+Focused evidence:
+`./scripts/dev.sh SourceGeneratorReferenceResolverKernels`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_SourceGeneratorReferences|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-19 — Compilation reference target-framework parsing moves into product N#
 
 `CompilationReferenceResolver` now parses target-framework major/minor versions through

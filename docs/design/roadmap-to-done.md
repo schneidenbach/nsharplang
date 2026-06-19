@@ -312,7 +312,8 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       `Program.CleanStaleGeneratedFiles` in `GeneratedOutputDirectoryDeduplicator`; native
       compilation-reference filtering and target-framework version parsing now live beside `CompilationReferenceResolver` in
       `CompilationReferenceResolverKernels`, and NuGet/framework best-score selection now routes through
-      the same resolver-local kernels; check argument summary now lives beside `CheckCommand` in
+      the same resolver-local kernels; source-generator target-framework version parsing now lives beside
+      `SourceGeneratorReferenceResolver` in `SourceGeneratorReferenceResolverKernels`; check argument summary now lives beside `CheckCommand` in
       `CheckCommandKernels`; fix argument summary now lives beside `FixCommand` in
       `FixCommandArgumentKernels`; add argument summary now lives beside `AddCommand` in
       `AddCommandKernels`; remove argument summary now lives beside `RemoveCommand` in
