@@ -317,7 +317,7 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       csharp option summary, input selection, reference filtering, and
       stable reference de-duplication now live beside `ExportCommand` in `ExportCommandKernels`; run
       option summary and source operand selection now live beside `Program.RunCommand` in `RunCommandKernels`; publish
-      option summary now lives beside `Program.PublishCommand` in
+      option summary and help routing now live beside `Program.PublishCommand` in
       `PublishCommandKernels`; pack option summary now lives beside `PackCommand` in
       `PackCommandKernels`; build option and operand summaries now live beside `Program.BuildCommand`
       in `BuildCommandKernels`; test option and outcome summaries now live beside `Program.TestCommand` in

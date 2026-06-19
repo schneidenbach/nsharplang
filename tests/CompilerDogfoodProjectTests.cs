@@ -19774,6 +19774,9 @@ func main() {
             new[] { "--target", "linux-x64" },
             new[] { "--target-platform" },
             new[] { "--bad" },
+            new[] { "--help" },
+            new[] { "help" },
+            new[] { "--project", "--help" },
             new[] { "Project.nl" },
             new[] { string.Empty }
         };
@@ -19794,13 +19797,14 @@ func main() {
             else
             {
                 Assert.Equal(expected.ErrorIndex, resultIndices[7]);
+                Assert.Equal(expected.Indices[8], resultIndices[8]);
             }
         }
     }
 
     private static (int Code, int[] Indices, int ErrorIndex) CreateExpectedCliPublishOptions(string[] args)
     {
-        var indices = new[] { -1, -1, -1, -1, -1, 0, 0, -1 };
+        var indices = new[] { -1, -1, -1, -1, -1, 0, 0, -1, 0 };
         var configurationLongIndex = -1;
         var configurationShortIndex = -1;
         var outputLongIndex = -1;
@@ -19808,8 +19812,17 @@ func main() {
         var runtimeLongIndex = -1;
         var runtimeShortIndex = -1;
 
+        for (var helpIndex = 0; helpIndex < args.Length; helpIndex++)
+        {
+            if ((args[helpIndex] is "--help" or "-h") || (helpIndex == 0 && args[helpIndex] == "help"))
+                indices[8] = 1;
+        }
+
         for (var i = 0; i < args.Length; i++)
         {
+            if (i == 0 && args[i] == "help")
+                continue;
+
             var kind = CliPublishArgumentKind(args[i]);
             if (kind is >= 1 and <= 8)
             {
@@ -19864,6 +19877,9 @@ func main() {
                 continue;
             }
 
+            if (kind == 12)
+                continue;
+
             indices[7] = i;
             if (kind == 11)
                 return (2, indices, i);
@@ -19893,6 +19909,7 @@ func main() {
             "--self-contained" => 9,
             "--aot" => 10,
             "--target" or "--target-platform" => 11,
+            "--help" or "-h" => 12,
             _ => 0
         };
 

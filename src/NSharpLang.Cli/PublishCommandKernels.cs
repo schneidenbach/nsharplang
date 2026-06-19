@@ -17,7 +17,7 @@ internal static class PublishCommandKernels
         if (bindings == null)
             return false;
 
-        var resultIndices = t_resultIndices ??= new int[8];
+        var resultIndices = t_resultIndices ??= new int[9];
         try
         {
             var code = bindings.PublishOptionsInto(args, resultIndices);
@@ -35,7 +35,8 @@ internal static class PublishCommandKernels
                     null,
                     null,
                     false,
-                    false);
+                    false,
+                    resultIndices[8] != 0);
                 return true;
             }
 
@@ -57,7 +58,8 @@ internal static class PublishCommandKernels
                 output,
                 runtime,
                 resultIndices[5] != 0,
-                resultIndices[6] != 0);
+                resultIndices[6] != 0,
+                resultIndices[8] != 0);
             return true;
         }
         catch

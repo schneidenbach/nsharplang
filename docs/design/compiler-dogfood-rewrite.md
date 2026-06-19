@@ -1589,7 +1589,8 @@ allocated validation sets before discovering there were no options. The same ben
 about 4.1x for a realistic 18-token publish command (53.578 ns vs 220.507 ns) and about 2.6x at 64
 tokens (140.409 ns vs 368.786 ns), below the original production speed gate. Stage 6 now routes
 option-bearing publish invocations through `PublishCommandKernels` as a C# surface-shrink slice, with
-the exact C# parser retained as fallback/oracle logic.
+help detection also reported by the same N# summary so the product command no longer scans `args`
+directly before validation. The exact C# parser is retained as fallback/oracle logic.
 
 `CliPackOptionSummaryInto` preserves the current `nlc pack` command-parser behavior for help,
 `--project`, `--output`/`-o`, `--version`, `--configuration`/`-c`, `--include-symbols`, and `--json`.

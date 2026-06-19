@@ -959,6 +959,17 @@ func Main() {
     }
 
     [Fact]
+    public void PublishCommand_HelpWinsBeforeValidation()
+    {
+        var (exitCode, stdout, stderr) = CaptureConsole(() =>
+            ExecuteProgram("publish", "--project", "--help"));
+
+        Assert.Equal(0, exitCode);
+        Assert.True(string.IsNullOrWhiteSpace(stderr));
+        Assert.Contains("Usage: nlc publish", stdout);
+    }
+
+    [Fact]
     public void TidyCommand_Help_ShowsUsage()
     {
         var (exitCode, stdout, stderr) = CaptureConsole(() =>

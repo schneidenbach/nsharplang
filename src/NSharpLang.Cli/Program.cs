@@ -18,7 +18,8 @@ internal readonly record struct PublishArgumentSummary(
     string? Output,
     string? Runtime,
     bool SelfContained,
-    bool Aot);
+    bool Aot,
+    bool ShowHelp);
 
 internal readonly record struct BuildOptionSummary(
     string? OutputDir,
@@ -479,7 +480,8 @@ Exit codes:
 
     static int PublishCommand(string[] args)
     {
-        if (args.Contains("--help") || args.Contains("-h") || (args.Length > 0 && args[0] == "help"))
+        var publishArguments = GetPublishArgumentSummary(args);
+        if (publishArguments.ShowHelp)
         {
             Console.WriteLine(@"N# Publish
 
@@ -525,7 +527,6 @@ Exit codes:
             return 0;
         }
 
-        var publishArguments = GetPublishArgumentSummary(args);
         if (publishArguments.ValidationError != null)
         {
             return Error(publishArguments.ValidationError);
@@ -720,7 +721,8 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
             GetOptionValue(args, "--output") ?? GetOptionValue(args, "-o"),
             GetOptionValue(args, "--runtime") ?? GetOptionValue(args, "-r"),
             args.Contains("--self-contained"),
-            args.Contains("--aot"));
+            args.Contains("--aot"),
+            args.Contains("--help") || args.Contains("-h") || (args.Length > 0 && args[0] == "help"));
     }
 
     static int NewCommand(string[] args)

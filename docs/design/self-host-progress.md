@@ -11,6 +11,20 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-19 — Publish help routing moves into product N#
+
+`Program.PublishCommand` now gets help detection from `PublishCommandKernels` through the shipped
+`CliPublishOptionsInto` dogfood kernel, so the product command no longer performs its own direct
+C# scan before publish validation. The kernel preserves the existing behavior where `--help`, `-h`,
+or first-argument `help` wins before validation, including mixed cases like `--project --help`; the
+previous direct scans remain only as fallback/oracle logic. This is a Stage 6 `C#-surface-shrink`
+product-route slice.
+
+Focused evidence:
+`./scripts/dev.sh PublishCommandKernels`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.PublishCommandKernels_NormalizesOptionsAndValidation|FullyQualifiedName~CliParityAuditTests.PublishCommand_HelpWinsBeforeValidation|FullyQualifiedName~CliParityAuditTests.PublishCommand_Help_StatesSupportedAndUnsupportedTargetShapes"`.
+
 ## 2026-06-19 — Format option parsing routes through product N#
 
 `Program.FormatCommand` now gets help detection, `--project`, `--check`/`--verify-no-changes`,

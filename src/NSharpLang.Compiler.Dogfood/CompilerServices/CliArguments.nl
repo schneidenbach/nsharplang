@@ -1138,7 +1138,7 @@ func CliPublishOptionsInto(args: string[], resultIndices: int[]): int {
 }
 
 func CliPublishOptionsCore(args: &CliArgumentTable, resultIndices: &CliIndexResultTable): int {
-    if resultIndices.Indices.Length < 8 {
+    if resultIndices.Indices.Length < 9 {
         return -1
     }
 
@@ -1150,6 +1150,7 @@ func CliPublishOptionsCore(args: &CliArgumentTable, resultIndices: &CliIndexResu
     resultIndices.Indices[5] = 0
     resultIndices.Indices[6] = 0
     resultIndices.Indices[7] = -1
+    resultIndices.Indices[8] = 0
 
     configurationLongIndex := -1
     configurationShortIndex := -1
@@ -1158,9 +1159,24 @@ func CliPublishOptionsCore(args: &CliArgumentTable, resultIndices: &CliIndexResu
     runtimeLongIndex := -1
     runtimeShortIndex := -1
 
+    helpIndex := 0
+    while helpIndex < args.Args.Length {
+        helpArg := args.Args[helpIndex]
+        if helpArg == "--help" || helpArg == "-h" || (helpIndex == 0 && helpArg == "help") {
+            resultIndices.Indices[8] = 1
+        }
+
+        helpIndex = helpIndex + 1
+    }
+
     i := 0
     while i < args.Args.Length {
         arg := args.Args[i]
+        if i == 0 && arg == "help" {
+            i = i + 1
+            continue
+        }
+
         kind := CliPublishArgumentKind(arg)
         if kind >= 1 && kind <= 8 {
             if i + 1 >= args.Args.Length {
@@ -1230,6 +1246,11 @@ func CliPublishOptionsCore(args: &CliArgumentTable, resultIndices: &CliIndexResu
             return 2
         }
 
+        if kind == 12 {
+            i = i + 1
+            continue
+        }
+
         resultIndices.Indices[7] = i
         if arg.Length > 0 && arg[0] == '-' {
             return 3
@@ -1279,6 +1300,10 @@ func CliPublishArgumentKind(arg: string): int {
             return 8
         }
 
+        if shortName == 'h' {
+            return 12
+        }
+
         return 0
     }
 
@@ -1290,6 +1315,14 @@ func CliPublishArgumentKind(arg: string): int {
     if length == 5 {
         if first == 'a' && arg[3] == 'o' && arg[4] == 't' {
             return 10
+        }
+
+        return 0
+    }
+
+    if length == 6 {
+        if first == 'h' && arg[3] == 'e' && arg[4] == 'l' && arg[5] == 'p' {
+            return 12
         }
 
         return 0

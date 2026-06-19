@@ -1654,6 +1654,7 @@ func Main() {
         Assert.Null(defaultSummary.Runtime);
         Assert.False(defaultSummary.SelfContained);
         Assert.False(defaultSummary.Aot);
+        Assert.False(defaultSummary.ShowHelp);
 
         var args = new[]
         {
@@ -1678,6 +1679,7 @@ func Main() {
         Assert.Equal("osx-arm64", dogfoodSummary.Runtime);
         Assert.True(dogfoodSummary.SelfContained);
         Assert.True(dogfoodSummary.Aot);
+        Assert.False(dogfoodSummary.ShowHelp);
 
         var summary = Program.GetPublishArgumentSummary(args);
         Assert.Null(summary.ValidationError);
@@ -1688,6 +1690,7 @@ func Main() {
         Assert.Equal("osx-arm64", summary.Runtime);
         Assert.True(summary.SelfContained);
         Assert.True(summary.Aot);
+        Assert.False(summary.ShowHelp);
 
         var missingValue = Program.GetPublishArgumentSummary(new[] { "--project", "--backend", "il" });
         Assert.Equal("Option '--project' requires a value.", missingValue.ValidationError);
@@ -1703,6 +1706,14 @@ func Main() {
         Assert.Equal(
             "Debug",
             Program.GetPublishArgumentSummary(new[] { "-c", "Debug" }).Configuration);
+
+        Assert.True(Program.GetPublishArgumentSummary(new[] { "help" }).ShowHelp);
+        Assert.True(Program.GetPublishArgumentSummary(new[] { "--help" }).ShowHelp);
+        Assert.True(Program.GetPublishArgumentSummary(new[] { "ignored", "-h" }).ShowHelp);
+
+        var helpAfterInvalidValue = Program.GetPublishArgumentSummary(new[] { "--project", "--help" });
+        Assert.True(helpAfterInvalidValue.ShowHelp);
+        Assert.Equal("Option '--project' requires a value.", helpAfterInvalidValue.ValidationError);
     }
 
     [Fact]
