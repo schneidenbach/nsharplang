@@ -12,6 +12,9 @@ internal static class CompilationReferenceResolverKernels
     [ThreadStatic]
     private static int[]? t_targetFrameworkVersionResult;
 
+    [ThreadStatic]
+    private static int[]? t_nuGetVersionCompareResult;
+
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
 
     internal static bool TryFilterReferencesByType(
@@ -148,6 +151,31 @@ internal static class CompilationReferenceResolverKernels
         }
     }
 
+    internal static bool TryCompareNuGetVersions(string x, string y, out int compare)
+    {
+        compare = 0;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        var result = t_nuGetVersionCompareResult ??= new int[9];
+        try
+        {
+            var code = bindings.NuGetVersionCompare(x, y, result);
+            if (code != 1)
+                return false;
+
+            compare = result[0];
+            return compare is >= -1 and <= 1;
+        }
+        catch
+        {
+            compare = 0;
+            return false;
+        }
+    }
+
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
             DogfoodKernelLoader.CreateDelegate<CliReferenceTypeFilterIndicesInto>(
@@ -158,7 +186,10 @@ internal static class CompilationReferenceResolverKernels
                 "CliReferenceResolutionBestScoreIndex"),
             DogfoodKernelLoader.CreateDelegate<CliTargetFrameworkVersionInto>(
                 programType,
-                "CliTargetFrameworkVersionInto")));
+                "CliTargetFrameworkVersionInto"),
+            DogfoodKernelLoader.CreateDelegate<CliNuGetVersionCompareInto>(
+                programType,
+                "CliNuGetVersionCompareInto")));
 
     private delegate int CliReferenceTypeFilterIndicesInto(
         int[] typeRanks,
@@ -169,10 +200,13 @@ internal static class CompilationReferenceResolverKernels
 
     private delegate int CliTargetFrameworkVersionInto(string targetFramework, int[] result);
 
+    private delegate int CliNuGetVersionCompareInto(string x, string y, int[] result);
+
     private sealed record Bindings(
         CliReferenceTypeFilterIndicesInto ReferenceTypeFilterIndices,
         CliReferenceResolutionBestScoreIndex ReferenceResolutionBestScoreIndex,
-        CliTargetFrameworkVersionInto TargetFrameworkVersion);
+        CliTargetFrameworkVersionInto TargetFrameworkVersion,
+        CliNuGetVersionCompareInto NuGetVersionCompare);
 
     private static int GetReferenceTypeRank(ReferenceType type) =>
         type switch

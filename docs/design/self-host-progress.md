@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-19 — NuGet version comparison moves into product N#
+
+`CompilationReferenceResolver` now compares normal numeric NuGet package versions through
+`CompilationReferenceResolverKernels`, which binds the shipped `CliNuGetVersionCompareInto` dogfood kernel in
+`CliArguments.nl`. The N# route parses the pre-release-stripped version core into `Version`-style numeric
+components for ordinary package-version ordering; malformed, overflowing, or non-numeric version shapes still fall
+back to the previous C# `Version.TryParse`/ordinal comparer as the compatibility oracle.
+
+Focused evidence:
+`./scripts/dev.sh CompilationReferenceResolverKernels`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-19 — Source-generator target-framework parsing moves into product N#
 
 `SourceGeneratorReferenceResolver` now parses target-framework major/minor versions through

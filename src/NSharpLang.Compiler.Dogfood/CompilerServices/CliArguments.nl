@@ -4233,6 +4233,125 @@ func CliReferenceResolutionBestScoreIndexCore(scoresTable: &CliRankTable, count:
     return bestIndex
 }
 
+func CliNuGetVersionCompareInto(x: string, y: string, result: int[]): int {
+    if result.Length < 9 {
+        return -1
+    }
+
+    result[0] = 0
+    if !CliNuGetVersionParseCoreInto(x, result, 1) {
+        return 0
+    }
+
+    if !CliNuGetVersionParseCoreInto(y, result, 5) {
+        result[0] = 0
+        return 0
+    }
+
+    result[0] = CliNuGetVersionCompareParsedComponents(result, 1, 5)
+    return 1
+}
+
+func CliNuGetVersionParseCoreInto(value: string, result: int[], resultOffset: int): bool {
+    result[resultOffset] = 0
+    result[resultOffset + 1] = 0
+    result[resultOffset + 2] = 0
+    result[resultOffset + 3] = -1
+
+    end := 0
+    while end < value.Length && value[end] != '-' {
+        end = end + 1
+    }
+
+    if end <= 0 {
+        return false
+    }
+
+    segmentStart := 0
+    segmentCount := 0
+    while segmentStart < end {
+        if segmentCount >= 4 {
+            return false
+        }
+
+        segmentEnd := segmentStart
+        while segmentEnd < end && value[segmentEnd] != '.' {
+            segmentEnd = segmentEnd + 1
+        }
+
+        versionTable := new CliIntResultTable { Values: result }
+        if !CliNuGetVersionTryParseIntSegment(value, segmentStart, segmentEnd, ref versionTable, resultOffset + segmentCount) {
+            return false
+        }
+
+        segmentCount = segmentCount + 1
+        if segmentEnd >= end {
+            break
+        }
+
+        segmentStart = segmentEnd + 1
+        if segmentStart >= end {
+            return false
+        }
+    }
+
+    return segmentCount > 0
+}
+
+func CliNuGetVersionCompareParsedComponents(components: int[], leftOffset: int, rightOffset: int): int {
+    index := 0
+    while index < 4 {
+        left := components[leftOffset + index]
+        right := components[rightOffset + index]
+        if left < right {
+            return -1
+        }
+
+        if left > right {
+            return 1
+        }
+
+        index = index + 1
+    }
+
+    return 0
+}
+
+func CliNuGetVersionTryParseIntSegment(
+    text: string,
+    start: int,
+    end: int,
+    result: &CliIntResultTable,
+    resultIndex: int): bool {
+    if start >= end {
+        return false
+    }
+
+    value := 0
+    index := start
+    while index < end {
+        ch := text[index]
+        if ch < '0' || ch > '9' {
+            return false
+        }
+
+        digit := ch - '0'
+        if value > 214748364 {
+            return false
+        }
+
+        if value == 214748364 && digit > 7 {
+            return false
+        }
+
+        value = value * 10 + digit
+        index = index + 1
+    }
+
+    result.Values[resultIndex] = value
+    return true
+}
+
 func CliTargetFrameworkVersionInto(targetFramework: string, result: int[]): int {
     if result.Length < 2 {
         return -1

@@ -7007,6 +7007,7 @@ func outer(x: int): int {
         Assert.Contains("CliExportTargetSummaryInto", methodNames!); // product export target routing.
         Assert.Contains("CliExportCSharpOptionSummaryInto", methodNames!); // product export csharp option parsing.
         Assert.Contains("CliReferenceResolutionBestScoreIndex", methodNames!); // product resolver best-score selection.
+        Assert.Contains("CliNuGetVersionCompareInto", methodNames!); // product resolver NuGet version comparison.
         Assert.Contains("CliTargetFrameworkVersionInto", methodNames!); // product resolver target-framework version parsing.
         Assert.Contains("CliShouldFormatDiscoveredPath", methodNames!); // product format discovery filtering.
         Assert.Contains("CliFormatOptionSummaryInto", methodNames!); // product format option parsing.
@@ -7049,6 +7050,14 @@ func outer(x: int): int {
             ("CliExportCSharpFirstOperandChecksumInto", new object[] { new string[0], new int[0], new int[0], new int[0], new int[0], new int[0] }),
             ("CliReferenceResolutionBestScoreIndex", new object[] { new[] { -1, 40, 900, 120, 900, 30 }, 6 }),
             ("CliReferenceResolutionBestScoreChecksum", new object[] { new[] { -1, 40, 900, 120, 900, 30 }, new[] { 0, 11, 19, 23, 31, 37 }, 6 }),
+            ("CliNuGetVersionCompareInto", new object[] { "13.0.3", "12.0.0", new int[9] }),
+            ("CliNuGetVersionCompareInto", new object[] { "1.2", "1.2.1", new int[9] }),
+            ("CliNuGetVersionCompareInto", new object[] { "2", "1.9.9", new int[9] }),
+            ("CliNuGetVersionCompareInto", new object[] { "10.0.0-preview.1", "9.9.9", new int[9] }),
+            ("CliNuGetVersionCompareInto", new object[] { "1.2.3", "1.2.3.0", new int[9] }),
+            ("CliNuGetVersionCompareInto", new object[] { "1.2.0", "1.2", new int[9] }),
+            ("CliNuGetVersionCompareInto", new object[] { "1.2.3.4.5", "1.0.0", new int[9] }),
+            ("CliNuGetVersionCompareInto", new object[] { "2147483648.0.0", "1.0.0", new int[9] }),
             ("CliTargetFrameworkVersionInto", new object[] { "net10.0", new int[2] }),
             ("CliTargetFrameworkVersionInto", new object[] { "netstandard2.1", new int[2] }),
             ("CliTargetFrameworkVersionInto", new object[] { "net10..2", new int[2] }),

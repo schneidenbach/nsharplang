@@ -1015,6 +1015,22 @@ internal static class CompilationReferenceResolver
             if (x == null) return -1;
             if (y == null) return 1;
 
+            if (CompilationReferenceResolverKernels.TryCompareNuGetVersions(x, y, out var dogfoodCompare))
+            {
+                if (dogfoodCompare != 0)
+                {
+                    return dogfoodCompare;
+                }
+
+                return string.Compare(x, y, StringComparison.OrdinalIgnoreCase);
+            }
+
+            return CompareWithCSharp(x, y);
+        }
+
+        // Stage 6 C#-surface-shrink: fallback/oracle only; product NuGet version comparison routes through CompilationReferenceResolverKernels.
+        private static int CompareWithCSharp(string x, string y)
+        {
             var xCore = x.Split('-', 2)[0];
             var yCore = y.Split('-', 2)[0];
             if (Version.TryParse(NormalizeVersionForParse(xCore), out var xv)
