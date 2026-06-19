@@ -299,9 +299,10 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       the same resolver-local kernels; check argument summary now lives beside `CheckCommand` in
       `CheckCommandKernels`; fix argument summary now lives beside `FixCommand` in
       `FixCommandArgumentKernels`; add argument summary now lives beside `AddCommand` in
-      `AddCommandKernels`; first positional project/package discovery for `nlc new`, `nlc remove`,
-      and `nlc update` now lives beside the owning commands in
-      `NewCommandKernels`, `RemoveCommandKernels`, and `UpdateCommandKernels`; tidy
+      `AddCommandKernels`; remove argument summary now lives beside `RemoveCommand` in
+      `RemoveCommandKernels`; first positional project/package discovery for `nlc new` and
+      `nlc update` now lives beside the owning commands in
+      `NewCommandKernels` and `UpdateCommandKernels`; tidy
       option summary, classification, status summary, and fix filtering now live beside `TidyCommand`
       in `TidyCommandKernels`;
       lint option summary and file-argument extraction now live beside `LintCommand` in `LintCommandKernels`; format

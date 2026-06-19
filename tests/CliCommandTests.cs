@@ -1186,8 +1186,18 @@ func Main() {
     }
 
     [Fact]
-    public void RemoveCommandKernels_SelectsPackageOperand()
+    public void RemoveCommandKernels_SummarizesArguments()
     {
+        var args = new[] { "--dry-run", "Serilog", "-h" };
+
+        Assert.True(RemoveCommandKernels.TryGetArgumentSummary(args, out var dogfoodSummary));
+        Assert.Equal("Serilog", dogfoodSummary.PackageOperand);
+        Assert.True(dogfoodSummary.ShowHelp);
+
+        var summary = RemoveCommand.GetArgumentSummary(args);
+        Assert.Equal("Serilog", summary.PackageOperand);
+        Assert.True(summary.ShowHelp);
+
         Assert.True(RemoveCommandKernels.TryGetPackageOperand(
             new[] { "--dry-run", "Serilog" },
             out var dogfoodPackage));
@@ -1195,6 +1205,8 @@ func Main() {
         Assert.Equal("Newtonsoft.Json", RemoveCommand.GetPackageOperand(new[] { "Newtonsoft.Json" }));
         Assert.Equal("Serilog", RemoveCommand.GetPackageOperand(new[] { "--dry-run", "Serilog" }));
         Assert.Null(RemoveCommand.GetPackageOperand(new[] { "--dry-run" }));
+        Assert.True(RemoveCommand.GetArgumentSummary(new[] { "help" }).ShowHelp);
+        Assert.Equal("help", RemoveCommand.GetArgumentSummary(new[] { "help" }).PackageOperand);
     }
 
     [Fact]

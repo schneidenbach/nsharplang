@@ -533,6 +533,43 @@ func CliAddArgumentSummaryKind(arg: string): int {
     return 0
 }
 
+func CliRemoveArgumentSummaryInto(args: string[], resultIndices: int[]): int {
+    arguments := new CliArgumentTable { Args: args }
+    results := new CliIndexResultTable { Indices: resultIndices }
+    return CliRemoveArgumentSummaryCore(ref arguments, ref results)
+}
+
+func CliRemoveArgumentSummaryCore(args: &CliArgumentTable, resultIndices: &CliIndexResultTable): int {
+    if resultIndices.Indices.Length < 2 {
+        return -1
+    }
+
+    resultIndices.Indices[0] = -1
+    resultIndices.Indices[1] = 0
+
+    i := 0
+    while i < args.Args.Length {
+        arg := args.Args[i]
+        if i == 0 && arg == "help" {
+            resultIndices.Indices[1] = 1
+        }
+
+        if arg == "--help" || arg == "-h" {
+            resultIndices.Indices[1] = 1
+        }
+
+        if resultIndices.Indices[0] < 0 {
+            if arg.Length == 0 || arg[0] != '-' {
+                resultIndices.Indices[0] = i
+            }
+        }
+
+        i = i + 1
+    }
+
+    return 0
+}
+
 func CliPublishOptionsInto(args: string[], resultIndices: int[]): int {
     arguments := new CliArgumentTable { Args: args }
     results := new CliIndexResultTable { Indices: resultIndices }

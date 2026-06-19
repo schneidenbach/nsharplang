@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 
 namespace NSharpLang.Cli.Commands;
 
@@ -9,13 +8,14 @@ public static class RemoveCommand
 {
     public static int Execute(string[] args)
     {
-        if (args.Contains("--help") || args.Contains("-h") || (args.Length > 0 && args[0] == "help"))
+        var arguments = GetArgumentSummary(args);
+        if (arguments.ShowHelp)
             return ShowHelp();
 
         if (args.Length == 0)
             return Error("Usage: nlc remove <package>");
 
-        var packageName = GetPackageOperand(args);
+        var packageName = arguments.PackageOperand;
         if (string.IsNullOrWhiteSpace(packageName))
             return Error("Usage: nlc remove <package>");
 
@@ -76,11 +76,18 @@ public static class RemoveCommand
     }
 
     internal static string? GetPackageOperand(string[] args)
-    {
-        return RemoveCommandKernels.TryGetPackageOperand(args, out var positional)
-            ? positional
-            : GetPackageOperandWithCSharp(args);
-    }
+        => GetArgumentSummary(args).PackageOperand;
+
+    internal static RemoveArgumentSummary GetArgumentSummary(string[] args)
+        => RemoveCommandKernels.TryGetArgumentSummary(args, out var summary)
+            ? summary
+            : GetArgumentSummaryWithCSharp(args);
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product remove argument parsing routes through RemoveCommandKernels.
+    private static RemoveArgumentSummary GetArgumentSummaryWithCSharp(string[] args)
+        => new(
+            GetPackageOperandWithCSharp(args),
+            ContainsArgWithCSharp(args, "--help") || ContainsArgWithCSharp(args, "-h") || (args.Length > 0 && args[0] == "help"));
 
     private static string? GetPackageOperandWithCSharp(string[] args)
     {
@@ -91,6 +98,14 @@ public static class RemoveCommand
         }
 
         return null;
+    }
+
+    private static bool ContainsArgWithCSharp(string[] args, string value)
+    {
+        for (var i = 0; i < args.Length; i++)
+            if (args[i] == value)
+                return true;
+        return false;
     }
 
     static int ShowHelp()

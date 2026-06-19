@@ -2,9 +2,49 @@ using System;
 
 namespace NSharpLang.Cli.Commands;
 
+internal readonly record struct RemoveArgumentSummary(
+    string? PackageOperand,
+    bool ShowHelp);
+
 internal static class RemoveCommandKernels
 {
+    [ThreadStatic]
+    private static int[]? t_resultIndices;
+
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
+
+    internal static bool TryGetArgumentSummary(string[] args, out RemoveArgumentSummary summary)
+    {
+        summary = default;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        var resultIndices = t_resultIndices ??= new int[2];
+        try
+        {
+            var code = bindings.RemoveArgumentSummary(args, resultIndices);
+            if (code != 0)
+                return false;
+
+            if (!TryGetOptionalArg(args, resultIndices[0], out var packageOperand))
+            {
+                summary = default;
+                return false;
+            }
+
+            summary = new RemoveArgumentSummary(
+                packageOperand,
+                resultIndices[1] != 0);
+            return true;
+        }
+        catch
+        {
+            summary = default;
+            return false;
+        }
+    }
 
     internal static bool TryGetPackageOperand(string[] args, out string? package)
     {
@@ -37,11 +77,33 @@ internal static class RemoveCommandKernels
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
             DogfoodKernelLoader.CreateDelegate<CliFirstPositionalArgIndex>(
                 programType,
-                "CliFirstPositionalArgIndex")));
+                "CliFirstPositionalArgIndex"),
+            DogfoodKernelLoader.CreateDelegate<CliRemoveArgumentSummaryInto>(
+                programType,
+                "CliRemoveArgumentSummaryInto")));
 
     private delegate int CliFirstPositionalArgIndex(
         string[] args,
         string[] optionsWithValues);
 
-    private sealed record Bindings(CliFirstPositionalArgIndex FirstPositionalArgIndex);
+    private delegate int CliRemoveArgumentSummaryInto(
+        string[] args,
+        int[] resultIndices);
+
+    private sealed record Bindings(
+        CliFirstPositionalArgIndex FirstPositionalArgIndex,
+        CliRemoveArgumentSummaryInto RemoveArgumentSummary);
+
+    private static bool TryGetOptionalArg(string[] args, int index, out string? value)
+    {
+        value = null;
+        if (index == -1)
+            return true;
+
+        if (index < 0 || index >= args.Length)
+            return false;
+
+        value = args[index];
+        return true;
+    }
 }
