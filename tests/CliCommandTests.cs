@@ -1847,6 +1847,31 @@ dependencies:
     }
 
     [Fact]
+    public void TidyCommandKernels_SummarizesOptions()
+    {
+        var args = new[] { "--fix", "--json", "--project", "samples/demo" };
+
+        Assert.True(TidyCommandKernels.TryGetOptionSummary(args, out var dogfoodSummary));
+        Assert.Equal("samples/demo", dogfoodSummary.ProjectOption);
+        Assert.True(dogfoodSummary.Fix);
+        Assert.True(dogfoodSummary.Json);
+        Assert.False(dogfoodSummary.ShowHelp);
+
+        var summary = TidyCommand.GetOptionSummary(args);
+        Assert.Equal("samples/demo", summary.ProjectOption);
+        Assert.True(summary.Fix);
+        Assert.True(summary.Json);
+        Assert.False(summary.ShowHelp);
+
+        var permissiveValue = TidyCommand.GetOptionSummary(new[] { "--project", "--json" });
+        Assert.Equal("--json", permissiveValue.ProjectOption);
+        Assert.True(permissiveValue.Json);
+
+        Assert.True(TidyCommand.GetOptionSummary(new[] { "help" }).ShowHelp);
+        Assert.True(TidyCommand.GetOptionSummary(new[] { "ignored", "-h" }).ShowHelp);
+    }
+
+    [Fact]
     public void TidyCommandKernels_SelectsAndClassifiesDependencies()
     {
         var dependencies = new[]

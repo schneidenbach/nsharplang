@@ -18,12 +18,13 @@ public static class TidyCommand
 {
     public static int Execute(string[] args)
     {
-        if (args.Contains("--help") || args.Contains("-h") || (args.Length > 0 && args[0] == "help"))
+        var options = GetOptionSummary(args);
+        if (options.ShowHelp)
             return ShowHelp();
 
-        var projectRoot = GetOption(args, "--project") ?? Directory.GetCurrentDirectory();
-        var fix = args.Contains("--fix");
-        var json = args.Contains("--json");
+        var projectRoot = options.ProjectOption ?? Directory.GetCurrentDirectory();
+        var fix = options.Fix;
+        var json = options.Json;
 
         var projectYml = Path.Combine(projectRoot, "project.yml");
         if (!File.Exists(projectYml))
@@ -390,12 +391,33 @@ public static class TidyCommand
 
     // ── Helpers ───────────────────────────────────────────────────────────
 
-    private static string? GetOption(string[] args, string flag)
+    internal static TidyOptionSummary GetOptionSummary(string[] args)
+        => TidyCommandKernels.TryGetOptionSummary(args, out var summary)
+            ? summary
+            : GetOptionSummaryWithCSharp(args);
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product tidy option parsing routes through TidyCommandKernels.
+    private static TidyOptionSummary GetOptionSummaryWithCSharp(string[] args)
+        => new(
+            GetOptionValueWithCSharp(args, "--project"),
+            ContainsArgWithCSharp(args, "--fix"),
+            ContainsArgWithCSharp(args, "--json"),
+            ContainsArgWithCSharp(args, "--help") || ContainsArgWithCSharp(args, "-h") || (args.Length > 0 && args[0] == "help"));
+
+    private static string? GetOptionValueWithCSharp(string[] args, string flag)
     {
         for (var i = 0; i < args.Length - 1; i++)
             if (args[i] == flag)
                 return args[i + 1];
         return null;
+    }
+
+    private static bool ContainsArgWithCSharp(string[] args, string value)
+    {
+        for (var i = 0; i < args.Length; i++)
+            if (args[i] == value)
+                return true;
+        return false;
     }
 
     private static int ShowHelp()

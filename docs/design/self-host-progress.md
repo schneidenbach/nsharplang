@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-19 — Tidy option parsing routes through product N#
+
+`TidyCommand` now gets help detection, `--project`, `--fix`, and `--json` from
+`TidyCommandKernels`, which binds the shipped `CliTidyOptionSummaryInto` dogfood kernel beside the
+existing tidy classification, summary, and fix routes. The previous C# option scan remains only as
+fallback/oracle logic, preserving permissive `--project` value handling. This is a Stage 6
+`C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`./scripts/dev.sh TidyCommandKernels`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.TidyCommandKernels_SummarizesOptions|FullyQualifiedName~CliParityAuditTests.TidyCommand_Json_ClassifiesDependencyUsage|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-19 — Fix argument parsing routes through product N#
 
 `FixCommand` now gets help detection, `--project`, `--file`, positional project discovery,

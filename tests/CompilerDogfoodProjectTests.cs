@@ -7013,6 +7013,7 @@ func outer(x: int): int {
         Assert.Contains("CliLintOptionSummaryInto", methodNames!); // product lint option parsing.
         Assert.Contains("CliCheckArgumentSummaryInto", methodNames!); // product check argument parsing.
         Assert.Contains("CliFixArgumentSummaryInto", methodNames!); // product fix argument parsing.
+        Assert.Contains("CliTidyOptionSummaryInto", methodNames!); // product tidy option parsing.
 
         AssertColumnarProgramMatchesCSharp(source,
             ("CliSymbolNameContainsAsciiIgnoreCase", new object[] { "FooBarBaz", "barbaz" }),
@@ -15146,6 +15147,10 @@ class OtherZetaType {
                     "CliLintOptionSummaryInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliLintOptionSummaryInto.");
+            var cliTidyOptionSummaryInto = programType.GetMethod(
+                    "CliTidyOptionSummaryInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTidyOptionSummaryInto.");
             var cliLintFileArgIndicesInto = programType.GetMethod(
                     "CliLintFileArgIndicesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -16151,6 +16156,7 @@ func main(customer: Customer, résumé: Profile) {
                 cliFirstPositionalArgIndex,
                 cliPositionalArgChecksumInto);
             AssertCliLintOptionsLikeProduction(cliLintOptionSummaryInto);
+            AssertCliTidyOptionsLikeProduction(cliTidyOptionSummaryInto);
             AssertCliLintFileArgsLikeProduction(
                 cliLintFileArgIndicesInto,
                 cliLintFileArgChecksumInto);
@@ -19593,6 +19599,70 @@ func main() {
                         indices[0] = i + 1;
                     break;
                 case "--text":
+                    indices[1] = 1;
+                    break;
+                case "--json":
+                    indices[2] = 1;
+                    break;
+                case "--help":
+                case "-h":
+                    indices[3] = 1;
+                    break;
+            }
+        }
+
+        return indices;
+    }
+
+    private static void AssertCliTidyOptionsLikeProduction(MethodInfo cliTidyOptionSummaryInto)
+    {
+        var cases = new[]
+        {
+            Array.Empty<string>(),
+            new[] { "--project", "src", "--fix", "--json", "-h" },
+            new[] { "--project", "--json" },
+            new[] { "--project" },
+            new[] { "help" },
+            new[] { "ignored", "-h" },
+            new[] { string.Empty }
+        };
+
+        foreach (var args in cases)
+        {
+            var expected = CreateExpectedCliTidyOptions(args);
+            var resultIndices = Enumerable.Repeat(-99, 4).ToArray();
+            var actualCode = (int)(cliTidyOptionSummaryInto.Invoke(
+                null,
+                new object[] { args, resultIndices }) ?? -2);
+
+            Assert.Equal(0, actualCode);
+            Assert.Equal(expected, resultIndices);
+        }
+
+        Assert.Equal(
+            -1,
+            (int)(cliTidyOptionSummaryInto.Invoke(
+                null,
+                new object[] { new[] { "--json" }, new int[3] }) ?? 0));
+    }
+
+    private static int[] CreateExpectedCliTidyOptions(string[] args)
+    {
+        var indices = new[] { -1, 0, 0, 0 };
+
+        for (var i = 0; i < args.Length; i++)
+        {
+            var arg = args[i];
+            if (i == 0 && arg == "help")
+                indices[3] = 1;
+
+            switch (arg)
+            {
+                case "--project":
+                    if (indices[0] < 0 && i + 1 < args.Length)
+                        indices[0] = i + 1;
+                    break;
+                case "--fix":
                     indices[1] = 1;
                     break;
                 case "--json":

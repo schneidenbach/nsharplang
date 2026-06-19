@@ -4,15 +4,59 @@ using NSharpLang.Compiler;
 
 namespace NSharpLang.Cli.Commands;
 
+internal readonly record struct TidyOptionSummary(
+    string? ProjectOption,
+    bool Fix,
+    bool Json,
+    bool ShowHelp);
+
 internal static class TidyCommandKernels
-{    private const int PossiblyUnusedStatusRank = 1;
+{
+    private const int PossiblyUnusedStatusRank = 1;
 
     [ThreadStatic]
     private static DependencyStatusScratch? t_dependencyStatusScratch;
     [ThreadStatic]
     private static RemovalLineScratch? t_removalLineScratch;
+    [ThreadStatic]
+    private static int[]? t_optionSummaryIndices;
 
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
+
+    internal static bool TryGetOptionSummary(string[] args, out TidyOptionSummary summary)
+    {
+        summary = default;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        var resultIndices = t_optionSummaryIndices ??= new int[4];
+        try
+        {
+            var code = bindings.OptionSummary(args, resultIndices);
+            if (code != 0)
+                return false;
+
+            if (!TryGetOptionalArg(args, resultIndices[0], out var projectOption))
+            {
+                summary = default;
+                return false;
+            }
+
+            summary = new TidyOptionSummary(
+                projectOption,
+                resultIndices[1] != 0,
+                resultIndices[2] != 0,
+                resultIndices[3] != 0);
+            return true;
+        }
+        catch
+        {
+            summary = default;
+            return false;
+        }
+    }
 
     internal static bool TrySelectPossiblyUnusedDependencies<T>(
         IReadOnlyList<T> results,
@@ -296,7 +340,10 @@ internal static class TidyCommandKernels
                 "CliTidyDependencyStatusRanksInto"),
             DogfoodKernelLoader.CreateDelegate<CliTidyRemovalLineKeepFlagsInto>(
                 programType,
-                "CliTidyRemovalLineKeepFlagsInto")));
+                "CliTidyRemovalLineKeepFlagsInto"),
+            DogfoodKernelLoader.CreateDelegate<CliTidyOptionSummaryInto>(
+                programType,
+                "CliTidyOptionSummaryInto")));
 
     private static int GetStatusRank(string status) =>
         status switch
@@ -337,11 +384,29 @@ internal static class TidyCommandKernels
         string[] packageNames,
         int[] resultFlags);
 
+    private delegate int CliTidyOptionSummaryInto(
+        string[] args,
+        int[] resultIndices);
+
     private sealed record Bindings(
         DiagnosticSeverityFilterIndicesInto StatusFilter,
         CliTidyDependencyStatusSummaryInto StatusSummary,
         CliTidyDependencyStatusRanksInto DependencyStatusRanks,
-        CliTidyRemovalLineKeepFlagsInto RemovalLineKeepFlags);
+        CliTidyRemovalLineKeepFlagsInto RemovalLineKeepFlags,
+        CliTidyOptionSummaryInto OptionSummary);
+
+    private static bool TryGetOptionalArg(string[] args, int index, out string? value)
+    {
+        value = null;
+        if (index == -1)
+            return true;
+
+        if (index < 0 || index >= args.Length)
+            return false;
+
+        value = args[index];
+        return true;
+    }
 
     private sealed class DependencyStatusScratch
     {

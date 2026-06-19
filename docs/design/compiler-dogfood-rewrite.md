@@ -1643,6 +1643,12 @@ selection, and removal-line filtering through the owner-local `TidyCommandKernel
 dogfood assembly is available, with the previous C# command fallbacks retained for unavailable
 dogfood and non-ASCII classification/removal inputs.
 
+`CliTidyOptionSummaryInto` preserves the current `nlc tidy` command-parser behavior for help,
+`--project`, `--fix`, and `--json`. Stage 6 routes `TidyCommand` through `TidyCommandKernels` as a
+C# surface-shrink product path beside the existing tidy classification and fix routes. The kernel
+writes the project value index and switch bits into a caller-owned buffer, while the previous C#
+parser shape remains as fallback/oracle logic.
+
 `CliFixSafetyFilterIndicesInto` passed parity and reported zero managed allocation in the normal
 BenchmarkDotNet evidence tier for `nlc fix` safety filtering. The accepted N# path uses compact
 `FixSafety` ranks, an eight-wide unrolled threshold scan, and a single-pass checksum wrapper. It ran
@@ -2144,7 +2150,7 @@ CLI stable string de-duplication for stale generated cleanup and target-framewor
 add/remove package operand discovery, tidy dependency-line keep flags,
 DocQuery reference-pack assembly-name and type-candidate de-duplication,
 CLI test outcome summaries,
-CLI build/test/pack/lint option summaries, check/fix argument summaries,
+CLI build/test/pack/lint/tidy option summaries, check/fix argument summaries,
 watch forwarded-argument selection,
 shared positional-argument collection,
 and the accepted batch result packed-count kernel through the compiled N# methods. The same suite
@@ -2156,7 +2162,7 @@ selection, `nlc doc` symbol/member ordering and slug generation, `nlc tree` depe
 selection, applied-fix file grouping, clean artifact directory ordering, `nlc export csharp` reference de-duplication,
 CLI reference-type filtering,
 `nlc restore` project-reference de-duplication, `nlc update` dependency filtering, `nlc tidy`
-status summaries, `nlc test` outcome summaries, `nlc tidy --fix` possibly-unused dependency selection, and `nlc tidy --fix`
+option/status summaries, `nlc test` outcome summaries, `nlc tidy --fix` possibly-unused dependency selection, and `nlc tidy --fix`
 project.yml dependency-line removal;
 `CliParityAuditTests` verifies `nlc new` accepts the project name after a value-taking template
 option through the first-positional route and `nlc clean` removes build artifact directories through
