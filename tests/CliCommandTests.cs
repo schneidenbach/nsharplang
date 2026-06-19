@@ -1577,6 +1577,18 @@ func Main() {
         Assert.True(summary.Timings);
         Assert.True(summary.PerfReport);
         Assert.True(summary.Aot);
+        Assert.False(summary.ShowHelp);
+
+        Assert.True(BuildCommandKernels.TryGetOptionSummary(
+            new[] { "help", "--release" },
+            out var firstArgHelp));
+        Assert.True(firstArgHelp.ShowHelp);
+
+        Assert.True(BuildCommandKernels.TryGetOptionSummary(
+            new[] { "--output", "--help" },
+            out var helpAsMissingValue));
+        Assert.Equal("--help", helpAsMissingValue.OutputDir);
+        Assert.True(helpAsMissingValue.ShowHelp);
     }
 
     [Fact]

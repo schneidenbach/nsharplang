@@ -29,7 +29,8 @@ internal readonly record struct BuildOptionSummary(
     bool Verbose,
     bool Timings,
     bool PerfReport,
-    bool Aot);
+    bool Aot,
+    bool ShowHelp);
 
 internal readonly record struct TestOptionSummary(
     string? ProjectOption,
@@ -102,7 +103,8 @@ partial class Program
 
     static int BuildCommand(string[] args)
     {
-        if (args.Contains("--help") || args.Contains("-h") || (args.Length > 0 && args[0] == "help"))
+        var helpOptions = GetBuildOptionSummary(args);
+        if (helpOptions.ShowHelp)
         {
             Console.WriteLine(@"N# Build
 
@@ -1677,7 +1679,8 @@ Exit codes:
             args.Contains("--verbose"),
             args.Contains("--timings"),
             args.Contains("--perf-report"),
-            args.Contains("--aot"));
+            args.Contains("--aot"),
+            args.Contains("--help") || args.Contains("-h") || (args.Length > 0 && args[0] == "help"));
 
     static TestOptionSummary GetTestOptionSummary(string[] args)
     {

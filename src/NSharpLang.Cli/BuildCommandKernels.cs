@@ -92,7 +92,8 @@ internal static class BuildCommandKernels
                 resultIndices[4] != 0,
                 resultIndices[5] != 0,
                 resultIndices[6] != 0,
-                resultIndices[7] != 0);
+                resultIndices[7] != 0,
+                resultIndices[8] != 0);
             return true;
         }
         catch

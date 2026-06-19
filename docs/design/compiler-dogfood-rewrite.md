@@ -1566,7 +1566,9 @@ on the representative source-first argument corpus (7.395 ns vs 9.332 us, 0 B vs
 about 9,618x faster on the large generated source-first argument corpus (7.491 ns vs 72.047 us,
 0 B vs 489,152 B). Stage 6 now routes `BuildCommandKernels` through `CliBuildOperandSummaryInto`
 instead, preserving the same first-operand result while moving normalized operand count out of C#;
-the first-index wrapper remains only as a parity-corpus compatibility surface.
+the first-index wrapper remains only as a parity-corpus compatibility surface. `BuildCommand` also
+uses the `CliBuildOptionSummaryInto` help bit for product help routing before `--define` extraction,
+leaving direct C# help scans only in the fallback/oracle path.
 
 `CliRunFirstOperandIndex` passed parity and reported zero managed allocation in the short
 BenchmarkDotNet evidence tier for `nlc run` source-file operand discovery. The accepted N# path

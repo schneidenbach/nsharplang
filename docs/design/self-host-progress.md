@@ -11,6 +11,19 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-19 — Build help routing moves into product N#
+
+`Program.BuildCommand` now gets help detection from `BuildCommandKernels` through the existing
+`CliBuildOptionSummaryInto` dogfood kernel, so the product command no longer scans `args` directly
+before `--define` extraction. The command still parses options again after define extraction for the
+actual build path, preserving the previous argument order and define materialization behavior. The
+direct C# help scan remains only in fallback/oracle logic. This is a Stage 6 `C#-surface-shrink`
+product-route slice.
+
+Focused evidence:
+`./scripts/dev.sh BuildCommandKernels`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliParityAuditTests.BuildCommand_HelpWinsBeforeDefineExtraction|FullyQualifiedName~CliParityAuditTests.BuildCommand_Timings_ShowsPhaseBreakdown"`.
+
 ## 2026-06-19 — Publish help routing moves into product N#
 
 `Program.PublishCommand` now gets help detection from `PublishCommandKernels` through the shipped

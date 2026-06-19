@@ -945,6 +945,17 @@ func Main() {
     }
 
     [Fact]
+    public void BuildCommand_HelpWinsBeforeDefineExtraction()
+    {
+        var (exitCode, stdout, stderr) = CaptureConsole(() =>
+            ExecuteProgram("build", "--define", "--help"));
+
+        Assert.Equal(0, exitCode);
+        Assert.True(string.IsNullOrWhiteSpace(stderr));
+        Assert.Contains("Usage: nlc build", stdout);
+    }
+
+    [Fact]
     public void PublishCommand_Help_StatesSupportedAndUnsupportedTargetShapes()
     {
         var (exitCode, stdout, stderr) = CaptureConsole(() =>
