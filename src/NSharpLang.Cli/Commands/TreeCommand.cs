@@ -337,6 +337,15 @@ public static class TreeCommand
 
     private static int GetMaxDepth(string[] args, TreeOptionSummary options)
     {
+        if (TreeCommandKernels.TryGetMaxDepth(args, int.MaxValue, out var maxDepth))
+            return maxDepth;
+
+        return GetMaxDepthWithCSharp(args, options);
+    }
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product tree depth parsing routes through TreeCommandKernels.
+    private static int GetMaxDepthWithCSharp(string[] args, TreeOptionSummary options)
+    {
         if (options.DepthOption != null && int.TryParse(options.DepthOption, out var value))
             return value;
 

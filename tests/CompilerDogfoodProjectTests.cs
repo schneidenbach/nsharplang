@@ -7031,6 +7031,7 @@ func outer(x: int): int {
         Assert.Contains("CliTidyOptionSummaryInto", methodNames!); // product tidy option parsing.
         Assert.Contains("CliDocOptionSummaryInto", methodNames!); // product doc option parsing.
         Assert.Contains("CliTreeOptionSummaryInto", methodNames!); // product tree option parsing.
+        Assert.Contains("CliTreeMaxDepthInto", methodNames!); // product tree depth parsing.
         Assert.Contains("CliCleanOptionSummaryInto", methodNames!); // product clean option parsing.
         Assert.Contains("CliEnvOptionSummaryInto", methodNames!); // product env option parsing.
         Assert.Contains("CliDoctorOptionSummaryInto", methodNames!); // product doctor option parsing.
@@ -7050,6 +7051,10 @@ func outer(x: int): int {
             ("CliShouldFormatDiscoveredPath", new object[] { "src/Program.nl" }),
             ("CliBuildOptionSummaryChecksumInto", new object[] { new[] { "--release", "-o", "short", "--output", "dist", "--backend", "il", "--project", "demo", "--verbose", "--timings", "--perf-report", "--aot" }, new int[9] }),
             ("CliTestOptionSummaryChecksumInto", new object[] { new[] { "--project", "demo", "--backend", "il", "--filter", "Adds", "--timeout", "30s", "--verbose", "--json", "--coverage-report", "--no-cache" }, new int[10] }),
+            ("CliTreeMaxDepthInto", new object[] { new[] { "--depth", "bad", "--depth", "2" }, 99, new int[1] }),
+            ("CliTreeMaxDepthInto", new object[] { Array.Empty<string>(), 99, new int[1] }),
+            ("CliTreeMaxDepthInto", new object[] { new[] { "--depth", "2147483648", "--depth", "-2147483648" }, 99, new int[1] }),
+            ("CliTreeMaxDepthInto", new object[] { new[] { "--depth", "7" }, 99, new int[0] }),
             ("CliWatchForwardedArgChecksumInto", new object[] { new[] { "test", "--project", "demo", "--filter", "Adds", "--debounce-ms", "25", "--json", "--max-runs", "2", "--coverage" }, new int[11] }),
             ("CliPositionalArgChecksumInto", new object[] { new[] { "--template", "library", "systems-cli", "PacketTool", "--systems", "--diff", "src/App.nl" }, new[] { "--template", "--type" }, new int[7] }));
     }
@@ -15231,6 +15236,10 @@ class OtherZetaType {
                     "CliTreeOptionSummaryInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTreeOptionSummaryInto.");
+            var cliTreeMaxDepthInto = programType.GetMethod(
+                    "CliTreeMaxDepthInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTreeMaxDepthInto.");
             var cliLintFileArgIndicesInto = programType.GetMethod(
                     "CliLintFileArgIndicesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -16277,7 +16286,7 @@ func main(customer: Customer, résumé: Profile) {
             AssertCliLintOptionsLikeProduction(cliLintOptionSummaryInto);
             AssertCliTidyOptionsLikeProduction(cliTidyOptionSummaryInto);
             AssertCliDocOptionsLikeProduction(cliDocOptionSummaryInto);
-            AssertCliTreeOptionsLikeProduction(cliTreeOptionSummaryInto);
+            AssertCliTreeOptionsLikeProduction(cliTreeOptionSummaryInto, cliTreeMaxDepthInto);
             AssertCliLintFileArgsLikeProduction(
                 cliLintFileArgIndicesInto,
                 cliLintFileArgChecksumInto);
@@ -20688,7 +20697,9 @@ func main() {
         return indices;
     }
 
-    private static void AssertCliTreeOptionsLikeProduction(MethodInfo cliTreeOptionSummaryInto)
+    private static void AssertCliTreeOptionsLikeProduction(
+        MethodInfo cliTreeOptionSummaryInto,
+        MethodInfo cliTreeMaxDepthInto)
     {
         var cases = new[]
         {
@@ -20720,6 +20731,24 @@ func main() {
             (int)(cliTreeOptionSummaryInto.Invoke(
                 null,
                 new object[] { new[] { "--json" }, new int[3] }) ?? 0));
+
+        foreach (var args in cases)
+        {
+            var expectedDepth = CreateExpectedCliTreeMaxDepth(args, defaultDepth: 99);
+            var result = new int[1];
+            var actualCode = (int)(cliTreeMaxDepthInto.Invoke(
+                null,
+                new object[] { args, 99, result }) ?? -2);
+
+            Assert.True(actualCode >= 0);
+            Assert.Equal(expectedDepth, result[0]);
+        }
+
+        Assert.Equal(
+            -1,
+            (int)(cliTreeMaxDepthInto.Invoke(
+                null,
+                new object[] { new[] { "--depth", "2" }, 99, Array.Empty<int>() }) ?? 0));
     }
 
     private static int[] CreateExpectedCliTreeOptions(string[] args)
@@ -20753,6 +20782,17 @@ func main() {
         }
 
         return indices;
+    }
+
+    private static int CreateExpectedCliTreeMaxDepth(string[] args, int defaultDepth)
+    {
+        for (var i = 0; i < args.Length - 1; i++)
+        {
+            if (args[i] == "--depth" && int.TryParse(args[i + 1], out var value))
+                return value;
+        }
+
+        return defaultDepth;
     }
 
     private static void AssertCliCleanOptionsLikeProduction(MethodInfo cliCleanOptionSummaryInto)

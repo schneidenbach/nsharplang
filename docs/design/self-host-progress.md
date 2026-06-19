@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-19 — Tree depth parsing moves into product N#
+
+`TreeCommand.GetMaxDepth` now parses `--depth` values through `TreeCommandKernels`, which binds
+the shipped `CliTreeMaxDepthInto` dogfood kernel in `CliArguments.nl`. The N# route preserves the
+legacy `int.TryParse` behavior for whitespace, signs, overflow, and the existing permissive
+fallback semantics where the first parseable `--depth` value wins. The previous C# scan remains
+only as fallback/oracle logic. This is a Stage 6 `C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`./scripts/dev.sh TreeCommand`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-19 — Query position parsing moves into product N#
 
 `QueryCommand.TryParsePosition` now resolves `line:column` operands for hover, type, definition,

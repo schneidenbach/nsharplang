@@ -167,6 +167,18 @@ func Main() {
             Assert.Equal(2, root.GetProperty("summary").GetProperty("direct").GetInt32());
             Assert.Contains("direct runtime dependencies",
                 root.GetProperty("limitations")[0].GetString());
+
+            var (depthExitCode, depthStdout, depthStderr) = CaptureConsole(() =>
+                TreeCommand.Execute(new[] { "--project", tempDir, "--depth", "bad", "--depth", "0", "--json" }));
+
+            Assert.Equal(0, depthExitCode);
+            Assert.True(string.IsNullOrWhiteSpace(depthStderr));
+
+            using var depthDoc = JsonDocument.Parse(depthStdout);
+            var depthRoot = depthDoc.RootElement;
+            Assert.Equal(0, depthRoot.GetProperty("maxDepth").GetInt32());
+            Assert.Equal(0, depthRoot.GetProperty("dependencies").GetArrayLength());
+            Assert.Equal(0, depthRoot.GetProperty("summary").GetProperty("direct").GetInt32());
         }
         finally
         {
@@ -219,6 +231,32 @@ func Main() {
         Assert.True(permissiveValue.ShowHelp);
 
         Assert.True(TreeCommand.GetOptionSummary(new[] { "help" }).ShowHelp);
+    }
+
+    [Fact]
+    public void TreeCommandKernels_ParseMaxDepthLikeCSharpFallback()
+    {
+        var cases = new[]
+        {
+            Array.Empty<string>(),
+            new[] { "--depth", "2" },
+            new[] { "--depth", "bad", "--depth", "2" },
+            new[] { "--depth", "--json", "--depth", "+3" },
+            new[] { "--depth", " -1 " },
+            new[] { "--depth", "2147483648", "--depth", "-2147483648" },
+            new[] { "--depth", "1_000" },
+            new[] { "--depth", "2147483647" },
+            new[] { "--depth", "+" },
+            new[] { "--depth", " 7 " }
+        };
+
+        foreach (var args in cases)
+        {
+            var expected = GetTreeMaxDepthWithCSharpFallback(args, defaultDepth: 99);
+
+            Assert.True(TreeCommandKernels.TryGetMaxDepth(args, 99, out var actual));
+            Assert.Equal(expected, actual);
+        }
     }
 
     [Fact]
@@ -4008,6 +4046,17 @@ func Main() {
             return false;
 
         return int.TryParse(parts[0], out line) && int.TryParse(parts[1], out column);
+    }
+
+    private static int GetTreeMaxDepthWithCSharpFallback(string[] args, int defaultDepth)
+    {
+        for (var i = 0; i < args.Length - 1; i++)
+        {
+            if (args[i] == "--depth" && int.TryParse(args[i + 1], out var value))
+                return value;
+        }
+
+        return defaultDepth;
     }
 
     private sealed record ExportReferenceValue(string Name, string Version);

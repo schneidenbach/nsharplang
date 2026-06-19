@@ -13,6 +13,9 @@ internal static class TreeCommandKernels
     [ThreadStatic]
     private static int[]? t_optionSummaryIndices;
 
+    [ThreadStatic]
+    private static int[]? t_depthResult;
+
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
 
     internal static bool TryGetOptionSummary(string[] args, out TreeOptionSummary summary)
@@ -51,17 +54,52 @@ internal static class TreeCommandKernels
         }
     }
 
+    internal static bool TryGetMaxDepth(string[] args, int defaultDepth, out int maxDepth)
+    {
+        maxDepth = defaultDepth;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        var result = t_depthResult ??= new int[1];
+        try
+        {
+            var code = bindings.MaxDepth(args, defaultDepth, result);
+            if (code < 0)
+                return false;
+
+            maxDepth = result[0];
+            return true;
+        }
+        catch
+        {
+            maxDepth = defaultDepth;
+            return false;
+        }
+    }
+
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
             DogfoodKernelLoader.CreateDelegate<CliTreeOptionSummaryInto>(
                 programType,
-                "CliTreeOptionSummaryInto")));
+                "CliTreeOptionSummaryInto"),
+            DogfoodKernelLoader.CreateDelegate<CliTreeMaxDepthInto>(
+                programType,
+                "CliTreeMaxDepthInto")));
 
     private delegate int CliTreeOptionSummaryInto(
         string[] args,
         int[] resultIndices);
 
-    private sealed record Bindings(CliTreeOptionSummaryInto OptionSummary);
+    private delegate int CliTreeMaxDepthInto(
+        string[] args,
+        int defaultDepth,
+        int[] result);
+
+    private sealed record Bindings(
+        CliTreeOptionSummaryInto OptionSummary,
+        CliTreeMaxDepthInto MaxDepth);
 
     private static bool TryGetOptionalArg(string[] args, int index, out string? value)
     {

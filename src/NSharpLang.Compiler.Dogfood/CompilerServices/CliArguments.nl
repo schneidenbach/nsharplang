@@ -42,6 +42,10 @@ struct CliStringResultTable {
     Values: string[]
 }
 
+struct CliIntResultTable {
+    Values: int[]
+}
+
 struct CliBuildArgumentKindTable {
     Kinds: int[]
 }
@@ -1275,6 +1279,93 @@ func CliTreeOptionSummaryKind(arg: string): int {
     }
 
     return 0
+}
+
+func CliTreeMaxDepthInto(args: string[], defaultDepth: int, result: int[]): int {
+    if result.Length < 1 {
+        return -1
+    }
+
+    result[0] = defaultDepth
+    results := new CliIntResultTable { Values: result }
+
+    i := 0
+    while i < args.Length - 1 {
+        if args[i] == "--depth" {
+            if CliTreeTryParseInt32Into(args[i + 1], ref results, 0) {
+                return 1
+            }
+        }
+
+        i = i + 1
+    }
+
+    return 0
+}
+
+func CliTreeTryParseInt32Into(text: string, result: &CliIntResultTable, resultIndex: int): bool {
+    start := 0
+    end := text.Length
+    while start < end && char.IsWhiteSpace(text[start]) {
+        start = start + 1
+    }
+
+    while end > start && char.IsWhiteSpace(text[end - 1]) {
+        end = end - 1
+    }
+
+    if start >= end {
+        return false
+    }
+
+    negative := false
+    if text[start] == '+' || text[start] == '-' {
+        negative = text[start] == '-'
+        start = start + 1
+        if start >= end {
+            return false
+        }
+    }
+
+    value := 0
+    index := start
+    while index < end {
+        ch := text[index]
+        if ch < '0' || ch > '9' {
+            return false
+        }
+
+        digit := ch - '0'
+        if value > 214748364 {
+            return false
+        }
+
+        if value == 214748364 {
+            if negative {
+                if digit == 8 && index == end - 1 {
+                    result.Values[resultIndex] = 0 - 2147483647 - 1
+                    return true
+                }
+
+                return false
+            }
+
+            if digit > 7 {
+                return false
+            }
+        }
+
+        value = value * 10 + digit
+        index = index + 1
+    }
+
+    if negative {
+        result.Values[resultIndex] = 0 - value
+    } else {
+        result.Values[resultIndex] = value
+    }
+
+    return true
 }
 
 func CliCleanOptionSummaryInto(args: string[], resultIndices: int[]): int {
