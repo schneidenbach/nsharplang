@@ -7014,6 +7014,7 @@ func outer(x: int): int {
         Assert.Contains("CliLintOptionSummaryInto", methodNames!); // product lint option parsing.
         Assert.Contains("CliCheckArgumentSummaryInto", methodNames!); // product check argument parsing.
         Assert.Contains("CliFixArgumentSummaryInto", methodNames!); // product fix argument parsing.
+        Assert.Contains("CliAddArgumentSummaryInto", methodNames!); // product add argument parsing.
         Assert.Contains("CliTidyOptionSummaryInto", methodNames!); // product tidy option parsing.
         Assert.Contains("CliDocOptionSummaryInto", methodNames!); // product doc option parsing.
 
@@ -15129,6 +15130,10 @@ class OtherZetaType {
                     "CliFixArgumentSummaryInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliFixArgumentSummaryInto.");
+            var cliAddArgumentSummaryInto = programType.GetMethod(
+                    "CliAddArgumentSummaryInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliAddArgumentSummaryInto.");
             var cliWatchForwardedArgIndicesInto = programType.GetMethod(
                     "CliWatchForwardedArgIndicesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -16157,6 +16162,7 @@ func main(customer: Customer, résumé: Profile) {
             AssertCliRunSourceOperandLikeProduction(cliRunFirstOperandIndex);
             AssertCliCheckArgumentsLikeProduction(cliCheckArgumentSummaryInto);
             AssertCliFixArgumentsLikeProduction(cliFixArgumentSummaryInto);
+            AssertCliAddArgumentsLikeProduction(cliAddArgumentSummaryInto);
             AssertCliWatchForwardedArgsLikeProduction(
                 cliWatchForwardedArgIndicesInto,
                 cliWatchForwardedArgChecksumInto);
@@ -19051,6 +19057,92 @@ func main() {
         for (var i = 0; i < args.Length; i++)
         {
             if ((args[i] == "--project" || args[i] == "--file") && i + 1 < args.Length)
+            {
+                i++;
+                continue;
+            }
+
+            if (!args[i].StartsWith("-", StringComparison.Ordinal))
+            {
+                indices[2] = i;
+                break;
+            }
+        }
+
+        return indices;
+    }
+
+    private static void AssertCliAddArgumentsLikeProduction(MethodInfo cliAddArgumentSummaryInto)
+    {
+        var cases = new[]
+        {
+            Array.Empty<string>(),
+            new[] { "--version", "13.0.3", "--framework", "--prerelease", "Newtonsoft.Json" },
+            new[] { "--path", "../MyLibrary" },
+            new[] { "--version", "--path", "../MyLibrary" },
+            new[] { "--version" },
+            new[] { "--path" },
+            new[] { "--unknown", "value-after-unknown" },
+            new[] { "help" },
+            new[] { "ignored", "-h" },
+            new[] { string.Empty }
+        };
+
+        foreach (var args in cases)
+        {
+            var expected = CreateExpectedCliAddArguments(args);
+            var resultIndices = Enumerable.Repeat(-99, 6).ToArray();
+            var actualCode = (int)(cliAddArgumentSummaryInto.Invoke(
+                null,
+                new object[] { args, resultIndices }) ?? -2);
+
+            Assert.Equal(0, actualCode);
+            Assert.Equal(expected, resultIndices);
+        }
+
+        Assert.Equal(
+            -1,
+            (int)(cliAddArgumentSummaryInto.Invoke(
+                null,
+                new object[] { new[] { "--framework" }, new int[5] }) ?? 0));
+    }
+
+    private static int[] CreateExpectedCliAddArguments(string[] args)
+    {
+        var indices = new[] { -1, -1, -1, 0, 0, 0 };
+
+        for (var i = 0; i < args.Length; i++)
+        {
+            var arg = args[i];
+            if (i == 0 && arg == "help")
+                indices[5] = 1;
+
+            switch (arg)
+            {
+                case "--version":
+                    if (indices[0] < 0 && i + 1 < args.Length)
+                        indices[0] = i + 1;
+                    break;
+                case "--path":
+                    if (indices[1] < 0 && i + 1 < args.Length)
+                        indices[1] = i + 1;
+                    break;
+                case "--framework":
+                    indices[3] = 1;
+                    break;
+                case "--prerelease":
+                    indices[4] = 1;
+                    break;
+                case "--help":
+                case "-h":
+                    indices[5] = 1;
+                    break;
+            }
+        }
+
+        for (var i = 0; i < args.Length; i++)
+        {
+            if ((args[i] == "--version" || args[i] == "--path") && i + 1 < args.Length)
             {
                 i++;
                 continue;

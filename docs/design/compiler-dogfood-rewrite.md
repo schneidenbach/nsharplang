@@ -1519,6 +1519,12 @@ C# surface-shrink product path beside the existing fix output/filtering routes. 
 option value indices and switch bits into a caller-owned buffer, while the previous C# parser shape
 remains as fallback/oracle logic.
 
+`CliAddArgumentSummaryInto` preserves the current `nlc add` command-parser behavior for help,
+`--version`, `--path`, package operand discovery, `--framework`, and `--prerelease`. Stage 6 routes
+`AddCommand` through `AddCommandKernels` as a C# surface-shrink product path beside the package
+operand compatibility route. The kernel writes option value indices and switch bits into a
+caller-owned buffer, while the previous C# parser shape remains as fallback/oracle logic.
+
 `CliBuildFirstOperandIndexInto` passed parity and reported zero managed allocation in the normal
 BenchmarkDotNet evidence tier for source-first `nlc build` operand discovery. The accepted N# path
 returned the first source operand index directly instead of materializing the build command's
@@ -1973,11 +1979,11 @@ regex fallback.
 Strict `nlc build` lint gating now routes its error-only diagnostic filter through the same
 adapter-backed formatter path before the accepted diagnostic deduplication/order route, instead of
 running a local C# LINQ severity filter.
-`nlc new`, `nlc check`, `nlc fix`, `nlc add`, `nlc remove`, and `nlc update` now route first
-positional project/operand/package discovery through owner-local command helpers
-(`NewCommandKernels`, `CheckCommandKernels`, `FixCommandArgumentKernels`, `AddCommandKernels`,
-`RemoveCommandKernels`, and `UpdateCommandKernels`), which call the compiled N# first-index scanner
-when the dogfood assembly is available, with command-local C# positional scans kept as the fallback.
+`nlc new`, `nlc remove`, and `nlc update` now route first positional project/package discovery
+through owner-local command helpers (`NewCommandKernels`, `RemoveCommandKernels`, and
+`UpdateCommandKernels`), which call the compiled N# first-index scanner when the dogfood assembly
+is available, with command-local C# positional scans kept as the fallback. `nlc check`, `nlc fix`,
+and `nlc add` now route command-specific argument summaries through owner-local kernels instead.
 `nlc export csharp` input operand discovery routes through `ExportCommandKernels`.
 `CliExportCSharpOptionSummaryInto` preserves the current `nlc export csharp` command-parser
 behavior for help, `--project`, and `--output`/`-o`. Stage 6 routes `ExportCommand` through
@@ -2157,10 +2163,10 @@ CLI reference-type filtering,
 AOT requirement grouping, anonymous-union overload-shim eligibility, declared-type suffix lookup, type-creation ordering, compiler source-file de-duplication,
 compiler stub namespace import ordering, inspect-summary reference-file summaries,
 CLI stable string de-duplication for stale generated cleanup and target-framework summaries,
-add/remove package operand discovery, tidy dependency-line keep flags,
+add argument summaries, remove package operand discovery, tidy dependency-line keep flags,
 DocQuery reference-pack assembly-name and type-candidate de-duplication,
 CLI test outcome summaries,
-CLI build/test/pack/lint/tidy/doc/export option summaries, check/fix argument summaries,
+CLI build/test/pack/lint/tidy/doc/export option summaries, check/fix/add argument summaries,
 watch forwarded-argument selection,
 shared positional-argument collection,
 and the accepted batch result packed-count kernel through the compiled N# methods. The same suite

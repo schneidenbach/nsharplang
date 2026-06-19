@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-19 — Add argument parsing routes through product N#
+
+`AddCommand` now gets help detection, `--version`, `--path`, package operand discovery,
+`--framework`, and `--prerelease` from `AddCommandKernels`, which binds the shipped
+`CliAddArgumentSummaryInto` dogfood kernel beside the existing package-operand compatibility route.
+The previous direct C# scans remain only as fallback/oracle logic, preserving permissive option-value
+handling for existing command behavior. This is a Stage 6 `C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`./scripts/dev.sh AddCommandKernels`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.AddCommandKernels_SummarizesArguments|FullyQualifiedName~CliParityAuditTests.AddCommand_Help_ShowsPathOption|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-19 — Export C# option parsing routes through product N#
 
 `ExportCommand` now gets `nlc export csharp` help detection, `--project`, and `--output`/`-o`

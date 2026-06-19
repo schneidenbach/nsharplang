@@ -1062,10 +1062,28 @@ func Main() {
     }
 
     [Fact]
-    public void AddCommandKernels_SelectsPackageOperand()
+    public void AddCommandKernels_SummarizesArguments()
     {
+        var args = new[] { "--version", "13.0.3", "--framework", "--prerelease", "Newtonsoft.Json" };
+
+        Assert.True(AddCommandKernels.TryGetArgumentSummary(args, out var dogfoodSummary));
+        Assert.Equal("13.0.3", dogfoodSummary.VersionOption);
+        Assert.Null(dogfoodSummary.PathOption);
+        Assert.Equal("Newtonsoft.Json", dogfoodSummary.PackageOperand);
+        Assert.True(dogfoodSummary.Framework);
+        Assert.True(dogfoodSummary.Prerelease);
+        Assert.False(dogfoodSummary.ShowHelp);
+
+        var summary = AddCommand.GetArgumentSummary(args);
+        Assert.Equal("13.0.3", summary.VersionOption);
+        Assert.Null(summary.PathOption);
+        Assert.Equal("Newtonsoft.Json", summary.PackageOperand);
+        Assert.True(summary.Framework);
+        Assert.True(summary.Prerelease);
+        Assert.False(summary.ShowHelp);
+
         Assert.True(AddCommandKernels.TryGetPackageOperand(
-            new[] { "--version", "13.0.3", "--framework", "Newtonsoft.Json" },
+            args,
             new[] { "--version", "--path" },
             out var dogfoodPackage));
         Assert.Equal("Newtonsoft.Json", dogfoodPackage);
@@ -1075,6 +1093,14 @@ func Main() {
         Assert.Equal(
             "Serilog@3.1.1",
             AddCommand.GetPackageOperand(new[] { "--prerelease", "Serilog@3.1.1" }));
+        var pathSummary = AddCommand.GetArgumentSummary(new[] { "--path", "../MyLibrary" });
+        Assert.Equal("../MyLibrary", pathSummary.PathOption);
+        Assert.Null(pathSummary.PackageOperand);
+        var permissiveValue = AddCommand.GetArgumentSummary(new[] { "--version", "--path", "../MyLibrary" });
+        Assert.Equal("--path", permissiveValue.VersionOption);
+        Assert.Equal("../MyLibrary", permissiveValue.PathOption);
+        Assert.Equal("../MyLibrary", permissiveValue.PackageOperand);
+        Assert.True(AddCommand.GetArgumentSummary(new[] { "help" }).ShowHelp);
         Assert.Null(AddCommand.GetPackageOperand(new[] { "--version", "13.0.3" }));
     }
 

@@ -13,7 +13,8 @@ public static class AddCommand
 
     public static int Execute(string[] args)
     {
-        if (args.Contains("--help") || args.Contains("-h") || (args.Length > 0 && args[0] == "help"))
+        var arguments = GetArgumentSummary(args);
+        if (arguments.ShowHelp)
             return ShowHelp();
 
         if (args.Length == 0)
@@ -25,15 +26,15 @@ public static class AddCommand
         if (!File.Exists(projectYml))
             return Error("No project.yml found. Run 'nlc new <name>' or 'nlc init' to create a project.");
 
-        var isFramework = args.Contains("--framework");
-        var isPrerelease = args.Contains("--prerelease");
-        var localPath = GetOption(args, "--path");
+        var isFramework = arguments.Framework;
+        var isPrerelease = arguments.Prerelease;
+        var localPath = arguments.PathOption;
 
         // --path: add a local project reference
         if (localPath != null)
             return AddProjectReference(projectYml, localPath);
 
-        var raw = GetPackageOperand(args);
+        var raw = arguments.PackageOperand;
         if (string.IsNullOrWhiteSpace(raw))
             return Error("Usage: nlc add <package> [--version <ver>]\n       nlc add <package>@<version>");
 
@@ -50,7 +51,7 @@ public static class AddCommand
         else
         {
             packageName = raw;
-            version = GetOption(args, "--version");
+            version = arguments.VersionOption;
         }
 
         // For NuGet packages, resolve version if not specified
@@ -122,11 +123,22 @@ public static class AddCommand
     }
 
     internal static string? GetPackageOperand(string[] args)
-    {
-        return AddCommandKernels.TryGetPackageOperand(args, PackageOptionsWithValues, out var positional)
-            ? positional
-            : GetPackageOperandWithCSharp(args);
-    }
+        => GetArgumentSummary(args).PackageOperand;
+
+    internal static AddArgumentSummary GetArgumentSummary(string[] args)
+        => AddCommandKernels.TryGetArgumentSummary(args, out var summary)
+            ? summary
+            : GetArgumentSummaryWithCSharp(args);
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product add argument parsing routes through AddCommandKernels.
+    private static AddArgumentSummary GetArgumentSummaryWithCSharp(string[] args)
+        => new(
+            GetOptionWithCSharp(args, "--version"),
+            GetOptionWithCSharp(args, "--path"),
+            GetPackageOperandWithCSharp(args),
+            ContainsArgWithCSharp(args, "--framework"),
+            ContainsArgWithCSharp(args, "--prerelease"),
+            ContainsArgWithCSharp(args, "--help") || ContainsArgWithCSharp(args, "-h") || (args.Length > 0 && args[0] == "help"));
 
     private static string? GetPackageOperandWithCSharp(string[] args)
     {
@@ -143,6 +155,14 @@ public static class AddCommand
         }
 
         return null;
+    }
+
+    private static bool ContainsArgWithCSharp(string[] args, string value)
+    {
+        for (var i = 0; i < args.Length; i++)
+            if (args[i] == value)
+                return true;
+        return false;
     }
 
     static int AddProjectReference(string projectYml, string localPath)
@@ -218,7 +238,7 @@ public static class AddCommand
         return null;
     }
 
-    static string? GetOption(string[] args, string flag)
+    static string? GetOptionWithCSharp(string[] args, string flag)
     {
         for (var i = 0; i < args.Length - 1; i++)
             if (args[i] == flag)

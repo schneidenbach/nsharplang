@@ -298,9 +298,10 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       `CompilationReferenceResolverKernels`, and NuGet/framework best-score selection now routes through
       the same resolver-local kernels; check argument summary now lives beside `CheckCommand` in
       `CheckCommandKernels`; fix argument summary now lives beside `FixCommand` in
-      `FixCommandArgumentKernels`; first positional project/package discovery for `nlc new`, `nlc add`,
-      `nlc remove`, and `nlc update` now lives beside the owning commands in
-      `NewCommandKernels`, `AddCommandKernels`, `RemoveCommandKernels`, and `UpdateCommandKernels`; tidy
+      `FixCommandArgumentKernels`; add argument summary now lives beside `AddCommand` in
+      `AddCommandKernels`; first positional project/package discovery for `nlc new`, `nlc remove`,
+      and `nlc update` now lives beside the owning commands in
+      `NewCommandKernels`, `RemoveCommandKernels`, and `UpdateCommandKernels`; tidy
       option summary, classification, status summary, and fix filtering now live beside `TidyCommand`
       in `TidyCommandKernels`;
       lint option summary and file-argument extraction now live beside `LintCommand` in `LintCommandKernels`; format
