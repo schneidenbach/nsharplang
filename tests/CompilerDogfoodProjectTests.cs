@@ -20044,7 +20044,7 @@ func main() {
         foreach (var args in cases)
         {
             var expected = CreateExpectedCliPublishOptions(args);
-            var resultIndices = Enumerable.Repeat(-99, 8).ToArray();
+            var resultIndices = Enumerable.Repeat(-99, 9).ToArray();
             var actualCode = (int)(cliPublishOptionsInto.Invoke(
                 null,
                 new object[] { args, resultIndices }) ?? -2);
@@ -20060,6 +20060,12 @@ func main() {
                 Assert.Equal(expected.Indices[8], resultIndices[8]);
             }
         }
+
+        var undersized = Enumerable.Repeat(-99, 8).ToArray();
+        var undersizedCode = (int)(cliPublishOptionsInto.Invoke(
+            null,
+            new object[] { Array.Empty<string>(), undersized }) ?? -2);
+        Assert.Equal(-1, undersizedCode);
     }
 
     private static (int Code, int[] Indices, int ErrorIndex) CreateExpectedCliPublishOptions(string[] args)
