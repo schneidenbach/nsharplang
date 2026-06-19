@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-19 — Watch target routing moves into product N#
+
+`WatchCommand.Execute` now gets `check`, `build`, `test`, `lint`, and `format` target
+classification from `WatchCommandKernels`, which binds the shipped `CliWatchTargetSummaryInto`
+dogfood kernel. C# keeps only the host command execution and unsupported-target error text; the
+previous target scan remains as fallback/oracle logic. This is a Stage 6 `C#-surface-shrink`
+product-route slice.
+
+Focused evidence:
+`./scripts/dev.sh WatchCommandKernels`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-19 — Export target routing moves into product N#
 
 `ExportCommand.Execute` now gets empty/help/`csharp`/unknown target classification from

@@ -8,7 +8,6 @@ namespace NSharpLang.Cli.Commands;
 
 public static class WatchCommand
 {
-    private static readonly string[] SupportedCommands = { "check", "build", "test", "lint", "format" };
     private static readonly string[] WatchOptionsWithValues = { "--project", "--debounce-ms", "--max-runs" };
 
     public static int Execute(string[] args)
@@ -17,9 +16,11 @@ public static class WatchCommand
         if (options.ShowHelp)
             return ShowHelp();
 
-        var watchedCommand = args[0].ToLowerInvariant();
-        if (!SupportedCommands.Contains(watchedCommand, StringComparer.Ordinal))
-            return Error($"Unsupported watch target '{watchedCommand}'. Expected check, build, test, lint, or format.");
+        var targetSummary = GetTargetSummary(args);
+        if (targetSummary.TargetKind == WatchTargetKind.Unknown)
+            return Error($"Unsupported watch target '{GetUnsupportedTargetName(args)}'. Expected check, build, test, lint, or format.");
+
+        var watchedCommand = GetWatchedCommandName(targetSummary.TargetKind);
 
         var forwardedArgs = GetForwardedArgs(args);
         var projectRoot = options.ProjectOption ?? Directory.GetCurrentDirectory();
@@ -137,6 +138,28 @@ public static class WatchCommand
             ? summary
             : GetOptionSummaryWithCSharp(args);
 
+    internal static WatchTargetSummary GetTargetSummary(string[] args)
+        => WatchCommandKernels.TryGetTargetSummary(args, out var summary)
+            ? summary
+            : GetTargetSummaryWithCSharp(args);
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product watch target parsing routes through WatchCommandKernels.
+    private static WatchTargetSummary GetTargetSummaryWithCSharp(string[] args)
+    {
+        if (args.Length == 0)
+            return new WatchTargetSummary(WatchTargetKind.Unknown);
+
+        return new WatchTargetSummary(args[0].ToLowerInvariant() switch
+        {
+            "check" => WatchTargetKind.Check,
+            "build" => WatchTargetKind.Build,
+            "test" => WatchTargetKind.Test,
+            "lint" => WatchTargetKind.Lint,
+            "format" => WatchTargetKind.Format,
+            _ => WatchTargetKind.Unknown
+        });
+    }
+
     // Stage 6 C#-surface-shrink: fallback/oracle only; product watch option parsing routes through WatchCommandKernels.
     private static WatchOptionSummary GetOptionSummaryWithCSharp(string[] args)
         => new(
@@ -202,6 +225,20 @@ public static class WatchCommand
         Error($"{flag} expects a positive integer.");
         return null;
     }
+
+    private static string GetWatchedCommandName(WatchTargetKind targetKind)
+        => targetKind switch
+        {
+            WatchTargetKind.Check => "check",
+            WatchTargetKind.Build => "build",
+            WatchTargetKind.Test => "test",
+            WatchTargetKind.Lint => "lint",
+            WatchTargetKind.Format => "format",
+            _ => string.Empty
+        };
+
+    private static string GetUnsupportedTargetName(string[] args)
+        => args.Length == 0 ? string.Empty : args[0].ToLowerInvariant();
 
     private static string? GetOptionWithCSharp(string[] args, string flag)
     {

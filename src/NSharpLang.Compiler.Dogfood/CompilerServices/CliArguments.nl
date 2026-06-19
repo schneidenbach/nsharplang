@@ -231,6 +231,38 @@ func CliWatchOptionSummaryInto(args: string[], resultIndices: int[]): int {
     return CliWatchOptionSummaryCore(ref arguments, ref results)
 }
 
+func CliWatchTargetSummaryInto(args: string[], resultIndices: int[]): int {
+    arguments := new CliArgumentTable { Args: args }
+    results := new CliIndexResultTable { Indices: resultIndices }
+    return CliWatchTargetSummaryCore(ref arguments, ref results)
+}
+
+func CliWatchTargetSummaryCore(args: &CliArgumentTable, resultIndices: &CliIndexResultTable): int {
+    if resultIndices.Indices.Length < 1 {
+        return -1
+    }
+
+    resultIndices.Indices[0] = 0
+    if args.Args.Length == 0 {
+        return 0
+    }
+
+    firstArg := args.Args[0]
+    if String.Compare(firstArg, "check", StringComparison.OrdinalIgnoreCase) == 0 {
+        resultIndices.Indices[0] = 1
+    } else if String.Compare(firstArg, "build", StringComparison.OrdinalIgnoreCase) == 0 {
+        resultIndices.Indices[0] = 2
+    } else if String.Compare(firstArg, "test", StringComparison.OrdinalIgnoreCase) == 0 {
+        resultIndices.Indices[0] = 3
+    } else if String.Compare(firstArg, "lint", StringComparison.OrdinalIgnoreCase) == 0 {
+        resultIndices.Indices[0] = 4
+    } else if String.Compare(firstArg, "format", StringComparison.OrdinalIgnoreCase) == 0 {
+        resultIndices.Indices[0] = 5
+    }
+
+    return 0
+}
+
 func CliWatchOptionSummaryCore(args: &CliArgumentTable, resultIndices: &CliIndexResultTable): int {
     if resultIndices.Indices.Length < 4 {
         return -1

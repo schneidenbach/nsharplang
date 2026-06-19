@@ -1501,6 +1501,25 @@ func Main() {
     }
 
     [Fact]
+    public void WatchCommandKernels_SummarizesTargets()
+    {
+        Assert.True(WatchCommandKernels.TryGetTargetSummary(
+            new[] { "BUILD", "--max-runs", "1" },
+            out var build));
+        Assert.Equal(WatchTargetKind.Build, build.TargetKind);
+
+        Assert.True(WatchCommandKernels.TryGetTargetSummary(
+            new[] { "serve", "--max-runs", "1" },
+            out var unknown));
+        Assert.Equal(WatchTargetKind.Unknown, unknown.TargetKind);
+
+        var (exitCode, _, stderr) = CaptureConsole(() =>
+            WatchCommand.Execute(new[] { "SERVE", "--max-runs", "1" }));
+        Assert.Equal(1, exitCode);
+        Assert.Contains("Unsupported watch target 'serve'", stderr);
+    }
+
+    [Fact]
     public void WatchCommandKernels_SummarizesOptions()
     {
         var args = new[]

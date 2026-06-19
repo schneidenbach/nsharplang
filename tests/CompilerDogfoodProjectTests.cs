@@ -7013,6 +7013,7 @@ func outer(x: int): int {
         Assert.Contains("CliPackOptionSummaryInto", methodNames!); // product pack option parsing.
         Assert.Contains("CliCompletionOptionSummaryInto", methodNames!); // product completion option parsing.
         Assert.Contains("CliDaemonOptionSummaryInto", methodNames!); // product daemon option parsing.
+        Assert.Contains("CliWatchTargetSummaryInto", methodNames!); // product watch target parsing.
         Assert.Contains("CliWatchForwardedArgIndicesInto", methodNames!); // product watch forwarding.
         Assert.Contains("CliWatchOptionSummaryInto", methodNames!); // product watch option parsing.
         Assert.Contains("CliRunOptionSummaryInto", methodNames!); // product run option parsing.
