@@ -1196,6 +1196,34 @@ func Main() {
     }
 
     [Fact]
+    public void ExportCommandKernels_SummarizesCSharpOptions()
+    {
+        var args = new[] { "-o", "short.cs", "--project", "samples/demo", "--output", "long.cs" };
+
+        Assert.True(ExportCommandKernels.TryGetCSharpOptionSummary(args, out var dogfoodSummary));
+        Assert.Equal("samples/demo", dogfoodSummary.ProjectOption);
+        Assert.Equal("long.cs", dogfoodSummary.OutputOption);
+        Assert.False(dogfoodSummary.ShowHelp);
+
+        var summary = ExportCommand.GetExportCSharpOptionSummary(args);
+        Assert.Equal("samples/demo", summary.ProjectOption);
+        Assert.Equal("long.cs", summary.OutputOption);
+        Assert.False(summary.ShowHelp);
+
+        var shortOutputOnly = ExportCommand.GetExportCSharpOptionSummary(new[] { "-o", "short.cs" });
+        Assert.Null(shortOutputOnly.ProjectOption);
+        Assert.Equal("short.cs", shortOutputOnly.OutputOption);
+
+        var permissiveValue = ExportCommand.GetExportCSharpOptionSummary(new[] { "--project", "--output", "--output", "--help" });
+        Assert.Equal("--output", permissiveValue.ProjectOption);
+        Assert.Equal("--output", permissiveValue.OutputOption);
+        Assert.True(permissiveValue.ShowHelp);
+
+        Assert.True(ExportCommand.GetExportCSharpOptionSummary(new[] { "help" }).ShowHelp);
+        Assert.True(ExportCommand.GetExportCSharpOptionSummary(new[] { "ignored", "-h" }).ShowHelp);
+    }
+
+    [Fact]
     public void BuildCommandKernels_SelectsFirstOperandAfterOptionStripping()
     {
         Assert.True(BuildCommandKernels.TryGetOperandSummary(

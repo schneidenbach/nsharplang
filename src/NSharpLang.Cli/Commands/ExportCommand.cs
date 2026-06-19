@@ -28,13 +28,14 @@ public static class ExportCommand
 
     private static int ExportCSharp(string[] args)
     {
-        if (args.Contains("--help") || args.Contains("-h") || (args.Length > 0 && args[0] == "help"))
+        var options = GetExportCSharpOptionSummary(args);
+        if (options.ShowHelp)
         {
             return ShowCSharpHelp();
         }
 
-        var outputPath = GetOptionValue(args, "--output") ?? GetOptionValue(args, "-o");
-        var projectOption = GetOptionValue(args, "--project");
+        var outputPath = options.OutputOption;
+        var projectOption = options.ProjectOption;
 
         var firstPositional = GetExportCSharpInputOperand(args);
         if (!string.IsNullOrWhiteSpace(projectOption) && firstPositional != null)
@@ -239,7 +240,19 @@ Exit codes:
         return fullOutputPath;
     }
 
-    private static string? GetOptionValue(string[] args, string option)
+    internal static ExportCSharpOptionSummary GetExportCSharpOptionSummary(string[] args)
+        => ExportCommandKernels.TryGetCSharpOptionSummary(args, out var summary)
+            ? summary
+            : GetExportCSharpOptionSummaryWithCSharp(args);
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product export-csharp option parsing routes through ExportCommandKernels.
+    private static ExportCSharpOptionSummary GetExportCSharpOptionSummaryWithCSharp(string[] args)
+        => new(
+            GetOptionValueWithCSharp(args, "--project"),
+            GetOptionValueWithCSharp(args, "--output") ?? GetOptionValueWithCSharp(args, "-o"),
+            ContainsArgWithCSharp(args, "--help") || ContainsArgWithCSharp(args, "-h") || (args.Length > 0 && args[0] == "help"));
+
+    private static string? GetOptionValueWithCSharp(string[] args, string option)
     {
         for (var i = 0; i < args.Length - 1; i++)
         {
@@ -250,6 +263,14 @@ Exit codes:
         }
 
         return null;
+    }
+
+    private static bool ContainsArgWithCSharp(string[] args, string value)
+    {
+        for (var i = 0; i < args.Length; i++)
+            if (args[i] == value)
+                return true;
+        return false;
     }
 
     private static string? GetExportCSharpInputOperand(string[] args)

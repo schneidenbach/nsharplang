@@ -4,6 +4,11 @@ using NSharpLang.Compiler;
 
 namespace NSharpLang.Cli.Commands;
 
+internal readonly record struct ExportCSharpOptionSummary(
+    string? ProjectOption,
+    string? OutputOption,
+    bool ShowHelp);
+
 internal static class ExportCommandKernels
 {
     [ThreadStatic]
@@ -12,8 +17,45 @@ internal static class ExportCommandKernels
     private static ReferenceTypeFilterScratch? t_referenceTypeFilterScratch;
     [ThreadStatic]
     private static StableDistinctScratch? t_stableDistinctScratch;
+    [ThreadStatic]
+    private static int[]? t_optionSummaryIndices;
 
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
+
+    internal static bool TryGetCSharpOptionSummary(string[] args, out ExportCSharpOptionSummary summary)
+    {
+        summary = default;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        var resultIndices = t_optionSummaryIndices ??= new int[3];
+        try
+        {
+            var code = bindings.CSharpOptionSummary(args, resultIndices);
+            if (code != 0)
+                return false;
+
+            if (!TryGetOptionalArg(args, resultIndices[0], out var projectOption)
+                || !TryGetOptionalArg(args, resultIndices[1], out var outputOption))
+            {
+                summary = default;
+                return false;
+            }
+
+            summary = new ExportCSharpOptionSummary(
+                projectOption,
+                outputOption,
+                resultIndices[2] != 0);
+            return true;
+        }
+        catch
+        {
+            summary = default;
+            return false;
+        }
+    }
 
     internal static bool TryGetCSharpInputOperand(string[] args, out string? operand)
     {
@@ -202,7 +244,10 @@ internal static class ExportCommandKernels
                 "CliReferenceTypeFilterIndicesInto"),
             DogfoodKernelLoader.CreateDelegate<CliStableDistinctRankIndicesInto>(
                 programType,
-                "CliStableDistinctRankIndicesInto")));
+                "CliStableDistinctRankIndicesInto"),
+            DogfoodKernelLoader.CreateDelegate<CliExportCSharpOptionSummaryInto>(
+                programType,
+                "CliExportCSharpOptionSummaryInto")));
 
     private delegate int CliExportCSharpFirstOperandIndexInto(
         string[] args,
@@ -223,10 +268,28 @@ internal static class ExportCommandKernels
         int[] seenRanks,
         int[] resultIndices);
 
+    private delegate int CliExportCSharpOptionSummaryInto(
+        string[] args,
+        int[] resultIndices);
+
     private sealed record Bindings(
         CliExportCSharpFirstOperandIndexInto CSharpFirstOperandIndex,
         CliReferenceTypeFilterIndicesInto ReferenceTypeFilterIndices,
-        CliStableDistinctRankIndicesInto StableDistinctRankIndices);
+        CliStableDistinctRankIndicesInto StableDistinctRankIndices,
+        CliExportCSharpOptionSummaryInto CSharpOptionSummary);
+
+    private static bool TryGetOptionalArg(string[] args, int index, out string? value)
+    {
+        value = null;
+        if (index == -1)
+            return true;
+
+        if (index < 0 || index >= args.Length)
+            return false;
+
+        value = args[index];
+        return true;
+    }
 
     private static int GetReferenceTypeRank(ReferenceType type) =>
         type switch

@@ -7002,6 +7002,7 @@ func outer(x: int): int {
         Assert.True(ok, "Columnar backend declined the real CliArguments.nl (expected full support).");
         Assert.Contains("CliSymbolNameContainsAsciiIgnoreCase", methodNames!); // IndexOf(string, StringComparison)
         Assert.Contains("CliExportCSharpFirstOperandChecksumInto", methodNames!); // char/int promotion
+        Assert.Contains("CliExportCSharpOptionSummaryInto", methodNames!); // product export csharp option parsing.
         Assert.Contains("CliReferenceResolutionBestScoreIndex", methodNames!); // product resolver best-score selection.
         Assert.Contains("CliShouldFormatDiscoveredPath", methodNames!); // product format discovery filtering.
         Assert.Contains("CliBuildOperandSummaryInto", methodNames!); // product build operand summary.
@@ -15112,6 +15113,10 @@ class OtherZetaType {
                     "CliExportCSharpFirstOperandChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliExportCSharpFirstOperandChecksumInto.");
+            var cliExportCSharpOptionSummaryInto = programType.GetMethod(
+                    "CliExportCSharpOptionSummaryInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliExportCSharpOptionSummaryInto.");
             var cliRunFirstOperandIndex = programType.GetMethod(
                     "CliRunFirstOperandIndex",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -16148,6 +16153,7 @@ func main(customer: Customer, résumé: Profile) {
             AssertCliExportCSharpInputOperandLikeProduction(
                 cliExportCSharpFirstOperandIndexInto,
                 cliExportCSharpFirstOperandChecksumInto);
+            AssertCliExportCSharpOptionsLikeProduction(cliExportCSharpOptionSummaryInto);
             AssertCliRunSourceOperandLikeProduction(cliRunFirstOperandIndex);
             AssertCliCheckArgumentsLikeProduction(cliCheckArgumentSummaryInto);
             AssertCliFixArgumentsLikeProduction(cliFixArgumentSummaryInto);
@@ -18758,6 +18764,79 @@ func main() {
         }
 
         return checksum;
+    }
+
+    private static void AssertCliExportCSharpOptionsLikeProduction(MethodInfo cliExportCSharpOptionSummaryInto)
+    {
+        var cases = new[]
+        {
+            Array.Empty<string>(),
+            new[] { "--project", "samples/demo", "--output", "bundle", "-h" },
+            new[] { "-o", "short.cs", "--output", "long.cs" },
+            new[] { "--project", "--output", "--output", "--help" },
+            new[] { "--project" },
+            new[] { "--output" },
+            new[] { "-o" },
+            new[] { "help" },
+            new[] { "ignored", "-h" },
+            new[] { string.Empty }
+        };
+
+        foreach (var args in cases)
+        {
+            var expected = CreateExpectedCliExportCSharpOptions(args);
+            var resultIndices = Enumerable.Repeat(-99, 3).ToArray();
+            var actualCode = (int)(cliExportCSharpOptionSummaryInto.Invoke(
+                null,
+                new object[] { args, resultIndices }) ?? -2);
+
+            Assert.Equal(0, actualCode);
+            Assert.Equal(expected, resultIndices);
+        }
+
+        Assert.Equal(
+            -1,
+            (int)(cliExportCSharpOptionSummaryInto.Invoke(
+                null,
+                new object[] { new[] { "--project", "demo" }, new int[2] }) ?? 0));
+    }
+
+    private static int[] CreateExpectedCliExportCSharpOptions(string[] args)
+    {
+        var indices = new[] { -1, -1, 0 };
+        var shortOutputIndex = -1;
+
+        for (var i = 0; i < args.Length; i++)
+        {
+            var arg = args[i];
+            if (i == 0 && arg == "help")
+                indices[2] = 1;
+
+            switch (arg)
+            {
+                case "--project":
+                    if (indices[0] < 0 && i + 1 < args.Length)
+                        indices[0] = i + 1;
+                    break;
+                case "--output":
+                    if (indices[1] < 0 && i + 1 < args.Length)
+                        indices[1] = i + 1;
+                    break;
+                case "-o":
+                    if (shortOutputIndex < 0 && i + 1 < args.Length)
+                        shortOutputIndex = i + 1;
+                    break;
+                case "--help":
+                case "-h":
+                    indices[2] = 1;
+                    break;
+            }
+        }
+
+        if (indices[1] < 0)
+            indices[1] = shortOutputIndex;
+
+        return indices;
     }
 
     private static void AssertCliRunSourceOperandLikeProduction(MethodInfo cliRunFirstOperandIndex)

@@ -1661,6 +1661,77 @@ func CliExportCSharpFirstOperandIndexCore(
     return -1
 }
 
+func CliExportCSharpOptionSummaryInto(args: string[], resultIndices: int[]): int {
+    arguments := new CliArgumentTable { Args: args }
+    results := new CliIndexResultTable { Indices: resultIndices }
+    return CliExportCSharpOptionSummaryCore(ref arguments, ref results)
+}
+
+func CliExportCSharpOptionSummaryCore(args: &CliArgumentTable, resultIndices: &CliIndexResultTable): int {
+    if resultIndices.Indices.Length < 3 {
+        return -1
+    }
+
+    resultIndices.Indices[0] = -1
+    resultIndices.Indices[1] = -1
+    resultIndices.Indices[2] = 0
+
+    shortOutputIndex := -1
+
+    i := 0
+    while i < args.Args.Length {
+        arg := args.Args[i]
+        if i == 0 && arg == "help" {
+            resultIndices.Indices[2] = 1
+        }
+
+        kind := CliExportCSharpOptionSummaryKind(arg)
+        if kind == 1 {
+            if resultIndices.Indices[0] < 0 && i + 1 < args.Args.Length {
+                resultIndices.Indices[0] = i + 1
+            }
+        } else if kind == 2 {
+            if resultIndices.Indices[1] < 0 && i + 1 < args.Args.Length {
+                resultIndices.Indices[1] = i + 1
+            }
+        } else if kind == 3 {
+            if shortOutputIndex < 0 && i + 1 < args.Args.Length {
+                shortOutputIndex = i + 1
+            }
+        } else if kind == 4 {
+            resultIndices.Indices[2] = 1
+        }
+
+        i = i + 1
+    }
+
+    if resultIndices.Indices[1] < 0 {
+        resultIndices.Indices[1] = shortOutputIndex
+    }
+
+    return 0
+}
+
+func CliExportCSharpOptionSummaryKind(arg: string): int {
+    if arg == "--project" {
+        return 1
+    }
+
+    if arg == "--output" {
+        return 2
+    }
+
+    if arg == "-o" {
+        return 3
+    }
+
+    if arg == "--help" || arg == "-h" {
+        return 4
+    }
+
+    return 0
+}
+
 func CliBuildOptionSummaryInto(args: string[], resultIndices: int[]): int {
     arguments := new CliArgumentTable { Args: args }
     results := new CliIndexResultTable { Indices: resultIndices }

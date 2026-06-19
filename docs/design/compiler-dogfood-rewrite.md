@@ -1979,6 +1979,11 @@ positional project/operand/package discovery through owner-local command helpers
 `RemoveCommandKernels`, and `UpdateCommandKernels`), which call the compiled N# first-index scanner
 when the dogfood assembly is available, with command-local C# positional scans kept as the fallback.
 `nlc export csharp` input operand discovery routes through `ExportCommandKernels`.
+`CliExportCSharpOptionSummaryInto` preserves the current `nlc export csharp` command-parser
+behavior for help, `--project`, and `--output`/`-o`. Stage 6 routes `ExportCommand` through
+`ExportCommandKernels` as a C# surface-shrink product path beside the existing export input and
+reference routes. The kernel writes option value indices and the help bit into a caller-owned
+buffer, while the previous C# parser shape remains as fallback/oracle logic.
 `nlc build` now routes source-file operand discovery through
 `BuildCommandKernels`, which calls the compiled N# first-operand scanner when the dogfood assembly
 is available, with the previous C# build-argument normalization kept as the fallback.
@@ -2155,7 +2160,7 @@ CLI stable string de-duplication for stale generated cleanup and target-framewor
 add/remove package operand discovery, tidy dependency-line keep flags,
 DocQuery reference-pack assembly-name and type-candidate de-duplication,
 CLI test outcome summaries,
-CLI build/test/pack/lint/tidy/doc option summaries, check/fix argument summaries,
+CLI build/test/pack/lint/tidy/doc/export option summaries, check/fix argument summaries,
 watch forwarded-argument selection,
 shared positional-argument collection,
 and the accepted batch result packed-count kernel through the compiled N# methods. The same suite
@@ -2164,7 +2169,7 @@ without routing it through product adapters; `CliCommandTests` verifies both
 packaged CLI dogfood routes for duplicate batch request ids, `nlc update` target package
 selection, `nlc doc` symbol/member ordering and slug generation, `nlc tree` dependency deduplication, and
 `nlc query diagnostics --severity` filtering plus compiler-error severity filtering, skipped-fix
-selection, applied-fix file grouping, clean artifact directory ordering, `nlc export csharp` reference de-duplication,
+selection, applied-fix file grouping, clean artifact directory ordering, `nlc export csharp` option parsing and reference de-duplication,
 CLI reference-type filtering,
 `nlc restore` project-reference de-duplication, `nlc update` dependency filtering, `nlc tidy`
 option/status summaries, `nlc test` outcome summaries, `nlc tidy --fix` possibly-unused dependency selection, and `nlc tidy --fix`

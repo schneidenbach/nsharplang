@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-19 — Export C# option parsing routes through product N#
+
+`ExportCommand` now gets `nlc export csharp` help detection, `--project`, and `--output`/`-o`
+from `ExportCommandKernels`, which binds the shipped `CliExportCSharpOptionSummaryInto` dogfood
+kernel beside the existing input-operand and reference routes. The previous C# option scan remains
+only as fallback/oracle logic, preserving permissive option-value handling and the existing
+`--output`-over-`-o` precedence. This is a Stage 6 `C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`./scripts/dev.sh ExportCommandKernels`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.ExportCommandKernels_SummarizesCSharpOptions|FullyQualifiedName~CliParityAuditTests.ExportCommand_ProjectAndSourceOperand_AreRejected|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-19 — Doc option parsing routes through product N#
 
 `DocCommand` now gets help detection, `--project`, `--output`, `--json`, and `--open` from
