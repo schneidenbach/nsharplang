@@ -968,6 +968,67 @@ func main() {
     }
 
     [Fact]
+    public void BuildCommand_DefineFlagsDriveConditionalCompilation()
+    {
+        var tempDir = CreateTempDir();
+        var originalDirectory = Directory.GetCurrentDirectory();
+
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: CliDefineBuild
+backend: il
+outputType: exe
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+func main() {
+    #if FEATURE_X
+    print "feature-on"
+    #else
+    print "feature-off"
+    #endif
+
+    #if SECOND
+    print "second-on"
+    #endif
+}
+""");
+
+            var outputDir = Path.Combine(tempDir, "dist");
+            Directory.SetCurrentDirectory(tempDir);
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                ExecuteProgram(
+                    "build",
+                    "--define",
+                    " FEATURE_X , SECOND ; FEATURE_X ",
+                    "--backend",
+                    "il",
+                    "-o",
+                    outputDir));
+
+            Assert.Equal(0, exitCode);
+            Assert.Contains("Build successful!", stdout);
+            Assert.True(string.IsNullOrWhiteSpace(stderr));
+
+            var assemblyPath = Path.Combine(outputDir, "CliDefineBuild.dll");
+            Assert.True(File.Exists(assemblyPath));
+
+            var runResult = DotnetRunner.Run($"\"{assemblyPath}\"", workingDirectory: tempDir);
+            Assert.Equal(0, runResult.ExitCode);
+            Assert.Contains("feature-on", runResult.Stdout);
+            Assert.Contains("second-on", runResult.Stdout);
+            Assert.DoesNotContain("feature-off", runResult.Stdout);
+        }
+        finally
+        {
+            Directory.SetCurrentDirectory(originalDirectory);
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void BuildCommand_StrictLintError_BlocksIlBuild()
     {
         var tempDir = CreateTempDir();

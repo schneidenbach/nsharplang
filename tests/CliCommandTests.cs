@@ -1659,6 +1659,28 @@ func Main() {
     }
 
     [Fact]
+    public void DefineArgumentKernels_ExtractsDefinesAndRemainingArgs()
+    {
+        var args = new[]
+        {
+            "--define",
+            "FEATURE, EXTRA ; FEATURE",
+            "--backend",
+            "il",
+            "-d=TRACE",
+            "Program.nl",
+            "--define=",
+            "-d",
+            "  LAST  ",
+            "--define"
+        };
+
+        Assert.True(DefineArgumentKernels.TryExtract(args, out var extraction));
+        Assert.Equal(new[] { "FEATURE", "EXTRA", "TRACE", "LAST" }, extraction.Defines);
+        Assert.Equal(new[] { "--backend", "il", "Program.nl" }, extraction.RemainingArgs);
+    }
+
+    [Fact]
     public void BuildCommandKernels_SummarizesOptions()
     {
         var args = new[]

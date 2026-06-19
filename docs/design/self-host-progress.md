@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-19 — Build/run define extraction routes through product N#
+
+`Program.ExtractDefineFlags` now routes `--define`, `-d`, `--define=`, and `-d=` handling through
+`DefineArgumentKernels`, which binds the shipped `CliDefineExtractionInto` dogfood kernel. The N#
+kernel removes define flags from argv, splits comma/semicolon lists, trims and de-duplicates symbols,
+and returns the remaining argument indexes for host materialization. The previous C# scanner remains
+only as fallback/oracle logic. This is a Stage 6 `C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`./scripts/dev.sh DefineArgumentKernels`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.DefineArgumentKernels_ExtractsDefinesAndRemainingArgs|FullyQualifiedName~CompilationBackendTests.BuildCommand_DefineFlagsDriveConditionalCompilation|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-19 — Query outline operand uses the N# command summary
 
 `QueryCommand.OutlineCommand` now reads its leading file operand through

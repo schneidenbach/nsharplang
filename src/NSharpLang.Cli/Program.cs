@@ -1551,6 +1551,18 @@ Exit codes:
     /// </summary>
     static List<string> ExtractDefineFlags(ref string[] args)
     {
+        if (DefineArgumentKernels.TryExtract(args, out var extraction))
+        {
+            args = extraction.RemainingArgs;
+            return extraction.Defines.ToList();
+        }
+
+        return ExtractDefineFlagsWithCSharp(ref args);
+    }
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product define extraction routes through DefineArgumentKernels.
+    static List<string> ExtractDefineFlagsWithCSharp(ref string[] args)
+    {
         var defines = new List<string>();
         var remaining = new List<string>(args.Length);
 

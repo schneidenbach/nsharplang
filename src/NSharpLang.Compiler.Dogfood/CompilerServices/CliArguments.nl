@@ -38,6 +38,10 @@ struct CliSymbolNameTable {
     Names: string[]
 }
 
+struct CliStringResultTable {
+    Values: string[]
+}
+
 struct CliBuildArgumentKindTable {
     Kinds: int[]
 }
@@ -433,6 +437,144 @@ func CliRunFirstOperandIndexCore(args: &CliArgumentTable): int {
     }
 
     return -1
+}
+
+func CliDefineExtractionInto(args: string[], defineSymbols: string[], remainingIndices: int[], resultCounts: int[]): int {
+    arguments := new CliArgumentTable { Args: args }
+    symbols := new CliStringResultTable { Values: defineSymbols }
+    remaining := new CliIndexResultTable { Indices: remainingIndices }
+    counts := new CliCountResultTable { Counts: resultCounts }
+    return CliDefineExtractionCore(ref arguments, ref symbols, ref remaining, ref counts)
+}
+
+func CliDefineExtractionCore(
+    args: &CliArgumentTable,
+    defineSymbols: &CliStringResultTable,
+    remainingIndices: &CliIndexResultTable,
+    resultCounts: &CliCountResultTable): int {
+    if resultCounts.Counts.Length < 2 {
+        return -1
+    }
+
+    if remainingIndices.Indices.Length < args.Args.Length {
+        return -1
+    }
+
+    resultCounts.Counts[0] = 0
+    resultCounts.Counts[1] = 0
+
+    defineCount := 0
+    remainingCount := 0
+    i := 0
+    while i < args.Args.Length {
+        arg := args.Args[i]
+        if arg == "--define" || arg == "-d" {
+            if i + 1 < args.Args.Length {
+                defineCount = CliAddDefineSymbols(args.Args[i + 1], 0, ref defineSymbols, defineCount)
+                if defineCount < 0 {
+                    return -1
+                }
+
+                i = i + 2
+                continue
+            }
+
+            i = i + 1
+            continue
+        }
+
+        prefixLength := CliDefineEqualsPrefixLength(arg)
+        if prefixLength > 0 {
+            defineCount = CliAddDefineSymbols(arg, prefixLength, ref defineSymbols, defineCount)
+            if defineCount < 0 {
+                return -1
+            }
+
+            i = i + 1
+            continue
+        }
+
+        remainingIndices.Indices[remainingCount] = i
+        remainingCount = remainingCount + 1
+        i = i + 1
+    }
+
+    resultCounts.Counts[0] = defineCount
+    resultCounts.Counts[1] = remainingCount
+    return 0
+}
+
+func CliDefineEqualsPrefixLength(arg: string): int {
+    if arg.Length >= 9
+        && arg[0] == '-'
+        && arg[1] == '-'
+        && arg[2] == 'd'
+        && arg[3] == 'e'
+        && arg[4] == 'f'
+        && arg[5] == 'i'
+        && arg[6] == 'n'
+        && arg[7] == 'e'
+        && arg[8] == '=' {
+        return 9
+    }
+
+    if arg.Length >= 3
+        && arg[0] == '-'
+        && arg[1] == 'd'
+        && arg[2] == '=' {
+        return 3
+    }
+
+    return 0
+}
+
+func CliAddDefineSymbols(raw: string, start: int, symbols: &CliStringResultTable, count: int): int {
+    segmentStart := start
+    i := start
+    while i <= raw.Length {
+        if i == raw.Length || raw[i] == ',' || raw[i] == ';' {
+            trimStart := segmentStart
+            trimEnd := i
+            while trimStart < trimEnd && Char.IsWhiteSpace(raw[trimStart]) {
+                trimStart = trimStart + 1
+            }
+
+            while trimEnd > trimStart && Char.IsWhiteSpace(raw[trimEnd - 1]) {
+                trimEnd = trimEnd - 1
+            }
+
+            if trimStart < trimEnd {
+                symbol := raw.Substring(trimStart, trimEnd - trimStart)
+                if !CliDefineSymbolExists(ref symbols, count, symbol) {
+                    if count >= symbols.Values.Length {
+                        return -1
+                    }
+
+                    symbols.Values[count] = symbol
+                    count = count + 1
+                }
+            }
+
+            segmentStart = i + 1
+        }
+
+        i = i + 1
+    }
+
+    return count
+}
+
+func CliDefineSymbolExists(symbols: &CliStringResultTable, count: int, symbol: string): bool {
+    i := 0
+    while i < count {
+        if symbols.Values[i] == symbol {
+            return true
+        }
+
+        i = i + 1
+    }
+
+    return false
 }
 
 func CliCheckArgumentSummaryInto(args: string[], resultIndices: int[]): int {
