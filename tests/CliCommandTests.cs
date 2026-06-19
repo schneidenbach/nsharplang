@@ -1008,13 +1008,45 @@ func Main() {
     }
 
     [Fact]
-    public void FixCommandArgumentKernels_SelectsProjectOperand()
+    public void FixCommandArgumentKernels_SummarizesOptionsAndProject()
     {
-        Assert.True(FixCommandArgumentKernels.TryGetProjectOperand(
-            new[] { "--project", "ignored", "--file", "Program.nl", "samples/demo" },
-            new[] { "--project", "--file" },
-            out var projectPath));
-        Assert.Equal("samples/demo", projectPath);
+        var args = new[]
+        {
+            "--dry-run",
+            "--text",
+            "--include-review-needed",
+            "--file",
+            "Program.nl",
+            "samples/demo"
+        };
+
+        Assert.True(FixCommandArgumentKernels.TryGetArgumentSummary(args, out var dogfoodSummary));
+        Assert.Null(dogfoodSummary.ProjectOption);
+        Assert.Equal("Program.nl", dogfoodSummary.FileOption);
+        Assert.Equal("samples/demo", dogfoodSummary.PositionalProject);
+        Assert.True(dogfoodSummary.DryRun);
+        Assert.True(dogfoodSummary.UseText);
+        Assert.True(dogfoodSummary.IncludeReviewNeeded);
+        Assert.False(dogfoodSummary.ShowHelp);
+
+        var summary = FixCommand.GetArgumentSummary(args);
+        Assert.Null(summary.ProjectOption);
+        Assert.Equal("Program.nl", summary.FileOption);
+        Assert.Equal("samples/demo", summary.PositionalProject);
+        Assert.True(summary.DryRun);
+        Assert.True(summary.UseText);
+        Assert.True(summary.IncludeReviewNeeded);
+        Assert.False(summary.ShowHelp);
+
+        var explicitProject = FixCommand.GetArgumentSummary(new[] { "--project", "ignored", "samples/demo" });
+        Assert.Equal("ignored", explicitProject.ProjectOption);
+        Assert.Equal("samples/demo", explicitProject.PositionalProject);
+
+        var permissiveValue = FixCommand.GetArgumentSummary(new[] { "--project", "--file", "Program.nl" });
+        Assert.Equal("--file", permissiveValue.ProjectOption);
+        Assert.Equal("Program.nl", permissiveValue.FileOption);
+
+        Assert.True(FixCommand.GetArgumentSummary(new[] { "help" }).ShowHelp);
     }
 
     [Fact]

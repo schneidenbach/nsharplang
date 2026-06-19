@@ -338,6 +338,107 @@ func CliCheckArgumentSummaryKind(arg: string): int {
     return 0
 }
 
+func CliFixArgumentSummaryInto(args: string[], resultIndices: int[]): int {
+    arguments := new CliArgumentTable { Args: args }
+    results := new CliIndexResultTable { Indices: resultIndices }
+    return CliFixArgumentSummaryCore(ref arguments, ref results)
+}
+
+func CliFixArgumentSummaryCore(args: &CliArgumentTable, resultIndices: &CliIndexResultTable): int {
+    if resultIndices.Indices.Length < 7 {
+        return -1
+    }
+
+    resultIndices.Indices[0] = -1
+    resultIndices.Indices[1] = -1
+    resultIndices.Indices[2] = -1
+    resultIndices.Indices[3] = 0
+    resultIndices.Indices[4] = 0
+    resultIndices.Indices[5] = 0
+    resultIndices.Indices[6] = 0
+
+    i := 0
+    while i < args.Args.Length {
+        arg := args.Args[i]
+        if i == 0 && arg == "help" {
+            resultIndices.Indices[6] = 1
+        }
+
+        kind := CliFixArgumentSummaryKind(arg)
+        if kind == 1 {
+            if resultIndices.Indices[0] < 0 && i + 1 < args.Args.Length {
+                resultIndices.Indices[0] = i + 1
+            }
+        } else if kind == 2 {
+            if resultIndices.Indices[1] < 0 && i + 1 < args.Args.Length {
+                resultIndices.Indices[1] = i + 1
+            }
+        } else if kind == 3 {
+            resultIndices.Indices[3] = 1
+        } else if kind == 4 {
+            resultIndices.Indices[4] = 1
+        } else if kind == 5 {
+            resultIndices.Indices[5] = 1
+        } else if kind == 6 {
+            resultIndices.Indices[6] = 1
+        }
+
+        i = i + 1
+    }
+
+    i = 0
+    while i < args.Args.Length {
+        arg := args.Args[i]
+        kind := CliFixArgumentSummaryKind(arg)
+        if kind == 1 || kind == 2 {
+            if i + 1 < args.Args.Length {
+                i = i + 2
+            } else {
+                i = i + 1
+            }
+
+            continue
+        }
+
+        if arg.Length == 0 || arg[0] != '-' {
+            resultIndices.Indices[2] = i
+            break
+        }
+
+        i = i + 1
+    }
+
+    return 0
+}
+
+func CliFixArgumentSummaryKind(arg: string): int {
+    if arg == "--project" {
+        return 1
+    }
+
+    if arg == "--file" {
+        return 2
+    }
+
+    if arg == "--dry-run" {
+        return 3
+    }
+
+    if arg == "--text" {
+        return 4
+    }
+
+    if arg == "--include-review-needed" {
+        return 5
+    }
+
+    if arg == "--help" || arg == "-h" {
+        return 6
+    }
+
+    return 0
+}
+
 func CliPublishOptionsInto(args: string[], resultIndices: int[]): int {
     arguments := new CliArgumentTable { Args: args }
     results := new CliIndexResultTable { Indices: resultIndices }

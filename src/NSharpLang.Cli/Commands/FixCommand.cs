@@ -32,14 +32,15 @@ public static class FixCommand
 
     public static int Execute(string[] args)
     {
-        if (args.Contains("--help") || args.Contains("-h") || (args.Length > 0 && args[0] == "help"))
+        var arguments = GetArgumentSummary(args);
+        if (arguments.ShowHelp)
             return ShowHelp();
 
-        var dryRun = args.Contains("--dry-run");
-        var useText = args.Contains("--text");
-        var includeReviewNeeded = args.Contains("--include-review-needed");
-        var fileArg = GetOption(args, "--file");
-        var projectDir = GetProjectDir(args);
+        var dryRun = arguments.DryRun;
+        var useText = arguments.UseText;
+        var includeReviewNeeded = arguments.IncludeReviewNeeded;
+        var fileArg = arguments.FileOption;
+        var projectDir = GetProjectDir(arguments);
 
         if (!Directory.Exists(projectDir))
         {
@@ -334,17 +335,31 @@ Examples:
         return new FixEntry(relativeFile, fix.DiagnosticCode, fix.Title, fix.Edits, safetyStr);
     }
 
-    private static string GetProjectDir(string[] args)
-    {
-        var projectOption = GetOption(args, "--project");
-        if (!string.IsNullOrWhiteSpace(projectOption))
-            return Path.GetFullPath(projectOption);
+    internal static FixArgumentSummary GetArgumentSummary(string[] args)
+        => FixCommandArgumentKernels.TryGetArgumentSummary(args, out var summary)
+            ? summary
+            : GetArgumentSummaryWithCSharp(args);
 
-        var positional = GetFirstPositionalArg(args, "--project", "--file");
-        return Path.GetFullPath(positional ?? Directory.GetCurrentDirectory());
+    private static string GetProjectDir(FixArgumentSummary arguments)
+    {
+        if (!string.IsNullOrWhiteSpace(arguments.ProjectOption))
+            return Path.GetFullPath(arguments.ProjectOption);
+
+        return Path.GetFullPath(arguments.PositionalProject ?? Directory.GetCurrentDirectory());
     }
 
-    private static string? GetOption(string[] args, string flag)
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product fix argument parsing routes through FixCommandArgumentKernels.
+    private static FixArgumentSummary GetArgumentSummaryWithCSharp(string[] args)
+        => new(
+            GetOptionValueWithCSharp(args, "--project"),
+            GetOptionValueWithCSharp(args, "--file"),
+            GetFirstPositionalArgWithCSharp(args, "--project", "--file"),
+            ContainsArgWithCSharp(args, "--dry-run"),
+            ContainsArgWithCSharp(args, "--text"),
+            ContainsArgWithCSharp(args, "--include-review-needed"),
+            ContainsArgWithCSharp(args, "--help") || ContainsArgWithCSharp(args, "-h") || (args.Length > 0 && args[0] == "help"));
+
+    private static string? GetOptionValueWithCSharp(string[] args, string flag)
     {
         for (int i = 0; i < args.Length - 1; i++)
         {
@@ -354,11 +369,8 @@ Examples:
         return null;
     }
 
-    private static string? GetFirstPositionalArg(string[] args, params string[] optionsWithValues)
+    private static string? GetFirstPositionalArgWithCSharp(string[] args, params string[] optionsWithValues)
     {
-        if (FixCommandArgumentKernels.TryGetProjectOperand(args, optionsWithValues, out var positional))
-            return positional;
-
         for (int i = 0; i < args.Length; i++)
         {
             if (optionsWithValues.Contains(args[i], StringComparer.Ordinal))
@@ -372,6 +384,14 @@ Examples:
         }
 
         return null;
+    }
+
+    private static bool ContainsArgWithCSharp(string[] args, string value)
+    {
+        for (var i = 0; i < args.Length; i++)
+            if (args[i] == value)
+                return true;
+        return false;
     }
 
     private static int EmitError(bool useText, string message, string? projectRoot = null)

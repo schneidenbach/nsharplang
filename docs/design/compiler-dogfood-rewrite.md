@@ -1512,6 +1512,13 @@ as a C# surface-shrink product path beside the file-argument extraction route. T
 project value index and switch bits into a caller-owned buffer, while the previous C# parser shape
 remains as fallback/oracle logic.
 
+`CliFixArgumentSummaryInto` preserves the current `nlc fix` command-parser behavior for help,
+`--project`, `--file`, positional project discovery, `--dry-run`, `--text`, and
+`--include-review-needed`. Stage 6 routes `FixCommand` through `FixCommandArgumentKernels` as a
+C# surface-shrink product path beside the existing fix output/filtering routes. The kernel writes
+option value indices and switch bits into a caller-owned buffer, while the previous C# parser shape
+remains as fallback/oracle logic.
+
 `CliBuildFirstOperandIndexInto` passed parity and reported zero managed allocation in the normal
 BenchmarkDotNet evidence tier for source-first `nlc build` operand discovery. The accepted N# path
 returned the first source operand index directly instead of materializing the build command's
@@ -2137,7 +2144,7 @@ CLI stable string de-duplication for stale generated cleanup and target-framewor
 add/remove package operand discovery, tidy dependency-line keep flags,
 DocQuery reference-pack assembly-name and type-candidate de-duplication,
 CLI test outcome summaries,
-CLI build/test/pack/lint option summaries, check argument summaries,
+CLI build/test/pack/lint option summaries, check/fix argument summaries,
 watch forwarded-argument selection,
 shared positional-argument collection,
 and the accepted batch result packed-count kernel through the compiled N# methods. The same suite
@@ -2176,7 +2183,7 @@ ordering and slug generation in `nlc doc`, plus dependency deduplication and ord
 application ordering in `nlc fix`, plus diagnostic severity filtering in `nlc query diagnostics`,
 batch diagnostics, daemon diagnostics, and strict `nlc build` lint gating, plus first positional
 project/operand/package discovery in
-`nlc new`, `nlc check`, `nlc fix`, `nlc update`, and `nlc export csharp`, plus first source-file
+`nlc new`, `nlc check`, `nlc update`, and `nlc export csharp`, plus first source-file
 route selection in `nlc build` and `nlc run`, plus default no-option summary routing in
 `nlc publish`, plus inspect-summary reference-file ordering in
 `nlc query inspect`, plus symbol-kind filtering in `nlc query symbols`, plus skipped-fix text output

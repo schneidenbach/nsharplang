@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-19 — Fix argument parsing routes through product N#
+
+`FixCommand` now gets help detection, `--project`, `--file`, positional project discovery,
+`--dry-run`, `--text`, and `--include-review-needed` from `FixCommandArgumentKernels`, which binds
+the shipped `CliFixArgumentSummaryInto` dogfood kernel. The old project-only wrapper was removed.
+The C# scan remains only as fallback/oracle logic and preserves permissive option-value handling.
+This is a Stage 6 `C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`./scripts/dev.sh FixCommandArgumentKernels`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.FixCommandArgumentKernels_SummarizesOptionsAndProject|FullyQualifiedName~CliCommandTests.FixCommand_DryRun_DefaultsToJsonEnvelope|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-18 — Check argument parsing routes through product N#
 
 `CheckCommand` now gets help detection, `--project`, `--backend`, `--text`, `--aot`,
