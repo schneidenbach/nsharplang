@@ -526,6 +526,133 @@ func CliPublishArgumentKind(arg: string): int {
     return 0
 }
 
+func CliPackOptionSummaryInto(args: string[], resultIndices: int[]): int {
+    arguments := new CliArgumentTable { Args: args }
+    results := new CliIndexResultTable { Indices: resultIndices }
+    return CliPackOptionSummaryCore(ref arguments, ref results)
+}
+
+func CliPackOptionSummaryCore(args: &CliArgumentTable, resultIndices: &CliIndexResultTable): int {
+    if resultIndices.Indices.Length < 7 {
+        return -1
+    }
+
+    resultIndices.Indices[0] = -1
+    resultIndices.Indices[1] = -1
+    resultIndices.Indices[2] = -1
+    resultIndices.Indices[3] = -1
+    resultIndices.Indices[4] = 0
+    resultIndices.Indices[5] = 0
+    resultIndices.Indices[6] = 0
+
+    outputLongIndex := -1
+    outputShortIndex := -1
+    configurationLongIndex := -1
+    configurationShortIndex := -1
+
+    i := 0
+    while i < args.Args.Length {
+        arg := args.Args[i]
+        if i == 0 && arg == "help" {
+            resultIndices.Indices[6] = 1
+        }
+
+        kind := CliPackOptionSummaryKind(arg)
+        if kind >= 1 && kind <= 6 {
+            if i + 1 < args.Args.Length {
+                valueIndex := i + 1
+                if kind == 1 {
+                    if resultIndices.Indices[0] < 0 {
+                        resultIndices.Indices[0] = valueIndex
+                    }
+                } else if kind == 2 {
+                    if outputLongIndex < 0 {
+                        outputLongIndex = valueIndex
+                    }
+                } else if kind == 3 {
+                    if outputShortIndex < 0 {
+                        outputShortIndex = valueIndex
+                    }
+                } else if kind == 4 {
+                    if resultIndices.Indices[2] < 0 {
+                        resultIndices.Indices[2] = valueIndex
+                    }
+                } else if kind == 5 {
+                    if configurationLongIndex < 0 {
+                        configurationLongIndex = valueIndex
+                    }
+                } else if kind == 6 {
+                    if configurationShortIndex < 0 {
+                        configurationShortIndex = valueIndex
+                    }
+                }
+            }
+        } else if kind == 7 {
+            resultIndices.Indices[4] = 1
+        } else if kind == 8 {
+            resultIndices.Indices[5] = 1
+        } else if kind == 9 {
+            resultIndices.Indices[6] = 1
+        }
+
+        i = i + 1
+    }
+
+    if outputLongIndex >= 0 {
+        resultIndices.Indices[1] = outputLongIndex
+    } else {
+        resultIndices.Indices[1] = outputShortIndex
+    }
+
+    if configurationLongIndex >= 0 {
+        resultIndices.Indices[3] = configurationLongIndex
+    } else {
+        resultIndices.Indices[3] = configurationShortIndex
+    }
+
+    return 0
+}
+
+func CliPackOptionSummaryKind(arg: string): int {
+    if arg == "--project" {
+        return 1
+    }
+
+    if arg == "--output" {
+        return 2
+    }
+
+    if arg == "-o" {
+        return 3
+    }
+
+    if arg == "--version" {
+        return 4
+    }
+
+    if arg == "--configuration" {
+        return 5
+    }
+
+    if arg == "-c" {
+        return 6
+    }
+
+    if arg == "--include-symbols" {
+        return 7
+    }
+
+    if arg == "--json" {
+        return 8
+    }
+
+    if arg == "--help" || arg == "-h" {
+        return 9
+    }
+
+    return 0
+}
+
 func CliLintFileArgIndicesInto(
     args: string[],
     projectValueIndices: int[],

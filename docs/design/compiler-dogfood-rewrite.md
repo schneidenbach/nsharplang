@@ -1529,6 +1529,13 @@ tokens (140.409 ns vs 368.786 ns), below the original production speed gate. Sta
 option-bearing publish invocations through `PublishCommandKernels` as a C# surface-shrink slice, with
 the exact C# parser retained as fallback/oracle logic.
 
+`CliPackOptionSummaryInto` preserves the current `nlc pack` command-parser behavior for help,
+`--project`, `--output`/`-o`, `--version`, `--configuration`/`-c`, `--include-symbols`, and `--json`.
+Stage 6 routes `PackCommand` through `PackCommandKernels` as a C# surface-shrink product path. The
+kernel writes value indexes and switch bits into a caller-owned buffer, while the previous C# parser
+shape remains as fallback/oracle logic so permissive option-value behavior is preserved until broader
+CLI parser ownership can delete it.
+
 `CliExportCSharpFirstOperandIndexInto` passed parity and reported zero managed allocation in the
 short BenchmarkDotNet evidence tier for source-first `nlc export csharp` input operand discovery.
 The accepted N# path returns the first source operand index directly instead of materializing three
@@ -2118,7 +2125,7 @@ CLI stable string de-duplication for stale generated cleanup and target-framewor
 add/remove package operand discovery, tidy dependency-line keep flags,
 DocQuery reference-pack assembly-name and type-candidate de-duplication,
 CLI test outcome summaries,
-CLI build/test option summaries,
+CLI build/test/pack option summaries,
 watch forwarded-argument selection,
 shared positional-argument collection,
 and the accepted batch result packed-count kernel through the compiled N# methods. The same suite

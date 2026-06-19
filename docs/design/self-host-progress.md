@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Pack option parsing routes through product N#
+
+`PackCommand` now gets help detection, `--project`, `--output`/`-o`, `--version`,
+`--configuration`/`-c`, `--include-symbols`, and `--json` from `PackCommandKernels`, which binds
+the shipped `CliPackOptionSummaryInto` dogfood kernel. The previous C# option scan remains only as
+fallback/oracle logic, preserving the permissive `GetOptionValue` behavior for values that look like
+flags. This is a Stage 6 `C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`./scripts/dev.sh PackCommandKernels`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.PackCommandKernels_SummarizesOptions|FullyQualifiedName~CompilationBackendTests.PackCommand_UsesConfiguredIlBackendAndProducesNuGetPackage|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-18 — Publish option-bearing parsing routes through product N#
 
 `PublishCommandKernels` now sends option-bearing `nlc publish` argv through the shipped

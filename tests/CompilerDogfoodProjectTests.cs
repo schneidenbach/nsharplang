@@ -7007,6 +7007,7 @@ func outer(x: int): int {
         Assert.Contains("CliBuildOperandSummaryInto", methodNames!); // product build operand summary.
         Assert.Contains("CliBuildOptionSummaryInto", methodNames!); // product build option parsing.
         Assert.Contains("CliTestOptionSummaryInto", methodNames!); // product test option parsing.
+        Assert.Contains("CliPackOptionSummaryInto", methodNames!); // product pack option parsing.
         Assert.Contains("CliWatchForwardedArgIndicesInto", methodNames!); // product watch forwarding.
         Assert.Contains("CliPositionalArgIndicesInto", methodNames!); // product positional collection.
 
@@ -15122,6 +15123,10 @@ class OtherZetaType {
                     "CliPublishOptionsInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliPublishOptionsInto.");
+            var cliPackOptionSummaryInto = programType.GetMethod(
+                    "CliPackOptionSummaryInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliPackOptionSummaryInto.");
             var cliFirstPositionalArgIndex = programType.GetMethod(
                     "CliFirstPositionalArgIndex",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -16123,6 +16128,7 @@ func main(customer: Customer, résumé: Profile) {
                 cliWatchForwardedArgIndicesInto,
                 cliWatchForwardedArgChecksumInto);
             AssertCliPublishOptionsLikeProduction(cliPublishOptionsInto);
+            AssertCliPackOptionsLikeProduction(cliPackOptionSummaryInto);
             AssertCliPositionalArgsLikeProduction(
                 cliPositionalArgIndicesInto,
                 cliFirstPositionalArgIndex,
@@ -19025,6 +19031,108 @@ func main() {
             "--target" or "--target-platform" => 11,
             _ => 0
         };
+
+    private static void AssertCliPackOptionsLikeProduction(MethodInfo cliPackOptionSummaryInto)
+    {
+        var cases = new[]
+        {
+            Array.Empty<string>(),
+            new[]
+            {
+                "-c", "Debug",
+                "--output", "dist",
+                "--version", "2.0.0-beta.1",
+                "--include-symbols",
+                "--json",
+                "--project", "samples/demo",
+                "--configuration", "Release",
+                "-o", "ignored-output"
+            },
+            new[] { "-o", "short", "-c", "Debug" },
+            new[] { "--project", "first", "--project", "second", "--output", "long", "-o", "short" },
+            new[] { "--project" },
+            new[] { "--project", "--json" },
+            new[] { "help" },
+            new[] { "ignored", "-h" },
+            new[] { string.Empty }
+        };
+
+        foreach (var args in cases)
+        {
+            var expected = CreateExpectedCliPackOptions(args);
+            var resultIndices = Enumerable.Repeat(-99, 7).ToArray();
+            var actualCode = (int)(cliPackOptionSummaryInto.Invoke(
+                null,
+                new object[] { args, resultIndices }) ?? -2);
+
+            Assert.Equal(0, actualCode);
+            Assert.Equal(expected, resultIndices);
+        }
+
+        Assert.Equal(
+            -1,
+            (int)(cliPackOptionSummaryInto.Invoke(
+                null,
+                new object[] { new[] { "--json" }, new int[6] }) ?? 0));
+    }
+
+    private static int[] CreateExpectedCliPackOptions(string[] args)
+    {
+        var indices = new[] { -1, -1, -1, -1, 0, 0, 0 };
+        var outputLongIndex = -1;
+        var outputShortIndex = -1;
+        var configurationLongIndex = -1;
+        var configurationShortIndex = -1;
+
+        for (var i = 0; i < args.Length; i++)
+        {
+            var arg = args[i];
+            if (i == 0 && arg == "help")
+                indices[6] = 1;
+
+            switch (arg)
+            {
+                case "--project":
+                    if (indices[0] < 0 && i + 1 < args.Length)
+                        indices[0] = i + 1;
+                    break;
+                case "--output":
+                    if (outputLongIndex < 0 && i + 1 < args.Length)
+                        outputLongIndex = i + 1;
+                    break;
+                case "-o":
+                    if (outputShortIndex < 0 && i + 1 < args.Length)
+                        outputShortIndex = i + 1;
+                    break;
+                case "--version":
+                    if (indices[2] < 0 && i + 1 < args.Length)
+                        indices[2] = i + 1;
+                    break;
+                case "--configuration":
+                    if (configurationLongIndex < 0 && i + 1 < args.Length)
+                        configurationLongIndex = i + 1;
+                    break;
+                case "-c":
+                    if (configurationShortIndex < 0 && i + 1 < args.Length)
+                        configurationShortIndex = i + 1;
+                    break;
+                case "--include-symbols":
+                    indices[4] = 1;
+                    break;
+                case "--json":
+                    indices[5] = 1;
+                    break;
+                case "--help":
+                case "-h":
+                    indices[6] = 1;
+                    break;
+            }
+        }
+
+        indices[1] = outputLongIndex >= 0 ? outputLongIndex : outputShortIndex;
+        indices[3] = configurationLongIndex >= 0 ? configurationLongIndex : configurationShortIndex;
+        return indices;
+    }
 
     private static void AssertCliPositionalArgsLikeProduction(
         MethodInfo cliPositionalArgIndicesInto,

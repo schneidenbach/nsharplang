@@ -1287,6 +1287,58 @@ func Main() {
     }
 
     [Fact]
+    public void PackCommandKernels_SummarizesOptions()
+    {
+        Assert.True(PackCommandKernels.TryGetOptionSummary(
+            Array.Empty<string>(),
+            out var defaultSummary));
+        Assert.Null(defaultSummary.ProjectOption);
+        Assert.Null(defaultSummary.OutputDir);
+        Assert.Null(defaultSummary.VersionOverride);
+        Assert.Equal("Release", defaultSummary.Configuration);
+        Assert.False(defaultSummary.IncludeSymbols);
+        Assert.False(defaultSummary.JsonOutput);
+        Assert.False(defaultSummary.ShowHelp);
+
+        var args = new[]
+        {
+            "-c", "Debug",
+            "--output", "dist",
+            "--version", "2.0.0-beta.1",
+            "--include-symbols",
+            "--json",
+            "--project", "samples/demo",
+            "--configuration", "Release",
+            "-o", "ignored-output"
+        };
+
+        Assert.True(PackCommandKernels.TryGetOptionSummary(args, out var dogfoodSummary));
+        Assert.Equal("samples/demo", dogfoodSummary.ProjectOption);
+        Assert.Equal("dist", dogfoodSummary.OutputDir);
+        Assert.Equal("2.0.0-beta.1", dogfoodSummary.VersionOverride);
+        Assert.Equal("Release", dogfoodSummary.Configuration);
+        Assert.True(dogfoodSummary.IncludeSymbols);
+        Assert.True(dogfoodSummary.JsonOutput);
+        Assert.False(dogfoodSummary.ShowHelp);
+
+        var summary = PackCommand.GetOptionSummary(args);
+        Assert.Equal("samples/demo", summary.ProjectOption);
+        Assert.Equal("dist", summary.OutputDir);
+        Assert.Equal("2.0.0-beta.1", summary.VersionOverride);
+        Assert.Equal("Release", summary.Configuration);
+        Assert.True(summary.IncludeSymbols);
+        Assert.True(summary.JsonOutput);
+        Assert.False(summary.ShowHelp);
+
+        var permissiveValue = PackCommand.GetOptionSummary(new[] { "--project", "--json" });
+        Assert.Equal("--json", permissiveValue.ProjectOption);
+        Assert.True(permissiveValue.JsonOutput);
+
+        Assert.True(PackCommand.GetOptionSummary(new[] { "help" }).ShowHelp);
+        Assert.True(PackCommand.GetOptionSummary(new[] { "ignored", "-h" }).ShowHelp);
+    }
+
+    [Fact]
     public void ExportCommandKernels_FiltersReferenceValuesByType()
     {
         var references = new[]

@@ -1,7 +1,6 @@
 using System;
 using System.IO;
 using System.IO.Compression;
-using System.Linq;
 using System.Text;
 using System.Text.Json;
 using NSharpLang.Compiler;
@@ -16,15 +15,16 @@ public static class PackCommand
 {
     public static int Execute(string[] args)
     {
-        if (args.Contains("--help") || args.Contains("-h") || (args.Length > 0 && args[0] == "help"))
+        var options = GetOptionSummary(args);
+        if (options.ShowHelp)
             return ShowHelp();
 
-        var projectRoot = Path.GetFullPath(GetOptionValue(args, "--project") ?? Directory.GetCurrentDirectory());
-        var outputDir = GetOptionValue(args, "--output") ?? GetOptionValue(args, "-o");
-        var versionOverride = GetOptionValue(args, "--version");
-        var configuration = GetOptionValue(args, "--configuration") ?? GetOptionValue(args, "-c") ?? "Release";
-        var includeSymbols = args.Contains("--include-symbols");
-        var jsonOutput = args.Contains("--json");
+        var projectRoot = Path.GetFullPath(options.ProjectOption ?? Directory.GetCurrentDirectory());
+        var outputDir = options.OutputDir;
+        var versionOverride = options.VersionOverride;
+        var configuration = options.Configuration;
+        var includeSymbols = options.IncludeSymbols;
+        var jsonOutput = options.JsonOutput;
 
         // Locate project.yml
         var projectYmlPath = Path.Combine(projectRoot, "project.yml");
@@ -241,12 +241,36 @@ public static class PackCommand
             .Replace("<", "&lt;", StringComparison.Ordinal)
             .Replace(">", "&gt;", StringComparison.Ordinal);
 
-    static string? GetOptionValue(string[] args, string flag)
+    internal static PackOptionSummary GetOptionSummary(string[] args)
+        => PackCommandKernels.TryGetOptionSummary(args, out var summary)
+            ? summary
+            : GetOptionSummaryWithCSharp(args);
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product pack option parsing routes through PackCommandKernels.
+    private static PackOptionSummary GetOptionSummaryWithCSharp(string[] args)
+        => new(
+            GetOptionValueWithCSharp(args, "--project"),
+            GetOptionValueWithCSharp(args, "--output") ?? GetOptionValueWithCSharp(args, "-o"),
+            GetOptionValueWithCSharp(args, "--version"),
+            GetOptionValueWithCSharp(args, "--configuration") ?? GetOptionValueWithCSharp(args, "-c") ?? "Release",
+            ContainsArgWithCSharp(args, "--include-symbols"),
+            ContainsArgWithCSharp(args, "--json"),
+            ContainsArgWithCSharp(args, "--help") || ContainsArgWithCSharp(args, "-h") || (args.Length > 0 && args[0] == "help"));
+
+    private static string? GetOptionValueWithCSharp(string[] args, string flag)
     {
         for (var i = 0; i < args.Length - 1; i++)
             if (args[i] == flag)
                 return args[i + 1];
         return null;
+    }
+
+    private static bool ContainsArgWithCSharp(string[] args, string value)
+    {
+        for (var i = 0; i < args.Length; i++)
+            if (args[i] == value)
+                return true;
+        return false;
     }
 
     static void WriteJson(Action<Utf8JsonWriter> write)
