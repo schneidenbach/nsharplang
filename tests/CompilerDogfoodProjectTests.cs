@@ -11896,6 +11896,25 @@ func outer(x: int): int {
             ("CliQueryMinInt", new object[] { 4, 9 }));
     }
 
+    // MILESTONE: EditorConfigParsing.nl compiles end-to-end with no C# AST and owns formatter
+    // .editorconfig integer parsing for product CLI format configuration.
+    [Fact]
+    public void ColumnarCodegen_CompilesRealDogfoodFile_EditorConfigParsing()
+    {
+        var source = ReadDogfoodProductFile("EditorConfigParsing.nl");
+        var (ok, _, _, methodNames) = RouteColumnarProgram(source);
+        Assert.True(ok, "Columnar backend declined the real EditorConfigParsing.nl (expected full support).");
+        Assert.Contains("EditorConfigTryParseIntInto", methodNames!);
+
+        AssertColumnarProgramMatchesCSharp(source,
+            ("EditorConfigTryParseIntInto", new object[] { "42", new int[1] }),
+            ("EditorConfigTryParseIntInto", new object[] { " +7 ", new int[1] }),
+            ("EditorConfigTryParseIntInto", new object[] { "-2147483648", new int[1] }),
+            ("EditorConfigTryParseIntInto", new object[] { "2147483648", new int[1] }),
+            ("EditorConfigTryParseIntInto", new object[] { "not-an-int", new int[1] }),
+            ("EditorConfigMinInt", new object[] { 4, 9 }));
+    }
+
     // MILESTONE: CliDocOrdering.nl compiles end-to-end with no C# AST. Enabling feature: new string(char[],int,int)
     // (the slug builder copies filtered/lowercased chars into a buffer, then returns a string of the slice). Reads
     // the product file plus parity corpus. CliDocSlugInto is a parity-only direct content oracle.
@@ -12450,7 +12469,7 @@ func outer(x: int): int {
             "AnalyzerExhaustiveness.nl", "AnonymousUnionShims.nl", "AotRequirements.nl", "BindingLookup.nl",
             "CliArguments.nl", "CliDocOrdering.nl", "CliQueryParsing.nl", "CliTreeDependencies.nl",
             "CompletionGrouping.nl", "CompletionReceivers.nl", "DiagnosticClusters.nl", "DiagnosticDeduplication.nl", "DocQuery.nl",
-            "FormatterImportOrdering.nl", "IdentifierSpans.nl",
+            "EditorConfigParsing.nl", "FormatterImportOrdering.nl", "IdentifierSpans.nl",
             "LexerTokenKindScanner.nl", "OverloadCandidates.nl", "ParserDeclarations.nl",
             "ParserTypeReferences.nl", "ProjectSourceFilter.nl",
             "StructCopyAnalysis.nl", "TextEditOrdering.nl", "TypeLookup.nl",

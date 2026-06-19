@@ -39,7 +39,7 @@ public class FormatterConfig
             if (trimmed.StartsWith("indent_size"))
             {
                 var value = trimmed.Split('=')[1].Trim();
-                config.IndentSize = int.Parse(value);
+                config.IndentSize = ParseRequiredInt(value);
             }
 
             if (trimmed.StartsWith("indent_style"))
@@ -51,13 +51,37 @@ public class FormatterConfig
             if (trimmed.StartsWith("max_line_length"))
             {
                 var value = trimmed.Split('=')[1].Trim();
-                if (int.TryParse(value, out var maxLen))
+                if (TryParseOptionalInt(value, out var maxLen))
                     config.MaxLineLength = maxLen;
             }
         }
 
         return config;
     }
+
+    private static int ParseRequiredInt(string value)
+    {
+        if (FormatterConfigKernels.TryParseInt(value, out var parsed))
+            return parsed;
+
+        return ParseRequiredIntWithCSharp(value);
+    }
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product formatter .editorconfig int parsing routes through FormatterConfigKernels.
+    private static int ParseRequiredIntWithCSharp(string value)
+        => int.Parse(value);
+
+    private static bool TryParseOptionalInt(string value, out int parsed)
+    {
+        if (FormatterConfigKernels.TryParseInt(value, out parsed))
+            return true;
+
+        return TryParseOptionalIntWithCSharp(value, out parsed);
+    }
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product formatter .editorconfig int parsing routes through FormatterConfigKernels.
+    private static bool TryParseOptionalIntWithCSharp(string value, out int parsed)
+        => int.TryParse(value, out parsed);
 
     private static string? FindEditorConfig(string dir)
     {

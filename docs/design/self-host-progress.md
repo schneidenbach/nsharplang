@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-19 — Formatter editorconfig integer parsing moves into product N#
+
+`FormatterConfig.FromEditorConfig` now parses `indent_size` and `max_line_length` integer values through the
+compiler-local `FormatterConfigKernels`, which binds the shipped `EditorConfigTryParseIntInto` dogfood kernel in
+`EditorConfigParsing.nl`. The C# `int.Parse`/`int.TryParse` calls remain only as fallback/oracle edges for values
+the N# parser declines, preserving existing error and ignore behavior while moving the normal product route into N#.
+
+Focused evidence:
+`./scripts/dev.sh FormatterConfig`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_EditorConfigParsing|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-19 — Query symbol-kind parsing moves into product N#
 
 `QueryCommand`, `BatchQueryRunner`, and `DaemonServer` now parse `symbols` kind filters through

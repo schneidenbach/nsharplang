@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Linq;
 using NSharpLang.Compiler;
 using NSharpLang.Compiler.Ast;
@@ -1010,6 +1011,64 @@ Y: int
     {
         var config = new FormatterConfig { UseSpaces = false };
         Assert.Equal("\t", config.GetIndentString());
+    }
+
+    [Fact]
+    public void FormatterConfig_ReadsEditorConfigNumericValuesThroughKernel()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-formatter-config-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            File.WriteAllText(
+                Path.Combine(tempDir, ".editorconfig"),
+                """
+                root = true
+
+                [*.nl]
+                indent_size = +2
+                indent_style = tab
+                max_line_length = 120
+                """);
+
+            var config = FormatterConfig.FromEditorConfig(tempDir);
+
+            Assert.Equal(2, config.IndentSize);
+            Assert.False(config.UseSpaces);
+            Assert.Equal(120, config.MaxLineLength);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void FormatterConfigKernels_ParseIntsLikeCSharpFallback()
+    {
+        var cases = new[]
+        {
+            "42",
+            " +7 ",
+            "-1",
+            "0",
+            "2147483647",
+            "-2147483648",
+            "2147483648",
+            "not-an-int",
+            "",
+            "   "
+        };
+
+        foreach (var value in cases)
+        {
+            var expectedParsed = int.TryParse(value, out var expected);
+
+            var actualParsed = FormatterConfigKernels.TryParseInt(value, out var actual);
+            Assert.Equal(expectedParsed, actualParsed);
+            Assert.Equal(expected, actual);
+        }
     }
 
     [Fact]

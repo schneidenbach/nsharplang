@@ -304,6 +304,8 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       summary and depth parsing now live beside `TreeCommand` in `TreeCommandKernels`, and tree dependency and
       target-framework deduplication now live beside `TreeCommand` in `TreeDependencyDeduplicator`;
       completion shell option summary now lives beside `CompletionCommand` in `CompletionCommandKernels`;
+      formatter `.editorconfig` integer parsing now lives beside `FormatterConfig` in
+      `FormatterConfigKernels`;
       restore option summary, reference filtering, and project-reference deduplication now live beside
       `RestoreCommand` in `RestoreCommandKernels`; stale generated-output directory de-duplication now lives beside
       `Program.CleanStaleGeneratedFiles` in `GeneratedOutputDirectoryDeduplicator`; native
