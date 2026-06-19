@@ -7004,6 +7004,7 @@ func outer(x: int): int {
         Assert.Contains("CliExportCSharpFirstOperandChecksumInto", methodNames!); // char/int promotion
         Assert.Contains("CliReferenceResolutionBestScoreIndex", methodNames!); // product resolver best-score selection.
         Assert.Contains("CliShouldFormatDiscoveredPath", methodNames!); // product format discovery filtering.
+        Assert.Contains("CliBuildOperandSummaryInto", methodNames!); // product build operand summary.
         Assert.Contains("CliBuildOptionSummaryInto", methodNames!); // product build option parsing.
         Assert.Contains("CliTestOptionSummaryInto", methodNames!); // product test option parsing.
         Assert.Contains("CliWatchForwardedArgIndicesInto", methodNames!); // product watch forwarding.
@@ -12303,9 +12304,10 @@ func outer(x: int): int {
 
         foreach (var functionName in new[]
         {
+            "CliBuildFirstOperandIndexCore",
+            "CliBuildFirstOperandIndexInto",
             "CliBuildOperandIndicesCore",
             "CliBuildOperandIndicesInto",
-            "CliBuildOperandSummaryInto",
             "CliBuildOptionSummaryChecksumInto",
             "CliCleanArtifactDirectoryChecksumInto",
             "CliExportCSharpFirstOperandChecksumInto",

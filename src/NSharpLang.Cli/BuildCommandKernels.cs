@@ -29,21 +29,28 @@ internal static class BuildCommandKernels
 
         try
         {
-            firstOperandIndex = bindings.BuildFirstOperandIndex(
+            count = bindings.BuildOperandSummary(
                 args,
                 scratch.KindIds,
                 scratch.NextIndices,
                 scratch.PreviousIndices,
                 scratch.NextOptionIndices,
                 scratch.ResultIndices);
-            if (firstOperandIndex < -1 || firstOperandIndex >= args.Length)
+            if (count < 0 || count > args.Length)
             {
                 count = 0;
                 firstOperandIndex = -1;
                 return false;
             }
 
-            count = firstOperandIndex >= 0 ? 1 : 0;
+            firstOperandIndex = count > 0 ? scratch.ResultIndices[0] : -1;
+            if ((count > 0 && firstOperandIndex < 0) || firstOperandIndex < -1 || firstOperandIndex >= args.Length)
+            {
+                count = 0;
+                firstOperandIndex = -1;
+                return false;
+            }
+
             return true;
         }
         catch
@@ -97,14 +104,14 @@ internal static class BuildCommandKernels
 
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
-            DogfoodKernelLoader.CreateDelegate<CliBuildFirstOperandIndexInto>(
+            DogfoodKernelLoader.CreateDelegate<CliBuildOperandSummaryInto>(
                 programType,
-                "CliBuildFirstOperandIndexInto"),
+                "CliBuildOperandSummaryInto"),
             DogfoodKernelLoader.CreateDelegate<CliBuildOptionSummaryInto>(
                 programType,
                 "CliBuildOptionSummaryInto")));
 
-    private delegate int CliBuildFirstOperandIndexInto(
+    private delegate int CliBuildOperandSummaryInto(
         string[] args,
         int[] kindIds,
         int[] nextIndices,
@@ -115,7 +122,7 @@ internal static class BuildCommandKernels
     private delegate int CliBuildOptionSummaryInto(string[] args, int[] resultIndices);
 
     private sealed record Bindings(
-        CliBuildFirstOperandIndexInto BuildFirstOperandIndex,
+        CliBuildOperandSummaryInto BuildOperandSummary,
         CliBuildOptionSummaryInto BuildOptionSummary);
 
     private static bool TryGetOptionalArg(string[] args, int index, out string? value)

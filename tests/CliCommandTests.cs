@@ -1147,6 +1147,13 @@ func Main() {
             out var sourceFirstIndex));
         Assert.Equal(1, sourceFirstCount);
         Assert.Equal(0, sourceFirstIndex);
+
+        Assert.True(BuildCommandKernels.TryGetOperandSummary(
+            new[] { "Main.nl", "--backend", "il", "Extra.nl" },
+            out var multiSourceCount,
+            out var multiSourceFirstIndex));
+        Assert.Equal(2, multiSourceCount);
+        Assert.Equal(0, multiSourceFirstIndex);
     }
 
     [Fact]

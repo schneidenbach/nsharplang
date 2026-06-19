@@ -90,7 +90,7 @@ func CliTidyRemovalLineKeepChecksumInto(lines: string[], packageNames: string[],
     return checksum
 }
 
-func CliBuildOperandSummaryInto(
+func CliBuildFirstOperandIndexInto(
     args: string[],
     kindIds: int[],
     nextIndices: int[],
@@ -105,7 +105,35 @@ func CliBuildOperandSummaryInto(
         NextOptionIndices: nextOptionIndices
     }
     results := new CliIndexResultTable { Indices: resultIndices }
-    return CliBuildOperandSummaryCore(ref arguments, ref kinds, ref links, ref results)
+    return CliBuildFirstOperandIndexCore(ref arguments, ref kinds, ref links, ref results)
+}
+
+func CliBuildFirstOperandIndexCore(
+    args: &CliArgumentTable,
+    kindIds: &CliBuildArgumentKindTable,
+    links: &CliBuildArgumentLinkTable,
+    resultIndices: &CliIndexResultTable): int {
+    i := 0
+    while i < args.Args.Length {
+        kind := CliBuildArgumentKind(args.Args[i])
+        if kind == 5 {
+            i = i + 1
+            continue
+        }
+
+        if kind == 0 {
+            return i
+        }
+
+        break
+    }
+
+    count := CliBuildOperandSummaryCore(ref args, ref kindIds, ref links, ref resultIndices)
+    if count <= 0 {
+        return -1
+    }
+
+    return resultIndices.Indices[0]
 }
 
 func CliBuildOperandIndicesInto(

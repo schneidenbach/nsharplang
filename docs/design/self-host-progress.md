@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Build operand summary becomes the product route
+
+`BuildCommandKernels` now binds `CliBuildOperandSummaryInto` from the shipped `CliArguments.nl`
+dogfood source, so both normalized operand count and first source operand index come from the N#
+build-argument summary core. The old `CliBuildFirstOperandIndexInto/Core` wrapper moved to the
+parity corpus because it no longer has a product caller; `CliBuildOperandIndicesInto` remains
+parity-only. This is a Stage 6 `C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`./scripts/dev.sh BuildCommandKernels`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilationBackendTests.BuildCommand_SingleFileSourceAfterOptions_BuildsWithIlBackend|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_ParityOnlyFiles_AreAbsentFromProductCoverage|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-18 — Shared positional collection routes through product N#
 
 `Program.GetPositionalArgs`, used by the current `nlc new` positional-template flow and `nlc format`
@@ -2187,7 +2199,8 @@ tests/Tests.csproj --filter "FullyQualifiedName~CliCommandTests.TestCommandKerne
 `CliBuildFirstOperandIndexInto` kernel through `BuildCommandKernels`, an owner-local helper beside
 the build command path in `Program`. The broad CLI dogfood adapter no longer owns the build operand
 entry point, delegate binding, or build-argument scratch arrays; the existing build argument
-normalization fallback remains in the command.
+normalization fallback remains in the command. Superseded on 2026-06-18 by the
+`CliBuildOperandSummaryInto` product route, which also reports normalized operand count.
 Focused evidence: `dotnet build src/NSharpLang.Cli/Cli.csproj --no-restore`; `dotnet test
 tests/Tests.csproj --filter "FullyQualifiedName~CliCommandTests.BuildCommandKernels_SelectsFirstOperandAfterOptionStripping"`;
 `./scripts/dev.sh --since`.
@@ -6153,9 +6166,12 @@ the benchmark-only `nlc query --pos` pressure path no longer ships in the produc
 ## 2026-06-14 — Build-operand batch wrappers leave product dogfood
 
 `CliBuildOperandSummaryInto`, `CliBuildOperandIndicesInto`, and the batch index core moved to the
-parity corpus. The product dogfood file keeps `CliBuildOperandSummaryCore` because the accepted
-`CliBuildFirstOperandIndexInto` build-helper route still calls it for leading-option fallback cases, but
-the direct batch wrappers no longer ship in the product dogfood assembly.
+parity corpus. At that point, the product dogfood file kept `CliBuildOperandSummaryCore` because the
+accepted `CliBuildFirstOperandIndexInto` build-helper route still called it for leading-option
+fallback cases, but the direct batch wrappers no longer shipped in the product dogfood assembly. The
+summary wrapper moved back into the product dogfood assembly on 2026-06-18 when
+`BuildCommandKernels` made it the routed product ABI; the first-index wrapper moved to the parity
+corpus.
 
 ## 2026-06-14 — Fix-edit flattening probe leaves product dogfood
 

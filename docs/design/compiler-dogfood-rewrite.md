@@ -1280,10 +1280,10 @@ Current CLI dogfood benchmarks:
 - `CliBuildArgumentNormalizationBenchmarks` targets `nlc build` source-file operand discovery. The
   C# baseline mirrors the current build command shape: remove value-less build flags with LINQ, run
   four option-with-value stripping passes, materialize the normalized operand array, then read the
-  first operand. The accepted N# candidate returns the first source operand index through
-  `CliBuildFirstOperandIndexInto`; it exits immediately for the common source-first path and falls
-  back to an exact linked-list scratch routine when leading options require the existing stripping
-  order.
+  first operand. The accepted N# candidate originally returned the first source operand index through
+  `CliBuildFirstOperandIndexInto`; Stage 6 now routes production through
+  `CliBuildOperandSummaryInto`, using the same exact linked-list scratch routine while also reporting
+  normalized operand count.
 - `CliBuildOptionSummaryBenchmarks` targets the remaining `nlc build` option discovery work after
   source-operand routing. The C# baseline mirrors the current command shape: separate
   `args.Contains(...)` scans for help/release/verbose/timings/perf-report/AOT plus separate
@@ -1502,14 +1502,14 @@ selection.
 
 `CliBuildFirstOperandIndexInto` passed parity and reported zero managed allocation in the normal
 BenchmarkDotNet evidence tier for source-first `nlc build` operand discovery. The accepted N# path
-returns the first source operand index directly instead of materializing the build command's
-normalized operand array; leading-option cases still use the exact linked-list fallback to preserve
+returned the first source operand index directly instead of materializing the build command's
+normalized operand array; leading-option cases still used the exact linked-list fallback to preserve
 the current `--output`, `-o`, `--backend`, `--project` stripping order. It ran about 1,262x faster
 on the representative source-first argument corpus (7.395 ns vs 9.332 us, 0 B vs 62,072 B) and
 about 9,618x faster on the large generated source-first argument corpus (7.491 ns vs 72.047 us,
-0 B vs 489,152 B). This is acceptance-grade benchmark evidence for `nlc build Program.nl ...`
-single-file route selection; commands that need every normalized build operand remain covered by
-the all-positionals pressure note above.
+0 B vs 489,152 B). Stage 6 now routes `BuildCommandKernels` through `CliBuildOperandSummaryInto`
+instead, preserving the same first-operand result while moving normalized operand count out of C#;
+the first-index wrapper remains only as a parity-corpus compatibility surface.
 
 `CliRunFirstOperandIndex` passed parity and reported zero managed allocation in the short
 BenchmarkDotNet evidence tier for `nlc run` source-file operand discovery. The accepted N# path
