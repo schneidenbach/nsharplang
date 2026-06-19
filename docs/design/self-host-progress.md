@@ -11,6 +11,19 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-19 — Query subcommands reuse the N# common-parameter summary
+
+`QueryCommand` subcommands that consume the common query parameters now read `--file`, `--pos`,
+`--name`, `--kind`, `--severity`, `--include-keywords`, and `--clusters` through
+`GetDaemonParameterSummary`, so symbols, ast, hover, perf, implementors, diagnostics, type,
+definition, inspect, references, and completions no longer repeat direct C# scans for those shared
+flags. Command-specific flags such as `--filter`, `--function`, `--limit`, and `--requests` remain
+local to their subcommands, and the direct C# common-parameter parser remains only as fallback/oracle
+logic behind `QueryCommandKernels`. This is a Stage 6 `C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`./scripts/dev.sh QueryCommand`.
+
 ## 2026-06-19 — Query daemon parameters route through product N#
 
 `QueryCommand.BuildDaemonParameters` now gets `--file`, `--pos`, `--name`, `--kind`, `--severity`,

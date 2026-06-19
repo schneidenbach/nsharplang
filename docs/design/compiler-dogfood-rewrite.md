@@ -2134,6 +2134,10 @@ compiled N# option-index summary kernel when the dogfood assembly is available, 
 permissive first-value behavior for `--file`, `--pos`, `--name`, `--kind`, and `--severity` plus
 the `--include-keywords`/`--clusters` switches. Final daemon parameter dictionary materialization
 remains a C# host-boundary concern, and the previous direct scans remain as fallback/oracle logic.
+The same owner-local summary now feeds the common `QueryCommand` subcommand parameters for symbols,
+ast, hover, perf, implementors, diagnostics, type, definition, inspect, references, and completions,
+leaving only command-specific flags such as `--filter`, `--function`, `--limit`, and `--requests`
+as local C# parser shapes.
 `nlc doc` symbol filtering and kind/name ordering now routes through `DocCommandKernels`, which
 calls the compiled N# stable counting-sort kernel when the dogfood assembly is available, preserving
 the previous `SymbolKind.ToString()`/ordinal name order and variable/parameter filtering, with the

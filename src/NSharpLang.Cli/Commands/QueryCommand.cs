@@ -63,14 +63,15 @@ public static class QueryCommand
         var snapshot = LoadProjectOrFail(options);
         if (snapshot == null) return 1;
 
+        var summary = GetDaemonParameterSummary(args);
         SymbolKind? kindFilter = null;
-        var kindArg = GetOption(args, "--kind");
+        var kindArg = summary.Kind;
         if (kindArg != null && Enum.TryParse<SymbolKind>(kindArg, ignoreCase: true, out var parsed))
         {
             kindFilter = parsed;
         }
 
-        var fileFilter = GetOption(args, "--file") ?? options.File;
+        var fileFilter = summary.File ?? options.File;
         var filterPattern = GetOption(args, "--filter");
 
         var results = Service.GetSymbols(snapshot, fileFilter, kindFilter);
@@ -104,7 +105,8 @@ public static class QueryCommand
         var snapshot = LoadProjectOrFail(options);
         if (snapshot == null) return 1;
 
-        var fileFilter = GetOption(args, "--file") ?? options.File;
+        var summary = GetDaemonParameterSummary(args);
+        var fileFilter = summary.File ?? options.File;
         var normalizedFilter = fileFilter?.Replace('\\', '/');
 
         var units = new List<(string File, CompilationUnit Unit)>();
@@ -157,8 +159,9 @@ public static class QueryCommand
 
     private static int HoverCommand(string[] args, QueryOptions options)
     {
-        var file = GetOption(args, "--file") ?? options.File;
-        var posStr = GetOption(args, "--pos") ?? options.Pos;
+        var summary = GetDaemonParameterSummary(args);
+        var file = summary.File ?? options.File;
+        var posStr = summary.Pos ?? options.Pos;
 
         if (file == null || posStr == null)
         {
@@ -237,8 +240,9 @@ public static class QueryCommand
 
     private static int PerformanceCommand(string[] args, QueryOptions options)
     {
-        var file = GetOption(args, "--file") ?? options.File;
-        var posStr = GetOption(args, "--pos") ?? options.Pos;
+        var summary = GetDaemonParameterSummary(args);
+        var file = summary.File ?? options.File;
+        var posStr = summary.Pos ?? options.Pos;
 
         if (file == null || posStr == null)
         {
@@ -350,9 +354,10 @@ public static class QueryCommand
 
     private static int ImplementorsCommand(string[] args, QueryOptions options)
     {
-        var name = GetOption(args, "--name");
-        var file = GetOption(args, "--file") ?? options.File;
-        var posStr = GetOption(args, "--pos") ?? options.Pos;
+        var summary = GetDaemonParameterSummary(args);
+        var name = summary.Name;
+        var file = summary.File ?? options.File;
+        var posStr = summary.Pos ?? options.Pos;
 
         // Name-based lookup (primary)
         if (name != null)
@@ -526,18 +531,19 @@ public static class QueryCommand
 
     private static int DiagnosticsCommand(string[] args, QueryOptions options)
     {
-        var wantsClusters = HasOption(args, "--clusters");
+        var parameterSummary = GetDaemonParameterSummary(args);
+        var wantsClusters = parameterSummary.Clusters;
         if (TryExecuteViaDaemon(options, DaemonConstants.MethodDiagnostics, BuildDaemonParameters(args, options), out var daemonExitCode))
             return daemonExitCode;
 
         var snapshot = LoadProjectOrFail(options);
         if (snapshot == null) return 1;
 
-        var fileFilter = GetOption(args, "--file") ?? options.File;
+        var fileFilter = parameterSummary.File ?? options.File;
         var results = Service.GetDiagnostics(snapshot, fileFilter);
 
         // Filter by severity if requested
-        var severityFilter = GetOption(args, "--severity");
+        var severityFilter = parameterSummary.Severity;
         if (severityFilter != null)
         {
             results = OutputFormatter.FilterDiagnosticsBySeverity(results, severityFilter);
@@ -562,8 +568,9 @@ public static class QueryCommand
 
     private static int TypeCommand(string[] args, QueryOptions options)
     {
-        var file = GetOption(args, "--file") ?? options.File;
-        var posStr = GetOption(args, "--pos") ?? options.Pos;
+        var summary = GetDaemonParameterSummary(args);
+        var file = summary.File ?? options.File;
+        var posStr = summary.Pos ?? options.Pos;
 
         if (file == null || posStr == null)
         {
@@ -618,9 +625,10 @@ public static class QueryCommand
 
     private static int DefinitionCommand(string[] args, QueryOptions options)
     {
-        var file = GetOption(args, "--file") ?? options.File;
-        var posStr = GetOption(args, "--pos") ?? options.Pos;
-        var name = GetOption(args, "--name") ?? (args.Length > 0 && !args[0].StartsWith("--") ? args[0] : null);
+        var summary = GetDaemonParameterSummary(args);
+        var file = summary.File ?? options.File;
+        var posStr = summary.Pos ?? options.Pos;
+        var name = summary.Name ?? (args.Length > 0 && !args[0].StartsWith("--") ? args[0] : null);
 
         // Position-based (primary, semantic)
         if (file != null && posStr != null)
@@ -702,8 +710,9 @@ public static class QueryCommand
 
     private static int InspectCommand(string[] args, QueryOptions options)
     {
-        var file = GetOption(args, "--file") ?? options.File;
-        var posStr = GetOption(args, "--pos") ?? options.Pos;
+        var summary = GetDaemonParameterSummary(args);
+        var file = summary.File ?? options.File;
+        var posStr = summary.Pos ?? options.Pos;
         var compactMode = options.InspectCompact;
 
         if (file == null || posStr == null)
@@ -731,7 +740,7 @@ public static class QueryCommand
         var definition = Service.FindDefinition(snapshot, file, line, col);
         var references = Service.FindReferences(snapshot, file, line, col);
 
-        var includeKeywords = args.Contains("--include-keywords");
+        var includeKeywords = summary.IncludeKeywords;
         var engine = new CompletionEngine();
         var completions = engine.GetCompletions(snapshot, file, line, col, includeKeywords);
 
@@ -797,8 +806,9 @@ public static class QueryCommand
 
     private static int ReferencesCommand(string[] args, QueryOptions options)
     {
-        var file = GetOption(args, "--file") ?? options.File;
-        var posStr = GetOption(args, "--pos") ?? options.Pos;
+        var summary = GetDaemonParameterSummary(args);
+        var file = summary.File ?? options.File;
+        var posStr = summary.Pos ?? options.Pos;
 
         if (file == null || posStr == null)
         {
@@ -888,8 +898,9 @@ public static class QueryCommand
 
     private static int CompletionsCommand(string[] args, QueryOptions options)
     {
-        var file = GetOption(args, "--file") ?? options.File;
-        var posStr = GetOption(args, "--pos") ?? options.Pos;
+        var summary = GetDaemonParameterSummary(args);
+        var file = summary.File ?? options.File;
+        var posStr = summary.Pos ?? options.Pos;
 
         if (file == null || posStr == null)
         {
@@ -907,7 +918,7 @@ public static class QueryCommand
         var snapshot = LoadProjectOrFail(options);
         if (snapshot == null) return 1;
 
-        var includeKeywords = args.Contains("--include-keywords");
+        var includeKeywords = summary.IncludeKeywords;
         var engine = new CompletionEngine();
         var result = engine.GetCompletions(snapshot, file, line, col, includeKeywords);
 
@@ -1032,9 +1043,6 @@ public static class QueryCommand
         }
         return null;
     }
-
-    private static bool HasOption(string[] args, string flag)
-        => args.Contains(flag, StringComparer.Ordinal);
 
     private static bool TryParsePosition(string posStr, out int line, out int col)
     {
