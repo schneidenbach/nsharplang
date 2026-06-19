@@ -847,6 +847,16 @@ internal static class CompilationReferenceResolver
 
     private static int GetFrameworkCompatibilityScore(string? assetFramework, string targetFramework)
     {
+        if (CompilationReferenceResolverKernels.TryGetFrameworkCompatibilityScore(assetFramework, targetFramework, out var dogfoodScore))
+            return dogfoodScore;
+
+        return GetFrameworkCompatibilityScoreWithCSharp(assetFramework, targetFramework);
+    }
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product framework compatibility scoring
+    // routes through CompilationReferenceResolverKernels.
+    private static int GetFrameworkCompatibilityScoreWithCSharp(string? assetFramework, string targetFramework)
+    {
         if (string.IsNullOrWhiteSpace(assetFramework))
         {
             return 1;

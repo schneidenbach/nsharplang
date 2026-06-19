@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-19 — Framework compatibility scoring moves into product N#
+
+`CompilationReferenceResolver` now scores package asset and dependency-group target frameworks through
+`CompilationReferenceResolverKernels`, which binds the shipped `CliFrameworkCompatibilityScoreInto` dogfood
+kernel in `CliArguments.nl`. Filesystem/NuGet XML discovery remains C# host-boundary work; normalization of SDK
+framework monikers and the compatibility score decision now live in N#, with the previous C# string-normalization
+implementation isolated as fallback/oracle.
+
+Focused evidence:
+`./scripts/dev.sh CompilationReferenceResolverKernels`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-19 — `nlc test --filter` matching moves into product N#
 
 `Program.Testing` now routes xUnit and reflection test-case filter matching through `TestCommandKernels`, which

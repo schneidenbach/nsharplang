@@ -4453,6 +4453,387 @@ func CliTargetFrameworkIsDigit(ch: char): bool {
     return ch >= '0' && ch <= '9'
 }
 
+func CliFrameworkCompatibilityScoreInto(assetFramework: string, targetFramework: string, result: int[]): int {
+    if result.Length < 5 {
+        return -1
+    }
+
+    result[0] = -1
+    result[1] = 0
+    result[2] = 0
+    result[3] = 0
+    result[4] = 0
+
+    assetStart := CliFrameworkTrimStart(assetFramework)
+    assetEnd := CliFrameworkTrimEnd(assetFramework, assetStart)
+    if assetStart >= assetEnd {
+        result[0] = 1
+        return 1
+    }
+
+    targetStart := CliFrameworkTrimStart(targetFramework)
+    targetEnd := CliFrameworkTrimEnd(targetFramework, targetStart)
+    if CliFrameworkNormalizedEquals(assetFramework, assetStart, assetEnd, targetFramework, targetStart, targetEnd) {
+        result[0] = 10000
+        return 1
+    }
+
+    if !CliFrameworkParseVersionInto(assetFramework, assetStart, assetEnd, result, 1) {
+        result[0] = -1
+        return 1
+    }
+
+    if !CliFrameworkParseVersionInto(targetFramework, targetStart, targetEnd, result, 3) {
+        result[0] = -1
+        return 1
+    }
+
+    assetMajor := result[1]
+    assetMinor := result[2]
+    targetMajor := result[3]
+
+    if CliFrameworkNormalizedStartsWith(assetFramework, assetStart, assetEnd, "netstandard") {
+        result[0] = 4000 + (assetMajor * 100) + assetMinor
+        return 1
+    }
+
+    if CliFrameworkNormalizedStartsWith(assetFramework, assetStart, assetEnd, "netcoreapp") {
+        if assetMajor <= targetMajor {
+            result[0] = 7000 + (assetMajor * 100) + assetMinor
+        } else {
+            result[0] = -1
+        }
+
+        return 1
+    }
+
+    if CliFrameworkNormalizedStartsWith(assetFramework, assetStart, assetEnd, "net")
+        && assetMajor >= 5
+        && targetMajor >= 5 {
+        if assetMajor <= targetMajor {
+            result[0] = 8000 + (assetMajor * 100) + assetMinor
+        } else {
+            result[0] = -1
+        }
+
+        return 1
+    }
+
+    result[0] = -1
+    return 1
+}
+
+func CliFrameworkTrimStart(text: string): int {
+    index := 0
+    while index < text.Length && char.IsWhiteSpace(text[index]) {
+        index = index + 1
+    }
+
+    return index
+}
+
+func CliFrameworkTrimEnd(text: string, start: int): int {
+    end := text.Length
+    while end > start && char.IsWhiteSpace(text[end - 1]) {
+        end = end - 1
+    }
+
+    return end
+}
+
+func CliFrameworkNormalizedEquals(
+    left: string,
+    leftStart: int,
+    leftEnd: int,
+    right: string,
+    rightStart: int,
+    rightEnd: int): bool {
+    leftLength := CliFrameworkNormalizedLength(left, leftStart, leftEnd)
+    if leftLength != CliFrameworkNormalizedLength(right, rightStart, rightEnd) {
+        return false
+    }
+
+    index := 0
+    while index < leftLength {
+        leftCh := CliFrameworkNormalizedCharAt(left, leftStart, leftEnd, index)
+        rightCh := CliFrameworkNormalizedCharAt(right, rightStart, rightEnd, index)
+        if leftCh != rightCh {
+            return false
+        }
+
+        index = index + 1
+    }
+
+    return true
+}
+
+func CliFrameworkNormalizedStartsWith(text: string, start: int, end: int, prefix: string): bool {
+    if CliFrameworkNormalizedLength(text, start, end) < prefix.Length {
+        return false
+    }
+
+    index := 0
+    while index < prefix.Length {
+        if CliFrameworkNormalizedCharAt(text, start, end, index) != CliFrameworkAsciiLower(prefix[index]) {
+            return false
+        }
+
+        index = index + 1
+    }
+
+    return true
+}
+
+func CliFrameworkNormalizedLength(text: string, start: int, end: int): int {
+    kind := CliFrameworkNormalizedKind(text, start, end)
+    if kind == 0 {
+        return end - start
+    }
+
+    suffixStart := CliFrameworkNormalizedSuffixStart(text, start, end, kind)
+    prefixLength := CliFrameworkNormalizedPrefixLength(kind)
+    if kind != 3 {
+        return prefixLength + end - suffixStart
+    }
+
+    suffixLength := 0
+    index := suffixStart
+    while index < end {
+        if text[index] != '.' {
+            suffixLength = suffixLength + 1
+        }
+
+        index = index + 1
+    }
+
+    return prefixLength + suffixLength
+}
+
+func CliFrameworkNormalizedCharAt(text: string, start: int, end: int, index: int): char {
+    kind := CliFrameworkNormalizedKind(text, start, end)
+    if kind == 0 {
+        return CliFrameworkAsciiLower(text[start + index])
+    }
+
+    prefixLength := CliFrameworkNormalizedPrefixLength(kind)
+    if index < prefixLength {
+        return CliFrameworkNormalizedPrefixChar(kind, index)
+    }
+
+    suffixStart := CliFrameworkNormalizedSuffixStart(text, start, end, kind)
+    suffixIndex := index - prefixLength
+    if kind != 3 {
+        return CliFrameworkAsciiLower(text[suffixStart + suffixIndex])
+    }
+
+    seen := 0
+    position := suffixStart
+    while position < end {
+        ch := text[position]
+        if ch != '.' {
+            if seen == suffixIndex {
+                return CliFrameworkAsciiLower(ch)
+            }
+
+            seen = seen + 1
+        }
+
+        position = position + 1
+    }
+
+    return '?'
+}
+
+func CliFrameworkNormalizedKind(text: string, start: int, end: int): int {
+    if CliFrameworkRawStartsWithIgnoreCase(text, start, end, ".NETCoreApp,Version=v")
+        || CliFrameworkRawStartsWithIgnoreCase(text, start, end, ".NETCoreApp") {
+        return 1
+    }
+
+    if CliFrameworkRawStartsWithIgnoreCase(text, start, end, ".NETStandard,Version=v")
+        || CliFrameworkRawStartsWithIgnoreCase(text, start, end, ".NETStandard") {
+        return 2
+    }
+
+    if CliFrameworkRawStartsWithIgnoreCase(text, start, end, ".NETFramework,Version=v")
+        || CliFrameworkRawStartsWithIgnoreCase(text, start, end, ".NETFramework") {
+        return 3
+    }
+
+    return 0
+}
+
+func CliFrameworkNormalizedSuffixStart(text: string, start: int, end: int, kind: int): int {
+    if kind == 1 {
+        if CliFrameworkRawStartsWithIgnoreCase(text, start, end, ".NETCoreApp,Version=v") {
+            return start + 21
+        }
+
+        return start + 11
+    }
+
+    if kind == 2 {
+        if CliFrameworkRawStartsWithIgnoreCase(text, start, end, ".NETStandard,Version=v") {
+            return start + 22
+        }
+
+        return start + 12
+    }
+
+    if kind == 3 {
+        if CliFrameworkRawStartsWithIgnoreCase(text, start, end, ".NETFramework,Version=v") {
+            return start + 23
+        }
+
+        return start + 13
+    }
+
+    return start
+}
+
+func CliFrameworkNormalizedPrefixLength(kind: int): int {
+    if kind == 1 {
+        return 10
+    }
+
+    if kind == 2 {
+        return 11
+    }
+
+    if kind == 3 {
+        return 3
+    }
+
+    return 0
+}
+
+func CliFrameworkNormalizedPrefixChar(kind: int, index: int): char {
+    if kind == 1 {
+        return "netcoreapp"[index]
+    }
+
+    if kind == 2 {
+        return "netstandard"[index]
+    }
+
+    return "net"[index]
+}
+
+func CliFrameworkRawStartsWithIgnoreCase(text: string, start: int, end: int, prefix: string): bool {
+    if start + prefix.Length > end {
+        return false
+    }
+
+    index := 0
+    while index < prefix.Length {
+        if CliFrameworkAsciiLower(text[start + index]) != CliFrameworkAsciiLower(prefix[index]) {
+            return false
+        }
+
+        index = index + 1
+    }
+
+    return true
+}
+
+func CliFrameworkParseVersionInto(text: string, start: int, end: int, result: int[], resultOffset: int): bool {
+    result[resultOffset] = 0
+    result[resultOffset + 1] = 0
+
+    length := CliFrameworkNormalizedLength(text, start, end)
+    digitStart := 0
+    while digitStart < length && !CliTargetFrameworkIsDigit(CliFrameworkNormalizedCharAt(text, start, end, digitStart)) {
+        digitStart = digitStart + 1
+    }
+
+    if digitStart >= length {
+        return false
+    }
+
+    digitsEnd := digitStart
+    while digitsEnd < length {
+        ch := CliFrameworkNormalizedCharAt(text, start, end, digitsEnd)
+        if !CliTargetFrameworkIsDigit(ch) && ch != '.' {
+            break
+        }
+
+        digitsEnd = digitsEnd + 1
+    }
+
+    majorEnd := digitStart
+    while majorEnd < digitsEnd && CliFrameworkNormalizedCharAt(text, start, end, majorEnd) != '.' {
+        majorEnd = majorEnd + 1
+    }
+
+    if !CliFrameworkTryParseNormalizedIntSegment(text, start, end, digitStart, majorEnd, result, resultOffset) {
+        result[resultOffset] = 0
+        result[resultOffset + 1] = 0
+        return false
+    }
+
+    minorStart := majorEnd
+    while minorStart < digitsEnd && CliFrameworkNormalizedCharAt(text, start, end, minorStart) == '.' {
+        minorStart = minorStart + 1
+    }
+
+    if minorStart >= digitsEnd {
+        result[resultOffset + 1] = 0
+        return true
+    }
+
+    minorEnd := minorStart
+    while minorEnd < digitsEnd && CliFrameworkNormalizedCharAt(text, start, end, minorEnd) != '.' {
+        minorEnd = minorEnd + 1
+    }
+
+    if !CliFrameworkTryParseNormalizedIntSegment(text, start, end, minorStart, minorEnd, result, resultOffset + 1) {
+        result[resultOffset + 1] = 0
+    }
+
+    return true
+}
+
+func CliFrameworkTryParseNormalizedIntSegment(
+    text: string,
+    start: int,
+    end: int,
+    segmentStart: int,
+    segmentEnd: int,
+    result: int[],
+    resultIndex: int): bool {
+    if segmentStart >= segmentEnd {
+        return false
+    }
+
+    value := 0
+    index := segmentStart
+    while index < segmentEnd {
+        ch := CliFrameworkNormalizedCharAt(text, start, end, index)
+        if !CliTargetFrameworkIsDigit(ch) {
+            return false
+        }
+
+        digit := ch - '0'
+        if value > 214748364 {
+            return false
+        }
+
+        if value == 214748364 && digit > 7 {
+            return false
+        }
+
+        value = value * 10 + digit
+        index = index + 1
+    }
+
+    result[resultIndex] = value
+    return true
+}
+
+func CliFrameworkAsciiLower(ch: char): char {
+    return Char.ToLowerInvariant(ch)
+}
+
 func CliStableDistinctRankIndicesInto(
     ranks: int[],
     uniqueRankCount: int,

@@ -2536,6 +2536,32 @@ func Main() {
         }
     }
 
+    [Fact]
+    public void CompilationReferenceResolverKernels_ScoresFrameworkCompatibility()
+    {
+        AssertScore(null, "net10.0", 1);
+        AssertScore(string.Empty, "net10.0", 1);
+        AssertScore("   ", "net10.0", 1);
+        AssertScore("net10.0", "net10.0", 10_000);
+        AssertScore(".NETFramework,Version=v4.7.2", "net472", 10_000);
+        AssertScore("netstandard2.1", "net10.0", 4_201);
+        AssertScore("netcoreapp3.1", "net10.0", 7_301);
+        AssertScore(".NETCoreApp,Version=v10.0", "net10.0", 8_000);
+        AssertScore("net8.0", "net10.0", 8_800);
+        AssertScore("net11.0", "net10.0", -1);
+        AssertScore("unsupported", "net10.0", -1);
+        AssertScore("netbad", "net10.0", -1);
+
+        static void AssertScore(string? assetFramework, string targetFramework, int expectedScore)
+        {
+            Assert.True(CompilationReferenceResolverKernels.TryGetFrameworkCompatibilityScore(
+                assetFramework,
+                targetFramework,
+                out var score));
+            Assert.Equal(expectedScore, score);
+        }
+    }
+
     [Theory]
     [InlineData("src/Program.nl", true)]
     [InlineData("bin/Debug/Generated.nl", false)]

@@ -15,6 +15,9 @@ internal static class CompilationReferenceResolverKernels
     [ThreadStatic]
     private static int[]? t_nuGetVersionCompareResult;
 
+    [ThreadStatic]
+    private static int[]? t_frameworkCompatibilityScoreResult;
+
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
 
     internal static bool TryFilterReferencesByType(
@@ -176,6 +179,31 @@ internal static class CompilationReferenceResolverKernels
         }
     }
 
+    internal static bool TryGetFrameworkCompatibilityScore(string? assetFramework, string targetFramework, out int score)
+    {
+        score = -1;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        var result = t_frameworkCompatibilityScoreResult ??= new int[5];
+        try
+        {
+            var code = bindings.FrameworkCompatibilityScore(assetFramework ?? string.Empty, targetFramework, result);
+            if (code != 1)
+                return false;
+
+            score = result[0];
+            return true;
+        }
+        catch
+        {
+            score = -1;
+            return false;
+        }
+    }
+
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
             DogfoodKernelLoader.CreateDelegate<CliReferenceTypeFilterIndicesInto>(
@@ -189,7 +217,10 @@ internal static class CompilationReferenceResolverKernels
                 "CliTargetFrameworkVersionInto"),
             DogfoodKernelLoader.CreateDelegate<CliNuGetVersionCompareInto>(
                 programType,
-                "CliNuGetVersionCompareInto")));
+                "CliNuGetVersionCompareInto"),
+            DogfoodKernelLoader.CreateDelegate<CliFrameworkCompatibilityScoreInto>(
+                programType,
+                "CliFrameworkCompatibilityScoreInto")));
 
     private delegate int CliReferenceTypeFilterIndicesInto(
         int[] typeRanks,
@@ -202,11 +233,17 @@ internal static class CompilationReferenceResolverKernels
 
     private delegate int CliNuGetVersionCompareInto(string x, string y, int[] result);
 
+    private delegate int CliFrameworkCompatibilityScoreInto(
+        string assetFramework,
+        string targetFramework,
+        int[] result);
+
     private sealed record Bindings(
         CliReferenceTypeFilterIndicesInto ReferenceTypeFilterIndices,
         CliReferenceResolutionBestScoreIndex ReferenceResolutionBestScoreIndex,
         CliTargetFrameworkVersionInto TargetFrameworkVersion,
-        CliNuGetVersionCompareInto NuGetVersionCompare);
+        CliNuGetVersionCompareInto NuGetVersionCompare,
+        CliFrameworkCompatibilityScoreInto FrameworkCompatibilityScore);
 
     private static int GetReferenceTypeRank(ReferenceType type) =>
         type switch
