@@ -2609,6 +2609,30 @@ dependencies:
     }
 
     [Fact]
+    public void TestCommandKernels_ParsesTimeoutDurations()
+    {
+        Assert.True(TestCommandKernels.TryGetDurationMilliseconds("30s", out var seconds));
+        Assert.Equal(30_000, seconds);
+
+        Assert.True(TestCommandKernels.TryGetDurationMilliseconds(" 5m ", out var minutes));
+        Assert.Equal(300_000, minutes);
+
+        Assert.True(TestCommandKernels.TryGetDurationMilliseconds("1h", out var hours));
+        Assert.Equal(3_600_000, hours);
+
+        Assert.True(TestCommandKernels.TryGetDurationMilliseconds("0s", out var zero));
+        Assert.Null(zero);
+
+        Assert.True(TestCommandKernels.TryGetDurationMilliseconds("2147484s", out var overflow));
+        Assert.Null(overflow);
+
+        var (exitCode, _, stderr) = CaptureConsole(() =>
+            Program.Execute(new[] { "test", "--timeout", "2147484s" }));
+        Assert.Equal(1, exitCode);
+        Assert.Contains("Invalid timeout format '2147484s'", stderr);
+    }
+
+    [Fact]
     public void TidyCommandKernels_FiltersRemovalLines()
     {
         var lines = new[]

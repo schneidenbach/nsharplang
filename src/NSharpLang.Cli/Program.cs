@@ -1835,6 +1835,15 @@ Exit codes:
 
     static int? ParseDurationToMs(string duration)
     {
+        if (TestCommandKernels.TryGetDurationMilliseconds(duration, out var milliseconds))
+            return milliseconds;
+
+        return ParseDurationToMsWithCSharp(duration);
+    }
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product test timeout parsing routes through TestCommandKernels.
+    static int? ParseDurationToMsWithCSharp(string duration)
+    {
         if (string.IsNullOrWhiteSpace(duration)) return null;
 
         var trimmed = duration.Trim();
@@ -1844,13 +1853,18 @@ Exit codes:
         if (!int.TryParse(trimmed[..^1], out var value) || value <= 0)
             return null;
 
-        return unit switch
+        int? multiplier = unit switch
         {
-            's' => value * 1000,
-            'm' => value * 60 * 1000,
-            'h' => value * 60 * 60 * 1000,
+            's' => 1000,
+            'm' => 60 * 1000,
+            'h' => 60 * 60 * 1000,
             _ => null
         };
+
+        if (multiplier is not { } factor || value > int.MaxValue / factor)
+            return null;
+
+        return value * factor;
     }
 
     static string[] StripOptionWithValue(string[] args, string flag)

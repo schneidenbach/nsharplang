@@ -7001,6 +7001,7 @@ func outer(x: int): int {
         var (ok, _, _, methodNames) = RouteColumnarProgram(source);
         Assert.True(ok, "Columnar backend declined the real CliArguments.nl (expected full support).");
         Assert.Contains("CliProgramCommandKind", methodNames!); // product top-level command routing.
+        Assert.Contains("CliTestDurationMilliseconds", methodNames!); // product test timeout parsing.
         Assert.Contains("CliSymbolNameContainsAsciiIgnoreCase", methodNames!); // IndexOf(string, StringComparison)
         Assert.Contains("CliExportCSharpFirstOperandChecksumInto", methodNames!); // char/int promotion
         Assert.Contains("CliExportTargetSummaryInto", methodNames!); // product export target routing.

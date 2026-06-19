@@ -112,6 +112,30 @@ internal static class TestCommandKernels
         }
     }
 
+    internal static bool TryGetDurationMilliseconds(string duration, out int? milliseconds)
+    {
+        milliseconds = null;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        try
+        {
+            var value = bindings.TestDurationMilliseconds(duration);
+            if (value < 0)
+                return true;
+
+            milliseconds = value;
+            return true;
+        }
+        catch
+        {
+            milliseconds = null;
+            return false;
+        }
+    }
+
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
             DogfoodKernelLoader.CreateDelegate<CliTestOutcomeSummaryInto>(
@@ -119,7 +143,10 @@ internal static class TestCommandKernels
                 "CliTestOutcomeSummaryInto"),
             DogfoodKernelLoader.CreateDelegate<CliTestOptionSummaryInto>(
                 programType,
-                "CliTestOptionSummaryInto")));
+                "CliTestOptionSummaryInto"),
+            DogfoodKernelLoader.CreateDelegate<CliTestDurationMilliseconds>(
+                programType,
+                "CliTestDurationMilliseconds")));
 
     private delegate int CliTestOutcomeSummaryInto(
         int[] outcomeRanks,
@@ -128,9 +155,12 @@ internal static class TestCommandKernels
 
     private delegate int CliTestOptionSummaryInto(string[] args, int[] resultIndices);
 
+    private delegate int CliTestDurationMilliseconds(string duration);
+
     private sealed record Bindings(
         CliTestOutcomeSummaryInto TestOutcomeSummary,
-        CliTestOptionSummaryInto TestOptionSummary);
+        CliTestOptionSummaryInto TestOptionSummary,
+        CliTestDurationMilliseconds TestDurationMilliseconds);
 
     private static bool TryGetOptionalArg(string[] args, int index, out string? value)
     {

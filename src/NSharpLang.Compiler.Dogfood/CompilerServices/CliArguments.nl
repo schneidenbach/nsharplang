@@ -4284,6 +4284,59 @@ func CliTestOptionSummaryInto(args: string[], resultIndices: int[]): int {
     return CliTestOptionSummaryCore(ref arguments, ref results)
 }
 
+func CliTestDurationMilliseconds(duration: string): int {
+    start := 0
+    end := duration.Length - 1
+    while start <= end && char.IsWhiteSpace(duration[start]) {
+        start = start + 1
+    }
+
+    while end >= start && char.IsWhiteSpace(duration[end]) {
+        end = end - 1
+    }
+
+    trimmedLength := end - start + 1
+    if trimmedLength < 2 {
+        return -1
+    }
+
+    unit := duration[end]
+    multiplier := 0
+    if unit == 's' {
+        multiplier = 1000
+    } else if unit == 'm' {
+        multiplier = 60000
+    } else if unit == 'h' {
+        multiplier = 3600000
+    } else {
+        return -1
+    }
+
+    limit := 2147483647 / multiplier
+    value := 0
+    index := start
+    while index < end {
+        ch := duration[index]
+        if ch < '0' || ch > '9' {
+            return -1
+        }
+
+        digit := ch - '0'
+        if value > (limit - digit) / 10 {
+            return -1
+        }
+
+        value = value * 10 + digit
+        index = index + 1
+    }
+
+    if value <= 0 {
+        return -1
+    }
+
+    return value * multiplier
+}
+
 func CliTestOptionSummaryCore(args: &CliArgumentTable, resultIndices: &CliIndexResultTable): int {
     if resultIndices.Indices.Length < 10 {
         return -1

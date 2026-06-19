@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-19 — Test timeout parsing moves into product N#
+
+`Program.TestCommand` now parses `--timeout` duration values through `TestCommandKernels`, which
+binds the shipped `CliTestDurationMilliseconds` dogfood kernel. The N# route trims whitespace,
+validates the `s`/`m`/`h` units, rejects non-positive values, and rejects integer overflow before the
+timeout reaches the test runner. The old C# parser remains only as fallback/oracle logic. This is a
+Stage 6 `C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`./scripts/dev.sh TestCommandKernels`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-19 — Top-level command routing moves into product N#
 
 `Program.Execute` now gets top-level command classification from `ProgramCommandKernels`, which
