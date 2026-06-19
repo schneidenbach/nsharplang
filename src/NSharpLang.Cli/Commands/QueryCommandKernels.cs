@@ -45,6 +45,9 @@ internal static class QueryCommandKernels
     [ThreadStatic]
     private static int[]? t_positionResult;
 
+    [ThreadStatic]
+    private static int[]? t_positiveIntResult;
+
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
 
     internal static bool TryGetDaemonParameterSummary(string[] args, out QueryDaemonParameterSummary summary)
@@ -222,6 +225,34 @@ internal static class QueryCommandKernels
         }
     }
 
+    internal static bool TryParsePositiveInt(string value, out bool parsed, out int result)
+    {
+        parsed = false;
+        result = 0;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        var resultArray = t_positiveIntResult ??= new int[1];
+        try
+        {
+            var code = bindings.TryParsePositiveInt(value, resultArray);
+            if (code is not 0 and not 1)
+                return false;
+
+            parsed = code == 1;
+            result = resultArray[0];
+            return true;
+        }
+        catch
+        {
+            parsed = false;
+            result = 0;
+            return false;
+        }
+    }
+
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
             DogfoodKernelLoader.CreateDelegate<CliQueryDaemonParameterSummaryInto>(
@@ -235,7 +266,10 @@ internal static class QueryCommandKernels
                 "CliQueryTopLevelOptionSummaryInto"),
             DogfoodKernelLoader.CreateDelegate<CliTryParsePositionInto>(
                 programType,
-                "CliTryParsePositionInto")));
+                "CliTryParsePositionInto"),
+            DogfoodKernelLoader.CreateDelegate<CliTryParsePositiveIntInto>(
+                programType,
+                "CliTryParsePositiveIntInto")));
 
     private static bool TryGetOptionalArg(string[] args, int index, out string? value)
     {
@@ -261,9 +295,12 @@ internal static class QueryCommandKernels
 
     private delegate int CliTryParsePositionInto(string position, int[] result);
 
+    private delegate int CliTryParsePositiveIntInto(string value, int[] result);
+
     private sealed record Bindings(
         CliQueryDaemonParameterSummaryInto QueryDaemonParameterSummary,
         CliQueryCommandOptionSummaryInto QueryCommandOptionSummary,
         CliQueryTopLevelOptionSummaryInto QueryTopLevelOptionSummary,
-        CliTryParsePositionInto TryParsePosition);
+        CliTryParsePositionInto TryParsePosition,
+        CliTryParsePositiveIntInto TryParsePositiveInt);
 }

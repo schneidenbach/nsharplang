@@ -11,6 +11,19 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-19 — Query limit parsing moves into product N#
+
+`QueryCommand` now parses `call-graph --limit` values through `QueryCommandKernels`, which binds
+the shipped `CliTryParsePositiveIntInto` dogfood kernel in `CliQueryParsing.nl`. The N# route
+preserves the legacy `int.TryParse && > 0` behavior for whitespace, signs, overflow, and invalid
+input: valid positive limits override the default, while invalid, zero, negative, and overflow
+values leave the default limit at 100. The previous C# parser remains only as fallback/oracle
+logic. This is a Stage 6 `C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`./scripts/dev.sh QueryCommandKernels`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliQueryParsing|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-19 — Watch numeric option parsing moves into product N#
 
 `WatchCommand.ParsePositiveInt` now parses provided `--debounce-ms` and `--max-runs` values

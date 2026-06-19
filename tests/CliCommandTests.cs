@@ -1372,6 +1372,37 @@ func Main() {
     }
 
     [Fact]
+    public void QueryCommandKernels_ParsePositiveIntsLikeCSharpFallback()
+    {
+        var cases = new[]
+        {
+            "1",
+            "25",
+            " 25 ",
+            "+64",
+            "0",
+            "-1",
+            "2147483647",
+            "-2147483648",
+            "2147483648",
+            "-2147483649",
+            "1_000",
+            "",
+            "   ",
+            "12.5"
+        };
+
+        foreach (var input in cases)
+        {
+            var expectedParsed = TryParsePositiveIntWithCSharpFallback(input, out var expectedValue);
+
+            Assert.True(QueryCommandKernels.TryParsePositiveInt(input, out var parsed, out var value));
+            Assert.Equal(expectedParsed, parsed);
+            Assert.Equal(expectedValue, value);
+        }
+    }
+
+    [Fact]
     public void NewCommandKernels_SummarizesArguments()
     {
         var args = new[] { "--template", "library", "--systems", "PacketCore", "-h" };
@@ -4072,6 +4103,15 @@ func Main() {
             return false;
 
         return int.TryParse(parts[0], out line) && int.TryParse(parts[1], out column);
+    }
+
+    private static bool TryParsePositiveIntWithCSharpFallback(string value, out int parsed)
+    {
+        if (int.TryParse(value, out parsed) && parsed > 0)
+            return true;
+
+        parsed = 0;
+        return false;
     }
 
     private static int GetTreeMaxDepthWithCSharpFallback(string[] args, int defaultDepth)

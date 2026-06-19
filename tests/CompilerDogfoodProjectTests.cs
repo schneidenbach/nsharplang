@@ -11867,6 +11867,7 @@ func outer(x: int): int {
         Assert.Contains("CliQueryCommandOptionSummaryInto", methodNames!); // product query command-option parsing.
         Assert.Contains("CliQueryTopLevelOptionSummaryInto", methodNames!); // product query top-level option parsing.
         Assert.Contains("CliTryParsePositionInto", methodNames!); // product query line/column position parsing.
+        Assert.Contains("CliTryParsePositiveIntInto", methodNames!); // product query positive-limit parsing.
 
         var full = 0xFFFFFFFFFFFFFFFFUL;
         AssertColumnarProgramMatchesCSharp(source,
@@ -11880,6 +11881,9 @@ func outer(x: int): int {
             ("CliQueryIsWhiteSpace", new object[] { ' ' }), ("CliQueryIsWhiteSpace", new object[] { 'x' }),
             ("CliTryParsePositionInto", new object[] { "12:34", new int[2] }),
             ("CliTryParsePositionInto", new object[] { "bad", new int[2] }),
+            ("CliTryParsePositiveIntInto", new object[] { "25", new int[1] }),
+            ("CliTryParsePositiveIntInto", new object[] { "0", new int[1] }),
+            ("CliTryParsePositiveIntInto", new object[] { "2147483648", new int[1] }),
             ("CliQueryMinInt", new object[] { 4, 9 }));
     }
 
@@ -15125,6 +15129,10 @@ class OtherZetaType {
                     "CliQueryCommandOptionSummaryInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliQueryCommandOptionSummaryInto.");
+            var cliTryParsePositiveIntInto = programType.GetMethod(
+                    "CliTryParsePositiveIntInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTryParsePositiveIntInto.");
             var cliPositionalArgIndicesInto = programType.GetMethod(
                     "CliPositionalArgIndicesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -16261,6 +16269,7 @@ func main(customer: Customer, résumé: Profile) {
                 cliQueryPositionChecksumInto);
             AssertCliQueryDaemonParametersLikeProduction(cliQueryDaemonParameterSummaryInto);
             AssertCliQueryCommandOptionsLikeProduction(cliQueryCommandOptionSummaryInto);
+            AssertCliQueryPositiveIntsLikeProduction(cliTryParsePositiveIntInto);
             AssertCliBuildOperandsLikeProduction(
                 cliBuildOperandIndicesInto,
                 cliBuildOperandSummaryInto,
@@ -18767,6 +18776,48 @@ func main() {
             return false;
 
         return int.TryParse(parts[0], out line) && int.TryParse(parts[1], out column);
+    }
+
+    private static void AssertCliQueryPositiveIntsLikeProduction(MethodInfo cliTryParsePositiveIntInto)
+    {
+        var cases = new[]
+        {
+            "1",
+            "25",
+            " 25 ",
+            "+64",
+            "0",
+            "-1",
+            "2147483647",
+            "-2147483648",
+            "2147483648",
+            "-2147483649",
+            "1_000",
+            "",
+            "   ",
+            "12.5"
+        };
+
+        foreach (var value in cases)
+        {
+            var expectedParsed = int.TryParse(value, out var expectedValue) && expectedValue > 0;
+            if (!expectedParsed)
+                expectedValue = 0;
+
+            var result = new[] { -99 };
+            var actualParsed = (int)(cliTryParsePositiveIntInto.Invoke(
+                null,
+                new object[] { value, result }) ?? -1);
+
+            Assert.Equal(expectedParsed ? 1 : 0, actualParsed);
+            Assert.Equal(expectedValue, result[0]);
+        }
+
+        Assert.Equal(
+            -1,
+            (int)(cliTryParsePositiveIntInto.Invoke(
+                null,
+                new object[] { "1", Array.Empty<int>() }) ?? 0));
     }
 
     private static void AssertCliBuildOperandsLikeProduction(

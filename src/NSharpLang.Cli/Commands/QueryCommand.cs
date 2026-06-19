@@ -216,12 +216,7 @@ public static class QueryCommand
     {
         var commandSummary = GetCommandOptionSummary(args);
         var functionName = commandSummary.Function;
-        var limitStr = commandSummary.Limit;
-        var limit = 100;
-        if (limitStr != null && int.TryParse(limitStr, out var parsedLimit) && parsedLimit > 0)
-        {
-            limit = parsedLimit;
-        }
+        var limit = GetCallGraphLimit(commandSummary.Limit);
 
         var snapshot = LoadProjectOrFail(options);
         if (snapshot == null) return 1;
@@ -238,6 +233,15 @@ public static class QueryCommand
         }
 
         return 0;
+    }
+
+    private static int GetCallGraphLimit(string? limitStr)
+    {
+        const int defaultLimit = 100;
+        if (limitStr != null && TryParsePositiveInt(limitStr, out var parsedLimit))
+            return parsedLimit;
+
+        return defaultLimit;
     }
 
     private static int PerformanceCommand(string[] args, QueryOptions options)
@@ -1095,6 +1099,24 @@ public static class QueryCommand
         var parts = posStr.Split(':');
         if (parts.Length != 2) return false;
         return int.TryParse(parts[0], out line) && int.TryParse(parts[1], out col);
+    }
+
+    private static bool TryParsePositiveInt(string value, out int parsed)
+    {
+        if (QueryCommandKernels.TryParsePositiveInt(value, out var parsedByKernel, out parsed))
+            return parsedByKernel;
+
+        return TryParsePositiveIntWithCSharp(value, out parsed);
+    }
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product query limit parsing routes through QueryCommandKernels.
+    private static bool TryParsePositiveIntWithCSharp(string value, out int parsed)
+    {
+        if (int.TryParse(value, out parsed) && parsed > 0)
+            return true;
+
+        parsed = 0;
+        return false;
     }
 
     private static ProjectSnapshot? LoadProjectOrFail(QueryOptions options)
