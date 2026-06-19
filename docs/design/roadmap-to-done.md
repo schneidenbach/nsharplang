@@ -276,7 +276,8 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       consumers in `SourceFileDeduplicator` and `CompilationStubNamespaceOrderer`, and analyzer exhaustiveness
       selection now lives beside `Analyzer` in `AnalyzerExhaustivenessSelector`; anonymous-union shim eligibility
       and overload candidate ranking now live beside IL emission in `AnonymousUnionShimSelector` and
-      `OverloadCandidateSelector`, and declared-type lookup/order/dedup now lives beside IL emission in
+      `OverloadCandidateSelector`, assembly-version component parsing now lives beside `AssemblyVersionUtilities`
+      in `AssemblyVersionKernels`, and declared-type lookup/order/dedup now lives beside IL emission in
       `ILTypeTableSelector`. AOT requirement grouping and struct-copy readonly gating now live beside compiler
       performance consumers in `AotRequirementSelector` and `StructCopyInitOnlySelector`. The source
       `NSharpCompilerDogfoodAdapter`, `NSharpPerformanceDogfoodAdapter`, and `NSharpCliDogfoodAdapter`

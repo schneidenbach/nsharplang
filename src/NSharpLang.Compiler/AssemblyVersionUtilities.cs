@@ -40,11 +40,7 @@ public static class AssemblyVersionUtilities
         Span<int> values = stackalloc int[] { 0, 0, 0, 0 };
         for (var i = 0; i < parts.Length; i++)
         {
-            if (!int.TryParse(
-                    parts[i],
-                    NumberStyles.None,
-                    CultureInfo.InvariantCulture,
-                    out var value))
+            if (!TryParseVersionComponent(parts[i], out var value))
             {
                 return false;
             }
@@ -55,4 +51,20 @@ public static class AssemblyVersionUtilities
         assemblyVersion = new Version(values[0], values[1], values[2], values[3]);
         return true;
     }
+
+    private static bool TryParseVersionComponent(string component, out int value)
+    {
+        if (AssemblyVersionKernels.TryParseComponent(component, out value))
+            return true;
+
+        return TryParseVersionComponentWithCSharp(component, out value);
+    }
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product assembly-version component parsing routes through AssemblyVersionKernels.
+    private static bool TryParseVersionComponentWithCSharp(string component, out int value)
+        => int.TryParse(
+            component,
+            NumberStyles.None,
+            CultureInfo.InvariantCulture,
+            out value);
 }

@@ -11852,6 +11852,25 @@ func outer(x: int): int {
             ("IsWhitespaceExceptNewline", new object[] { ' ' }), ("IsWhitespaceExceptNewline", new object[] { '\n' }), ("IsWhitespaceExceptNewline", new object[] { 'x' }));
     }
 
+    // MILESTONE: AssemblyVersionParsing.nl compiles end-to-end with no C# AST and owns CLR
+    // assembly-version component parsing for emitted assembly identities.
+    [Fact]
+    public void ColumnarCodegen_CompilesRealDogfoodFile_AssemblyVersionParsing()
+    {
+        var source = ReadDogfoodProductFile("AssemblyVersionParsing.nl");
+        var (ok, _, _, methodNames) = RouteColumnarProgram(source);
+        Assert.True(ok, "Columnar backend declined the real AssemblyVersionParsing.nl (expected full support).");
+        Assert.Contains("AssemblyVersionTryParseComponentInto", methodNames!);
+
+        AssertColumnarProgramMatchesCSharp(source,
+            ("AssemblyVersionTryParseComponentInto", new object[] { "0", new int[1] }),
+            ("AssemblyVersionTryParseComponentInto", new object[] { "01", new int[1] }),
+            ("AssemblyVersionTryParseComponentInto", new object[] { "2147483647", new int[1] }),
+            ("AssemblyVersionTryParseComponentInto", new object[] { "2147483648", new int[1] }),
+            ("AssemblyVersionTryParseComponentInto", new object[] { "-1", new int[1] }),
+            ("AssemblyVersionMinInt", new object[] { 4, 9 }));
+    }
+
     // MILESTONE: CliQueryParsing.nl compiles end-to-end with no C# AST. Enabling features: the ulong scalar +
     // ulong[] + BitOperations.PopCount(ulong) and the query position parser's whitespace/sign/overflow handling.
     // The packed-success-count kernel masks a partial last word via `(word << shift) >> shift` (exercising Shr_Un)
@@ -12466,7 +12485,7 @@ func outer(x: int): int {
         // The pure int / int[] / control-flow / sibling-call kernels the backend fully models today.
         var expectedCompiling = new[]
         {
-            "AnalyzerExhaustiveness.nl", "AnonymousUnionShims.nl", "AotRequirements.nl", "BindingLookup.nl",
+            "AnalyzerExhaustiveness.nl", "AnonymousUnionShims.nl", "AotRequirements.nl", "AssemblyVersionParsing.nl", "BindingLookup.nl",
             "CliArguments.nl", "CliDocOrdering.nl", "CliQueryParsing.nl", "CliTreeDependencies.nl",
             "CompletionGrouping.nl", "CompletionReceivers.nl", "DiagnosticClusters.nl", "DiagnosticDeduplication.nl", "DocQuery.nl",
             "EditorConfigParsing.nl", "FormatterImportOrdering.nl", "IdentifierSpans.nl",

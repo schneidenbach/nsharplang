@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-19 — Assembly version component parsing moves into product N#
+
+`AssemblyVersionUtilities.TryGetAssemblyVersion` now parses package-version numeric components through
+`AssemblyVersionKernels`, which binds the shipped `AssemblyVersionTryParseComponentInto` dogfood kernel in
+`AssemblyVersionParsing.nl`. C# invariant `int.TryParse` remains only as the fallback/oracle edge, preserving the
+existing CLR assembly identity behavior while moving the normal product route into N#.
+
+Focused evidence:
+`./scripts/dev.sh AssemblyVersion`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_AssemblyVersionParsing|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-19 — Formatter editorconfig integer parsing moves into product N#
 
 `FormatterConfig.FromEditorConfig` now parses `indent_size` and `max_line_length` integer values through the

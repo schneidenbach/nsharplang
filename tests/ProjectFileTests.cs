@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using NSharpLang.Compiler;
@@ -8,6 +9,50 @@ namespace NSharpLang.Tests;
 
 public class ProjectFileTests
 {
+    [Fact]
+    public void AssemblyVersionUtilities_ParsesPackageVersionThroughKernel()
+    {
+        Assert.True(AssemblyVersionUtilities.TryGetAssemblyVersion("1.2.3-beta.1+build.5", out var version));
+        Assert.Equal(new Version(1, 2, 3, 0), version);
+
+        Assert.True(AssemblyVersionUtilities.TryGetAssemblyVersion("01.002.0003.0004", out var padded));
+        Assert.Equal(new Version(1, 2, 3, 4), padded);
+
+        Assert.False(AssemblyVersionUtilities.TryGetAssemblyVersion("1.+2", out _));
+        Assert.False(AssemblyVersionUtilities.TryGetAssemblyVersion("1.2147483648", out _));
+    }
+
+    [Fact]
+    public void AssemblyVersionKernels_ParseComponentsLikeCSharpFallback()
+    {
+        var cases = new[]
+        {
+            "0",
+            "01",
+            "2147483647",
+            "2147483648",
+            "-1",
+            "+1",
+            " 1",
+            "1 ",
+            "12a",
+            ""
+        };
+
+        foreach (var component in cases)
+        {
+            var expectedParsed = int.TryParse(
+                component,
+                NumberStyles.None,
+                CultureInfo.InvariantCulture,
+                out var expected);
+
+            var actualParsed = AssemblyVersionKernels.TryParseComponent(component, out var actual);
+            Assert.Equal(expectedParsed, actualParsed);
+            Assert.Equal(expected, actual);
+        }
+    }
+
     [Fact]
     public void TestParseValidProjectFile()
     {
