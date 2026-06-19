@@ -4233,6 +4233,112 @@ func CliReferenceResolutionBestScoreIndexCore(scoresTable: &CliRankTable, count:
     return bestIndex
 }
 
+func CliSharedFrameworkCandidateIndex(
+    majorVersions: int[],
+    minorVersions: int[],
+    buildVersions: int[],
+    revisionVersions: int[],
+    count: int,
+    targetParsed: int,
+    targetMajor: int): int {
+    if count <= 0 {
+        return -1
+    }
+
+    if count > majorVersions.Length
+        || count > minorVersions.Length
+        || count > buildVersions.Length
+        || count > revisionVersions.Length {
+        return -2
+    }
+
+    bestOverallIndex := 0
+    bestMatchingIndex := -1
+    index := 0
+    while index < count {
+        if CliSharedFrameworkCandidateCompareAt(
+            majorVersions,
+            minorVersions,
+            buildVersions,
+            revisionVersions,
+            index,
+            bestOverallIndex) > 0 {
+            bestOverallIndex = index
+        }
+
+        if targetParsed == 0 || majorVersions[index] == targetMajor {
+            if bestMatchingIndex < 0
+                || CliSharedFrameworkCandidateCompareAt(
+                    majorVersions,
+                    minorVersions,
+                    buildVersions,
+                    revisionVersions,
+                    index,
+                    bestMatchingIndex) > 0 {
+                bestMatchingIndex = index
+            }
+        }
+
+        index = index + 1
+    }
+
+    if bestMatchingIndex >= 0 {
+        return bestMatchingIndex
+    }
+
+    return bestOverallIndex
+}
+
+func CliSharedFrameworkCandidateCompareAt(
+    majorVersions: int[],
+    minorVersions: int[],
+    buildVersions: int[],
+    revisionVersions: int[],
+    leftIndex: int,
+    rightIndex: int): int {
+    left := majorVersions[leftIndex]
+    right := majorVersions[rightIndex]
+    if left < right {
+        return -1
+    }
+
+    if left > right {
+        return 1
+    }
+
+    left = minorVersions[leftIndex]
+    right = minorVersions[rightIndex]
+    if left < right {
+        return -1
+    }
+
+    if left > right {
+        return 1
+    }
+
+    left = buildVersions[leftIndex]
+    right = buildVersions[rightIndex]
+    if left < right {
+        return -1
+    }
+
+    if left > right {
+        return 1
+    }
+
+    left = revisionVersions[leftIndex]
+    right = revisionVersions[rightIndex]
+    if left < right {
+        return -1
+    }
+
+    if left > right {
+        return 1
+    }
+
+    return 0
+}
+
 func CliNuGetDependencyVersionRangeInto(version: string, result: int[]): int {
     if result.Length < 2 {
         return -1

@@ -2479,6 +2479,34 @@ func Main() {
     }
 
     [Fact]
+    public void CompilationReferenceResolverKernels_SelectsSharedFrameworkCandidate()
+    {
+        var versions = new[]
+        {
+            Version.Parse("8.0.12"),
+            Version.Parse("10.0.0"),
+            Version.Parse("10.0.3"),
+            Version.Parse("9.1.0"),
+            Version.Parse("10.0.3.1")
+        };
+
+        AssertSelected(versions, 10, 4);
+        AssertSelected(versions, 9, 3);
+        AssertSelected(versions, 7, 4);
+        AssertSelected(versions, null, 4);
+        AssertSelected(Array.Empty<Version>(), 10, -1);
+
+        static void AssertSelected(Version[] versions, int? targetMajor, int expectedIndex)
+        {
+            Assert.True(CompilationReferenceResolverKernels.TrySelectSharedFrameworkCandidateIndex(
+                versions,
+                targetMajor,
+                out var selectedIndex));
+            Assert.Equal(expectedIndex, selectedIndex);
+        }
+    }
+
+    [Fact]
     public void CompilationReferenceResolverKernels_CompareNuGetVersions()
     {
         AssertCompared("13.0.3", "12.0.0", 1);

@@ -21,6 +21,9 @@ internal static class CompilationReferenceResolverKernels
     [ThreadStatic]
     private static int[]? t_nuGetDependencyVersionRangeResult;
 
+    [ThreadStatic]
+    private static SharedFrameworkCandidateScratch? t_sharedFrameworkCandidateScratch;
+
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
 
     internal static bool TryFilterReferencesByType(
@@ -241,6 +244,59 @@ internal static class CompilationReferenceResolverKernels
         }
     }
 
+    internal static bool TrySelectSharedFrameworkCandidateIndex(
+        IReadOnlyList<Version> versions,
+        int? targetMajor,
+        out int selectedIndex)
+    {
+        selectedIndex = -1;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        var count = versions.Count;
+        if (count == 0)
+            return true;
+
+        var scratch = t_sharedFrameworkCandidateScratch ??= new SharedFrameworkCandidateScratch();
+        scratch.EnsureCapacity(count);
+
+        try
+        {
+            for (var i = 0; i < count; i++)
+            {
+                var version = versions[i];
+                scratch.MajorVersions[i] = version.Major;
+                scratch.MinorVersions[i] = version.Minor;
+                scratch.BuildVersions[i] = version.Build;
+                scratch.RevisionVersions[i] = version.Revision;
+            }
+
+            selectedIndex = bindings.SharedFrameworkCandidateIndex(
+                scratch.MajorVersions,
+                scratch.MinorVersions,
+                scratch.BuildVersions,
+                scratch.RevisionVersions,
+                count,
+                targetMajor.HasValue ? 1 : 0,
+                targetMajor.GetValueOrDefault());
+
+            if (selectedIndex < -1 || selectedIndex >= count)
+            {
+                selectedIndex = -1;
+                return false;
+            }
+
+            return true;
+        }
+        catch
+        {
+            selectedIndex = -1;
+            return false;
+        }
+    }
+
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
             DogfoodKernelLoader.CreateDelegate<CliReferenceTypeFilterIndicesInto>(
@@ -260,7 +316,10 @@ internal static class CompilationReferenceResolverKernels
                 "CliFrameworkCompatibilityScoreInto"),
             DogfoodKernelLoader.CreateDelegate<CliNuGetDependencyVersionRangeInto>(
                 programType,
-                "CliNuGetDependencyVersionRangeInto")));
+                "CliNuGetDependencyVersionRangeInto"),
+            DogfoodKernelLoader.CreateDelegate<CliSharedFrameworkCandidateIndex>(
+                programType,
+                "CliSharedFrameworkCandidateIndex")));
 
     private delegate int CliReferenceTypeFilterIndicesInto(
         int[] typeRanks,
@@ -280,13 +339,23 @@ internal static class CompilationReferenceResolverKernels
 
     private delegate int CliNuGetDependencyVersionRangeInto(string version, int[] result);
 
+    private delegate int CliSharedFrameworkCandidateIndex(
+        int[] majorVersions,
+        int[] minorVersions,
+        int[] buildVersions,
+        int[] revisionVersions,
+        int count,
+        int targetParsed,
+        int targetMajor);
+
     private sealed record Bindings(
         CliReferenceTypeFilterIndicesInto ReferenceTypeFilterIndices,
         CliReferenceResolutionBestScoreIndex ReferenceResolutionBestScoreIndex,
         CliTargetFrameworkVersionInto TargetFrameworkVersion,
         CliNuGetVersionCompareInto NuGetVersionCompare,
         CliFrameworkCompatibilityScoreInto FrameworkCompatibilityScore,
-        CliNuGetDependencyVersionRangeInto NuGetDependencyVersionRange);
+        CliNuGetDependencyVersionRangeInto NuGetDependencyVersionRange,
+        CliSharedFrameworkCandidateIndex SharedFrameworkCandidateIndex);
 
     private static int GetReferenceTypeRank(ReferenceType type) =>
         type switch
@@ -310,6 +379,25 @@ internal static class CompilationReferenceResolverKernels
 
             if (ResultIndices.Length != referenceCount)
                 ResultIndices = new int[referenceCount];
+        }
+    }
+
+    private sealed class SharedFrameworkCandidateScratch
+    {
+        internal int[] MajorVersions = Array.Empty<int>();
+        internal int[] MinorVersions = Array.Empty<int>();
+        internal int[] BuildVersions = Array.Empty<int>();
+        internal int[] RevisionVersions = Array.Empty<int>();
+
+        internal void EnsureCapacity(int candidateCount)
+        {
+            if (MajorVersions.Length >= candidateCount)
+                return;
+
+            MajorVersions = new int[candidateCount];
+            MinorVersions = new int[candidateCount];
+            BuildVersions = new int[candidateCount];
+            RevisionVersions = new int[candidateCount];
         }
     }
 }

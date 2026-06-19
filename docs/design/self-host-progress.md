@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-19 — Shared-framework candidate selection moves into product N#
+
+`CompilationReferenceResolver` now chooses the best installed shared-framework directory through
+`CompilationReferenceResolverKernels`, which binds the shipped `CliSharedFrameworkCandidateIndex` dogfood kernel in
+`CliArguments.nl`. Dotnet shared-root enumeration and `Version` materialization remain C# host-boundary work; the
+target-major match and latest-version fallback decision now live in N#, with the previous LINQ ordering logic
+isolated as fallback/oracle.
+
+Focused evidence:
+`./scripts/dev.sh CompilationReferenceResolverKernels`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-19 — NuGet dependency-version normalization moves into product N#
 
 `CompilationReferenceResolver` now normalizes NuGet dependency version ranges through

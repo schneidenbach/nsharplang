@@ -813,15 +813,45 @@ internal static class CompilationReferenceResolver
                 continue;
             }
 
-            var matchingMajor = candidates
-                .Where(candidate => targetVersion == null || candidate.Version.Major == targetVersion.Value.Major)
-                .OrderByDescending(candidate => candidate.Version)
-                .FirstOrDefault();
-
-            return (matchingMajor ?? candidates.OrderByDescending(candidate => candidate.Version).First()).Directory;
+            return SelectSharedFrameworkDirectory(candidates, targetVersion);
         }
 
         return null;
+    }
+
+    private static string SelectSharedFrameworkDirectory(
+        FrameworkCandidate[] candidates,
+        (int Major, int Minor)? targetVersion)
+    {
+        var versions = new Version[candidates.Length];
+        for (var i = 0; i < candidates.Length; i++)
+            versions[i] = candidates[i].Version;
+
+        var targetMajor = targetVersion.HasValue ? targetVersion.Value.Major : (int?)null;
+        if (CompilationReferenceResolverKernels.TrySelectSharedFrameworkCandidateIndex(
+                versions,
+                targetMajor,
+                out var dogfoodIndex)
+            && dogfoodIndex >= 0)
+        {
+            return candidates[dogfoodIndex].Directory;
+        }
+
+        return SelectSharedFrameworkDirectoryWithCSharp(candidates, targetVersion);
+    }
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product shared-framework candidate
+    // selection routes through CompilationReferenceResolverKernels.
+    private static string SelectSharedFrameworkDirectoryWithCSharp(
+        FrameworkCandidate[] candidates,
+        (int Major, int Minor)? targetVersion)
+    {
+        var matchingMajor = candidates
+            .Where(candidate => targetVersion == null || candidate.Version.Major == targetVersion.Value.Major)
+            .OrderByDescending(candidate => candidate.Version)
+            .FirstOrDefault();
+
+        return (matchingMajor ?? candidates.OrderByDescending(candidate => candidate.Version).First()).Directory;
     }
 
     private static IEnumerable<string> EnumerateDotnetSharedRoots()
