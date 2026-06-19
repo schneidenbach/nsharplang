@@ -346,6 +346,17 @@ internal static class ColumnarProgramInputBuilder
                     return false;
 
                 var typeParamCount = outResult[2];
+
+                // Stage 6 union-ABI safety: a small, closed, payload-free, non-generic union is the C# oracle's
+                // allocation-free PUBLIC readonly tag struct (UnionValueLayout.IsValueStructEmittable →
+                // DeclareValueStructUnion; ILCompiler_PayloadFreeUnion_IsEmittedAsValueStruct pins
+                // IsValueType==true). The columnar emitter only models the class-hierarchy layout, so it must
+                // DECLINE these to the oracle rather than silently emit heap case classes — otherwise a
+                // columnar-routed build swaps the public value-struct ABI for reference types (the documented
+                // Stage-6 caveat in performance-compiler-refactor.md). The eligibility decision is owned by N#
+                // (ColumnarUnionIsValueStructEmittable in ParserColumnarUnions.nl).
+                if (bindings.UnionIsValueStructEmittable(outCaseFieldCounts, caseCount, typeParamCount) == 1)
+                    return false;
                 string[]? typeParamNames = null;
                 if (typeParamCount > 0)
                 {
@@ -830,6 +841,9 @@ internal static class ColumnarProgramInputBuilder
             DogfoodKernelLoader.CreateDelegate<ParseColumnarUnionInfoInto>(
                 programType,
                 "ParseColumnarUnionInfoInto"),
+            DogfoodKernelLoader.CreateDelegate<ColumnarUnionIsValueStructEmittable>(
+                programType,
+                "ColumnarUnionIsValueStructEmittable"),
             DogfoodKernelLoader.CreateDelegate<ParseColumnarConstructorInfoInto>(
                 programType,
                 "ParseColumnarConstructorInfoInto")));
@@ -904,6 +918,9 @@ internal static class ColumnarProgramInputBuilder
         string[] outFieldNameTexts, string[] outFieldTypeTexts, string[] outTypeParamTexts,
         string[] outUnionNameTexts, int[] outResult);
 
+    private delegate int ColumnarUnionIsValueStructEmittable(
+        int[] caseFieldCounts, int caseCount, int typeParamCount);
+
     private delegate int ParseColumnarConstructorInfoInto(
         string source,
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int ctorIndex,
@@ -921,6 +938,7 @@ internal static class ColumnarProgramInputBuilder
         ParseColumnarEnumInfoInto ParseColumnarEnumInfo,
         ParseColumnarStructInfoInto ParseColumnarStructInfo,
         ParseColumnarUnionInfoInto ParseColumnarUnionInfo,
+        ColumnarUnionIsValueStructEmittable UnionIsValueStructEmittable,
         ParseColumnarConstructorInfoInto ParseColumnarConstructorInfo);
 
     private sealed class ColumnarTokenizedSource

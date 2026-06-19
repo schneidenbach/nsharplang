@@ -8113,34 +8113,61 @@ func outer(x: int): int {
         Assert.False(RouteColumnarProgram("union U {\n    A { x: int }\n    B { y: int }\n}\n\nfunc f(u: U): int {\n    return match u {\n        U.A { x } when x > 0 => x,\n        U.B { y } => y\n    }\n}\n").Ok);
     }
 
-    // UNION with ZERO-FIELD (payload-free) cases — `union Color { Red {} Green {} }`. C# ALLOWS constructing them
-    // (`new Color.Red {}` — an empty object initializer) and matching via a catch-all, but REJECTS destructuring one
-    // with a `{ }` property pattern (NL503 — "doesn't carry any data — you can't destructure it with property
-    // patterns"; a payload-free case is matched as a BARE type pattern instead, which columnar does not model). So
-    // columnar value-matches C# on construction + catch-all, and DECLINES a `Case {}` property pattern on a zero-field
-    // case — never accepting a destructuring C# refuses.
+    // ZERO-FIELD (payload-free) cases mixed into a PAYLOAD-bearing union — `union Tok { Eof {} Num { value: int } }`.
+    // C# allows constructing a zero-field case (`new Tok.Eof {}`) and matching it via a catch-all, but REJECTS
+    // destructuring one with a `{ }` property pattern (NL503 — "doesn't carry any data — you can't destructure it
+    // with property patterns"; a payload-free case is matched as a BARE type pattern instead). Tok carries a payload
+    // case (Num), so it is NOT value-struct-emittable and stays on the columnar class-hierarchy path; a payload-FREE,
+    // non-generic union is the C# oracle's public value struct and columnar declines it (see
+    // ColumnarCodegen_Declines_ValueStructEmittableUnion). So columnar value-matches C# on construction + catch-all,
+    // and DECLINES a `Case {}` property pattern on a zero-field case — never accepting a destructuring C# refuses.
     [Fact]
     public void ColumnarCodegen_Parity_UnionZeroFieldCases()
     {
         var prog =
-            "union Color {\n    Red {}\n    Green {}\n    Blue {}\n}\n\n" +
-            "func makeC(n: int): Color {\n    if n == 0 {\n        return new Color.Red {}\n    }\n    if n == 1 {\n        return new Color.Green {}\n    }\n    return new Color.Blue {}\n}\n\n" +
-            // a zero-field case is constructed, then matched only via a catch-all (no NL503 property pattern).
-            "func anyColor(n: int): int {\n    return match makeC(n) {\n        _ => 7\n    }\n}\n\n" +
-            // a zero-field case mixed with a PAYLOAD case in one union: construct either, match the payload case by
-            // property pattern and the zero-field case by the catch-all.
             "union Tok {\n    Eof {}\n    Num { value: int }\n}\n\n" +
             "func makeTok(n: int): Tok {\n    if n < 0 {\n        return new Tok.Eof {}\n    }\n    return new Tok.Num { value: n }\n}\n\n" +
+            // the zero-field case (Eof) is matched only via a catch-all; the payload case (Num) by a property pattern.
             "func tokVal(n: int): int {\n    return match makeTok(n) {\n        Tok.Num { value } => value,\n        _ => -1\n    }\n}\n";
         AssertColumnarProgramMatchesCSharp(prog,
-            ("anyColor", new object[] { 0 }), ("anyColor", new object[] { 1 }), ("anyColor", new object[] { 2 }),
             ("tokVal", new object[] { 5 }), ("tokVal", new object[] { 0 }), ("tokVal", new object[] { -1 }));
 
         // DECLINE: destructuring a zero-field case with a `{ }` property pattern — C# rejects it (NL503), so columnar
-        // must decline rather than emit an isinst-only test for a program the language refuses.
-        Assert.False(RouteColumnarProgram("union Color {\n    Red {}\n    Green {}\n}\n\nfunc f(c: Color): int {\n    return match c {\n        Color.Red {} => 1,\n        Color.Green {} => 2\n    }\n}\n").Ok);
-        // a zero-field case destructured even with a catch-all present still declines (the `{ }` pattern itself is NL503).
+        // must decline rather than emit an isinst-only test for a program the language refuses. Tok is payload-bearing,
+        // so this decline is the NL503 path, not the value-struct-ABI decline.
         Assert.False(RouteColumnarProgram("union Tok {\n    Eof {}\n    Num { value: int }\n}\n\nfunc f(t: Tok): int {\n    return match t {\n        Tok.Num { value } => value,\n        Tok.Eof {} => -1\n    }\n}\n").Ok);
+    }
+
+    // A small (≤16-case), closed, payload-free, non-generic union is the C# oracle's allocation-free PUBLIC readonly
+    // tag struct (UnionValueLayout.IsValueStructEmittable → DeclareValueStructUnion; the value-struct ABI is pinned by
+    // ILCompiler_PayloadFreeUnion_IsEmittedAsValueStruct, which asserts IsValueType==true). The columnar emitter only
+    // models the class-hierarchy layout, so it MUST decline these to the oracle rather than silently swap the public
+    // value-struct ABI for heap case classes (the documented Stage-6 caveat in performance-compiler-refactor.md). The
+    // eligibility decision is owned by N# (ColumnarUnionIsValueStructEmittable in ParserColumnarUnions.nl).
+    [Fact]
+    public void ColumnarCodegen_Declines_ValueStructEmittableUnion()
+    {
+        // payload-free, non-generic, 3 cases => value-struct-emittable => columnar DECLINES to the oracle.
+        Assert.False(RouteColumnarProgram("union Color {\n    Red {}\n    Green {}\n    Blue {}\n}\n\nfunc f(): int {\n    return 0\n}\n").Ok);
+
+        // payload-bearing => NOT value-struct-emittable (HasPayloads) => columnar still emits (decline is specific).
+        Assert.True(RouteColumnarProgram("union Result {\n    Success { value: int }\n    Failure { code: int }\n}\n\nfunc f(): int {\n    return 0\n}\n").Ok);
+
+        // exactly MaxValueStructCases (16) payload-free cases => still value-struct-emittable => DECLINE.
+        Assert.False(RouteColumnarProgram(PayloadFreeUnionProgram(16)).Ok);
+        // 17 payload-free cases => exceeds MaxValueStructCases => NOT value-struct-emittable => columnar emits class form.
+        Assert.True(RouteColumnarProgram(PayloadFreeUnionProgram(17)).Ok);
+    }
+
+    // A program declaring one payload-free union with `caseCount` bare cases plus a trivial function, used to pin the
+    // MaxValueStructCases (16) decline boundary in ColumnarCodegen_Declines_ValueStructEmittableUnion.
+    private static string PayloadFreeUnionProgram(int caseCount)
+    {
+        var builder = new System.Text.StringBuilder("union Big {\n");
+        for (var i = 0; i < caseCount; i++)
+            builder.Append("    C").Append(i).Append(" {}\n");
+        builder.Append("}\n\nfunc f(): int {\n    return 0\n}\n");
+        return builder.ToString();
     }
 
     // UNION BARE TYPE patterns — `Result.Success => …` (no `{ }`): match a case by TYPE without destructuring/binding
@@ -8151,38 +8178,42 @@ func outer(x: int): int {
     [Fact]
     public void ColumnarCodegen_Parity_UnionBareTypePatterns()
     {
+        // Bare patterns are exercised over PAYLOAD-bearing / MIXED unions, which stay on the columnar class path. A
+        // payload-FREE, non-generic union is the C# oracle's public value struct and columnar declines it (see
+        // ColumnarCodegen_Declines_ValueStructEmittableUnion), so the idiomatic payload-free bare-pattern match is no
+        // longer a columnar emit case — its bare-pattern surface is covered here by the mixed Tok union instead.
         var prog =
             // bare patterns over a PAYLOAD union (no destructuring) — exhaustive by the two bare arms.
             "union Result {\n    Success { value: int }\n    Failure { code: int }\n}\n\n" +
             "func makeR(ok: bool): Result {\n    if ok {\n        return new Result.Success { value: 1 }\n    }\n    return new Result.Failure { code: 2 }\n}\n\n" +
             "func tag(ok: bool): int {\n    return match makeR(ok) {\n        Result.Success => 1,\n        Result.Failure => 0\n    }\n}\n\n" +
-            // bare patterns over a ZERO-FIELD union — the idiomatic payload-free match (Color acts as a named enum).
-            "union Color {\n    Red {}\n    Green {}\n    Blue {}\n}\n\n" +
-            "func makeC(n: int): Color {\n    if n == 0 {\n        return new Color.Red {}\n    }\n    if n == 1 {\n        return new Color.Green {}\n    }\n    return new Color.Blue {}\n}\n\n" +
-            "func colorCode(n: int): int {\n    return match makeC(n) {\n        Color.Red => 10,\n        Color.Green => 20,\n        Color.Blue => 30\n    }\n}\n\n" +
-            // MIXED: a bare TYPE pattern for the payload-free case + a property pattern for the payload case.
+            // MIXED: a bare TYPE pattern for the zero-field case + a property pattern for the payload case.
             "union Tok {\n    Eof {}\n    Num { value: int }\n}\n\n" +
             "func makeT(n: int): Tok {\n    if n < 0 {\n        return new Tok.Eof {}\n    }\n    return new Tok.Num { value: n }\n}\n\n" +
             "func tokVal(n: int): int {\n    return match makeT(n) {\n        Tok.Eof => -1,\n        Tok.Num { value } => value\n    }\n}\n\n" +
             // a bare type pattern + a `_` catch-all (bare arm covers one case, catch-all the rest).
-            "func isRed(n: int): int {\n    return match makeC(n) {\n        Color.Red => 1,\n        _ => 0\n    }\n}\n\n" +
-            // bare type patterns COMPOSE with `or` (they bind nothing, so combinators are safe over them).
-            "func warm(n: int): int {\n    return match makeC(n) {\n        Color.Red or Color.Green => 1,\n        _ => 0\n    }\n}\n";
+            "func eofTag(n: int): int {\n    return match makeT(n) {\n        Tok.Eof => 1,\n        _ => 0\n    }\n}\n\n" +
+            // bare type patterns COMPOSE with `or` (they bind nothing, so combinators are safe over them); a 3-case
+            // PAYLOAD union keeps it on the columnar class path with a REACHABLE catch-all (the `or` covers Lo/Mid, the
+            // catch-all covers Hi). This is the positive emit case for `Union.Case or Union.Case` (the decline below
+            // pins the matching non-exhaustiveness rule).
+            "union Sig {\n    Lo { v: int }\n    Mid { v: int }\n    Hi { v: int }\n}\n\n" +
+            "func makeSig(n: int): Sig {\n    if n < 0 {\n        return new Sig.Lo { v: 1 }\n    }\n    if n == 0 {\n        return new Sig.Mid { v: 2 }\n    }\n    return new Sig.Hi { v: 3 }\n}\n\n" +
+            "func warm(n: int): int {\n    return match makeSig(n) {\n        Sig.Lo or Sig.Mid => 1,\n        _ => 0\n    }\n}\n";
         AssertColumnarProgramMatchesCSharp(prog,
             ("tag", new object[] { true }), ("tag", new object[] { false }),
-            ("colorCode", new object[] { 0 }), ("colorCode", new object[] { 1 }), ("colorCode", new object[] { 2 }),
             ("tokVal", new object[] { -1 }), ("tokVal", new object[] { 5 }), ("tokVal", new object[] { 0 }),
-            ("isRed", new object[] { 0 }), ("isRed", new object[] { 1 }), ("isRed", new object[] { 2 }),
-            ("warm", new object[] { 0 }), ("warm", new object[] { 1 }), ("warm", new object[] { 2 }));
+            ("eofTag", new object[] { -1 }), ("eofTag", new object[] { 5 }),
+            ("warm", new object[] { -1 }), ("warm", new object[] { 0 }), ("warm", new object[] { 1 }));
 
         // a bare-pattern match that leaves a case UNCOVERED with no catch-all is non-exhaustive -> decline (NL501).
-        Assert.False(RouteColumnarProgram("union Color {\n    Red {}\n    Green {}\n    Blue {}\n}\n\nfunc f(c: Color): int {\n    return match c {\n        Color.Red => 1,\n        Color.Green => 2\n    }\n}\n").Ok);
-        // an OR-combinator arm does NOT contribute to exhaustiveness — `Color.Red or Color.Green => …, Color.Blue => …`
-        // (no catch-all) is non-exhaustive in C# too (verified: NL501 "Pattern matching is not exhaustive"), so columnar
-        // correctly DECLINES it. (The columnar exhaustiveness check counts only top-level UNGUARDED simple arms —
-        // bare/property/`_` — exactly like the C# analyzer, which also ignores combinator coverage. Counting `or`
-        // coverage here would ACCEPT a program C# rejects.)
-        Assert.False(RouteColumnarProgram("union Color {\n    Red {}\n    Green {}\n    Blue {}\n}\n\nfunc f(c: Color): int {\n    return match c {\n        Color.Red or Color.Green => 1,\n        Color.Blue => 2\n    }\n}\n").Ok);
+        // U is payload-bearing (so the decline is the exhaustiveness path, not the value-struct-ABI decline).
+        Assert.False(RouteColumnarProgram("union U {\n    A { x: int }\n    B { y: int }\n    C { z: int }\n}\n\nfunc f(u: U): int {\n    return match u {\n        U.A => 1,\n        U.B => 2\n    }\n}\n").Ok);
+        // an OR-combinator arm does NOT contribute to exhaustiveness — `U.A or U.B => …, U.C => …` (no catch-all) leaves
+        // A and B uncovered by simple arms, so columnar correctly DECLINES it (matching the C# analyzer, which also
+        // ignores combinator coverage; the columnar exhaustiveness check counts only top-level UNGUARDED simple arms —
+        // bare/property/`_`. Counting `or` coverage would ACCEPT a program C# rejects with NL501).
+        Assert.False(RouteColumnarProgram("union U {\n    A { x: int }\n    B { y: int }\n    C { z: int }\n}\n\nfunc f(u: U): int {\n    return match u {\n        U.A or U.B => 1,\n        U.C => 2\n    }\n}\n").Ok);
     }
 
     // GENERIC UNIONS (Phase D) — `union Opt<T>` mirrors the oracle's d1c41b6e machinery: the abstract base

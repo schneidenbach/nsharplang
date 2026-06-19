@@ -11,6 +11,29 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-19 — Columnar declines value-struct-emittable unions (public-ABI parity fix)
+
+Closes the documented Stage-6 union-ABI divergence (the "Backend caveat (2026-06-10)" in
+[`performance-compiler-refactor.md`](performance-compiler-refactor.md)). A small (≤16-case), closed, payload-free,
+non-generic union is the C# oracle's allocation-free PUBLIC readonly tag struct
+(`UnionValueLayout.IsValueStructEmittable` → `DeclareValueStructUnion`; `ILCompiler_PayloadFreeUnion_IsEmittedAsValueStruct`
+pins `IsValueType==true`). The columnar emitter only models the class-hierarchy layout, so a columnar-routed build
+silently swapped that public value-struct ABI for heap case classes — observable via reflection / `typeof(T).IsValueType`
+/ C# interop, which N#'s first-class-interop promise makes a product contract, even though in-language match/equality
+semantics converge (verified: a payload-free union behaves identically under both backends for `match` and `==`). The
+columnar input builder (`ColumnarProgramInputBuilder.TryGetColumnarUnionInputs`) now DECLINES value-struct-emittable
+unions to the oracle, which emits the correct value struct. The eligibility decision is owned by N#: a new
+`ColumnarUnionIsValueStructEmittable` kernel in `ParserColumnarUnions.nl` mirrors `IsValueStructEmittable` on the
+columnar union shape (non-generic, 1..16 cases, every case payload-free). Payload-bearing, generic, and >16-case unions
+are unaffected and still emit through columnar (class-form, matching the oracle). Slice approved by codex-review (it
+overturned an initial mis-scoped "non-bug" rejection that only checked in-language semantics, not the interop ABI).
+FUTURE ownership slice: port value-struct union emission into `ColumnarIlEmitter` (tag-struct decl + tag construction +
+tag-compare match + value adoption) so columnar OWNS the form and the decline is removed.
+
+Focused evidence:
+`./scripts/dev.sh "FullyQualifiedName~ColumnarCodegen_Parity_Union|FullyQualifiedName~ColumnarCodegen_Declines_ValueStructEmittableUnion|FullyQualifiedName~ColumnarCodegen_Parity_GenericUnions"` (6 passed);
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~ColumnarCodegen_MultiFile_ParityCorpus|FullyQualifiedName~ColumnarCodegen_CompilesRealDogfoodFile|FullyQualifiedName~ILCompiler_PayloadFreeUnion|FullyQualifiedName~UnionValueLayout|FullyQualifiedName~ColumnarCodegen_Parity_Union"` (28 passed).
+
 ## 2026-06-19 — Shared-framework candidate selection moves into product N#
 
 `CompilationReferenceResolver` now chooses the best installed shared-framework directory through
