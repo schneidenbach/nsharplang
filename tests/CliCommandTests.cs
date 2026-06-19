@@ -18,6 +18,36 @@ public class CliCommandTests
     private static readonly string IssueTrackerFixture = Path.Combine(FindFixturesDir(), "issue-tracker");
 
     [Fact]
+    public void ProgramCommandKernels_SummarizesTopLevelCommands()
+    {
+        Assert.True(ProgramCommandKernels.TryGetCommandKind(Array.Empty<string>(), out var empty));
+        Assert.Equal(ProgramCommandKind.Help, empty);
+
+        Assert.True(ProgramCommandKernels.TryGetCommandKind(new[] { "BUILD", "--help" }, out var build));
+        Assert.Equal(ProgramCommandKind.Build, build);
+
+        Assert.True(ProgramCommandKernels.TryGetCommandKind(new[] { "--VERSION" }, out var longVersion));
+        Assert.Equal(ProgramCommandKind.Version, longVersion);
+
+        Assert.True(ProgramCommandKernels.TryGetCommandKind(new[] { "-V" }, out var shortVersion));
+        Assert.Equal(ProgramCommandKind.Version, shortVersion);
+
+        Assert.True(ProgramCommandKernels.TryGetCommandKind(new[] { "-v" }, out var lowerShortVersion));
+        Assert.Equal(ProgramCommandKind.Unknown, lowerShortVersion);
+
+        var (buildExitCode, buildStdout, buildStderr) = CaptureConsole(() =>
+            Program.Execute(new[] { "BUILD", "--help" }));
+        Assert.Equal(0, buildExitCode);
+        Assert.Contains("Usage: nlc build", buildStdout);
+        Assert.True(string.IsNullOrWhiteSpace(buildStderr));
+
+        var (transpileExitCode, _, transpileStderr) = CaptureConsole(() =>
+            Program.Execute(new[] { "TRANSPILE", "Program.nl" }));
+        Assert.Equal(1, transpileExitCode);
+        Assert.Contains("The 'transpile' command has been removed", transpileStderr);
+    }
+
+    [Fact]
     public void CheckCommand_Help_IsSideEffectFree()
     {
         var (exitCode, stdout, stderr) = CaptureConsole(() => CheckCommand.Execute(new[] { "--help" }));

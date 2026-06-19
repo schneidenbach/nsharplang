@@ -53,54 +53,100 @@ partial class Program
 
     internal static int Execute(string[] args)
     {
-        if (args.Length == 0)
+        var commandKind = GetCommandKind(args);
+
+        return commandKind switch
         {
-            ShowHelp();
-            return 0;
-        }
-
-        // Handle case-sensitive flags before lowercasing
-        var raw = args[0];
-        if (raw == "--version" || raw == "-V")
-            return ShowVersion();
-
-        var command = raw.ToLower();
-
-        return command switch
-        {
-            "build" => BuildCommand(args.Skip(1).ToArray()),
-            "run" => RunCommand(args.Skip(1).ToArray()),
-            "publish" => PublishCommand(args.Skip(1).ToArray()),
-            "new" => NewCommand(args.Skip(1).ToArray()),
-            "test" => TestCommand(args.Skip(1).ToArray()),
-            "format" => FormatCommand(args.Skip(1).ToArray()),
-            "lint" => Commands.LintCommand.Execute(args.Skip(1).ToArray()),
-            "restore" => RestoreCommand.Execute(args.Skip(1).ToArray()),
-            "clean" => CleanCommand.Execute(args.Skip(1).ToArray()),
-            "watch" => WatchCommand.Execute(args.Skip(1).ToArray()),
-            "doc" => DocCommand.Execute(args.Skip(1).ToArray()),
-            "completion" => CompletionCommand.Execute(args.Skip(1).ToArray()),
-            "check" => Commands.CheckCommand.Execute(args.Skip(1).ToArray()),
-            "fix" => FixCommand.Execute(args.Skip(1).ToArray()),
-            "query" => QueryCommand.Execute(args.Skip(1).ToArray()),
-            "daemon" => DaemonCommand.Execute(args.Skip(1).ToArray()),
-            "add" => AddCommand.Execute(args.Skip(1).ToArray()),
-            "tidy" => TidyCommand.Execute(args.Skip(1).ToArray()),
-            "remove" => RemoveCommand.Execute(args.Skip(1).ToArray()),
-            "update" => UpdateCommand.Execute(args.Skip(1).ToArray()),
-            "init" => InitCommand.Execute(args.Skip(1).ToArray()),
-            "env" => EnvCommand.Execute(args.Skip(1).ToArray()),
-            "doctor" => DoctorCommand.Execute(args.Skip(1).ToArray()),
-            "tree" => TreeCommand.Execute(args.Skip(1).ToArray()),
-            "audit" => AuditCommand.Execute(args.Skip(1).ToArray()),
-            "pack" => PackCommand.Execute(args.Skip(1).ToArray()),
-            "export" => Commands.ExportCommand.Execute(args.Skip(1).ToArray()),
-            "help" or "--help" or "-h" => ShowHelp(),
-            "--version" => ShowVersion(),
-            "transpile" => Error("The 'transpile' command has been removed. Use 'nlc export csharp' instead."),
-            _ => Error($"Unknown command: {command}. Run 'nlc help' to see available commands.")
+            ProgramCommandKind.Build => BuildCommand(GetCommandArgs(args)),
+            ProgramCommandKind.Run => RunCommand(GetCommandArgs(args)),
+            ProgramCommandKind.Publish => PublishCommand(GetCommandArgs(args)),
+            ProgramCommandKind.New => NewCommand(GetCommandArgs(args)),
+            ProgramCommandKind.Test => TestCommand(GetCommandArgs(args)),
+            ProgramCommandKind.Format => FormatCommand(GetCommandArgs(args)),
+            ProgramCommandKind.Lint => Commands.LintCommand.Execute(GetCommandArgs(args)),
+            ProgramCommandKind.Restore => RestoreCommand.Execute(GetCommandArgs(args)),
+            ProgramCommandKind.Clean => CleanCommand.Execute(GetCommandArgs(args)),
+            ProgramCommandKind.Watch => WatchCommand.Execute(GetCommandArgs(args)),
+            ProgramCommandKind.Doc => DocCommand.Execute(GetCommandArgs(args)),
+            ProgramCommandKind.Completion => CompletionCommand.Execute(GetCommandArgs(args)),
+            ProgramCommandKind.Check => Commands.CheckCommand.Execute(GetCommandArgs(args)),
+            ProgramCommandKind.Fix => FixCommand.Execute(GetCommandArgs(args)),
+            ProgramCommandKind.Query => QueryCommand.Execute(GetCommandArgs(args)),
+            ProgramCommandKind.Daemon => DaemonCommand.Execute(GetCommandArgs(args)),
+            ProgramCommandKind.Add => AddCommand.Execute(GetCommandArgs(args)),
+            ProgramCommandKind.Tidy => TidyCommand.Execute(GetCommandArgs(args)),
+            ProgramCommandKind.Remove => RemoveCommand.Execute(GetCommandArgs(args)),
+            ProgramCommandKind.Update => UpdateCommand.Execute(GetCommandArgs(args)),
+            ProgramCommandKind.Init => InitCommand.Execute(GetCommandArgs(args)),
+            ProgramCommandKind.Env => EnvCommand.Execute(GetCommandArgs(args)),
+            ProgramCommandKind.Doctor => DoctorCommand.Execute(GetCommandArgs(args)),
+            ProgramCommandKind.Tree => TreeCommand.Execute(GetCommandArgs(args)),
+            ProgramCommandKind.Audit => AuditCommand.Execute(GetCommandArgs(args)),
+            ProgramCommandKind.Pack => PackCommand.Execute(GetCommandArgs(args)),
+            ProgramCommandKind.Export => Commands.ExportCommand.Execute(GetCommandArgs(args)),
+            ProgramCommandKind.Help => ShowHelp(),
+            ProgramCommandKind.Version => ShowVersion(),
+            ProgramCommandKind.Transpile => Error("The 'transpile' command has been removed. Use 'nlc export csharp' instead."),
+            _ => Error($"Unknown command: {GetCommandNameForError(args)}. Run 'nlc help' to see available commands.")
         };
     }
+
+    internal static ProgramCommandKind GetCommandKind(string[] args)
+        => ProgramCommandKernels.TryGetCommandKind(args, out var commandKind)
+            ? commandKind
+            : GetCommandKindWithCSharp(args);
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product top-level command parsing routes through ProgramCommandKernels.
+    private static ProgramCommandKind GetCommandKindWithCSharp(string[] args)
+    {
+        if (args.Length == 0)
+            return ProgramCommandKind.Help;
+
+        var raw = args[0];
+        if (raw == "-V")
+            return ProgramCommandKind.Version;
+
+        return raw.ToLower() switch
+        {
+            "build" => ProgramCommandKind.Build,
+            "run" => ProgramCommandKind.Run,
+            "publish" => ProgramCommandKind.Publish,
+            "new" => ProgramCommandKind.New,
+            "test" => ProgramCommandKind.Test,
+            "format" => ProgramCommandKind.Format,
+            "lint" => ProgramCommandKind.Lint,
+            "restore" => ProgramCommandKind.Restore,
+            "clean" => ProgramCommandKind.Clean,
+            "watch" => ProgramCommandKind.Watch,
+            "doc" => ProgramCommandKind.Doc,
+            "completion" => ProgramCommandKind.Completion,
+            "check" => ProgramCommandKind.Check,
+            "fix" => ProgramCommandKind.Fix,
+            "query" => ProgramCommandKind.Query,
+            "daemon" => ProgramCommandKind.Daemon,
+            "add" => ProgramCommandKind.Add,
+            "tidy" => ProgramCommandKind.Tidy,
+            "remove" => ProgramCommandKind.Remove,
+            "update" => ProgramCommandKind.Update,
+            "init" => ProgramCommandKind.Init,
+            "env" => ProgramCommandKind.Env,
+            "doctor" => ProgramCommandKind.Doctor,
+            "tree" => ProgramCommandKind.Tree,
+            "audit" => ProgramCommandKind.Audit,
+            "pack" => ProgramCommandKind.Pack,
+            "export" => ProgramCommandKind.Export,
+            "help" or "--help" or "-h" => ProgramCommandKind.Help,
+            "--version" => ProgramCommandKind.Version,
+            "transpile" => ProgramCommandKind.Transpile,
+            _ => ProgramCommandKind.Unknown
+        };
+    }
+
+    private static string GetCommandNameForError(string[] args)
+        => args.Length == 0 ? string.Empty : args[0].ToLower();
+
+    private static string[] GetCommandArgs(string[] args)
+        => args.Length <= 1 ? Array.Empty<string>() : args.Skip(1).ToArray();
 
     static int BuildCommand(string[] args)
     {

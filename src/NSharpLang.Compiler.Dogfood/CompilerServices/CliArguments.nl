@@ -124,6 +124,143 @@ func CliWatchForwardedArgIndicesInto(args: string[], resultIndices: int[]): int 
     return CliWatchForwardedArgIndicesCore(ref arguments, ref results)
 }
 
+func CliProgramCommandKind(args: string[]): int {
+    arguments := new CliArgumentTable { Args: args }
+    return CliProgramCommandKindCore(ref arguments)
+}
+
+func CliProgramCommandKindCore(args: &CliArgumentTable): int {
+    if args.Args.Length == 0 {
+        return 29
+    }
+
+    command := args.Args[0]
+    if String.Compare(command, "build", StringComparison.OrdinalIgnoreCase) == 0 {
+        return 1
+    }
+
+    if String.Compare(command, "run", StringComparison.OrdinalIgnoreCase) == 0 {
+        return 2
+    }
+
+    if String.Compare(command, "publish", StringComparison.OrdinalIgnoreCase) == 0 {
+        return 3
+    }
+
+    if String.Compare(command, "new", StringComparison.OrdinalIgnoreCase) == 0 {
+        return 4
+    }
+
+    if String.Compare(command, "test", StringComparison.OrdinalIgnoreCase) == 0 {
+        return 5
+    }
+
+    if String.Compare(command, "format", StringComparison.OrdinalIgnoreCase) == 0 {
+        return 6
+    }
+
+    if String.Compare(command, "lint", StringComparison.OrdinalIgnoreCase) == 0 {
+        return 7
+    }
+
+    if String.Compare(command, "restore", StringComparison.OrdinalIgnoreCase) == 0 {
+        return 8
+    }
+
+    if String.Compare(command, "clean", StringComparison.OrdinalIgnoreCase) == 0 {
+        return 9
+    }
+
+    if String.Compare(command, "watch", StringComparison.OrdinalIgnoreCase) == 0 {
+        return 10
+    }
+
+    if String.Compare(command, "doc", StringComparison.OrdinalIgnoreCase) == 0 {
+        return 11
+    }
+
+    if String.Compare(command, "completion", StringComparison.OrdinalIgnoreCase) == 0 {
+        return 12
+    }
+
+    if String.Compare(command, "check", StringComparison.OrdinalIgnoreCase) == 0 {
+        return 13
+    }
+
+    if String.Compare(command, "fix", StringComparison.OrdinalIgnoreCase) == 0 {
+        return 14
+    }
+
+    if String.Compare(command, "query", StringComparison.OrdinalIgnoreCase) == 0 {
+        return 15
+    }
+
+    if String.Compare(command, "daemon", StringComparison.OrdinalIgnoreCase) == 0 {
+        return 16
+    }
+
+    if String.Compare(command, "add", StringComparison.OrdinalIgnoreCase) == 0 {
+        return 17
+    }
+
+    if String.Compare(command, "tidy", StringComparison.OrdinalIgnoreCase) == 0 {
+        return 18
+    }
+
+    if String.Compare(command, "remove", StringComparison.OrdinalIgnoreCase) == 0 {
+        return 19
+    }
+
+    if String.Compare(command, "update", StringComparison.OrdinalIgnoreCase) == 0 {
+        return 20
+    }
+
+    if String.Compare(command, "init", StringComparison.OrdinalIgnoreCase) == 0 {
+        return 21
+    }
+
+    if String.Compare(command, "env", StringComparison.OrdinalIgnoreCase) == 0 {
+        return 22
+    }
+
+    if String.Compare(command, "doctor", StringComparison.OrdinalIgnoreCase) == 0 {
+        return 23
+    }
+
+    if String.Compare(command, "tree", StringComparison.OrdinalIgnoreCase) == 0 {
+        return 24
+    }
+
+    if String.Compare(command, "audit", StringComparison.OrdinalIgnoreCase) == 0 {
+        return 25
+    }
+
+    if String.Compare(command, "pack", StringComparison.OrdinalIgnoreCase) == 0 {
+        return 26
+    }
+
+    if String.Compare(command, "export", StringComparison.OrdinalIgnoreCase) == 0 {
+        return 27
+    }
+
+    if String.Compare(command, "help", StringComparison.OrdinalIgnoreCase) == 0
+        || String.Compare(command, "--help", StringComparison.OrdinalIgnoreCase) == 0
+        || String.Compare(command, "-h", StringComparison.OrdinalIgnoreCase) == 0 {
+        return 29
+    }
+
+    if String.Compare(command, "--version", StringComparison.OrdinalIgnoreCase) == 0
+        || command == "-V" {
+        return 30
+    }
+
+    if String.Compare(command, "transpile", StringComparison.OrdinalIgnoreCase) == 0 {
+        return 31
+    }
+
+    return 0
+}
+
 func CliCompletionOptionSummaryInto(args: string[], resultIndices: int[]): int {
     arguments := new CliArgumentTable { Args: args }
     results := new CliIndexResultTable { Indices: resultIndices }

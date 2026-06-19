@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-19 — Top-level command routing moves into product N#
+
+`Program.Execute` now gets top-level command classification from `ProgramCommandKernels`, which
+binds the shipped `CliProgramCommandKind` dogfood kernel. C# keeps host dispatch, command argument
+materialization, and user-facing error text; the previous string switch remains only as
+fallback/oracle logic. This is a Stage 6 `C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`./scripts/dev.sh ProgramCommandKernels`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-19 — Watch target routing moves into product N#
 
 `WatchCommand.Execute` now gets `check`, `build`, `test`, `lint`, and `format` target
