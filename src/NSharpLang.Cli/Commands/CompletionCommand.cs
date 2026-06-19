@@ -1,5 +1,4 @@
 using System;
-using System.Linq;
 using NSharpLang.Cli;
 
 namespace NSharpLang.Cli.Commands;
@@ -11,18 +10,53 @@ public static class CompletionCommand
 
     public static int Execute(string[] args)
     {
-        if (args.Contains("--help") || args.Contains("-h") || args.Length == 0 || args[0] == "help")
+        var options = GetOptionSummary(args);
+        if (options.ShowHelp)
             return ShowHelp();
 
-        var shell = args[0].ToLowerInvariant();
-
-        return shell switch
+        return options.ShellKind switch
         {
-            "bash" => WriteScript(BashScript),
-            "zsh" => WriteScript(ZshScript),
-            "fish" => WriteScript(FishScript),
-            _ => Error($"Unknown shell '{shell}'. Expected bash, zsh, or fish.")
+            CompletionShellKind.Bash => WriteScript(BashScript),
+            CompletionShellKind.Zsh => WriteScript(ZshScript),
+            CompletionShellKind.Fish => WriteScript(FishScript),
+            _ => Error($"Unknown shell '{GetShellForError(args)}'. Expected bash, zsh, or fish.")
         };
+    }
+
+    internal static CompletionOptionSummary GetOptionSummary(string[] args)
+        => CompletionCommandKernels.TryGetOptionSummary(args, out var summary)
+            ? summary
+            : GetOptionSummaryWithCSharp(args);
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product completion option parsing routes through CompletionCommandKernels.
+    private static CompletionOptionSummary GetOptionSummaryWithCSharp(string[] args)
+    {
+        var shell = GetShellForError(args);
+        var shellKind = shell switch
+        {
+            "bash" => CompletionShellKind.Bash,
+            "zsh" => CompletionShellKind.Zsh,
+            "fish" => CompletionShellKind.Fish,
+            _ => CompletionShellKind.Unknown
+        };
+
+        return new CompletionOptionSummary(
+            shellKind,
+            args.Length == 0
+                || args[0] == "help"
+                || ContainsArgWithCSharp(args, "--help")
+                || ContainsArgWithCSharp(args, "-h"));
+    }
+
+    private static string GetShellForError(string[] args)
+        => args.Length == 0 ? string.Empty : args[0].ToLowerInvariant();
+
+    private static bool ContainsArgWithCSharp(string[] args, string value)
+    {
+        for (var i = 0; i < args.Length; i++)
+            if (args[i] == value)
+                return true;
+        return false;
     }
 
     private static int WriteScript(string script)

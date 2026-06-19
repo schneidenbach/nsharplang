@@ -3277,6 +3277,30 @@ func Main() {
         Assert.DoesNotContain("nlc idiom", docs);
     }
 
+    [Fact]
+    public void CompletionCommandKernels_SummarizesOptions()
+    {
+        Assert.True(CompletionCommandKernels.TryGetOptionSummary(new[] { "BASH" }, out var bash));
+        Assert.Equal(CompletionShellKind.Bash, bash.ShellKind);
+        Assert.False(bash.ShowHelp);
+
+        Assert.True(CompletionCommandKernels.TryGetOptionSummary(new[] { "zsh", "--help" }, out var zshHelp));
+        Assert.Equal(CompletionShellKind.Zsh, zshHelp.ShellKind);
+        Assert.True(zshHelp.ShowHelp);
+
+        Assert.True(CompletionCommandKernels.TryGetOptionSummary(new[] { "fish" }, out var fish));
+        Assert.Equal(CompletionShellKind.Fish, fish.ShellKind);
+        Assert.False(fish.ShowHelp);
+
+        var unknown = CompletionCommand.GetOptionSummary(new[] { "PowerShell" });
+        Assert.Equal(CompletionShellKind.Unknown, unknown.ShellKind);
+        Assert.False(unknown.ShowHelp);
+
+        Assert.True(CompletionCommand.GetOptionSummary(Array.Empty<string>()).ShowHelp);
+        Assert.True(CompletionCommand.GetOptionSummary(new[] { "help" }).ShowHelp);
+        Assert.True(CompletionCommand.GetOptionSummary(new[] { "-h" }).ShowHelp);
+    }
+
     private static int ExecuteProgram(params string[] args)
     {
         var programType = typeof(CheckCommand).Assembly.GetType("NSharpLang.Cli.Program");

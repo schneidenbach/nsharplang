@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-19 — Completion option parsing routes through product N#
+
+`CompletionCommand` now gets help detection and shell-kind classification for `bash`, `zsh`, and
+`fish` from `CompletionCommandKernels`, which binds the shipped
+`CliCompletionOptionSummaryInto` dogfood kernel beside the command implementation. Script text
+materialization remains in C# as the output boundary, while the previous direct parser shape remains
+only as fallback/oracle logic. This is a Stage 6 `C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`./scripts/dev.sh CompletionCommandKernels`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.CompletionCommandKernels_SummarizesOptions|FullyQualifiedName~CliParityAuditTests.CompletionCommand_Bash_IncludesTopLevelCommands|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-19 — Watch option parsing routes through product N#
 
 `WatchCommand` now gets help detection, `--project`, `--debounce-ms`, and `--max-runs` from

@@ -1394,6 +1394,10 @@ the C# forwarded-argument helper retained as fallback/oracle logic.
 `--project`, `--debounce-ms`, and `--max-runs`. Stage 6 routes the option summary through
 `WatchCommandKernels` beside the existing forwarded-argument route, with the previous C# parser shape
 retained as fallback/oracle logic.
+`CliCompletionOptionSummaryInto` preserves the current `nlc completion` command-parser behavior for
+help and shell classification. Stage 6 routes `CompletionCommand` through
+`CompletionCommandKernels`; shell script materialization stays in C# as the output boundary, and the
+previous parser shape remains as fallback/oracle logic.
 
 `CliBuildOptionSummaryInto` passed parity but missed the dry BenchmarkDotNet speed gate for the
 remaining `nlc build` option-discovery work. The production-shaped benchmark measured 81.791 us vs
@@ -2215,7 +2219,7 @@ candidate-column ordering, strict binding lookup, nearest declaration index cons
 semantic scope index construction, scoped visible-variable selection, CLI batch duplicate-id validation, CLI doc symbol/member
 ordering and slug generation, CLI tree option summaries and dependency deduplication, diagnostic severity filtering, symbol-kind filtering, symbol-name filtering, CLI first positional-argument
 discovery, CLI build first source-operand discovery, parser newline-token compaction,
-text-edit ordering, struct-copy readonly-field gating, skipped-fix selection, applied-fix file grouping, clean option summaries and artifact directory ordering, env, doctor, audit, init, restore, and watch option summaries, update all-NuGet and target-package dependency filtering,
+text-edit ordering, struct-copy readonly-field gating, skipped-fix selection, applied-fix file grouping, clean option summaries and artifact directory ordering, env, doctor, audit, init, restore, watch, and completion option summaries, update all-NuGet and target-package dependency filtering,
 CLI reference-type filtering,
 AOT requirement grouping, anonymous-union overload-shim eligibility, declared-type suffix lookup, type-creation ordering, compiler source-file de-duplication,
 compiler stub namespace import ordering, inspect-summary reference-file summaries,
@@ -2223,7 +2227,7 @@ CLI stable string de-duplication for stale generated cleanup and target-framewor
 tidy dependency-line keep flags,
 DocQuery reference-pack assembly-name and type-candidate de-duplication,
 CLI test outcome summaries,
-CLI build/test/pack/lint/tidy/doc/export/tree/clean/env/doctor/audit/init/restore/watch option summaries, new/check/fix/add/remove/update argument summaries,
+CLI build/test/pack/lint/tidy/doc/export/tree/clean/env/doctor/audit/init/restore/watch/completion option summaries, new/check/fix/add/remove/update argument summaries,
 watch forwarded-argument selection,
 shared positional-argument collection,
 and the accepted batch result packed-count kernel through the compiled N# methods. The same suite

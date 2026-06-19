@@ -120,6 +120,55 @@ func CliWatchForwardedArgIndicesInto(args: string[], resultIndices: int[]): int 
     return CliWatchForwardedArgIndicesCore(ref arguments, ref results)
 }
 
+func CliCompletionOptionSummaryInto(args: string[], resultIndices: int[]): int {
+    arguments := new CliArgumentTable { Args: args }
+    results := new CliIndexResultTable { Indices: resultIndices }
+    return CliCompletionOptionSummaryCore(ref arguments, ref results)
+}
+
+func CliCompletionOptionSummaryCore(args: &CliArgumentTable, resultIndices: &CliIndexResultTable): int {
+    if resultIndices.Indices.Length < 2 {
+        return -1
+    }
+
+    resultIndices.Indices[0] = 0
+    resultIndices.Indices[1] = 0
+
+    if args.Args.Length == 0 {
+        resultIndices.Indices[1] = 1
+        return 0
+    }
+
+    firstArg := args.Args[0]
+    if firstArg == "help" {
+        resultIndices.Indices[1] = 1
+    }
+
+    if String.Compare(firstArg, "bash", StringComparison.OrdinalIgnoreCase) == 0 {
+        resultIndices.Indices[0] = 1
+    }
+
+    if String.Compare(firstArg, "zsh", StringComparison.OrdinalIgnoreCase) == 0 {
+        resultIndices.Indices[0] = 2
+    }
+
+    if String.Compare(firstArg, "fish", StringComparison.OrdinalIgnoreCase) == 0 {
+        resultIndices.Indices[0] = 3
+    }
+
+    i := 0
+    while i < args.Args.Length {
+        arg := args.Args[i]
+        if arg == "--help" || arg == "-h" {
+            resultIndices.Indices[1] = 1
+        }
+
+        i = i + 1
+    }
+
+    return 0
+}
+
 func CliWatchOptionSummaryInto(args: string[], resultIndices: int[]): int {
     arguments := new CliArgumentTable { Args: args }
     results := new CliIndexResultTable { Indices: resultIndices }

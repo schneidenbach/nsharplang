@@ -7009,6 +7009,7 @@ func outer(x: int): int {
         Assert.Contains("CliBuildOptionSummaryInto", methodNames!); // product build option parsing.
         Assert.Contains("CliTestOptionSummaryInto", methodNames!); // product test option parsing.
         Assert.Contains("CliPackOptionSummaryInto", methodNames!); // product pack option parsing.
+        Assert.Contains("CliCompletionOptionSummaryInto", methodNames!); // product completion option parsing.
         Assert.Contains("CliWatchForwardedArgIndicesInto", methodNames!); // product watch forwarding.
         Assert.Contains("CliWatchOptionSummaryInto", methodNames!); // product watch option parsing.
         Assert.Contains("CliPositionalArgIndicesInto", methodNames!); // product positional collection.
@@ -15157,6 +15158,10 @@ class OtherZetaType {
                     "CliUpdateArgumentSummaryInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliUpdateArgumentSummaryInto.");
+            var cliCompletionOptionSummaryInto = programType.GetMethod(
+                    "CliCompletionOptionSummaryInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliCompletionOptionSummaryInto.");
             var cliWatchForwardedArgIndicesInto = programType.GetMethod(
                     "CliWatchForwardedArgIndicesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -16221,6 +16226,7 @@ func main(customer: Customer, résumé: Profile) {
             AssertCliAddArgumentsLikeProduction(cliAddArgumentSummaryInto);
             AssertCliRemoveArgumentsLikeProduction(cliRemoveArgumentSummaryInto);
             AssertCliUpdateArgumentsLikeProduction(cliUpdateArgumentSummaryInto);
+            AssertCliCompletionOptionsLikeProduction(cliCompletionOptionSummaryInto);
             AssertCliWatchForwardedArgsLikeProduction(
                 cliWatchForwardedArgIndicesInto,
                 cliWatchForwardedArgChecksumInto);
@@ -19424,6 +19430,69 @@ func main() {
             if (indices[0] < 0 && !arg.StartsWith("-", StringComparison.Ordinal))
                 indices[0] = i;
         }
+
+        return indices;
+    }
+
+    private static void AssertCliCompletionOptionsLikeProduction(MethodInfo cliCompletionOptionSummaryInto)
+    {
+        var cases = new[]
+        {
+            Array.Empty<string>(),
+            new[] { "help" },
+            new[] { "bash" },
+            new[] { "BASH" },
+            new[] { "zsh", "--help" },
+            new[] { "fish", "-h" },
+            new[] { "PowerShell" },
+            new[] { "--help" },
+            new[] { string.Empty }
+        };
+
+        foreach (var args in cases)
+        {
+            var expected = CreateExpectedCliCompletionOptions(args);
+            var resultIndices = Enumerable.Repeat(-99, 2).ToArray();
+            var actualCode = (int)(cliCompletionOptionSummaryInto.Invoke(
+                null,
+                new object[] { args, resultIndices }) ?? -2);
+
+            Assert.Equal(0, actualCode);
+            Assert.Equal(expected, resultIndices);
+        }
+
+        Assert.Equal(
+            -1,
+            (int)(cliCompletionOptionSummaryInto.Invoke(
+                null,
+                new object[] { new[] { "bash" }, new int[1] }) ?? 0));
+    }
+
+    private static int[] CreateExpectedCliCompletionOptions(string[] args)
+    {
+        var indices = new[] { 0, 0 };
+
+        if (args.Length == 0)
+        {
+            indices[1] = 1;
+            return indices;
+        }
+
+        var shell = args[0].ToLowerInvariant();
+        indices[0] = shell switch
+        {
+            "bash" => 1,
+            "zsh" => 2,
+            "fish" => 3,
+            _ => 0
+        };
+
+        if (args[0] == "help")
+            indices[1] = 1;
+
+        for (var i = 0; i < args.Length; i++)
+            if (args[i] == "--help" || args[i] == "-h")
+                indices[1] = 1;
 
         return indices;
     }
