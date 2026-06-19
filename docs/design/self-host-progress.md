@@ -11,6 +11,19 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-19 — Query command-specific options route through product N#
+
+`QueryCommand` now reads `--filter`, `--function`, `--limit`, `--requests`, and the leading
+positional operand used by batch, definition, and doc queries through `QueryCommandKernels`, which
+binds the shipped `CliQueryCommandOptionSummaryInto` dogfood kernel. This removes the remaining
+product direct scans for query command-specific flags; direct C# parsing for those values remains
+only as fallback/oracle logic. This is a Stage 6 `C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`./scripts/dev.sh QueryCommandKernels`;
+`./scripts/dev.sh QueryCommand`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliQueryParsing|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-19 — Query subcommands reuse the N# common-parameter summary
 
 `QueryCommand` subcommands that consume the common query parameters now read `--file`, `--pos`,

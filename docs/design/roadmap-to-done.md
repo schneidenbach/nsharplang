@@ -282,8 +282,8 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       `NSharpCompilerDogfoodAdapter`, `NSharpPerformanceDogfoodAdapter`, and `NSharpCliDogfoodAdapter`
       types have been deleted. CLI query
       symbol-name filtering now lives beside `QueryCommand` in `QuerySymbolNameFilter` instead of the broad CLI
-      adapter, and query daemon parameter plus shared subcommand parameter parsing now lives beside
-      `QueryCommand` in `QueryCommandKernels`;
+      adapter, and query daemon parameter plus shared and command-specific subcommand parameter parsing now lives
+      beside `QueryCommand` in `QueryCommandKernels`;
       `nlc check`/`nlc lint` compiler-error severity filtering now lives beside the command implementations in
       `CompilerErrorSeverityFilter`; batch query duplicate-id validation and packed
       success counting now live beside `BatchQueryRunner` in `BatchQueryKernels`; unified-diff hunk range

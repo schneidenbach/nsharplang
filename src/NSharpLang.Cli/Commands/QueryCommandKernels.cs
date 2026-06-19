@@ -11,10 +11,20 @@ internal readonly record struct QueryDaemonParameterSummary(
     bool IncludeKeywords,
     bool Clusters);
 
+internal readonly record struct QueryCommandOptionSummary(
+    string? Filter,
+    string? Function,
+    string? Limit,
+    string? Requests,
+    string? LeadingOperand);
+
 internal static class QueryCommandKernels
 {
     [ThreadStatic]
     private static int[]? t_resultIndices;
+
+    [ThreadStatic]
+    private static int[]? t_commandOptionIndices;
 
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
 
@@ -60,11 +70,54 @@ internal static class QueryCommandKernels
         }
     }
 
+    internal static bool TryGetCommandOptionSummary(string[] args, out QueryCommandOptionSummary summary)
+    {
+        summary = default;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        var resultIndices = t_commandOptionIndices ??= new int[5];
+        try
+        {
+            var code = bindings.QueryCommandOptionSummary(args, resultIndices);
+            if (code != 0)
+                return false;
+
+            if (!TryGetOptionalArg(args, resultIndices[0], out var filter)
+                || !TryGetOptionalArg(args, resultIndices[1], out var function)
+                || !TryGetOptionalArg(args, resultIndices[2], out var limit)
+                || !TryGetOptionalArg(args, resultIndices[3], out var requests)
+                || !TryGetOptionalArg(args, resultIndices[4], out var leadingOperand))
+            {
+                summary = default;
+                return false;
+            }
+
+            summary = new QueryCommandOptionSummary(
+                filter,
+                function,
+                limit,
+                requests,
+                leadingOperand);
+            return true;
+        }
+        catch
+        {
+            summary = default;
+            return false;
+        }
+    }
+
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
             DogfoodKernelLoader.CreateDelegate<CliQueryDaemonParameterSummaryInto>(
                 programType,
-                "CliQueryDaemonParameterSummaryInto")));
+                "CliQueryDaemonParameterSummaryInto"),
+            DogfoodKernelLoader.CreateDelegate<CliQueryCommandOptionSummaryInto>(
+                programType,
+                "CliQueryCommandOptionSummaryInto")));
 
     private static bool TryGetOptionalArg(string[] args, int index, out string? value)
     {
@@ -81,5 +134,9 @@ internal static class QueryCommandKernels
 
     private delegate int CliQueryDaemonParameterSummaryInto(string[] args, int[] resultIndices);
 
-    private sealed record Bindings(CliQueryDaemonParameterSummaryInto QueryDaemonParameterSummary);
+    private delegate int CliQueryCommandOptionSummaryInto(string[] args, int[] resultIndices);
+
+    private sealed record Bindings(
+        CliQueryDaemonParameterSummaryInto QueryDaemonParameterSummary,
+        CliQueryCommandOptionSummaryInto QueryCommandOptionSummary);
 }

@@ -64,6 +64,7 @@ public static class QueryCommand
         if (snapshot == null) return 1;
 
         var summary = GetDaemonParameterSummary(args);
+        var commandSummary = GetCommandOptionSummary(args);
         SymbolKind? kindFilter = null;
         var kindArg = summary.Kind;
         if (kindArg != null && Enum.TryParse<SymbolKind>(kindArg, ignoreCase: true, out var parsed))
@@ -72,7 +73,7 @@ public static class QueryCommand
         }
 
         var fileFilter = summary.File ?? options.File;
-        var filterPattern = GetOption(args, "--filter");
+        var filterPattern = commandSummary.Filter;
 
         var results = Service.GetSymbols(snapshot, fileFilter, kindFilter);
 
@@ -213,8 +214,9 @@ public static class QueryCommand
 
     private static int CallGraphCommand(string[] args, QueryOptions options)
     {
-        var functionName = GetOption(args, "--function");
-        var limitStr = GetOption(args, "--limit");
+        var commandSummary = GetCommandOptionSummary(args);
+        var functionName = commandSummary.Function;
+        var limitStr = commandSummary.Limit;
         var limit = 100;
         if (limitStr != null && int.TryParse(limitStr, out var parsedLimit) && parsedLimit > 0)
         {
@@ -437,8 +439,8 @@ public static class QueryCommand
             return QueryError("Batch queries only support JSON output.");
         }
 
-        var requestsPath = GetOption(args, "--requests")
-            ?? (args.Length > 0 && !args[0].StartsWith("--", StringComparison.Ordinal) ? args[0] : null);
+        var commandSummary = GetCommandOptionSummary(args);
+        var requestsPath = commandSummary.Requests ?? commandSummary.LeadingOperand;
 
         if (string.IsNullOrWhiteSpace(requestsPath))
         {
@@ -626,9 +628,10 @@ public static class QueryCommand
     private static int DefinitionCommand(string[] args, QueryOptions options)
     {
         var summary = GetDaemonParameterSummary(args);
+        var commandSummary = GetCommandOptionSummary(args);
         var file = summary.File ?? options.File;
         var posStr = summary.Pos ?? options.Pos;
-        var name = summary.Name ?? (args.Length > 0 && !args[0].StartsWith("--") ? args[0] : null);
+        var name = summary.Name ?? commandSummary.LeadingOperand;
 
         // Position-based (primary, semantic)
         if (file != null && posStr != null)
@@ -943,7 +946,8 @@ public static class QueryCommand
 
     private static int DocCommand(string[] args, QueryOptions options)
     {
-        var query = args.Length > 0 && !args[0].StartsWith("--") ? args[0] : null;
+        var commandSummary = GetCommandOptionSummary(args);
+        var query = commandSummary.LeadingOperand;
 
         if (query == null)
         {
@@ -1152,6 +1156,14 @@ public static class QueryCommand
         return GetDaemonParameterSummaryWithCSharp(args);
     }
 
+    internal static QueryCommandOptionSummary GetCommandOptionSummary(string[] args)
+    {
+        if (QueryCommandKernels.TryGetCommandOptionSummary(args, out var summary))
+            return summary;
+
+        return GetCommandOptionSummaryWithCSharp(args);
+    }
+
     // Stage 6 C#-surface-shrink: fallback/oracle only; query daemon parameter parsing routes through QueryCommandKernels.
     private static QueryDaemonParameterSummary GetDaemonParameterSummaryWithCSharp(string[] args)
         => new(
@@ -1162,6 +1174,15 @@ public static class QueryCommand
             GetOption(args, "--severity"),
             args.Contains("--include-keywords"),
             args.Contains("--clusters"));
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; query command-option parsing routes through QueryCommandKernels.
+    private static QueryCommandOptionSummary GetCommandOptionSummaryWithCSharp(string[] args)
+        => new(
+            GetOption(args, "--filter"),
+            GetOption(args, "--function"),
+            GetOption(args, "--limit"),
+            GetOption(args, "--requests"),
+            args.Length > 0 && !args[0].StartsWith("--", StringComparison.Ordinal) ? args[0] : null);
 
     private static bool TryExecuteViaDaemon(QueryOptions options, string method,
         Dictionary<string, object?> parameters, out int exitCode)

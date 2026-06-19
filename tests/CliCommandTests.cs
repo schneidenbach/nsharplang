@@ -1149,6 +1149,45 @@ func Main() {
     }
 
     [Fact]
+    public void QueryCommandKernels_SummarizesCommandOptions()
+    {
+        var args = new[]
+        {
+            "Type.Name",
+            "--filter",
+            "*Service",
+            "--function",
+            "Main",
+            "--limit",
+            "25",
+            "--requests",
+            "batch.json"
+        };
+
+        Assert.True(QueryCommandKernels.TryGetCommandOptionSummary(args, out var dogfoodSummary));
+        Assert.Equal("*Service", dogfoodSummary.Filter);
+        Assert.Equal("Main", dogfoodSummary.Function);
+        Assert.Equal("25", dogfoodSummary.Limit);
+        Assert.Equal("batch.json", dogfoodSummary.Requests);
+        Assert.Equal("Type.Name", dogfoodSummary.LeadingOperand);
+
+        var summary = QueryCommand.GetCommandOptionSummary(args);
+        Assert.Equal(dogfoodSummary, summary);
+
+        var permissive = QueryCommand.GetCommandOptionSummary(
+            new[] { "--filter", "--function", "--limit", "--requests", "--requests" });
+        Assert.Equal("--function", permissive.Filter);
+        Assert.Equal("--limit", permissive.Function);
+        Assert.Equal("--requests", permissive.Limit);
+        Assert.Equal("--requests", permissive.Requests);
+        Assert.Null(permissive.LeadingOperand);
+
+        var missing = QueryCommand.GetCommandOptionSummary(new[] { "--requests" });
+        Assert.Null(missing.Requests);
+        Assert.Null(missing.LeadingOperand);
+    }
+
+    [Fact]
     public void NewCommandKernels_SummarizesArguments()
     {
         var args = new[] { "--template", "library", "--systems", "PacketCore", "-h" };

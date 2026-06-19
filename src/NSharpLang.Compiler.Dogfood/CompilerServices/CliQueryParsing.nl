@@ -147,3 +147,49 @@ func CliQueryDaemonParameterSummaryInto(args: string[], resultIndices: int[]): i
 
     return 0
 }
+
+func CliQueryCommandOptionSummaryInto(args: string[], resultIndices: int[]): int {
+    if resultIndices.Length < 5 {
+        return -1
+    }
+
+    resultIndices[0] = -1
+    resultIndices[1] = -1
+    resultIndices[2] = -1
+    resultIndices[3] = -1
+    resultIndices[4] = -1
+
+    if args.Length > 0 && !CliQueryIsLongOption(args[0]) {
+        resultIndices[4] = 0
+    }
+
+    i := 0
+    while i < args.Length {
+        arg := args[i]
+        if arg == "--filter" {
+            if resultIndices[0] < 0 && i + 1 < args.Length {
+                resultIndices[0] = i + 1
+            }
+        } else if arg == "--function" {
+            if resultIndices[1] < 0 && i + 1 < args.Length {
+                resultIndices[1] = i + 1
+            }
+        } else if arg == "--limit" {
+            if resultIndices[2] < 0 && i + 1 < args.Length {
+                resultIndices[2] = i + 1
+            }
+        } else if arg == "--requests" {
+            if resultIndices[3] < 0 && i + 1 < args.Length {
+                resultIndices[3] = i + 1
+            }
+        }
+
+        i = i + 1
+    }
+
+    return 0
+}
+
+func CliQueryIsLongOption(arg: string): bool {
+    return arg.Length >= 2 && arg[0] == '-' && arg[1] == '-'
+}

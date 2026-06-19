@@ -11847,6 +11847,7 @@ func outer(x: int): int {
         Assert.True(ok, "Columnar backend declined the real CliQueryParsing.nl (expected full support).");
         Assert.Contains("CliBatchResultPackedSuccessCount", methodNames!); // ulong[] + Shr_Un + PopCount.
         Assert.Contains("CliQueryDaemonParameterSummaryInto", methodNames!); // product query daemon parameter parsing.
+        Assert.Contains("CliQueryCommandOptionSummaryInto", methodNames!); // product query command-option parsing.
 
         var full = 0xFFFFFFFFFFFFFFFFUL;
         AssertColumnarProgramMatchesCSharp(source,
@@ -15101,6 +15102,10 @@ class OtherZetaType {
                     "CliQueryDaemonParameterSummaryInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliQueryDaemonParameterSummaryInto.");
+            var cliQueryCommandOptionSummaryInto = programType.GetMethod(
+                    "CliQueryCommandOptionSummaryInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliQueryCommandOptionSummaryInto.");
             var cliPositionalArgIndicesInto = programType.GetMethod(
                     "CliPositionalArgIndicesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -16224,6 +16229,7 @@ func main(customer: Customer, résumé: Profile) {
                 cliQueryPositionsInto,
                 cliQueryPositionChecksumInto);
             AssertCliQueryDaemonParametersLikeProduction(cliQueryDaemonParameterSummaryInto);
+            AssertCliQueryCommandOptionsLikeProduction(cliQueryCommandOptionSummaryInto);
             AssertCliBuildOperandsLikeProduction(
                 cliBuildOperandIndicesInto,
                 cliBuildOperandSummaryInto,
@@ -18635,6 +18641,83 @@ func main() {
 
                 case "--clusters":
                     result[6] = 1;
+                    break;
+            }
+        }
+
+        return result;
+    }
+
+    private static void AssertCliQueryCommandOptionsLikeProduction(MethodInfo cliQueryCommandOptionSummaryInto)
+    {
+        var cases = new[]
+        {
+            Array.Empty<string>(),
+            new[]
+            {
+                "Type.Name",
+                "--filter",
+                "*Service",
+                "--function",
+                "Main",
+                "--limit",
+                "25",
+                "--requests",
+                "batch.json"
+            },
+            new[] { "--filter", "--function", "--limit", "--requests", "--requests" },
+            new[] { "--requests" },
+            new[] { "--not-leading", "value" },
+            new[] { "-short", "--requests", "batch.json" }
+        };
+
+        foreach (var args in cases)
+        {
+            var expected = CreateExpectedCliQueryCommandOptionSummary(args);
+            var actual = Enumerable.Repeat(-99, 5).ToArray();
+            var code = (int)(cliQueryCommandOptionSummaryInto.Invoke(
+                null,
+                new object[] { args, actual }) ?? -2);
+
+            Assert.Equal(0, code);
+            Assert.Equal(expected, actual);
+        }
+
+        Assert.Equal(
+            -1,
+            (int)(cliQueryCommandOptionSummaryInto.Invoke(
+                null,
+                new object[] { Array.Empty<string>(), new int[4] }) ?? 0));
+    }
+
+    private static int[] CreateExpectedCliQueryCommandOptionSummary(string[] args)
+    {
+        var result = new[] { -1, -1, -1, -1, -1 };
+        if (args.Length > 0 && !args[0].StartsWith("--", StringComparison.Ordinal))
+            result[4] = 0;
+
+        for (var i = 0; i < args.Length; i++)
+        {
+            switch (args[i])
+            {
+                case "--filter":
+                    if (result[0] < 0 && i + 1 < args.Length)
+                        result[0] = i + 1;
+                    break;
+
+                case "--function":
+                    if (result[1] < 0 && i + 1 < args.Length)
+                        result[1] = i + 1;
+                    break;
+
+                case "--limit":
+                    if (result[2] < 0 && i + 1 < args.Length)
+                        result[2] = i + 1;
+                    break;
+
+                case "--requests":
+                    if (result[3] < 0 && i + 1 < args.Length)
+                        result[3] = i + 1;
                     break;
             }
         }
