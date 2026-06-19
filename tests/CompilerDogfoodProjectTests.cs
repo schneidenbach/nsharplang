@@ -7011,6 +7011,7 @@ func outer(x: int): int {
         Assert.Contains("CliWatchForwardedArgIndicesInto", methodNames!); // product watch forwarding.
         Assert.Contains("CliPositionalArgIndicesInto", methodNames!); // product positional collection.
         Assert.Contains("CliLintOptionSummaryInto", methodNames!); // product lint option parsing.
+        Assert.Contains("CliCheckArgumentSummaryInto", methodNames!); // product check argument parsing.
 
         AssertColumnarProgramMatchesCSharp(source,
             ("CliSymbolNameContainsAsciiIgnoreCase", new object[] { "FooBarBaz", "barbaz" }),
@@ -15112,6 +15113,10 @@ class OtherZetaType {
                     "CliRunFirstOperandIndex",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliRunFirstOperandIndex.");
+            var cliCheckArgumentSummaryInto = programType.GetMethod(
+                    "CliCheckArgumentSummaryInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliCheckArgumentSummaryInto.");
             var cliWatchForwardedArgIndicesInto = programType.GetMethod(
                     "CliWatchForwardedArgIndicesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -16129,6 +16134,7 @@ func main(customer: Customer, résumé: Profile) {
                 cliExportCSharpFirstOperandIndexInto,
                 cliExportCSharpFirstOperandChecksumInto);
             AssertCliRunSourceOperandLikeProduction(cliRunFirstOperandIndex);
+            AssertCliCheckArgumentsLikeProduction(cliCheckArgumentSummaryInto);
             AssertCliWatchForwardedArgsLikeProduction(
                 cliWatchForwardedArgIndicesInto,
                 cliWatchForwardedArgChecksumInto);
@@ -18777,6 +18783,94 @@ func main() {
         }
 
         return -1;
+    }
+
+    private static void AssertCliCheckArgumentsLikeProduction(MethodInfo cliCheckArgumentSummaryInto)
+    {
+        var cases = new[]
+        {
+            Array.Empty<string>(),
+            new[] { "--backend", "il", "samples/demo", "--text", "--aot", "--systems-report" },
+            new[] { "--project", "samples/demo", "--backend", "il", "ignored-positional" },
+            new[] { "--project", "--backend", "il" },
+            new[] { "--backend" },
+            new[] { "--unknown", "value-after-unknown" },
+            new[] { "help" },
+            new[] { "ignored", "-h" },
+            new[] { string.Empty }
+        };
+
+        foreach (var args in cases)
+        {
+            var expected = CreateExpectedCliCheckArguments(args);
+            var resultIndices = Enumerable.Repeat(-99, 7).ToArray();
+            var actualCode = (int)(cliCheckArgumentSummaryInto.Invoke(
+                null,
+                new object[] { args, resultIndices }) ?? -2);
+
+            Assert.Equal(0, actualCode);
+            Assert.Equal(expected, resultIndices);
+        }
+
+        Assert.Equal(
+            -1,
+            (int)(cliCheckArgumentSummaryInto.Invoke(
+                null,
+                new object[] { new[] { "--text" }, new int[6] }) ?? 0));
+    }
+
+    private static int[] CreateExpectedCliCheckArguments(string[] args)
+    {
+        var indices = new[] { -1, -1, -1, 0, 0, 0, 0 };
+
+        for (var i = 0; i < args.Length; i++)
+        {
+            var arg = args[i];
+            if (i == 0 && arg == "help")
+                indices[6] = 1;
+
+            switch (arg)
+            {
+                case "--project":
+                    if (indices[0] < 0 && i + 1 < args.Length)
+                        indices[0] = i + 1;
+                    break;
+                case "--backend":
+                    if (indices[1] < 0 && i + 1 < args.Length)
+                        indices[1] = i + 1;
+                    break;
+                case "--text":
+                    indices[3] = 1;
+                    break;
+                case "--aot":
+                    indices[4] = 1;
+                    break;
+                case "--systems-report":
+                    indices[5] = 1;
+                    break;
+                case "--help":
+                case "-h":
+                    indices[6] = 1;
+                    break;
+            }
+        }
+
+        for (var i = 0; i < args.Length; i++)
+        {
+            if ((args[i] == "--project" || args[i] == "--backend") && i + 1 < args.Length)
+            {
+                i++;
+                continue;
+            }
+
+            if (!args[i].StartsWith("-", StringComparison.Ordinal))
+            {
+                indices[2] = i;
+                break;
+            }
+        }
+
+        return indices;
     }
 
     private static void AssertCliWatchForwardedArgsLikeProduction(

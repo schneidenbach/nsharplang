@@ -296,10 +296,11 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       `Program.CleanStaleGeneratedFiles` in `GeneratedOutputDirectoryDeduplicator`; native
       compilation-reference filtering now lives beside `CompilationReferenceResolver` in
       `CompilationReferenceResolverKernels`, and NuGet/framework best-score selection now routes through
-      the same resolver-local kernels; first positional project/package discovery for `nlc new`,
-      `nlc check`, `nlc fix`, `nlc add`, `nlc remove`, and `nlc update` now lives beside the owning
-      commands in `NewCommandKernels`, `CheckCommandKernels`, `FixCommandArgumentKernels`,
-      `AddCommandKernels`, `RemoveCommandKernels`, and `UpdateCommandKernels`; tidy
+      the same resolver-local kernels; check argument summary now lives beside `CheckCommand` in
+      `CheckCommandKernels`; first positional project/package discovery for `nlc new`, `nlc fix`,
+      `nlc add`, `nlc remove`, and `nlc update` now lives beside the owning commands in
+      `NewCommandKernels`, `FixCommandArgumentKernels`, `AddCommandKernels`, `RemoveCommandKernels`,
+      and `UpdateCommandKernels`; tidy
       classification/summary/fix filtering now live beside `TidyCommand` in `TidyCommandKernels`;
       lint option summary and file-argument extraction now live beside `LintCommand` in `LintCommandKernels`; format
       discovered-path filtering now lives beside `Program.FormatCommand` in `FormatCommandKernels`; export

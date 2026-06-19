@@ -12,13 +12,14 @@ public static class CheckCommand
 {
     public static int Execute(string[] args)
     {
-        if (args.Contains("--help") || args.Contains("-h") || (args.Length > 0 && args[0] == "help"))
+        var arguments = GetArgumentSummary(args);
+        if (arguments.ShowHelp)
             return ShowHelp();
 
-        var useText = args.Contains("--text");
-        var aot = args.Contains("--aot");
-        var systemsReport = args.Contains("--systems-report");
-        var projectDir = GetProjectDir(args);
+        var useText = arguments.UseText;
+        var aot = arguments.Aot;
+        var systemsReport = arguments.SystemsReport;
+        var projectDir = GetProjectDir(arguments);
 
         if (!Directory.Exists(projectDir))
         {
@@ -36,7 +37,7 @@ public static class CheckCommand
                 CompilationReferenceResolver.AddResolvedDllReferences(projectDir, projectConfig);
             }
 
-            var backend = ResolveCompilationBackend(args, projectConfig);
+            var backend = ResolveCompilationBackend(arguments.BackendOption, projectConfig);
             var service = new CodeIntelligenceService();
             var snapshot = service.LoadProject(projectDir, projectConfig);
             var diagnostics = service.GetDiagnostics(snapshot);
@@ -217,25 +218,38 @@ Exit codes:
         return 0;
     }
 
-    private static string GetProjectDir(string[] args)
-    {
-        var projectOption = GetOption(args, "--project");
-        if (!string.IsNullOrWhiteSpace(projectOption))
-            return Path.GetFullPath(projectOption);
+    internal static CheckArgumentSummary GetArgumentSummary(string[] args)
+        => CheckCommandKernels.TryGetArgumentSummary(args, out var summary)
+            ? summary
+            : GetArgumentSummaryWithCSharp(args);
 
-        var positional = GetFirstPositionalArg(args, Array.Empty<string>());
-        return Path.GetFullPath(positional ?? Directory.GetCurrentDirectory());
+    private static string GetProjectDir(CheckArgumentSummary arguments)
+    {
+        if (!string.IsNullOrWhiteSpace(arguments.ProjectOption))
+            return Path.GetFullPath(arguments.ProjectOption);
+
+        return Path.GetFullPath(arguments.PositionalProject ?? Directory.GetCurrentDirectory());
     }
 
-    private static CompilationBackend ResolveCompilationBackend(string[] args, ProjectConfig? config)
+    private static CompilationBackend ResolveCompilationBackend(string? backendOption, ProjectConfig? config)
     {
-        var backendOption = GetOption(args, "--backend");
         return !string.IsNullOrWhiteSpace(backendOption)
             ? CompilationBackendExtensions.Parse(backendOption)
             : config?.EffectiveBackend ?? CompilationBackend.Il;
     }
 
-    private static string? GetOption(string[] args, string flag)
+    // Stage 6 oracle-bug/C#-surface-shrink fallback: --backend values are not project operands; product parsing routes through CheckCommandKernels.
+    private static CheckArgumentSummary GetArgumentSummaryWithCSharp(string[] args)
+        => new(
+            GetOptionValueWithCSharp(args, "--project"),
+            GetOptionValueWithCSharp(args, "--backend"),
+            GetFirstPositionalArgWithCSharp(args, "--project", "--backend"),
+            ContainsArgWithCSharp(args, "--text"),
+            ContainsArgWithCSharp(args, "--aot"),
+            ContainsArgWithCSharp(args, "--systems-report"),
+            ContainsArgWithCSharp(args, "--help") || ContainsArgWithCSharp(args, "-h") || (args.Length > 0 && args[0] == "help"));
+
+    private static string? GetOptionValueWithCSharp(string[] args, string flag)
     {
         for (int i = 0; i < args.Length - 1; i++)
         {
@@ -246,11 +260,8 @@ Exit codes:
         return null;
     }
 
-    private static string? GetFirstPositionalArg(string[] args, string[] optionsWithValues)
+    private static string? GetFirstPositionalArgWithCSharp(string[] args, params string[] optionsWithValues)
     {
-        if (CheckCommandKernels.TryGetProjectOperand(args, optionsWithValues, out var positional))
-            return positional;
-
         for (int i = 0; i < args.Length; i++)
         {
             if (optionsWithValues.Contains(args[i], StringComparer.Ordinal))
@@ -264,6 +275,14 @@ Exit codes:
         }
 
         return null;
+    }
+
+    private static bool ContainsArgWithCSharp(string[] args, string value)
+    {
+        for (var i = 0; i < args.Length; i++)
+            if (args[i] == value)
+                return true;
+        return false;
     }
 
     private static int EmitError(bool useText, string message, string? projectRoot = null)

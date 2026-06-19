@@ -979,13 +979,32 @@ func Main() {
     }
 
     [Fact]
-    public void CheckCommandKernels_SelectsProjectOperand()
+    public void CheckCommandKernels_SummarizesOptionsAndSkipsBackendValue()
     {
-        Assert.True(CheckCommandKernels.TryGetProjectOperand(
-            new[] { "--text", "samples/demo" },
-            Array.Empty<string>(),
-            out var projectPath));
-        Assert.Equal("samples/demo", projectPath);
+        var args = new[] { "--backend", "il", "samples/demo", "--text", "--aot", "--systems-report" };
+        Assert.True(CheckCommandKernels.TryGetArgumentSummary(args, out var dogfoodSummary));
+        Assert.Null(dogfoodSummary.ProjectOption);
+        Assert.Equal("il", dogfoodSummary.BackendOption);
+        Assert.Equal("samples/demo", dogfoodSummary.PositionalProject);
+        Assert.True(dogfoodSummary.UseText);
+        Assert.True(dogfoodSummary.Aot);
+        Assert.True(dogfoodSummary.SystemsReport);
+        Assert.False(dogfoodSummary.ShowHelp);
+
+        var summary = CheckCommand.GetArgumentSummary(args);
+        Assert.Null(summary.ProjectOption);
+        Assert.Equal("il", summary.BackendOption);
+        Assert.Equal("samples/demo", summary.PositionalProject);
+        Assert.True(summary.UseText);
+        Assert.True(summary.Aot);
+        Assert.True(summary.SystemsReport);
+        Assert.False(summary.ShowHelp);
+
+        var permissiveValue = CheckCommand.GetArgumentSummary(new[] { "--project", "--backend", "il" });
+        Assert.Equal("--backend", permissiveValue.ProjectOption);
+        Assert.Equal("il", permissiveValue.BackendOption);
+
+        Assert.True(CheckCommand.GetArgumentSummary(new[] { "help" }).ShowHelp);
     }
 
     [Fact]

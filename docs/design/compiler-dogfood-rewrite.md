@@ -1500,6 +1500,12 @@ on the large generated argument corpus (1.092 ms vs 129.694 ms, 53.68 KB vs 273.
 acceptance-grade benchmark evidence for `nlc lint --project ... [files...]` command-boundary file
 selection.
 
+`CliCheckArgumentSummaryInto` routes `nlc check` help, `--project`, `--backend`, `--text`, `--aot`,
+`--systems-report`, and positional project discovery through the owner-local `CheckCommandKernels`
+helper when the N# assembly is available. This Stage 6 route also fixes the previous C# parser bug
+where `nlc check --backend il <project>` could treat `il` as the project directory. The fallback C#
+parser remains only as oracle/fallback logic and mirrors the corrected option-value exclusion.
+
 `CliLintOptionSummaryInto` preserves the current `nlc lint` command-parser behavior for help,
 `--project`, `--text`, and `--json`. Stage 6 routes `LintCommand` through `LintCommandKernels`
 as a C# surface-shrink product path beside the file-argument extraction route. The kernel writes the
@@ -2131,7 +2137,7 @@ CLI stable string de-duplication for stale generated cleanup and target-framewor
 add/remove package operand discovery, tidy dependency-line keep flags,
 DocQuery reference-pack assembly-name and type-candidate de-duplication,
 CLI test outcome summaries,
-CLI build/test/pack/lint option summaries,
+CLI build/test/pack/lint option summaries, check argument summaries,
 watch forwarded-argument selection,
 shared positional-argument collection,
 and the accepted batch result packed-count kernel through the compiled N# methods. The same suite

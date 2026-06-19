@@ -378,6 +378,20 @@ func Main() {
             doc.RootElement.GetProperty("projectRoot").GetString());
     }
 
+    [Fact]
+    public void CheckCommand_BackendOption_DoesNotBecomeProjectDir()
+    {
+        var (exitCode, stdout, stderr) = CaptureConsole(() =>
+            CheckCommand.Execute(new[] { "--backend", "il", HelloWorldProject }));
+
+        Assert.Equal(0, exitCode);
+        Assert.True(string.IsNullOrWhiteSpace(stderr));
+        var doc = JsonDocument.Parse(stdout);
+        Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
+        Assert.Contains(NormalizePath(Path.GetFullPath(HelloWorldProject)),
+            doc.RootElement.GetProperty("projectRoot").GetString());
+    }
+
     // ── Diagnostics deduplication and ordering ─────────────────────────
 
     [Fact]

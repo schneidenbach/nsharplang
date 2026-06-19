@@ -11,6 +11,19 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Check argument parsing routes through product N#
+
+`CheckCommand` now gets help detection, `--project`, `--backend`, `--text`, `--aot`,
+`--systems-report`, and positional project discovery from `CheckCommandKernels`, which binds the
+shipped `CliCheckArgumentSummaryInto` dogfood kernel. The old project-only kernel wrapper was
+removed. The fallback C# parser remains only as fallback/oracle logic and now mirrors the product fix
+that prevents `--backend il` from treating `il` as the project directory. This is a Stage 6
+`oracle-bug` plus `C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`./scripts/dev.sh CheckCommandKernels`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.CheckCommandKernels_SummarizesOptionsAndSkipsBackendValue|FullyQualifiedName~CheckCommandTests.CheckCommand_BackendOption_DoesNotBecomeProjectDir|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-18 — Lint option parsing routes through product N#
 
 `LintCommand` now gets help detection, `--project`, `--text`, and `--json` from
