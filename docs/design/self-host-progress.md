@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-19 — New command argument parsing routes through product N#
+
+`Program.NewCommand` now gets help detection, `--template`/`--type`, positional template override,
+project-name operands, and `--systems` from `NewCommandKernels`, which binds the shipped
+`CliNewArgumentSummaryInto` dogfood kernel beside the first-positional compatibility route. The
+previous direct C# scans remain only as fallback/oracle logic, preserving option-value permissiveness
+and positional template behavior. This is a Stage 6 `C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`./scripts/dev.sh NewCommandKernels`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.NewCommandKernels_SummarizesArguments|FullyQualifiedName~CliParityAuditTests.NewCommand_AcceptsProjectNameAfterTemplateOption|FullyQualifiedName~CliParityAuditTests.NewCommand_CreatesSystemsProjectShapeFromTemplateFlag|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-19 — Update argument parsing routes through product N#
 
 `UpdateCommand` now gets help detection, `--dry-run`, and target package discovery from

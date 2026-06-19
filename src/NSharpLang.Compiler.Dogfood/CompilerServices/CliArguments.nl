@@ -612,6 +612,103 @@ func CliUpdateArgumentSummaryCore(args: &CliArgumentTable, resultIndices: &CliIn
     return 0
 }
 
+func CliNewArgumentSummaryInto(args: string[], resultIndices: int[]): int {
+    arguments := new CliArgumentTable { Args: args }
+    results := new CliIndexResultTable { Indices: resultIndices }
+    return CliNewArgumentSummaryCore(ref arguments, ref results)
+}
+
+func CliNewArgumentSummaryCore(args: &CliArgumentTable, resultIndices: &CliIndexResultTable): int {
+    if resultIndices.Indices.Length < 5 {
+        return -1
+    }
+
+    resultIndices.Indices[0] = -1
+    resultIndices.Indices[1] = -1
+    resultIndices.Indices[2] = -1
+    resultIndices.Indices[3] = 0
+    resultIndices.Indices[4] = 0
+
+    templateIndex := -1
+    typeIndex := -1
+    i := 0
+    while i < args.Args.Length {
+        arg := args.Args[i]
+        if i == 0 && arg == "help" {
+            resultIndices.Indices[4] = 1
+        }
+
+        if arg == "--systems" {
+            resultIndices.Indices[3] = 1
+        }
+
+        if arg == "--help" || arg == "-h" {
+            resultIndices.Indices[4] = 1
+        }
+
+        if arg == "--template" {
+            if templateIndex < 0 && i + 1 < args.Args.Length {
+                templateIndex = i + 1
+            }
+        } else if arg == "--type" {
+            if typeIndex < 0 && i + 1 < args.Args.Length {
+                typeIndex = i + 1
+            }
+        }
+
+        i = i + 1
+    }
+
+    if templateIndex >= 0 {
+        resultIndices.Indices[2] = templateIndex
+    } else {
+        resultIndices.Indices[2] = typeIndex
+    }
+
+    positionalCount := 0
+    i = 0
+    while i < args.Args.Length {
+        arg := args.Args[i]
+        if arg == "--template" || arg == "--type" {
+            if i + 1 < args.Args.Length {
+                i = i + 2
+            } else {
+                i = i + 1
+            }
+
+            continue
+        }
+
+        if CliNewArgumentIsValueLessFlag(arg) {
+            i = i + 1
+            continue
+        }
+
+        if arg.Length == 0 || arg[0] != '-' {
+            if positionalCount == 0 {
+                resultIndices.Indices[0] = i
+            } else if positionalCount == 1 {
+                resultIndices.Indices[1] = i
+            }
+
+            positionalCount = positionalCount + 1
+        }
+
+        i = i + 1
+    }
+
+    return 0
+}
+
+func CliNewArgumentIsValueLessFlag(arg: string): bool {
+    return arg == "--check"
+        || arg == "--verify-no-changes"
+        || arg == "--diff"
+        || arg == "--stdin"
+        || arg == "--verbose"
+        || arg == "--systems"
+}
+
 func CliPublishOptionsInto(args: string[], resultIndices: int[]): int {
     arguments := new CliArgumentTable { Args: args }
     results := new CliIndexResultTable { Indices: resultIndices }

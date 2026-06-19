@@ -944,13 +944,40 @@ func Main() {
     }
 
     [Fact]
-    public void NewCommandKernels_SelectsProjectNameOperand()
+    public void NewCommandKernels_SummarizesArguments()
     {
+        var args = new[] { "--template", "library", "--systems", "PacketCore", "-h" };
+
+        Assert.True(NewCommandKernels.TryGetArgumentSummary(args, out var dogfoodSummary));
+        Assert.Equal("PacketCore", dogfoodSummary.FirstPositional);
+        Assert.Null(dogfoodSummary.SecondPositional);
+        Assert.Equal("library", dogfoodSummary.TemplateOption);
+        Assert.True(dogfoodSummary.Systems);
+        Assert.True(dogfoodSummary.ShowHelp);
+
+        var summary = Program.GetNewArgumentSummary(args);
+        Assert.Equal("PacketCore", summary.FirstPositional);
+        Assert.Null(summary.SecondPositional);
+        Assert.Equal("library", summary.TemplateOption);
+        Assert.True(summary.Systems);
+        Assert.True(summary.ShowHelp);
+
         Assert.True(NewCommandKernels.TryGetProjectNameOperand(
             new[] { "--template", "webapi", "MyApi" },
             new[] { "--template", "--type" },
             out var projectName));
         Assert.Equal("MyApi", projectName);
+
+        var positionalTemplate = Program.GetNewArgumentSummary(new[] { "systems-cli", "PacketTool" });
+        Assert.Equal("systems-cli", positionalTemplate.FirstPositional);
+        Assert.Equal("PacketTool", positionalTemplate.SecondPositional);
+        Assert.Null(positionalTemplate.TemplateOption);
+
+        var typeAlias = Program.GetNewArgumentSummary(new[] { "--type", "webapi", "MyApi" });
+        Assert.Equal("webapi", typeAlias.TemplateOption);
+        Assert.Equal("MyApi", typeAlias.FirstPositional);
+
+        Assert.True(Program.GetNewArgumentSummary(new[] { "help" }).ShowHelp);
     }
 
     [Fact]

@@ -7014,6 +7014,7 @@ func outer(x: int): int {
         Assert.Contains("CliLintOptionSummaryInto", methodNames!); // product lint option parsing.
         Assert.Contains("CliCheckArgumentSummaryInto", methodNames!); // product check argument parsing.
         Assert.Contains("CliFixArgumentSummaryInto", methodNames!); // product fix argument parsing.
+        Assert.Contains("CliNewArgumentSummaryInto", methodNames!); // product new argument parsing.
         Assert.Contains("CliAddArgumentSummaryInto", methodNames!); // product add argument parsing.
         Assert.Contains("CliRemoveArgumentSummaryInto", methodNames!); // product remove argument parsing.
         Assert.Contains("CliUpdateArgumentSummaryInto", methodNames!); // product update argument parsing.
@@ -15132,6 +15133,10 @@ class OtherZetaType {
                     "CliFixArgumentSummaryInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliFixArgumentSummaryInto.");
+            var cliNewArgumentSummaryInto = programType.GetMethod(
+                    "CliNewArgumentSummaryInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliNewArgumentSummaryInto.");
             var cliAddArgumentSummaryInto = programType.GetMethod(
                     "CliAddArgumentSummaryInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -16172,6 +16177,7 @@ func main(customer: Customer, résumé: Profile) {
             AssertCliRunSourceOperandLikeProduction(cliRunFirstOperandIndex);
             AssertCliCheckArgumentsLikeProduction(cliCheckArgumentSummaryInto);
             AssertCliFixArgumentsLikeProduction(cliFixArgumentSummaryInto);
+            AssertCliNewArgumentsLikeProduction(cliNewArgumentSummaryInto);
             AssertCliAddArgumentsLikeProduction(cliAddArgumentSummaryInto);
             AssertCliRemoveArgumentsLikeProduction(cliRemoveArgumentSummaryInto);
             AssertCliUpdateArgumentsLikeProduction(cliUpdateArgumentSummaryInto);
@@ -19164,6 +19170,101 @@ func main() {
             {
                 indices[2] = i;
                 break;
+            }
+        }
+
+        return indices;
+    }
+
+    private static void AssertCliNewArgumentsLikeProduction(MethodInfo cliNewArgumentSummaryInto)
+    {
+        var cases = new[]
+        {
+            Array.Empty<string>(),
+            new[] { "MyApp" },
+            new[] { "--template", "library", "--systems", "PacketCore", "-h" },
+            new[] { "--type", "webapi", "MyApi" },
+            new[] { "systems-cli", "PacketTool" },
+            new[] { "--systems", "systems-lib", "PacketCore" },
+            new[] { "--template", "--systems", "PacketCore" },
+            new[] { "help" },
+            new[] { "ignored", "--help" },
+            new[] { string.Empty }
+        };
+
+        foreach (var args in cases)
+        {
+            var expected = CreateExpectedCliNewArguments(args);
+            var resultIndices = Enumerable.Repeat(-99, 5).ToArray();
+            var actualCode = (int)(cliNewArgumentSummaryInto.Invoke(
+                null,
+                new object[] { args, resultIndices }) ?? -2);
+
+            Assert.Equal(0, actualCode);
+            Assert.Equal(expected, resultIndices);
+        }
+
+        Assert.Equal(
+            -1,
+            (int)(cliNewArgumentSummaryInto.Invoke(
+                null,
+                new object[] { new[] { "MyApp" }, new int[4] }) ?? 0));
+    }
+
+    private static int[] CreateExpectedCliNewArguments(string[] args)
+    {
+        var indices = new[] { -1, -1, -1, 0, 0 };
+        var templateIndex = -1;
+        var typeIndex = -1;
+
+        for (var i = 0; i < args.Length; i++)
+        {
+            var arg = args[i];
+            if (i == 0 && arg == "help")
+                indices[4] = 1;
+
+            if (arg == "--systems")
+                indices[3] = 1;
+
+            if (arg == "--help" || arg == "-h")
+                indices[4] = 1;
+
+            if (arg == "--template")
+            {
+                if (templateIndex < 0 && i + 1 < args.Length)
+                    templateIndex = i + 1;
+            }
+            else if (arg == "--type")
+            {
+                if (typeIndex < 0 && i + 1 < args.Length)
+                    typeIndex = i + 1;
+            }
+        }
+
+        indices[2] = templateIndex >= 0 ? templateIndex : typeIndex;
+
+        var positionalCount = 0;
+        for (var i = 0; i < args.Length; i++)
+        {
+            var arg = args[i];
+            if (arg is "--template" or "--type")
+            {
+                if (i + 1 < args.Length)
+                    i++;
+                continue;
+            }
+
+            if (arg is "--check" or "--verify-no-changes" or "--diff" or "--stdin" or "--verbose" or "--systems")
+                continue;
+
+            if (!arg.StartsWith("-", StringComparison.Ordinal))
+            {
+                if (positionalCount == 0)
+                    indices[0] = i;
+                else if (positionalCount == 1)
+                    indices[1] = i;
+
+                positionalCount++;
             }
         }
 

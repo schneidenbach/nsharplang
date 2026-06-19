@@ -723,7 +723,8 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
 
     static int NewCommand(string[] args)
     {
-        if (args.Contains("--help") || args.Contains("-h") || (args.Length > 0 && args[0] == "help"))
+        var arguments = GetNewArgumentSummary(args);
+        if (arguments.ShowHelp)
         {
             Console.WriteLine(@"N# New Project
 
@@ -756,21 +757,20 @@ Exit codes:
             return 0;
         }
 
-        var projectName = GetFirstPositionalArg(args, NewProjectOptionsWithValues);
+        var projectName = arguments.FirstPositional;
         if (projectName == null)
         {
             return Error("Usage: nlc new <project-name> [--template <template>]");
         }
 
-        var requestedTemplate = GetOptionValue(args, "--template") ?? GetOptionValue(args, "--type");
-        var positional = GetPositionalArgs(args, "--template", "--type");
-        if (positional.Length >= 2 && NormalizeProjectTemplate(positional[0]) is { } positionalTemplate)
+        var requestedTemplate = arguments.TemplateOption;
+        if (arguments.SecondPositional != null && NormalizeProjectTemplate(arguments.FirstPositional!) is { } positionalTemplate)
         {
             requestedTemplate = positionalTemplate;
-            projectName = positional[1];
+            projectName = arguments.SecondPositional;
         }
 
-        var systemsFlag = args.Contains("--systems");
+        var systemsFlag = arguments.Systems;
         var template = NormalizeProjectTemplate(requestedTemplate ?? "console");
         if (systemsFlag && template is "console")
             template = "systems-cli";
@@ -834,6 +834,23 @@ Exit codes:
         {
             return Error($"Failed to create project: {ex.Message}");
         }
+    }
+
+    internal static NewArgumentSummary GetNewArgumentSummary(string[] args)
+        => NewCommandKernels.TryGetArgumentSummary(args, out var summary)
+            ? summary
+            : GetNewArgumentSummaryWithCSharp(args);
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product new argument parsing routes through NewCommandKernels.
+    private static NewArgumentSummary GetNewArgumentSummaryWithCSharp(string[] args)
+    {
+        var positional = GetPositionalArgsWithCSharp(args, "--template", "--type");
+        return new NewArgumentSummary(
+            GetFirstPositionalArgWithCSharp(args, NewProjectOptionsWithValues),
+            positional.Length >= 2 ? positional[1] : null,
+            GetOptionValue(args, "--template") ?? GetOptionValue(args, "--type"),
+            args.Contains("--systems"),
+            args.Contains("--help") || args.Contains("-h") || (args.Length > 0 && args[0] == "help"));
     }
 
     static string[] GetTemplateSourceFiles(string template) => template switch
