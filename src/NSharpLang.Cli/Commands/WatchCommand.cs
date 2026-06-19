@@ -219,6 +219,21 @@ public static class WatchCommand
         if (string.IsNullOrWhiteSpace(value))
             return defaultValue;
 
+        if (WatchCommandKernels.TryParsePositiveInt(value, out var parsedFromKernel))
+        {
+            if (parsedFromKernel > 0)
+                return parsedFromKernel;
+
+            Error($"{flag} expects a positive integer.");
+            return null;
+        }
+
+        return ParsePositiveIntWithCSharp(value, flag);
+    }
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product watch numeric option parsing routes through WatchCommandKernels.
+    private static int? ParsePositiveIntWithCSharp(string value, string flag)
+    {
         if (int.TryParse(value, out var parsed) && parsed > 0)
             return parsed;
 

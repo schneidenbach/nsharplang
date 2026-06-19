@@ -7018,6 +7018,7 @@ func outer(x: int): int {
         Assert.Contains("CliWatchTargetSummaryInto", methodNames!); // product watch target parsing.
         Assert.Contains("CliWatchForwardedArgIndicesInto", methodNames!); // product watch forwarding.
         Assert.Contains("CliWatchOptionSummaryInto", methodNames!); // product watch option parsing.
+        Assert.Contains("CliWatchPositiveIntInto", methodNames!); // product watch numeric option parsing.
         Assert.Contains("CliRunOptionSummaryInto", methodNames!); // product run option parsing.
         Assert.Contains("CliDefineExtractionInto", methodNames!); // product build/run define extraction.
         Assert.Contains("CliPositionalArgIndicesInto", methodNames!); // product positional collection.
@@ -7055,6 +7056,10 @@ func outer(x: int): int {
             ("CliTreeMaxDepthInto", new object[] { Array.Empty<string>(), 99, new int[1] }),
             ("CliTreeMaxDepthInto", new object[] { new[] { "--depth", "2147483648", "--depth", "-2147483648" }, 99, new int[1] }),
             ("CliTreeMaxDepthInto", new object[] { new[] { "--depth", "7" }, 99, new int[0] }),
+            ("CliWatchPositiveIntInto", new object[] { " 25 ", new int[1] }),
+            ("CliWatchPositiveIntInto", new object[] { "0", new int[1] }),
+            ("CliWatchPositiveIntInto", new object[] { "2147483648", new int[1] }),
+            ("CliWatchPositiveIntInto", new object[] { "7", new int[0] }),
             ("CliWatchForwardedArgChecksumInto", new object[] { new[] { "test", "--project", "demo", "--filter", "Adds", "--debounce-ms", "25", "--json", "--max-runs", "2", "--coverage" }, new int[11] }),
             ("CliPositionalArgChecksumInto", new object[] { new[] { "--template", "library", "systems-cli", "PacketTool", "--systems", "--diff", "src/App.nl" }, new[] { "--template", "--type" }, new int[7] }));
     }
@@ -15204,6 +15209,10 @@ class OtherZetaType {
                     "CliWatchOptionSummaryInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliWatchOptionSummaryInto.");
+            var cliWatchPositiveIntInto = programType.GetMethod(
+                    "CliWatchPositiveIntInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliWatchPositiveIntInto.");
             var cliWatchForwardedArgChecksumInto = programType.GetMethod(
                     "CliWatchForwardedArgChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -16277,6 +16286,7 @@ func main(customer: Customer, résumé: Profile) {
                 cliWatchForwardedArgIndicesInto,
                 cliWatchForwardedArgChecksumInto);
             AssertCliWatchOptionsLikeProduction(cliWatchOptionSummaryInto);
+            AssertCliWatchPositiveIntsLikeProduction(cliWatchPositiveIntInto);
             AssertCliPublishOptionsLikeProduction(cliPublishOptionsInto);
             AssertCliPackOptionsLikeProduction(cliPackOptionSummaryInto);
             AssertCliPositionalArgsLikeProduction(
@@ -20018,6 +20028,41 @@ func main() {
         }
 
         return indices;
+    }
+
+    private static void AssertCliWatchPositiveIntsLikeProduction(MethodInfo cliWatchPositiveIntInto)
+    {
+        var cases = new[]
+        {
+            "1",
+            " 25 ",
+            "+3",
+            "0",
+            "-1",
+            "2147483647",
+            "2147483648",
+            "1_000",
+            string.Empty,
+            "   "
+        };
+
+        foreach (var value in cases)
+        {
+            var result = new int[1];
+            var actualCode = (int)(cliWatchPositiveIntInto.Invoke(
+                null,
+                new object[] { value, result }) ?? -2);
+
+            var expected = int.TryParse(value, out var parsed) && parsed > 0 ? parsed : 0;
+            Assert.Equal(expected > 0 ? 1 : 0, actualCode);
+            Assert.Equal(expected, result[0]);
+        }
+
+        Assert.Equal(
+            -1,
+            (int)(cliWatchPositiveIntInto.Invoke(
+                null,
+                new object[] { "7", Array.Empty<int>() }) ?? 0));
     }
 
     private static void AssertCliPublishOptionsLikeProduction(MethodInfo cliPublishOptionsInto)

@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-19 — Watch numeric option parsing moves into product N#
+
+`WatchCommand.ParsePositiveInt` now parses provided `--debounce-ms` and `--max-runs` values
+through `WatchCommandKernels`, which binds the shipped `CliWatchPositiveIntInto` dogfood kernel in
+`CliArguments.nl`. C# keeps default/null handling and the user-facing error text; the old
+`int.TryParse && > 0` scan remains only as fallback/oracle logic. This is a Stage 6
+`C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`./scripts/dev.sh WatchCommandKernels`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-19 — Tree depth parsing moves into product N#
 
 `TreeCommand.GetMaxDepth` now parses `--depth` values through `TreeCommandKernels`, which binds

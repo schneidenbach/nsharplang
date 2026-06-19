@@ -1292,7 +1292,7 @@ func CliTreeMaxDepthInto(args: string[], defaultDepth: int, result: int[]): int 
     i := 0
     while i < args.Length - 1 {
         if args[i] == "--depth" {
-            if CliTreeTryParseInt32Into(args[i + 1], ref results, 0) {
+            if CliArgumentTryParseInt32Into(args[i + 1], ref results, 0) {
                 return 1
             }
         }
@@ -1303,7 +1303,26 @@ func CliTreeMaxDepthInto(args: string[], defaultDepth: int, result: int[]): int 
     return 0
 }
 
-func CliTreeTryParseInt32Into(text: string, result: &CliIntResultTable, resultIndex: int): bool {
+func CliWatchPositiveIntInto(value: string, result: int[]): int {
+    if result.Length < 1 {
+        return -1
+    }
+
+    result[0] = 0
+    results := new CliIntResultTable { Values: result }
+    if !CliArgumentTryParseInt32Into(value, ref results, 0) {
+        return 0
+    }
+
+    if result[0] <= 0 {
+        result[0] = 0
+        return 0
+    }
+
+    return 1
+}
+
+func CliArgumentTryParseInt32Into(text: string, result: &CliIntResultTable, resultIndex: int): bool {
     start := 0
     end := text.Length
     while start < end && char.IsWhiteSpace(text[start]) {

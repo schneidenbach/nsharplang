@@ -28,6 +28,8 @@ internal static class WatchCommandKernels
     private static int[]? t_resultIndices;
     [ThreadStatic]
     private static int[]? t_targetSummaryIndices;
+    [ThreadStatic]
+    private static int[]? t_positiveIntResult;
 
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
 
@@ -146,6 +148,31 @@ internal static class WatchCommandKernels
         }
     }
 
+    internal static bool TryParsePositiveInt(string value, out int parsed)
+    {
+        parsed = 0;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        var result = t_positiveIntResult ??= new int[1];
+        try
+        {
+            var code = bindings.PositiveInt(value, result);
+            if (code < 0)
+                return false;
+
+            parsed = result[0];
+            return true;
+        }
+        catch
+        {
+            parsed = 0;
+            return false;
+        }
+    }
+
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
             DogfoodKernelLoader.CreateDelegate<CliWatchOptionSummaryInto>(
@@ -156,7 +183,10 @@ internal static class WatchCommandKernels
                 "CliWatchForwardedArgIndicesInto"),
             DogfoodKernelLoader.CreateDelegate<CliWatchTargetSummaryInto>(
                 programType,
-                "CliWatchTargetSummaryInto")));
+                "CliWatchTargetSummaryInto"),
+            DogfoodKernelLoader.CreateDelegate<CliWatchPositiveIntInto>(
+                programType,
+                "CliWatchPositiveIntInto")));
 
     private delegate int CliWatchOptionSummaryInto(string[] args, int[] resultIndices);
 
@@ -164,10 +194,13 @@ internal static class WatchCommandKernels
 
     private delegate int CliWatchTargetSummaryInto(string[] args, int[] resultIndices);
 
+    private delegate int CliWatchPositiveIntInto(string value, int[] result);
+
     private sealed record Bindings(
         CliWatchOptionSummaryInto OptionSummary,
         CliWatchForwardedArgIndicesInto WatchForwardedArgIndices,
-        CliWatchTargetSummaryInto TargetSummary);
+        CliWatchTargetSummaryInto TargetSummary,
+        CliWatchPositiveIntInto PositiveInt);
 
     private static bool TryGetOptionalArg(string[] args, int index, out string? value)
     {

@@ -1713,6 +1713,32 @@ func Main() {
     }
 
     [Fact]
+    public void WatchCommandKernels_ParsePositiveIntsLikeCSharpFallback()
+    {
+        var cases = new[]
+        {
+            "1",
+            " 25 ",
+            "+3",
+            "0",
+            "-1",
+            "2147483647",
+            "2147483648",
+            "1_000",
+            string.Empty,
+            "   "
+        };
+
+        foreach (var value in cases)
+        {
+            var expected = ParseWatchPositiveIntWithCSharpFallback(value);
+
+            Assert.True(WatchCommandKernels.TryParsePositiveInt(value, out var actual));
+            Assert.Equal(expected, actual);
+        }
+    }
+
+    [Fact]
     public void RemoveCommandKernels_SummarizesArguments()
     {
         var args = new[] { "--dry-run", "Serilog", "-h" };
@@ -4058,6 +4084,9 @@ func Main() {
 
         return defaultDepth;
     }
+
+    private static int ParseWatchPositiveIntWithCSharpFallback(string value)
+        => int.TryParse(value, out var parsed) && parsed > 0 ? parsed : 0;
 
     private sealed record ExportReferenceValue(string Name, string Version);
 
