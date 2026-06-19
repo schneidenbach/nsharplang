@@ -11,6 +11,19 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-19 — Daemon query position parsing moves into product N#
+
+`DaemonServer` now parses single-request query `pos` parameters through `DaemonServerKernels`,
+which binds the shipped `CliDaemonPositionInto` dogfood kernel in `CliQueryParsing.nl`. The N#
+route preserves the daemon's legacy compatibility behavior exactly: each side of `<line>:<col>` is
+parsed independently, malformed or overflowing halves become zero, and malformed shapes become
+`0:0`. The previous C# parser remains only as fallback/oracle logic. This is a Stage 6
+`C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`./scripts/dev.sh DaemonServer_QueryPositionsUseDogfoodCompatibilityParser`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliQueryParsing|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-19 — Batch query position parsing reuses product N#
 
 `BatchQueryRunner` now validates per-request `file`/`pos` coordinates through

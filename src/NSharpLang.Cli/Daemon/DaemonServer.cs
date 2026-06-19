@@ -286,16 +286,7 @@ public class DaemonServer
             var compact = GetParam<bool>(request.Params, "compact");
             var clusters = GetParam<bool>(request.Params, "clusters");
 
-            int line = 0, col = 0;
-            if (posStr != null)
-            {
-                var parts = posStr.Split(':');
-                if (parts.Length == 2)
-                {
-                    int.TryParse(parts[0], out line);
-                    int.TryParse(parts[1], out col);
-                }
-            }
+            ParsePosition(posStr, out var line, out var col);
 
             // Query methods
             string result = request.Method switch
@@ -322,6 +313,33 @@ public class DaemonServer
         {
             return Error(request.Id, DaemonConstants.ErrorInternal, ex.Message);
         }
+    }
+
+    private static void ParsePosition(string? posStr, out int line, out int col)
+    {
+        line = 0;
+        col = 0;
+
+        if (posStr == null)
+            return;
+
+        if (DaemonServerKernels.TryParsePosition(posStr, out line, out col))
+            return;
+
+        ParsePositionWithCSharp(posStr, out line, out col);
+    }
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; daemon query position parsing routes through DaemonServerKernels.
+    private static void ParsePositionWithCSharp(string posStr, out int line, out int col)
+    {
+        line = 0;
+        col = 0;
+        var parts = posStr.Split(':');
+        if (parts.Length != 2)
+            return;
+
+        int.TryParse(parts[0], out line);
+        int.TryParse(parts[1], out col);
     }
 
     // ── Query Handlers ──────────────────────────────────────────────────

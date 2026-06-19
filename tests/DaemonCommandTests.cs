@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Net.Sockets;
 using System.Text;
@@ -483,6 +484,44 @@ func Main() {
             Assert.True(doc.RootElement.TryGetProperty("clusters", out var clusters));
             Assert.True(clusters.ValueKind == JsonValueKind.Array);
             Assert.False(doc.RootElement.TryGetProperty("results", out _));
+        }
+        finally
+        {
+            Directory.Delete(projectDir, true);
+        }
+    }
+
+    [Fact]
+    public void DaemonServer_QueryPositionsUseDogfoodCompatibilityParser()
+    {
+        var projectDir = CreateTempProject();
+        try
+        {
+            using var server = DaemonTestServer.Start(projectDir);
+
+            var lineFallback = DaemonClient.Query(projectDir, DaemonConstants.MethodType, new Dictionary<string, object?>
+            {
+                ["file"] = "Program.nl",
+                ["pos"] = "bad:5"
+            });
+            Assert.NotNull(lineFallback);
+
+            using var lineDoc = JsonDocument.Parse(lineFallback!);
+            var linePosition = lineDoc.RootElement.GetProperty("error").GetProperty("details").GetProperty("position");
+            Assert.Equal(0, linePosition.GetProperty("line").GetInt32());
+            Assert.Equal(5, linePosition.GetProperty("column").GetInt32());
+
+            var columnFallback = DaemonClient.Query(projectDir, DaemonConstants.MethodType, new Dictionary<string, object?>
+            {
+                ["file"] = "Program.nl",
+                ["pos"] = "5:bad"
+            });
+            Assert.NotNull(columnFallback);
+
+            using var columnDoc = JsonDocument.Parse(columnFallback!);
+            var columnPosition = columnDoc.RootElement.GetProperty("error").GetProperty("details").GetProperty("position");
+            Assert.Equal(5, columnPosition.GetProperty("line").GetInt32());
+            Assert.Equal(0, columnPosition.GetProperty("column").GetInt32());
         }
         finally
         {

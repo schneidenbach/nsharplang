@@ -11868,6 +11868,7 @@ func outer(x: int): int {
         Assert.Contains("CliQueryTopLevelOptionSummaryInto", methodNames!); // product query top-level option parsing.
         Assert.Contains("CliTryParsePositionInto", methodNames!); // product query line/column position parsing.
         Assert.Contains("CliTryParsePositiveIntInto", methodNames!); // product query positive-limit parsing.
+        Assert.Contains("CliDaemonPositionInto", methodNames!); // product daemon query position compatibility parsing.
 
         var full = 0xFFFFFFFFFFFFFFFFUL;
         AssertColumnarProgramMatchesCSharp(source,
@@ -11884,6 +11885,9 @@ func outer(x: int): int {
             ("CliTryParsePositiveIntInto", new object[] { "25", new int[1] }),
             ("CliTryParsePositiveIntInto", new object[] { "0", new int[1] }),
             ("CliTryParsePositiveIntInto", new object[] { "2147483648", new int[1] }),
+            ("CliDaemonPositionInto", new object[] { "bad:5", new int[2] }),
+            ("CliDaemonPositionInto", new object[] { "5:bad", new int[2] }),
+            ("CliDaemonPositionInto", new object[] { "12:34", new int[2] }),
             ("CliQueryMinInt", new object[] { 4, 9 }));
     }
 
@@ -15133,6 +15137,10 @@ class OtherZetaType {
                     "CliTryParsePositiveIntInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTryParsePositiveIntInto.");
+            var cliDaemonPositionInto = programType.GetMethod(
+                    "CliDaemonPositionInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDaemonPositionInto.");
             var cliPositionalArgIndicesInto = programType.GetMethod(
                     "CliPositionalArgIndicesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -16270,6 +16278,7 @@ func main(customer: Customer, résumé: Profile) {
             AssertCliQueryDaemonParametersLikeProduction(cliQueryDaemonParameterSummaryInto);
             AssertCliQueryCommandOptionsLikeProduction(cliQueryCommandOptionSummaryInto);
             AssertCliQueryPositiveIntsLikeProduction(cliTryParsePositiveIntInto);
+            AssertCliDaemonPositionsLikeProduction(cliDaemonPositionInto);
             AssertCliBuildOperandsLikeProduction(
                 cliBuildOperandIndicesInto,
                 cliBuildOperandSummaryInto,
@@ -18818,6 +18827,54 @@ func main() {
             (int)(cliTryParsePositiveIntInto.Invoke(
                 null,
                 new object[] { "1", Array.Empty<int>() }) ?? 0));
+    }
+
+    private static void AssertCliDaemonPositionsLikeProduction(MethodInfo cliDaemonPositionInto)
+    {
+        var cases = new[]
+        {
+            "1:1",
+            " 42 : +17 ",
+            "bad:5",
+            "5:bad",
+            "2147483648:1",
+            "1:-2147483649",
+            "1_000:2",
+            "12:34:56",
+            "",
+            ":"
+        };
+
+        foreach (var position in cases)
+        {
+            var expected = ParseDaemonPositionWithCSharp(position);
+            var actual = new[] { -99, -99 };
+            var code = (int)(cliDaemonPositionInto.Invoke(
+                null,
+                new object[] { position, actual }) ?? -1);
+
+            Assert.Equal(0, code);
+            Assert.Equal(expected, actual);
+        }
+
+        Assert.Equal(
+            -1,
+            (int)(cliDaemonPositionInto.Invoke(
+                null,
+                new object[] { "1:1", new int[1] }) ?? 0));
+    }
+
+    private static int[] ParseDaemonPositionWithCSharp(string position)
+    {
+        var result = new[] { 0, 0 };
+        var parts = position.Split(':');
+        if (parts.Length == 2)
+        {
+            int.TryParse(parts[0], out result[0]);
+            int.TryParse(parts[1], out result[1]);
+        }
+
+        return result;
     }
 
     private static void AssertCliBuildOperandsLikeProduction(

@@ -292,6 +292,46 @@ func CliTryParsePositiveIntInto(value: string, result: int[]): int {
     return 1
 }
 
+func CliDaemonPositionInto(position: string, result: int[]): int {
+    if result.Length < 2 {
+        return -1
+    }
+
+    result[0] = 0
+    result[1] = 0
+
+    colon := -1
+    i := 0
+    while i < position.Length {
+        if position[i] == ':' {
+            if colon >= 0 {
+                return 0
+            }
+
+            colon = i
+        }
+
+        i = i + 1
+    }
+
+    if colon < 0 {
+        return 0
+    }
+
+    lineResult := new CliQueryIntResultTable { Values: result }
+    if !CliTryParseIntSegmentCore(position, 0, colon, ref lineResult, 0) {
+        result[0] = 0
+    }
+
+    result[1] = 0
+    columnResult := new CliQueryIntResultTable { Values: result }
+    if !CliTryParseIntSegmentCore(position, colon + 1, position.Length, ref columnResult, 1) {
+        result[1] = 0
+    }
+
+    return 0
+}
+
 func CliTryParsePositionPartsCore(
     position: string,
     results: &CliQueryPositionResultTable,
