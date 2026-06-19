@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using NSharpLang.Cli.Commands;
 using NSharpLang.Compiler.CodeIntelligence;
 
 namespace NSharpLang.Cli;
@@ -508,10 +509,7 @@ internal static class BatchQueryRunner
             return false;
         }
 
-        var parts = request.Pos.Split(':');
-        if (parts.Length != 2 ||
-            !int.TryParse(parts[0], out line) ||
-            !int.TryParse(parts[1], out column))
+        if (!TryParsePosition(request.Pos, out line, out column))
         {
             invalid = InvalidRequest(
                 command,
@@ -522,6 +520,26 @@ internal static class BatchQueryRunner
         }
 
         return true;
+    }
+
+    private static bool TryParsePosition(string position, out int line, out int column)
+    {
+        if (QueryCommandKernels.TryParsePosition(position, out var parsed, out line, out column))
+            return parsed;
+
+        return TryParsePositionWithCSharp(position, out line, out column);
+    }
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; batch query position parsing routes through QueryCommandKernels.
+    private static bool TryParsePositionWithCSharp(string position, out int line, out int column)
+    {
+        line = 0;
+        column = 0;
+        var parts = position.Split(':');
+        if (parts.Length != 2)
+            return false;
+
+        return int.TryParse(parts[0], out line) && int.TryParse(parts[1], out column);
     }
 
     private static string InvalidRequest(string command, string message, string? projectRoot, BatchQueryRequest request)

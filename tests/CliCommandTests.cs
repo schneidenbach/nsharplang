@@ -1205,6 +1205,61 @@ func Main() {
     }
 
     [Fact]
+    public void BatchCommand_PositionParsingUsesQueryKernelSemantics()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-batch-position-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            var requestsPath = Path.Combine(tempDir, "requests.json");
+            File.WriteAllText(requestsPath, """
+[
+  {
+    "command": "type",
+    "file": "Program.nl",
+    "pos": " +1 : +1 "
+  },
+  {
+    "command": "type",
+    "file": "Program.nl",
+    "pos": "2147483648:1"
+  },
+  {
+    "command": "type",
+    "file": "Program.nl",
+    "pos": "1_000:2"
+  }
+]
+""");
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() => QueryCommand.Execute(new[]
+            {
+                "batch",
+                "--project", IssueTrackerFixture,
+                "--requests", requestsPath
+            }));
+
+            Assert.Equal(1, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stderr));
+
+            using var doc = JsonDocument.Parse(stdout);
+            Assert.Equal(3, doc.RootElement.GetProperty("requestCount").GetInt32());
+            Assert.Equal(0, doc.RootElement.GetProperty("successCount").GetInt32());
+            Assert.Equal(3, doc.RootElement.GetProperty("failureCount").GetInt32());
+
+            var results = doc.RootElement.GetProperty("results").EnumerateArray().ToArray();
+            Assert.Equal("noSymbol", results[0].GetProperty("response").GetProperty("error").GetProperty("code").GetString());
+            Assert.Equal("invalidRequest", results[1].GetProperty("response").GetProperty("error").GetProperty("code").GetString());
+            Assert.Equal("invalidRequest", results[2].GetProperty("response").GetProperty("error").GetProperty("code").GetString());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void QueryCommandKernels_SummarizesDaemonParameters()
     {
         var args = new[]

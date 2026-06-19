@@ -11,6 +11,19 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-19 — Batch query position parsing reuses product N#
+
+`BatchQueryRunner` now validates per-request `file`/`pos` coordinates through
+`QueryCommandKernels`, reusing the shipped `CliTryParsePositionInto` dogfood kernel in
+`CliQueryParsing.nl`. This moves the `nlc query batch` position path off its local C#
+`Split(':')`/`int.TryParse` parser while preserving the legacy whitespace, sign, overflow, and
+invalid-input behavior; the old parser remains only as fallback/oracle logic. This is a Stage 6
+`C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`./scripts/dev.sh BatchCommand`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.BatchCommand_PositionParsingUsesQueryKernelSemantics|FullyQualifiedName~CliCommandTests.QueryCommandKernels_ParsePositionsLikeCSharpFallback"`.
+
 ## 2026-06-19 — Query limit parsing moves into product N#
 
 `QueryCommand` now parses `call-graph --limit` values through `QueryCommandKernels`, which binds
