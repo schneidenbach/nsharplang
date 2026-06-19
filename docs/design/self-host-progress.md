@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-19 — Query outline operand uses the N# command summary
+
+`QueryCommand.OutlineCommand` now reads its leading file operand through
+`GetCommandOptionSummary`, reusing the shipped `CliQueryCommandOptionSummaryInto` route instead of
+touching `args[0]` directly. With this slice, product `QueryCommand` argument reads are routed
+through owner-local N# summaries; the direct scans remain only in fallback/oracle methods. This is a
+Stage 6 `C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`./scripts/dev.sh QueryCommand`.
+
 ## 2026-06-19 — Daemon option parsing routes through product N#
 
 `DaemonCommand` now gets subcommand kind, `--project`, and help detection from

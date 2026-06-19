@@ -498,7 +498,8 @@ public static class QueryCommand
     private static int OutlineCommand(string[] args, QueryOptions options)
     {
         // Outline can work on a single file without full project analysis
-        var file = args.Length > 0 ? args[0] : options.File;
+        var commandSummary = GetCommandOptionSummary(args);
+        var file = commandSummary.LeadingOperand ?? options.File;
 
         if (file == null)
         {
