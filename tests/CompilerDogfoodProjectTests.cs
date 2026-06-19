@@ -7016,6 +7016,7 @@ func outer(x: int): int {
         Assert.Contains("CliFixArgumentSummaryInto", methodNames!); // product fix argument parsing.
         Assert.Contains("CliAddArgumentSummaryInto", methodNames!); // product add argument parsing.
         Assert.Contains("CliRemoveArgumentSummaryInto", methodNames!); // product remove argument parsing.
+        Assert.Contains("CliUpdateArgumentSummaryInto", methodNames!); // product update argument parsing.
         Assert.Contains("CliTidyOptionSummaryInto", methodNames!); // product tidy option parsing.
         Assert.Contains("CliDocOptionSummaryInto", methodNames!); // product doc option parsing.
 
@@ -15139,6 +15140,10 @@ class OtherZetaType {
                     "CliRemoveArgumentSummaryInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliRemoveArgumentSummaryInto.");
+            var cliUpdateArgumentSummaryInto = programType.GetMethod(
+                    "CliUpdateArgumentSummaryInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliUpdateArgumentSummaryInto.");
             var cliWatchForwardedArgIndicesInto = programType.GetMethod(
                     "CliWatchForwardedArgIndicesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -16169,6 +16174,7 @@ func main(customer: Customer, résumé: Profile) {
             AssertCliFixArgumentsLikeProduction(cliFixArgumentSummaryInto);
             AssertCliAddArgumentsLikeProduction(cliAddArgumentSummaryInto);
             AssertCliRemoveArgumentsLikeProduction(cliRemoveArgumentSummaryInto);
+            AssertCliUpdateArgumentsLikeProduction(cliUpdateArgumentSummaryInto);
             AssertCliWatchForwardedArgsLikeProduction(
                 cliWatchForwardedArgIndicesInto,
                 cliWatchForwardedArgChecksumInto);
@@ -19209,6 +19215,62 @@ func main() {
 
             if (arg == "--help" || arg == "-h")
                 indices[1] = 1;
+
+            if (indices[0] < 0 && !arg.StartsWith("-", StringComparison.Ordinal))
+                indices[0] = i;
+        }
+
+        return indices;
+    }
+
+    private static void AssertCliUpdateArgumentsLikeProduction(MethodInfo cliUpdateArgumentSummaryInto)
+    {
+        var cases = new[]
+        {
+            Array.Empty<string>(),
+            new[] { "--dry-run", "Newtonsoft.Json" },
+            new[] { "--dry-run", "-v", "Serilog" },
+            new[] { "--dry-run" },
+            new[] { "help" },
+            new[] { "ignored", "-h" },
+            new[] { "--help" },
+            new[] { string.Empty }
+        };
+
+        foreach (var args in cases)
+        {
+            var expected = CreateExpectedCliUpdateArguments(args);
+            var resultIndices = Enumerable.Repeat(-99, 3).ToArray();
+            var actualCode = (int)(cliUpdateArgumentSummaryInto.Invoke(
+                null,
+                new object[] { args, resultIndices }) ?? -2);
+
+            Assert.Equal(0, actualCode);
+            Assert.Equal(expected, resultIndices);
+        }
+
+        Assert.Equal(
+            -1,
+            (int)(cliUpdateArgumentSummaryInto.Invoke(
+                null,
+                new object[] { new[] { "Serilog" }, new int[2] }) ?? 0));
+    }
+
+    private static int[] CreateExpectedCliUpdateArguments(string[] args)
+    {
+        var indices = new[] { -1, 0, 0 };
+
+        for (var i = 0; i < args.Length; i++)
+        {
+            var arg = args[i];
+            if (i == 0 && arg == "help")
+                indices[2] = 1;
+
+            if (arg == "--dry-run")
+                indices[1] = 1;
+
+            if (arg == "--help" || arg == "-h")
+                indices[2] = 1;
 
             if (indices[0] < 0 && !arg.StartsWith("-", StringComparison.Ordinal))
                 indices[0] = i;

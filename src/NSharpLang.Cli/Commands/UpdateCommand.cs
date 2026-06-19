@@ -10,17 +10,18 @@ public static class UpdateCommand
 {
     public static int Execute(string[] args)
     {
-        if (args.Contains("--help") || args.Contains("-h") || (args.Length > 0 && args[0] == "help"))
+        var arguments = GetArgumentSummary(args);
+        if (arguments.ShowHelp)
             return ShowHelp();
 
         var projectRoot = Directory.GetCurrentDirectory();
         var projectYml = Path.Combine(projectRoot, "project.yml");
-        var dryRun = args.Contains("--dry-run");
+        var dryRun = arguments.DryRun;
 
         if (!File.Exists(projectYml))
             return Error("No project.yml found.");
 
-        var targetPackage = GetTargetPackage(args);
+        var targetPackage = arguments.TargetPackage;
 
         try
         {
@@ -147,14 +148,35 @@ Exit codes:
     }
 
     internal static string? GetTargetPackage(string[] args)
-    {
-        return UpdateCommandKernels.TryGetTargetPackage(args, out var positional)
-            ? positional
-            : GetTargetPackageWithCSharp(args);
-    }
+        => GetArgumentSummary(args).TargetPackage;
+
+    internal static UpdateArgumentSummary GetArgumentSummary(string[] args)
+        => UpdateCommandKernels.TryGetArgumentSummary(args, out var summary)
+            ? summary
+            : GetArgumentSummaryWithCSharp(args);
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product update argument parsing routes through UpdateCommandKernels.
+    private static UpdateArgumentSummary GetArgumentSummaryWithCSharp(string[] args)
+        => new(
+            GetTargetPackageWithCSharp(args),
+            ContainsArgWithCSharp(args, "--dry-run"),
+            ContainsArgWithCSharp(args, "--help") || ContainsArgWithCSharp(args, "-h") || (args.Length > 0 && args[0] == "help"));
 
     private static string? GetTargetPackageWithCSharp(string[] args)
-        => args.FirstOrDefault(arg => !arg.StartsWith("-"));
+    {
+        for (var i = 0; i < args.Length; i++)
+            if (!args[i].StartsWith("-", StringComparison.Ordinal))
+                return args[i];
+        return null;
+    }
+
+    private static bool ContainsArgWithCSharp(string[] args, string value)
+    {
+        for (var i = 0; i < args.Length; i++)
+            if (args[i] == value)
+                return true;
+        return false;
+    }
 
     internal static List<Reference> FilterNuGetDependencies(
         IReadOnlyList<Reference> dependencies,

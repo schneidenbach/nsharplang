@@ -300,9 +300,9 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       `CheckCommandKernels`; fix argument summary now lives beside `FixCommand` in
       `FixCommandArgumentKernels`; add argument summary now lives beside `AddCommand` in
       `AddCommandKernels`; remove argument summary now lives beside `RemoveCommand` in
-      `RemoveCommandKernels`; first positional project/package discovery for `nlc new` and
-      `nlc update` now lives beside the owning commands in
-      `NewCommandKernels` and `UpdateCommandKernels`; tidy
+      `RemoveCommandKernels`; update argument summary now lives beside `UpdateCommand` in
+      `UpdateCommandKernels`; first positional project discovery for `nlc new` now lives beside the
+      owning command in `NewCommandKernels`; tidy
       option summary, classification, status summary, and fix filtering now live beside `TidyCommand`
       in `TidyCommandKernels`;
       lint option summary and file-argument extraction now live beside `LintCommand` in `LintCommandKernels`; format

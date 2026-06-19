@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-19 — Update argument parsing routes through product N#
+
+`UpdateCommand` now gets help detection, `--dry-run`, and target package discovery from
+`UpdateCommandKernels`, which binds the shipped `CliUpdateArgumentSummaryInto` dogfood kernel beside
+the target-package compatibility route. The previous direct C# scans remain only as fallback/oracle
+logic, preserving the command's first non-option package behavior. This is a Stage 6
+`C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`./scripts/dev.sh UpdateCommandKernels`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.UpdateCommandKernels_SummarizesArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-19 — Remove argument parsing routes through product N#
 
 `RemoveCommand` now gets help detection and package operand discovery from `RemoveCommandKernels`,

@@ -1050,8 +1050,20 @@ func Main() {
     }
 
     [Fact]
-    public void UpdateCommandKernels_SelectsTargetPackage()
+    public void UpdateCommandKernels_SummarizesArguments()
     {
+        var args = new[] { "--dry-run", "-v", "Newtonsoft.Json", "-h" };
+
+        Assert.True(UpdateCommandKernels.TryGetArgumentSummary(args, out var dogfoodSummary));
+        Assert.Equal("Newtonsoft.Json", dogfoodSummary.TargetPackage);
+        Assert.True(dogfoodSummary.DryRun);
+        Assert.True(dogfoodSummary.ShowHelp);
+
+        var summary = UpdateCommand.GetArgumentSummary(args);
+        Assert.Equal("Newtonsoft.Json", summary.TargetPackage);
+        Assert.True(summary.DryRun);
+        Assert.True(summary.ShowHelp);
+
         Assert.True(UpdateCommandKernels.TryGetTargetPackage(
             new[] { "--dry-run", "Newtonsoft.Json" },
             out var dogfoodTarget));
@@ -1059,6 +1071,8 @@ func Main() {
         Assert.Equal("Newtonsoft.Json", UpdateCommand.GetTargetPackage(new[] { "--dry-run", "Newtonsoft.Json" }));
         Assert.Equal("Serilog", UpdateCommand.GetTargetPackage(new[] { "--dry-run", "-v", "Serilog" }));
         Assert.Null(UpdateCommand.GetTargetPackage(new[] { "--dry-run" }));
+        Assert.True(UpdateCommand.GetArgumentSummary(new[] { "help" }).ShowHelp);
+        Assert.Equal("help", UpdateCommand.GetArgumentSummary(new[] { "help" }).TargetPackage);
     }
 
     [Fact]
