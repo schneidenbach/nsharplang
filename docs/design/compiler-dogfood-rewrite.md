@@ -1467,7 +1467,8 @@ originally missed the speed gate as a standalone adapter, but Stage 6 routed it 
 `TestCommandKernels` as a `C#-surface-shrink` product path once CLI command ownership became the
 priority. The kernel scans argv once, writes original value indexes and switch bits into a
 caller-owned buffer, and inlines its length/character classifier to avoid a per-argument helper call.
-The C# parser shape remains as fallback/oracle logic until broader CLI parser ownership can delete it.
+`TestCommand` also uses the same N# summary for product help routing before project resolution. The
+C# parser shape remains as fallback/oracle logic until broader CLI parser ownership can delete it.
 
 `CliShouldFormatDiscoveredPath` and `CliFormatDiscoveredPathFlagsInto` preserve the current
 `nlc format` discovered-file skip semantics for VCS/build/cache/tooling segments and

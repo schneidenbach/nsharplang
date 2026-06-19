@@ -2377,6 +2377,19 @@ dependencies:
         Assert.True(summary.CoverageReport);
         Assert.True(summary.CollectCoverage);
         Assert.True(summary.NoCache);
+        Assert.False(summary.ShowHelp);
+
+        Assert.True(TestCommandKernels.TryGetOptionSummary(
+            new[] { "help", "--json" },
+            out var firstArgHelp));
+        Assert.True(firstArgHelp.ShowHelp);
+        Assert.True(firstArgHelp.JsonOutput);
+
+        Assert.True(TestCommandKernels.TryGetOptionSummary(
+            new[] { "--project", "--help" },
+            out var helpAsProjectValue));
+        Assert.Equal("--help", helpAsProjectValue.ProjectOption);
+        Assert.True(helpAsProjectValue.ShowHelp);
     }
 
     [Fact]

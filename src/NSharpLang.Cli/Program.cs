@@ -41,7 +41,8 @@ internal readonly record struct TestOptionSummary(
     bool JsonOutput,
     bool CoverageReport,
     bool CollectCoverage,
-    bool NoCache);
+    bool NoCache,
+    bool ShowHelp);
 
 partial class Program
 {
@@ -1154,7 +1155,8 @@ public func Warmup(): void {
 
     static int TestCommand(string[] args)
     {
-        if (args.Contains("--help") || args.Contains("-h") || (args.Length > 0 && args[0] == "help"))
+        var testOptions = GetTestOptionSummary(args);
+        if (testOptions.ShowHelp)
         {
             Console.WriteLine(@"N# Test
 
@@ -1194,7 +1196,6 @@ Exit codes:
             return 0;
         }
 
-        var testOptions = GetTestOptionSummary(args);
         var projectRoot = testOptions.ProjectOption ?? Directory.GetCurrentDirectory();
         projectRoot = Path.GetFullPath(projectRoot);
 
@@ -1703,7 +1704,8 @@ Exit codes:
             args.Contains("--json"),
             coverageReport,
             args.Contains("--coverage") || coverageReport,
-            args.Contains("--no-cache"));
+            args.Contains("--no-cache"),
+            args.Contains("--help") || args.Contains("-h") || (args.Length > 0 && args[0] == "help"));
     }
 
     static BuildOperandSummary GetBuildOperandSummary(string[] args)

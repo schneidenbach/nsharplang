@@ -238,6 +238,16 @@ func main() {
     }
 
     [Fact]
+    public void TestCommand_HelpWinsBeforeProjectResolution()
+    {
+        var (exitCode, stdout, stderr) = CaptureConsole(() => ExecuteProgram("test", "--project", "--help"));
+
+        Assert.Equal(0, exitCode);
+        Assert.True(string.IsNullOrWhiteSpace(stderr));
+        Assert.Contains("Usage: nlc test", stdout);
+    }
+
+    [Fact]
     public async Task WatchCommand_ReRunsAfterFileChange_AndReturnsLastExitCodeAsync()
     {
         var tempDir = CreateTempDir();

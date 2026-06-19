@@ -101,7 +101,8 @@ internal static class TestCommandKernels
                 resultIndices[5] != 0,
                 coverageReport,
                 resultIndices[7] != 0 || coverageReport,
-                resultIndices[8] != 0);
+                resultIndices[8] != 0,
+                resultIndices[9] != 0);
             return true;
         }
         catch

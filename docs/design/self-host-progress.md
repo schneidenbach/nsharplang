@@ -11,6 +11,19 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-19 — Test help routing moves into product N#
+
+`Program.TestCommand` now gets help detection from `TestCommandKernels` through the existing
+`CliTestOptionSummaryInto` dogfood kernel, so the product command no longer scans `args` directly
+before project resolution. The kernel preserves the existing behavior where `--help`, `-h`, or
+first-argument `help` wins before using option values such as `--project --help`; the previous
+direct scan remains only as fallback/oracle logic. This is a Stage 6 `C#-surface-shrink`
+product-route slice.
+
+Focused evidence:
+`./scripts/dev.sh TestCommandKernels`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliParityAuditTests.TestCommand_HelpWinsBeforeProjectResolution|FullyQualifiedName~CliParityAuditTests.TestCommand_Help_DocumentsFilterAndVerbose"`.
+
 ## 2026-06-19 — Build help routing moves into product N#
 
 `Program.BuildCommand` now gets help detection from `BuildCommandKernels` through the existing
