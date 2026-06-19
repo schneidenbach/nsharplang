@@ -306,6 +306,29 @@ func Main() {
     }
 
     [Fact]
+    public void CleanCommandKernels_SummarizesOptions()
+    {
+        var args = new[] { "--project", "samples/demo", "--all", "-h" };
+
+        Assert.True(CleanCommandKernels.TryGetOptionSummary(args, out var dogfoodSummary));
+        Assert.Equal("samples/demo", dogfoodSummary.ProjectOption);
+        Assert.True(dogfoodSummary.CleanAll);
+        Assert.True(dogfoodSummary.ShowHelp);
+
+        var summary = CleanCommand.GetOptionSummary(args);
+        Assert.Equal("samples/demo", summary.ProjectOption);
+        Assert.True(summary.CleanAll);
+        Assert.True(summary.ShowHelp);
+
+        var permissiveValue = CleanCommand.GetOptionSummary(new[] { "--project", "--all" });
+        Assert.Equal("--all", permissiveValue.ProjectOption);
+        Assert.True(permissiveValue.CleanAll);
+        Assert.False(permissiveValue.ShowHelp);
+
+        Assert.True(CleanCommand.GetOptionSummary(new[] { "help" }).ShowHelp);
+    }
+
+    [Fact]
     public void UpdateDependencyFilter_FiltersTargetNuGetDependencies()
     {
         var dependencies = new[]

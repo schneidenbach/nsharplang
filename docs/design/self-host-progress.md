@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-19 — Clean option parsing routes through product N#
+
+`CleanCommand` now gets help detection, `--project`, and `--all` from `CleanCommandKernels`, which
+binds the shipped `CliCleanOptionSummaryInto` dogfood kernel beside the existing clean artifact
+ordering route. The previous direct C# scans remain only as fallback/oracle logic, preserving
+permissive `--project` value handling. This is a Stage 6 `C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`./scripts/dev.sh CleanCommandKernels`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.CleanCommandKernels_SummarizesOptions|FullyQualifiedName~CliParityAuditTests.CleanCommand_RemovesBuildArtifacts|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-19 — Tree option parsing routes through product N#
 
 `TreeCommand` now gets help detection, `--project`, `--depth`, and `--json` from

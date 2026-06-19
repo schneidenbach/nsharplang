@@ -16,11 +16,12 @@ public static class CleanCommand
 
     public static int Execute(string[] args)
     {
-        if (args.Contains("--help") || args.Contains("-h") || (args.Length > 0 && args[0] == "help"))
+        var options = GetOptionSummary(args);
+        if (options.ShowHelp)
             return ShowHelp();
 
-        var projectRoot = GetProjectRoot(args);
-        var cleanAll = args.Contains("--all");
+        var projectRoot = GetProjectRoot(options);
+        var cleanAll = options.CleanAll;
 
         if (!Directory.Exists(projectRoot))
             return Error($"Project directory not found: {projectRoot}");
@@ -103,15 +104,35 @@ public static class CleanCommand
         return Error($"Failed to clear NuGet caches.\n{result.Stderr}{result.Stdout}".Trim());
     }
 
-    private static string GetProjectRoot(string[] args)
+    internal static CleanOptionSummary GetOptionSummary(string[] args)
+        => CleanCommandKernels.TryGetOptionSummary(args, out var summary)
+            ? summary
+            : GetOptionSummaryWithCSharp(args);
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product clean option parsing routes through CleanCommandKernels.
+    private static CleanOptionSummary GetOptionSummaryWithCSharp(string[] args)
+        => new(
+            GetOptionWithCSharp(args, "--project"),
+            ContainsArgWithCSharp(args, "--all"),
+            ContainsArgWithCSharp(args, "--help") || ContainsArgWithCSharp(args, "-h") || (args.Length > 0 && args[0] == "help"));
+
+    private static string GetProjectRoot(CleanOptionSummary options)
+        => Path.GetFullPath(options.ProjectOption ?? Directory.GetCurrentDirectory());
+
+    private static string? GetOptionWithCSharp(string[] args, string flag)
     {
         for (var i = 0; i < args.Length - 1; i++)
-        {
-            if (args[i] == "--project")
-                return Path.GetFullPath(args[i + 1]);
-        }
+            if (args[i] == flag)
+                return args[i + 1];
+        return null;
+    }
 
-        return Path.GetFullPath(Directory.GetCurrentDirectory());
+    private static bool ContainsArgWithCSharp(string[] args, string value)
+    {
+        for (var i = 0; i < args.Length; i++)
+            if (args[i] == value)
+                return true;
+        return false;
     }
 
     private static int ShowHelp()

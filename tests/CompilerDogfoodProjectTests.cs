@@ -7021,6 +7021,7 @@ func outer(x: int): int {
         Assert.Contains("CliTidyOptionSummaryInto", methodNames!); // product tidy option parsing.
         Assert.Contains("CliDocOptionSummaryInto", methodNames!); // product doc option parsing.
         Assert.Contains("CliTreeOptionSummaryInto", methodNames!); // product tree option parsing.
+        Assert.Contains("CliCleanOptionSummaryInto", methodNames!); // product clean option parsing.
 
         AssertColumnarProgramMatchesCSharp(source,
             ("CliSymbolNameContainsAsciiIgnoreCase", new object[] { "FooBarBaz", "barbaz" }),
@@ -15262,6 +15263,10 @@ class OtherZetaType {
                     "CliCleanArtifactDirectoryChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliCleanArtifactDirectoryChecksumInto.");
+            var cliCleanOptionSummaryInto = programType.GetMethod(
+                    "CliCleanOptionSummaryInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliCleanOptionSummaryInto.");
             var cliUpdateAllNuGetDependencyIndicesInto = programType.GetMethod(
                     "CliUpdateAllNuGetDependencyIndicesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -16224,6 +16229,7 @@ func main(customer: Customer, résumé: Profile) {
             AssertCliCleanArtifactDirectoryOrderingLikeProduction(
                 cliCleanArtifactDirectoryIndicesInto,
                 cliCleanArtifactDirectoryChecksumInto);
+            AssertCliCleanOptionsLikeProduction(cliCleanOptionSummaryInto);
             AssertCliUpdateAllNuGetDependencyFilteringLikeProduction(
                 cliUpdateAllNuGetDependencyIndicesInto,
                 cliUpdateAllNuGetDependencyChecksumInto);
@@ -20212,6 +20218,67 @@ func main() {
                 case "--help":
                 case "-h":
                     indices[3] = 1;
+                    break;
+            }
+        }
+
+        return indices;
+    }
+
+    private static void AssertCliCleanOptionsLikeProduction(MethodInfo cliCleanOptionSummaryInto)
+    {
+        var cases = new[]
+        {
+            Array.Empty<string>(),
+            new[] { "--project", "src", "--all", "-h" },
+            new[] { "--project", "--all" },
+            new[] { "--project" },
+            new[] { "help" },
+            new[] { "ignored", "-h" },
+            new[] { string.Empty }
+        };
+
+        foreach (var args in cases)
+        {
+            var expected = CreateExpectedCliCleanOptions(args);
+            var resultIndices = Enumerable.Repeat(-99, 3).ToArray();
+            var actualCode = (int)(cliCleanOptionSummaryInto.Invoke(
+                null,
+                new object[] { args, resultIndices }) ?? -2);
+
+            Assert.Equal(0, actualCode);
+            Assert.Equal(expected, resultIndices);
+        }
+
+        Assert.Equal(
+            -1,
+            (int)(cliCleanOptionSummaryInto.Invoke(
+                null,
+                new object[] { new[] { "--all" }, new int[2] }) ?? 0));
+    }
+
+    private static int[] CreateExpectedCliCleanOptions(string[] args)
+    {
+        var indices = new[] { -1, 0, 0 };
+
+        for (var i = 0; i < args.Length; i++)
+        {
+            var arg = args[i];
+            if (i == 0 && arg == "help")
+                indices[2] = 1;
+
+            switch (arg)
+            {
+                case "--project":
+                    if (indices[0] < 0 && i + 1 < args.Length)
+                        indices[0] = i + 1;
+                    break;
+                case "--all":
+                    indices[1] = 1;
+                    break;
+                case "--help":
+                case "-h":
+                    indices[2] = 1;
                     break;
             }
         }

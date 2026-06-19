@@ -286,8 +286,9 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       implementations in `CompilerErrorSeverityFilter`; batch query duplicate-id validation and packed
       success counting now live beside `BatchQueryRunner` in `BatchQueryKernels`; unified-diff hunk range
       construction now lives beside `UnifiedDiff` in `UnifiedDiffHunkRangeBuilder`; fix safety/skipped/applied
-      grouping routes now live beside `FixCommand` in `FixCommandKernels`; clean artifact directory ordering
-      now lives beside `CleanCommand` in `CleanArtifactDirectoryOrderer`; update all-NuGet and target-package
+      grouping routes now live beside `FixCommand` in `FixCommandKernels`; clean option summary now lives beside
+      `CleanCommand` in `CleanCommandKernels`, and clean artifact directory ordering now lives beside
+      `CleanCommand` in `CleanArtifactDirectoryOrderer`; update all-NuGet and target-package
       dependency filtering now lives beside `UpdateCommand` in `UpdateDependencyFilter`; doc option summary,
       symbol/member ordering, and slug generation now live beside `DocCommand` in `DocCommandKernels`; tree option
       summary now lives beside `TreeCommand` in `TreeCommandKernels`, and tree dependency and
