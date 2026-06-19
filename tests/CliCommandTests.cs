@@ -1107,6 +1107,48 @@ func Main() {
     }
 
     [Fact]
+    public void QueryCommandKernels_SummarizesDaemonParameters()
+    {
+        var args = new[]
+        {
+            "--file",
+            "Program.nl",
+            "--pos",
+            "12:4",
+            "--name",
+            "Main",
+            "--kind",
+            "Function",
+            "--severity",
+            "warning",
+            "--include-keywords",
+            "--clusters"
+        };
+
+        Assert.True(QueryCommandKernels.TryGetDaemonParameterSummary(args, out var dogfoodSummary));
+        Assert.Equal("Program.nl", dogfoodSummary.File);
+        Assert.Equal("12:4", dogfoodSummary.Pos);
+        Assert.Equal("Main", dogfoodSummary.Name);
+        Assert.Equal("Function", dogfoodSummary.Kind);
+        Assert.Equal("warning", dogfoodSummary.Severity);
+        Assert.True(dogfoodSummary.IncludeKeywords);
+        Assert.True(dogfoodSummary.Clusters);
+
+        var summary = QueryCommand.GetDaemonParameterSummary(args);
+        Assert.Equal(dogfoodSummary, summary);
+
+        var permissive = QueryCommand.GetDaemonParameterSummary(
+            new[] { "--file", "--include-keywords", "--pos", "--clusters", "--severity" });
+        Assert.Equal("--include-keywords", permissive.File);
+        Assert.Equal("--clusters", permissive.Pos);
+        Assert.Null(permissive.Severity);
+        Assert.True(permissive.IncludeKeywords);
+        Assert.True(permissive.Clusters);
+
+        Assert.False(QueryCommand.GetDaemonParameterSummary(new[] { "--file" }).IncludeKeywords);
+    }
+
+    [Fact]
     public void NewCommandKernels_SummarizesArguments()
     {
         var args = new[] { "--template", "library", "--systems", "PacketCore", "-h" };

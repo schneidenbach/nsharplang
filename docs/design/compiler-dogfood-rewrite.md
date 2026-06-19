@@ -2129,6 +2129,11 @@ with the previous LINQ grouping path kept as the fallback.
 are created, then routes success-count calculation through `BatchQueryKernels`, which calls the
 compiled N# packed popcount kernel when the dogfood assembly is available, with the previous C#
 `items.Count(item => item.Ok)` count kept as the fallback.
+`nlc query` daemon parameter discovery now routes through `QueryCommandKernels`, which calls the
+compiled N# option-index summary kernel when the dogfood assembly is available, preserving
+permissive first-value behavior for `--file`, `--pos`, `--name`, `--kind`, and `--severity` plus
+the `--include-keywords`/`--clusters` switches. Final daemon parameter dictionary materialization
+remains a C# host-boundary concern, and the previous direct scans remain as fallback/oracle logic.
 `nlc doc` symbol filtering and kind/name ordering now routes through `DocCommandKernels`, which
 calls the compiled N# stable counting-sort kernel when the dogfood assembly is available, preserving
 the previous `SymbolKind.ToString()`/ordinal name order and variable/parameter filtering, with the

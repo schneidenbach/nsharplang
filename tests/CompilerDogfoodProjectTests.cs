@@ -11846,6 +11846,7 @@ func outer(x: int): int {
         var (ok, _, _, methodNames) = RouteColumnarProgram(source);
         Assert.True(ok, "Columnar backend declined the real CliQueryParsing.nl (expected full support).");
         Assert.Contains("CliBatchResultPackedSuccessCount", methodNames!); // ulong[] + Shr_Un + PopCount.
+        Assert.Contains("CliQueryDaemonParameterSummaryInto", methodNames!); // product query daemon parameter parsing.
 
         var full = 0xFFFFFFFFFFFFFFFFUL;
         AssertColumnarProgramMatchesCSharp(source,
@@ -15096,6 +15097,10 @@ class OtherZetaType {
                     "CliQueryPositionChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliQueryPositionChecksumInto.");
+            var cliQueryDaemonParameterSummaryInto = programType.GetMethod(
+                    "CliQueryDaemonParameterSummaryInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliQueryDaemonParameterSummaryInto.");
             var cliPositionalArgIndicesInto = programType.GetMethod(
                     "CliPositionalArgIndicesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -16218,6 +16223,7 @@ func main(customer: Customer, résumé: Profile) {
                 cliTryParsePositionInto,
                 cliQueryPositionsInto,
                 cliQueryPositionChecksumInto);
+            AssertCliQueryDaemonParametersLikeProduction(cliQueryDaemonParameterSummaryInto);
             AssertCliBuildOperandsLikeProduction(
                 cliBuildOperandIndicesInto,
                 cliBuildOperandSummaryInto,
@@ -18543,6 +18549,97 @@ func main() {
         Assert.Equal(expectedChecksum, actualChecksum);
         Assert.Equal(expectedLines, checksumLines);
         Assert.Equal(expectedColumns, checksumColumns);
+    }
+
+    private static void AssertCliQueryDaemonParametersLikeProduction(MethodInfo cliQueryDaemonParameterSummaryInto)
+    {
+        var cases = new[]
+        {
+            Array.Empty<string>(),
+            new[]
+            {
+                "--file",
+                "Program.nl",
+                "--pos",
+                "12:4",
+                "--name",
+                "Main",
+                "--kind",
+                "Function",
+                "--severity",
+                "warning",
+                "--include-keywords",
+                "--clusters"
+            },
+            new[] { "--file", "--include-keywords", "--pos", "--clusters", "--severity" },
+            new[] { "--file" },
+            new[] { "--name", "first", "--name", "second" },
+            new[] { "ignored", "--clusters" }
+        };
+
+        foreach (var args in cases)
+        {
+            var expected = CreateExpectedCliQueryDaemonParameterSummary(args);
+            var actual = Enumerable.Repeat(-99, 7).ToArray();
+            var code = (int)(cliQueryDaemonParameterSummaryInto.Invoke(
+                null,
+                new object[] { args, actual }) ?? -2);
+
+            Assert.Equal(0, code);
+            Assert.Equal(expected, actual);
+        }
+
+        Assert.Equal(
+            -1,
+            (int)(cliQueryDaemonParameterSummaryInto.Invoke(
+                null,
+                new object[] { Array.Empty<string>(), new int[6] }) ?? 0));
+    }
+
+    private static int[] CreateExpectedCliQueryDaemonParameterSummary(string[] args)
+    {
+        var result = new[] { -1, -1, -1, -1, -1, 0, 0 };
+
+        for (var i = 0; i < args.Length; i++)
+        {
+            switch (args[i])
+            {
+                case "--file":
+                    if (result[0] < 0 && i + 1 < args.Length)
+                        result[0] = i + 1;
+                    break;
+
+                case "--pos":
+                    if (result[1] < 0 && i + 1 < args.Length)
+                        result[1] = i + 1;
+                    break;
+
+                case "--name":
+                    if (result[2] < 0 && i + 1 < args.Length)
+                        result[2] = i + 1;
+                    break;
+
+                case "--kind":
+                    if (result[3] < 0 && i + 1 < args.Length)
+                        result[3] = i + 1;
+                    break;
+
+                case "--severity":
+                    if (result[4] < 0 && i + 1 < args.Length)
+                        result[4] = i + 1;
+                    break;
+
+                case "--include-keywords":
+                    result[5] = 1;
+                    break;
+
+                case "--clusters":
+                    result[6] = 1;
+                    break;
+            }
+        }
+
+        return result;
     }
 
     private static bool TryParseCliPositionWithSplit(string position, out int line, out int column)

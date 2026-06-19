@@ -1106,14 +1106,15 @@ public static class QueryCommand
     private static Dictionary<string, object?> BuildDaemonParameters(string[] args, QueryOptions options)
     {
         var parameters = new Dictionary<string, object?>();
-        var file = GetOption(args, "--file") ?? options.File;
-        var pos = GetOption(args, "--pos") ?? options.Pos;
-        var name = GetOption(args, "--name");
-        var kind = GetOption(args, "--kind");
-        var severity = GetOption(args, "--severity");
-        var includeKeywords = args.Contains("--include-keywords");
+        var summary = GetDaemonParameterSummary(args);
+        var file = summary.File ?? options.File;
+        var pos = summary.Pos ?? options.Pos;
+        var name = summary.Name;
+        var kind = summary.Kind;
+        var severity = summary.Severity;
+        var includeKeywords = summary.IncludeKeywords;
         var compactMode = options.InspectCompact;
-        var clusters = args.Contains("--clusters");
+        var clusters = summary.Clusters;
 
         if (!string.IsNullOrWhiteSpace(file))
             parameters["file"] = file;
@@ -1134,6 +1135,25 @@ public static class QueryCommand
 
         return parameters;
     }
+
+    internal static QueryDaemonParameterSummary GetDaemonParameterSummary(string[] args)
+    {
+        if (QueryCommandKernels.TryGetDaemonParameterSummary(args, out var summary))
+            return summary;
+
+        return GetDaemonParameterSummaryWithCSharp(args);
+    }
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; query daemon parameter parsing routes through QueryCommandKernels.
+    private static QueryDaemonParameterSummary GetDaemonParameterSummaryWithCSharp(string[] args)
+        => new(
+            GetOption(args, "--file"),
+            GetOption(args, "--pos"),
+            GetOption(args, "--name"),
+            GetOption(args, "--kind"),
+            GetOption(args, "--severity"),
+            args.Contains("--include-keywords"),
+            args.Contains("--clusters"));
 
     private static bool TryExecuteViaDaemon(QueryOptions options, string method,
         Dictionary<string, object?> parameters, out int exitCode)

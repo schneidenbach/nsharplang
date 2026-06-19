@@ -11,6 +11,19 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-19 — Query daemon parameters route through product N#
+
+`QueryCommand.BuildDaemonParameters` now gets `--file`, `--pos`, `--name`, `--kind`, `--severity`,
+`--include-keywords`, and `--clusters` from `QueryCommandKernels`, which binds the shipped
+`CliQueryDaemonParameterSummaryInto` dogfood kernel. The kernel writes option value indices and
+switch bits into a caller-owned buffer, while C# remains only for fallback/oracle behavior and final
+daemon parameter dictionary materialization. This is a Stage 6 `C#-surface-shrink` product-route
+slice.
+
+Focused evidence:
+`./scripts/dev.sh QueryCommandKernels`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliQueryParsing|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-19 — Test help routing moves into product N#
 
 `Program.TestCommand` now gets help detection from `TestCommandKernels` through the existing

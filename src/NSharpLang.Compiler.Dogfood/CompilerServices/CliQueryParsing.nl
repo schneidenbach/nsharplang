@@ -99,3 +99,51 @@ func CliBatchResultPackedSuccessCountCore(results: &CliBatchResultWordTable): in
 func CliBatchResultPopCount64(value: ulong): int {
     return BitOperations.PopCount(value)
 }
+
+func CliQueryDaemonParameterSummaryInto(args: string[], resultIndices: int[]): int {
+    if resultIndices.Length < 7 {
+        return -1
+    }
+
+    resultIndices[0] = -1
+    resultIndices[1] = -1
+    resultIndices[2] = -1
+    resultIndices[3] = -1
+    resultIndices[4] = -1
+    resultIndices[5] = 0
+    resultIndices[6] = 0
+
+    i := 0
+    while i < args.Length {
+        arg := args[i]
+        if arg == "--file" {
+            if resultIndices[0] < 0 && i + 1 < args.Length {
+                resultIndices[0] = i + 1
+            }
+        } else if arg == "--pos" {
+            if resultIndices[1] < 0 && i + 1 < args.Length {
+                resultIndices[1] = i + 1
+            }
+        } else if arg == "--name" {
+            if resultIndices[2] < 0 && i + 1 < args.Length {
+                resultIndices[2] = i + 1
+            }
+        } else if arg == "--kind" {
+            if resultIndices[3] < 0 && i + 1 < args.Length {
+                resultIndices[3] = i + 1
+            }
+        } else if arg == "--severity" {
+            if resultIndices[4] < 0 && i + 1 < args.Length {
+                resultIndices[4] = i + 1
+            }
+        } else if arg == "--include-keywords" {
+            resultIndices[5] = 1
+        } else if arg == "--clusters" {
+            resultIndices[6] = 1
+        }
+
+        i = i + 1
+    }
+
+    return 0
+}
