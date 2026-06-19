@@ -13,12 +13,13 @@ public static class DoctorCommand
 
     public static int Execute(string[] args)
     {
-        if (args.Contains("--help") || args.Contains("-h") || (args.Length > 0 && args[0] == "help"))
+        var options = GetOptionSummary(args);
+        if (options.ShowHelp)
             return ShowHelp();
 
-        var json = args.Contains("--json");
-        var requireVscode = args.Contains("--require-vscode");
-        var skipVscode = args.Contains("--skip-vscode");
+        var json = options.Json;
+        var requireVscode = options.RequireVscode;
+        var skipVscode = options.SkipVscode;
         var checks = new List<DoctorCheck>();
 
         var dotnet = FindOnPath("dotnet");
@@ -172,6 +173,27 @@ public static class DoctorCommand
         {
             return ProcessResult.Failed(ex.Message);
         }
+    }
+
+    internal static DoctorOptionSummary GetOptionSummary(string[] args)
+        => DoctorCommandKernels.TryGetOptionSummary(args, out var summary)
+            ? summary
+            : GetOptionSummaryWithCSharp(args);
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product doctor option parsing routes through DoctorCommandKernels.
+    private static DoctorOptionSummary GetOptionSummaryWithCSharp(string[] args)
+        => new(
+            ContainsArgWithCSharp(args, "--json"),
+            ContainsArgWithCSharp(args, "--require-vscode"),
+            ContainsArgWithCSharp(args, "--skip-vscode"),
+            ContainsArgWithCSharp(args, "--help") || ContainsArgWithCSharp(args, "-h") || (args.Length > 0 && args[0] == "help"));
+
+    private static bool ContainsArgWithCSharp(string[] args, string value)
+    {
+        for (var i = 0; i < args.Length; i++)
+            if (args[i] == value)
+                return true;
+        return false;
     }
 
     private static int ShowHelp()

@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-19 — Doctor option parsing routes through product N#
+
+`DoctorCommand` now gets help detection, `--json`, `--require-vscode`, and `--skip-vscode` from
+`DoctorCommandKernels`, which binds the shipped `CliDoctorOptionSummaryInto` dogfood kernel beside
+the command implementation. The previous direct C# scans remain only as fallback/oracle logic,
+preserving first-argument `help` behavior. This is a Stage 6 `C#-surface-shrink` product-route
+slice.
+
+Focused evidence:
+`./scripts/dev.sh DoctorCommandKernels`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.DoctorCommandKernels_SummarizesOptions|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-19 — Env option parsing routes through product N#
 
 `EnvCommand` now gets help detection and `--json` from `EnvCommandKernels`, which binds the shipped

@@ -370,6 +370,28 @@ func Main() {
     }
 
     [Fact]
+    public void DoctorCommandKernels_SummarizesOptions()
+    {
+        var args = new[] { "--json", "--require-vscode", "--skip-vscode", "-h" };
+
+        Assert.True(DoctorCommandKernels.TryGetOptionSummary(args, out var dogfoodSummary));
+        Assert.True(dogfoodSummary.Json);
+        Assert.True(dogfoodSummary.RequireVscode);
+        Assert.True(dogfoodSummary.SkipVscode);
+        Assert.True(dogfoodSummary.ShowHelp);
+
+        var summary = DoctorCommand.GetOptionSummary(args);
+        Assert.True(summary.Json);
+        Assert.True(summary.RequireVscode);
+        Assert.True(summary.SkipVscode);
+        Assert.True(summary.ShowHelp);
+
+        Assert.True(DoctorCommand.GetOptionSummary(new[] { "help" }).ShowHelp);
+        Assert.True(DoctorCommand.GetOptionSummary(new[] { "ignored", "-h" }).ShowHelp);
+        Assert.True(DoctorCommand.GetOptionSummary(new[] { "--json" }).Json);
+    }
+
+    [Fact]
     public void UpdateDependencyFilter_FiltersTargetNuGetDependencies()
     {
         var dependencies = new[]

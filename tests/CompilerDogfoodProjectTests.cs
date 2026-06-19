@@ -7023,6 +7023,7 @@ func outer(x: int): int {
         Assert.Contains("CliTreeOptionSummaryInto", methodNames!); // product tree option parsing.
         Assert.Contains("CliCleanOptionSummaryInto", methodNames!); // product clean option parsing.
         Assert.Contains("CliEnvOptionSummaryInto", methodNames!); // product env option parsing.
+        Assert.Contains("CliDoctorOptionSummaryInto", methodNames!); // product doctor option parsing.
 
         AssertColumnarProgramMatchesCSharp(source,
             ("CliSymbolNameContainsAsciiIgnoreCase", new object[] { "FooBarBaz", "barbaz" }),
@@ -15272,6 +15273,10 @@ class OtherZetaType {
                     "CliEnvOptionSummaryInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliEnvOptionSummaryInto.");
+            var cliDoctorOptionSummaryInto = programType.GetMethod(
+                    "CliDoctorOptionSummaryInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDoctorOptionSummaryInto.");
             var cliUpdateAllNuGetDependencyIndicesInto = programType.GetMethod(
                     "CliUpdateAllNuGetDependencyIndicesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -16236,6 +16241,7 @@ func main(customer: Customer, résumé: Profile) {
                 cliCleanArtifactDirectoryChecksumInto);
             AssertCliCleanOptionsLikeProduction(cliCleanOptionSummaryInto);
             AssertCliEnvOptionsLikeProduction(cliEnvOptionSummaryInto);
+            AssertCliDoctorOptionsLikeProduction(cliDoctorOptionSummaryInto);
             AssertCliUpdateAllNuGetDependencyFilteringLikeProduction(
                 cliUpdateAllNuGetDependencyIndicesInto,
                 cliUpdateAllNuGetDependencyChecksumInto);
@@ -20341,6 +20347,70 @@ func main() {
                 case "--help":
                 case "-h":
                     indices[1] = 1;
+                    break;
+            }
+        }
+
+        return indices;
+    }
+
+    private static void AssertCliDoctorOptionsLikeProduction(MethodInfo cliDoctorOptionSummaryInto)
+    {
+        var cases = new[]
+        {
+            Array.Empty<string>(),
+            new[] { "--json", "--require-vscode", "--skip-vscode", "-h" },
+            new[] { "help" },
+            new[] { "ignored", "-h" },
+            new[] { "--json" },
+            new[] { "--require-vscode" },
+            new[] { "--skip-vscode" },
+            new[] { string.Empty }
+        };
+
+        foreach (var args in cases)
+        {
+            var expected = CreateExpectedCliDoctorOptions(args);
+            var resultIndices = Enumerable.Repeat(-99, 4).ToArray();
+            var actualCode = (int)(cliDoctorOptionSummaryInto.Invoke(
+                null,
+                new object[] { args, resultIndices }) ?? -2);
+
+            Assert.Equal(0, actualCode);
+            Assert.Equal(expected, resultIndices);
+        }
+
+        Assert.Equal(
+            -1,
+            (int)(cliDoctorOptionSummaryInto.Invoke(
+                null,
+                new object[] { new[] { "--json" }, new int[3] }) ?? 0));
+    }
+
+    private static int[] CreateExpectedCliDoctorOptions(string[] args)
+    {
+        var indices = new[] { 0, 0, 0, 0 };
+
+        for (var i = 0; i < args.Length; i++)
+        {
+            var arg = args[i];
+            if (i == 0 && arg == "help")
+                indices[3] = 1;
+
+            switch (arg)
+            {
+                case "--json":
+                    indices[0] = 1;
+                    break;
+                case "--require-vscode":
+                    indices[1] = 1;
+                    break;
+                case "--skip-vscode":
+                    indices[2] = 1;
+                    break;
+                case "--help":
+                case "-h":
+                    indices[3] = 1;
                     break;
             }
         }
