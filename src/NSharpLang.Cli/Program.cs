@@ -1260,7 +1260,8 @@ Exit codes:
 
     static int FormatCommand(string[] args)
     {
-        if (args.Contains("--help") || args.Contains("-h") || (args.Length > 0 && args[0] == "help"))
+        var formatOptions = GetFormatOptionSummary(args);
+        if (formatOptions.ShowHelp)
         {
             Console.WriteLine(@"N# Format
 
@@ -1290,10 +1291,10 @@ Exit codes:
 
         try
         {
-            var verifyOnly = args.Contains("--check") || args.Contains("--verify-no-changes");
-            var diffOnly = args.Contains("--diff");
-            var stdinMode = args.Contains("--stdin");
-            var projectRoot = Path.GetFullPath(GetOptionValue(args, "--project") ?? Directory.GetCurrentDirectory());
+            var verifyOnly = formatOptions.VerifyOnly;
+            var diffOnly = formatOptions.DiffOnly;
+            var stdinMode = formatOptions.StdinMode;
+            var projectRoot = Path.GetFullPath(formatOptions.ProjectOption ?? Directory.GetCurrentDirectory());
             var positionalFiles = GetPositionalArgs(args, "--project");
 
             if (stdinMode && positionalFiles.Length > 0)
@@ -1748,6 +1749,23 @@ Exit codes:
     static RunOptionSummary GetRunOptionSummaryWithCSharp(string[] args)
         => new(
             GetOptionValue(args, "--backend"),
+            args.Contains("--help") || args.Contains("-h") || (args.Length > 0 && args[0] == "help"));
+
+    internal static FormatOptionSummary GetFormatOptionSummary(string[] args)
+    {
+        if (FormatCommandKernels.TryGetOptionSummary(args, out var summary))
+            return summary;
+
+        return GetFormatOptionSummaryWithCSharp(args);
+    }
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product format option parsing routes through FormatCommandKernels.
+    static FormatOptionSummary GetFormatOptionSummaryWithCSharp(string[] args)
+        => new(
+            GetOptionValue(args, "--project"),
+            args.Contains("--check") || args.Contains("--verify-no-changes"),
+            args.Contains("--diff"),
+            args.Contains("--stdin"),
             args.Contains("--help") || args.Contains("-h") || (args.Length > 0 && args[0] == "help"));
 
     static int? ParseDurationToMs(string duration)

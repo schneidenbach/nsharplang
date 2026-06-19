@@ -4178,6 +4178,58 @@ func CliTestOutcomeSummaryCore(
     return count
 }
 
+func CliFormatOptionSummaryInto(args: string[], resultIndices: int[]): int {
+    arguments := new CliArgumentTable { Args: args }
+    results := new CliIndexResultTable { Indices: resultIndices }
+    return CliFormatOptionSummaryCore(ref arguments, ref results)
+}
+
+func CliFormatOptionSummaryCore(args: &CliArgumentTable, resultIndices: &CliIndexResultTable): int {
+    if resultIndices.Indices.Length < 5 {
+        return -1
+    }
+
+    resultIndices.Indices[0] = -1
+    resultIndices.Indices[1] = 0
+    resultIndices.Indices[2] = 0
+    resultIndices.Indices[3] = 0
+    resultIndices.Indices[4] = 0
+
+    i := 0
+    while i < args.Args.Length {
+        arg := args.Args[i]
+        if i == 0 && arg == "help" {
+            resultIndices.Indices[4] = 1
+        }
+
+        if arg == "--help" || arg == "-h" {
+            resultIndices.Indices[4] = 1
+        }
+
+        if arg == "--project" {
+            if resultIndices.Indices[0] < 0 && i + 1 < args.Args.Length {
+                resultIndices.Indices[0] = i + 1
+            }
+        }
+
+        if arg == "--check" || arg == "--verify-no-changes" {
+            resultIndices.Indices[1] = 1
+        }
+
+        if arg == "--diff" {
+            resultIndices.Indices[2] = 1
+        }
+
+        if arg == "--stdin" {
+            resultIndices.Indices[3] = 1
+        }
+
+        i = i + 1
+    }
+
+    return 0
+}
+
 func CliShouldFormatDiscoveredPath(relativePath: string): int {
     previousWasTestRoot := false
     segmentStart := 0

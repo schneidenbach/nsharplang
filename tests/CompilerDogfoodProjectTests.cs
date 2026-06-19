@@ -7005,6 +7005,7 @@ func outer(x: int): int {
         Assert.Contains("CliExportCSharpOptionSummaryInto", methodNames!); // product export csharp option parsing.
         Assert.Contains("CliReferenceResolutionBestScoreIndex", methodNames!); // product resolver best-score selection.
         Assert.Contains("CliShouldFormatDiscoveredPath", methodNames!); // product format discovery filtering.
+        Assert.Contains("CliFormatOptionSummaryInto", methodNames!); // product format option parsing.
         Assert.Contains("CliBuildOperandSummaryInto", methodNames!); // product build operand summary.
         Assert.Contains("CliBuildOptionSummaryInto", methodNames!); // product build option parsing.
         Assert.Contains("CliTestOptionSummaryInto", methodNames!); // product test option parsing.
@@ -15419,6 +15420,10 @@ class OtherZetaType {
                     "CliShouldFormatDiscoveredPath",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliShouldFormatDiscoveredPath.");
+            var cliFormatOptionSummaryInto = programType.GetMethod(
+                    "CliFormatOptionSummaryInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliFormatOptionSummaryInto.");
             var cliFormatDiscoveredPathChecksumInto = programType.GetMethod(
                     "CliFormatDiscoveredPathChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -16319,6 +16324,7 @@ func main(customer: Customer, résumé: Profile) {
                 cliBatchDuplicateIdRankChecksumInto);
             AssertCliBatchResultCountsLikeProduction(cliBatchResultPackedCountChecksum);
             AssertCliTestOutcomeSummaryLikeProduction(cliTestOutcomeSummaryChecksumInto);
+            AssertCliFormatOptionsLikeProduction(cliFormatOptionSummaryInto);
             AssertCliFormatDiscoveryLikeProduction(
                 cliShouldFormatDiscoveredPath,
                 cliFormatDiscoveredPathChecksumInto);
@@ -22924,6 +22930,69 @@ func main() {
             Assert.Equal(expectedChecksum, actualChecksum);
             Assert.Equal(new[] { passed, failed, skipped, nonOk }, counts);
         }
+    }
+
+    private static void AssertCliFormatOptionsLikeProduction(MethodInfo cliFormatOptionSummaryInto)
+    {
+        var cases = new[]
+        {
+            Array.Empty<string>(),
+            new[] { "help" },
+            new[] { "--help" },
+            new[] { "-h" },
+            new[] { "--project", "samples/demo", "--check", "--diff", "--stdin" },
+            new[] { "--project", "--check", "--verify-no-changes" },
+            new[] { "--project" },
+            new[] { "Program.nl", "--verify-no-changes" },
+            new[] { string.Empty }
+        };
+
+        foreach (var args in cases)
+        {
+            var expected = CreateExpectedCliFormatOptions(args);
+            var resultIndices = Enumerable.Repeat(-99, 5).ToArray();
+            var actualCode = (int)(cliFormatOptionSummaryInto.Invoke(
+                null,
+                new object[] { args, resultIndices }) ?? -2);
+
+            Assert.Equal(0, actualCode);
+            Assert.Equal(expected, resultIndices);
+        }
+
+        Assert.Equal(
+            -1,
+            (int)(cliFormatOptionSummaryInto.Invoke(
+                null,
+                new object[] { new[] { "--check" }, new int[4] }) ?? 0));
+    }
+
+    private static int[] CreateExpectedCliFormatOptions(string[] args)
+    {
+        var indices = new[] { -1, 0, 0, 0, 0 };
+
+        for (var i = 0; i < args.Length; i++)
+        {
+            var arg = args[i];
+            if (i == 0 && arg == "help")
+                indices[4] = 1;
+
+            if (arg == "--help" || arg == "-h")
+                indices[4] = 1;
+
+            if (arg == "--project" && indices[0] < 0 && i + 1 < args.Length)
+                indices[0] = i + 1;
+
+            if (arg == "--check" || arg == "--verify-no-changes")
+                indices[1] = 1;
+
+            if (arg == "--diff")
+                indices[2] = 1;
+
+            if (arg == "--stdin")
+                indices[3] = 1;
+        }
+
+        return indices;
     }
 
     private static void AssertCliFormatDiscoveryLikeProduction(

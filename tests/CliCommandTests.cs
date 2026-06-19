@@ -1950,6 +1950,38 @@ func Main() {
     }
 
     [Fact]
+    public void FormatCommandKernels_SummarizesOptions()
+    {
+        Assert.True(FormatCommandKernels.TryGetOptionSummary(
+            Array.Empty<string>(),
+            out var empty));
+        Assert.Null(empty.ProjectOption);
+        Assert.False(empty.VerifyOnly);
+        Assert.False(empty.DiffOnly);
+        Assert.False(empty.StdinMode);
+        Assert.False(empty.ShowHelp);
+
+        var args = new[] { "--project", "samples/demo", "--check", "--diff", "--stdin", "-h" };
+        Assert.True(FormatCommandKernels.TryGetOptionSummary(args, out var summary));
+        Assert.Equal("samples/demo", summary.ProjectOption);
+        Assert.True(summary.VerifyOnly);
+        Assert.True(summary.DiffOnly);
+        Assert.True(summary.StdinMode);
+        Assert.True(summary.ShowHelp);
+
+        var programSummary = Program.GetFormatOptionSummary(new[] { "--project", "--check", "--verify-no-changes" });
+        Assert.Equal("--check", programSummary.ProjectOption);
+        Assert.True(programSummary.VerifyOnly);
+        Assert.False(programSummary.DiffOnly);
+        Assert.False(programSummary.StdinMode);
+        Assert.False(programSummary.ShowHelp);
+
+        Assert.True(Program.GetFormatOptionSummary(new[] { "help" }).ShowHelp);
+        Assert.True(Program.GetFormatOptionSummary(new[] { "--help" }).ShowHelp);
+        Assert.True(Program.GetFormatOptionSummary(new[] { "-h" }).ShowHelp);
+    }
+
+    [Fact]
     public void RestoreCommand_DeduplicatesProjectReferencesInGeneratedProps()
     {
         static int CountOccurrences(string text, string value)
