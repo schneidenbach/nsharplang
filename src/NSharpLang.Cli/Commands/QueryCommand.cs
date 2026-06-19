@@ -67,7 +67,7 @@ public static class QueryCommand
         var commandSummary = GetCommandOptionSummary(args);
         SymbolKind? kindFilter = null;
         var kindArg = summary.Kind;
-        if (kindArg != null && Enum.TryParse<SymbolKind>(kindArg, ignoreCase: true, out var parsed))
+        if (kindArg != null && QueryCommandKernels.TryParseSymbolKind(kindArg, out var parsed))
         {
             kindFilter = parsed;
         }

@@ -233,7 +233,7 @@ internal static class BatchQueryRunner
     {
         SymbolKind? kindFilter = null;
         if (!string.IsNullOrWhiteSpace(request.Kind) &&
-            Enum.TryParse<SymbolKind>(request.Kind, ignoreCase: true, out var parsedKind))
+            QueryCommandKernels.TryParseSymbolKind(request.Kind, out var parsedKind))
         {
             kindFilter = parsedKind;
         }

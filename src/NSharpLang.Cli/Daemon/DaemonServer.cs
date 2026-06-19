@@ -8,6 +8,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using NSharpLang.Cli;
+using NSharpLang.Cli.Commands;
 using NSharpLang.Compiler.CodeIntelligence;
 
 namespace NSharpLang.Cli.Daemon;
@@ -347,7 +348,7 @@ public class DaemonServer
     private string HandleSymbols(string? file, string? kind)
     {
         NSharpLang.Compiler.CodeIntelligence.SymbolKind? kindFilter = null;
-        if (kind != null && Enum.TryParse<NSharpLang.Compiler.CodeIntelligence.SymbolKind>(kind, true, out var parsed))
+        if (kind != null && QueryCommandKernels.TryParseSymbolKind(kind, out var parsed))
             kindFilter = parsed;
 
         var results = _service.GetSymbols(_snapshot!, file, kindFilter);

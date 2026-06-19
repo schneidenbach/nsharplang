@@ -11,6 +11,19 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-19 — Query symbol-kind parsing moves into product N#
+
+`QueryCommand`, `BatchQueryRunner`, and `DaemonServer` now parse `symbols` kind filters through
+`QueryCommandKernels`, which binds the shipped `CliQuerySymbolKindInto` dogfood kernel in
+`CliQueryParsing.nl`. The N# route owns ordinary case-insensitive symbol kind names and numeric
+enum values before the existing N# symbol-kind filtering kernel runs; `Enum.TryParse` remains only
+as a fallback/oracle for compatibility edge cases. This is a Stage 6 `C#-surface-shrink`
+product-route slice.
+
+Focused evidence:
+`./scripts/dev.sh SymbolKind`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliQueryParsing|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-19 — Daemon query position parsing moves into product N#
 
 `DaemonServer` now parses single-request query `pos` parameters through `DaemonServerKernels`,

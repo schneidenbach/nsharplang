@@ -1,4 +1,5 @@
 using System;
+using NSharpLang.Compiler.CodeIntelligence;
 
 namespace NSharpLang.Cli.Commands;
 
@@ -47,6 +48,9 @@ internal static class QueryCommandKernels
 
     [ThreadStatic]
     private static int[]? t_positiveIntResult;
+
+    [ThreadStatic]
+    private static int[]? t_symbolKindResult;
 
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
 
@@ -253,6 +257,51 @@ internal static class QueryCommandKernels
         }
     }
 
+    internal static bool TryParseSymbolKind(string value, out SymbolKind kind)
+    {
+        if (TryParseSymbolKindWithDogfood(value, out var parsed, out kind))
+        {
+            if (parsed)
+                return true;
+
+            return TryParseSymbolKindWithCSharp(value, out kind);
+        }
+
+        return TryParseSymbolKindWithCSharp(value, out kind);
+    }
+
+    private static bool TryParseSymbolKindWithDogfood(string value, out bool parsed, out SymbolKind kind)
+    {
+        parsed = false;
+        kind = default;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        var resultArray = t_symbolKindResult ??= new int[1];
+        try
+        {
+            var code = bindings.TryParseSymbolKind(value, resultArray);
+            if (code is not 0 and not 1)
+                return false;
+
+            parsed = code == 1;
+            kind = (SymbolKind)resultArray[0];
+            return true;
+        }
+        catch
+        {
+            parsed = false;
+            kind = default;
+            return false;
+        }
+    }
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product query symbol-kind parsing routes through QueryCommandKernels.
+    private static bool TryParseSymbolKindWithCSharp(string value, out SymbolKind kind)
+        => Enum.TryParse(value, ignoreCase: true, out kind);
+
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
             DogfoodKernelLoader.CreateDelegate<CliQueryDaemonParameterSummaryInto>(
@@ -269,7 +318,10 @@ internal static class QueryCommandKernels
                 "CliTryParsePositionInto"),
             DogfoodKernelLoader.CreateDelegate<CliTryParsePositiveIntInto>(
                 programType,
-                "CliTryParsePositiveIntInto")));
+                "CliTryParsePositiveIntInto"),
+            DogfoodKernelLoader.CreateDelegate<CliQuerySymbolKindInto>(
+                programType,
+                "CliQuerySymbolKindInto")));
 
     private static bool TryGetOptionalArg(string[] args, int index, out string? value)
     {
@@ -297,10 +349,13 @@ internal static class QueryCommandKernels
 
     private delegate int CliTryParsePositiveIntInto(string value, int[] result);
 
+    private delegate int CliQuerySymbolKindInto(string value, int[] result);
+
     private sealed record Bindings(
         CliQueryDaemonParameterSummaryInto QueryDaemonParameterSummary,
         CliQueryCommandOptionSummaryInto QueryCommandOptionSummary,
         CliQueryTopLevelOptionSummaryInto QueryTopLevelOptionSummary,
         CliTryParsePositionInto TryParsePosition,
-        CliTryParsePositiveIntInto TryParsePositiveInt);
+        CliTryParsePositiveIntInto TryParsePositiveInt,
+        CliQuerySymbolKindInto TryParseSymbolKind);
 }

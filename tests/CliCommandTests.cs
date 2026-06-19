@@ -1260,6 +1260,46 @@ func Main() {
     }
 
     [Fact]
+    public void BatchCommand_SymbolKindParsingUsesQueryKernel()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-batch-symbol-kind-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            var requestsPath = Path.Combine(tempDir, "requests.json");
+            File.WriteAllText(requestsPath, """
+[
+  {
+    "command": "symbols",
+    "kind": "class"
+  }
+]
+""");
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() => QueryCommand.Execute(new[]
+            {
+                "batch",
+                "--project", IssueTrackerFixture,
+                "--requests", requestsPath
+            }));
+
+            Assert.Equal(0, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stderr));
+
+            using var doc = JsonDocument.Parse(stdout);
+            var response = doc.RootElement.GetProperty("results")[0].GetProperty("response");
+            var symbols = response.GetProperty("results").EnumerateArray().ToArray();
+            Assert.NotEmpty(symbols);
+            Assert.All(symbols, symbol => Assert.Equal("class", symbol.GetProperty("kind").GetString()));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void QueryCommandKernels_SummarizesDaemonParameters()
     {
         var args = new[]
@@ -1454,6 +1494,34 @@ func Main() {
             Assert.True(QueryCommandKernels.TryParsePositiveInt(input, out var parsed, out var value));
             Assert.Equal(expectedParsed, parsed);
             Assert.Equal(expectedValue, value);
+        }
+    }
+
+    [Fact]
+    public void QueryCommandKernels_ParseSymbolKindsLikeCSharpFallback()
+    {
+        var cases = new[]
+        {
+            "Function",
+            "function",
+            " TypeAlias ",
+            "EnumMember",
+            "15",
+            "-1",
+            "999",
+            "Function, Class",
+            "not-a-kind",
+            "",
+            "   "
+        };
+
+        foreach (var input in cases)
+        {
+            var expectedParsed = Enum.TryParse<SymbolKind>(input, ignoreCase: true, out var expectedKind);
+
+            var parsed = QueryCommandKernels.TryParseSymbolKind(input, out var kind);
+            Assert.Equal(expectedParsed, parsed);
+            Assert.Equal(expectedKind, kind);
         }
     }
 
@@ -3794,6 +3862,26 @@ func Main() {
         var results = doc.RootElement.GetProperty("results").EnumerateArray().ToArray();
         Assert.Contains(results, r => r.GetProperty("name").GetString() == "Circle");
         Assert.DoesNotContain(results, r => r.GetProperty("name").GetString() == "Square");
+    }
+
+    [Fact]
+    public void SymbolsCommand_KindParsingUsesQueryKernel()
+    {
+        var (exitCode, stdout, stderr) = CaptureConsole(() => QueryCommand.Execute(new[]
+        {
+            "symbols",
+            "--project", IssueTrackerFixture,
+            "--kind", "class",
+            "--no-daemon"
+        }));
+
+        Assert.Equal(0, exitCode);
+        Assert.True(string.IsNullOrWhiteSpace(stderr));
+
+        using var doc = JsonDocument.Parse(stdout);
+        var results = doc.RootElement.GetProperty("results").EnumerateArray().ToArray();
+        Assert.NotEmpty(results);
+        Assert.All(results, symbol => Assert.Equal("class", symbol.GetProperty("kind").GetString()));
     }
 
     [Fact]

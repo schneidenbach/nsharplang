@@ -11868,6 +11868,7 @@ func outer(x: int): int {
         Assert.Contains("CliQueryTopLevelOptionSummaryInto", methodNames!); // product query top-level option parsing.
         Assert.Contains("CliTryParsePositionInto", methodNames!); // product query line/column position parsing.
         Assert.Contains("CliTryParsePositiveIntInto", methodNames!); // product query positive-limit parsing.
+        Assert.Contains("CliQuerySymbolKindInto", methodNames!); // product query symbol-kind parsing.
         Assert.Contains("CliDaemonPositionInto", methodNames!); // product daemon query position compatibility parsing.
 
         var full = 0xFFFFFFFFFFFFFFFFUL;
@@ -11885,6 +11886,10 @@ func outer(x: int): int {
             ("CliTryParsePositiveIntInto", new object[] { "25", new int[1] }),
             ("CliTryParsePositiveIntInto", new object[] { "0", new int[1] }),
             ("CliTryParsePositiveIntInto", new object[] { "2147483648", new int[1] }),
+            ("CliQuerySymbolKindInto", new object[] { "function", new int[1] }),
+            ("CliQuerySymbolKindInto", new object[] { " TypeAlias ", new int[1] }),
+            ("CliQuerySymbolKindInto", new object[] { "15", new int[1] }),
+            ("CliQuerySymbolKindInto", new object[] { "not-a-kind", new int[1] }),
             ("CliDaemonPositionInto", new object[] { "bad:5", new int[2] }),
             ("CliDaemonPositionInto", new object[] { "5:bad", new int[2] }),
             ("CliDaemonPositionInto", new object[] { "12:34", new int[2] }),
@@ -15137,6 +15142,10 @@ class OtherZetaType {
                     "CliTryParsePositiveIntInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTryParsePositiveIntInto.");
+            var cliQuerySymbolKindInto = programType.GetMethod(
+                    "CliQuerySymbolKindInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliQuerySymbolKindInto.");
             var cliDaemonPositionInto = programType.GetMethod(
                     "CliDaemonPositionInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -16278,6 +16287,7 @@ func main(customer: Customer, résumé: Profile) {
             AssertCliQueryDaemonParametersLikeProduction(cliQueryDaemonParameterSummaryInto);
             AssertCliQueryCommandOptionsLikeProduction(cliQueryCommandOptionSummaryInto);
             AssertCliQueryPositiveIntsLikeProduction(cliTryParsePositiveIntInto);
+            AssertCliQuerySymbolKindsLikeProduction(cliQuerySymbolKindInto);
             AssertCliDaemonPositionsLikeProduction(cliDaemonPositionInto);
             AssertCliBuildOperandsLikeProduction(
                 cliBuildOperandIndicesInto,
@@ -18827,6 +18837,41 @@ func main() {
             (int)(cliTryParsePositiveIntInto.Invoke(
                 null,
                 new object[] { "1", Array.Empty<int>() }) ?? 0));
+    }
+
+    private static void AssertCliQuerySymbolKindsLikeProduction(MethodInfo cliQuerySymbolKindInto)
+    {
+        var cases = new[]
+        {
+            "Function",
+            "function",
+            " TypeAlias ",
+            "EnumMember",
+            "15",
+            "-1",
+            "999",
+            "not-a-kind",
+            "",
+            "   "
+        };
+
+        foreach (var value in cases)
+        {
+            var expectedParsed = Enum.TryParse<SymbolKind>(value, ignoreCase: true, out var expectedKind);
+            var result = new[] { -99 };
+            var actualParsed = (int)(cliQuerySymbolKindInto.Invoke(
+                null,
+                new object[] { value, result }) ?? -1);
+
+            Assert.Equal(expectedParsed ? 1 : 0, actualParsed);
+            Assert.Equal(expectedParsed ? (int)expectedKind : 0, result[0]);
+        }
+
+        Assert.Equal(
+            -1,
+            (int)(cliQuerySymbolKindInto.Invoke(
+                null,
+                new object[] { "Function", Array.Empty<int>() }) ?? 0));
     }
 
     private static void AssertCliDaemonPositionsLikeProduction(MethodInfo cliDaemonPositionInto)

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
@@ -522,6 +523,31 @@ func Main() {
             var columnPosition = columnDoc.RootElement.GetProperty("error").GetProperty("details").GetProperty("position");
             Assert.Equal(5, columnPosition.GetProperty("line").GetInt32());
             Assert.Equal(0, columnPosition.GetProperty("column").GetInt32());
+        }
+        finally
+        {
+            Directory.Delete(projectDir, true);
+        }
+    }
+
+    [Fact]
+    public void DaemonServer_SymbolKindParsingUsesQueryKernel()
+    {
+        var projectDir = CreateTempProject();
+        try
+        {
+            using var server = DaemonTestServer.Start(projectDir);
+
+            var symbolsJson = DaemonClient.Query(projectDir, DaemonConstants.MethodSymbols, new Dictionary<string, object?>
+            {
+                ["kind"] = "class"
+            });
+            Assert.NotNull(symbolsJson);
+
+            using var doc = JsonDocument.Parse(symbolsJson!);
+            var symbols = doc.RootElement.GetProperty("results").EnumerateArray().ToArray();
+            Assert.NotEmpty(symbols);
+            Assert.All(symbols, symbol => Assert.Equal("class", symbol.GetProperty("kind").GetString()));
         }
         finally
         {

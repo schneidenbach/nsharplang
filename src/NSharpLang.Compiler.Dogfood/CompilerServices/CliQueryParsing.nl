@@ -292,6 +292,123 @@ func CliTryParsePositiveIntInto(value: string, result: int[]): int {
     return 1
 }
 
+func CliQuerySymbolKindInto(kind: string, result: int[]): int {
+    if result.Length < 1 {
+        return -1
+    }
+
+    result[0] = 0
+
+    start := 0
+    end := kind.Length
+    while start < end && CliQueryIsWhiteSpace(kind[start]) {
+        start = start + 1
+    }
+
+    while end > start && CliQueryIsWhiteSpace(kind[end - 1]) {
+        end = end - 1
+    }
+
+    if start >= end {
+        return 0
+    }
+
+    values := new CliQueryIntResultTable { Values: result }
+    if CliTryParseIntSegmentCore(kind, start, end, ref values, 0) {
+        return 1
+    }
+
+    if CliQueryTextSegmentEqualsIgnoreCase(kind, start, end, "Function") {
+        result[0] = 0
+        return 1
+    }
+
+    if CliQueryTextSegmentEqualsIgnoreCase(kind, start, end, "Class") {
+        result[0] = 1
+        return 1
+    }
+
+    if CliQueryTextSegmentEqualsIgnoreCase(kind, start, end, "Struct") {
+        result[0] = 2
+        return 1
+    }
+
+    if CliQueryTextSegmentEqualsIgnoreCase(kind, start, end, "Record") {
+        result[0] = 3
+        return 1
+    }
+
+    if CliQueryTextSegmentEqualsIgnoreCase(kind, start, end, "Interface") {
+        result[0] = 4
+        return 1
+    }
+
+    if CliQueryTextSegmentEqualsIgnoreCase(kind, start, end, "Enum") {
+        result[0] = 5
+        return 1
+    }
+
+    if CliQueryTextSegmentEqualsIgnoreCase(kind, start, end, "Union") {
+        result[0] = 6
+        return 1
+    }
+
+    if CliQueryTextSegmentEqualsIgnoreCase(kind, start, end, "Property") {
+        result[0] = 7
+        return 1
+    }
+
+    if CliQueryTextSegmentEqualsIgnoreCase(kind, start, end, "Field") {
+        result[0] = 8
+        return 1
+    }
+
+    if CliQueryTextSegmentEqualsIgnoreCase(kind, start, end, "Method") {
+        result[0] = 9
+        return 1
+    }
+
+    if CliQueryTextSegmentEqualsIgnoreCase(kind, start, end, "Variable") {
+        result[0] = 10
+        return 1
+    }
+
+    if CliQueryTextSegmentEqualsIgnoreCase(kind, start, end, "Parameter") {
+        result[0] = 11
+        return 1
+    }
+
+    if CliQueryTextSegmentEqualsIgnoreCase(kind, start, end, "Constructor") {
+        result[0] = 12
+        return 1
+    }
+
+    if CliQueryTextSegmentEqualsIgnoreCase(kind, start, end, "EnumMember") {
+        result[0] = 13
+        return 1
+    }
+
+    if CliQueryTextSegmentEqualsIgnoreCase(kind, start, end, "TypeAlias") {
+        result[0] = 14
+        return 1
+    }
+
+    if CliQueryTextSegmentEqualsIgnoreCase(kind, start, end, "Test") {
+        result[0] = 15
+        return 1
+    }
+
+    return 0
+}
+
+func CliQueryTextSegmentEqualsIgnoreCase(text: string, start: int, end: int, expected: string): bool {
+    if end - start != expected.Length {
+        return false
+    }
+
+    return String.Compare(text, start, expected, 0, expected.Length, StringComparison.OrdinalIgnoreCase) == 0
+}
+
 func CliDaemonPositionInto(position: string, result: int[]): int {
     if result.Length < 2 {
         return -1
