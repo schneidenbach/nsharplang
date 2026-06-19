@@ -921,6 +921,49 @@ func CliAuditOptionSummaryCore(args: &CliArgumentTable, resultIndices: &CliIndex
     return 0
 }
 
+func CliInitOptionSummaryInto(args: string[], resultIndices: int[]): int {
+    arguments := new CliArgumentTable { Args: args }
+    results := new CliIndexResultTable { Indices: resultIndices }
+    return CliInitOptionSummaryCore(ref arguments, ref results)
+}
+
+func CliInitOptionSummaryCore(args: &CliArgumentTable, resultIndices: &CliIndexResultTable): int {
+    if resultIndices.Indices.Length < 4 {
+        return -1
+    }
+
+    resultIndices.Indices[0] = -1
+    resultIndices.Indices[1] = -1
+    resultIndices.Indices[2] = 0
+    resultIndices.Indices[3] = 0
+
+    i := 0
+    while i < args.Args.Length {
+        arg := args.Args[i]
+        if i == 0 && arg == "help" {
+            resultIndices.Indices[3] = 1
+        }
+
+        if arg == "--name" {
+            if resultIndices.Indices[0] < 0 && i + 1 < args.Args.Length {
+                resultIndices.Indices[0] = i + 1
+            }
+        } else if arg == "--type" {
+            if resultIndices.Indices[1] < 0 && i + 1 < args.Args.Length {
+                resultIndices.Indices[1] = i + 1
+            }
+        } else if arg == "--force" {
+            resultIndices.Indices[2] = 1
+        } else if arg == "--help" || arg == "-h" {
+            resultIndices.Indices[3] = 1
+        }
+
+        i = i + 1
+    }
+
+    return 0
+}
+
 func CliPublishOptionsInto(args: string[], resultIndices: int[]): int {
     arguments := new CliArgumentTable { Args: args }
     results := new CliIndexResultTable { Indices: resultIndices }

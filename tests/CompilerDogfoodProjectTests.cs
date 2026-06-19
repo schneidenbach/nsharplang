@@ -7025,6 +7025,7 @@ func outer(x: int): int {
         Assert.Contains("CliEnvOptionSummaryInto", methodNames!); // product env option parsing.
         Assert.Contains("CliDoctorOptionSummaryInto", methodNames!); // product doctor option parsing.
         Assert.Contains("CliAuditOptionSummaryInto", methodNames!); // product audit option parsing.
+        Assert.Contains("CliInitOptionSummaryInto", methodNames!); // product init option parsing.
 
         AssertColumnarProgramMatchesCSharp(source,
             ("CliSymbolNameContainsAsciiIgnoreCase", new object[] { "FooBarBaz", "barbaz" }),
@@ -15282,6 +15283,10 @@ class OtherZetaType {
                     "CliAuditOptionSummaryInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliAuditOptionSummaryInto.");
+            var cliInitOptionSummaryInto = programType.GetMethod(
+                    "CliInitOptionSummaryInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliInitOptionSummaryInto.");
             var cliUpdateAllNuGetDependencyIndicesInto = programType.GetMethod(
                     "CliUpdateAllNuGetDependencyIndicesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -16248,6 +16253,7 @@ func main(customer: Customer, résumé: Profile) {
             AssertCliEnvOptionsLikeProduction(cliEnvOptionSummaryInto);
             AssertCliDoctorOptionsLikeProduction(cliDoctorOptionSummaryInto);
             AssertCliAuditOptionsLikeProduction(cliAuditOptionSummaryInto);
+            AssertCliInitOptionsLikeProduction(cliInitOptionSummaryInto);
             AssertCliUpdateAllNuGetDependencyFilteringLikeProduction(
                 cliUpdateAllNuGetDependencyIndicesInto,
                 cliUpdateAllNuGetDependencyChecksumInto);
@@ -20478,6 +20484,72 @@ func main() {
                 case "--help":
                 case "-h":
                     indices[2] = 1;
+                    break;
+            }
+        }
+
+        return indices;
+    }
+
+    private static void AssertCliInitOptionsLikeProduction(MethodInfo cliInitOptionSummaryInto)
+    {
+        var cases = new[]
+        {
+            Array.Empty<string>(),
+            new[] { "--name", "MyLib", "--type", "library", "--force", "-h" },
+            new[] { "--name", "--force", "--type", "--help" },
+            new[] { "--name" },
+            new[] { "--type" },
+            new[] { "help" },
+            new[] { "ignored", "-h" },
+            new[] { string.Empty }
+        };
+
+        foreach (var args in cases)
+        {
+            var expected = CreateExpectedCliInitOptions(args);
+            var resultIndices = Enumerable.Repeat(-99, 4).ToArray();
+            var actualCode = (int)(cliInitOptionSummaryInto.Invoke(
+                null,
+                new object[] { args, resultIndices }) ?? -2);
+
+            Assert.Equal(0, actualCode);
+            Assert.Equal(expected, resultIndices);
+        }
+
+        Assert.Equal(
+            -1,
+            (int)(cliInitOptionSummaryInto.Invoke(
+                null,
+                new object[] { new[] { "--force" }, new int[3] }) ?? 0));
+    }
+
+    private static int[] CreateExpectedCliInitOptions(string[] args)
+    {
+        var indices = new[] { -1, -1, 0, 0 };
+
+        for (var i = 0; i < args.Length; i++)
+        {
+            var arg = args[i];
+            if (i == 0 && arg == "help")
+                indices[3] = 1;
+
+            switch (arg)
+            {
+                case "--name":
+                    if (indices[0] < 0 && i + 1 < args.Length)
+                        indices[0] = i + 1;
+                    break;
+                case "--type":
+                    if (indices[1] < 0 && i + 1 < args.Length)
+                        indices[1] = i + 1;
+                    break;
+                case "--force":
+                    indices[2] = 1;
+                    break;
+                case "--help":
+                case "-h":
+                    indices[3] = 1;
                     break;
             }
         }

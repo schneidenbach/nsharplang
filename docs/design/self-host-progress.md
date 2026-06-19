@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-19 — Init option parsing routes through product N#
+
+`InitCommand` now gets help detection, `--name`, `--type`, and `--force` from
+`InitCommandKernels`, which binds the shipped `CliInitOptionSummaryInto` dogfood kernel beside the
+command implementation. The previous direct C# scans remain only as fallback/oracle logic,
+preserving permissive option-value handling. This is a Stage 6 `C#-surface-shrink` product-route
+slice.
+
+Focused evidence:
+`./scripts/dev.sh InitCommandKernels`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.InitCommandKernels_SummarizesOptions|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-19 — Audit option parsing routes through product N#
 
 `AuditCommand` now gets help detection, `--project`, and `--json` from `AuditCommandKernels`, which

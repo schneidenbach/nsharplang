@@ -9,13 +9,14 @@ public static class InitCommand
 {
     public static int Execute(string[] args)
     {
-        if (args.Contains("--help") || args.Contains("-h") || (args.Length > 0 && args[0] == "help"))
+        var options = GetOptionSummary(args);
+        if (options.ShowHelp)
             return ShowHelp();
 
         var projectRoot = Directory.GetCurrentDirectory();
-        var force = args.Contains("--force");
-        var name = GetOption(args, "--name") ?? Path.GetFileName(projectRoot) ?? "Project";
-        var type = GetOption(args, "--type") ?? "exe";
+        var force = options.Force;
+        var name = options.NameOption ?? Path.GetFileName(projectRoot) ?? "Project";
+        var type = options.TypeOption ?? "exe";
 
         if (type != "exe" && type != "library")
             return Error($"Invalid type '{type}'. Expected 'exe' or 'library'.");
@@ -68,12 +69,33 @@ public static class InitCommand
         }
     }
 
-    static string? GetOption(string[] args, string flag)
+    internal static InitOptionSummary GetOptionSummary(string[] args)
+        => InitCommandKernels.TryGetOptionSummary(args, out var summary)
+            ? summary
+            : GetOptionSummaryWithCSharp(args);
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product init option parsing routes through InitCommandKernels.
+    private static InitOptionSummary GetOptionSummaryWithCSharp(string[] args)
+        => new(
+            GetOptionWithCSharp(args, "--name"),
+            GetOptionWithCSharp(args, "--type"),
+            ContainsArgWithCSharp(args, "--force"),
+            ContainsArgWithCSharp(args, "--help") || ContainsArgWithCSharp(args, "-h") || (args.Length > 0 && args[0] == "help"));
+
+    private static string? GetOptionWithCSharp(string[] args, string flag)
     {
         for (var i = 0; i < args.Length - 1; i++)
             if (args[i] == flag)
                 return args[i + 1];
         return null;
+    }
+
+    private static bool ContainsArgWithCSharp(string[] args, string value)
+    {
+        for (var i = 0; i < args.Length; i++)
+            if (args[i] == value)
+                return true;
+        return false;
     }
 
     static int ShowHelp()

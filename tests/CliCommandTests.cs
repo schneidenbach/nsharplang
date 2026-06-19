@@ -416,6 +416,33 @@ func Main() {
     }
 
     [Fact]
+    public void InitCommandKernels_SummarizesOptions()
+    {
+        var args = new[] { "--name", "MyLib", "--type", "library", "--force", "-h" };
+
+        Assert.True(InitCommandKernels.TryGetOptionSummary(args, out var dogfoodSummary));
+        Assert.Equal("MyLib", dogfoodSummary.NameOption);
+        Assert.Equal("library", dogfoodSummary.TypeOption);
+        Assert.True(dogfoodSummary.Force);
+        Assert.True(dogfoodSummary.ShowHelp);
+
+        var summary = InitCommand.GetOptionSummary(args);
+        Assert.Equal("MyLib", summary.NameOption);
+        Assert.Equal("library", summary.TypeOption);
+        Assert.True(summary.Force);
+        Assert.True(summary.ShowHelp);
+
+        var permissiveValue = InitCommand.GetOptionSummary(new[] { "--name", "--force", "--type", "--help" });
+        Assert.Equal("--force", permissiveValue.NameOption);
+        Assert.Equal("--help", permissiveValue.TypeOption);
+        Assert.True(permissiveValue.Force);
+        Assert.True(permissiveValue.ShowHelp);
+
+        Assert.True(InitCommand.GetOptionSummary(new[] { "help" }).ShowHelp);
+        Assert.True(InitCommand.GetOptionSummary(new[] { "ignored", "-h" }).ShowHelp);
+    }
+
+    [Fact]
     public void UpdateDependencyFilter_FiltersTargetNuGetDependencies()
     {
         var dependencies = new[]
