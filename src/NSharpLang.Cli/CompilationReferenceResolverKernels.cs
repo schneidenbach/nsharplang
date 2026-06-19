@@ -9,6 +9,9 @@ internal static class CompilationReferenceResolverKernels
     [ThreadStatic]
     private static ReferenceTypeFilterScratch? t_referenceTypeFilterScratch;
 
+    [ThreadStatic]
+    private static int[]? t_targetFrameworkVersionResult;
+
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
 
     internal static bool TryFilterReferencesByType(
@@ -110,6 +113,41 @@ internal static class CompilationReferenceResolverKernels
         }
     }
 
+    internal static bool TryParseTargetFrameworkVersion(
+        string targetFramework,
+        out bool parsed,
+        out int major,
+        out int minor)
+    {
+        parsed = false;
+        major = 0;
+        minor = 0;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        var result = t_targetFrameworkVersionResult ??= new int[2];
+        try
+        {
+            var code = bindings.TargetFrameworkVersion(targetFramework, result);
+            if (code is not 0 and not 1)
+                return false;
+
+            parsed = code == 1;
+            major = result[0];
+            minor = result[1];
+            return true;
+        }
+        catch
+        {
+            parsed = false;
+            major = 0;
+            minor = 0;
+            return false;
+        }
+    }
+
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
             DogfoodKernelLoader.CreateDelegate<CliReferenceTypeFilterIndicesInto>(
@@ -117,7 +155,10 @@ internal static class CompilationReferenceResolverKernels
                 "CliReferenceTypeFilterIndicesInto"),
             DogfoodKernelLoader.CreateDelegate<CliReferenceResolutionBestScoreIndex>(
                 programType,
-                "CliReferenceResolutionBestScoreIndex")));
+                "CliReferenceResolutionBestScoreIndex"),
+            DogfoodKernelLoader.CreateDelegate<CliTargetFrameworkVersionInto>(
+                programType,
+                "CliTargetFrameworkVersionInto")));
 
     private delegate int CliReferenceTypeFilterIndicesInto(
         int[] typeRanks,
@@ -126,9 +167,12 @@ internal static class CompilationReferenceResolverKernels
 
     private delegate int CliReferenceResolutionBestScoreIndex(int[] scores, int count);
 
+    private delegate int CliTargetFrameworkVersionInto(string targetFramework, int[] result);
+
     private sealed record Bindings(
         CliReferenceTypeFilterIndicesInto ReferenceTypeFilterIndices,
-        CliReferenceResolutionBestScoreIndex ReferenceResolutionBestScoreIndex);
+        CliReferenceResolutionBestScoreIndex ReferenceResolutionBestScoreIndex,
+        CliTargetFrameworkVersionInto TargetFrameworkVersion);
 
     private static int GetReferenceTypeRank(ReferenceType type) =>
         type switch

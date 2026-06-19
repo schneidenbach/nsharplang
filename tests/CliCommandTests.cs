@@ -2478,6 +2478,41 @@ func Main() {
         Assert.False(CompilationReferenceResolverKernels.TrySelectBestScoreIndex(scores, scores.Length + 1, out _));
     }
 
+    [Fact]
+    public void CompilationReferenceResolverKernels_ParsesTargetFrameworkVersions()
+    {
+        AssertParsed("net10.0", 10, 0);
+        AssertParsed("netstandard2.1", 2, 1);
+        AssertParsed("net472", 472, 0);
+        AssertParsed("net10..2", 10, 2);
+        AssertParsed("net10.bad", 10, 0);
+        AssertParsed("net10.2147483648", 10, 0);
+        AssertInvalid("net");
+        AssertInvalid("net2147483648.0");
+
+        static void AssertParsed(string targetFramework, int expectedMajor, int expectedMinor)
+        {
+            Assert.True(CompilationReferenceResolverKernels.TryParseTargetFrameworkVersion(
+                targetFramework,
+                out var parsed,
+                out var major,
+                out var minor));
+            Assert.True(parsed);
+            Assert.Equal(expectedMajor, major);
+            Assert.Equal(expectedMinor, minor);
+        }
+
+        static void AssertInvalid(string targetFramework)
+        {
+            Assert.True(CompilationReferenceResolverKernels.TryParseTargetFrameworkVersion(
+                targetFramework,
+                out var parsed,
+                out _,
+                out _));
+            Assert.False(parsed);
+        }
+    }
+
     [Theory]
     [InlineData("src/Program.nl", true)]
     [InlineData("bin/Debug/Generated.nl", false)]

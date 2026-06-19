@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-19 — Compilation reference target-framework parsing moves into product N#
+
+`CompilationReferenceResolver` now parses target-framework major/minor versions through
+`CompilationReferenceResolverKernels`, which binds `CliTargetFrameworkVersionInto` from `CliArguments.nl`.
+Filesystem and XML package asset materialization remain in C# as host-boundary work; the resolver's normal
+framework-version parsing route is now N# with the previous LINQ/string-split parser kept only as fallback/oracle.
+
+Focused evidence:
+`./scripts/dev.sh CompilationReferenceResolverKernels`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-19 — Assembly version component parsing moves into product N#
 
 `AssemblyVersionUtilities.TryGetAssemblyVersion` now parses package-version numeric components through

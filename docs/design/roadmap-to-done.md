@@ -310,7 +310,7 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       restore option summary, reference filtering, and project-reference deduplication now live beside
       `RestoreCommand` in `RestoreCommandKernels`; stale generated-output directory de-duplication now lives beside
       `Program.CleanStaleGeneratedFiles` in `GeneratedOutputDirectoryDeduplicator`; native
-      compilation-reference filtering now lives beside `CompilationReferenceResolver` in
+      compilation-reference filtering and target-framework version parsing now live beside `CompilationReferenceResolver` in
       `CompilationReferenceResolverKernels`, and NuGet/framework best-score selection now routes through
       the same resolver-local kernels; check argument summary now lives beside `CheckCommand` in
       `CheckCommandKernels`; fix argument summary now lives beside `FixCommand` in
