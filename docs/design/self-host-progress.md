@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Lint option parsing routes through product N#
+
+`LintCommand` now gets help detection, `--project`, `--text`, and `--json` from
+`LintCommandKernels`, which binds the shipped `CliLintOptionSummaryInto` dogfood kernel beside the
+existing lint file-argument route. The previous C# option scan remains only as fallback/oracle logic,
+preserving permissive `--project` value handling. This is a Stage 6 `C#-surface-shrink`
+product-route slice.
+
+Focused evidence:
+`./scripts/dev.sh LintCommandKernels`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.LintCommandKernels_SummarizesOptions|FullyQualifiedName~CliCommandTests.LintCommandKernels_SelectsFileArgsAfterProjectValueExclusion|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-18 — Pack option parsing routes through product N#
 
 `PackCommand` now gets help detection, `--project`, `--output`/`-o`, `--version`,

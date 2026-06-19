@@ -7010,6 +7010,7 @@ func outer(x: int): int {
         Assert.Contains("CliPackOptionSummaryInto", methodNames!); // product pack option parsing.
         Assert.Contains("CliWatchForwardedArgIndicesInto", methodNames!); // product watch forwarding.
         Assert.Contains("CliPositionalArgIndicesInto", methodNames!); // product positional collection.
+        Assert.Contains("CliLintOptionSummaryInto", methodNames!); // product lint option parsing.
 
         AssertColumnarProgramMatchesCSharp(source,
             ("CliSymbolNameContainsAsciiIgnoreCase", new object[] { "FooBarBaz", "barbaz" }),
@@ -15131,6 +15132,10 @@ class OtherZetaType {
                     "CliFirstPositionalArgIndex",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliFirstPositionalArgIndex.");
+            var cliLintOptionSummaryInto = programType.GetMethod(
+                    "CliLintOptionSummaryInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliLintOptionSummaryInto.");
             var cliLintFileArgIndicesInto = programType.GetMethod(
                     "CliLintFileArgIndicesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -16133,6 +16138,7 @@ func main(customer: Customer, résumé: Profile) {
                 cliPositionalArgIndicesInto,
                 cliFirstPositionalArgIndex,
                 cliPositionalArgChecksumInto);
+            AssertCliLintOptionsLikeProduction(cliLintOptionSummaryInto);
             AssertCliLintFileArgsLikeProduction(
                 cliLintFileArgIndicesInto,
                 cliLintFileArgChecksumInto);
@@ -19340,6 +19346,70 @@ func main() {
         }
 
         return checksum;
+    }
+
+    private static void AssertCliLintOptionsLikeProduction(MethodInfo cliLintOptionSummaryInto)
+    {
+        var cases = new[]
+        {
+            Array.Empty<string>(),
+            new[] { "--project", "src", "--text", "--json", "Program.nl", "-h" },
+            new[] { "--project", "--json" },
+            new[] { "--project" },
+            new[] { "help" },
+            new[] { "ignored", "-h" },
+            new[] { string.Empty }
+        };
+
+        foreach (var args in cases)
+        {
+            var expected = CreateExpectedCliLintOptions(args);
+            var resultIndices = Enumerable.Repeat(-99, 4).ToArray();
+            var actualCode = (int)(cliLintOptionSummaryInto.Invoke(
+                null,
+                new object[] { args, resultIndices }) ?? -2);
+
+            Assert.Equal(0, actualCode);
+            Assert.Equal(expected, resultIndices);
+        }
+
+        Assert.Equal(
+            -1,
+            (int)(cliLintOptionSummaryInto.Invoke(
+                null,
+                new object[] { new[] { "--json" }, new int[3] }) ?? 0));
+    }
+
+    private static int[] CreateExpectedCliLintOptions(string[] args)
+    {
+        var indices = new[] { -1, 0, 0, 0 };
+
+        for (var i = 0; i < args.Length; i++)
+        {
+            var arg = args[i];
+            if (i == 0 && arg == "help")
+                indices[3] = 1;
+
+            switch (arg)
+            {
+                case "--project":
+                    if (indices[0] < 0 && i + 1 < args.Length)
+                        indices[0] = i + 1;
+                    break;
+                case "--text":
+                    indices[1] = 1;
+                    break;
+                case "--json":
+                    indices[2] = 1;
+                    break;
+                case "--help":
+                case "-h":
+                    indices[3] = 1;
+                    break;
+            }
+        }
+
+        return indices;
     }
 
     private static void AssertCliTidyDependencyClassificationLikeProduction(

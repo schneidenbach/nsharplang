@@ -1500,6 +1500,12 @@ on the large generated argument corpus (1.092 ms vs 129.694 ms, 53.68 KB vs 273.
 acceptance-grade benchmark evidence for `nlc lint --project ... [files...]` command-boundary file
 selection.
 
+`CliLintOptionSummaryInto` preserves the current `nlc lint` command-parser behavior for help,
+`--project`, `--text`, and `--json`. Stage 6 routes `LintCommand` through `LintCommandKernels`
+as a C# surface-shrink product path beside the file-argument extraction route. The kernel writes the
+project value index and switch bits into a caller-owned buffer, while the previous C# parser shape
+remains as fallback/oracle logic.
+
 `CliBuildFirstOperandIndexInto` passed parity and reported zero managed allocation in the normal
 BenchmarkDotNet evidence tier for source-first `nlc build` operand discovery. The accepted N# path
 returned the first source operand index directly instead of materializing the build command's
@@ -2125,7 +2131,7 @@ CLI stable string de-duplication for stale generated cleanup and target-framewor
 add/remove package operand discovery, tidy dependency-line keep flags,
 DocQuery reference-pack assembly-name and type-candidate de-duplication,
 CLI test outcome summaries,
-CLI build/test/pack option summaries,
+CLI build/test/pack/lint option summaries,
 watch forwarded-argument selection,
 shared positional-argument collection,
 and the accepted batch result packed-count kernel through the compiled N# methods. The same suite

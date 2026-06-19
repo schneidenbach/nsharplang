@@ -11,12 +11,13 @@ public static class LintCommand
 {
     public static int Execute(string[] args)
     {
-        if (args.Contains("--help") || args.Contains("-h") || (args.Length > 0 && args[0] == "help"))
+        var options = GetOptionSummary(args);
+        if (options.ShowHelp)
             return ShowHelp();
 
-        var useText = args.Contains("--text");
-        var useJson = args.Contains("--json");
-        var projectRoot = Path.GetFullPath(GetOption(args, "--project") ?? Directory.GetCurrentDirectory());
+        var useText = options.UseText;
+        var useJson = options.UseJson;
+        var projectRoot = Path.GetFullPath(options.ProjectOption ?? Directory.GetCurrentDirectory());
 
         var positionalFiles = GetPositionalFiles(args);
 
@@ -246,7 +247,20 @@ Exit codes:
         return 1;
     }
 
-    private static string? GetOption(string[] args, string flag)
+    internal static LintOptionSummary GetOptionSummary(string[] args)
+        => LintCommandKernels.TryGetOptionSummary(args, out var summary)
+            ? summary
+            : GetOptionSummaryWithCSharp(args);
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product lint option parsing routes through LintCommandKernels.
+    private static LintOptionSummary GetOptionSummaryWithCSharp(string[] args)
+        => new(
+            GetOptionValueWithCSharp(args, "--project"),
+            ContainsArgWithCSharp(args, "--text"),
+            ContainsArgWithCSharp(args, "--json"),
+            ContainsArgWithCSharp(args, "--help") || ContainsArgWithCSharp(args, "-h") || (args.Length > 0 && args[0] == "help"));
+
+    private static string? GetOptionValueWithCSharp(string[] args, string flag)
     {
         for (int i = 0; i < args.Length - 1; i++)
         {
@@ -254,6 +268,14 @@ Exit codes:
                 return args[i + 1];
         }
         return null;
+    }
+
+    private static bool ContainsArgWithCSharp(string[] args, string value)
+    {
+        for (var i = 0; i < args.Length; i++)
+            if (args[i] == value)
+                return true;
+        return false;
     }
 
     private static bool IsOptionValue(string[] args, string value, params string[] flags)

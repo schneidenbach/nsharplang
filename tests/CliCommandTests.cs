@@ -1053,6 +1053,37 @@ func Main() {
     }
 
     [Fact]
+    public void LintCommandKernels_SummarizesOptions()
+    {
+        Assert.True(LintCommandKernels.TryGetOptionSummary(
+            Array.Empty<string>(),
+            out var defaultSummary));
+        Assert.Null(defaultSummary.ProjectOption);
+        Assert.False(defaultSummary.UseText);
+        Assert.False(defaultSummary.UseJson);
+        Assert.False(defaultSummary.ShowHelp);
+
+        var args = new[] { "--project", "src", "--text", "--json", "Program.nl", "-h" };
+        Assert.True(LintCommandKernels.TryGetOptionSummary(args, out var dogfoodSummary));
+        Assert.Equal("src", dogfoodSummary.ProjectOption);
+        Assert.True(dogfoodSummary.UseText);
+        Assert.True(dogfoodSummary.UseJson);
+        Assert.True(dogfoodSummary.ShowHelp);
+
+        var summary = LintCommand.GetOptionSummary(args);
+        Assert.Equal("src", summary.ProjectOption);
+        Assert.True(summary.UseText);
+        Assert.True(summary.UseJson);
+        Assert.True(summary.ShowHelp);
+
+        var permissiveValue = LintCommand.GetOptionSummary(new[] { "--project", "--json" });
+        Assert.Equal("--json", permissiveValue.ProjectOption);
+        Assert.True(permissiveValue.UseJson);
+
+        Assert.True(LintCommand.GetOptionSummary(new[] { "help" }).ShowHelp);
+    }
+
+    [Fact]
     public void WatchCommandKernels_SelectsForwardedArgs()
     {
         var args = new[]
