@@ -7010,6 +7010,7 @@ func outer(x: int): int {
         Assert.Contains("CliTestOptionSummaryInto", methodNames!); // product test option parsing.
         Assert.Contains("CliPackOptionSummaryInto", methodNames!); // product pack option parsing.
         Assert.Contains("CliWatchForwardedArgIndicesInto", methodNames!); // product watch forwarding.
+        Assert.Contains("CliWatchOptionSummaryInto", methodNames!); // product watch option parsing.
         Assert.Contains("CliPositionalArgIndicesInto", methodNames!); // product positional collection.
         Assert.Contains("CliLintOptionSummaryInto", methodNames!); // product lint option parsing.
         Assert.Contains("CliCheckArgumentSummaryInto", methodNames!); // product check argument parsing.
@@ -15160,6 +15161,10 @@ class OtherZetaType {
                     "CliWatchForwardedArgIndicesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliWatchForwardedArgIndicesInto.");
+            var cliWatchOptionSummaryInto = programType.GetMethod(
+                    "CliWatchOptionSummaryInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliWatchOptionSummaryInto.");
             var cliWatchForwardedArgChecksumInto = programType.GetMethod(
                     "CliWatchForwardedArgChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -16219,6 +16224,7 @@ func main(customer: Customer, résumé: Profile) {
             AssertCliWatchForwardedArgsLikeProduction(
                 cliWatchForwardedArgIndicesInto,
                 cliWatchForwardedArgChecksumInto);
+            AssertCliWatchOptionsLikeProduction(cliWatchOptionSummaryInto);
             AssertCliPublishOptionsLikeProduction(cliPublishOptionsInto);
             AssertCliPackOptionsLikeProduction(cliPackOptionSummaryInto);
             AssertCliPositionalArgsLikeProduction(
@@ -19532,6 +19538,79 @@ func main() {
         }
 
         return checksum;
+    }
+
+    private static void AssertCliWatchOptionsLikeProduction(MethodInfo cliWatchOptionSummaryInto)
+    {
+        var cases = new[]
+        {
+            new[]
+            {
+                "test",
+                "--project",
+                "samples/demo",
+                "--debounce-ms",
+                "50",
+                "--max-runs",
+                "2",
+                "--json",
+                "-h"
+            },
+            new[] { "help" },
+            Array.Empty<string>(),
+            new[] { "check" },
+            new[] { "test", "--project", "--debounce-ms", "--max-runs" },
+            new[] { "format", "--max-runs", "3", "--max-runs", "4" },
+            new[] { "lint", "--debounce-ms" },
+            new[] { string.Empty, "--help" }
+        };
+
+        foreach (var args in cases)
+        {
+            var expected = CreateExpectedCliWatchOptions(args);
+            var resultIndices = Enumerable.Repeat(-99, 4).ToArray();
+            var actualCode = (int)(cliWatchOptionSummaryInto.Invoke(
+                null,
+                new object[] { args, resultIndices }) ?? -2);
+
+            Assert.Equal(0, actualCode);
+            Assert.Equal(expected, resultIndices);
+        }
+
+        Assert.Equal(
+            -1,
+            (int)(cliWatchOptionSummaryInto.Invoke(
+                null,
+                new object[] { new[] { "test" }, new int[3] }) ?? 0));
+    }
+
+    private static int[] CreateExpectedCliWatchOptions(string[] args)
+    {
+        var indices = new[] { -1, -1, -1, 0 };
+
+        if (args.Length == 0)
+            indices[3] = 1;
+
+        for (var i = 0; i < args.Length; i++)
+        {
+            var arg = args[i];
+            if (i == 0 && arg == "help")
+                indices[3] = 1;
+
+            if (arg == "--help" || arg == "-h")
+                indices[3] = 1;
+
+            if (arg == "--project" && indices[0] < 0 && i + 1 < args.Length)
+                indices[0] = i + 1;
+
+            if (arg == "--debounce-ms" && indices[1] < 0 && i + 1 < args.Length)
+                indices[1] = i + 1;
+
+            if (arg == "--max-runs" && indices[2] < 0 && i + 1 < args.Length)
+                indices[2] = i + 1;
+        }
+
+        return indices;
     }
 
     private static void AssertCliPublishOptionsLikeProduction(MethodInfo cliPublishOptionsInto)

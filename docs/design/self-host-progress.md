@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-19 — Watch option parsing routes through product N#
+
+`WatchCommand` now gets help detection, `--project`, `--debounce-ms`, and `--max-runs` from
+`WatchCommandKernels`, which binds the shipped `CliWatchOptionSummaryInto` dogfood kernel beside the
+existing watch forwarded-argument route. The previous direct C# scans remain only as fallback/oracle
+logic, preserving permissive value handling for watch-only options. This is a Stage 6
+`C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`./scripts/dev.sh WatchCommandKernels`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.WatchCommandKernels_SummarizesOptions|FullyQualifiedName~CliCommandTests.WatchCommandKernels_SelectsForwardedArgs|FullyQualifiedName~CliParityAuditTests.WatchCommand_ReRunsAfterFileChange_AndReturnsLastExitCodeAsync|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-19 — Restore option parsing routes through product N#
 
 `RestoreCommand` now gets help detection from `RestoreCommandKernels`, which binds the shipped

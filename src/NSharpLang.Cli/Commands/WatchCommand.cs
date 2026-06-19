@@ -13,7 +13,8 @@ public static class WatchCommand
 
     public static int Execute(string[] args)
     {
-        if (args.Contains("--help") || args.Contains("-h") || args.Length == 0 || args[0] == "help")
+        var options = GetOptionSummary(args);
+        if (options.ShowHelp)
             return ShowHelp();
 
         var watchedCommand = args[0].ToLowerInvariant();
@@ -21,18 +22,18 @@ public static class WatchCommand
             return Error($"Unsupported watch target '{watchedCommand}'. Expected check, build, test, lint, or format.");
 
         var forwardedArgs = GetForwardedArgs(args);
-        var projectRoot = GetOption(args, "--project") ?? Directory.GetCurrentDirectory();
+        var projectRoot = options.ProjectOption ?? Directory.GetCurrentDirectory();
         projectRoot = Path.GetFullPath(projectRoot);
 
         if (!Directory.Exists(projectRoot))
             return Error($"Project directory not found: {projectRoot}");
 
-        var debounceMs = ParsePositiveInt(GetOption(args, "--debounce-ms"), 250, "--debounce-ms");
+        var debounceMs = ParsePositiveInt(options.DebounceMsOption, 250, "--debounce-ms");
         if (debounceMs == null)
             return 1;
 
-        var maxRuns = ParsePositiveInt(GetOption(args, "--max-runs"), null, "--max-runs");
-        if (GetOption(args, "--max-runs") != null && maxRuns == null)
+        var maxRuns = ParsePositiveInt(options.MaxRunsOption, null, "--max-runs");
+        if (options.MaxRunsOption != null && maxRuns == null)
             return 1;
 
         var wakeSignal = new AutoResetEvent(false);
@@ -131,6 +132,22 @@ public static class WatchCommand
         }
     }
 
+    internal static WatchOptionSummary GetOptionSummary(string[] args)
+        => WatchCommandKernels.TryGetOptionSummary(args, out var summary)
+            ? summary
+            : GetOptionSummaryWithCSharp(args);
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product watch option parsing routes through WatchCommandKernels.
+    private static WatchOptionSummary GetOptionSummaryWithCSharp(string[] args)
+        => new(
+            GetOptionWithCSharp(args, "--project"),
+            GetOptionWithCSharp(args, "--debounce-ms"),
+            GetOptionWithCSharp(args, "--max-runs"),
+            args.Length == 0
+                || args[0] == "help"
+                || ContainsArgWithCSharp(args, "--help")
+                || ContainsArgWithCSharp(args, "-h"));
+
     private static string[] GetForwardedArgs(string[] args)
     {
         if (WatchCommandKernels.TryGetForwardedArgs(args, out var forwardedArgs))
@@ -186,7 +203,7 @@ public static class WatchCommand
         return null;
     }
 
-    private static string? GetOption(string[] args, string flag)
+    private static string? GetOptionWithCSharp(string[] args, string flag)
     {
         for (var i = 0; i < args.Length - 1; i++)
         {
@@ -195,6 +212,14 @@ public static class WatchCommand
         }
 
         return null;
+    }
+
+    private static bool ContainsArgWithCSharp(string[] args, string value)
+    {
+        for (var i = 0; i < args.Length; i++)
+            if (args[i] == value)
+                return true;
+        return false;
     }
 
     private static int ShowHelp()

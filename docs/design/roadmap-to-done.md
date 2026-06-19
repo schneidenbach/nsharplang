@@ -320,8 +320,8 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       `PublishCommandKernels`; pack option summary now lives beside `PackCommand` in
       `PackCommandKernels`; build option and operand summaries now live beside `Program.BuildCommand`
       in `BuildCommandKernels`; test option and outcome summaries now live beside `Program.TestCommand` in
-      `TestCommandKernels`; watch forwarded-argument selection now lives beside `WatchCommand` in
-      `WatchCommandKernels`; shared positional-argument collection now lives beside `Program` in
+      `TestCommandKernels`; watch option summary and forwarded-argument selection now live beside
+      `WatchCommand` in `WatchCommandKernels`; shared positional-argument collection now lives beside `Program` in
       `PositionalArgumentKernels`; fix-applicator text-edit ordering now lives beside `FixApplicator` in
       `FixApplicatorTextEditOrderer`; output-format diagnostic severity summary/filtering now lives
       beside `OutputFormatter` in `OutputFormatterDiagnosticKernels`; output-format diagnostic-cluster

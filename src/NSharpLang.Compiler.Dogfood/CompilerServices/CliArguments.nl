@@ -120,6 +120,61 @@ func CliWatchForwardedArgIndicesInto(args: string[], resultIndices: int[]): int 
     return CliWatchForwardedArgIndicesCore(ref arguments, ref results)
 }
 
+func CliWatchOptionSummaryInto(args: string[], resultIndices: int[]): int {
+    arguments := new CliArgumentTable { Args: args }
+    results := new CliIndexResultTable { Indices: resultIndices }
+    return CliWatchOptionSummaryCore(ref arguments, ref results)
+}
+
+func CliWatchOptionSummaryCore(args: &CliArgumentTable, resultIndices: &CliIndexResultTable): int {
+    if resultIndices.Indices.Length < 4 {
+        return -1
+    }
+
+    resultIndices.Indices[0] = -1
+    resultIndices.Indices[1] = -1
+    resultIndices.Indices[2] = -1
+    resultIndices.Indices[3] = 0
+
+    if args.Args.Length == 0 {
+        resultIndices.Indices[3] = 1
+    }
+
+    i := 0
+    while i < args.Args.Length {
+        arg := args.Args[i]
+        if i == 0 && arg == "help" {
+            resultIndices.Indices[3] = 1
+        }
+
+        if arg == "--help" || arg == "-h" {
+            resultIndices.Indices[3] = 1
+        }
+
+        if arg == "--project" {
+            if resultIndices.Indices[0] < 0 && i + 1 < args.Args.Length {
+                resultIndices.Indices[0] = i + 1
+            }
+        }
+
+        if arg == "--debounce-ms" {
+            if resultIndices.Indices[1] < 0 && i + 1 < args.Args.Length {
+                resultIndices.Indices[1] = i + 1
+            }
+        }
+
+        if arg == "--max-runs" {
+            if resultIndices.Indices[2] < 0 && i + 1 < args.Args.Length {
+                resultIndices.Indices[2] = i + 1
+            }
+        }
+
+        i = i + 1
+    }
+
+    return 0
+}
+
 func CliWatchForwardedArgIndicesCore(args: &CliArgumentTable, resultIndices: &CliIndexResultTable): int {
     resultCount := 0
     i := 1

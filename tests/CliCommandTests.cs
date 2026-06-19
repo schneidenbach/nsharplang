@@ -1390,6 +1390,45 @@ func Main() {
     }
 
     [Fact]
+    public void WatchCommandKernels_SummarizesOptions()
+    {
+        var args = new[]
+        {
+            "test",
+            "--project",
+            "samples/demo",
+            "--debounce-ms",
+            "50",
+            "--max-runs",
+            "2",
+            "--json",
+            "-h"
+        };
+
+        Assert.True(WatchCommandKernels.TryGetOptionSummary(args, out var dogfoodSummary));
+        Assert.Equal("samples/demo", dogfoodSummary.ProjectOption);
+        Assert.Equal("50", dogfoodSummary.DebounceMsOption);
+        Assert.Equal("2", dogfoodSummary.MaxRunsOption);
+        Assert.True(dogfoodSummary.ShowHelp);
+
+        var summary = WatchCommand.GetOptionSummary(args);
+        Assert.Equal("samples/demo", summary.ProjectOption);
+        Assert.Equal("50", summary.DebounceMsOption);
+        Assert.Equal("2", summary.MaxRunsOption);
+        Assert.True(summary.ShowHelp);
+
+        var permissiveValues = WatchCommand.GetOptionSummary(
+            new[] { "test", "--project", "--debounce-ms", "--max-runs" });
+        Assert.Equal("--debounce-ms", permissiveValues.ProjectOption);
+        Assert.Equal("--max-runs", permissiveValues.DebounceMsOption);
+        Assert.Null(permissiveValues.MaxRunsOption);
+        Assert.False(permissiveValues.ShowHelp);
+
+        Assert.True(WatchCommand.GetOptionSummary(Array.Empty<string>()).ShowHelp);
+        Assert.True(WatchCommand.GetOptionSummary(new[] { "help" }).ShowHelp);
+    }
+
+    [Fact]
     public void RemoveCommandKernels_SummarizesArguments()
     {
         var args = new[] { "--dry-run", "Serilog", "-h" };
