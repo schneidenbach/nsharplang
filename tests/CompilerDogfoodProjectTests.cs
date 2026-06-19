@@ -7020,6 +7020,7 @@ func outer(x: int): int {
         Assert.Contains("CliUpdateArgumentSummaryInto", methodNames!); // product update argument parsing.
         Assert.Contains("CliTidyOptionSummaryInto", methodNames!); // product tidy option parsing.
         Assert.Contains("CliDocOptionSummaryInto", methodNames!); // product doc option parsing.
+        Assert.Contains("CliTreeOptionSummaryInto", methodNames!); // product tree option parsing.
 
         AssertColumnarProgramMatchesCSharp(source,
             ("CliSymbolNameContainsAsciiIgnoreCase", new object[] { "FooBarBaz", "barbaz" }),
@@ -15181,6 +15182,10 @@ class OtherZetaType {
                     "CliDocOptionSummaryInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDocOptionSummaryInto.");
+            var cliTreeOptionSummaryInto = programType.GetMethod(
+                    "CliTreeOptionSummaryInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTreeOptionSummaryInto.");
             var cliLintFileArgIndicesInto = programType.GetMethod(
                     "CliLintFileArgIndicesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -16193,6 +16198,7 @@ func main(customer: Customer, résumé: Profile) {
             AssertCliLintOptionsLikeProduction(cliLintOptionSummaryInto);
             AssertCliTidyOptionsLikeProduction(cliTidyOptionSummaryInto);
             AssertCliDocOptionsLikeProduction(cliDocOptionSummaryInto);
+            AssertCliTreeOptionsLikeProduction(cliTreeOptionSummaryInto);
             AssertCliLintFileArgsLikeProduction(
                 cliLintFileArgIndicesInto,
                 cliLintFileArgChecksumInto);
@@ -20139,6 +20145,73 @@ func main() {
                 case "--help":
                 case "-h":
                     indices[4] = 1;
+                    break;
+            }
+        }
+
+        return indices;
+    }
+
+    private static void AssertCliTreeOptionsLikeProduction(MethodInfo cliTreeOptionSummaryInto)
+    {
+        var cases = new[]
+        {
+            Array.Empty<string>(),
+            new[] { "--project", "src", "--depth", "2", "--json", "-h" },
+            new[] { "--project", "--json", "--depth", "--help" },
+            new[] { "--project" },
+            new[] { "--depth" },
+            new[] { "--depth", "bad", "--depth", "2" },
+            new[] { "help" },
+            new[] { "ignored", "-h" },
+            new[] { string.Empty }
+        };
+
+        foreach (var args in cases)
+        {
+            var expected = CreateExpectedCliTreeOptions(args);
+            var resultIndices = Enumerable.Repeat(-99, 4).ToArray();
+            var actualCode = (int)(cliTreeOptionSummaryInto.Invoke(
+                null,
+                new object[] { args, resultIndices }) ?? -2);
+
+            Assert.Equal(0, actualCode);
+            Assert.Equal(expected, resultIndices);
+        }
+
+        Assert.Equal(
+            -1,
+            (int)(cliTreeOptionSummaryInto.Invoke(
+                null,
+                new object[] { new[] { "--json" }, new int[3] }) ?? 0));
+    }
+
+    private static int[] CreateExpectedCliTreeOptions(string[] args)
+    {
+        var indices = new[] { -1, -1, 0, 0 };
+
+        for (var i = 0; i < args.Length; i++)
+        {
+            var arg = args[i];
+            if (i == 0 && arg == "help")
+                indices[3] = 1;
+
+            switch (arg)
+            {
+                case "--project":
+                    if (indices[0] < 0 && i + 1 < args.Length)
+                        indices[0] = i + 1;
+                    break;
+                case "--depth":
+                    if (indices[1] < 0 && i + 1 < args.Length)
+                        indices[1] = i + 1;
+                    break;
+                case "--json":
+                    indices[2] = 1;
+                    break;
+                case "--help":
+                case "-h":
+                    indices[3] = 1;
                     break;
             }
         }

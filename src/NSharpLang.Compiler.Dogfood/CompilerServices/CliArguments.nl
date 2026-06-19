@@ -709,6 +709,70 @@ func CliNewArgumentIsValueLessFlag(arg: string): bool {
         || arg == "--systems"
 }
 
+func CliTreeOptionSummaryInto(args: string[], resultIndices: int[]): int {
+    arguments := new CliArgumentTable { Args: args }
+    results := new CliIndexResultTable { Indices: resultIndices }
+    return CliTreeOptionSummaryCore(ref arguments, ref results)
+}
+
+func CliTreeOptionSummaryCore(args: &CliArgumentTable, resultIndices: &CliIndexResultTable): int {
+    if resultIndices.Indices.Length < 4 {
+        return -1
+    }
+
+    resultIndices.Indices[0] = -1
+    resultIndices.Indices[1] = -1
+    resultIndices.Indices[2] = 0
+    resultIndices.Indices[3] = 0
+
+    i := 0
+    while i < args.Args.Length {
+        arg := args.Args[i]
+        if i == 0 && arg == "help" {
+            resultIndices.Indices[3] = 1
+        }
+
+        kind := CliTreeOptionSummaryKind(arg)
+        if kind == 1 {
+            if resultIndices.Indices[0] < 0 && i + 1 < args.Args.Length {
+                resultIndices.Indices[0] = i + 1
+            }
+        } else if kind == 2 {
+            if resultIndices.Indices[1] < 0 && i + 1 < args.Args.Length {
+                resultIndices.Indices[1] = i + 1
+            }
+        } else if kind == 3 {
+            resultIndices.Indices[2] = 1
+        } else if kind == 4 {
+            resultIndices.Indices[3] = 1
+        }
+
+        i = i + 1
+    }
+
+    return 0
+}
+
+func CliTreeOptionSummaryKind(arg: string): int {
+    if arg == "--project" {
+        return 1
+    }
+
+    if arg == "--depth" {
+        return 2
+    }
+
+    if arg == "--json" {
+        return 3
+    }
+
+    if arg == "--help" || arg == "-h" {
+        return 4
+    }
+
+    return 0
+}
+
 func CliPublishOptionsInto(args: string[], resultIndices: int[]): int {
     arguments := new CliArgumentTable { Args: args }
     results := new CliIndexResultTable { Indices: resultIndices }

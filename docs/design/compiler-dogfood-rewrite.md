@@ -2101,6 +2101,12 @@ C# parser shape remains as fallback/oracle logic.
 dogfood assembly is available, preserving the previous first-source dependency selection for each
 ordinal-kind/case-insensitive-name key, with the previous LINQ grouping/order path kept as the
 fallback.
+`CliTreeOptionSummaryInto` preserves the current `nlc tree` command-parser behavior for help,
+`--project`, `--depth`, and `--json`. Stage 6 routes `TreeCommand` through `TreeCommandKernels` as
+a C# surface-shrink product path beside the existing tree dependency routes. The kernel writes option
+value indices and switch bits into a caller-owned buffer, while the previous C# parser shape remains
+as fallback/oracle logic, including the invalid-depth fallback that keeps the first parseable depth
+scan.
 `FixApplicator.ValidateAndSortEdits` now routes edit application ordering through the compiled N#
 two-pass stable counting kernel when the dogfood assembly is available, preserving the previous
 bottom-to-top, right-to-left, end-position, and same-position reverse-input ordering, with the
@@ -2174,7 +2180,7 @@ cluster file-list ordering, diagnostic shadow suppression, diagnostic deduplicat
 diagnostic deduplication, binding
 candidate-column ordering, strict binding lookup, nearest declaration index construction, nearest declaration lookup,
 semantic scope index construction, scoped visible-variable selection, CLI batch duplicate-id validation, CLI doc symbol/member
-ordering and slug generation, CLI tree dependency deduplication, diagnostic severity filtering, symbol-kind filtering, symbol-name filtering, CLI first positional-argument
+ordering and slug generation, CLI tree option summaries and dependency deduplication, diagnostic severity filtering, symbol-kind filtering, symbol-name filtering, CLI first positional-argument
 discovery, CLI build first source-operand discovery, parser newline-token compaction,
 text-edit ordering, struct-copy readonly-field gating, skipped-fix selection, applied-fix file grouping, clean artifact directory ordering, update all-NuGet and target-package dependency filtering,
 CLI reference-type filtering,
@@ -2184,14 +2190,14 @@ CLI stable string de-duplication for stale generated cleanup and target-framewor
 tidy dependency-line keep flags,
 DocQuery reference-pack assembly-name and type-candidate de-duplication,
 CLI test outcome summaries,
-CLI build/test/pack/lint/tidy/doc/export option summaries, new/check/fix/add/remove/update argument summaries,
+CLI build/test/pack/lint/tidy/doc/export/tree option summaries, new/check/fix/add/remove/update argument summaries,
 watch forwarded-argument selection,
 shared positional-argument collection,
 and the accepted batch result packed-count kernel through the compiled N# methods. The same suite
 also compiles and exercises the pressure-only path-matching parity kernel from the parity corpus
 without routing it through product adapters; `CliCommandTests` verifies both
 packaged CLI dogfood routes for duplicate batch request ids, `nlc update` target package
-selection, `nlc doc` symbol/member ordering and slug generation, `nlc tree` dependency deduplication, and
+selection, `nlc doc` symbol/member ordering and slug generation, `nlc tree` option parsing and dependency deduplication, and
 `nlc query diagnostics --severity` filtering plus compiler-error severity filtering, skipped-fix
 selection, applied-fix file grouping, clean artifact directory ordering, `nlc export csharp` option parsing and reference de-duplication,
 CLI reference-type filtering,

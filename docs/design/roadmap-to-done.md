@@ -289,7 +289,8 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       grouping routes now live beside `FixCommand` in `FixCommandKernels`; clean artifact directory ordering
       now lives beside `CleanCommand` in `CleanArtifactDirectoryOrderer`; update all-NuGet and target-package
       dependency filtering now lives beside `UpdateCommand` in `UpdateDependencyFilter`; doc option summary,
-      symbol/member ordering, and slug generation now live beside `DocCommand` in `DocCommandKernels`; tree dependency and
+      symbol/member ordering, and slug generation now live beside `DocCommand` in `DocCommandKernels`; tree option
+      summary now lives beside `TreeCommand` in `TreeCommandKernels`, and tree dependency and
       target-framework deduplication now live beside `TreeCommand` in `TreeDependencyDeduplicator`;
       restore reference filtering and project-reference deduplication now live beside `RestoreCommand`
       in `RestoreCommandKernels`; stale generated-output directory de-duplication now lives beside

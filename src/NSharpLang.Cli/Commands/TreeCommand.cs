@@ -20,12 +20,13 @@ public static class TreeCommand
 
     public static int Execute(string[] args)
     {
-        if (args.Contains("--help") || args.Contains("-h") || (args.Length > 0 && args[0] == "help"))
+        var options = GetOptionSummary(args);
+        if (options.ShowHelp)
             return ShowHelp();
 
-        var projectRoot = GetProjectRoot(args);
-        var json = args.Contains("--json");
-        var maxDepth = GetIntOption(args, "--depth") ?? int.MaxValue;
+        var projectRoot = GetProjectRoot(options);
+        var json = options.Json;
+        var maxDepth = GetMaxDepth(args, options);
 
         if (!Directory.Exists(projectRoot))
             return Error($"Project directory not found: {projectRoot}", json, projectRoot);
@@ -302,15 +303,47 @@ public static class TreeCommand
         return $"{dependency.Name}{version} [{dependency.Kind}]";
     }
 
-    static string GetProjectRoot(string[] args)
+    internal static TreeOptionSummary GetOptionSummary(string[] args)
+        => TreeCommandKernels.TryGetOptionSummary(args, out var summary)
+            ? summary
+            : GetOptionSummaryWithCSharp(args);
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product tree option parsing routes through TreeCommandKernels.
+    private static TreeOptionSummary GetOptionSummaryWithCSharp(string[] args)
+        => new(
+            GetOptionWithCSharp(args, "--project"),
+            GetOptionWithCSharp(args, "--depth"),
+            ContainsArgWithCSharp(args, "--json"),
+            ContainsArgWithCSharp(args, "--help") || ContainsArgWithCSharp(args, "-h") || (args.Length > 0 && args[0] == "help"));
+
+    private static string GetProjectRoot(TreeOptionSummary options)
+        => Path.GetFullPath(options.ProjectOption ?? Directory.GetCurrentDirectory());
+
+    private static string? GetOptionWithCSharp(string[] args, string flag)
     {
         for (var i = 0; i < args.Length - 1; i++)
-            if (args[i] == "--project")
-                return Path.GetFullPath(args[i + 1]);
-        return Path.GetFullPath(Directory.GetCurrentDirectory());
+            if (args[i] == flag)
+                return args[i + 1];
+        return null;
     }
 
-    static int? GetIntOption(string[] args, string flag)
+    private static bool ContainsArgWithCSharp(string[] args, string value)
+    {
+        for (var i = 0; i < args.Length; i++)
+            if (args[i] == value)
+                return true;
+        return false;
+    }
+
+    private static int GetMaxDepth(string[] args, TreeOptionSummary options)
+    {
+        if (options.DepthOption != null && int.TryParse(options.DepthOption, out var value))
+            return value;
+
+        return GetIntOptionWithCSharp(args, "--depth") ?? int.MaxValue;
+    }
+
+    static int? GetIntOptionWithCSharp(string[] args, string flag)
     {
         for (var i = 0; i < args.Length - 1; i++)
             if (args[i] == flag && int.TryParse(args[i + 1], out var val))

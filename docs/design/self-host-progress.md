@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-19 — Tree option parsing routes through product N#
+
+`TreeCommand` now gets help detection, `--project`, `--depth`, and `--json` from
+`TreeCommandKernels`, which binds the shipped `CliTreeOptionSummaryInto` dogfood kernel beside the
+existing tree dependency and target-framework routes. The previous direct C# scans remain only as
+fallback/oracle logic, including the invalid-depth fallback that preserves the command's first
+parseable `--depth` behavior. This is a Stage 6 `C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`./scripts/dev.sh TreeCommandKernels`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.TreeCommandKernels_SummarizesOptions|FullyQualifiedName~CliCommandTests.TreeCommand_ProjectYmlOnly_EmitsStableJsonEnvelope|FullyQualifiedName~CliCommandTests.TreeCommand_JsonError_UsesGlobalErrorEnvelope|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-19 — New command argument parsing routes through product N#
 
 `Program.NewCommand` now gets help detection, `--template`/`--type`, positional template override,

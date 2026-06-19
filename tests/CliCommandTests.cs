@@ -166,6 +166,32 @@ func Main() {
     }
 
     [Fact]
+    public void TreeCommandKernels_SummarizesOptions()
+    {
+        var args = new[] { "--project", "samples/demo", "--depth", "2", "--json", "-h" };
+
+        Assert.True(TreeCommandKernels.TryGetOptionSummary(args, out var dogfoodSummary));
+        Assert.Equal("samples/demo", dogfoodSummary.ProjectOption);
+        Assert.Equal("2", dogfoodSummary.DepthOption);
+        Assert.True(dogfoodSummary.Json);
+        Assert.True(dogfoodSummary.ShowHelp);
+
+        var summary = TreeCommand.GetOptionSummary(args);
+        Assert.Equal("samples/demo", summary.ProjectOption);
+        Assert.Equal("2", summary.DepthOption);
+        Assert.True(summary.Json);
+        Assert.True(summary.ShowHelp);
+
+        var permissiveValue = TreeCommand.GetOptionSummary(new[] { "--project", "--json", "--depth", "--help" });
+        Assert.Equal("--json", permissiveValue.ProjectOption);
+        Assert.Equal("--help", permissiveValue.DepthOption);
+        Assert.True(permissiveValue.Json);
+        Assert.True(permissiveValue.ShowHelp);
+
+        Assert.True(TreeCommand.GetOptionSummary(new[] { "help" }).ShowHelp);
+    }
+
+    [Fact]
     public void TreeDependencyDeduplicator_DeduplicatesAndOrdersDependencies()
     {
         var emptyDependencies = Array.Empty<TreeCommand.TreeDependency>();
