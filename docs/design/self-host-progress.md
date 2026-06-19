@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-18 — Publish option-bearing parsing routes through product N#
+
+`PublishCommandKernels` now sends option-bearing `nlc publish` argv through the shipped
+`CliPublishOptionsInto` dogfood kernel instead of forcing every non-empty argument list to the C#
+parser. The C# parser remains as fallback/oracle logic for binding failure or invalid kernel output.
+This is a Stage 6 `C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`./scripts/dev.sh PublishCommandKernels`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.PublishCommandKernels_NormalizesOptionsAndValidation|FullyQualifiedName~CompilationBackendTests.PublishCommand_SelfContainedOutput_ReturnsHelpfulUnsupportedMessage|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-18 — Build operand summary becomes the product route
 
 `BuildCommandKernels` now binds `CliBuildOperandSummaryInto` from the shipped `CliArguments.nl`
@@ -2211,7 +2222,9 @@ tests/Tests.csproj --filter "FullyQualifiedName~CliCommandTests.BuildCommandKern
 through `PublishCommandKernels`, an owner-local helper beside the publish command path in `Program`.
 The broad CLI dogfood adapter no longer owns the publish entry point, delegate binding, or option
 index scratch array. Option-bearing publish invocations still use the C# parser fallback because
-their benchmark evidence remains below the production speed gate.
+their benchmark evidence remains below the production speed gate. Superseded on 2026-06-18 by the
+Stage 6 product route that sends option-bearing publish arguments through the same kernel with C#
+fallback/oracle logic.
 Focused evidence: `dotnet build src/NSharpLang.Cli/Cli.csproj --no-restore`; `dotnet test
 tests/Tests.csproj --filter "FullyQualifiedName~CliCommandTests.PublishCommandKernels_NormalizesDefaultOptionsAndFallbackValidation"`;
 `./scripts/dev.sh --since`.

@@ -1222,7 +1222,7 @@ func Main() {
     }
 
     [Fact]
-    public void PublishCommandKernels_NormalizesDefaultOptionsAndFallbackValidation()
+    public void PublishCommandKernels_NormalizesOptionsAndValidation()
     {
         Assert.True(PublishCommandKernels.TryGetArgumentSummary(
             Array.Empty<string>(),
@@ -1235,7 +1235,6 @@ func Main() {
         Assert.Null(defaultSummary.Runtime);
         Assert.False(defaultSummary.SelfContained);
         Assert.False(defaultSummary.Aot);
-        Assert.False(PublishCommandKernels.TryGetArgumentSummary(new[] { "-c", "Debug" }, out _));
 
         var args = new[]
         {
@@ -1250,6 +1249,16 @@ func Main() {
             "-o", "ignored-output",
             "-r", "ignored-runtime"
         };
+
+        Assert.True(PublishCommandKernels.TryGetArgumentSummary(args, out var dogfoodSummary));
+        Assert.Null(dogfoodSummary.ValidationError);
+        Assert.Equal("samples/demo", dogfoodSummary.ProjectOption);
+        Assert.Equal("il", dogfoodSummary.BackendOption);
+        Assert.Equal("Release", dogfoodSummary.Configuration);
+        Assert.Equal("dist", dogfoodSummary.Output);
+        Assert.Equal("osx-arm64", dogfoodSummary.Runtime);
+        Assert.True(dogfoodSummary.SelfContained);
+        Assert.True(dogfoodSummary.Aot);
 
         var summary = Program.GetPublishArgumentSummary(args);
         Assert.Null(summary.ValidationError);

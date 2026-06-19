@@ -1523,11 +1523,11 @@ about 358x faster on the representative argument corpus (4.988 ns vs 1,786.022 n
 `CliPublishOptionsInto` passed parity and reported zero managed allocation in the short
 BenchmarkDotNet evidence tier for the default no-argument `nlc publish` option summary. It ran
 about 12.0x faster than the previous C# parser shape (9.550 ns vs 114.938 ns, 0 B vs 936 B), which
-allocated validation sets before discovering there were no options. `PublishCommand` now routes only
-this no-argument path through `PublishCommandKernels`; option-bearing publish invocations remain on
-the exact C# fallback because the same benchmark measured only about 4.1x for a realistic 18-token
-publish command (53.578 ns vs 220.507 ns) and about 2.6x at 64 tokens (140.409 ns vs 368.786 ns),
-below the production speed gate.
+allocated validation sets before discovering there were no options. The same benchmark measured only
+about 4.1x for a realistic 18-token publish command (53.578 ns vs 220.507 ns) and about 2.6x at 64
+tokens (140.409 ns vs 368.786 ns), below the original production speed gate. Stage 6 now routes
+option-bearing publish invocations through `PublishCommandKernels` as a C# surface-shrink slice, with
+the exact C# parser retained as fallback/oracle logic.
 
 `CliExportCSharpFirstOperandIndexInto` passed parity and reported zero managed allocation in the
 short BenchmarkDotNet evidence tier for source-first `nlc export csharp` input operand discovery.
@@ -2166,11 +2166,11 @@ plus wildcard and bare substring symbol-name filtering in `nlc query symbols --f
 selection in `nlc clean`.
 `nlc doc` symbol filtering/order, symbol-page member ordering, and symbol-page slug generation are
 also routed through the compiled N# doc-ordering kernel.
-Path matching and option-bearing `nlc publish` argument normalization have parity and benchmark
-evidence but are not routed through production code-intelligence, query, daemon, or publish
-option-bearing paths because they currently miss the 5x speed gate. The former all-positionals,
-format-discovery, and `nlc test` option-summary pressure probes have since been routed as Stage 6
-`C#-surface-shrink` product paths with C# fallback/oracle logic.
+Path matching has parity and benchmark evidence but is not routed through production
+code-intelligence, query, or daemon paths because it currently misses the 5x speed gate. The former
+all-positionals, format-discovery, `nlc publish` option-bearing, and `nlc test` option-summary
+pressure probes have since been routed as Stage 6 `C#-surface-shrink` product paths with C#
+fallback/oracle logic.
 Broader query, hover, definition, diagnostic, completion candidate construction, semantic binding
 table construction, remaining semantic-scope name/symbol table materialization, AOT public
 annotation materialization, and CLI command logic still contain C# implementation code and remain in

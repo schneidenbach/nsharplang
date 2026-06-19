@@ -17,9 +17,6 @@ internal static class PublishCommandKernels
         if (bindings == null)
             return false;
 
-        if (args.Length != 0)
-            return false;
-
         var resultIndices = t_resultIndices ??= new int[8];
         try
         {

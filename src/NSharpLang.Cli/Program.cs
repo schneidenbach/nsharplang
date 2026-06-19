@@ -709,6 +709,7 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
         if (PublishCommandKernels.TryGetArgumentSummary(args, out var summary))
             return summary;
 
+        // Stage 6 C#-surface-shrink: fallback/oracle only; product publish option parsing routes through PublishCommandKernels.
         return new PublishArgumentSummary(
             ValidatePublishArguments(args),
             GetOptionValue(args, "--project"),
