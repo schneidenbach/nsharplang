@@ -2889,6 +2889,14 @@ func CliTidyOptionSummaryKind(arg: string): int {
     return 0
 }
 
+func CliTidyOutputMode(useJson: int): int {
+    if useJson != 0 {
+        return 1
+    }
+
+    return 2
+}
+
 func CliTidyImportNamespaceSpanInto(line: string, resultSpan: int[]): int {
     if resultSpan.Length < 3 {
         return -1

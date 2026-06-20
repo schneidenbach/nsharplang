@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-20 — Tidy output mode selection moves into product N#
+
+`TidyCommand` no longer branches directly on `options.Json` when choosing text vs JSON output or
+error envelope shape. The shipped `CliTidyOutputMode` dogfood kernel now selects the `nlc tidy`
+render path; C# keeps project discovery, dependency analysis orchestration, output emission, and
+fallback/oracle mode selection only.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.TidyCommandKernels_SummarizesOptions|FullyQualifiedName~CliParityAuditTests.TidyCommand_Text_ClassifiesDependencyUsage|FullyQualifiedName~CliParityAuditTests.TidyCommand_Json_ClassifiesDependencyUsage|FullyQualifiedName~CliParityAuditTests.TidyCommand_NoProjectYml_Fails|FullyQualifiedName~CliParityAuditTests.TidyCommand_JsonNoProjectYml_UsesErrorEnvelope|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-20 — Tree output mode selection moves into product N#
 
 `TreeCommand` no longer branches directly on `options.Json` when choosing text vs JSON output or error

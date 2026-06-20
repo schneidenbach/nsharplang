@@ -1105,6 +1105,31 @@ dependencies:
     }
 
     [Fact]
+    public void TidyCommand_JsonNoProjectYml_UsesErrorEnvelope()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                TidyCommand.Execute(new[] { "--project", tempDir, "--json" }));
+
+            Assert.Equal(1, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stderr));
+
+            using var doc = JsonDocument.Parse(stdout);
+            var root = doc.RootElement;
+            Assert.Equal(1, root.GetProperty("schemaVersion").GetInt32());
+            Assert.Equal("tidy", root.GetProperty("command").GetString());
+            Assert.False(root.GetProperty("ok").GetBoolean());
+            Assert.Contains("No project.yml", root.GetProperty("error").GetProperty("message").GetString());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void TidyCommand_Json_ClassifiesDependencyUsage()
     {
         var tempDir = CreateTempDir();
@@ -1148,6 +1173,44 @@ func Main() {
             Assert.Equal("used", dependencies["Newtonsoft.Json"]);
             Assert.Equal("possibly-unused", dependencies["Serilog.Sinks.Console"]);
             Assert.Equal("unknown", dependencies["Polly"]);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void TidyCommand_Text_ClassifiesDependencyUsage()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: TidyTextClassification
+entry: Program.nl
+outputType: exe
+targetFramework: net10.0
+
+dependencies:
+  - nuget: Serilog.Sinks.Console
+    version: 5.0.1
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+func Main() {
+    print "ok"
+}
+""");
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                TidyCommand.Execute(new[] { "--project", tempDir }));
+
+            Assert.Equal(0, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stderr));
+            Assert.Contains("Package", stdout);
+            Assert.Contains("Serilog.Sinks.Console", stdout);
+            Assert.Contains("possibly-unused", stdout);
+            Assert.DoesNotContain("\"command\"", stdout);
         }
         finally
         {

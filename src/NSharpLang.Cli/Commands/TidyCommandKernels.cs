@@ -10,6 +10,12 @@ internal readonly record struct TidyOptionSummary(
     bool Json,
     bool ShowHelp);
 
+internal enum TidyOutputModeKind
+{
+    Json = 1,
+    Text = 2
+}
+
 internal static class TidyCommandKernels
 {
     private const int PossiblyUnusedStatusRank = 1;
@@ -56,6 +62,30 @@ internal static class TidyCommandKernels
         catch
         {
             summary = default;
+            return false;
+        }
+    }
+
+    internal static bool TryGetOutputMode(bool json, out TidyOutputModeKind outputMode)
+    {
+        outputMode = default;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        try
+        {
+            var code = bindings.OutputMode(json ? 1 : 0);
+            if (code is < 1 or > 2)
+                return false;
+
+            outputMode = (TidyOutputModeKind)code;
+            return true;
+        }
+        catch
+        {
+            outputMode = default;
             return false;
         }
     }
@@ -383,6 +413,9 @@ internal static class TidyCommandKernels
             DogfoodKernelLoader.CreateDelegate<CliTidyOptionSummaryInto>(
                 programType,
                 "CliTidyOptionSummaryInto"),
+            DogfoodKernelLoader.CreateDelegate<CliTidyOutputMode>(
+                programType,
+                "CliTidyOutputMode"),
             DogfoodKernelLoader.CreateDelegate<CliTidyImportNamespaceSpanInto>(
                 programType,
                 "CliTidyImportNamespaceSpanInto")));
@@ -430,6 +463,8 @@ internal static class TidyCommandKernels
         string[] args,
         int[] resultIndices);
 
+    private delegate int CliTidyOutputMode(int json);
+
     private delegate int CliTidyImportNamespaceSpanInto(
         string line,
         int[] resultSpan);
@@ -440,6 +475,7 @@ internal static class TidyCommandKernels
         CliTidyDependencyStatusRanksInto DependencyStatusRanks,
         CliTidyRemovalLineKeepFlagsInto RemovalLineKeepFlags,
         CliTidyOptionSummaryInto OptionSummary,
+        CliTidyOutputMode OutputMode,
         CliTidyImportNamespaceSpanInto ImportNamespaceSpan);
 
     private static bool TryGetOptionalArg(string[] args, int index, out string? value)

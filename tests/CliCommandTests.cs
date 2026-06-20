@@ -3625,6 +3625,14 @@ dependencies:
         Assert.True(TidyCommand.GetOptionSummary(new[] { "help" }).ShowHelp);
         Assert.True(TidyCommand.GetOptionSummary(new[] { "ignored", "-h" }).ShowHelp);
 
+        Assert.True(TidyCommandKernels.TryGetOutputMode(json: false, out var textMode));
+        Assert.Equal(TidyOutputModeKind.Text, textMode);
+        Assert.Equal(TidyOutputModeKind.Text, TidyCommand.GetOutputMode(json: false));
+
+        Assert.True(TidyCommandKernels.TryGetOutputMode(json: true, out var jsonMode));
+        Assert.Equal(TidyOutputModeKind.Json, jsonMode);
+        Assert.Equal(TidyOutputModeKind.Json, TidyCommand.GetOutputMode(json: true));
+
         Assert.True(TidyCommandKernels.TryGetImportedNamespace(
             "  import  Newtonsoft.Json.Linq // trailing comment",
             out var importedNamespace));

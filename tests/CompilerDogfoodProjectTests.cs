@@ -7059,6 +7059,7 @@ func outer(x: int): int {
         Assert.Contains("CliRemoveShouldStopDependencyContinuationLine", methodNames!); // product remove dependency continuation pruning.
         Assert.Contains("CliUpdateArgumentSummaryInto", methodNames!); // product update argument parsing.
         Assert.Contains("CliTidyOptionSummaryInto", methodNames!); // product tidy option parsing.
+        Assert.Contains("CliTidyOutputMode", methodNames!); // product tidy output mode selection.
         Assert.Contains("CliTidyImportNamespaceSpanInto", methodNames!); // product tidy import extraction.
         Assert.Contains("CliDocOptionSummaryInto", methodNames!); // product doc option parsing.
         Assert.Contains("CliTreeOptionSummaryInto", methodNames!); // product tree option parsing.
@@ -15619,6 +15620,10 @@ class OtherZetaType {
                     "CliTidyOptionSummaryInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTidyOptionSummaryInto.");
+            var cliTidyOutputMode = programType.GetMethod(
+                    "CliTidyOutputMode",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTidyOutputMode.");
             var cliDocOptionSummaryInto = programType.GetMethod(
                     "CliDocOptionSummaryInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -16715,6 +16720,7 @@ func main(customer: Customer, résumé: Profile) {
             AssertCliLintOptionsLikeProduction(cliLintOptionSummaryInto);
             AssertCliLintEffectiveOutputModesLikeProduction(cliLintEffectiveOutputMode);
             AssertCliTidyOptionsLikeProduction(cliTidyOptionSummaryInto);
+            AssertCliJsonFlagOutputModesLikeProduction(cliTidyOutputMode);
             AssertCliDocOptionsLikeProduction(cliDocOptionSummaryInto);
             AssertCliTreeOptionsLikeProduction(cliTreeOptionSummaryInto, cliTreeMaxDepthInto);
             AssertCliLintFileArgsLikeProduction(

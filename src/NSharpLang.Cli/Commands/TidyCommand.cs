@@ -24,12 +24,12 @@ public static class TidyCommand
 
         var projectRoot = options.ProjectOption ?? Directory.GetCurrentDirectory();
         var fix = options.Fix;
-        var json = options.Json;
+        var outputMode = GetOutputMode(options.Json);
 
         var projectYml = Path.Combine(projectRoot, "project.yml");
         if (!File.Exists(projectYml))
         {
-            if (json)
+            if (outputMode == TidyOutputModeKind.Json)
             {
                 WriteJson(new
                 {
@@ -53,7 +53,7 @@ public static class TidyCommand
         }
         catch (Exception ex)
         {
-            if (json)
+            if (outputMode == TidyOutputModeKind.Json)
             {
                 WriteJson(new
                 {
@@ -78,7 +78,7 @@ public static class TidyCommand
         var summary = SummarizeDependencies(results);
         var ok = summary.PossiblyUnusedCount == 0;
 
-        if (json)
+        if (outputMode == TidyOutputModeKind.Json)
         {
             WriteJson(new
             {
@@ -111,12 +111,12 @@ public static class TidyCommand
                 : results.Where(r => r.Status == "possibly-unused").ToList();
             if (toRemove.Count == 0)
             {
-                if (!json) Console.WriteLine("Nothing to remove.");
+                if (outputMode == TidyOutputModeKind.Text) Console.WriteLine("Nothing to remove.");
             }
             else
             {
                 RemoveDependencies(projectYml, toRemove.Select(r => r.Name).ToList());
-                if (!json)
+                if (outputMode == TidyOutputModeKind.Text)
                     Console.WriteLine($"Removed {toRemove.Count} possibly-unused {(toRemove.Count == 1 ? "dependency" : "dependencies")}.");
             }
         }
@@ -388,6 +388,11 @@ public static class TidyCommand
             ? summary
             : GetOptionSummaryWithCSharp(args);
 
+    internal static TidyOutputModeKind GetOutputMode(bool json)
+        => TidyCommandKernels.TryGetOutputMode(json, out var outputMode)
+            ? outputMode
+            : GetOutputModeWithCSharp(json);
+
     internal static string? GetImportedNamespace(string line)
         => TidyCommandKernels.TryGetImportedNamespace(line, out var importedNamespace)
             ? importedNamespace
@@ -415,6 +420,10 @@ public static class TidyCommand
             ContainsArgWithCSharp(args, "--fix"),
             ContainsArgWithCSharp(args, "--json"),
             ContainsArgWithCSharp(args, "--help") || ContainsArgWithCSharp(args, "-h") || (args.Length > 0 && args[0] == "help"));
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product tidy output mode selection routes through TidyCommandKernels.
+    private static TidyOutputModeKind GetOutputModeWithCSharp(bool json)
+        => json ? TidyOutputModeKind.Json : TidyOutputModeKind.Text;
 
     private static string? GetOptionValueWithCSharp(string[] args, string flag)
     {
