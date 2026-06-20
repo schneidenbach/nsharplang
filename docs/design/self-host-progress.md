@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-20 — Daemon command messages move into product N#
+
+`DaemonCommand` no longer owns help text, lifecycle status strings, or daemon status fallback text in C#.
+The shipped `CliDaemon*` dogfood kernels now shape those user-facing strings through `DaemonCommandKernels`;
+C# keeps daemon client/server process control, current-directory selection, and fallback/oracle text only.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.DaemonCommandKernels_SummarizesOptions|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-20 — Completion command messages move into product N#
 
 `CompletionCommand` no longer owns help text or invalid-shell diagnostic text in C#. The shipped

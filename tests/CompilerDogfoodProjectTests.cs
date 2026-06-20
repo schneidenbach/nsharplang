@@ -7043,6 +7043,15 @@ func outer(x: int): int {
         Assert.Contains("CliCompletionHelpText", methodNames!); // product completion help text shaping.
         Assert.Contains("CliCompletionUnknownShellMessage", methodNames!); // product completion error message shaping.
         Assert.Contains("CliDaemonOptionSummaryInto", methodNames!); // product daemon option parsing.
+        Assert.Contains("CliDaemonHelpText", methodNames!); // product daemon help text shaping.
+        Assert.Contains("CliDaemonAlreadyRunningMessage", methodNames!); // product daemon already-running message shaping.
+        Assert.Contains("CliDaemonStartingMessage", methodNames!); // product daemon start-progress message shaping.
+        Assert.Contains("CliDaemonStartedMessage", methodNames!); // product daemon started message shaping.
+        Assert.Contains("CliDaemonStartFailedMessage", methodNames!); // product daemon start-failed message shaping.
+        Assert.Contains("CliDaemonNoDaemonRunningMessage", methodNames!); // product daemon no-running-daemon message shaping.
+        Assert.Contains("CliDaemonStoppedMessage", methodNames!); // product daemon stopped message shaping.
+        Assert.Contains("CliDaemonStopFailedMessage", methodNames!); // product daemon stop-failed message shaping.
+        Assert.Contains("CliDaemonStatusNotRespondingMessage", methodNames!); // product daemon status message shaping.
         Assert.Contains("CliWatchTargetSummaryInto", methodNames!); // product watch target parsing.
         Assert.Contains("CliWatchForwardedArgIndicesInto", methodNames!); // product watch forwarding.
         Assert.Contains("CliWatchShouldTriggerForChangedPath", methodNames!); // product watch change filtering.
@@ -15837,6 +15846,42 @@ class OtherZetaType {
                     "CliDaemonOptionSummaryInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDaemonOptionSummaryInto.");
+            var cliDaemonHelpText = programType.GetMethod(
+                    "CliDaemonHelpText",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDaemonHelpText.");
+            var cliDaemonAlreadyRunningMessage = programType.GetMethod(
+                    "CliDaemonAlreadyRunningMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDaemonAlreadyRunningMessage.");
+            var cliDaemonStartingMessage = programType.GetMethod(
+                    "CliDaemonStartingMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDaemonStartingMessage.");
+            var cliDaemonStartedMessage = programType.GetMethod(
+                    "CliDaemonStartedMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDaemonStartedMessage.");
+            var cliDaemonStartFailedMessage = programType.GetMethod(
+                    "CliDaemonStartFailedMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDaemonStartFailedMessage.");
+            var cliDaemonNoDaemonRunningMessage = programType.GetMethod(
+                    "CliDaemonNoDaemonRunningMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDaemonNoDaemonRunningMessage.");
+            var cliDaemonStoppedMessage = programType.GetMethod(
+                    "CliDaemonStoppedMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDaemonStoppedMessage.");
+            var cliDaemonStopFailedMessage = programType.GetMethod(
+                    "CliDaemonStopFailedMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDaemonStopFailedMessage.");
+            var cliDaemonStatusNotRespondingMessage = programType.GetMethod(
+                    "CliDaemonStatusNotRespondingMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDaemonStatusNotRespondingMessage.");
             var cliWatchForwardedArgIndicesInto = programType.GetMethod(
                     "CliWatchForwardedArgIndicesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -17215,6 +17260,16 @@ func main(customer: Customer, résumé: Profile) {
             AssertCliCompletionOptionsLikeProduction(cliCompletionOptionSummaryInto);
             AssertCliCompletionMessagesLikeProduction(cliCompletionHelpText, cliCompletionUnknownShellMessage);
             AssertCliDaemonOptionsLikeProduction(cliDaemonOptionSummaryInto);
+            AssertCliDaemonMessagesLikeProduction(
+                cliDaemonHelpText,
+                cliDaemonAlreadyRunningMessage,
+                cliDaemonStartingMessage,
+                cliDaemonStartedMessage,
+                cliDaemonStartFailedMessage,
+                cliDaemonNoDaemonRunningMessage,
+                cliDaemonStoppedMessage,
+                cliDaemonStopFailedMessage,
+                cliDaemonStatusNotRespondingMessage);
             AssertCliWatchForwardedArgsLikeProduction(
                 cliWatchForwardedArgIndicesInto,
                 cliWatchForwardedArgChecksumInto);
@@ -21348,6 +21403,47 @@ func main() {
             (int)(cliDaemonOptionSummaryInto.Invoke(
                 null,
                 new object[] { new[] { "start" }, new int[2] }) ?? 0));
+    }
+
+    private static void AssertCliDaemonMessagesLikeProduction(
+        MethodInfo cliDaemonHelpText,
+        MethodInfo cliDaemonAlreadyRunningMessage,
+        MethodInfo cliDaemonStartingMessage,
+        MethodInfo cliDaemonStartedMessage,
+        MethodInfo cliDaemonStartFailedMessage,
+        MethodInfo cliDaemonNoDaemonRunningMessage,
+        MethodInfo cliDaemonStoppedMessage,
+        MethodInfo cliDaemonStopFailedMessage,
+        MethodInfo cliDaemonStatusNotRespondingMessage)
+    {
+        var help = (string)(cliDaemonHelpText.Invoke(null, Array.Empty<object>()) ?? "<null>");
+        Assert.Contains("N# Analysis Daemon", help);
+        Assert.Contains("Usage: nlc daemon <command> [options]", help);
+        Assert.Contains("Command failed", help);
+        Assert.Equal(
+            "Daemon is already running.",
+            (string)(cliDaemonAlreadyRunningMessage.Invoke(null, Array.Empty<object>()) ?? "<null>"));
+        Assert.Equal(
+            "Starting daemon for samples/demo...",
+            (string)(cliDaemonStartingMessage.Invoke(null, new object[] { "samples/demo" }) ?? "<null>"));
+        Assert.Equal(
+            "Daemon started.",
+            (string)(cliDaemonStartedMessage.Invoke(null, Array.Empty<object>()) ?? "<null>"));
+        Assert.Equal(
+            "Failed to start daemon.",
+            (string)(cliDaemonStartFailedMessage.Invoke(null, Array.Empty<object>()) ?? "<null>"));
+        Assert.Equal(
+            "No daemon running.",
+            (string)(cliDaemonNoDaemonRunningMessage.Invoke(null, Array.Empty<object>()) ?? "<null>"));
+        Assert.Equal(
+            "Daemon stopped.",
+            (string)(cliDaemonStoppedMessage.Invoke(null, Array.Empty<object>()) ?? "<null>"));
+        Assert.Equal(
+            "Failed to stop daemon.",
+            (string)(cliDaemonStopFailedMessage.Invoke(null, Array.Empty<object>()) ?? "<null>"));
+        Assert.Equal(
+            "Daemon is running but not responding to status queries.",
+            (string)(cliDaemonStatusNotRespondingMessage.Invoke(null, Array.Empty<object>()) ?? "<null>"));
     }
 
     private static int[] CreateExpectedCliDaemonOptions(string[] args)

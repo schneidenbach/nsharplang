@@ -550,6 +550,26 @@ func Main() {
         Assert.False(unknown.ShowHelp);
 
         Assert.True(DaemonCommand.GetOptionSummary(Array.Empty<string>()).ShowHelp);
+
+        var helpText = DaemonCommandKernels.GetHelpText();
+        Assert.Contains("N# Analysis Daemon", helpText);
+        Assert.Contains("Usage: nlc daemon <command> [options]", helpText);
+        Assert.Contains("Command failed", helpText);
+        Assert.Equal("Daemon is already running.", DaemonCommandKernels.GetAlreadyRunningMessage());
+        Assert.Equal("Starting daemon for samples/demo...", DaemonCommandKernels.GetStartingMessage("samples/demo"));
+        Assert.Equal("Daemon started.", DaemonCommandKernels.GetStartedMessage());
+        Assert.Equal("Failed to start daemon.", DaemonCommandKernels.GetStartFailedMessage());
+        Assert.Equal("No daemon running.", DaemonCommandKernels.GetNoDaemonRunningMessage());
+        Assert.Equal("Daemon stopped.", DaemonCommandKernels.GetStoppedMessage());
+        Assert.Equal("Failed to stop daemon.", DaemonCommandKernels.GetStopFailedMessage());
+        Assert.Equal(
+            "Daemon is running but not responding to status queries.",
+            DaemonCommandKernels.GetStatusNotRespondingMessage());
+
+        var (helpExitCode, helpStdout, helpStderr) = CaptureConsole(() => DaemonCommand.Execute(new[] { "--help" }));
+        Assert.Equal(0, helpExitCode);
+        Assert.True(string.IsNullOrWhiteSpace(helpStderr));
+        Assert.Contains("Usage: nlc daemon <command> [options]", helpStdout);
     }
 
     [Fact]

@@ -30,18 +30,18 @@ public static class DaemonCommand
     {
         if (DaemonClient.IsRunning(projectDir))
         {
-            Console.WriteLine("Daemon is already running.");
+            Console.WriteLine(DaemonCommandKernels.GetAlreadyRunningMessage());
             return 0;
         }
 
-        Console.WriteLine($"Starting daemon for {projectDir}...");
+        Console.WriteLine(DaemonCommandKernels.GetStartingMessage(projectDir));
         if (DaemonClient.StartDaemon(projectDir))
         {
-            Console.WriteLine("Daemon started.");
+            Console.WriteLine(DaemonCommandKernels.GetStartedMessage());
             return 0;
         }
 
-        Console.Error.WriteLine("Failed to start daemon.");
+        Console.Error.WriteLine(DaemonCommandKernels.GetStartFailedMessage());
         return 1;
     }
 
@@ -49,17 +49,17 @@ public static class DaemonCommand
     {
         if (!DaemonClient.IsRunning(projectDir))
         {
-            Console.WriteLine("No daemon running.");
+            Console.WriteLine(DaemonCommandKernels.GetNoDaemonRunningMessage());
             return 0;
         }
 
         if (DaemonClient.StopDaemon(projectDir))
         {
-            Console.WriteLine("Daemon stopped.");
+            Console.WriteLine(DaemonCommandKernels.GetStoppedMessage());
             return 0;
         }
 
-        Console.Error.WriteLine("Failed to stop daemon.");
+        Console.Error.WriteLine(DaemonCommandKernels.GetStopFailedMessage());
         return 1;
     }
 
@@ -67,7 +67,7 @@ public static class DaemonCommand
     {
         if (!DaemonClient.IsRunning(projectDir))
         {
-            Console.WriteLine("No daemon running.");
+            Console.WriteLine(DaemonCommandKernels.GetNoDaemonRunningMessage());
             return 0;
         }
 
@@ -78,7 +78,7 @@ public static class DaemonCommand
         }
         else
         {
-            Console.WriteLine("Daemon is running but not responding to status queries.");
+            Console.WriteLine(DaemonCommandKernels.GetStatusNotRespondingMessage());
         }
         return 0;
     }
@@ -143,31 +143,7 @@ public static class DaemonCommand
 
     private static int ShowDaemonHelp()
     {
-        Console.WriteLine(@"N# Analysis Daemon
-
-Usage: nlc daemon <command> [options]
-
-Commands:
-  start     Start the daemon for the current project
-  stop      Stop the running daemon
-  status    Show daemon status (PID, uptime, cached files)
-
-Options:
-  --project <dir>   Project root directory (default: current directory)
-
-The daemon caches project analysis and can serve JSON `nlc query` requests
-via Unix domain socket for faster repeated response times.
-
-- `nlc query` reuses the daemon only when one is already running
-- Auto-exits after 30 minutes of inactivity
-- Watches .nl, project.yml, and .editorconfig for changes and invalidates cache
-- Socket: {projectRoot}/.nlc/daemon.sock
-
-Exit codes:
-  0  Command succeeded
-  1  Command failed (e.g., daemon failed to start or stop)");
-
-
+        Console.WriteLine(DaemonCommandKernels.GetHelpText());
         return 0;
     }
 }

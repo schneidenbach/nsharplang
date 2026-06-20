@@ -389,6 +389,64 @@ func CliDaemonOptionSummaryCore(args: &CliArgumentTable, resultIndices: &CliInde
     return 0
 }
 
+func CliDaemonHelpText(): string {
+    return "N# Analysis Daemon\n"
+        + "\n"
+        + "Usage: nlc daemon <command> [options]\n"
+        + "\n"
+        + "Commands:\n"
+        + "  start     Start the daemon for the current project\n"
+        + "  stop      Stop the running daemon\n"
+        + "  status    Show daemon status (PID, uptime, cached files)\n"
+        + "\n"
+        + "Options:\n"
+        + "  --project <dir>   Project root directory (default: current directory)\n"
+        + "\n"
+        + "The daemon caches project analysis and can serve JSON `nlc query` requests\n"
+        + "via Unix domain socket for faster repeated response times.\n"
+        + "\n"
+        + "- `nlc query` reuses the daemon only when one is already running\n"
+        + "- Auto-exits after 30 minutes of inactivity\n"
+        + "- Watches .nl, project.yml, and .editorconfig for changes and invalidates cache\n"
+        + "- Socket: {projectRoot}/.nlc/daemon.sock\n"
+        + "\n"
+        + "Exit codes:\n"
+        + "  0  Command succeeded\n"
+        + "  1  Command failed (e.g., daemon failed to start or stop)"
+}
+
+func CliDaemonAlreadyRunningMessage(): string {
+    return "Daemon is already running."
+}
+
+func CliDaemonStartingMessage(projectDir: string): string {
+    return "Starting daemon for " + projectDir + "..."
+}
+
+func CliDaemonStartedMessage(): string {
+    return "Daemon started."
+}
+
+func CliDaemonStartFailedMessage(): string {
+    return "Failed to start daemon."
+}
+
+func CliDaemonNoDaemonRunningMessage(): string {
+    return "No daemon running."
+}
+
+func CliDaemonStoppedMessage(): string {
+    return "Daemon stopped."
+}
+
+func CliDaemonStopFailedMessage(): string {
+    return "Failed to stop daemon."
+}
+
+func CliDaemonStatusNotRespondingMessage(): string {
+    return "Daemon is running but not responding to status queries."
+}
+
 func CliCompletionOptionSummaryCore(args: &CliArgumentTable, resultIndices: &CliIndexResultTable): int {
     if resultIndices.Indices.Length < 2 {
         return -1
