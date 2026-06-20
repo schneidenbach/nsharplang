@@ -1580,6 +1580,15 @@ func Main() {
         Assert.Equal("webapi", typeAlias.TemplateOption);
         Assert.Equal("MyApi", typeAlias.FirstPositional);
 
+        Assert.True(NewCommandKernels.TryNormalizeTemplate(" LIB ", out var libraryAlias));
+        Assert.Equal(NewProjectTemplateKind.Library, libraryAlias);
+        Assert.True(NewCommandKernels.TryNormalizeTemplate("web-api", out var webApiAlias));
+        Assert.Equal(NewProjectTemplateKind.WebApi, webApiAlias);
+        Assert.True(NewCommandKernels.TryNormalizeTemplate("systems", out var systemsAlias));
+        Assert.Equal(NewProjectTemplateKind.SystemsCli, systemsAlias);
+        Assert.True(NewCommandKernels.TryNormalizeTemplate("unknown", out var unknownAlias));
+        Assert.Equal(NewProjectTemplateKind.Unknown, unknownAlias);
+
         Assert.True(Program.GetNewArgumentSummary(new[] { "help" }).ShowHelp);
     }
 

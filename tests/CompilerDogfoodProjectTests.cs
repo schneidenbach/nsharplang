@@ -7038,6 +7038,7 @@ func outer(x: int): int {
         Assert.Contains("CliCheckArgumentSummaryInto", methodNames!); // product check argument parsing.
         Assert.Contains("CliFixArgumentSummaryInto", methodNames!); // product fix argument parsing.
         Assert.Contains("CliNewArgumentSummaryInto", methodNames!); // product new argument parsing.
+        Assert.Contains("CliNewTemplateKind", methodNames!); // product new template normalization.
         Assert.Contains("CliAddArgumentSummaryInto", methodNames!); // product add argument parsing.
         Assert.Contains("CliRemoveArgumentSummaryInto", methodNames!); // product remove argument parsing.
         Assert.Contains("CliUpdateArgumentSummaryInto", methodNames!); // product update argument parsing.
@@ -7133,6 +7134,10 @@ func outer(x: int): int {
             ("CliWatchPositiveIntInto", new object[] { "2147483648", new int[1] }),
             ("CliWatchPositiveIntInto", new object[] { "7", new int[0] }),
             ("CliWatchForwardedArgChecksumInto", new object[] { new[] { "test", "--project", "demo", "--filter", "Adds", "--debounce-ms", "25", "--json", "--max-runs", "2", "--coverage" }, new int[11] }),
+            ("CliNewTemplateKind", new object[] { " LIB " }),
+            ("CliNewTemplateKind", new object[] { "web-api" }),
+            ("CliNewTemplateKind", new object[] { "systems" }),
+            ("CliNewTemplateKind", new object[] { "unknown" }),
             ("CliPositionalArgChecksumInto", new object[] { new[] { "--template", "library", "systems-cli", "PacketTool", "--systems", "--diff", "src/App.nl" }, new[] { "--template", "--type" }, new int[7] }));
     }
 

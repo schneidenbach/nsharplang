@@ -9,6 +9,17 @@ internal readonly record struct NewArgumentSummary(
     bool Systems,
     bool ShowHelp);
 
+internal enum NewProjectTemplateKind
+{
+    Unknown = 0,
+    Console = 1,
+    Library = 2,
+    Test = 3,
+    WebApi = 4,
+    SystemsCli = 5,
+    SystemsLib = 6
+}
+
 internal static class NewCommandKernels
 {
     [ThreadStatic]
@@ -84,6 +95,30 @@ internal static class NewCommandKernels
         }
     }
 
+    internal static bool TryNormalizeTemplate(string value, out NewProjectTemplateKind templateKind)
+    {
+        templateKind = NewProjectTemplateKind.Unknown;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        try
+        {
+            var result = bindings.NewTemplateKind(value);
+            if (result is < 0 or > 6)
+                return false;
+
+            templateKind = (NewProjectTemplateKind)result;
+            return true;
+        }
+        catch
+        {
+            templateKind = NewProjectTemplateKind.Unknown;
+            return false;
+        }
+    }
+
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
             DogfoodKernelLoader.CreateDelegate<CliFirstPositionalArgIndex>(
@@ -91,7 +126,10 @@ internal static class NewCommandKernels
                 "CliFirstPositionalArgIndex"),
             DogfoodKernelLoader.CreateDelegate<CliNewArgumentSummaryInto>(
                 programType,
-                "CliNewArgumentSummaryInto")));
+                "CliNewArgumentSummaryInto"),
+            DogfoodKernelLoader.CreateDelegate<CliNewTemplateKind>(
+                programType,
+                "CliNewTemplateKind")));
 
     private delegate int CliFirstPositionalArgIndex(
         string[] args,
@@ -101,9 +139,13 @@ internal static class NewCommandKernels
         string[] args,
         int[] resultIndices);
 
+    private delegate int CliNewTemplateKind(
+        string value);
+
     private sealed record Bindings(
         CliFirstPositionalArgIndex FirstPositionalArgIndex,
-        CliNewArgumentSummaryInto NewArgumentSummary);
+        CliNewArgumentSummaryInto NewArgumentSummary,
+        CliNewTemplateKind NewTemplateKind);
 
     private static bool TryGetOptionalArg(string[] args, int index, out string? value)
     {

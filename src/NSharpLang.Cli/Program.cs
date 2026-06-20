@@ -938,17 +938,39 @@ Exit codes:
 
     static string? NormalizeProjectTemplate(string value)
     {
+        var templateKind = NewCommandKernels.TryNormalizeTemplate(value, out var dogfoodTemplateKind)
+            ? dogfoodTemplateKind
+            : NormalizeProjectTemplateWithCSharp(value);
+
+        return GetProjectTemplateName(templateKind);
+    }
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product new-template normalization routes through NewCommandKernels.
+    static NewProjectTemplateKind NormalizeProjectTemplateWithCSharp(string value)
+    {
         return value.Trim().ToLowerInvariant() switch
         {
-            "console" or "exe" or "app" => "console",
-            "library" or "lib" => "library",
-            "test" or "tests" => "test",
-            "webapi" or "web-api" or "web" => "webapi",
-            "systems-cli" or "systems-console" or "systems" => "systems-cli",
-            "systems-lib" or "systems-library" => "systems-lib",
-            _ => null,
+            "console" or "exe" or "app" => NewProjectTemplateKind.Console,
+            "library" or "lib" => NewProjectTemplateKind.Library,
+            "test" or "tests" => NewProjectTemplateKind.Test,
+            "webapi" or "web-api" or "web" => NewProjectTemplateKind.WebApi,
+            "systems-cli" or "systems-console" or "systems" => NewProjectTemplateKind.SystemsCli,
+            "systems-lib" or "systems-library" => NewProjectTemplateKind.SystemsLib,
+            _ => NewProjectTemplateKind.Unknown,
         };
     }
+
+    static string? GetProjectTemplateName(NewProjectTemplateKind templateKind)
+        => templateKind switch
+        {
+            NewProjectTemplateKind.Console => "console",
+            NewProjectTemplateKind.Library => "library",
+            NewProjectTemplateKind.Test => "test",
+            NewProjectTemplateKind.WebApi => "webapi",
+            NewProjectTemplateKind.SystemsCli => "systems-cli",
+            NewProjectTemplateKind.SystemsLib => "systems-lib",
+            _ => null,
+        };
 
     static void WriteCanonicalProject(string projectDir, string projectName, string template)
     {

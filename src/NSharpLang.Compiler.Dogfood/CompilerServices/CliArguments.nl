@@ -1126,6 +1126,45 @@ func CliNewArgumentSummaryInto(args: string[], resultIndices: int[]): int {
     return CliNewArgumentSummaryCore(ref arguments, ref results)
 }
 
+func CliNewTemplateKind(value: string): int {
+    normalized := value.Trim()
+
+    if String.Compare(normalized, "console", StringComparison.OrdinalIgnoreCase) == 0
+        || String.Compare(normalized, "exe", StringComparison.OrdinalIgnoreCase) == 0
+        || String.Compare(normalized, "app", StringComparison.OrdinalIgnoreCase) == 0 {
+        return 1
+    }
+
+    if String.Compare(normalized, "library", StringComparison.OrdinalIgnoreCase) == 0
+        || String.Compare(normalized, "lib", StringComparison.OrdinalIgnoreCase) == 0 {
+        return 2
+    }
+
+    if String.Compare(normalized, "test", StringComparison.OrdinalIgnoreCase) == 0
+        || String.Compare(normalized, "tests", StringComparison.OrdinalIgnoreCase) == 0 {
+        return 3
+    }
+
+    if String.Compare(normalized, "webapi", StringComparison.OrdinalIgnoreCase) == 0
+        || String.Compare(normalized, "web-api", StringComparison.OrdinalIgnoreCase) == 0
+        || String.Compare(normalized, "web", StringComparison.OrdinalIgnoreCase) == 0 {
+        return 4
+    }
+
+    if String.Compare(normalized, "systems-cli", StringComparison.OrdinalIgnoreCase) == 0
+        || String.Compare(normalized, "systems-console", StringComparison.OrdinalIgnoreCase) == 0
+        || String.Compare(normalized, "systems", StringComparison.OrdinalIgnoreCase) == 0 {
+        return 5
+    }
+
+    if String.Compare(normalized, "systems-lib", StringComparison.OrdinalIgnoreCase) == 0
+        || String.Compare(normalized, "systems-library", StringComparison.OrdinalIgnoreCase) == 0 {
+        return 6
+    }
+
+    return 0
+}
+
 func CliNewArgumentSummaryCore(args: &CliArgumentTable, resultIndices: &CliIndexResultTable): int {
     if resultIndices.Indices.Length < 5 {
         return -1

@@ -792,6 +792,46 @@ func Main() {
     }
 
     [Fact]
+    public void NewCommand_NormalizesTemplateAliases()
+    {
+        var parentDir = CreateTempDir();
+        var originalDirectory = Directory.GetCurrentDirectory();
+
+        try
+        {
+            Directory.SetCurrentDirectory(parentDir);
+
+            var (libraryExitCode, libraryStdout, libraryStderr) = CaptureConsole(() =>
+                ExecuteProgram("new", "lib", "DemoLibAlias"));
+            Assert.Equal(0, libraryExitCode);
+            Assert.True(string.IsNullOrWhiteSpace(libraryStderr));
+            AssertCanonicalProjectShape(
+                Path.Combine(parentDir, "DemoLibAlias"),
+                "DemoLibAlias",
+                hasProgram: false,
+                hasTests: false,
+                hasWebController: false);
+            Assert.Contains("library", libraryStdout);
+
+            var (webExitCode, _, webStderr) = CaptureConsole(() =>
+                ExecuteProgram("new", "DemoWebAlias", "--template", "web-api"));
+            Assert.Equal(0, webExitCode);
+            Assert.True(string.IsNullOrWhiteSpace(webStderr));
+            AssertCanonicalProjectShape(
+                Path.Combine(parentDir, "DemoWebAlias"),
+                "DemoWebAlias",
+                hasProgram: true,
+                hasTests: false,
+                hasWebController: true);
+        }
+        finally
+        {
+            Directory.SetCurrentDirectory(originalDirectory);
+            Directory.Delete(parentDir, true);
+        }
+    }
+
+    [Fact]
     public void NewCommand_Help_StatesCsprojFreePolicyAndTemplates()
     {
         var (exitCode, stdout, stderr) = CaptureConsole(() => ExecuteProgram("new", "--help"));

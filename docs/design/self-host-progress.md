@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-20 — New template normalization moves into product N#
+
+`Program.NewCommand` no longer owns template alias normalization for `console`/`lib`/`web-api`/`systems` and the
+other accepted `nlc new` spellings. The shipped `CliNewTemplateKind` dogfood kernel now classifies requested
+templates through `NewCommandKernels`; C# keeps directory/file creation and a fallback/oracle switch only.
+
+Focused evidence:
+`./scripts/dev.sh NewCommandKernels`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliParityAuditTests.NewCommand_NormalizesTemplateAliases"`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-20 — Stale generated-source base paths move into product N#
 
 `Program.CleanStaleGeneratedFiles` no longer owns the `.nl` versus `.tests.nl` source base-name rule used to decide
