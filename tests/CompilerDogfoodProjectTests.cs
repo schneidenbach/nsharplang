@@ -7038,6 +7038,7 @@ func outer(x: int): int {
         Assert.Contains("CliRunOptionSummaryInto", methodNames!); // product run option parsing.
         Assert.Contains("CliDefineExtractionInto", methodNames!); // product build/run define extraction.
         Assert.Contains("CliPositionalArgIndicesInto", methodNames!); // product positional collection.
+        Assert.Contains("CliPackEffectiveVersionSource", methodNames!); // product pack version source selection.
         Assert.Contains("CliLintOptionSummaryInto", methodNames!); // product lint option parsing.
         Assert.Contains("CliLintEffectiveOutputMode", methodNames!); // product lint output mode selection.
         Assert.Contains("CliCheckArgumentSummaryInto", methodNames!); // product check argument parsing.
@@ -15553,6 +15554,10 @@ class OtherZetaType {
                     "CliPackOptionSummaryInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliPackOptionSummaryInto.");
+            var cliPackEffectiveVersionSource = programType.GetMethod(
+                    "CliPackEffectiveVersionSource",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliPackEffectiveVersionSource.");
             var cliFirstPositionalArgIndex = programType.GetMethod(
                     "CliFirstPositionalArgIndex",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -16636,6 +16641,7 @@ func main(customer: Customer, résumé: Profile) {
             AssertCliWatchPositiveIntsLikeProduction(cliWatchPositiveIntInto);
             AssertCliPublishOptionsLikeProduction(cliPublishOptionsInto);
             AssertCliPackOptionsLikeProduction(cliPackOptionSummaryInto);
+            AssertCliPackEffectiveVersionSourcesLikeProduction(cliPackEffectiveVersionSource);
             AssertCliPositionalArgsLikeProduction(
                 cliPositionalArgIndicesInto,
                 cliFirstPositionalArgIndex,
@@ -20864,6 +20870,28 @@ func main() {
             (int)(cliPackOptionSummaryInto.Invoke(
                 null,
                 new object[] { new[] { "--json" }, new int[6] }) ?? 0));
+    }
+
+    private static void AssertCliPackEffectiveVersionSourcesLikeProduction(MethodInfo cliPackEffectiveVersionSource)
+    {
+        var cases = new[]
+        {
+            (HasVersionOverride: 0, VersionOverride: "", ProjectVersion: "", Expected: 0),
+            (HasVersionOverride: 0, VersionOverride: "ignored", ProjectVersion: "1.0.0", Expected: 2),
+            (HasVersionOverride: 1, VersionOverride: "2.0.0", ProjectVersion: "1.0.0", Expected: 1),
+            (HasVersionOverride: 1, VersionOverride: " ", ProjectVersion: "1.0.0", Expected: 0),
+            (HasVersionOverride: 0, VersionOverride: "ignored", ProjectVersion: " ", Expected: 0),
+            (HasVersionOverride: 0, VersionOverride: "ignored", ProjectVersion: " 1.2.0 ", Expected: 2)
+        };
+
+        foreach (var (hasVersionOverride, versionOverride, projectVersion, expected) in cases)
+        {
+            var actual = (int)(cliPackEffectiveVersionSource.Invoke(
+                null,
+                new object[] { hasVersionOverride, versionOverride, projectVersion }) ?? -99);
+
+            Assert.Equal(expected, actual);
+        }
     }
 
     private static int[] CreateExpectedCliPackOptions(string[] args)

@@ -2682,6 +2682,30 @@ func Main() {
     }
 
     [Fact]
+    public void PackCommandKernels_SelectsEffectiveVersionSource()
+    {
+        Assert.True(PackCommandKernels.TryGetEffectiveVersionSource(null, null, out var missing));
+        Assert.Equal(PackVersionSourceKind.Missing, missing);
+
+        Assert.True(PackCommandKernels.TryGetEffectiveVersionSource("2.0.0", "1.0.0", out var fromOverride));
+        Assert.Equal(PackVersionSourceKind.Override, fromOverride);
+
+        Assert.True(PackCommandKernels.TryGetEffectiveVersionSource(" ", "1.0.0", out var blankOverride));
+        Assert.Equal(PackVersionSourceKind.Missing, blankOverride);
+
+        Assert.True(PackCommandKernels.TryGetEffectiveVersionSource(null, "1.0.0", out var fromProject));
+        Assert.Equal(PackVersionSourceKind.Project, fromProject);
+
+        Assert.True(PackCommandKernels.TryGetEffectiveVersionSource(null, " ", out var blankProject));
+        Assert.Equal(PackVersionSourceKind.Missing, blankProject);
+
+        Assert.Equal(PackVersionSourceKind.Override, PackCommand.GetEffectiveVersionSource("2.0.0", "1.0.0"));
+        Assert.Equal(PackVersionSourceKind.Missing, PackCommand.GetEffectiveVersionSource(" ", "1.0.0"));
+        Assert.Equal(PackVersionSourceKind.Project, PackCommand.GetEffectiveVersionSource(null, "1.0.0"));
+        Assert.Equal(PackVersionSourceKind.Missing, PackCommand.GetEffectiveVersionSource(null, null));
+    }
+
+    [Fact]
     public void ExportCommandKernels_FiltersReferenceValuesByType()
     {
         var references = new[]

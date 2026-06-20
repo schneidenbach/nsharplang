@@ -2629,6 +2629,22 @@ func CliPackOptionSummaryKind(arg: string): int {
     return 0
 }
 
+func CliPackEffectiveVersionSource(hasVersionOverride: int, versionOverride: string, projectVersion: string): int {
+    if hasVersionOverride != 0 {
+        if versionOverride.Trim().Length == 0 {
+            return 0
+        }
+
+        return 1
+    }
+
+    if projectVersion.Trim().Length == 0 {
+        return 0
+    }
+
+    return 2
+}
+
 func CliLintOptionSummaryInto(args: string[], resultIndices: int[]): int {
     arguments := new CliArgumentTable { Args: args }
     results := new CliIndexResultTable { Indices: resultIndices }

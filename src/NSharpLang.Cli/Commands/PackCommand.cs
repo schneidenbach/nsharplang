@@ -65,8 +65,14 @@ public static class PackCommand
         try
         {
             var projectName = CompilationReferenceResolver.GetProjectAssemblyName(projectRoot, config);
-            var effectiveVersion = versionOverride ?? config.Version;
-            if (string.IsNullOrWhiteSpace(effectiveVersion))
+            var versionSource = GetEffectiveVersionSource(versionOverride, config.Version);
+            var effectiveVersion = versionSource switch
+            {
+                PackVersionSourceKind.Override => versionOverride,
+                PackVersionSourceKind.Project => config.Version,
+                _ => null
+            };
+            if (effectiveVersion == null)
             {
                 if (jsonOutput)
                     WriteErrorJson("Package version is required. Set version in project.yml or pass --version.");
@@ -246,6 +252,11 @@ public static class PackCommand
             ? summary
             : GetOptionSummaryWithCSharp(args);
 
+    internal static PackVersionSourceKind GetEffectiveVersionSource(string? versionOverride, string? projectVersion)
+        => PackCommandKernels.TryGetEffectiveVersionSource(versionOverride, projectVersion, out var versionSource)
+            ? versionSource
+            : GetEffectiveVersionSourceWithCSharp(versionOverride, projectVersion);
+
     // Stage 6 C#-surface-shrink: fallback/oracle only; product pack option parsing routes through PackCommandKernels.
     private static PackOptionSummary GetOptionSummaryWithCSharp(string[] args)
         => new(
@@ -256,6 +267,21 @@ public static class PackCommand
             ContainsArgWithCSharp(args, "--include-symbols"),
             ContainsArgWithCSharp(args, "--json"),
             ContainsArgWithCSharp(args, "--help") || ContainsArgWithCSharp(args, "-h") || (args.Length > 0 && args[0] == "help"));
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product pack version source selection routes through PackCommandKernels.
+    private static PackVersionSourceKind GetEffectiveVersionSourceWithCSharp(
+        string? versionOverride,
+        string? projectVersion)
+    {
+        if (versionOverride != null)
+            return string.IsNullOrWhiteSpace(versionOverride)
+                ? PackVersionSourceKind.Missing
+                : PackVersionSourceKind.Override;
+
+        return string.IsNullOrWhiteSpace(projectVersion)
+            ? PackVersionSourceKind.Missing
+            : PackVersionSourceKind.Project;
+    }
 
     private static string? GetOptionValueWithCSharp(string[] args, string flag)
     {

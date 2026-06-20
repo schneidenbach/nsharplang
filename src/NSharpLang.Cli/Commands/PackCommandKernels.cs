@@ -11,6 +11,13 @@ internal readonly record struct PackOptionSummary(
     bool JsonOutput,
     bool ShowHelp);
 
+internal enum PackVersionSourceKind
+{
+    Missing = 0,
+    Override = 1,
+    Project = 2
+}
+
 internal static class PackCommandKernels
 {
     [ThreadStatic]
@@ -59,6 +66,36 @@ internal static class PackCommandKernels
         }
     }
 
+    internal static bool TryGetEffectiveVersionSource(
+        string? versionOverride,
+        string? projectVersion,
+        out PackVersionSourceKind versionSource)
+    {
+        versionSource = default;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        try
+        {
+            var result = bindings.PackEffectiveVersionSource(
+                versionOverride == null ? 0 : 1,
+                versionOverride ?? string.Empty,
+                projectVersion ?? string.Empty);
+            if (result is < 0 or > 2)
+                return false;
+
+            versionSource = (PackVersionSourceKind)result;
+            return true;
+        }
+        catch
+        {
+            versionSource = default;
+            return false;
+        }
+    }
+
     private static bool TryGetOptionalArg(string[] args, int index, out string? value)
     {
         value = null;
@@ -76,9 +113,19 @@ internal static class PackCommandKernels
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
             DogfoodKernelLoader.CreateDelegate<CliPackOptionSummaryInto>(
                 programType,
-                "CliPackOptionSummaryInto")));
+                "CliPackOptionSummaryInto"),
+            DogfoodKernelLoader.CreateDelegate<CliPackEffectiveVersionSource>(
+                programType,
+                "CliPackEffectiveVersionSource")));
 
     private delegate int CliPackOptionSummaryInto(string[] args, int[] resultIndices);
 
-    private sealed record Bindings(CliPackOptionSummaryInto PackOptionSummary);
+    private delegate int CliPackEffectiveVersionSource(
+        int hasVersionOverride,
+        string versionOverride,
+        string projectVersion);
+
+    private sealed record Bindings(
+        CliPackOptionSummaryInto PackOptionSummary,
+        CliPackEffectiveVersionSource PackEffectiveVersionSource);
 }

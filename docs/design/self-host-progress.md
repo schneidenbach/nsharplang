@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-20 — Pack version source selection moves into product N#
+
+`PackCommand` no longer owns the package version source decision directly in C#. The shipped
+`CliPackEffectiveVersionSource` dogfood kernel now selects command-line override, project.yml version, or missing
+version while preserving the existing blank-override-as-error behavior; C# keeps project.yml materialization,
+package creation, and fallback/oracle source selection only.
+
+Focused evidence:
+`./scripts/dev.sh PackCommandKernels`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-20 — Fix output mode selection moves into product N#
 
 `FixCommand` no longer owns the effective JSON/text output-mode decision directly in C#. The shipped
