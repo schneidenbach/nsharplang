@@ -540,6 +540,7 @@ public static class QueryCommand
     {
         var parameterSummary = GetDaemonParameterSummary(args);
         var wantsClusters = parameterSummary.Clusters;
+        var outputMode = GetDiagnosticsOutputMode(options.UseText, wantsClusters);
         if (TryExecuteViaDaemon(options, DaemonConstants.MethodDiagnostics, BuildDaemonParameters(args, options), out var daemonExitCode))
             return daemonExitCode;
 
@@ -557,11 +558,11 @@ public static class QueryCommand
         }
 
         var summary = OutputFormatter.SummarizeDiagnostics(results);
-        if (wantsClusters)
+        if (outputMode == QueryDiagnosticsOutputModeKind.ClustersJson)
         {
             Console.Write(OutputFormatter.DiagnosticClustersToJson(results, snapshot.ProjectRoot));
         }
-        else if (options.UseText)
+        else if (outputMode == QueryDiagnosticsOutputModeKind.Text)
         {
             Console.Write(OutputFormatter.DiagnosticsToText(results));
         }
@@ -1141,6 +1142,26 @@ public static class QueryCommand
             return QueryInspectOutputModeKind.Text;
 
         return QueryInspectOutputModeKind.Json;
+    }
+
+    internal static QueryDiagnosticsOutputModeKind GetDiagnosticsOutputMode(bool useText, bool clusters)
+    {
+        if (QueryCommandKernels.TryGetDiagnosticsOutputMode(useText, clusters, out var mode))
+            return mode;
+
+        return GetDiagnosticsOutputModeWithCSharp(useText, clusters);
+    }
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product query diagnostics output-mode selection routes through QueryCommandKernels.
+    private static QueryDiagnosticsOutputModeKind GetDiagnosticsOutputModeWithCSharp(bool useText, bool clusters)
+    {
+        if (clusters)
+            return QueryDiagnosticsOutputModeKind.ClustersJson;
+
+        if (useText)
+            return QueryDiagnosticsOutputModeKind.Text;
+
+        return QueryDiagnosticsOutputModeKind.Json;
     }
 
     private static ProjectSnapshot? LoadProjectOrFail(QueryOptions options)

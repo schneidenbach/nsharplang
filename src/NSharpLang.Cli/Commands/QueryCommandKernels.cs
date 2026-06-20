@@ -37,6 +37,13 @@ internal enum QueryInspectOutputModeKind
     Text = 3
 }
 
+internal enum QueryDiagnosticsOutputModeKind
+{
+    Json = 1,
+    Text = 2,
+    ClustersJson = 3
+}
+
 internal static class QueryCommandKernels
 {
     [ThreadStatic]
@@ -321,6 +328,37 @@ internal static class QueryCommandKernels
         }
     }
 
+    internal static bool TryGetDiagnosticsOutputMode(
+        bool useText,
+        bool clusters,
+        out QueryDiagnosticsOutputModeKind mode)
+    {
+        mode = default;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        try
+        {
+            var code = bindings.QueryDiagnosticsOutputMode(useText ? 1 : 0, clusters ? 1 : 0);
+            mode = code switch
+            {
+                1 => QueryDiagnosticsOutputModeKind.Json,
+                2 => QueryDiagnosticsOutputModeKind.Text,
+                3 => QueryDiagnosticsOutputModeKind.ClustersJson,
+                _ => default
+            };
+
+            return code is 1 or 2 or 3;
+        }
+        catch
+        {
+            mode = default;
+            return false;
+        }
+    }
+
     internal static bool TryParseSymbolKind(string value, out SymbolKind kind)
     {
         if (TryParseSymbolKindWithDogfood(value, out var parsed, out kind))
@@ -386,6 +424,9 @@ internal static class QueryCommandKernels
             DogfoodKernelLoader.CreateDelegate<CliQueryInspectOutputMode>(
                 programType,
                 "CliQueryInspectOutputMode"),
+            DogfoodKernelLoader.CreateDelegate<CliQueryDiagnosticsOutputMode>(
+                programType,
+                "CliQueryDiagnosticsOutputMode"),
             DogfoodKernelLoader.CreateDelegate<CliQueryShouldUseDaemon>(
                 programType,
                 "CliQueryShouldUseDaemon"),
@@ -421,6 +462,8 @@ internal static class QueryCommandKernels
 
     private delegate int CliQueryInspectOutputMode(int useText, int inspectCompact);
 
+    private delegate int CliQueryDiagnosticsOutputMode(int useText, int clusters);
+
     private delegate int CliQueryShouldUseDaemon(int useText, int noDaemon);
 
     private delegate int CliQuerySymbolKindInto(string value, int[] result);
@@ -432,6 +475,7 @@ internal static class QueryCommandKernels
         CliTryParsePositionInto TryParsePosition,
         CliTryParsePositiveIntInto TryParsePositiveInt,
         CliQueryInspectOutputMode QueryInspectOutputMode,
+        CliQueryDiagnosticsOutputMode QueryDiagnosticsOutputMode,
         CliQueryShouldUseDaemon QueryShouldUseDaemon,
         CliQuerySymbolKindInto TryParseSymbolKind);
 }

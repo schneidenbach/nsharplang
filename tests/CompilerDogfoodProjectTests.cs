@@ -12137,6 +12137,7 @@ func outer(x: int): int {
         Assert.Contains("CliTryParsePositionInto", methodNames!); // product query line/column position parsing.
         Assert.Contains("CliTryParsePositiveIntInto", methodNames!); // product query positive-limit parsing.
         Assert.Contains("CliQueryInspectOutputMode", methodNames!); // product query inspect output-mode selection.
+        Assert.Contains("CliQueryDiagnosticsOutputMode", methodNames!); // product query diagnostics output-mode selection.
         Assert.Contains("CliQueryShouldUseDaemon", methodNames!); // product query daemon routing policy.
         Assert.Contains("CliQuerySymbolKindInto", methodNames!); // product query symbol-kind parsing.
         Assert.Contains("CliDaemonPositionInto", methodNames!); // product daemon query position compatibility parsing.
@@ -12160,6 +12161,10 @@ func outer(x: int): int {
             ("CliQueryInspectOutputMode", new object[] { 0, 1 }),
             ("CliQueryInspectOutputMode", new object[] { 1, 0 }),
             ("CliQueryInspectOutputMode", new object[] { 1, 1 }),
+            ("CliQueryDiagnosticsOutputMode", new object[] { 0, 0 }),
+            ("CliQueryDiagnosticsOutputMode", new object[] { 1, 0 }),
+            ("CliQueryDiagnosticsOutputMode", new object[] { 0, 1 }),
+            ("CliQueryDiagnosticsOutputMode", new object[] { 1, 1 }),
             ("CliQueryShouldUseDaemon", new object[] { 0, 0 }),
             ("CliQueryShouldUseDaemon", new object[] { 1, 0 }),
             ("CliQueryShouldUseDaemon", new object[] { 0, 1 }),
@@ -15444,6 +15449,10 @@ class OtherZetaType {
                     "CliQueryInspectOutputMode",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliQueryInspectOutputMode.");
+            var cliQueryDiagnosticsOutputMode = programType.GetMethod(
+                    "CliQueryDiagnosticsOutputMode",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliQueryDiagnosticsOutputMode.");
             var cliQueryShouldUseDaemon = programType.GetMethod(
                     "CliQueryShouldUseDaemon",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -16626,6 +16635,7 @@ func main(customer: Customer, résumé: Profile) {
             AssertCliQueryCommandOptionsLikeProduction(cliQueryCommandOptionSummaryInto);
             AssertCliQueryPositiveIntsLikeProduction(cliTryParsePositiveIntInto);
             AssertCliQueryInspectOutputModesLikeProduction(cliQueryInspectOutputMode);
+            AssertCliQueryDiagnosticsOutputModesLikeProduction(cliQueryDiagnosticsOutputMode);
             AssertCliQueryDaemonRoutingLikeProduction(cliQueryShouldUseDaemon);
             AssertCliQuerySymbolKindsLikeProduction(cliQuerySymbolKindInto);
             AssertCliDaemonPositionsLikeProduction(cliDaemonPositionInto);
@@ -19206,6 +19216,29 @@ func main() {
             var actual = (int)(cliQueryInspectOutputMode.Invoke(
                 null,
                 new object[] { testCase.UseText, testCase.InspectCompact }) ?? -99);
+
+            Assert.Equal(testCase.Expected, actual);
+        }
+    }
+
+    private static void AssertCliQueryDiagnosticsOutputModesLikeProduction(MethodInfo cliQueryDiagnosticsOutputMode)
+    {
+        var cases = new[]
+        {
+            (UseText: 0, Clusters: 0, Expected: 1),
+            (UseText: 1, Clusters: 0, Expected: 2),
+            (UseText: 0, Clusters: 1, Expected: 3),
+            (UseText: 1, Clusters: 1, Expected: 3),
+            (UseText: 2, Clusters: 0, Expected: 2),
+            (UseText: 0, Clusters: 2, Expected: 3),
+            (UseText: 2, Clusters: 2, Expected: 3)
+        };
+
+        foreach (var testCase in cases)
+        {
+            var actual = (int)(cliQueryDiagnosticsOutputMode.Invoke(
+                null,
+                new object[] { testCase.UseText, testCase.Clusters }) ?? -99);
 
             Assert.Equal(testCase.Expected, actual);
         }

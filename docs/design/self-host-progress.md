@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-20 — Query diagnostics output mode selection moves into product N#
+
+`DiagnosticsCommand` no longer owns the `nlc query diagnostics` regular JSON/text/cluster JSON output-mode
+decision directly in C#. The shipped `CliQueryDiagnosticsOutputMode` dogfood kernel now keeps `--clusters` as
+the winner over `--text`, then selects text or regular JSON; C# keeps diagnostic collection, output emission,
+and fallback/oracle mode selection only.
+
+Focused evidence:
+`./scripts/dev.sh QueryCommandKernels`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliQueryParsing|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-20 — Query daemon routing policy moves into product N#
 
 `QueryCommand.TryExecuteViaDaemon` no longer owns the `--text`/`--no-daemon` daemon bypass policy directly in

@@ -276,6 +276,18 @@ func CliQueryInspectOutputMode(useText: int, inspectCompact: int): int {
     return 1
 }
 
+func CliQueryDiagnosticsOutputMode(useText: int, clusters: int): int {
+    if clusters != 0 {
+        return 3
+    }
+
+    if useText != 0 {
+        return 2
+    }
+
+    return 1
+}
+
 func CliQueryShouldUseDaemon(useText: int, noDaemon: int): int {
     if useText != 0 || noDaemon != 0 {
         return 0

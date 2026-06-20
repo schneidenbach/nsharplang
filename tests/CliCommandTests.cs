@@ -1535,6 +1535,30 @@ func Main() {
     }
 
     [Fact]
+    public void QueryCommandKernels_SelectsDiagnosticsOutputMode()
+    {
+        var cases = new[]
+        {
+            (UseText: false, Clusters: false, Expected: QueryDiagnosticsOutputModeKind.Json),
+            (UseText: true, Clusters: false, Expected: QueryDiagnosticsOutputModeKind.Text),
+            (UseText: false, Clusters: true, Expected: QueryDiagnosticsOutputModeKind.ClustersJson),
+            (UseText: true, Clusters: true, Expected: QueryDiagnosticsOutputModeKind.ClustersJson)
+        };
+
+        foreach (var testCase in cases)
+        {
+            Assert.True(QueryCommandKernels.TryGetDiagnosticsOutputMode(
+                testCase.UseText,
+                testCase.Clusters,
+                out var dogfoodMode));
+            Assert.Equal(testCase.Expected, dogfoodMode);
+            Assert.Equal(
+                testCase.Expected,
+                QueryCommand.GetDiagnosticsOutputMode(testCase.UseText, testCase.Clusters));
+        }
+    }
+
+    [Fact]
     public void QueryCommandKernels_SelectsDaemonRouting()
     {
         var cases = new[]
