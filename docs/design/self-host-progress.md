@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-20 — Clean command messages move into product N#
+
+`CleanCommand` no longer owns help text, missing-project diagnostics, no-artifacts status, removed-artifact
+summary text, NuGet cache status/failure text, or clean failure text in C#. The shipped `CliClean*`
+dogfood kernels now shape those strings through `CleanCommandKernels`; C# keeps filesystem deletion,
+NuGet cache process execution, path normalization, and fallback/oracle text only.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.CleanCommandKernels_SummarizesOptions|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-20 — Watch command messages move into product N#
 
 `WatchCommand` no longer owns help text, unsupported-target diagnostics, project-directory diagnostics,

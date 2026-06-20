@@ -520,6 +520,55 @@ func Main() {
         Assert.False(permissiveValue.ShowHelp);
 
         Assert.True(CleanCommand.GetOptionSummary(new[] { "help" }).ShowHelp);
+
+        var helpText = CleanCommandKernels.GetHelpText();
+        Assert.Contains("N# Clean", helpText);
+        Assert.Contains("Usage: nlc clean [options]", helpText);
+        Assert.Contains("Clean failed", helpText);
+        Assert.Equal(
+            "Project directory not found: /tmp/nsharp-missing",
+            CleanCommandKernels.GetProjectDirectoryNotFoundMessage("/tmp/nsharp-missing"));
+        Assert.Equal(
+            "No build artifacts found under /tmp/nsharp.",
+            CleanCommandKernels.GetNoArtifactsFoundMessage("/tmp/nsharp"));
+        Assert.Equal("Removed 1 build artifact directory:", CleanCommandKernels.GetRemovedArtifactsHeader(1));
+        Assert.Equal("Removed 2 build artifact directories:", CleanCommandKernels.GetRemovedArtifactsHeader(2));
+        Assert.Equal("Cleared NuGet caches.", CleanCommandKernels.GetClearedNuGetCachesMessage());
+        Assert.Equal(
+            "Failed to clear NuGet caches.",
+            CleanCommandKernels.GetClearNuGetCachesFailedMessage(string.Empty));
+        Assert.Equal(
+            "Failed to clear NuGet caches.\nnuget failed",
+            CleanCommandKernels.GetClearNuGetCachesFailedMessage("nuget failed"));
+        Assert.Equal("Clean failed: access denied", CleanCommandKernels.GetCleanFailedMessage("access denied"));
+
+        var (helpExitCode, helpStdout, helpStderr) = CaptureConsole(() => CleanCommand.Execute(new[] { "--help" }));
+        Assert.Equal(0, helpExitCode);
+        Assert.True(string.IsNullOrWhiteSpace(helpStderr));
+        Assert.Contains("Usage: nlc clean [options]", helpStdout);
+
+        var missingDir = Path.Combine(Path.GetTempPath(), $"nsharp-clean-missing-{Guid.NewGuid():N}");
+        var (missingExitCode, missingStdout, missingStderr) = CaptureConsole(() =>
+            CleanCommand.Execute(new[] { "--project", missingDir }));
+        Assert.Equal(1, missingExitCode);
+        Assert.True(string.IsNullOrWhiteSpace(missingStdout));
+        Assert.Contains($"Project directory not found: {Path.GetFullPath(missingDir)}", missingStderr);
+
+        var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-clean-empty-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            var (emptyExitCode, emptyStdout, emptyStderr) = CaptureConsole(() =>
+                CleanCommand.Execute(new[] { "--project", tempDir }));
+            Assert.Equal(0, emptyExitCode);
+            Assert.True(string.IsNullOrWhiteSpace(emptyStderr));
+            Assert.Contains($"No build artifacts found under {Path.GetFullPath(tempDir)}.", emptyStdout);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, recursive: true);
+        }
     }
 
     [Fact]

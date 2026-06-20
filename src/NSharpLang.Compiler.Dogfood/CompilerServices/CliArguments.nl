@@ -2436,6 +2436,61 @@ func CliCleanOptionSummaryCore(args: &CliArgumentTable, resultIndices: &CliIndex
     return 0
 }
 
+func CliCleanHelpText(): string {
+    return "N# Clean\n"
+        + "\n"
+        + "Usage: nlc clean [options]\n"
+        + "\n"
+        + "Remove local build artifacts for the current project. Equivalent to `cargo clean`\n"
+        + "or `go clean`.\n"
+        + "\n"
+        + "Options:\n"
+        + "  --project <dir>   Project root directory (default: current directory)\n"
+        + "  --all             Also clear NuGet caches\n"
+        + "  --help, -h        Show this help text\n"
+        + "\n"
+        + "Examples:\n"
+        + "  nlc clean\n"
+        + "  nlc clean --all\n"
+        + "  nlc clean --project examples/16-task-cli\n"
+        + "\n"
+        + "Exit codes:\n"
+        + "  0  Clean completed successfully\n"
+        + "  1  Clean failed"
+}
+
+func CliCleanProjectDirectoryNotFoundMessage(projectRoot: string): string {
+    return "Project directory not found: " + projectRoot
+}
+
+func CliCleanNoArtifactsFoundMessage(projectRoot: string): string {
+    return "No build artifacts found under " + projectRoot + "."
+}
+
+func CliCleanRemovedArtifactsHeader(count: int, countText: string): string {
+    if count == 1 {
+        return "Removed 1 build artifact directory:"
+    }
+
+    return "Removed " + countText + " build artifact directories:"
+}
+
+func CliCleanClearedNuGetCachesMessage(): string {
+    return "Cleared NuGet caches."
+}
+
+func CliCleanClearNuGetCachesFailedMessage(detail: string): string {
+    if detail.Length == 0 {
+        return "Failed to clear NuGet caches."
+    }
+
+    return "Failed to clear NuGet caches.\n" + detail
+}
+
+func CliCleanFailedMessage(message: string): string {
+    return "Clean failed: " + message
+}
+
 func CliEnvOptionSummaryInto(args: string[], resultIndices: int[]): int {
     arguments := new CliArgumentTable { Args: args }
     results := new CliIndexResultTable { Indices: resultIndices }

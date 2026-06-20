@@ -7137,6 +7137,13 @@ func outer(x: int): int {
         Assert.Contains("CliTreeMaxDepthInto", methodNames!); // product tree depth parsing.
         Assert.Contains("CliTreeOutputMode", methodNames!); // product tree output mode selection.
         Assert.Contains("CliCleanOptionSummaryInto", methodNames!); // product clean option parsing.
+        Assert.Contains("CliCleanHelpText", methodNames!); // product clean help text shaping.
+        Assert.Contains("CliCleanProjectDirectoryNotFoundMessage", methodNames!); // product clean missing-project message shaping.
+        Assert.Contains("CliCleanNoArtifactsFoundMessage", methodNames!); // product clean no-artifacts message shaping.
+        Assert.Contains("CliCleanRemovedArtifactsHeader", methodNames!); // product clean removed-artifacts message shaping.
+        Assert.Contains("CliCleanClearedNuGetCachesMessage", methodNames!); // product clean NuGet-cache message shaping.
+        Assert.Contains("CliCleanClearNuGetCachesFailedMessage", methodNames!); // product clean NuGet-cache failure shaping.
+        Assert.Contains("CliCleanFailedMessage", methodNames!); // product clean failure message shaping.
         Assert.Contains("CliCleanArtifactDirectoryKindRank", methodNames!); // product clean artifact directory classification.
         Assert.Contains("CliCleanIsUnderNodeModulesDirectory", methodNames!); // product clean node_modules exclusion.
         Assert.Contains("CliEnvOptionSummaryInto", methodNames!); // product env option parsing.
@@ -16121,6 +16128,34 @@ class OtherZetaType {
                     "CliCleanOptionSummaryInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliCleanOptionSummaryInto.");
+            var cliCleanHelpText = programType.GetMethod(
+                    "CliCleanHelpText",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliCleanHelpText.");
+            var cliCleanProjectDirectoryNotFoundMessage = programType.GetMethod(
+                    "CliCleanProjectDirectoryNotFoundMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliCleanProjectDirectoryNotFoundMessage.");
+            var cliCleanNoArtifactsFoundMessage = programType.GetMethod(
+                    "CliCleanNoArtifactsFoundMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliCleanNoArtifactsFoundMessage.");
+            var cliCleanRemovedArtifactsHeader = programType.GetMethod(
+                    "CliCleanRemovedArtifactsHeader",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliCleanRemovedArtifactsHeader.");
+            var cliCleanClearedNuGetCachesMessage = programType.GetMethod(
+                    "CliCleanClearedNuGetCachesMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliCleanClearedNuGetCachesMessage.");
+            var cliCleanClearNuGetCachesFailedMessage = programType.GetMethod(
+                    "CliCleanClearNuGetCachesFailedMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliCleanClearNuGetCachesFailedMessage.");
+            var cliCleanFailedMessage = programType.GetMethod(
+                    "CliCleanFailedMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliCleanFailedMessage.");
             var cliEnvOptionSummaryInto = programType.GetMethod(
                     "CliEnvOptionSummaryInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -17376,6 +17411,14 @@ func main(customer: Customer, résumé: Profile) {
                 cliCleanArtifactDirectoryKindRank,
                 cliCleanIsUnderNodeModulesDirectory);
             AssertCliCleanOptionsLikeProduction(cliCleanOptionSummaryInto);
+            AssertCliCleanMessagesLikeProduction(
+                cliCleanHelpText,
+                cliCleanProjectDirectoryNotFoundMessage,
+                cliCleanNoArtifactsFoundMessage,
+                cliCleanRemovedArtifactsHeader,
+                cliCleanClearedNuGetCachesMessage,
+                cliCleanClearNuGetCachesFailedMessage,
+                cliCleanFailedMessage);
             AssertCliJsonFlagOutputModesLikeProduction(cliTreeOutputMode);
             AssertCliEnvOptionsLikeProduction(cliEnvOptionSummaryInto);
             AssertCliJsonFlagOutputModesLikeProduction(cliEnvOutputMode);
@@ -22773,6 +22816,45 @@ func main() {
             (int)(cliCleanOptionSummaryInto.Invoke(
                 null,
                 new object[] { new[] { "--all" }, new int[2] }) ?? 0));
+    }
+
+    private static void AssertCliCleanMessagesLikeProduction(
+        MethodInfo cliCleanHelpText,
+        MethodInfo cliCleanProjectDirectoryNotFoundMessage,
+        MethodInfo cliCleanNoArtifactsFoundMessage,
+        MethodInfo cliCleanRemovedArtifactsHeader,
+        MethodInfo cliCleanClearedNuGetCachesMessage,
+        MethodInfo cliCleanClearNuGetCachesFailedMessage,
+        MethodInfo cliCleanFailedMessage)
+    {
+        var help = (string)(cliCleanHelpText.Invoke(null, Array.Empty<object>()) ?? "<null>");
+        Assert.Contains("N# Clean", help);
+        Assert.Contains("Usage: nlc clean [options]", help);
+        Assert.Contains("Clean failed", help);
+        Assert.Equal(
+            "Project directory not found: /tmp/nsharp-missing",
+            (string)(cliCleanProjectDirectoryNotFoundMessage.Invoke(null, new object[] { "/tmp/nsharp-missing" }) ?? "<null>"));
+        Assert.Equal(
+            "No build artifacts found under /tmp/nsharp.",
+            (string)(cliCleanNoArtifactsFoundMessage.Invoke(null, new object[] { "/tmp/nsharp" }) ?? "<null>"));
+        Assert.Equal(
+            "Removed 1 build artifact directory:",
+            (string)(cliCleanRemovedArtifactsHeader.Invoke(null, new object[] { 1, "1" }) ?? "<null>"));
+        Assert.Equal(
+            "Removed 2 build artifact directories:",
+            (string)(cliCleanRemovedArtifactsHeader.Invoke(null, new object[] { 2, "2" }) ?? "<null>"));
+        Assert.Equal(
+            "Cleared NuGet caches.",
+            (string)(cliCleanClearedNuGetCachesMessage.Invoke(null, Array.Empty<object>()) ?? "<null>"));
+        Assert.Equal(
+            "Failed to clear NuGet caches.",
+            (string)(cliCleanClearNuGetCachesFailedMessage.Invoke(null, new object[] { string.Empty }) ?? "<null>"));
+        Assert.Equal(
+            "Failed to clear NuGet caches.\nnuget failed",
+            (string)(cliCleanClearNuGetCachesFailedMessage.Invoke(null, new object[] { "nuget failed" }) ?? "<null>"));
+        Assert.Equal(
+            "Clean failed: access denied",
+            (string)(cliCleanFailedMessage.Invoke(null, new object[] { "access denied" }) ?? "<null>"));
     }
 
     private static int[] CreateExpectedCliCleanOptions(string[] args)

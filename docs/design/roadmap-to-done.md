@@ -294,7 +294,7 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       parsing reuses `QueryCommandKernels`; daemon query position parsing now lives beside `DaemonServer` in
       `DaemonServerKernels`; unified-diff hunk range
       construction now lives beside `UnifiedDiff` in `UnifiedDiffHunkRangeBuilder`; fix safety/skipped/applied
-      grouping routes now live beside `FixCommand` in `FixCommandKernels`; clean option summary now lives beside
+      grouping routes now live beside `FixCommand` in `FixCommandKernels`; clean option summary and help/status/error messages now live beside
       `CleanCommand` in `CleanCommandKernels`, and clean artifact directory classification plus ordering now lives beside
       `CleanCommand` in `CleanArtifactDirectoryOrderer`; env option summary, output-mode selection, help text,
       and text-line rendering now live beside `EnvCommand` in `EnvCommandKernels`; doctor option summary,

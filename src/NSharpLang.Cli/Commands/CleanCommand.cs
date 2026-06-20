@@ -24,7 +24,7 @@ public static class CleanCommand
         var cleanAll = options.CleanAll;
 
         if (!Directory.Exists(projectRoot))
-            return Error($"Project directory not found: {projectRoot}");
+            return Error(CleanCommandKernels.GetProjectDirectoryNotFoundMessage(projectRoot));
 
         try
         {
@@ -39,23 +39,23 @@ public static class CleanCommand
 
             if (removed.Count == 0)
             {
-                Console.WriteLine($"No build artifacts found under {projectRoot}.");
+                Console.WriteLine(CleanCommandKernels.GetNoArtifactsFoundMessage(projectRoot));
             }
             else
             {
-                Console.WriteLine($"Removed {removed.Count} build artifact director{(removed.Count == 1 ? "y" : "ies")}:");
+                Console.WriteLine(CleanCommandKernels.GetRemovedArtifactsHeader(removed.Count));
                 foreach (var path in removed)
                     Console.WriteLine($"  {path}");
             }
 
             if (cleanAll)
-                Console.WriteLine("Cleared NuGet caches.");
+                Console.WriteLine(CleanCommandKernels.GetClearedNuGetCachesMessage());
 
             return 0;
         }
         catch (Exception ex)
         {
-            return Error($"Clean failed: {ex.Message}");
+            return Error(CleanCommandKernels.GetCleanFailedMessage(ex.Message));
         }
     }
 
@@ -96,7 +96,7 @@ public static class CleanCommand
         if (result.ExitCode == 0)
             return 0;
 
-        return Error($"Failed to clear NuGet caches.\n{result.Stderr}{result.Stdout}".Trim());
+        return Error(CleanCommandKernels.GetClearNuGetCachesFailedMessage($"{result.Stderr}{result.Stdout}".Trim()));
     }
 
     internal static CleanOptionSummary GetOptionSummary(string[] args)
@@ -132,27 +132,7 @@ public static class CleanCommand
 
     private static int ShowHelp()
     {
-        Console.WriteLine(@"N# Clean
-
-Usage: nlc clean [options]
-
-Remove local build artifacts for the current project. Equivalent to `cargo clean`
-or `go clean`.
-
-Options:
-  --project <dir>   Project root directory (default: current directory)
-  --all             Also clear NuGet caches
-  --help, -h        Show this help text
-
-Examples:
-  nlc clean
-  nlc clean --all
-  nlc clean --project examples/16-task-cli
-
-Exit codes:
-  0  Clean completed successfully
-  1  Clean failed");
-
+        Console.WriteLine(CleanCommandKernels.GetHelpText());
         return 0;
     }
 
