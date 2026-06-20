@@ -521,6 +521,26 @@ func Main() {
         Assert.True(EnvCommand.GetOptionSummary(new[] { "help" }).ShowHelp);
         Assert.True(EnvCommand.GetOptionSummary(new[] { "ignored", "-h" }).ShowHelp);
         Assert.True(EnvCommand.GetOptionSummary(new[] { "--json" }).Json);
+
+        Assert.True(EnvCommandKernels.TryGetOutputMode(json: false, out var textMode));
+        Assert.Equal(EnvOutputModeKind.Text, textMode);
+        Assert.Equal(EnvOutputModeKind.Text, EnvCommand.GetOutputMode(json: false));
+
+        Assert.True(EnvCommandKernels.TryGetOutputMode(json: true, out var jsonMode));
+        Assert.Equal(EnvOutputModeKind.Json, jsonMode);
+        Assert.Equal(EnvOutputModeKind.Json, EnvCommand.GetOutputMode(json: true));
+    }
+
+    [Fact]
+    public void EnvCommand_Text_UsesOutputMode()
+    {
+        var (exitCode, stdout, stderr) = CaptureConsole(() => EnvCommand.Execute(Array.Empty<string>()));
+
+        Assert.Equal(0, exitCode);
+        Assert.True(string.IsNullOrWhiteSpace(stderr));
+        Assert.Contains("nlc version:", stdout);
+        Assert.Contains("dotnet version:", stdout);
+        Assert.DoesNotContain("\"command\"", stdout);
     }
 
     [Fact]

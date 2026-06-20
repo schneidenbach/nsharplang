@@ -14,7 +14,7 @@ public static class EnvCommand
         if (options.ShowHelp)
             return ShowHelp();
 
-        var json = options.Json;
+        var outputMode = GetOutputMode(options.Json);
 
         var nlcVersion = Program.GetVersion();
         var dotnetVersion = RunCapture("--version")?.Trim() ?? "unknown";
@@ -49,7 +49,7 @@ public static class EnvCommand
             }
         }
 
-        if (json)
+        if (outputMode == EnvOutputModeKind.Json)
         {
             using var stream = new MemoryStream();
             using var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true });
@@ -120,11 +120,20 @@ public static class EnvCommand
             ? summary
             : GetOptionSummaryWithCSharp(args);
 
+    internal static EnvOutputModeKind GetOutputMode(bool json)
+        => EnvCommandKernels.TryGetOutputMode(json, out var outputMode)
+            ? outputMode
+            : GetOutputModeWithCSharp(json);
+
     // Stage 6 C#-surface-shrink: fallback/oracle only; product env option parsing routes through EnvCommandKernels.
     private static EnvOptionSummary GetOptionSummaryWithCSharp(string[] args)
         => new(
             ContainsArgWithCSharp(args, "--json"),
             ContainsArgWithCSharp(args, "--help") || ContainsArgWithCSharp(args, "-h") || (args.Length > 0 && args[0] == "help"));
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product env output mode selection routes through EnvCommandKernels.
+    private static EnvOutputModeKind GetOutputModeWithCSharp(bool json)
+        => json ? EnvOutputModeKind.Json : EnvOutputModeKind.Text;
 
     private static bool ContainsArgWithCSharp(string[] args, string value)
     {

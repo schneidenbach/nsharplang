@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-20 — Env output mode selection moves into product N#
+
+`EnvCommand` no longer branches directly on `options.Json` when choosing text vs JSON output. The shipped
+`CliEnvOutputMode` dogfood kernel now selects the `nlc env` render path; C# keeps environment probing, project
+metadata reading, output emission, and fallback/oracle mode selection only.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.EnvCommandKernels_SummarizesOptions|FullyQualifiedName~CliCommandTests.EnvCommand_Text_UsesOutputMode|FullyQualifiedName~CliCommandTests.EnvCommand_Json_EmitsStableEnvelope|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-20 — Remaining query text output branches use product N# mode selection
 
 The remaining text-capable `QueryCommand` routes no longer branch directly on `options.UseText` for product

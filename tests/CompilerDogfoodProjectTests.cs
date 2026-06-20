@@ -7067,6 +7067,7 @@ func outer(x: int): int {
         Assert.Contains("CliCleanArtifactDirectoryKindRank", methodNames!); // product clean artifact directory classification.
         Assert.Contains("CliCleanIsUnderNodeModulesDirectory", methodNames!); // product clean node_modules exclusion.
         Assert.Contains("CliEnvOptionSummaryInto", methodNames!); // product env option parsing.
+        Assert.Contains("CliEnvOutputMode", methodNames!); // product env output mode selection.
         Assert.Contains("CliDoctorOptionSummaryInto", methodNames!); // product doctor option parsing.
         Assert.Contains("CliAuditOptionSummaryInto", methodNames!); // product audit option parsing.
         Assert.Contains("CliInitOptionSummaryInto", methodNames!); // product init option parsing.
@@ -15719,6 +15720,10 @@ class OtherZetaType {
                     "CliEnvOptionSummaryInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliEnvOptionSummaryInto.");
+            var cliEnvOutputMode = programType.GetMethod(
+                    "CliEnvOutputMode",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliEnvOutputMode.");
             var cliDoctorOptionSummaryInto = programType.GetMethod(
                     "CliDoctorOptionSummaryInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -16727,6 +16732,7 @@ func main(customer: Customer, résumé: Profile) {
                 cliCleanIsUnderNodeModulesDirectory);
             AssertCliCleanOptionsLikeProduction(cliCleanOptionSummaryInto);
             AssertCliEnvOptionsLikeProduction(cliEnvOptionSummaryInto);
+            AssertCliEnvOutputModesLikeProduction(cliEnvOutputMode);
             AssertCliDoctorOptionsLikeProduction(cliDoctorOptionSummaryInto);
             AssertCliAuditOptionsLikeProduction(cliAuditOptionSummaryInto);
             AssertCliInitOptionsLikeProduction(cliInitOptionSummaryInto);
@@ -21745,6 +21751,24 @@ func main() {
         }
 
         return indices;
+    }
+
+    private static void AssertCliEnvOutputModesLikeProduction(MethodInfo cliEnvOutputMode)
+    {
+        var cases = new[]
+        {
+            (UseJson: 0, Expected: 2),
+            (UseJson: 1, Expected: 1)
+        };
+
+        foreach (var testCase in cases)
+        {
+            var actual = (int)(cliEnvOutputMode.Invoke(
+                null,
+                new object[] { testCase.UseJson }) ?? 0);
+
+            Assert.Equal(testCase.Expected, actual);
+        }
     }
 
     private static void AssertCliDoctorOptionsLikeProduction(MethodInfo cliDoctorOptionSummaryInto)

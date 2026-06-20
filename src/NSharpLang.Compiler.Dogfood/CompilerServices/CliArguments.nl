@@ -2039,6 +2039,14 @@ func CliEnvOptionSummaryCore(args: &CliArgumentTable, resultIndices: &CliIndexRe
     return 0
 }
 
+func CliEnvOutputMode(useJson: int): int {
+    if useJson != 0 {
+        return 1
+    }
+
+    return 2
+}
+
 func CliDoctorOptionSummaryInto(args: string[], resultIndices: int[]): int {
     arguments := new CliArgumentTable { Args: args }
     results := new CliIndexResultTable { Indices: resultIndices }

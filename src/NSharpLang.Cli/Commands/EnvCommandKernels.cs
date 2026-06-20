@@ -6,6 +6,12 @@ internal readonly record struct EnvOptionSummary(
     bool Json,
     bool ShowHelp);
 
+internal enum EnvOutputModeKind
+{
+    Json = 1,
+    Text = 2
+}
+
 internal static class EnvCommandKernels
 {
     [ThreadStatic]
@@ -40,15 +46,46 @@ internal static class EnvCommandKernels
         }
     }
 
+    internal static bool TryGetOutputMode(bool json, out EnvOutputModeKind outputMode)
+    {
+        outputMode = default;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        try
+        {
+            var code = bindings.OutputMode(json ? 1 : 0);
+            if (code is < 1 or > 2)
+                return false;
+
+            outputMode = (EnvOutputModeKind)code;
+            return true;
+        }
+        catch
+        {
+            outputMode = default;
+            return false;
+        }
+    }
+
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
             DogfoodKernelLoader.CreateDelegate<CliEnvOptionSummaryInto>(
                 programType,
-                "CliEnvOptionSummaryInto")));
+                "CliEnvOptionSummaryInto"),
+            DogfoodKernelLoader.CreateDelegate<CliEnvOutputMode>(
+                programType,
+                "CliEnvOutputMode")));
 
     private delegate int CliEnvOptionSummaryInto(
         string[] args,
         int[] resultIndices);
 
-    private sealed record Bindings(CliEnvOptionSummaryInto OptionSummary);
+    private delegate int CliEnvOutputMode(int json);
+
+    private sealed record Bindings(
+        CliEnvOptionSummaryInto OptionSummary,
+        CliEnvOutputMode OutputMode);
 }
