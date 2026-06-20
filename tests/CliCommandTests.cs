@@ -4590,6 +4590,58 @@ func Main() {
     }
 
     [Fact]
+    public void QueryTextJsonOutputRoutes_UseTextMode()
+    {
+        var classesAndRecordsProject = Path.Combine(FindExamplesDir(), "06-classes-and-records");
+        var hiLine = File.ReadLines(Path.Combine(HelloWorldProject, "Program.nl"))
+            .Select((text, index) => (Text: text, Line: index + 1))
+            .First(line => line.Text.TrimStart().StartsWith("func Hi(", StringComparison.Ordinal))
+            .Line;
+
+        var (symbolsExitCode, symbolsStdout, symbolsStderr) = CaptureConsole(() => QueryCommand.Execute(new[]
+        {
+            "symbols",
+            "--project", classesAndRecordsProject,
+            "--filter", "*ircle",
+            "--text"
+        }));
+
+        Assert.Equal(0, symbolsExitCode);
+        Assert.True(string.IsNullOrWhiteSpace(symbolsStderr));
+        Assert.Contains("Class Circle", symbolsStdout);
+        Assert.DoesNotContain("\"command\"", symbolsStdout);
+
+        var (hoverExitCode, hoverStdout, hoverStderr) = CaptureConsole(() => QueryCommand.Execute(new[]
+        {
+            "hover",
+            "--project", HelloWorldProject,
+            "--file", "Program.nl",
+            "--pos", $"{hiLine}:6",
+            "--text"
+        }));
+
+        Assert.Equal(0, hoverExitCode);
+        Assert.True(string.IsNullOrWhiteSpace(hoverStderr));
+        Assert.Contains("Signature:", hoverStdout);
+        Assert.Contains("Hi", hoverStdout);
+        Assert.DoesNotContain("\"command\"", hoverStdout);
+
+        var (callGraphExitCode, callGraphStdout, callGraphStderr) = CaptureConsole(() => QueryCommand.Execute(new[]
+        {
+            "call-graph",
+            "--project", HelloWorldProject,
+            "--function", "Main",
+            "--text"
+        }));
+
+        Assert.Equal(0, callGraphExitCode);
+        Assert.True(string.IsNullOrWhiteSpace(callGraphStderr));
+        Assert.Contains("Call graph for: Main", callGraphStdout);
+        Assert.Contains("Hi", callGraphStdout);
+        Assert.DoesNotContain("\"command\"", callGraphStdout);
+    }
+
+    [Fact]
     public void ImplementorsCommand_FindsCircleForIShape()
     {
         var classesAndRecordsProject = Path.Combine(FindExamplesDir(), "06-classes-and-records");

@@ -57,6 +57,7 @@ public static class QueryCommand
 
     private static int SymbolsCommand(string[] args, QueryOptions options)
     {
+        var outputMode = GetTextJsonOutputMode(options.UseText);
         if (TryExecuteViaDaemon(options, DaemonConstants.MethodSymbols, BuildDaemonParameters(args, options), out var daemonExitCode))
             return daemonExitCode;
 
@@ -89,7 +90,7 @@ public static class QueryCommand
                 : FilterSymbolsByNamePatternWithRegex(results, filterPattern);
         }
 
-        if (options.UseText)
+        if (outputMode == QueryTextJsonOutputModeKind.Text)
         {
             Console.Write(OutputFormatter.SymbolsToText(results));
         }
@@ -160,6 +161,7 @@ public static class QueryCommand
 
     private static int HoverCommand(string[] args, QueryOptions options)
     {
+        var outputMode = GetTextJsonOutputMode(options.UseText);
         var summary = GetDaemonParameterSummary(args);
         var file = summary.File ?? options.File;
         var posStr = summary.Pos ?? options.Pos;
@@ -180,7 +182,7 @@ public static class QueryCommand
         var result = Service.GetHoverInfo(snapshot, file, line, col);
         if (result == null)
         {
-            if (options.UseText)
+            if (outputMode == QueryTextJsonOutputModeKind.Text)
             {
                 Console.Error.WriteLine($"No symbol found at {file}:{line}:{col}");
             }
@@ -200,7 +202,7 @@ public static class QueryCommand
             return 1;
         }
 
-        if (options.UseText)
+        if (outputMode == QueryTextJsonOutputModeKind.Text)
         {
             Console.Write(OutputFormatter.HoverToText(result, file, line, col));
         }
@@ -214,6 +216,7 @@ public static class QueryCommand
 
     private static int CallGraphCommand(string[] args, QueryOptions options)
     {
+        var outputMode = GetTextJsonOutputMode(options.UseText);
         var commandSummary = GetCommandOptionSummary(args);
         var functionName = commandSummary.Function;
         var limit = GetCallGraphLimit(commandSummary.Limit);
@@ -223,7 +226,7 @@ public static class QueryCommand
 
         var result = Service.GetCallGraph(snapshot, functionName, limit);
 
-        if (options.UseText)
+        if (outputMode == QueryTextJsonOutputModeKind.Text)
         {
             Console.Write(OutputFormatter.CallGraphToText(result));
         }
