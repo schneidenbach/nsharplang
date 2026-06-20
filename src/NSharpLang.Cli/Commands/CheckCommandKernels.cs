@@ -11,6 +11,14 @@ internal readonly record struct CheckArgumentSummary(
     bool SystemsReport,
     bool ShowHelp);
 
+internal enum CheckOutputModeKind
+{
+    InvalidSystemsReportText = -1,
+    Json = 1,
+    Text = 2,
+    SystemsReportJson = 3
+}
+
 internal static class CheckCommandKernels
 {
     [ThreadStatic]
@@ -58,15 +66,49 @@ internal static class CheckCommandKernels
         }
     }
 
+    internal static bool TryGetEffectiveOutputMode(
+        bool useText,
+        bool systemsReport,
+        out CheckOutputModeKind outputMode)
+    {
+        outputMode = default;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        try
+        {
+            var result = bindings.CheckEffectiveOutputMode(useText ? 1 : 0, systemsReport ? 1 : 0);
+            if (result != -1 && result != 1 && result != 2 && result != 3)
+                return false;
+
+            outputMode = (CheckOutputModeKind)result;
+            return true;
+        }
+        catch
+        {
+            outputMode = default;
+            return false;
+        }
+    }
+
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
             DogfoodKernelLoader.CreateDelegate<CliCheckArgumentSummaryInto>(
                 programType,
-                "CliCheckArgumentSummaryInto")));
+                "CliCheckArgumentSummaryInto"),
+            DogfoodKernelLoader.CreateDelegate<CliCheckEffectiveOutputMode>(
+                programType,
+                "CliCheckEffectiveOutputMode")));
 
     private delegate int CliCheckArgumentSummaryInto(string[] args, int[] resultIndices);
 
-    private sealed record Bindings(CliCheckArgumentSummaryInto CheckArgumentSummary);
+    private delegate int CliCheckEffectiveOutputMode(int useText, int systemsReport);
+
+    private sealed record Bindings(
+        CliCheckArgumentSummaryInto CheckArgumentSummary,
+        CliCheckEffectiveOutputMode CheckEffectiveOutputMode);
 
     private static bool TryGetOptionalArg(string[] args, int index, out string? value)
     {

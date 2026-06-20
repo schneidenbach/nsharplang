@@ -317,8 +317,8 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       live beside `CompilationReferenceResolver` in `CompilationReferenceResolverKernels`, and NuGet/framework best-score
       selection plus numeric NuGet version comparison now route through
       the same resolver-local kernels; source-generator target-framework version parsing now lives beside
-      `SourceGeneratorReferenceResolver` in `SourceGeneratorReferenceResolverKernels`; check argument summary now lives beside `CheckCommand` in
-      `CheckCommandKernels`; fix argument summary now lives beside `FixCommand` in
+      `SourceGeneratorReferenceResolver` in `SourceGeneratorReferenceResolverKernels`; check argument summary and
+      effective output-mode selection now live beside `CheckCommand` in `CheckCommandKernels`; fix argument summary now lives beside `FixCommand` in
       `FixCommandArgumentKernels`; add argument summary, dependency-add planning, and duplicate checks now live beside
       `AddCommand` in `AddCommandKernels`; remove argument summary and dependency-line pruning now live beside
       `RemoveCommand` in `RemoveCommandKernels`; update argument summary now lives beside `UpdateCommand` in

@@ -17,9 +17,9 @@ public static class CheckCommand
         if (arguments.ShowHelp)
             return ShowHelp();
 
-        var useText = arguments.UseText;
+        var outputMode = GetEffectiveOutputMode(arguments);
+        var useText = outputMode is CheckOutputModeKind.Text or CheckOutputModeKind.InvalidSystemsReportText;
         var aot = arguments.Aot;
-        var systemsReport = arguments.SystemsReport;
         var projectDir = GetProjectDir(arguments);
 
         if (!Directory.Exists(projectDir))
@@ -75,7 +75,7 @@ public static class CheckCommand
                 }
             }
 
-            if (systemsReport && useText)
+            if (outputMode == CheckOutputModeKind.InvalidSystemsReportText)
             {
                 return EmitError(useText, "--systems-report is only available as JSON output.", projectDir);
             }
@@ -93,7 +93,7 @@ public static class CheckCommand
                     Console.Error.WriteLine($"  Checked in {FormatElapsed(sw.Elapsed)}");
                 }
             }
-            else if (systemsReport)
+            else if (outputMode == CheckOutputModeKind.SystemsReportJson)
             {
                 Console.Write(OutputFormatter.CheckSystemsReportToJson(
                     diagnostics,
@@ -224,6 +224,11 @@ Exit codes:
             ? summary
             : GetArgumentSummaryWithCSharp(args);
 
+    internal static CheckOutputModeKind GetEffectiveOutputMode(CheckArgumentSummary arguments)
+        => CheckCommandKernels.TryGetEffectiveOutputMode(arguments.UseText, arguments.SystemsReport, out var outputMode)
+            ? outputMode
+            : GetEffectiveOutputModeWithCSharp(arguments.UseText, arguments.SystemsReport);
+
     private static string GetProjectDir(CheckArgumentSummary arguments)
     {
         if (!string.IsNullOrWhiteSpace(arguments.ProjectOption))
@@ -247,6 +252,21 @@ Exit codes:
             ContainsArgWithCSharp(args, "--aot"),
             ContainsArgWithCSharp(args, "--systems-report"),
             ContainsArgWithCSharp(args, "--help") || ContainsArgWithCSharp(args, "-h") || (args.Length > 0 && args[0] == "help"));
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product check output mode selection routes through CheckCommandKernels.
+    private static CheckOutputModeKind GetEffectiveOutputModeWithCSharp(bool useText, bool systemsReport)
+    {
+        if (useText && systemsReport)
+            return CheckOutputModeKind.InvalidSystemsReportText;
+
+        if (useText)
+            return CheckOutputModeKind.Text;
+
+        if (systemsReport)
+            return CheckOutputModeKind.SystemsReportJson;
+
+        return CheckOutputModeKind.Json;
+    }
 
     private static string? GetOptionValueWithCSharp(string[] args, string flag)
     {

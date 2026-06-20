@@ -1725,6 +1725,35 @@ func Main() {
     }
 
     [Fact]
+    public void CheckCommandKernels_SelectsEffectiveOutputMode()
+    {
+        Assert.True(CheckCommandKernels.TryGetEffectiveOutputMode(false, false, out var defaultMode));
+        Assert.Equal(CheckOutputModeKind.Json, defaultMode);
+
+        Assert.True(CheckCommandKernels.TryGetEffectiveOutputMode(true, false, out var textMode));
+        Assert.Equal(CheckOutputModeKind.Text, textMode);
+
+        Assert.True(CheckCommandKernels.TryGetEffectiveOutputMode(false, true, out var systemsReportMode));
+        Assert.Equal(CheckOutputModeKind.SystemsReportJson, systemsReportMode);
+
+        Assert.True(CheckCommandKernels.TryGetEffectiveOutputMode(true, true, out var invalidMode));
+        Assert.Equal(CheckOutputModeKind.InvalidSystemsReportText, invalidMode);
+
+        Assert.Equal(
+            CheckOutputModeKind.Json,
+            CheckCommand.GetEffectiveOutputMode(new CheckArgumentSummary(null, null, null, UseText: false, Aot: false, SystemsReport: false, ShowHelp: false)));
+        Assert.Equal(
+            CheckOutputModeKind.Text,
+            CheckCommand.GetEffectiveOutputMode(new CheckArgumentSummary(null, null, null, UseText: true, Aot: false, SystemsReport: false, ShowHelp: false)));
+        Assert.Equal(
+            CheckOutputModeKind.SystemsReportJson,
+            CheckCommand.GetEffectiveOutputMode(new CheckArgumentSummary(null, null, null, UseText: false, Aot: false, SystemsReport: true, ShowHelp: false)));
+        Assert.Equal(
+            CheckOutputModeKind.InvalidSystemsReportText,
+            CheckCommand.GetEffectiveOutputMode(new CheckArgumentSummary(null, null, null, UseText: true, Aot: false, SystemsReport: true, ShowHelp: false)));
+    }
+
+    [Fact]
     public void CompilationBackendSelectionKernels_ResolvesEffectiveBackend()
     {
         Assert.True(CompilationBackendSelectionKernels.TryGetEffectiveBackendKind(null, null, out var defaultBackend, out var defaultStatus));

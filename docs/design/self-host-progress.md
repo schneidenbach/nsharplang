@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-20 — Check output mode selection moves into product N#
+
+`CheckCommand` no longer owns the effective text/default-JSON/systems-report output-mode decision directly in
+C#. The shipped `CliCheckEffectiveOutputMode` dogfood kernel now selects regular JSON, text, systems-report JSON,
+or the invalid `--text --systems-report` mode; C# keeps output emission, error text, and fallback/oracle mode
+selection only.
+
+Focused evidence:
+`./scripts/dev.sh CheckCommandKernels`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-20 — Lint output mode selection moves into product N#
 
 `LintCommand` no longer owns the effective JSON/text output-mode decision. The shipped

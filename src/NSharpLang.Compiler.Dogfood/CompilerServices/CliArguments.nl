@@ -912,6 +912,22 @@ func CliCheckArgumentSummaryKind(arg: string): int {
     return 0
 }
 
+func CliCheckEffectiveOutputMode(useText: int, systemsReport: int): int {
+    if useText != 0 && systemsReport != 0 {
+        return -1
+    }
+
+    if useText != 0 {
+        return 2
+    }
+
+    if systemsReport != 0 {
+        return 3
+    }
+
+    return 1
+}
+
 func CliFixArgumentSummaryInto(args: string[], resultIndices: int[]): int {
     arguments := new CliArgumentTable { Args: args }
     results := new CliIndexResultTable { Indices: resultIndices }
