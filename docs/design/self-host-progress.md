@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-20 — Init command messages move into product N#
+
+`InitCommand` no longer owns help, invalid-type, existing-project, created-file, success, or failure
+message bodies in C#. The shipped `CliInit*` dogfood kernels now shape those user-facing messages through
+`InitCommandKernels`; C# keeps current-directory selection, `project.yml`/minimal `.csproj`/starter source
+file writes, restore invocation, and fallback/oracle text only.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.InitCommandKernels_SummarizesOptions|FullyQualifiedName~CliParityAuditTests.InitCommand_Help_ShowsUsage|FullyQualifiedName~CliParityAuditTests.InitCommand_InvalidType_ReturnsHelpfulMessage|FullyQualifiedName~CliParityAuditTests.InitCommand_CreatesMinimalProjectFiles|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-20 — Restore command messages move into product N#
 
 `RestoreCommand` no longer owns help, missing-project, generated-props, or failure message bodies in C#.

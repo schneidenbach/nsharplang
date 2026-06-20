@@ -51,17 +51,156 @@ internal static class InitCommandKernels
         }
     }
 
+    internal static string GetHelpText()
+    {
+        if (TryGetMessage(bindings => bindings.InitHelpText(), out var message))
+            return message;
+
+        return GetHelpTextWithCSharp();
+    }
+
+    internal static string GetInvalidTypeMessage(string type)
+    {
+        if (TryGetMessage(bindings => bindings.InitInvalidTypeMessage(type), out var message))
+            return message;
+
+        return GetInvalidTypeMessageWithCSharp(type);
+    }
+
+    internal static string GetProjectFileExistsMessage()
+    {
+        if (TryGetMessage(bindings => bindings.InitProjectFileExistsMessage(), out var message))
+            return message;
+
+        return GetProjectFileExistsMessageWithCSharp();
+    }
+
+    internal static string GetCreatedFileMessage(string sourceFile)
+    {
+        if (TryGetMessage(bindings => bindings.InitCreatedFileMessage(sourceFile), out var message))
+            return message;
+
+        return GetCreatedFileMessageWithCSharp(sourceFile);
+    }
+
+    internal static string GetSuccessMessage()
+    {
+        if (TryGetMessage(bindings => bindings.InitSuccessMessage(), out var message))
+            return message;
+
+        return GetSuccessMessageWithCSharp();
+    }
+
+    internal static string GetFailedMessage(string message)
+    {
+        if (TryGetMessage(bindings => bindings.InitFailedMessage(message), out var result))
+            return result;
+
+        return GetFailedMessageWithCSharp(message);
+    }
+
+    private static bool TryGetMessage(Func<Bindings, string> getMessage, out string message)
+    {
+        message = string.Empty;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        try
+        {
+            message = getMessage(bindings);
+            return !string.IsNullOrEmpty(message);
+        }
+        catch
+        {
+            message = string.Empty;
+            return false;
+        }
+    }
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product init command messages route through CliInit* kernels.
+    private static string GetHelpTextWithCSharp()
+        => "N# Init\n"
+           + "\n"
+           + "Usage: nlc init [options]\n"
+           + "\n"
+           + "Initialize N# in the current directory. Like 'cargo init' — works in an\n"
+           + "existing directory instead of creating a new one.\n"
+           + "\n"
+           + "Options:\n"
+           + "  --name <name>   Project name (default: current directory name)\n"
+           + "  --type <type>   Output type: exe or library (default: exe)\n"
+           + "  --force         Overwrite existing project.yml\n"
+           + "  --help, -h      Show this help text\n"
+           + "\n"
+           + "Examples:\n"
+           + "  nlc init\n"
+           + "  nlc init --name MyLib --type library\n"
+           + "  nlc init --force\n"
+           + "\n"
+           + "Exit codes:\n"
+           + "  0  Project initialized successfully\n"
+           + "  1  Initialization failed";
+
+    private static string GetInvalidTypeMessageWithCSharp(string type)
+        => $"Invalid type '{type}'. Expected 'exe' or 'library'.";
+
+    private static string GetProjectFileExistsMessageWithCSharp()
+        => "project.yml already exists. Use --force to overwrite.";
+
+    private static string GetCreatedFileMessageWithCSharp(string sourceFile)
+        => $"Created: {sourceFile}";
+
+    private static string GetSuccessMessageWithCSharp()
+        => "N# project initialized. Run 'nlc build' to compile.";
+
+    private static string GetFailedMessageWithCSharp(string message)
+        => $"Init failed: {message}";
+
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
             DogfoodKernelLoader.CreateDelegate<CliInitOptionSummaryInto>(
                 programType,
-                "CliInitOptionSummaryInto")));
+                "CliInitOptionSummaryInto"),
+            DogfoodKernelLoader.CreateDelegate<CliInitHelpText>(
+                programType,
+                "CliInitHelpText"),
+            DogfoodKernelLoader.CreateDelegate<CliInitInvalidTypeMessage>(
+                programType,
+                "CliInitInvalidTypeMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliInitProjectFileExistsMessage>(
+                programType,
+                "CliInitProjectFileExistsMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliInitCreatedFileMessage>(
+                programType,
+                "CliInitCreatedFileMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliInitSuccessMessage>(
+                programType,
+                "CliInitSuccessMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliInitFailedMessage>(
+                programType,
+                "CliInitFailedMessage")));
 
     private delegate int CliInitOptionSummaryInto(
         string[] args,
         int[] resultIndices);
 
-    private sealed record Bindings(CliInitOptionSummaryInto OptionSummary);
+    private delegate string CliInitHelpText();
+    private delegate string CliInitInvalidTypeMessage(string type);
+    private delegate string CliInitProjectFileExistsMessage();
+    private delegate string CliInitCreatedFileMessage(string sourceFile);
+    private delegate string CliInitSuccessMessage();
+    private delegate string CliInitFailedMessage(string message);
+
+    private sealed record Bindings(
+        CliInitOptionSummaryInto OptionSummary,
+        CliInitHelpText InitHelpText,
+        CliInitInvalidTypeMessage InitInvalidTypeMessage,
+        CliInitProjectFileExistsMessage InitProjectFileExistsMessage,
+        CliInitCreatedFileMessage InitCreatedFileMessage,
+        CliInitSuccessMessage InitSuccessMessage,
+        CliInitFailedMessage InitFailedMessage);
 
     private static bool TryGetOptionalArg(string[] args, int index, out string? value)
     {

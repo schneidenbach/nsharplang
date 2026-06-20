@@ -299,7 +299,7 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       `CleanCommand` in `CleanArtifactDirectoryOrderer`; env option summary and output-mode selection now live
       beside `EnvCommand` in `EnvCommandKernels`; doctor option summary and output-mode selection now live beside
       `DoctorCommand` in `DoctorCommandKernels`; audit option summary and output-mode selection now live beside
-      `AuditCommand` in `AuditCommandKernels`; init option summary now lives beside `InitCommand` in
+      `AuditCommand` in `AuditCommandKernels`; init option summary and help/error/status messages now live beside `InitCommand` in
       `InitCommandKernels`; update all-NuGet and target-package
       dependency filtering now lives beside `UpdateCommand` in `UpdateDependencyFilter`; doc option summary,
       output-mode selection, symbol/member ordering, and slug generation now live beside `DocCommand` in `DocCommandKernels`; tree option

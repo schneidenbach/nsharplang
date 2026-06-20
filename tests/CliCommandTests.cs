@@ -700,6 +700,22 @@ func Main() {
 
         Assert.True(InitCommand.GetOptionSummary(new[] { "help" }).ShowHelp);
         Assert.True(InitCommand.GetOptionSummary(new[] { "ignored", "-h" }).ShowHelp);
+
+        var helpText = InitCommandKernels.GetHelpText();
+        Assert.Contains("N# Init", helpText);
+        Assert.Contains("Usage: nlc init [options]", helpText);
+        Assert.Contains("Initialization failed", helpText);
+        Assert.Equal(
+            "Invalid type 'service'. Expected 'exe' or 'library'.",
+            InitCommandKernels.GetInvalidTypeMessage("service"));
+        Assert.Equal(
+            "project.yml already exists. Use --force to overwrite.",
+            InitCommandKernels.GetProjectFileExistsMessage());
+        Assert.Equal("Created: Program.nl", InitCommandKernels.GetCreatedFileMessage("Program.nl"));
+        Assert.Equal(
+            "N# project initialized. Run 'nlc build' to compile.",
+            InitCommandKernels.GetSuccessMessage());
+        Assert.Equal("Init failed: denied", InitCommandKernels.GetFailedMessage("denied"));
     }
 
     [Fact]

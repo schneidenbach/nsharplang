@@ -2464,6 +2464,50 @@ func CliInitOptionSummaryCore(args: &CliArgumentTable, resultIndices: &CliIndexR
     return 0
 }
 
+func CliInitHelpText(): string {
+    return "N# Init\n"
+        + "\n"
+        + "Usage: nlc init [options]\n"
+        + "\n"
+        + "Initialize N# in the current directory. Like 'cargo init' — works in an\n"
+        + "existing directory instead of creating a new one.\n"
+        + "\n"
+        + "Options:\n"
+        + "  --name <name>   Project name (default: current directory name)\n"
+        + "  --type <type>   Output type: exe or library (default: exe)\n"
+        + "  --force         Overwrite existing project.yml\n"
+        + "  --help, -h      Show this help text\n"
+        + "\n"
+        + "Examples:\n"
+        + "  nlc init\n"
+        + "  nlc init --name MyLib --type library\n"
+        + "  nlc init --force\n"
+        + "\n"
+        + "Exit codes:\n"
+        + "  0  Project initialized successfully\n"
+        + "  1  Initialization failed"
+}
+
+func CliInitInvalidTypeMessage(projectType: string): string {
+    return "Invalid type '" + projectType + "'. Expected 'exe' or 'library'."
+}
+
+func CliInitProjectFileExistsMessage(): string {
+    return "project.yml already exists. Use --force to overwrite."
+}
+
+func CliInitCreatedFileMessage(sourceFile: string): string {
+    return "Created: " + sourceFile
+}
+
+func CliInitSuccessMessage(): string {
+    return "N# project initialized. Run 'nlc build' to compile."
+}
+
+func CliInitFailedMessage(message: string): string {
+    return "Init failed: " + message
+}
+
 func CliRestoreOptionSummaryInto(args: string[], resultIndices: int[]): int {
     arguments := new CliArgumentTable { Args: args }
     results := new CliIndexResultTable { Indices: resultIndices }

@@ -7128,6 +7128,12 @@ func outer(x: int): int {
         Assert.Contains("CliAuditOptionSummaryInto", methodNames!); // product audit option parsing.
         Assert.Contains("CliAuditOutputMode", methodNames!); // product audit output mode selection.
         Assert.Contains("CliInitOptionSummaryInto", methodNames!); // product init option parsing.
+        Assert.Contains("CliInitHelpText", methodNames!); // product init help text shaping.
+        Assert.Contains("CliInitInvalidTypeMessage", methodNames!); // product init invalid-type message shaping.
+        Assert.Contains("CliInitProjectFileExistsMessage", methodNames!); // product init existing-project message shaping.
+        Assert.Contains("CliInitCreatedFileMessage", methodNames!); // product init created-file message shaping.
+        Assert.Contains("CliInitSuccessMessage", methodNames!); // product init success message shaping.
+        Assert.Contains("CliInitFailedMessage", methodNames!); // product init failure message shaping.
         Assert.Contains("CliRestoreOptionSummaryInto", methodNames!); // product restore option parsing.
         Assert.Contains("CliRestoreHelpText", methodNames!); // product restore help text shaping.
         Assert.Contains("CliRestoreMissingProjectFileMessage", methodNames!); // product restore missing-project message shaping.
@@ -16025,6 +16031,30 @@ class OtherZetaType {
                     "CliInitOptionSummaryInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliInitOptionSummaryInto.");
+            var cliInitHelpText = programType.GetMethod(
+                    "CliInitHelpText",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliInitHelpText.");
+            var cliInitInvalidTypeMessage = programType.GetMethod(
+                    "CliInitInvalidTypeMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliInitInvalidTypeMessage.");
+            var cliInitProjectFileExistsMessage = programType.GetMethod(
+                    "CliInitProjectFileExistsMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliInitProjectFileExistsMessage.");
+            var cliInitCreatedFileMessage = programType.GetMethod(
+                    "CliInitCreatedFileMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliInitCreatedFileMessage.");
+            var cliInitSuccessMessage = programType.GetMethod(
+                    "CliInitSuccessMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliInitSuccessMessage.");
+            var cliInitFailedMessage = programType.GetMethod(
+                    "CliInitFailedMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliInitFailedMessage.");
             var cliRestoreOptionSummaryInto = programType.GetMethod(
                     "CliRestoreOptionSummaryInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -17105,6 +17135,13 @@ func main(customer: Customer, résumé: Profile) {
             AssertCliAuditOptionsLikeProduction(cliAuditOptionSummaryInto);
             AssertCliJsonFlagOutputModesLikeProduction(cliAuditOutputMode);
             AssertCliInitOptionsLikeProduction(cliInitOptionSummaryInto);
+            AssertCliInitMessagesLikeProduction(
+                cliInitHelpText,
+                cliInitInvalidTypeMessage,
+                cliInitProjectFileExistsMessage,
+                cliInitCreatedFileMessage,
+                cliInitSuccessMessage,
+                cliInitFailedMessage);
             AssertCliRestoreOptionsLikeProduction(cliRestoreOptionSummaryInto);
             AssertCliRestoreMessagesLikeProduction(
                 cliRestoreHelpText,
@@ -22628,6 +22665,35 @@ func main() {
             (int)(cliInitOptionSummaryInto.Invoke(
                 null,
                 new object[] { new[] { "--force" }, new int[3] }) ?? 0));
+    }
+
+    private static void AssertCliInitMessagesLikeProduction(
+        MethodInfo cliInitHelpText,
+        MethodInfo cliInitInvalidTypeMessage,
+        MethodInfo cliInitProjectFileExistsMessage,
+        MethodInfo cliInitCreatedFileMessage,
+        MethodInfo cliInitSuccessMessage,
+        MethodInfo cliInitFailedMessage)
+    {
+        var help = (string)(cliInitHelpText.Invoke(null, Array.Empty<object>()) ?? "<null>");
+        Assert.Contains("N# Init", help);
+        Assert.Contains("Usage: nlc init [options]", help);
+        Assert.Contains("Initialization failed", help);
+
+        var invalidType = (string)(cliInitInvalidTypeMessage.Invoke(null, new object[] { "service" }) ?? "<null>");
+        Assert.Equal("Invalid type 'service'. Expected 'exe' or 'library'.", invalidType);
+
+        var exists = (string)(cliInitProjectFileExistsMessage.Invoke(null, Array.Empty<object>()) ?? "<null>");
+        Assert.Equal("project.yml already exists. Use --force to overwrite.", exists);
+
+        var created = (string)(cliInitCreatedFileMessage.Invoke(null, new object[] { "Program.nl" }) ?? "<null>");
+        Assert.Equal("Created: Program.nl", created);
+
+        var success = (string)(cliInitSuccessMessage.Invoke(null, Array.Empty<object>()) ?? "<null>");
+        Assert.Equal("N# project initialized. Run 'nlc build' to compile.", success);
+
+        var failed = (string)(cliInitFailedMessage.Invoke(null, new object[] { "denied" }) ?? "<null>");
+        Assert.Equal("Init failed: denied", failed);
     }
 
     private static int[] CreateExpectedCliInitOptions(string[] args)

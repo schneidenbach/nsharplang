@@ -1339,6 +1339,77 @@ dependencies:
     }
 
     [Fact]
+    public void InitCommand_Help_ShowsUsage()
+    {
+        var (exitCode, stdout, stderr) = CaptureConsole(() =>
+            ExecuteProgram("init", "--help"));
+
+        Assert.Equal(0, exitCode);
+        Assert.True(string.IsNullOrWhiteSpace(stderr));
+        Assert.Contains("N# Init", stdout);
+        Assert.Contains("Usage: nlc init [options]", stdout);
+        Assert.Contains("--force", stdout);
+    }
+
+    [Fact]
+    public void InitCommand_InvalidType_ReturnsHelpfulMessage()
+    {
+        var tempDir = CreateTempDir();
+        var originalDirectory = Directory.GetCurrentDirectory();
+
+        try
+        {
+            Directory.SetCurrentDirectory(tempDir);
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                ExecuteProgram("init", "--type", "service"));
+
+            Assert.Equal(1, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stdout));
+            Assert.Contains("Invalid type 'service'. Expected 'exe' or 'library'.", stderr);
+            Assert.False(File.Exists(Path.Combine(tempDir, "project.yml")));
+        }
+        finally
+        {
+            Directory.SetCurrentDirectory(originalDirectory);
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void InitCommand_CreatesMinimalProjectFiles()
+    {
+        var tempDir = CreateTempDir();
+        var originalDirectory = Directory.GetCurrentDirectory();
+
+        try
+        {
+            Directory.SetCurrentDirectory(tempDir);
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                ExecuteProgram("init", "--name", "DemoLib", "--type", "library"));
+
+            Assert.Equal(0, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stderr));
+            Assert.Contains("Created: project.yml", stdout);
+            Assert.Contains("Created: DemoLib.csproj", stdout);
+            Assert.Contains("N# project initialized. Run 'nlc build' to compile.", stdout);
+
+            var projectYaml = File.ReadAllText(Path.Combine(tempDir, "project.yml"));
+            Assert.Contains("name: DemoLib", projectYaml);
+            Assert.Contains("outputType: library", projectYaml);
+            Assert.DoesNotContain("entry:", projectYaml);
+            Assert.Equal("<Project Sdk=\"NSharpLang.Sdk\" />\n", File.ReadAllText(Path.Combine(tempDir, "DemoLib.csproj")));
+            Assert.False(File.Exists(Path.Combine(tempDir, "Program.nl")));
+        }
+        finally
+        {
+            Directory.SetCurrentDirectory(originalDirectory);
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void RestoreCommand_Help_ShowsProjectYmlProjection()
     {
         var (exitCode, stdout, stderr) = CaptureConsole(() =>
