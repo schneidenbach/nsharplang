@@ -1308,6 +1308,72 @@ func CliAddStringEqualsAsciiIgnoreCase(left: string, right: string): bool {
     return true
 }
 
+func CliAddHelpText(): string {
+    return "N# Add Dependency\n"
+        + "\n"
+        + "Usage: nlc add <package> [options]\n"
+        + "       nlc add <package>@<version>\n"
+        + "       nlc add --path <local-project>\n"
+        + "\n"
+        + "Add a NuGet package, framework reference, or local project reference to project.yml.\n"
+        + "If no version is specified, the latest version is resolved from NuGet.\n"
+        + "\n"
+        + "Options:\n"
+        + "  --version <ver>   Package version (alternative to @version syntax)\n"
+        + "  --prerelease      Allow prerelease versions when resolving latest\n"
+        + "  --framework       Add as a framework reference instead of NuGet package\n"
+        + "  --path <path>     Add a local project reference (path to project directory or .csproj)\n"
+        + "  --help, -h        Show this help text\n"
+        + "\n"
+        + "Examples:\n"
+        + "  nlc add Newtonsoft.Json\n"
+        + "  nlc add Serilog@3.1.0\n"
+        + "  nlc add Serilog --version 3.1.0\n"
+        + "  nlc add System.Text.Json --prerelease\n"
+        + "  nlc add Microsoft.AspNetCore.App --framework\n"
+        + "  nlc add --path ../MyLibrary\n"
+        + "\n"
+        + "Exit codes:\n"
+        + "  0  Dependency added successfully\n"
+        + "  1  Failed to add dependency"
+}
+
+func CliAddUsageMessage(): string {
+    return "Usage: nlc add <package> [--version <ver>]\n       nlc add <package>@<version>"
+}
+
+func CliAddMissingProjectFileMessage(): string {
+    return "No project.yml found. Run 'nlc new <name>' or 'nlc init' to create a project."
+}
+
+func CliAddResolvingLatestVersionMessage(packageName: string): string {
+    return "Resolving latest version for " + packageName + "..."
+}
+
+func CliAddPackageNotFoundMessage(packageName: string): string {
+    return "Could not find package '" + packageName + "' on NuGet. Check the package name and try again."
+}
+
+func CliAddDuplicatePackageMessage(packageName: string): string {
+    return "'" + packageName + "' is already in dependencies. Use 'nlc update' to change the version."
+}
+
+func CliAddDuplicateProjectReferenceMessage(localPath: string): string {
+    return "Project reference '" + localPath + "' is already in dependencies."
+}
+
+func CliAddFrameworkAddedMessage(packageName: string): string {
+    return "Added framework reference '" + packageName + "' to project.yml"
+}
+
+func CliAddPackageAddedMessage(packageName: string, version: string): string {
+    return "Added " + packageName + "@" + version + " to project.yml"
+}
+
+func CliAddProjectReferenceAddedMessage(localPath: string): string {
+    return "Added project reference '" + localPath + "' to project.yml"
+}
+
 func CliRemoveArgumentSummaryInto(args: string[], resultIndices: int[]): int {
     arguments := new CliArgumentTable { Args: args }
     results := new CliIndexResultTable { Indices: resultIndices }

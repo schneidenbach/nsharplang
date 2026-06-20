@@ -1287,6 +1287,42 @@ func Main() {
     }
 
     [Fact]
+    public void AddCommand_NoArgs_ReturnsUsage()
+    {
+        var (exitCode, stdout, stderr) = CaptureConsole(() =>
+            AddCommand.Execute(Array.Empty<string>()));
+
+        Assert.Equal(1, exitCode);
+        Assert.True(string.IsNullOrWhiteSpace(stdout));
+        Assert.Contains("Usage: nlc add <package>", stderr);
+        Assert.Contains("nlc add <package>@<version>", stderr);
+    }
+
+    [Fact]
+    public void AddCommand_NoProjectYml_ReturnsHelpfulMessage()
+    {
+        var tempDir = CreateTempDir();
+        var originalDirectory = Directory.GetCurrentDirectory();
+
+        try
+        {
+            Directory.SetCurrentDirectory(tempDir);
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                AddCommand.Execute(new[] { "Serilog@3.1.0" }));
+
+            Assert.Equal(1, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stdout));
+            Assert.Contains("No project.yml found. Run 'nlc new <name>' or 'nlc init' to create a project.", stderr);
+        }
+        finally
+        {
+            Directory.SetCurrentDirectory(originalDirectory);
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void AddCommand_AddsInlinePackageBeforeNextTopLevelBlock()
     {
         var projectDir = CreateTempDir();

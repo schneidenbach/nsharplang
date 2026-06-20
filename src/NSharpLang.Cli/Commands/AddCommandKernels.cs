@@ -256,6 +256,163 @@ internal static class AddCommandKernels
         }
     }
 
+    internal static string GetHelpText()
+    {
+        if (TryGetMessage(bindings => bindings.AddHelpText(), out var message))
+            return message;
+
+        return GetHelpTextWithCSharp();
+    }
+
+    internal static string GetUsageMessage()
+    {
+        if (TryGetMessage(bindings => bindings.AddUsageMessage(), out var message))
+            return message;
+
+        return GetUsageMessageWithCSharp();
+    }
+
+    internal static string GetMissingProjectFileMessage()
+    {
+        if (TryGetMessage(bindings => bindings.AddMissingProjectFileMessage(), out var message))
+            return message;
+
+        return GetMissingProjectFileMessageWithCSharp();
+    }
+
+    internal static string GetResolvingLatestVersionMessage(string packageName)
+    {
+        if (TryGetMessage(bindings => bindings.AddResolvingLatestVersionMessage(packageName), out var message))
+            return message;
+
+        return GetResolvingLatestVersionMessageWithCSharp(packageName);
+    }
+
+    internal static string GetPackageNotFoundMessage(string packageName)
+    {
+        if (TryGetMessage(bindings => bindings.AddPackageNotFoundMessage(packageName), out var message))
+            return message;
+
+        return GetPackageNotFoundMessageWithCSharp(packageName);
+    }
+
+    internal static string GetDuplicatePackageMessage(string packageName)
+    {
+        if (TryGetMessage(bindings => bindings.AddDuplicatePackageMessage(packageName), out var message))
+            return message;
+
+        return GetDuplicatePackageMessageWithCSharp(packageName);
+    }
+
+    internal static string GetDuplicateProjectReferenceMessage(string localPath)
+    {
+        if (TryGetMessage(bindings => bindings.AddDuplicateProjectReferenceMessage(localPath), out var message))
+            return message;
+
+        return GetDuplicateProjectReferenceMessageWithCSharp(localPath);
+    }
+
+    internal static string GetFrameworkAddedMessage(string packageName)
+    {
+        if (TryGetMessage(bindings => bindings.AddFrameworkAddedMessage(packageName), out var message))
+            return message;
+
+        return GetFrameworkAddedMessageWithCSharp(packageName);
+    }
+
+    internal static string GetPackageAddedMessage(string packageName, string version)
+    {
+        if (TryGetMessage(bindings => bindings.AddPackageAddedMessage(packageName, version), out var message))
+            return message;
+
+        return GetPackageAddedMessageWithCSharp(packageName, version);
+    }
+
+    internal static string GetProjectReferenceAddedMessage(string localPath)
+    {
+        if (TryGetMessage(bindings => bindings.AddProjectReferenceAddedMessage(localPath), out var message))
+            return message;
+
+        return GetProjectReferenceAddedMessageWithCSharp(localPath);
+    }
+
+    private static bool TryGetMessage(Func<Bindings, string> getMessage, out string message)
+    {
+        message = string.Empty;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        try
+        {
+            message = getMessage(bindings);
+            return !string.IsNullOrEmpty(message);
+        }
+        catch
+        {
+            message = string.Empty;
+            return false;
+        }
+    }
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product add command messages route through CliAdd*Message kernels.
+    private static string GetHelpTextWithCSharp()
+        => "N# Add Dependency\n"
+           + "\n"
+           + "Usage: nlc add <package> [options]\n"
+           + "       nlc add <package>@<version>\n"
+           + "       nlc add --path <local-project>\n"
+           + "\n"
+           + "Add a NuGet package, framework reference, or local project reference to project.yml.\n"
+           + "If no version is specified, the latest version is resolved from NuGet.\n"
+           + "\n"
+           + "Options:\n"
+           + "  --version <ver>   Package version (alternative to @version syntax)\n"
+           + "  --prerelease      Allow prerelease versions when resolving latest\n"
+           + "  --framework       Add as a framework reference instead of NuGet package\n"
+           + "  --path <path>     Add a local project reference (path to project directory or .csproj)\n"
+           + "  --help, -h        Show this help text\n"
+           + "\n"
+           + "Examples:\n"
+           + "  nlc add Newtonsoft.Json\n"
+           + "  nlc add Serilog@3.1.0\n"
+           + "  nlc add Serilog --version 3.1.0\n"
+           + "  nlc add System.Text.Json --prerelease\n"
+           + "  nlc add Microsoft.AspNetCore.App --framework\n"
+           + "  nlc add --path ../MyLibrary\n"
+           + "\n"
+           + "Exit codes:\n"
+           + "  0  Dependency added successfully\n"
+           + "  1  Failed to add dependency";
+
+    private static string GetUsageMessageWithCSharp()
+        => "Usage: nlc add <package> [--version <ver>]\n       nlc add <package>@<version>";
+
+    private static string GetMissingProjectFileMessageWithCSharp()
+        => "No project.yml found. Run 'nlc new <name>' or 'nlc init' to create a project.";
+
+    private static string GetResolvingLatestVersionMessageWithCSharp(string packageName)
+        => $"Resolving latest version for {packageName}...";
+
+    private static string GetPackageNotFoundMessageWithCSharp(string packageName)
+        => $"Could not find package '{packageName}' on NuGet. Check the package name and try again.";
+
+    private static string GetDuplicatePackageMessageWithCSharp(string packageName)
+        => $"'{packageName}' is already in dependencies. Use 'nlc update' to change the version.";
+
+    private static string GetDuplicateProjectReferenceMessageWithCSharp(string localPath)
+        => $"Project reference '{localPath}' is already in dependencies.";
+
+    private static string GetFrameworkAddedMessageWithCSharp(string packageName)
+        => $"Added framework reference '{packageName}' to project.yml";
+
+    private static string GetPackageAddedMessageWithCSharp(string packageName, string version)
+        => $"Added {packageName}@{version} to project.yml";
+
+    private static string GetProjectReferenceAddedMessageWithCSharp(string localPath)
+        => $"Added project reference '{localPath}' to project.yml";
+
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
             DogfoodKernelLoader.CreateDelegate<CliFirstPositionalArgIndex>(
@@ -275,7 +432,37 @@ internal static class AddCommandKernels
                 "CliAddPackageOrFrameworkDependencyExists"),
             DogfoodKernelLoader.CreateDelegate<CliAddProjectDependencyExists>(
                 programType,
-                "CliAddProjectDependencyExists")));
+                "CliAddProjectDependencyExists"),
+            DogfoodKernelLoader.CreateDelegate<CliAddHelpText>(
+                programType,
+                "CliAddHelpText"),
+            DogfoodKernelLoader.CreateDelegate<CliAddUsageMessage>(
+                programType,
+                "CliAddUsageMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliAddMissingProjectFileMessage>(
+                programType,
+                "CliAddMissingProjectFileMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliAddResolvingLatestVersionMessage>(
+                programType,
+                "CliAddResolvingLatestVersionMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliAddPackageNotFoundMessage>(
+                programType,
+                "CliAddPackageNotFoundMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliAddDuplicatePackageMessage>(
+                programType,
+                "CliAddDuplicatePackageMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliAddDuplicateProjectReferenceMessage>(
+                programType,
+                "CliAddDuplicateProjectReferenceMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliAddFrameworkAddedMessage>(
+                programType,
+                "CliAddFrameworkAddedMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliAddPackageAddedMessage>(
+                programType,
+                "CliAddPackageAddedMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliAddProjectReferenceAddedMessage>(
+                programType,
+                "CliAddProjectReferenceAddedMessage")));
 
     private delegate int CliFirstPositionalArgIndex(
         string[] args,
@@ -308,13 +495,34 @@ internal static class AddCommandKernels
         int count,
         string localPath);
 
+    private delegate string CliAddHelpText();
+    private delegate string CliAddUsageMessage();
+    private delegate string CliAddMissingProjectFileMessage();
+    private delegate string CliAddResolvingLatestVersionMessage(string packageName);
+    private delegate string CliAddPackageNotFoundMessage(string packageName);
+    private delegate string CliAddDuplicatePackageMessage(string packageName);
+    private delegate string CliAddDuplicateProjectReferenceMessage(string localPath);
+    private delegate string CliAddFrameworkAddedMessage(string packageName);
+    private delegate string CliAddPackageAddedMessage(string packageName, string version);
+    private delegate string CliAddProjectReferenceAddedMessage(string localPath);
+
     private sealed record Bindings(
         CliFirstPositionalArgIndex FirstPositionalArgIndex,
         CliAddArgumentSummaryInto AddArgumentSummary,
         CliAddPackageSpecInto AddPackageSpec,
         CliAddDependencyInsertIndex AddDependencyInsertIndex,
         CliAddPackageOrFrameworkDependencyExists AddPackageOrFrameworkDependencyExists,
-        CliAddProjectDependencyExists AddProjectDependencyExists);
+        CliAddProjectDependencyExists AddProjectDependencyExists,
+        CliAddHelpText AddHelpText,
+        CliAddUsageMessage AddUsageMessage,
+        CliAddMissingProjectFileMessage AddMissingProjectFileMessage,
+        CliAddResolvingLatestVersionMessage AddResolvingLatestVersionMessage,
+        CliAddPackageNotFoundMessage AddPackageNotFoundMessage,
+        CliAddDuplicatePackageMessage AddDuplicatePackageMessage,
+        CliAddDuplicateProjectReferenceMessage AddDuplicateProjectReferenceMessage,
+        CliAddFrameworkAddedMessage AddFrameworkAddedMessage,
+        CliAddPackageAddedMessage AddPackageAddedMessage,
+        CliAddProjectReferenceAddedMessage AddProjectReferenceAddedMessage);
 
     private static bool TryGetOptionalArg(string[] args, int index, out string? value)
     {

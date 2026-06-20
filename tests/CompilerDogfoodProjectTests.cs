@@ -7065,6 +7065,16 @@ func outer(x: int): int {
         Assert.Contains("CliAddDependencyInsertIndex", methodNames!); // product add dependency insertion planning.
         Assert.Contains("CliAddPackageOrFrameworkDependencyExists", methodNames!); // product add duplicate package/framework checks.
         Assert.Contains("CliAddProjectDependencyExists", methodNames!); // product add duplicate project checks.
+        Assert.Contains("CliAddHelpText", methodNames!); // product add help text shaping.
+        Assert.Contains("CliAddUsageMessage", methodNames!); // product add usage message shaping.
+        Assert.Contains("CliAddMissingProjectFileMessage", methodNames!); // product add missing-project message shaping.
+        Assert.Contains("CliAddResolvingLatestVersionMessage", methodNames!); // product add resolving message shaping.
+        Assert.Contains("CliAddPackageNotFoundMessage", methodNames!); // product add package-not-found message shaping.
+        Assert.Contains("CliAddDuplicatePackageMessage", methodNames!); // product add duplicate-package message shaping.
+        Assert.Contains("CliAddDuplicateProjectReferenceMessage", methodNames!); // product add duplicate-project message shaping.
+        Assert.Contains("CliAddFrameworkAddedMessage", methodNames!); // product add framework-added message shaping.
+        Assert.Contains("CliAddPackageAddedMessage", methodNames!); // product add package-added message shaping.
+        Assert.Contains("CliAddProjectReferenceAddedMessage", methodNames!); // product add project-added message shaping.
         Assert.Contains("CliRemoveArgumentSummaryInto", methodNames!); // product remove argument parsing.
         Assert.Contains("CliRemoveDependencyLineAction", methodNames!); // product remove dependency-line pruning.
         Assert.Contains("CliRemoveShouldStopDependencyContinuationLine", methodNames!); // product remove dependency continuation pruning.
@@ -15568,6 +15578,46 @@ class OtherZetaType {
                     "CliAddArgumentSummaryInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliAddArgumentSummaryInto.");
+            var cliAddHelpText = programType.GetMethod(
+                    "CliAddHelpText",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliAddHelpText.");
+            var cliAddUsageMessage = programType.GetMethod(
+                    "CliAddUsageMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliAddUsageMessage.");
+            var cliAddMissingProjectFileMessage = programType.GetMethod(
+                    "CliAddMissingProjectFileMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliAddMissingProjectFileMessage.");
+            var cliAddResolvingLatestVersionMessage = programType.GetMethod(
+                    "CliAddResolvingLatestVersionMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliAddResolvingLatestVersionMessage.");
+            var cliAddPackageNotFoundMessage = programType.GetMethod(
+                    "CliAddPackageNotFoundMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliAddPackageNotFoundMessage.");
+            var cliAddDuplicatePackageMessage = programType.GetMethod(
+                    "CliAddDuplicatePackageMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliAddDuplicatePackageMessage.");
+            var cliAddDuplicateProjectReferenceMessage = programType.GetMethod(
+                    "CliAddDuplicateProjectReferenceMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliAddDuplicateProjectReferenceMessage.");
+            var cliAddFrameworkAddedMessage = programType.GetMethod(
+                    "CliAddFrameworkAddedMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliAddFrameworkAddedMessage.");
+            var cliAddPackageAddedMessage = programType.GetMethod(
+                    "CliAddPackageAddedMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliAddPackageAddedMessage.");
+            var cliAddProjectReferenceAddedMessage = programType.GetMethod(
+                    "CliAddProjectReferenceAddedMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliAddProjectReferenceAddedMessage.");
             var cliRemoveArgumentSummaryInto = programType.GetMethod(
                     "CliRemoveArgumentSummaryInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -16760,6 +16810,17 @@ func main(customer: Customer, résumé: Profile) {
             AssertCliFixOutputModesLikeProduction(cliFixEffectiveOutputMode);
             AssertCliNewArgumentsLikeProduction(cliNewArgumentSummaryInto);
             AssertCliAddArgumentsLikeProduction(cliAddArgumentSummaryInto);
+            AssertCliAddMessagesLikeProduction(
+                cliAddHelpText,
+                cliAddUsageMessage,
+                cliAddMissingProjectFileMessage,
+                cliAddResolvingLatestVersionMessage,
+                cliAddPackageNotFoundMessage,
+                cliAddDuplicatePackageMessage,
+                cliAddDuplicateProjectReferenceMessage,
+                cliAddFrameworkAddedMessage,
+                cliAddPackageAddedMessage,
+                cliAddProjectReferenceAddedMessage);
             AssertCliRemoveArgumentsLikeProduction(cliRemoveArgumentSummaryInto);
             AssertCliUpdateArgumentsLikeProduction(cliUpdateArgumentSummaryInto);
             AssertCliCompletionOptionsLikeProduction(cliCompletionOptionSummaryInto);
@@ -20263,6 +20324,60 @@ func main() {
             (int)(cliAddArgumentSummaryInto.Invoke(
                 null,
                 new object[] { new[] { "--framework" }, new int[5] }) ?? 0));
+    }
+
+    private static void AssertCliAddMessagesLikeProduction(
+        MethodInfo cliAddHelpText,
+        MethodInfo cliAddUsageMessage,
+        MethodInfo cliAddMissingProjectFileMessage,
+        MethodInfo cliAddResolvingLatestVersionMessage,
+        MethodInfo cliAddPackageNotFoundMessage,
+        MethodInfo cliAddDuplicatePackageMessage,
+        MethodInfo cliAddDuplicateProjectReferenceMessage,
+        MethodInfo cliAddFrameworkAddedMessage,
+        MethodInfo cliAddPackageAddedMessage,
+        MethodInfo cliAddProjectReferenceAddedMessage)
+    {
+        var help = (string)(cliAddHelpText.Invoke(null, Array.Empty<object>()) ?? "<null>");
+        Assert.Contains("N# Add Dependency", help);
+        Assert.Contains("Usage: nlc add <package> [options]", help);
+        Assert.Contains("--path <path>", help);
+        Assert.Contains("Failed to add dependency", help);
+
+        var usage = (string)(cliAddUsageMessage.Invoke(null, Array.Empty<object>()) ?? "<null>");
+        Assert.Equal("Usage: nlc add <package> [--version <ver>]\n       nlc add <package>@<version>", usage);
+
+        var missingProject = (string)(cliAddMissingProjectFileMessage.Invoke(null, Array.Empty<object>()) ?? "<null>");
+        Assert.Equal("No project.yml found. Run 'nlc new <name>' or 'nlc init' to create a project.", missingProject);
+
+        var resolving = (string)(cliAddResolvingLatestVersionMessage.Invoke(null, new object[] { "Serilog" }) ?? "<null>");
+        Assert.Equal("Resolving latest version for Serilog...", resolving);
+
+        var notFound = (string)(cliAddPackageNotFoundMessage.Invoke(null, new object[] { "Missing.Package" }) ?? "<null>");
+        Assert.Equal("Could not find package 'Missing.Package' on NuGet. Check the package name and try again.", notFound);
+
+        var duplicatePackage = (string)(cliAddDuplicatePackageMessage.Invoke(null, new object[] { "Serilog" }) ?? "<null>");
+        Assert.Equal("'Serilog' is already in dependencies. Use 'nlc update' to change the version.", duplicatePackage);
+
+        var duplicateProject = (string)(cliAddDuplicateProjectReferenceMessage.Invoke(
+            null,
+            new object[] { "../Shared/project.yml" }) ?? "<null>");
+        Assert.Equal("Project reference '../Shared/project.yml' is already in dependencies.", duplicateProject);
+
+        var frameworkAdded = (string)(cliAddFrameworkAddedMessage.Invoke(
+            null,
+            new object[] { "Microsoft.AspNetCore.App" }) ?? "<null>");
+        Assert.Equal("Added framework reference 'Microsoft.AspNetCore.App' to project.yml", frameworkAdded);
+
+        var packageAdded = (string)(cliAddPackageAddedMessage.Invoke(
+            null,
+            new object[] { "Serilog", "3.1.0" }) ?? "<null>");
+        Assert.Equal("Added Serilog@3.1.0 to project.yml", packageAdded);
+
+        var projectAdded = (string)(cliAddProjectReferenceAddedMessage.Invoke(
+            null,
+            new object[] { "../Shared/project.yml" }) ?? "<null>");
+        Assert.Equal("Added project reference '../Shared/project.yml' to project.yml", projectAdded);
     }
 
     private static int[] CreateExpectedCliAddArguments(string[] args)

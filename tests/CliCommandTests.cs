@@ -2195,6 +2195,33 @@ func Main() {
 
         Assert.True(AddCommand.PackageOrFrameworkDependencyExists(dependencies, "NEWTONSOFT.JSON"));
         Assert.True(AddCommand.ProjectDependencyExists(dependencies, "../SHARED/project.yml"));
+
+        Assert.Equal(
+            "Usage: nlc add <package> [--version <ver>]\n       nlc add <package>@<version>",
+            AddCommandKernels.GetUsageMessage());
+        Assert.Contains("--path <path>", AddCommandKernels.GetHelpText());
+        Assert.Equal(
+            "No project.yml found. Run 'nlc new <name>' or 'nlc init' to create a project.",
+            AddCommandKernels.GetMissingProjectFileMessage());
+        Assert.Equal(
+            "Resolving latest version for Serilog...",
+            AddCommandKernels.GetResolvingLatestVersionMessage("Serilog"));
+        Assert.Equal(
+            "Could not find package 'Missing.Package' on NuGet. Check the package name and try again.",
+            AddCommandKernels.GetPackageNotFoundMessage("Missing.Package"));
+        Assert.Equal(
+            "'Serilog' is already in dependencies. Use 'nlc update' to change the version.",
+            AddCommandKernels.GetDuplicatePackageMessage("Serilog"));
+        Assert.Equal(
+            "Project reference '../Shared/project.yml' is already in dependencies.",
+            AddCommandKernels.GetDuplicateProjectReferenceMessage("../Shared/project.yml"));
+        Assert.Equal(
+            "Added framework reference 'Microsoft.AspNetCore.App' to project.yml",
+            AddCommandKernels.GetFrameworkAddedMessage("Microsoft.AspNetCore.App"));
+        Assert.Equal("Added Serilog@3.1.0 to project.yml", AddCommandKernels.GetPackageAddedMessage("Serilog", "3.1.0"));
+        Assert.Equal(
+            "Added project reference '../Shared/project.yml' to project.yml",
+            AddCommandKernels.GetProjectReferenceAddedMessage("../Shared/project.yml"));
     }
 
     [Fact]

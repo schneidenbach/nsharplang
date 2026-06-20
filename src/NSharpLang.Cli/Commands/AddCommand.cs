@@ -18,13 +18,13 @@ public static class AddCommand
             return ShowHelp();
 
         if (args.Length == 0)
-            return Error("Usage: nlc add <package> [--version <ver>]\n       nlc add <package>@<version>");
+            return Error(AddCommandKernels.GetUsageMessage());
 
         var projectRoot = Directory.GetCurrentDirectory();
         var projectYml = Path.Combine(projectRoot, "project.yml");
 
         if (!File.Exists(projectYml))
-            return Error("No project.yml found. Run 'nlc new <name>' or 'nlc init' to create a project.");
+            return Error(AddCommandKernels.GetMissingProjectFileMessage());
 
         var isFramework = arguments.Framework;
         var isPrerelease = arguments.Prerelease;
@@ -36,7 +36,7 @@ public static class AddCommand
 
         var raw = arguments.PackageOperand;
         if (string.IsNullOrWhiteSpace(raw))
-            return Error("Usage: nlc add <package> [--version <ver>]\n       nlc add <package>@<version>");
+            return Error(AddCommandKernels.GetUsageMessage());
 
         var packageSpec = GetPackageSpec(raw, arguments.VersionOption);
         var packageName = packageSpec.PackageName;
@@ -45,10 +45,10 @@ public static class AddCommand
         // For NuGet packages, resolve version if not specified
         if (!isFramework && version == null)
         {
-            Console.WriteLine($"Resolving latest version for {packageName}...");
+            Console.WriteLine(AddCommandKernels.GetResolvingLatestVersionMessage(packageName));
             version = ResolveLatestVersion(packageName, isPrerelease);
             if (version == null)
-                return Error($"Could not find package '{packageName}' on NuGet. Check the package name and try again.");
+                return Error(AddCommandKernels.GetPackageNotFoundMessage(packageName));
         }
 
         // Check for duplicate
@@ -56,7 +56,7 @@ public static class AddCommand
         {
             var config = ProjectFileParser.Parse(projectYml);
             if (PackageOrFrameworkDependencyExists(config.Dependencies, packageName))
-                return Error($"'{packageName}' is already in dependencies. Use 'nlc update' to change the version.");
+                return Error(AddCommandKernels.GetDuplicatePackageMessage(packageName));
         }
         catch
         {
@@ -92,9 +92,9 @@ public static class AddCommand
         RestoreCommand.Restore(projectRoot, quiet: true);
 
         if (isFramework)
-            Console.WriteLine($"Added framework reference '{packageName}' to project.yml");
+            Console.WriteLine(AddCommandKernels.GetFrameworkAddedMessage(packageName));
         else
-            Console.WriteLine($"Added {packageName}@{version} to project.yml");
+            Console.WriteLine(AddCommandKernels.GetPackageAddedMessage(packageName, version ?? string.Empty));
 
         return 0;
     }
@@ -228,7 +228,7 @@ public static class AddCommand
         {
             var config = ProjectFileParser.Parse(projectYml);
             if (ProjectDependencyExists(config.Dependencies, localPath))
-                return Error($"Project reference '{localPath}' is already in dependencies.");
+                return Error(AddCommandKernels.GetDuplicateProjectReferenceMessage(localPath));
         }
         catch
         {
@@ -252,7 +252,7 @@ public static class AddCommand
         }
 
         File.WriteAllLines(projectYml, lines);
-        Console.WriteLine($"Added project reference '{localPath}' to project.yml");
+        Console.WriteLine(AddCommandKernels.GetProjectReferenceAddedMessage(localPath));
         return 0;
     }
 
@@ -295,34 +295,7 @@ public static class AddCommand
 
     static int ShowHelp()
     {
-        Console.WriteLine(@"N# Add Dependency
-
-Usage: nlc add <package> [options]
-       nlc add <package>@<version>
-       nlc add --path <local-project>
-
-Add a NuGet package, framework reference, or local project reference to project.yml.
-If no version is specified, the latest version is resolved from NuGet.
-
-Options:
-  --version <ver>   Package version (alternative to @version syntax)
-  --prerelease      Allow prerelease versions when resolving latest
-  --framework       Add as a framework reference instead of NuGet package
-  --path <path>     Add a local project reference (path to project directory or .csproj)
-  --help, -h        Show this help text
-
-Examples:
-  nlc add Newtonsoft.Json
-  nlc add Serilog@3.1.0
-  nlc add Serilog --version 3.1.0
-  nlc add System.Text.Json --prerelease
-  nlc add Microsoft.AspNetCore.App --framework
-  nlc add --path ../MyLibrary
-
-Exit codes:
-  0  Dependency added successfully
-  1  Failed to add dependency");
-
+        Console.WriteLine(AddCommandKernels.GetHelpText());
         return 0;
     }
 

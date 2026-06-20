@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-20 — Add command messages move into product N#
+
+`AddCommand` no longer owns help, usage, missing-project, package-resolution, duplicate-dependency, or
+added-reference message bodies in C#. The shipped `CliAdd*Message` dogfood kernels now shape those
+user-facing messages through `AddCommandKernels`; C# keeps console/file-system, NuGet restore/search, and
+fallback/oracle text only.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.AddCommandKernels_SummarizesArguments|FullyQualifiedName~CliParityAuditTests.AddCommand_Help_ShowsPathOption|FullyQualifiedName~CliParityAuditTests.AddCommand_NoArgs_ReturnsUsage|FullyQualifiedName~CliParityAuditTests.AddCommand_NoProjectYml_ReturnsHelpfulMessage|FullyQualifiedName~CliParityAuditTests.AddCommand_AddsInlinePackageBeforeNextTopLevelBlock|FullyQualifiedName~CliParityAuditTests.AddCommand_RejectsDuplicatePackageDependency|FullyQualifiedName~CliParityAuditTests.AddCommand_RejectsDuplicateProjectDependency|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-20 — Publish status messages move into product N#
 
 `Program.PublishCommand` no longer owns the publishing-start, missing-project, or publish-success message
