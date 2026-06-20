@@ -2238,6 +2238,101 @@ func CliTreeOutputMode(useJson: int): int {
     return 2
 }
 
+func CliTreeHelpText(): string {
+    return "N# Dependency Tree\n"
+        + "\n"
+        + "Usage: nlc tree [options]\n"
+        + "\n"
+        + "Show the project's dependencies and transitive NuGet packages when available.\n"
+        + "\n"
+        + "Options:\n"
+        + "  --project <dir>   Project root directory (default: current directory)\n"
+        + "  --depth <n>       Maximum tree depth to display\n"
+        + "  --json            Output as JSON envelope\n"
+        + "  --help, -h        Show this help text\n"
+        + "\n"
+        + "Examples:\n"
+        + "  nlc tree\n"
+        + "  nlc tree --depth 1\n"
+        + "  nlc tree --json\n"
+        + "\n"
+        + "Behavior:\n"
+        + "  project.yml projects list direct runtime dependencies without requiring .csproj files.\n"
+        + "  Transitive NuGet dependencies are included when an MSBuild project file is present.\n"
+        + "\n"
+        + "Exit codes:\n"
+        + "  0  Tree displayed successfully\n"
+        + "  1  Failed to display tree"
+}
+
+func CliTreeProjectDirectoryNotFoundMessage(projectRoot: string): string {
+    return "Project directory not found: " + projectRoot
+}
+
+func CliTreeFailedMessage(message: string): string {
+    return "Tree failed: " + message
+}
+
+func CliTreeNoProjectFileMessage(): string {
+    return "No project.yml or .csproj found. nlc tree reads direct dependencies from project.yml; transitive NuGet dependency output requires an MSBuild project file."
+}
+
+func CliTreeProjectYmlLimitationMessage(): string {
+    return "project.yml output lists direct runtime dependencies only. Transitive NuGet dependencies require an MSBuild project file so dotnet can resolve the package graph."
+}
+
+func CliTreeTransitiveResolutionFailedLimitation(detail: string): string {
+    return "Transitive NuGet dependency resolution through MSBuild failed: " + detail
+}
+
+func CliTreeDotnetRestoreRetryMessage(detail: string): string {
+    return detail + " Run 'dotnet restore' and retry."
+}
+
+func CliTreeDotnetListFailedMessage(): string {
+    return "dotnet list package failed."
+}
+
+func CliTreeProjectHeader(name: string, targetFramework: string): string {
+    return name + " (" + targetFramework + ")"
+}
+
+func CliTreeNoDependenciesLine(): string {
+    return "  (no dependencies)"
+}
+
+func CliTreeDependencyText(name: string, version: string, kind: string): string {
+    if version.Length == 0 {
+        return name + " [" + kind + "]"
+    }
+
+    return name + "@" + version + " [" + kind + "]"
+}
+
+func CliTreeDependencyLine(isLast: int, dependencyText: string): string {
+    if isLast != 0 {
+        return "└── " + dependencyText
+    }
+
+    return "├── " + dependencyText
+}
+
+func CliTreeTransitiveHeader(countText: string): string {
+    return "  transitive (" + countText + " packages):"
+}
+
+func CliTreeTransitiveDependencyLine(dependencyText: string): string {
+    return "    " + dependencyText
+}
+
+func CliTreeLimitationsHeader(): string {
+    return "Limitations:"
+}
+
+func CliTreeLimitationLine(limitation: string): string {
+    return "  - " + limitation
+}
+
 func CliWatchPositiveIntInto(value: string, result: int[]): int {
     if result.Length < 1 {
         return -1

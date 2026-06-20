@@ -29,7 +29,7 @@ public static class TreeCommand
         var maxDepth = GetMaxDepth(args, options);
 
         if (!Directory.Exists(projectRoot))
-            return Error($"Project directory not found: {projectRoot}", outputMode, projectRoot);
+            return Error(TreeCommandKernels.GetProjectDirectoryNotFoundMessage(projectRoot), outputMode, projectRoot);
 
         try
         {
@@ -48,7 +48,7 @@ public static class TreeCommand
         }
         catch (Exception ex)
         {
-            return Error($"Tree failed: {ex.Message}", outputMode, projectRoot);
+            return Error(TreeCommandKernels.GetTreeFailedMessage(ex.Message), outputMode, projectRoot);
         }
     }
 
@@ -72,7 +72,7 @@ public static class TreeCommand
             return BuildFromProjectYml(projectRoot, projectYml, maxDepth);
 
         throw new InvalidOperationException(
-            "No project.yml or .csproj found. nlc tree reads direct dependencies from project.yml; transitive NuGet dependency output requires an MSBuild project file.");
+            TreeCommandKernels.GetNoProjectFileMessage());
     }
 
     static TreeReport BuildFromProjectYml(string projectRoot, string projectYml, int maxDepth, string? extraLimitation = null)
@@ -84,7 +84,7 @@ public static class TreeCommand
         var direct = maxDepth >= 1 ? allDirect : Array.Empty<TreeDependency>();
         var limitations = new List<string>
         {
-            "project.yml output lists direct runtime dependencies only. Transitive NuGet dependencies require an MSBuild project file so dotnet can resolve the package graph."
+            TreeCommandKernels.GetProjectYmlLimitationMessage()
         };
         if (!string.IsNullOrWhiteSpace(extraLimitation))
             limitations.Add(extraLimitation);
@@ -122,10 +122,10 @@ public static class TreeCommand
                     projectRoot,
                     projectYml,
                     maxDepth,
-                    $"Transitive NuGet dependency resolution through MSBuild failed: {detail}");
+                    TreeCommandKernels.GetTransitiveResolutionFailedLimitation(detail));
             }
 
-            throw new InvalidOperationException($"{detail} Run 'dotnet restore' and retry.");
+            throw new InvalidOperationException(TreeCommandKernels.GetDotnetRestoreRetryMessage(detail));
         }
 
         using var doc = JsonDocument.Parse(result.Stdout);
@@ -261,47 +261,43 @@ public static class TreeCommand
         if (!string.IsNullOrWhiteSpace(result.Stdout))
             return result.Stdout.Trim();
 
-        return "dotnet list package failed.";
+        return TreeCommandKernels.GetDotnetListFailedMessage();
     }
 
     static void RenderTree(TreeReport report)
     {
-        Console.WriteLine($"{report.Project.Name} ({report.Project.TargetFramework})");
+        Console.WriteLine(TreeCommandKernels.GetProjectHeader(report.Project.Name, report.Project.TargetFramework));
 
         if (report.Dependencies.Count == 0 && report.TransitiveDependencies.Count == 0)
         {
-            Console.WriteLine("  (no dependencies)");
+            Console.WriteLine(TreeCommandKernels.GetNoDependenciesLine());
         }
 
         for (var i = 0; i < report.Dependencies.Count; i++)
         {
             var isLast = i == report.Dependencies.Count - 1;
-            var prefix = isLast ? "└── " : "├── ";
-            Console.WriteLine($"{prefix}{FormatDependency(report.Dependencies[i])}");
+            Console.WriteLine(TreeCommandKernels.GetDependencyLine(isLast, FormatDependency(report.Dependencies[i])));
         }
 
         if (report.TransitiveDependencies.Count > 0)
         {
             Console.WriteLine();
-            Console.WriteLine($"  transitive ({report.TransitiveDependencies.Count} packages):");
+            Console.WriteLine(TreeCommandKernels.GetTransitiveHeader(report.TransitiveDependencies.Count));
             foreach (var dependency in report.TransitiveDependencies)
-                Console.WriteLine($"    {FormatDependency(dependency)}");
+                Console.WriteLine(TreeCommandKernels.GetTransitiveDependencyLine(FormatDependency(dependency)));
         }
 
         if (report.Limitations.Count > 0)
         {
             Console.WriteLine();
-            Console.WriteLine("Limitations:");
+            Console.WriteLine(TreeCommandKernels.GetLimitationsHeader());
             foreach (var limitation in report.Limitations)
-                Console.WriteLine($"  - {limitation}");
+                Console.WriteLine(TreeCommandKernels.GetLimitationLine(limitation));
         }
     }
 
     static string FormatDependency(TreeDependency dependency)
-    {
-        var version = string.IsNullOrWhiteSpace(dependency.Version) ? "" : $"@{dependency.Version}";
-        return $"{dependency.Name}{version} [{dependency.Kind}]";
-    }
+        => TreeCommandKernels.GetDependencyText(dependency.Name, dependency.Version, dependency.Kind);
 
     internal static TreeOptionSummary GetOptionSummary(string[] args)
         => TreeCommandKernels.TryGetOptionSummary(args, out var summary)
@@ -371,31 +367,7 @@ public static class TreeCommand
 
     static int ShowHelp()
     {
-        Console.WriteLine(@"N# Dependency Tree
-
-Usage: nlc tree [options]
-
-Show the project's dependencies and transitive NuGet packages when available.
-
-Options:
-  --project <dir>   Project root directory (default: current directory)
-  --depth <n>       Maximum tree depth to display
-  --json            Output as JSON envelope
-  --help, -h        Show this help text
-
-Examples:
-  nlc tree
-  nlc tree --depth 1
-  nlc tree --json
-
-Behavior:
-  project.yml projects list direct runtime dependencies without requiring .csproj files.
-  Transitive NuGet dependencies are included when an MSBuild project file is present.
-
-Exit codes:
-  0  Tree displayed successfully
-  1  Failed to display tree");
-
+        Console.WriteLine(TreeCommandKernels.GetHelpText());
         return 0;
     }
 

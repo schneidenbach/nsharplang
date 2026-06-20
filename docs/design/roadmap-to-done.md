@@ -305,7 +305,7 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       `InitCommandKernels`; update all-NuGet and target-package
       dependency filtering now lives beside `UpdateCommand` in `UpdateDependencyFilter`; doc option summary,
       output-mode selection, symbol/member ordering, and slug generation now live beside `DocCommand` in `DocCommandKernels`; tree option
-      summary, depth parsing, and output-mode selection now live beside `TreeCommand` in `TreeCommandKernels`, and tree dependency and
+      summary, depth parsing, output-mode selection, help/error text, limitation text, and text-rendered dependency lines now live beside `TreeCommand` in `TreeCommandKernels`, and tree dependency and
       target-framework deduplication now live beside `TreeCommand` in `TreeDependencyDeduplicator`;
       completion shell option summary plus help/error messages now live beside `CompletionCommand` in `CompletionCommandKernels`;
       formatter `.editorconfig` integer parsing now lives beside `FormatterConfig` in

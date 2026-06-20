@@ -278,6 +278,39 @@ func Main() {
         Assert.True(TreeCommandKernels.TryGetOutputMode(json: true, out var jsonMode));
         Assert.Equal(TreeOutputModeKind.Json, jsonMode);
         Assert.Equal(TreeOutputModeKind.Json, TreeCommand.GetOutputMode(json: true));
+
+        var helpText = TreeCommandKernels.GetHelpText();
+        Assert.Contains("N# Dependency Tree", helpText);
+        Assert.Contains("Usage: nlc tree [options]", helpText);
+        Assert.Contains("Failed to display tree", helpText);
+        Assert.Equal(
+            "Project directory not found: /tmp/nsharp-missing",
+            TreeCommandKernels.GetProjectDirectoryNotFoundMessage("/tmp/nsharp-missing"));
+        Assert.Equal("Tree failed: bad graph", TreeCommandKernels.GetTreeFailedMessage("bad graph"));
+        Assert.Contains("No project.yml or .csproj found", TreeCommandKernels.GetNoProjectFileMessage());
+        Assert.Contains("direct runtime dependencies", TreeCommandKernels.GetProjectYmlLimitationMessage());
+        Assert.Equal(
+            "Transitive NuGet dependency resolution through MSBuild failed: restore failed",
+            TreeCommandKernels.GetTransitiveResolutionFailedLimitation("restore failed"));
+        Assert.Equal(
+            "restore failed Run 'dotnet restore' and retry.",
+            TreeCommandKernels.GetDotnetRestoreRetryMessage("restore failed"));
+        Assert.Equal("dotnet list package failed.", TreeCommandKernels.GetDotnetListFailedMessage());
+        Assert.Equal("Demo (net10.0)", TreeCommandKernels.GetProjectHeader("Demo", "net10.0"));
+        Assert.Equal("  (no dependencies)", TreeCommandKernels.GetNoDependenciesLine());
+        Assert.Equal("Serilog@3.1.0 [nuget]", TreeCommandKernels.GetDependencyText("Serilog", "3.1.0", "nuget"));
+        Assert.Equal("System.Console [framework]", TreeCommandKernels.GetDependencyText("System.Console", null, "framework"));
+        Assert.Equal("└── Serilog@3.1.0 [nuget]", TreeCommandKernels.GetDependencyLine(isLast: true, "Serilog@3.1.0 [nuget]"));
+        Assert.Equal("├── Serilog@3.1.0 [nuget]", TreeCommandKernels.GetDependencyLine(isLast: false, "Serilog@3.1.0 [nuget]"));
+        Assert.Equal("  transitive (2 packages):", TreeCommandKernels.GetTransitiveHeader(2));
+        Assert.Equal("    Serilog@3.1.0 [nuget]", TreeCommandKernels.GetTransitiveDependencyLine("Serilog@3.1.0 [nuget]"));
+        Assert.Equal("Limitations:", TreeCommandKernels.GetLimitationsHeader());
+        Assert.Equal("  - direct only", TreeCommandKernels.GetLimitationLine("direct only"));
+
+        var (helpExitCode, helpStdout, helpStderr) = CaptureConsole(() => TreeCommand.Execute(new[] { "--help" }));
+        Assert.Equal(0, helpExitCode);
+        Assert.True(string.IsNullOrWhiteSpace(helpStderr));
+        Assert.Contains("Usage: nlc tree [options]", helpStdout);
     }
 
     [Fact]

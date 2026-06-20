@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-20 — Tree command messages move into product N#
+
+`TreeCommand` no longer owns help text, missing-project/tree failure messages, project.yml limitation text,
+MSBuild transitive-resolution fallback text, `dotnet list` fallback text, or text-rendered dependency lines
+in C#. The shipped `CliTree*` dogfood kernels now shape those strings through `TreeCommandKernels`; C# keeps
+project graph loading, MSBuild/dotnet process execution, JSON serialization, and fallback/oracle text only.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.TreeCommandKernels_SummarizesOptions|FullyQualifiedName~CliCommandTests.TreeCommand_ProjectYmlOnly_TextUsesOutputMode|FullyQualifiedName~CliCommandTests.TreeCommand_ProjectYmlOnly_EmitsStableJsonEnvelope|FullyQualifiedName~CliCommandTests.TreeCommand_JsonError_UsesGlobalErrorEnvelope|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-20 — Clean command messages move into product N#
 
 `CleanCommand` no longer owns help text, missing-project diagnostics, no-artifacts status, removed-artifact

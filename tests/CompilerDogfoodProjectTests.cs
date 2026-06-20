@@ -7136,6 +7136,22 @@ func outer(x: int): int {
         Assert.Contains("CliTreeOptionSummaryInto", methodNames!); // product tree option parsing.
         Assert.Contains("CliTreeMaxDepthInto", methodNames!); // product tree depth parsing.
         Assert.Contains("CliTreeOutputMode", methodNames!); // product tree output mode selection.
+        Assert.Contains("CliTreeHelpText", methodNames!); // product tree help text shaping.
+        Assert.Contains("CliTreeProjectDirectoryNotFoundMessage", methodNames!); // product tree missing-project message shaping.
+        Assert.Contains("CliTreeFailedMessage", methodNames!); // product tree failure message shaping.
+        Assert.Contains("CliTreeNoProjectFileMessage", methodNames!); // product tree no-project message shaping.
+        Assert.Contains("CliTreeProjectYmlLimitationMessage", methodNames!); // product tree limitation message shaping.
+        Assert.Contains("CliTreeTransitiveResolutionFailedLimitation", methodNames!); // product tree transitive failure limitation shaping.
+        Assert.Contains("CliTreeDotnetRestoreRetryMessage", methodNames!); // product tree restore retry message shaping.
+        Assert.Contains("CliTreeDotnetListFailedMessage", methodNames!); // product tree dotnet-list failure shaping.
+        Assert.Contains("CliTreeProjectHeader", methodNames!); // product tree project header shaping.
+        Assert.Contains("CliTreeNoDependenciesLine", methodNames!); // product tree no-dependencies line shaping.
+        Assert.Contains("CliTreeDependencyText", methodNames!); // product tree dependency text shaping.
+        Assert.Contains("CliTreeDependencyLine", methodNames!); // product tree dependency line shaping.
+        Assert.Contains("CliTreeTransitiveHeader", methodNames!); // product tree transitive header shaping.
+        Assert.Contains("CliTreeTransitiveDependencyLine", methodNames!); // product tree transitive dependency line shaping.
+        Assert.Contains("CliTreeLimitationsHeader", methodNames!); // product tree limitations header shaping.
+        Assert.Contains("CliTreeLimitationLine", methodNames!); // product tree limitation line shaping.
         Assert.Contains("CliCleanOptionSummaryInto", methodNames!); // product clean option parsing.
         Assert.Contains("CliCleanHelpText", methodNames!); // product clean help text shaping.
         Assert.Contains("CliCleanProjectDirectoryNotFoundMessage", methodNames!); // product clean missing-project message shaping.
@@ -16040,6 +16056,70 @@ class OtherZetaType {
                     "CliTreeOutputMode",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTreeOutputMode.");
+            var cliTreeHelpText = programType.GetMethod(
+                    "CliTreeHelpText",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTreeHelpText.");
+            var cliTreeProjectDirectoryNotFoundMessage = programType.GetMethod(
+                    "CliTreeProjectDirectoryNotFoundMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTreeProjectDirectoryNotFoundMessage.");
+            var cliTreeFailedMessage = programType.GetMethod(
+                    "CliTreeFailedMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTreeFailedMessage.");
+            var cliTreeNoProjectFileMessage = programType.GetMethod(
+                    "CliTreeNoProjectFileMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTreeNoProjectFileMessage.");
+            var cliTreeProjectYmlLimitationMessage = programType.GetMethod(
+                    "CliTreeProjectYmlLimitationMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTreeProjectYmlLimitationMessage.");
+            var cliTreeTransitiveResolutionFailedLimitation = programType.GetMethod(
+                    "CliTreeTransitiveResolutionFailedLimitation",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTreeTransitiveResolutionFailedLimitation.");
+            var cliTreeDotnetRestoreRetryMessage = programType.GetMethod(
+                    "CliTreeDotnetRestoreRetryMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTreeDotnetRestoreRetryMessage.");
+            var cliTreeDotnetListFailedMessage = programType.GetMethod(
+                    "CliTreeDotnetListFailedMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTreeDotnetListFailedMessage.");
+            var cliTreeProjectHeader = programType.GetMethod(
+                    "CliTreeProjectHeader",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTreeProjectHeader.");
+            var cliTreeNoDependenciesLine = programType.GetMethod(
+                    "CliTreeNoDependenciesLine",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTreeNoDependenciesLine.");
+            var cliTreeDependencyText = programType.GetMethod(
+                    "CliTreeDependencyText",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTreeDependencyText.");
+            var cliTreeDependencyLine = programType.GetMethod(
+                    "CliTreeDependencyLine",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTreeDependencyLine.");
+            var cliTreeTransitiveHeader = programType.GetMethod(
+                    "CliTreeTransitiveHeader",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTreeTransitiveHeader.");
+            var cliTreeTransitiveDependencyLine = programType.GetMethod(
+                    "CliTreeTransitiveDependencyLine",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTreeTransitiveDependencyLine.");
+            var cliTreeLimitationsHeader = programType.GetMethod(
+                    "CliTreeLimitationsHeader",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTreeLimitationsHeader.");
+            var cliTreeLimitationLine = programType.GetMethod(
+                    "CliTreeLimitationLine",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTreeLimitationLine.");
             var cliLintFileArgIndicesInto = programType.GetMethod(
                     "CliLintFileArgIndicesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -17382,6 +17462,23 @@ func main(customer: Customer, résumé: Profile) {
             AssertCliDocOptionsLikeProduction(cliDocOptionSummaryInto);
             AssertCliJsonFlagOutputModesLikeProduction(cliDocOutputMode);
             AssertCliTreeOptionsLikeProduction(cliTreeOptionSummaryInto, cliTreeMaxDepthInto);
+            AssertCliTreeMessagesLikeProduction(
+                cliTreeHelpText,
+                cliTreeProjectDirectoryNotFoundMessage,
+                cliTreeFailedMessage,
+                cliTreeNoProjectFileMessage,
+                cliTreeProjectYmlLimitationMessage,
+                cliTreeTransitiveResolutionFailedLimitation,
+                cliTreeDotnetRestoreRetryMessage,
+                cliTreeDotnetListFailedMessage,
+                cliTreeProjectHeader,
+                cliTreeNoDependenciesLine,
+                cliTreeDependencyText,
+                cliTreeDependencyLine,
+                cliTreeTransitiveHeader,
+                cliTreeTransitiveDependencyLine,
+                cliTreeLimitationsHeader,
+                cliTreeLimitationLine);
             AssertCliLintFileArgsLikeProduction(
                 cliLintFileArgIndicesInto,
                 cliLintFileArgChecksumInto);
@@ -22740,6 +22837,81 @@ func main() {
             (int)(cliTreeMaxDepthInto.Invoke(
                 null,
                 new object[] { new[] { "--depth", "2" }, 99, Array.Empty<int>() }) ?? 0));
+    }
+
+    private static void AssertCliTreeMessagesLikeProduction(
+        MethodInfo cliTreeHelpText,
+        MethodInfo cliTreeProjectDirectoryNotFoundMessage,
+        MethodInfo cliTreeFailedMessage,
+        MethodInfo cliTreeNoProjectFileMessage,
+        MethodInfo cliTreeProjectYmlLimitationMessage,
+        MethodInfo cliTreeTransitiveResolutionFailedLimitation,
+        MethodInfo cliTreeDotnetRestoreRetryMessage,
+        MethodInfo cliTreeDotnetListFailedMessage,
+        MethodInfo cliTreeProjectHeader,
+        MethodInfo cliTreeNoDependenciesLine,
+        MethodInfo cliTreeDependencyText,
+        MethodInfo cliTreeDependencyLine,
+        MethodInfo cliTreeTransitiveHeader,
+        MethodInfo cliTreeTransitiveDependencyLine,
+        MethodInfo cliTreeLimitationsHeader,
+        MethodInfo cliTreeLimitationLine)
+    {
+        var help = (string)(cliTreeHelpText.Invoke(null, Array.Empty<object>()) ?? "<null>");
+        Assert.Contains("N# Dependency Tree", help);
+        Assert.Contains("Usage: nlc tree [options]", help);
+        Assert.Contains("Failed to display tree", help);
+        Assert.Equal(
+            "Project directory not found: /tmp/nsharp-missing",
+            (string)(cliTreeProjectDirectoryNotFoundMessage.Invoke(null, new object[] { "/tmp/nsharp-missing" }) ?? "<null>"));
+        Assert.Equal(
+            "Tree failed: bad graph",
+            (string)(cliTreeFailedMessage.Invoke(null, new object[] { "bad graph" }) ?? "<null>"));
+        Assert.Contains(
+            "No project.yml or .csproj found",
+            (string)(cliTreeNoProjectFileMessage.Invoke(null, Array.Empty<object>()) ?? "<null>"));
+        Assert.Contains(
+            "direct runtime dependencies",
+            (string)(cliTreeProjectYmlLimitationMessage.Invoke(null, Array.Empty<object>()) ?? "<null>"));
+        Assert.Equal(
+            "Transitive NuGet dependency resolution through MSBuild failed: restore failed",
+            (string)(cliTreeTransitiveResolutionFailedLimitation.Invoke(null, new object[] { "restore failed" }) ?? "<null>"));
+        Assert.Equal(
+            "restore failed Run 'dotnet restore' and retry.",
+            (string)(cliTreeDotnetRestoreRetryMessage.Invoke(null, new object[] { "restore failed" }) ?? "<null>"));
+        Assert.Equal(
+            "dotnet list package failed.",
+            (string)(cliTreeDotnetListFailedMessage.Invoke(null, Array.Empty<object>()) ?? "<null>"));
+        Assert.Equal(
+            "Demo (net10.0)",
+            (string)(cliTreeProjectHeader.Invoke(null, new object[] { "Demo", "net10.0" }) ?? "<null>"));
+        Assert.Equal(
+            "  (no dependencies)",
+            (string)(cliTreeNoDependenciesLine.Invoke(null, Array.Empty<object>()) ?? "<null>"));
+        Assert.Equal(
+            "Serilog@3.1.0 [nuget]",
+            (string)(cliTreeDependencyText.Invoke(null, new object[] { "Serilog", "3.1.0", "nuget" }) ?? "<null>"));
+        Assert.Equal(
+            "System.Console [framework]",
+            (string)(cliTreeDependencyText.Invoke(null, new object[] { "System.Console", string.Empty, "framework" }) ?? "<null>"));
+        Assert.Equal(
+            "└── Serilog@3.1.0 [nuget]",
+            (string)(cliTreeDependencyLine.Invoke(null, new object[] { 1, "Serilog@3.1.0 [nuget]" }) ?? "<null>"));
+        Assert.Equal(
+            "├── Serilog@3.1.0 [nuget]",
+            (string)(cliTreeDependencyLine.Invoke(null, new object[] { 0, "Serilog@3.1.0 [nuget]" }) ?? "<null>"));
+        Assert.Equal(
+            "  transitive (2 packages):",
+            (string)(cliTreeTransitiveHeader.Invoke(null, new object[] { "2" }) ?? "<null>"));
+        Assert.Equal(
+            "    Serilog@3.1.0 [nuget]",
+            (string)(cliTreeTransitiveDependencyLine.Invoke(null, new object[] { "Serilog@3.1.0 [nuget]" }) ?? "<null>"));
+        Assert.Equal(
+            "Limitations:",
+            (string)(cliTreeLimitationsHeader.Invoke(null, Array.Empty<object>()) ?? "<null>"));
+        Assert.Equal(
+            "  - direct only",
+            (string)(cliTreeLimitationLine.Invoke(null, new object[] { "direct only" }) ?? "<null>"));
     }
 
     private static int[] CreateExpectedCliTreeOptions(string[] args)
