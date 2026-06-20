@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-20 — Doctor command messages move into product N#
+
+`DoctorCommand` no longer owns help text, install/check diagnostic detail strings, status labels, check markers,
+or text check-line rendering in C#. The shipped `CliDoctor*` dogfood kernels now shape those user-facing strings
+through `DoctorCommandKernels`; C# keeps PATH probing, process execution, filesystem checks, JSON envelope
+writing, and fallback/oracle text only.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.DoctorCommandKernels_SummarizesOptions|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-20 — Audit command messages move into product N#
 
 `AuditCommand` no longer owns help, project validation, SDK capability, failure, clean-result, vulnerability

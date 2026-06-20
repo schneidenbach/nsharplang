@@ -660,6 +660,48 @@ func Main() {
         Assert.True(DoctorCommandKernels.TryGetOutputMode(json: true, out var jsonMode));
         Assert.Equal(DoctorOutputModeKind.Json, jsonMode);
         Assert.Equal(DoctorOutputModeKind.Json, DoctorCommand.GetOutputMode(json: true));
+
+        var helpText = DoctorCommandKernels.GetHelpText();
+        Assert.Contains("N# Doctor", helpText);
+        Assert.Contains("Usage: nlc doctor [options]", helpText);
+        Assert.Contains("One or more required checks failed", helpText);
+        Assert.Equal("dotnet CLI was not found on PATH", DoctorCommandKernels.GetDotnetNotFoundMessage());
+        Assert.Equal("dotnet --version failed", DoctorCommandKernels.GetDotnetVersionFailedMessage());
+        Assert.Equal(
+            "nlc is running, but no nlc command was found on PATH; source ~/.nsharp/env or use your package manager shell integration",
+            DoctorCommandKernels.GetNlcCommandMissingMessage());
+        Assert.Equal(
+            "N# package cache was not found at /tmp/nsharp; rerun the N# installer",
+            DoctorCommandKernels.GetPackageCacheMissingMessage("/tmp/nsharp"));
+        Assert.Equal("nsharp-console template is installed", DoctorCommandKernels.GetTemplateInstalledMessage());
+        Assert.Equal(
+            "nsharp-console template was not found; run the N# installer or dotnet new install NSharpLang.Templates",
+            DoctorCommandKernels.GetTemplatesMissingMessage());
+        Assert.Equal(
+            "nsharp-lsp was not found on PATH; source ~/.nsharp/env or reinstall N#",
+            DoctorCommandKernels.GetLanguageServerMissingMessage());
+        Assert.Equal("skipped by --skip-vscode", DoctorCommandKernels.GetVscodeSkippedMessage());
+        Assert.Equal("VS Code 'code' CLI was not found on PATH", DoctorCommandKernels.GetVscodeRequiredMissingMessage());
+        Assert.Equal(
+            "VS Code 'code' CLI was not found; install VS Code or rerun with --require-vscode on developer machines",
+            DoctorCommandKernels.GetVscodeOptionalMissingMessage());
+        Assert.Equal(
+            "nsharp.nsharp is not installed; run code --install-extension nsharp.nsharp",
+            DoctorCommandKernels.GetVscodeExtensionMissingMessage("nsharp.nsharp"));
+        Assert.Equal("N# doctor", DoctorCommandKernels.GetTextHeader());
+        Assert.Equal("status: ok", DoctorCommandKernels.GetStatusLine(ok: true));
+        Assert.Equal("status: problems found", DoctorCommandKernels.GetStatusLine(ok: false));
+        Assert.Equal("✓", DoctorCommandKernels.GetCheckMarker("pass"));
+        Assert.Equal("!", DoctorCommandKernels.GetCheckMarker("warn"));
+        Assert.Equal("x", DoctorCommandKernels.GetCheckMarker("fail"));
+        Assert.Equal(
+            "✓ dotnet: 10.0.105",
+            DoctorCommandKernels.GetCheckLine("✓", "dotnet", "10.0.105"));
+
+        var (helpExitCode, helpStdout, helpStderr) = CaptureConsole(() => DoctorCommand.Execute(new[] { "--help" }));
+        Assert.Equal(0, helpExitCode);
+        Assert.True(string.IsNullOrWhiteSpace(helpStderr));
+        Assert.Contains("Usage: nlc doctor [options]", helpStdout);
     }
 
     [Fact]

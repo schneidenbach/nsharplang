@@ -2446,6 +2446,102 @@ func CliDoctorOutputMode(useJson: int): int {
     return 2
 }
 
+func CliDoctorHelpText(): string {
+    return "N# Doctor\n"
+        + "\n"
+        + "Usage: nlc doctor [options]\n"
+        + "\n"
+        + "Verifies the public N# install path: dotnet, nlc, local N# packages, templates,\n"
+        + "language server, and the VS Code extension when the VS Code 'code' CLI is available.\n"
+        + "\n"
+        + "Options:\n"
+        + "  --json              Output as JSON envelope\n"
+        + "  --require-vscode    Treat missing VS Code or missing N# extension as a failure\n"
+        + "  --skip-vscode       Skip VS Code extension probing\n"
+        + "  --help, -h          Show this help text\n"
+        + "\n"
+        + "Examples:\n"
+        + "  nlc doctor\n"
+        + "  nlc doctor --require-vscode\n"
+        + "  nlc doctor --json --skip-vscode\n"
+        + "\n"
+        + "Exit codes:\n"
+        + "  0  Required checks passed\n"
+        + "  1  One or more required checks failed"
+}
+
+func CliDoctorDotnetNotFoundMessage(): string {
+    return "dotnet CLI was not found on PATH"
+}
+
+func CliDoctorDotnetVersionFailedMessage(): string {
+    return "dotnet --version failed"
+}
+
+func CliDoctorNlcCommandMissingMessage(): string {
+    return "nlc is running, but no nlc command was found on PATH; source ~/.nsharp/env or use your package manager shell integration"
+}
+
+func CliDoctorPackageCacheMissingMessage(packageCache: string): string {
+    return "N# package cache was not found at " + packageCache + "; rerun the N# installer"
+}
+
+func CliDoctorTemplateInstalledMessage(): string {
+    return "nsharp-console template is installed"
+}
+
+func CliDoctorTemplatesMissingMessage(): string {
+    return "nsharp-console template was not found; run the N# installer or dotnet new install NSharpLang.Templates"
+}
+
+func CliDoctorLanguageServerMissingMessage(): string {
+    return "nsharp-lsp was not found on PATH; source ~/.nsharp/env or reinstall N#"
+}
+
+func CliDoctorVscodeSkippedMessage(): string {
+    return "skipped by --skip-vscode"
+}
+
+func CliDoctorVscodeRequiredMissingMessage(): string {
+    return "VS Code 'code' CLI was not found on PATH"
+}
+
+func CliDoctorVscodeOptionalMissingMessage(): string {
+    return "VS Code 'code' CLI was not found; install VS Code or rerun with --require-vscode on developer machines"
+}
+
+func CliDoctorVscodeExtensionMissingMessage(extensionId: string): string {
+    return extensionId + " is not installed; run code --install-extension " + extensionId
+}
+
+func CliDoctorTextHeader(): string {
+    return "N# doctor"
+}
+
+func CliDoctorStatusLine(ok: int): string {
+    if ok != 0 {
+        return "status: ok"
+    }
+
+    return "status: problems found"
+}
+
+func CliDoctorCheckMarker(status: string): string {
+    if status == "pass" {
+        return "✓"
+    }
+
+    if status == "warn" {
+        return "!"
+    }
+
+    return "x"
+}
+
+func CliDoctorCheckLine(marker: string, name: string, detail: string): string {
+    return marker + " " + name + ": " + detail
+}
+
 func CliAuditOptionSummaryInto(args: string[], resultIndices: int[]): int {
     arguments := new CliArgumentTable { Args: args }
     results := new CliIndexResultTable { Indices: resultIndices }

@@ -297,7 +297,8 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       grouping routes now live beside `FixCommand` in `FixCommandKernels`; clean option summary now lives beside
       `CleanCommand` in `CleanCommandKernels`, and clean artifact directory classification plus ordering now lives beside
       `CleanCommand` in `CleanArtifactDirectoryOrderer`; env option summary, output-mode selection, help text,
-      and text-line rendering now live beside `EnvCommand` in `EnvCommandKernels`; doctor option summary and output-mode selection now live beside
+      and text-line rendering now live beside `EnvCommand` in `EnvCommandKernels`; doctor option summary,
+      output-mode selection, help/check/status text, and install diagnostic messages now live beside
       `DoctorCommand` in `DoctorCommandKernels`; audit option summary, output-mode selection, help/error messages,
       and vulnerability text rendering now live beside
       `AuditCommand` in `AuditCommandKernels`; init option summary and help/error/status messages now live beside `InitCommand` in

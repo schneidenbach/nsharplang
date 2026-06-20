@@ -7127,6 +7127,22 @@ func outer(x: int): int {
         Assert.Contains("CliEnvTextLine", methodNames!); // product env text-line shaping.
         Assert.Contains("CliDoctorOptionSummaryInto", methodNames!); // product doctor option parsing.
         Assert.Contains("CliDoctorOutputMode", methodNames!); // product doctor output mode selection.
+        Assert.Contains("CliDoctorHelpText", methodNames!); // product doctor help text shaping.
+        Assert.Contains("CliDoctorDotnetNotFoundMessage", methodNames!); // product doctor dotnet-missing message shaping.
+        Assert.Contains("CliDoctorDotnetVersionFailedMessage", methodNames!); // product doctor dotnet-version message shaping.
+        Assert.Contains("CliDoctorNlcCommandMissingMessage", methodNames!); // product doctor nlc-command message shaping.
+        Assert.Contains("CliDoctorPackageCacheMissingMessage", methodNames!); // product doctor package-cache message shaping.
+        Assert.Contains("CliDoctorTemplateInstalledMessage", methodNames!); // product doctor template-present message shaping.
+        Assert.Contains("CliDoctorTemplatesMissingMessage", methodNames!); // product doctor template-missing message shaping.
+        Assert.Contains("CliDoctorLanguageServerMissingMessage", methodNames!); // product doctor language-server message shaping.
+        Assert.Contains("CliDoctorVscodeSkippedMessage", methodNames!); // product doctor VS Code skip message shaping.
+        Assert.Contains("CliDoctorVscodeRequiredMissingMessage", methodNames!); // product doctor required VS Code message shaping.
+        Assert.Contains("CliDoctorVscodeOptionalMissingMessage", methodNames!); // product doctor optional VS Code message shaping.
+        Assert.Contains("CliDoctorVscodeExtensionMissingMessage", methodNames!); // product doctor extension message shaping.
+        Assert.Contains("CliDoctorTextHeader", methodNames!); // product doctor text header shaping.
+        Assert.Contains("CliDoctorStatusLine", methodNames!); // product doctor status line shaping.
+        Assert.Contains("CliDoctorCheckMarker", methodNames!); // product doctor check marker shaping.
+        Assert.Contains("CliDoctorCheckLine", methodNames!); // product doctor check line shaping.
         Assert.Contains("CliAuditOptionSummaryInto", methodNames!); // product audit option parsing.
         Assert.Contains("CliAuditOutputMode", methodNames!); // product audit output mode selection.
         Assert.Contains("CliAuditHelpText", methodNames!); // product audit help text shaping.
@@ -16039,6 +16055,70 @@ class OtherZetaType {
                     "CliDoctorOutputMode",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDoctorOutputMode.");
+            var cliDoctorHelpText = programType.GetMethod(
+                    "CliDoctorHelpText",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDoctorHelpText.");
+            var cliDoctorDotnetNotFoundMessage = programType.GetMethod(
+                    "CliDoctorDotnetNotFoundMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDoctorDotnetNotFoundMessage.");
+            var cliDoctorDotnetVersionFailedMessage = programType.GetMethod(
+                    "CliDoctorDotnetVersionFailedMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDoctorDotnetVersionFailedMessage.");
+            var cliDoctorNlcCommandMissingMessage = programType.GetMethod(
+                    "CliDoctorNlcCommandMissingMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDoctorNlcCommandMissingMessage.");
+            var cliDoctorPackageCacheMissingMessage = programType.GetMethod(
+                    "CliDoctorPackageCacheMissingMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDoctorPackageCacheMissingMessage.");
+            var cliDoctorTemplateInstalledMessage = programType.GetMethod(
+                    "CliDoctorTemplateInstalledMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDoctorTemplateInstalledMessage.");
+            var cliDoctorTemplatesMissingMessage = programType.GetMethod(
+                    "CliDoctorTemplatesMissingMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDoctorTemplatesMissingMessage.");
+            var cliDoctorLanguageServerMissingMessage = programType.GetMethod(
+                    "CliDoctorLanguageServerMissingMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDoctorLanguageServerMissingMessage.");
+            var cliDoctorVscodeSkippedMessage = programType.GetMethod(
+                    "CliDoctorVscodeSkippedMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDoctorVscodeSkippedMessage.");
+            var cliDoctorVscodeRequiredMissingMessage = programType.GetMethod(
+                    "CliDoctorVscodeRequiredMissingMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDoctorVscodeRequiredMissingMessage.");
+            var cliDoctorVscodeOptionalMissingMessage = programType.GetMethod(
+                    "CliDoctorVscodeOptionalMissingMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDoctorVscodeOptionalMissingMessage.");
+            var cliDoctorVscodeExtensionMissingMessage = programType.GetMethod(
+                    "CliDoctorVscodeExtensionMissingMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDoctorVscodeExtensionMissingMessage.");
+            var cliDoctorTextHeader = programType.GetMethod(
+                    "CliDoctorTextHeader",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDoctorTextHeader.");
+            var cliDoctorStatusLine = programType.GetMethod(
+                    "CliDoctorStatusLine",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDoctorStatusLine.");
+            var cliDoctorCheckMarker = programType.GetMethod(
+                    "CliDoctorCheckMarker",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDoctorCheckMarker.");
+            var cliDoctorCheckLine = programType.GetMethod(
+                    "CliDoctorCheckLine",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDoctorCheckLine.");
             var cliAuditOptionSummaryInto = programType.GetMethod(
                     "CliAuditOptionSummaryInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -17193,6 +17273,23 @@ func main(customer: Customer, résumé: Profile) {
             AssertCliEnvMessagesLikeProduction(cliEnvHelpText, cliEnvTextLine);
             AssertCliDoctorOptionsLikeProduction(cliDoctorOptionSummaryInto);
             AssertCliJsonFlagOutputModesLikeProduction(cliDoctorOutputMode);
+            AssertCliDoctorMessagesLikeProduction(
+                cliDoctorHelpText,
+                cliDoctorDotnetNotFoundMessage,
+                cliDoctorDotnetVersionFailedMessage,
+                cliDoctorNlcCommandMissingMessage,
+                cliDoctorPackageCacheMissingMessage,
+                cliDoctorTemplateInstalledMessage,
+                cliDoctorTemplatesMissingMessage,
+                cliDoctorLanguageServerMissingMessage,
+                cliDoctorVscodeSkippedMessage,
+                cliDoctorVscodeRequiredMissingMessage,
+                cliDoctorVscodeOptionalMissingMessage,
+                cliDoctorVscodeExtensionMissingMessage,
+                cliDoctorTextHeader,
+                cliDoctorStatusLine,
+                cliDoctorCheckMarker,
+                cliDoctorCheckLine);
             AssertCliAuditOptionsLikeProduction(cliAuditOptionSummaryInto);
             AssertCliJsonFlagOutputModesLikeProduction(cliAuditOutputMode);
             AssertCliAuditMessagesLikeProduction(
@@ -22638,6 +22735,84 @@ func main() {
             (int)(cliDoctorOptionSummaryInto.Invoke(
                 null,
                 new object[] { new[] { "--json" }, new int[3] }) ?? 0));
+    }
+
+    private static void AssertCliDoctorMessagesLikeProduction(
+        MethodInfo cliDoctorHelpText,
+        MethodInfo cliDoctorDotnetNotFoundMessage,
+        MethodInfo cliDoctorDotnetVersionFailedMessage,
+        MethodInfo cliDoctorNlcCommandMissingMessage,
+        MethodInfo cliDoctorPackageCacheMissingMessage,
+        MethodInfo cliDoctorTemplateInstalledMessage,
+        MethodInfo cliDoctorTemplatesMissingMessage,
+        MethodInfo cliDoctorLanguageServerMissingMessage,
+        MethodInfo cliDoctorVscodeSkippedMessage,
+        MethodInfo cliDoctorVscodeRequiredMissingMessage,
+        MethodInfo cliDoctorVscodeOptionalMissingMessage,
+        MethodInfo cliDoctorVscodeExtensionMissingMessage,
+        MethodInfo cliDoctorTextHeader,
+        MethodInfo cliDoctorStatusLine,
+        MethodInfo cliDoctorCheckMarker,
+        MethodInfo cliDoctorCheckLine)
+    {
+        var help = (string)(cliDoctorHelpText.Invoke(null, Array.Empty<object>()) ?? "<null>");
+        Assert.Contains("N# Doctor", help);
+        Assert.Contains("Usage: nlc doctor [options]", help);
+        Assert.Contains("One or more required checks failed", help);
+
+        Assert.Equal(
+            "dotnet CLI was not found on PATH",
+            (string)(cliDoctorDotnetNotFoundMessage.Invoke(null, Array.Empty<object>()) ?? "<null>"));
+        Assert.Equal(
+            "dotnet --version failed",
+            (string)(cliDoctorDotnetVersionFailedMessage.Invoke(null, Array.Empty<object>()) ?? "<null>"));
+        Assert.Equal(
+            "nlc is running, but no nlc command was found on PATH; source ~/.nsharp/env or use your package manager shell integration",
+            (string)(cliDoctorNlcCommandMissingMessage.Invoke(null, Array.Empty<object>()) ?? "<null>"));
+        Assert.Equal(
+            "N# package cache was not found at /tmp/nsharp; rerun the N# installer",
+            (string)(cliDoctorPackageCacheMissingMessage.Invoke(null, new object[] { "/tmp/nsharp" }) ?? "<null>"));
+        Assert.Equal(
+            "nsharp-console template is installed",
+            (string)(cliDoctorTemplateInstalledMessage.Invoke(null, Array.Empty<object>()) ?? "<null>"));
+        Assert.Equal(
+            "nsharp-console template was not found; run the N# installer or dotnet new install NSharpLang.Templates",
+            (string)(cliDoctorTemplatesMissingMessage.Invoke(null, Array.Empty<object>()) ?? "<null>"));
+        Assert.Equal(
+            "nsharp-lsp was not found on PATH; source ~/.nsharp/env or reinstall N#",
+            (string)(cliDoctorLanguageServerMissingMessage.Invoke(null, Array.Empty<object>()) ?? "<null>"));
+        Assert.Equal(
+            "skipped by --skip-vscode",
+            (string)(cliDoctorVscodeSkippedMessage.Invoke(null, Array.Empty<object>()) ?? "<null>"));
+        Assert.Equal(
+            "VS Code 'code' CLI was not found on PATH",
+            (string)(cliDoctorVscodeRequiredMissingMessage.Invoke(null, Array.Empty<object>()) ?? "<null>"));
+        Assert.Equal(
+            "VS Code 'code' CLI was not found; install VS Code or rerun with --require-vscode on developer machines",
+            (string)(cliDoctorVscodeOptionalMissingMessage.Invoke(null, Array.Empty<object>()) ?? "<null>"));
+        Assert.Equal(
+            "nsharp.nsharp is not installed; run code --install-extension nsharp.nsharp",
+            (string)(cliDoctorVscodeExtensionMissingMessage.Invoke(
+                null,
+                new object[] { "nsharp.nsharp" }) ?? "<null>"));
+
+        Assert.Equal(
+            "N# doctor",
+            (string)(cliDoctorTextHeader.Invoke(null, Array.Empty<object>()) ?? "<null>"));
+        Assert.Equal(
+            "status: ok",
+            (string)(cliDoctorStatusLine.Invoke(null, new object[] { 1 }) ?? "<null>"));
+        Assert.Equal(
+            "status: problems found",
+            (string)(cliDoctorStatusLine.Invoke(null, new object[] { 0 }) ?? "<null>"));
+        Assert.Equal("✓", (string)(cliDoctorCheckMarker.Invoke(null, new object[] { "pass" }) ?? "<null>"));
+        Assert.Equal("!", (string)(cliDoctorCheckMarker.Invoke(null, new object[] { "warn" }) ?? "<null>"));
+        Assert.Equal("x", (string)(cliDoctorCheckMarker.Invoke(null, new object[] { "fail" }) ?? "<null>"));
+        Assert.Equal(
+            "✓ dotnet: 10.0.105",
+            (string)(cliDoctorCheckLine.Invoke(
+                null,
+                new object[] { "✓", "dotnet", "10.0.105" }) ?? "<null>"));
     }
 
     private static int[] CreateExpectedCliDoctorOptions(string[] args)

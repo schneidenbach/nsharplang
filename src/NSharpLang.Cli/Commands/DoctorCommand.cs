@@ -25,14 +25,17 @@ public static class DoctorCommand
         var dotnet = FindOnPath("dotnet");
         if (dotnet is null)
         {
-            checks.Add(DoctorCheck.Fail("dotnet", "dotnet CLI was not found on PATH", required: true));
+            checks.Add(DoctorCheck.Fail("dotnet", DoctorCommandKernels.GetDotnetNotFoundMessage(), required: true));
         }
         else
         {
             var version = RunCapture("dotnet", "--version");
             checks.Add(version.ExitCode == 0
                 ? DoctorCheck.Pass("dotnet", version.Stdout.Trim())
-                : DoctorCheck.Fail("dotnet", version.Stderr.TrimOrDefault("dotnet --version failed"), required: true));
+                : DoctorCheck.Fail(
+                    "dotnet",
+                    version.Stderr.TrimOrDefault(DoctorCommandKernels.GetDotnetVersionFailedMessage()),
+                    required: true));
         }
 
         checks.Add(DoctorCheck.Pass("nlc", Program.GetVersion()));
@@ -40,7 +43,7 @@ public static class DoctorCommand
         var nlc = FindOnPath("nlc");
         checks.Add(nlc is not null
             ? DoctorCheck.Pass("nlc-command", nlc)
-            : DoctorCheck.Warn("nlc-command", "nlc is running, but no nlc command was found on PATH; source ~/.nsharp/env or use your package manager shell integration"));
+            : DoctorCheck.Warn("nlc-command", DoctorCommandKernels.GetNlcCommandMissingMessage()));
 
         var packageCache = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
@@ -48,23 +51,28 @@ public static class DoctorCommand
             "packages");
         checks.Add(Directory.Exists(packageCache) && Directory.EnumerateFiles(packageCache, "NSharpLang.Sdk.*.nupkg").Any()
             ? DoctorCheck.Pass("nsharp-packages", packageCache)
-            : DoctorCheck.Fail("nsharp-packages", $"N# package cache was not found at {packageCache}; rerun the N# installer", required: true));
+            : DoctorCheck.Fail(
+                "nsharp-packages",
+                DoctorCommandKernels.GetPackageCacheMissingMessage(packageCache),
+                required: true));
 
-        var templateList = dotnet is null ? ProcessResult.Failed("dotnet not found") : RunCapture("dotnet", "new list nsharp");
+        var templateList = dotnet is null
+            ? ProcessResult.Failed(DoctorCommandKernels.GetDotnetNotFoundMessage())
+            : RunCapture("dotnet", "new list nsharp");
         if (templateList.ExitCode == 0 && templateList.Stdout.Contains("nsharp-console", StringComparison.OrdinalIgnoreCase))
-            checks.Add(DoctorCheck.Pass("templates", "nsharp-console template is installed"));
+            checks.Add(DoctorCheck.Pass("templates", DoctorCommandKernels.GetTemplateInstalledMessage()));
         else
-            checks.Add(DoctorCheck.Fail("templates", "nsharp-console template was not found; run the N# installer or dotnet new install NSharpLang.Templates", required: true));
+            checks.Add(DoctorCheck.Fail("templates", DoctorCommandKernels.GetTemplatesMissingMessage(), required: true));
 
         var lsp = FindOnPath("nsharp-lsp");
         if (lsp is not null)
             checks.Add(DoctorCheck.Pass("language-server", lsp));
         else
-            checks.Add(DoctorCheck.Fail("language-server", "nsharp-lsp was not found on PATH; source ~/.nsharp/env or reinstall N#", required: true));
+            checks.Add(DoctorCheck.Fail("language-server", DoctorCommandKernels.GetLanguageServerMissingMessage(), required: true));
 
         if (skipVscode)
         {
-            checks.Add(DoctorCheck.Warn("vscode-extension", "skipped by --skip-vscode"));
+            checks.Add(DoctorCheck.Warn("vscode-extension", DoctorCommandKernels.GetVscodeSkippedMessage()));
         }
         else
         {
@@ -72,8 +80,13 @@ public static class DoctorCommand
             if (code is null)
             {
                 checks.Add(requireVscode
-                    ? DoctorCheck.Fail("vscode-extension", "VS Code 'code' CLI was not found on PATH", required: true)
-                    : DoctorCheck.Warn("vscode-extension", "VS Code 'code' CLI was not found; install VS Code or rerun with --require-vscode on developer machines"));
+                    ? DoctorCheck.Fail(
+                        "vscode-extension",
+                        DoctorCommandKernels.GetVscodeRequiredMissingMessage(),
+                        required: true)
+                    : DoctorCheck.Warn(
+                        "vscode-extension",
+                        DoctorCommandKernels.GetVscodeOptionalMissingMessage()));
             }
             else
             {
@@ -81,7 +94,10 @@ public static class DoctorCommand
                 if (extensions.ExitCode == 0 && extensions.Stdout.Split('\n', '\r').Any(e => string.Equals(e.Trim(), VscodeExtensionId, StringComparison.OrdinalIgnoreCase)))
                     checks.Add(DoctorCheck.Pass("vscode-extension", VscodeExtensionId));
                 else
-                    checks.Add(DoctorCheck.Fail("vscode-extension", $"{VscodeExtensionId} is not installed; run code --install-extension {VscodeExtensionId}", required: requireVscode));
+                    checks.Add(DoctorCheck.Fail(
+                        "vscode-extension",
+                        DoctorCommandKernels.GetVscodeExtensionMissingMessage(VscodeExtensionId),
+                        required: requireVscode));
             }
         }
 
@@ -96,13 +112,13 @@ public static class DoctorCommand
 
     private static void WriteText(bool ok, IReadOnlyList<DoctorCheck> checks)
     {
-        Console.WriteLine("N# doctor");
-        Console.WriteLine(ok ? "status: ok" : "status: problems found");
+        Console.WriteLine(DoctorCommandKernels.GetTextHeader());
+        Console.WriteLine(DoctorCommandKernels.GetStatusLine(ok));
         Console.WriteLine();
         foreach (var check in checks)
         {
-            var marker = check.Status switch { "pass" => "✓", "warn" => "!", _ => "x" };
-            Console.WriteLine($"{marker} {check.Name}: {check.Detail}");
+            var marker = DoctorCommandKernels.GetCheckMarker(check.Status);
+            Console.WriteLine(DoctorCommandKernels.GetCheckLine(marker, check.Name, check.Detail));
         }
     }
 
@@ -207,27 +223,7 @@ public static class DoctorCommand
 
     private static int ShowHelp()
     {
-        Console.WriteLine(@"N# Doctor
-
-Usage: nlc doctor [options]
-
-Verifies the public N# install path: dotnet, nlc, local N# packages, templates,
-language server, and the VS Code extension when the VS Code 'code' CLI is available.
-
-Options:
-  --json              Output as JSON envelope
-  --require-vscode    Treat missing VS Code or missing N# extension as a failure
-  --skip-vscode       Skip VS Code extension probing
-  --help, -h          Show this help text
-
-Examples:
-  nlc doctor
-  nlc doctor --require-vscode
-  nlc doctor --json --skip-vscode
-
-Exit codes:
-  0  Required checks passed
-  1  One or more required checks failed");
+        Console.WriteLine(DoctorCommandKernels.GetHelpText());
         return 0;
     }
 
