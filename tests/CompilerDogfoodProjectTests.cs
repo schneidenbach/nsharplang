@@ -7028,6 +7028,7 @@ func outer(x: int): int {
         Assert.Contains("CliTestOptionSummaryInto", methodNames!); // product test option parsing.
         Assert.Contains("CliTestOutputMode", methodNames!); // product test output mode selection.
         Assert.Contains("CliTestFilterMatches", methodNames!); // product test filter matching.
+        Assert.Contains("CliPublishValidationErrorMessage", methodNames!); // product publish validation message shaping.
         Assert.Contains("CliPackOptionSummaryInto", methodNames!); // product pack option parsing.
         Assert.Contains("CliPackOutputMode", methodNames!); // product pack output mode selection.
         Assert.Contains("CliCompletionOptionSummaryInto", methodNames!); // product completion option parsing.
@@ -15599,6 +15600,10 @@ class OtherZetaType {
                     "CliPublishOptionsInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliPublishOptionsInto.");
+            var cliPublishValidationErrorMessage = programType.GetMethod(
+                    "CliPublishValidationErrorMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliPublishValidationErrorMessage.");
             var cliPackOptionSummaryInto = programType.GetMethod(
                     "CliPackOptionSummaryInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -16726,6 +16731,7 @@ func main(customer: Customer, résumé: Profile) {
             AssertCliWatchOptionsLikeProduction(cliWatchOptionSummaryInto);
             AssertCliWatchPositiveIntsLikeProduction(cliWatchPositiveIntInto);
             AssertCliPublishOptionsLikeProduction(cliPublishOptionsInto);
+            AssertCliPublishValidationMessagesLikeProduction(cliPublishValidationErrorMessage);
             AssertCliJsonFlagOutputModesLikeProduction(cliTestOutputMode);
             AssertCliPackOptionsLikeProduction(cliPackOptionSummaryInto);
             AssertCliJsonFlagOutputModesLikeProduction(cliPackOutputMode);
@@ -20916,6 +20922,41 @@ func main() {
             null,
             new object[] { Array.Empty<string>(), undersized }) ?? -2);
         Assert.Equal(-1, undersizedCode);
+    }
+
+    private static void AssertCliPublishValidationMessagesLikeProduction(MethodInfo cliPublishValidationErrorMessage)
+    {
+        var cases = new[]
+        {
+            (
+                Code: 1,
+                Arg: "--project",
+                Expected: "Option '--project' requires a value."),
+            (
+                Code: 2,
+                Arg: "--target",
+                Expected: "Target-platform publishing is expressed as --runtime <rid>, and nlc publish does not support cross-runtime publishing yet."),
+            (
+                Code: 3,
+                Arg: "--mystery",
+                Expected: "Unknown publish option '--mystery'. Run 'nlc publish --help' for supported options."),
+            (
+                Code: 4,
+                Arg: "Project.nl",
+                Expected: "Unexpected publish argument 'Project.nl'. Run 'nlc publish --help' for usage."),
+            (
+                Code: 0,
+                Arg: string.Empty,
+                Expected: string.Empty)
+        };
+
+        foreach (var testCase in cases)
+        {
+            var actual = (string)(cliPublishValidationErrorMessage.Invoke(
+                null,
+                new object[] { testCase.Code, testCase.Arg }) ?? "<null>");
+            Assert.Equal(testCase.Expected, actual);
+        }
     }
 
     private static (int Code, int[] Indices, int ErrorIndex) CreateExpectedCliPublishOptions(string[] args)

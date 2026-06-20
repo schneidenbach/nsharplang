@@ -2534,6 +2534,26 @@ func CliPublishArgumentKind(arg: string): int {
     return 0
 }
 
+func CliPublishValidationErrorMessage(code: int, arg: string): string {
+    if code == 1 {
+        return "Option '" + arg + "' requires a value."
+    }
+
+    if code == 2 {
+        return "Target-platform publishing is expressed as --runtime <rid>, and nlc publish does not support cross-runtime publishing yet."
+    }
+
+    if code == 3 {
+        return "Unknown publish option '" + arg + "'. Run 'nlc publish --help' for supported options."
+    }
+
+    if code == 4 {
+        return "Unexpected publish argument '" + arg + "'. Run 'nlc publish --help' for usage."
+    }
+
+    return ""
+}
+
 func CliPackOptionSummaryInto(args: string[], resultIndices: int[]): int {
     arguments := new CliArgumentTable { Args: args }
     results := new CliIndexResultTable { Indices: resultIndices }

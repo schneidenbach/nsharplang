@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-20 — Publish validation messages move into product N#
+
+`PublishCommandKernels` no longer shapes publish validation errors in C# after `CliPublishOptionsInto`
+finds an invalid argument. The shipped `CliPublishValidationErrorMessage` dogfood kernel now owns the
+user-facing validation text for missing option values, target-platform aliases, unknown options, and
+unexpected positional arguments; C# keeps only argument materialization and fallback/oracle message shaping.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.PublishCommandKernels_NormalizesOptionsAndValidation|FullyQualifiedName~CliParityAuditTests.PublishCommand_HelpWinsBeforeValidation|FullyQualifiedName~CliParityAuditTests.PublishCommand_Help_StatesSupportedAndUnsupportedTargetShapes|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-20 — Test output mode selection moves into product N#
 
 `Program.TestCommand` and the IL-backed test runner no longer branch directly on `TestOptionSummary.JsonOutput`

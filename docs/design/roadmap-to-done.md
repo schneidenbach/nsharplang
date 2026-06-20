@@ -335,7 +335,7 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       target routing, csharp option summary, input selection, test-source classification, reference filtering, and
       stable reference de-duplication now live beside `ExportCommand` in `ExportCommandKernels`; run
       option summary and source operand selection now live beside `Program.RunCommand` in `RunCommandKernels`; publish
-      option summary and help routing now live beside `Program.PublishCommand` in
+      option summary, validation message shaping, and help routing now live beside `Program.PublishCommand` in
       `PublishCommandKernels`; shared build/run/check/test/publish backend selection now lives beside the CLI backend
       call sites in `CompilationBackendSelectionKernels`; pack option summary, output-mode selection, and package-version source selection
       now live beside `PackCommand` in `PackCommandKernels`; build option/help and operand summaries now live beside `Program.BuildCommand`

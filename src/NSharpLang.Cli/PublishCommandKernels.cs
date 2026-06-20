@@ -74,6 +74,39 @@ internal static class PublishCommandKernels
         if (code == 0)
             return null;
 
+        var errorArg = errorArgIndex >= 0 && errorArgIndex < args.Length
+            ? args[errorArgIndex]
+            : string.Empty;
+
+        if (TryGetValidationErrorMessage(code, errorArg, out var dogfoodMessage))
+            return dogfoodMessage;
+
+        return GetValidationErrorWithCSharp(args, code, errorArgIndex);
+    }
+
+    private static bool TryGetValidationErrorMessage(int code, string errorArg, out string message)
+    {
+        message = string.Empty;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        try
+        {
+            message = bindings.PublishValidationErrorMessage(code, errorArg);
+            return !string.IsNullOrEmpty(message);
+        }
+        catch
+        {
+            message = string.Empty;
+            return false;
+        }
+    }
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product publish validation messages route through CliPublishValidationErrorMessage.
+    private static string? GetValidationErrorWithCSharp(string[] args, int code, int errorArgIndex)
+    {
         if (code == 2)
         {
             return "Target-platform publishing is expressed as --runtime <rid>, and nlc publish does not support cross-runtime publishing yet.";
@@ -108,9 +141,15 @@ internal static class PublishCommandKernels
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
             DogfoodKernelLoader.CreateDelegate<CliPublishOptionsInto>(
                 programType,
-                "CliPublishOptionsInto")));
+                "CliPublishOptionsInto"),
+            DogfoodKernelLoader.CreateDelegate<CliPublishValidationErrorMessage>(
+                programType,
+                "CliPublishValidationErrorMessage")));
 
     private delegate int CliPublishOptionsInto(string[] args, int[] resultIndices);
+    private delegate string CliPublishValidationErrorMessage(int code, string arg);
 
-    private sealed record Bindings(CliPublishOptionsInto PublishOptionsInto);
+    private sealed record Bindings(
+        CliPublishOptionsInto PublishOptionsInto,
+        CliPublishValidationErrorMessage PublishValidationErrorMessage);
 }

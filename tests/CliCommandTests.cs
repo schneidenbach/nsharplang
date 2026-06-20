@@ -2825,6 +2825,9 @@ func Main() {
         var unknown = Program.GetPublishArgumentSummary(new[] { "--mystery" });
         Assert.Equal("Unknown publish option '--mystery'. Run 'nlc publish --help' for supported options.", unknown.ValidationError);
 
+        var unexpected = Program.GetPublishArgumentSummary(new[] { "Project.nl" });
+        Assert.Equal("Unexpected publish argument 'Project.nl'. Run 'nlc publish --help' for usage.", unexpected.ValidationError);
+
         Assert.Equal(
             "Debug",
             Program.GetPublishArgumentSummary(new[] { "-c", "Debug" }).Configuration);
