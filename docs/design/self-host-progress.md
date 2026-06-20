@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-20 — C# project-reference output filtering moves into product N#
+
+`CompilationReferenceResolver` now detects `ref` output-path segments for built C# project references through
+`CompilationReferenceResolverKernels`, which binds the shipped `CliPathHasSegmentIgnoreCase` dogfood kernel in
+`CliArguments.nl`. Directory enumeration, timestamps, and process/file IO remain C# host-boundary work; the product
+decision to reject reference assemblies from project-reference output selection now lives in N#, with the previous
+`Split`/`OrdinalIgnoreCase` predicate isolated as fallback/oracle.
+
+Focused evidence:
+`./scripts/dev.sh CompilationReferenceResolverKernels`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-20 — Latest NuGet version selection moves into product N#
 
 `CompilationReferenceResolver` now chooses the latest package version from NuGet flat-container metadata through

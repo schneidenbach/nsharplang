@@ -357,10 +357,30 @@ internal static class CompilationReferenceResolver
         }
 
         return Directory.GetFiles(outputRoot, $"{assemblyName}.dll", SearchOption.AllDirectories)
-            .Where(path => !path.Split(Path.DirectorySeparatorChar).Any(part => string.Equals(part, "ref", StringComparison.OrdinalIgnoreCase)))
+            .Where(path => !IsReferenceAssemblyOutputPath(path))
             .OrderByDescending(File.GetLastWriteTimeUtc)
             .FirstOrDefault();
     }
+
+    private static bool IsReferenceAssemblyOutputPath(string path)
+    {
+        if (CompilationReferenceResolverKernels.TryPathHasSegmentIgnoreCase(
+            path,
+            Path.DirectorySeparatorChar,
+            "ref",
+            out var hasRefSegment))
+        {
+            return hasRefSegment;
+        }
+
+        return IsReferenceAssemblyOutputPathWithCSharp(path);
+    }
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product C# project-reference
+    // output filtering routes through CompilationReferenceResolverKernels.
+    private static bool IsReferenceAssemblyOutputPathWithCSharp(string path)
+        => path.Split(Path.DirectorySeparatorChar)
+            .Any(part => string.Equals(part, "ref", StringComparison.OrdinalIgnoreCase));
 
     private static string? ReadCSharpProjectAssemblyName(string projectPath)
     {
