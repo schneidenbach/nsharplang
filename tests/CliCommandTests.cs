@@ -1877,6 +1877,38 @@ func Main() {
         Assert.Empty(unknownSourceKinds);
 
         Assert.True(Program.GetNewArgumentSummary(new[] { "help" }).ShowHelp);
+
+        var helpText = NewCommandKernels.GetHelpText();
+        Assert.Contains("N# New Project", helpText);
+        Assert.Contains("Usage: nlc new <project-name>", helpText);
+        Assert.Contains("Project creation failed", helpText);
+        Assert.Equal(
+            "Usage: nlc new <project-name> [--template <template>]",
+            NewCommandKernels.GetUsageMessage());
+        Assert.Equal(
+            "Invalid template. Expected one of: console, library, test, webapi, systems-cli, systems-lib.",
+            NewCommandKernels.GetInvalidTemplateMessage());
+        Assert.Equal(
+            "Directory already exists: /tmp/MyApp. Use a different name or remove the existing directory.",
+            NewCommandKernels.GetDirectoryExistsMessage("/tmp/MyApp"));
+        Assert.Equal(
+            "Creating new systems-cli project: PacketTool",
+            NewCommandKernels.GetCreatingProjectMessage("systems-cli", "PacketTool"));
+        Assert.Equal("Created: MyApp/project.yml", NewCommandKernels.GetCreatedFileMessage("MyApp", "project.yml"));
+        Assert.Equal(
+            "Project shape: csproj-free source tree; nlc builds directly from project.yml.",
+            NewCommandKernels.GetProjectShapeMessage());
+        Assert.Equal(
+            "To check systems policy and inspect performance facts:",
+            NewCommandKernels.GetNextStepsIntroMessage("systems-lib"));
+        Assert.Equal("To build your project:", NewCommandKernels.GetNextStepsIntroMessage("library"));
+        Assert.Equal("  cd MyApp", NewCommandKernels.GetCdCommandMessage("MyApp"));
+        Assert.Equal("  nlc check --systems-report", NewCommandKernels.GetSystemsReportCommandMessage());
+        Assert.Equal("  nlc build --perf-report", NewCommandKernels.GetSystemsBuildCommandMessage());
+        Assert.Equal("  nlc build", NewCommandKernels.GetBuildCommandMessage());
+        Assert.Equal("  nlc test", NewCommandKernels.GetTestCommandMessage());
+        Assert.Equal("  nlc run", NewCommandKernels.GetRunCommandMessage());
+        Assert.Equal("Failed to create project: denied", NewCommandKernels.GetFailedMessage("denied"));
     }
 
     [Fact]

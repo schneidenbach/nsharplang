@@ -7057,6 +7057,21 @@ func outer(x: int): int {
         Assert.Contains("CliFixArgumentSummaryInto", methodNames!); // product fix argument parsing.
         Assert.Contains("CliFixEffectiveOutputMode", methodNames!); // product fix output mode selection.
         Assert.Contains("CliNewArgumentSummaryInto", methodNames!); // product new argument parsing.
+        Assert.Contains("CliNewHelpText", methodNames!); // product new help text shaping.
+        Assert.Contains("CliNewUsageMessage", methodNames!); // product new usage message shaping.
+        Assert.Contains("CliNewInvalidTemplateMessage", methodNames!); // product new invalid-template message shaping.
+        Assert.Contains("CliNewDirectoryExistsMessage", methodNames!); // product new directory-exists message shaping.
+        Assert.Contains("CliNewCreatingProjectMessage", methodNames!); // product new creating-project message shaping.
+        Assert.Contains("CliNewCreatedFileMessage", methodNames!); // product new created-file message shaping.
+        Assert.Contains("CliNewProjectShapeMessage", methodNames!); // product new project-shape message shaping.
+        Assert.Contains("CliNewNextStepsIntroMessage", methodNames!); // product new next-steps message shaping.
+        Assert.Contains("CliNewCdCommandMessage", methodNames!); // product new cd command message shaping.
+        Assert.Contains("CliNewSystemsReportCommandMessage", methodNames!); // product new systems-report command shaping.
+        Assert.Contains("CliNewSystemsBuildCommandMessage", methodNames!); // product new systems-build command shaping.
+        Assert.Contains("CliNewBuildCommandMessage", methodNames!); // product new build command shaping.
+        Assert.Contains("CliNewTestCommandMessage", methodNames!); // product new test command shaping.
+        Assert.Contains("CliNewRunCommandMessage", methodNames!); // product new run command shaping.
+        Assert.Contains("CliNewFailedMessage", methodNames!); // product new failure message shaping.
         Assert.Contains("CliNewTemplateKind", methodNames!); // product new template normalization.
         Assert.Contains("CliNewEffectiveTemplateKind", methodNames!); // product new --systems template selection.
         Assert.Contains("CliNewTemplateSourceFileKindsInto", methodNames!); // product new template source manifest.
@@ -15590,6 +15605,66 @@ class OtherZetaType {
                     "CliNewArgumentSummaryInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliNewArgumentSummaryInto.");
+            var cliNewHelpText = programType.GetMethod(
+                    "CliNewHelpText",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliNewHelpText.");
+            var cliNewUsageMessage = programType.GetMethod(
+                    "CliNewUsageMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliNewUsageMessage.");
+            var cliNewInvalidTemplateMessage = programType.GetMethod(
+                    "CliNewInvalidTemplateMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliNewInvalidTemplateMessage.");
+            var cliNewDirectoryExistsMessage = programType.GetMethod(
+                    "CliNewDirectoryExistsMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliNewDirectoryExistsMessage.");
+            var cliNewCreatingProjectMessage = programType.GetMethod(
+                    "CliNewCreatingProjectMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliNewCreatingProjectMessage.");
+            var cliNewCreatedFileMessage = programType.GetMethod(
+                    "CliNewCreatedFileMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliNewCreatedFileMessage.");
+            var cliNewProjectShapeMessage = programType.GetMethod(
+                    "CliNewProjectShapeMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliNewProjectShapeMessage.");
+            var cliNewNextStepsIntroMessage = programType.GetMethod(
+                    "CliNewNextStepsIntroMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliNewNextStepsIntroMessage.");
+            var cliNewCdCommandMessage = programType.GetMethod(
+                    "CliNewCdCommandMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliNewCdCommandMessage.");
+            var cliNewSystemsReportCommandMessage = programType.GetMethod(
+                    "CliNewSystemsReportCommandMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliNewSystemsReportCommandMessage.");
+            var cliNewSystemsBuildCommandMessage = programType.GetMethod(
+                    "CliNewSystemsBuildCommandMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliNewSystemsBuildCommandMessage.");
+            var cliNewBuildCommandMessage = programType.GetMethod(
+                    "CliNewBuildCommandMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliNewBuildCommandMessage.");
+            var cliNewTestCommandMessage = programType.GetMethod(
+                    "CliNewTestCommandMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliNewTestCommandMessage.");
+            var cliNewRunCommandMessage = programType.GetMethod(
+                    "CliNewRunCommandMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliNewRunCommandMessage.");
+            var cliNewFailedMessage = programType.GetMethod(
+                    "CliNewFailedMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliNewFailedMessage.");
             var cliAddArgumentSummaryInto = programType.GetMethod(
                     "CliAddArgumentSummaryInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -16889,6 +16964,22 @@ func main(customer: Customer, résumé: Profile) {
             AssertCliFixArgumentsLikeProduction(cliFixArgumentSummaryInto);
             AssertCliFixOutputModesLikeProduction(cliFixEffectiveOutputMode);
             AssertCliNewArgumentsLikeProduction(cliNewArgumentSummaryInto);
+            AssertCliNewMessagesLikeProduction(
+                cliNewHelpText,
+                cliNewUsageMessage,
+                cliNewInvalidTemplateMessage,
+                cliNewDirectoryExistsMessage,
+                cliNewCreatingProjectMessage,
+                cliNewCreatedFileMessage,
+                cliNewProjectShapeMessage,
+                cliNewNextStepsIntroMessage,
+                cliNewCdCommandMessage,
+                cliNewSystemsReportCommandMessage,
+                cliNewSystemsBuildCommandMessage,
+                cliNewBuildCommandMessage,
+                cliNewTestCommandMessage,
+                cliNewRunCommandMessage,
+                cliNewFailedMessage);
             AssertCliAddArgumentsLikeProduction(cliAddArgumentSummaryInto);
             AssertCliAddMessagesLikeProduction(
                 cliAddHelpText,
@@ -20562,6 +20653,91 @@ func main() {
             (int)(cliNewArgumentSummaryInto.Invoke(
                 null,
                 new object[] { new[] { "MyApp" }, new int[4] }) ?? 0));
+    }
+
+    private static void AssertCliNewMessagesLikeProduction(
+        MethodInfo cliNewHelpText,
+        MethodInfo cliNewUsageMessage,
+        MethodInfo cliNewInvalidTemplateMessage,
+        MethodInfo cliNewDirectoryExistsMessage,
+        MethodInfo cliNewCreatingProjectMessage,
+        MethodInfo cliNewCreatedFileMessage,
+        MethodInfo cliNewProjectShapeMessage,
+        MethodInfo cliNewNextStepsIntroMessage,
+        MethodInfo cliNewCdCommandMessage,
+        MethodInfo cliNewSystemsReportCommandMessage,
+        MethodInfo cliNewSystemsBuildCommandMessage,
+        MethodInfo cliNewBuildCommandMessage,
+        MethodInfo cliNewTestCommandMessage,
+        MethodInfo cliNewRunCommandMessage,
+        MethodInfo cliNewFailedMessage)
+    {
+        var help = (string)(cliNewHelpText.Invoke(null, Array.Empty<object>()) ?? "<null>");
+        Assert.Contains("N# New Project", help);
+        Assert.Contains("Usage: nlc new <project-name>", help);
+        Assert.Contains("Project creation failed", help);
+
+        var usage = (string)(cliNewUsageMessage.Invoke(null, Array.Empty<object>()) ?? "<null>");
+        Assert.Equal("Usage: nlc new <project-name> [--template <template>]", usage);
+
+        var invalidTemplate = (string)(cliNewInvalidTemplateMessage.Invoke(null, Array.Empty<object>()) ?? "<null>");
+        Assert.Equal(
+            "Invalid template. Expected one of: console, library, test, webapi, systems-cli, systems-lib.",
+            invalidTemplate);
+
+        var directoryExists = (string)(cliNewDirectoryExistsMessage.Invoke(
+            null,
+            new object[] { "/tmp/MyApp" }) ?? "<null>");
+        Assert.Equal(
+            "Directory already exists: /tmp/MyApp. Use a different name or remove the existing directory.",
+            directoryExists);
+
+        var creatingProject = (string)(cliNewCreatingProjectMessage.Invoke(
+            null,
+            new object[] { "systems-cli", "PacketTool" }) ?? "<null>");
+        Assert.Equal("Creating new systems-cli project: PacketTool", creatingProject);
+
+        var createdFile = (string)(cliNewCreatedFileMessage.Invoke(
+            null,
+            new object[] { "MyApp", "project.yml" }) ?? "<null>");
+        Assert.Equal("Created: MyApp/project.yml", createdFile);
+
+        var projectShape = (string)(cliNewProjectShapeMessage.Invoke(null, Array.Empty<object>()) ?? "<null>");
+        Assert.Equal(
+            "Project shape: csproj-free source tree; nlc builds directly from project.yml.",
+            projectShape);
+
+        var systemsIntro = (string)(cliNewNextStepsIntroMessage.Invoke(
+            null,
+            new object[] { "systems-lib" }) ?? "<null>");
+        Assert.Equal("To check systems policy and inspect performance facts:", systemsIntro);
+
+        var libraryIntro = (string)(cliNewNextStepsIntroMessage.Invoke(
+            null,
+            new object[] { "library" }) ?? "<null>");
+        Assert.Equal("To build your project:", libraryIntro);
+
+        var cdCommand = (string)(cliNewCdCommandMessage.Invoke(null, new object[] { "MyApp" }) ?? "<null>");
+        Assert.Equal("  cd MyApp", cdCommand);
+
+        Assert.Equal(
+            "  nlc check --systems-report",
+            (string)(cliNewSystemsReportCommandMessage.Invoke(null, Array.Empty<object>()) ?? "<null>"));
+        Assert.Equal(
+            "  nlc build --perf-report",
+            (string)(cliNewSystemsBuildCommandMessage.Invoke(null, Array.Empty<object>()) ?? "<null>"));
+        Assert.Equal(
+            "  nlc build",
+            (string)(cliNewBuildCommandMessage.Invoke(null, Array.Empty<object>()) ?? "<null>"));
+        Assert.Equal(
+            "  nlc test",
+            (string)(cliNewTestCommandMessage.Invoke(null, Array.Empty<object>()) ?? "<null>"));
+        Assert.Equal(
+            "  nlc run",
+            (string)(cliNewRunCommandMessage.Invoke(null, Array.Empty<object>()) ?? "<null>"));
+
+        var failed = (string)(cliNewFailedMessage.Invoke(null, new object[] { "denied" }) ?? "<null>");
+        Assert.Equal("Failed to create project: denied", failed);
     }
 
     private static int[] CreateExpectedCliNewArguments(string[] args)

@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-20 — New command messages move into product N#
+
+`Program.NewCommand` no longer owns help, usage, invalid-template, directory-exists, project-creation,
+created-file, next-step, or failure message bodies in C#. The shipped `CliNew*Message`/`CliNew*Text`
+dogfood kernels now shape those user-facing messages through `NewCommandKernels`; C# keeps filesystem
+creation, template file contents, project manifest writing, and fallback/oracle text only.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.NewCommandKernels_SummarizesArguments|FullyQualifiedName~CliParityAuditTests.NewCommand_Help_StatesCsprojFreePolicyAndTemplates|FullyQualifiedName~CliParityAuditTests.NewCommand_NoArgs_ReturnsUsage|FullyQualifiedName~CliParityAuditTests.NewCommand_InvalidTemplate_ReturnsHelpfulMessage|FullyQualifiedName~CliParityAuditTests.NewCommand_CreatesCanonicalCsprojFreeProjectShape|FullyQualifiedName~CliParityAuditTests.NewCommand_CreatesSystemsProjectShapeFromTemplateFlag|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-20 — Update command messages move into product N#
 
 `UpdateCommand` no longer owns help, missing-project, no-dependency, missing-target, package-status,

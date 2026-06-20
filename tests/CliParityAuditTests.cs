@@ -1133,6 +1133,29 @@ dependencies:
         Assert.Contains("--systems", stdout);
     }
 
+    [Fact]
+    public void NewCommand_NoArgs_ReturnsUsage()
+    {
+        var (exitCode, stdout, stderr) = CaptureConsole(() => ExecuteProgram("new"));
+
+        Assert.Equal(1, exitCode);
+        Assert.True(string.IsNullOrWhiteSpace(stdout));
+        Assert.Contains("Usage: nlc new <project-name> [--template <template>]", stderr);
+    }
+
+    [Fact]
+    public void NewCommand_InvalidTemplate_ReturnsHelpfulMessage()
+    {
+        var (exitCode, stdout, stderr) = CaptureConsole(() =>
+            ExecuteProgram("new", "MyApp", "--template", "unknown-template"));
+
+        Assert.Equal(1, exitCode);
+        Assert.True(string.IsNullOrWhiteSpace(stdout));
+        Assert.Contains(
+            "Invalid template. Expected one of: console, library, test, webapi, systems-cli, systems-lib.",
+            stderr);
+    }
+
     [Theory]
     [InlineData("systems-cli", "Program.nl", "Systems.tests.nl")]
     [InlineData("systems-lib", "PacketCore.nl", "PacketCore.tests.nl")]

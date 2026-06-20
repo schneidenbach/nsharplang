@@ -1710,6 +1710,105 @@ func CliNewArgumentSummaryInto(args: string[], resultIndices: int[]): int {
     return CliNewArgumentSummaryCore(ref arguments, ref results)
 }
 
+func CliNewHelpText(): string {
+    return "N# New Project\n"
+        + "\n"
+        + "Usage: nlc new <project-name> [--template <template>] [--systems]\n"
+        + "       nlc new systems-cli <project-name>\n"
+        + "       nlc new systems-lib <project-name>\n"
+        + "\n"
+        + "Create a new csproj-free N# project. Fresh projects are project.yml-first:\n"
+        + "`nlc build`, `nlc run`, and `nlc test` build directly from project.yml.\n"
+        + "Do not hand-author project build settings in .csproj.\n"
+        + "\n"
+        + "Options:\n"
+        + "  --template <template>  Project template: console, library, test, webapi, systems-cli, systems-lib (default: console)\n"
+        + "  --type <template>      Alias for --template\n"
+        + "  --systems              Enable the systems profile for console/library templates\n"
+        + "  --help, -h             Show this help text\n"
+        + "\n"
+        + "Examples:\n"
+        + "  nlc new MyApp\n"
+        + "  nlc new MyLib --template library\n"
+        + "  nlc new MyApi --template webapi\n"
+        + "  nlc new systems-cli PacketTool\n"
+        + "  nlc new PacketCore --template library --systems\n"
+        + "  nlc new lib PacketCore --systems\n"
+        + "  cd MyApp && nlc build\n"
+        + "\n"
+        + "Exit codes:\n"
+        + "  0  Project created successfully\n"
+        + "  1  Project creation failed"
+}
+
+func CliNewUsageMessage(): string {
+    return "Usage: nlc new <project-name> [--template <template>]"
+}
+
+func CliNewInvalidTemplateMessage(): string {
+    return "Invalid template. Expected one of: console, library, test, webapi, systems-cli, systems-lib."
+}
+
+func CliNewDirectoryExistsMessage(projectDir: string): string {
+    return "Directory already exists: " + projectDir + ". Use a different name or remove the existing directory."
+}
+
+func CliNewCreatingProjectMessage(template: string, projectName: string): string {
+    return "Creating new " + template + " project: " + projectName
+}
+
+func CliNewCreatedFileMessage(projectName: string, sourceFile: string): string {
+    return "Created: " + projectName + "/" + sourceFile
+}
+
+func CliNewProjectShapeMessage(): string {
+    return "Project shape: csproj-free source tree; nlc builds directly from project.yml."
+}
+
+func CliNewNextStepsIntroMessage(template: string): string {
+    if template == "systems-cli" || template == "systems-lib" {
+        return "To check systems policy and inspect performance facts:"
+    }
+
+    if template == "test" {
+        return "To build and test your project:"
+    }
+
+    if template == "library" {
+        return "To build your project:"
+    }
+
+    return "To build and run your project:"
+}
+
+func CliNewCdCommandMessage(projectName: string): string {
+    return "  cd " + projectName
+}
+
+func CliNewSystemsReportCommandMessage(): string {
+    return "  nlc check --systems-report"
+}
+
+func CliNewSystemsBuildCommandMessage(): string {
+    return "  nlc build --perf-report"
+}
+
+func CliNewBuildCommandMessage(): string {
+    return "  nlc build"
+}
+
+func CliNewTestCommandMessage(): string {
+    return "  nlc test"
+}
+
+func CliNewRunCommandMessage(): string {
+    return "  nlc run"
+}
+
+func CliNewFailedMessage(message: string): string {
+    return "Failed to create project: " + message
+}
+
 func CliNewTemplateKind(value: string): int {
     normalized := value.Trim()
 

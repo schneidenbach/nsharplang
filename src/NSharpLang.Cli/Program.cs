@@ -801,41 +801,14 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
         var arguments = GetNewArgumentSummary(args);
         if (arguments.ShowHelp)
         {
-            Console.WriteLine(@"N# New Project
-
-Usage: nlc new <project-name> [--template <template>] [--systems]
-       nlc new systems-cli <project-name>
-       nlc new systems-lib <project-name>
-
-Create a new csproj-free N# project. Fresh projects are project.yml-first:
-`nlc build`, `nlc run`, and `nlc test` build directly from project.yml.
-Do not hand-author project build settings in .csproj.
-
-Options:
-  --template <template>  Project template: console, library, test, webapi, systems-cli, systems-lib (default: console)
-  --type <template>      Alias for --template
-  --systems              Enable the systems profile for console/library templates
-  --help, -h             Show this help text
-
-Examples:
-  nlc new MyApp
-  nlc new MyLib --template library
-  nlc new MyApi --template webapi
-  nlc new systems-cli PacketTool
-  nlc new PacketCore --template library --systems
-  nlc new lib PacketCore --systems
-  cd MyApp && nlc build
-
-Exit codes:
-  0  Project created successfully
-  1  Project creation failed");
+            Console.WriteLine(NewCommandKernels.GetHelpText());
             return 0;
         }
 
         var projectName = arguments.FirstPositional;
         if (projectName == null)
         {
-            return Error("Usage: nlc new <project-name> [--template <template>]");
+            return Error(NewCommandKernels.GetUsageMessage());
         }
 
         var requestedTemplate = arguments.TemplateOption;
@@ -849,53 +822,47 @@ Exit codes:
         var template = ResolveProjectTemplate(requestedTemplate ?? "console", systemsFlag);
         if (template == null)
         {
-            return Error("Invalid template. Expected one of: console, library, test, webapi, systems-cli, systems-lib.");
+            return Error(NewCommandKernels.GetInvalidTemplateMessage());
         }
 
         var projectDir = Path.Combine(Directory.GetCurrentDirectory(), projectName);
 
         if (Directory.Exists(projectDir))
         {
-            return Error($"Directory already exists: {projectDir}. Use a different name or remove the existing directory.");
+            return Error(NewCommandKernels.GetDirectoryExistsMessage(projectDir));
         }
 
         try
         {
-            Console.WriteLine($"Creating new {template} project: {projectName}");
+            Console.WriteLine(NewCommandKernels.GetCreatingProjectMessage(template, projectName));
 
             Directory.CreateDirectory(projectDir);
             WriteCanonicalProject(projectDir, projectName, template);
 
-            Console.WriteLine($"Created: {projectName}/project.yml");
-            Console.WriteLine($"Created: {projectName}/global.json");
-            Console.WriteLine($"Created: {projectName}/NuGet.config");
+            Console.WriteLine(NewCommandKernels.GetCreatedFileMessage(projectName, "project.yml"));
+            Console.WriteLine(NewCommandKernels.GetCreatedFileMessage(projectName, "global.json"));
+            Console.WriteLine(NewCommandKernels.GetCreatedFileMessage(projectName, "NuGet.config"));
             foreach (var file in GetTemplateSourceFiles(template))
             {
-                Console.WriteLine($"Created: {projectName}/{file}");
+                Console.WriteLine(NewCommandKernels.GetCreatedFileMessage(projectName, file));
             }
 
             Console.WriteLine();
-            Console.WriteLine("Project shape: csproj-free source tree; nlc builds directly from project.yml.");
-            Console.WriteLine(template switch
-            {
-                "systems-cli" or "systems-lib" => "To check systems policy and inspect performance facts:",
-                "test" => "To build and test your project:",
-                "library" => "To build your project:",
-                _ => "To build and run your project:",
-            });
-            Console.WriteLine($"  cd {projectName}");
+            Console.WriteLine(NewCommandKernels.GetProjectShapeMessage());
+            Console.WriteLine(NewCommandKernels.GetNextStepsIntroMessage(template));
+            Console.WriteLine(NewCommandKernels.GetCdCommandMessage(projectName));
             if (template is "systems-cli" or "systems-lib")
             {
-                Console.WriteLine("  nlc check --systems-report");
-                Console.WriteLine("  nlc build --perf-report");
+                Console.WriteLine(NewCommandKernels.GetSystemsReportCommandMessage());
+                Console.WriteLine(NewCommandKernels.GetSystemsBuildCommandMessage());
             }
             else
             {
-                Console.WriteLine("  nlc build");
+                Console.WriteLine(NewCommandKernels.GetBuildCommandMessage());
                 if (template == "test")
-                    Console.WriteLine("  nlc test");
+                    Console.WriteLine(NewCommandKernels.GetTestCommandMessage());
                 else if (template != "library")
-                    Console.WriteLine("  nlc run");
+                    Console.WriteLine(NewCommandKernels.GetRunCommandMessage());
             }
             Console.WriteLine();
 
@@ -903,7 +870,7 @@ Exit codes:
         }
         catch (Exception ex)
         {
-            return Error($"Failed to create project: {ex.Message}");
+            return Error(NewCommandKernels.GetFailedMessage(ex.Message));
         }
     }
 
