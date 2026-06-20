@@ -3890,6 +3890,14 @@ dependencies:
 
         Assert.True(DocCommand.GetOptionSummary(new[] { "help" }).ShowHelp);
         Assert.True(DocCommand.GetOptionSummary(new[] { "ignored", "-h" }).ShowHelp);
+
+        Assert.True(DocCommandKernels.TryGetOutputMode(json: false, out var textMode));
+        Assert.Equal(DocOutputModeKind.Text, textMode);
+        Assert.Equal(DocOutputModeKind.Text, DocCommand.GetOutputMode(json: false));
+
+        Assert.True(DocCommandKernels.TryGetOutputMode(json: true, out var jsonMode));
+        Assert.Equal(DocOutputModeKind.Json, jsonMode);
+        Assert.Equal(DocOutputModeKind.Json, DocCommand.GetOutputMode(json: true));
     }
 
     [Fact]

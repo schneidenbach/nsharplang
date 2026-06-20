@@ -302,7 +302,7 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       `AuditCommand` in `AuditCommandKernels`; init option summary now lives beside `InitCommand` in
       `InitCommandKernels`; update all-NuGet and target-package
       dependency filtering now lives beside `UpdateCommand` in `UpdateDependencyFilter`; doc option summary,
-      symbol/member ordering, and slug generation now live beside `DocCommand` in `DocCommandKernels`; tree option
+      output-mode selection, symbol/member ordering, and slug generation now live beside `DocCommand` in `DocCommandKernels`; tree option
       summary, depth parsing, and output-mode selection now live beside `TreeCommand` in `TreeCommandKernels`, and tree dependency and
       target-framework deduplication now live beside `TreeCommand` in `TreeDependencyDeduplicator`;
       completion shell option summary now lives beside `CompletionCommand` in `CompletionCommandKernels`;

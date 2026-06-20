@@ -26,7 +26,7 @@ public static class DocCommand
         if (options.ShowHelp)
             return ShowHelp();
 
-        var useJson = options.Json;
+        var outputMode = GetOutputMode(options.Json);
         var openAfterGenerate = options.Open;
         var projectRoot = options.ProjectOption ?? Directory.GetCurrentDirectory();
         var outputDir = options.OutputOption ?? Path.Combine(projectRoot, "nsharp", "docs");
@@ -34,7 +34,7 @@ public static class DocCommand
         outputDir = Path.GetFullPath(outputDir);
 
         if (!Directory.Exists(projectRoot))
-            return EmitError(useJson, projectRoot, $"Project directory not found: {projectRoot}");
+            return EmitError(outputMode, projectRoot, $"Project directory not found: {projectRoot}");
 
         try
         {
@@ -45,9 +45,9 @@ public static class DocCommand
             var manifest = ProjectDocGenerator.Generate(projectRoot, outputDir, symbols);
 
             if (openAfterGenerate && !TryOpen(manifest.IndexPath, out var openError))
-                return EmitError(useJson, projectRoot, openError!);
+                return EmitError(outputMode, projectRoot, openError!);
 
-            if (useJson)
+            if (outputMode == DocOutputModeKind.Json)
             {
                 Console.Write(JsonSerializer.Serialize(new
                 {
@@ -72,7 +72,7 @@ public static class DocCommand
         }
         catch (Exception ex)
         {
-            return EmitError(useJson, projectRoot, $"Doc generation failed: {ex.Message}");
+            return EmitError(outputMode, projectRoot, $"Doc generation failed: {ex.Message}");
         }
     }
 
@@ -104,9 +104,9 @@ Exit codes:
         return 0;
     }
 
-    private static int EmitError(bool useJson, string projectRoot, string message)
+    private static int EmitError(DocOutputModeKind outputMode, string projectRoot, string message)
     {
-        if (useJson)
+        if (outputMode == DocOutputModeKind.Json)
         {
             Console.Write(JsonSerializer.Serialize(new
             {
@@ -133,6 +133,11 @@ Exit codes:
             ? summary
             : GetOptionSummaryWithCSharp(args);
 
+    internal static DocOutputModeKind GetOutputMode(bool json)
+        => DocCommandKernels.TryGetOutputMode(json, out var outputMode)
+            ? outputMode
+            : GetOutputModeWithCSharp(json);
+
     // Stage 6 C#-surface-shrink: fallback/oracle only; product doc option parsing routes through DocCommandKernels.
     private static DocOptionSummary GetOptionSummaryWithCSharp(string[] args)
         => new(
@@ -141,6 +146,10 @@ Exit codes:
             ContainsArgWithCSharp(args, "--json"),
             ContainsArgWithCSharp(args, "--open"),
             ContainsArgWithCSharp(args, "--help") || ContainsArgWithCSharp(args, "-h") || (args.Length > 0 && args[0] == "help"));
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product doc output mode selection routes through DocCommandKernels.
+    private static DocOutputModeKind GetOutputModeWithCSharp(bool json)
+        => json ? DocOutputModeKind.Json : DocOutputModeKind.Text;
 
     private static string? GetOptionValueWithCSharp(string[] args, string flag)
     {

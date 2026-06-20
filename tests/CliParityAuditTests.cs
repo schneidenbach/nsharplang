@@ -324,6 +324,64 @@ func Add(x: int, y: int): int {
     }
 
     [Fact]
+    public void DocCommand_GeneratesHtmlAndTextSummary()
+    {
+        var tempDir = CreateTempDir();
+        var outputDir = Path.Combine(tempDir, "docs-out");
+
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+func Add(x: int, y: int): int {
+    return x + y
+}
+""");
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                DocCommand.Execute(new[] { "--project", tempDir, "--output", outputDir }));
+
+            Assert.Equal(0, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stderr));
+            Assert.Contains("Generated API docs for", stdout);
+            Assert.Contains($"Output: {outputDir}", stdout);
+            Assert.DoesNotContain("\"command\"", stdout);
+            Assert.True(File.Exists(Path.Combine(outputDir, "index.html")));
+            Assert.True(File.Exists(Path.Combine(outputDir, "symbols", "functionaddprogram.html")));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void DocCommand_JsonMissingProject_UsesErrorEnvelope()
+    {
+        var tempDir = CreateTempDir();
+        var missingProjectDir = Path.Combine(tempDir, "missing-project");
+
+        try
+        {
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                DocCommand.Execute(new[] { "--project", missingProjectDir, "--json" }));
+
+            Assert.Equal(1, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stderr));
+
+            using var doc = JsonDocument.Parse(stdout);
+            var root = doc.RootElement;
+            Assert.Equal(1, root.GetProperty("schemaVersion").GetInt32());
+            Assert.Equal("doc", root.GetProperty("command").GetString());
+            Assert.False(root.GetProperty("ok").GetBoolean());
+            Assert.Contains("Project directory not found", root.GetProperty("error").GetProperty("message").GetString());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void Linter_IgnoreComment_SuppressesSpecificWarning()
     {
         var source = """

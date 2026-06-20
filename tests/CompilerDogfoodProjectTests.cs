@@ -7062,6 +7062,7 @@ func outer(x: int): int {
         Assert.Contains("CliTidyOutputMode", methodNames!); // product tidy output mode selection.
         Assert.Contains("CliTidyImportNamespaceSpanInto", methodNames!); // product tidy import extraction.
         Assert.Contains("CliDocOptionSummaryInto", methodNames!); // product doc option parsing.
+        Assert.Contains("CliDocOutputMode", methodNames!); // product doc output mode selection.
         Assert.Contains("CliTreeOptionSummaryInto", methodNames!); // product tree option parsing.
         Assert.Contains("CliTreeMaxDepthInto", methodNames!); // product tree depth parsing.
         Assert.Contains("CliTreeOutputMode", methodNames!); // product tree output mode selection.
@@ -15628,6 +15629,10 @@ class OtherZetaType {
                     "CliDocOptionSummaryInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDocOptionSummaryInto.");
+            var cliDocOutputMode = programType.GetMethod(
+                    "CliDocOutputMode",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDocOutputMode.");
             var cliTreeOptionSummaryInto = programType.GetMethod(
                     "CliTreeOptionSummaryInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -16722,6 +16727,7 @@ func main(customer: Customer, résumé: Profile) {
             AssertCliTidyOptionsLikeProduction(cliTidyOptionSummaryInto);
             AssertCliJsonFlagOutputModesLikeProduction(cliTidyOutputMode);
             AssertCliDocOptionsLikeProduction(cliDocOptionSummaryInto);
+            AssertCliJsonFlagOutputModesLikeProduction(cliDocOutputMode);
             AssertCliTreeOptionsLikeProduction(cliTreeOptionSummaryInto, cliTreeMaxDepthInto);
             AssertCliLintFileArgsLikeProduction(
                 cliLintFileArgIndicesInto,

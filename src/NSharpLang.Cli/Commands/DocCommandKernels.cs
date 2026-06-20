@@ -11,6 +11,12 @@ internal readonly record struct DocOptionSummary(
     bool Open,
     bool ShowHelp);
 
+internal enum DocOutputModeKind
+{
+    Json = 1,
+    Text = 2
+}
+
 internal static class DocCommandKernels
 {
     [ThreadStatic]
@@ -53,6 +59,30 @@ internal static class DocCommandKernels
         catch
         {
             summary = default;
+            return false;
+        }
+    }
+
+    internal static bool TryGetOutputMode(bool json, out DocOutputModeKind outputMode)
+    {
+        outputMode = default;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        try
+        {
+            var code = bindings.OutputMode(json ? 1 : 0);
+            if (code is < 1 or > 2)
+                return false;
+
+            outputMode = (DocOutputModeKind)code;
+            return true;
+        }
+        catch
+        {
+            outputMode = default;
             return false;
         }
     }
@@ -177,7 +207,10 @@ internal static class DocCommandKernels
                 "CliDocSlugsInto"),
             DogfoodKernelLoader.CreateDelegate<CliDocOptionSummaryInto>(
                 programType,
-                "CliDocOptionSummaryInto")));
+                "CliDocOptionSummaryInto"),
+            DogfoodKernelLoader.CreateDelegate<CliDocOutputMode>(
+                programType,
+                "CliDocOutputMode")));
 
     private static bool IsDocumentedSymbolKind(SymbolKind kind) =>
         kind is not SymbolKind.Variable and not SymbolKind.Parameter;
@@ -221,10 +254,13 @@ internal static class DocCommandKernels
         string[] args,
         int[] resultIndices);
 
+    private delegate int CliDocOutputMode(int json);
+
     private sealed record Bindings(
         CliDocSymbolOrderCountingIndicesInto SymbolOrderCountingIndices,
         CliDocSlugsInto DocSlugs,
-        CliDocOptionSummaryInto OptionSummary);
+        CliDocOptionSummaryInto OptionSummary,
+        CliDocOutputMode OutputMode);
 
     private static bool TryGetOptionalArg(string[] args, int index, out string? value)
     {

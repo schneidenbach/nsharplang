@@ -3027,6 +3027,14 @@ func CliDocOptionSummaryKind(arg: string): int {
     return 0
 }
 
+func CliDocOutputMode(useJson: int): int {
+    if useJson != 0 {
+        return 1
+    }
+
+    return 2
+}
+
 func CliTidyDependencyStatusRanksInto(
     packageNames: string[],
     importNamespaces: string[],

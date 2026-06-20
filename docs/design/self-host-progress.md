@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-20 — Doc output mode selection moves into product N#
+
+`DocCommand` no longer branches directly on `options.Json` when choosing text vs JSON output or
+error envelope shape. The shipped `CliDocOutputMode` dogfood kernel now selects the `nlc doc`
+render path; C# keeps code-intelligence loading, documentation generation, browser opening,
+output emission, and fallback/oracle mode selection only.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.DocCommandKernels_SummarizesOptions|FullyQualifiedName~CliParityAuditTests.DocCommand_GeneratesHtmlAndJsonManifest|FullyQualifiedName~CliParityAuditTests.DocCommand_GeneratesHtmlAndTextSummary|FullyQualifiedName~CliParityAuditTests.DocCommand_JsonMissingProject_UsesErrorEnvelope|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-20 — Tidy output mode selection moves into product N#
 
 `TidyCommand` no longer branches directly on `options.Json` when choosing text vs JSON output or
