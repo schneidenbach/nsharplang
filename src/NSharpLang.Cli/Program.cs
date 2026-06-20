@@ -843,11 +843,7 @@ Exit codes:
         }
 
         var systemsFlag = arguments.Systems;
-        var template = NormalizeProjectTemplate(requestedTemplate ?? "console");
-        if (systemsFlag && template is "console")
-            template = "systems-cli";
-        else if (systemsFlag && template is "library")
-            template = "systems-lib";
+        var template = ResolveProjectTemplate(requestedTemplate ?? "console", systemsFlag);
         if (template == null)
         {
             return Error("Invalid template. Expected one of: console, library, test, webapi, systems-cli, systems-lib.");
@@ -943,6 +939,27 @@ Exit codes:
             : NormalizeProjectTemplateWithCSharp(value);
 
         return GetProjectTemplateName(templateKind);
+    }
+
+    static string? ResolveProjectTemplate(string value, bool systems)
+    {
+        var templateKind = NewCommandKernels.TryResolveTemplate(value, systems, out var dogfoodTemplateKind)
+            ? dogfoodTemplateKind
+            : ResolveProjectTemplateWithCSharp(value, systems);
+
+        return GetProjectTemplateName(templateKind);
+    }
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product new --systems effective-template selection routes through NewCommandKernels.
+    static NewProjectTemplateKind ResolveProjectTemplateWithCSharp(string value, bool systems)
+    {
+        var templateKind = NormalizeProjectTemplateWithCSharp(value);
+        if (systems && templateKind == NewProjectTemplateKind.Console)
+            return NewProjectTemplateKind.SystemsCli;
+        if (systems && templateKind == NewProjectTemplateKind.Library)
+            return NewProjectTemplateKind.SystemsLib;
+
+        return templateKind;
     }
 
     // Stage 6 C#-surface-shrink: fallback/oracle only; product new-template normalization routes through NewCommandKernels.

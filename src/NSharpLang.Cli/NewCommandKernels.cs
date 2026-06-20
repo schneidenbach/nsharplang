@@ -119,6 +119,30 @@ internal static class NewCommandKernels
         }
     }
 
+    internal static bool TryResolveTemplate(string value, bool systems, out NewProjectTemplateKind templateKind)
+    {
+        templateKind = NewProjectTemplateKind.Unknown;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        try
+        {
+            var result = bindings.NewEffectiveTemplateKind(value, systems ? 1 : 0);
+            if (result is < 0 or > 6)
+                return false;
+
+            templateKind = (NewProjectTemplateKind)result;
+            return true;
+        }
+        catch
+        {
+            templateKind = NewProjectTemplateKind.Unknown;
+            return false;
+        }
+    }
+
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
             DogfoodKernelLoader.CreateDelegate<CliFirstPositionalArgIndex>(
@@ -129,7 +153,10 @@ internal static class NewCommandKernels
                 "CliNewArgumentSummaryInto"),
             DogfoodKernelLoader.CreateDelegate<CliNewTemplateKind>(
                 programType,
-                "CliNewTemplateKind")));
+                "CliNewTemplateKind"),
+            DogfoodKernelLoader.CreateDelegate<CliNewEffectiveTemplateKind>(
+                programType,
+                "CliNewEffectiveTemplateKind")));
 
     private delegate int CliFirstPositionalArgIndex(
         string[] args,
@@ -142,10 +169,15 @@ internal static class NewCommandKernels
     private delegate int CliNewTemplateKind(
         string value);
 
+    private delegate int CliNewEffectiveTemplateKind(
+        string value,
+        int systems);
+
     private sealed record Bindings(
         CliFirstPositionalArgIndex FirstPositionalArgIndex,
         CliNewArgumentSummaryInto NewArgumentSummary,
-        CliNewTemplateKind NewTemplateKind);
+        CliNewTemplateKind NewTemplateKind,
+        CliNewEffectiveTemplateKind NewEffectiveTemplateKind);
 
     private static bool TryGetOptionalArg(string[] args, int index, out string? value)
     {

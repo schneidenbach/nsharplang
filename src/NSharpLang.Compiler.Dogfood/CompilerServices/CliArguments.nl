@@ -1165,6 +1165,19 @@ func CliNewTemplateKind(value: string): int {
     return 0
 }
 
+func CliNewEffectiveTemplateKind(value: string, systems: int): int {
+    templateKind := CliNewTemplateKind(value)
+    if systems != 0 && templateKind == 1 {
+        return 5
+    }
+
+    if systems != 0 && templateKind == 2 {
+        return 6
+    }
+
+    return templateKind
+}
+
 func CliNewArgumentSummaryCore(args: &CliArgumentTable, resultIndices: &CliIndexResultTable): int {
     if resultIndices.Indices.Length < 5 {
         return -1

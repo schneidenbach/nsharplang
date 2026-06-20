@@ -1589,6 +1589,15 @@ func Main() {
         Assert.True(NewCommandKernels.TryNormalizeTemplate("unknown", out var unknownAlias));
         Assert.Equal(NewProjectTemplateKind.Unknown, unknownAlias);
 
+        Assert.True(NewCommandKernels.TryResolveTemplate("console", systems: true, out var systemsConsole));
+        Assert.Equal(NewProjectTemplateKind.SystemsCli, systemsConsole);
+        Assert.True(NewCommandKernels.TryResolveTemplate("library", systems: true, out var systemsLibrary));
+        Assert.Equal(NewProjectTemplateKind.SystemsLib, systemsLibrary);
+        Assert.True(NewCommandKernels.TryResolveTemplate("test", systems: true, out var systemsTest));
+        Assert.Equal(NewProjectTemplateKind.Test, systemsTest);
+        Assert.True(NewCommandKernels.TryResolveTemplate("web-api", systems: false, out var effectiveWebApi));
+        Assert.Equal(NewProjectTemplateKind.WebApi, effectiveWebApi);
+
         Assert.True(Program.GetNewArgumentSummary(new[] { "help" }).ShowHelp);
     }
 

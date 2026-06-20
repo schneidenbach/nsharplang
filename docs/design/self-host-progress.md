@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-20 — New effective template selection moves into product N#
+
+`Program.NewCommand` no longer owns the `--systems` rewrite that turns `console` into `systems-cli` and `library`
+into `systems-lib`. The shipped `CliNewEffectiveTemplateKind` dogfood kernel now resolves the effective template
+through `NewCommandKernels`; C# keeps template-name materialization, directory creation, and fallback/oracle logic.
+
+Focused evidence:
+`./scripts/dev.sh NewCommandKernels`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliParityAuditTests.NewCommand_CreatesSystemsProjectShapeFromTemplateFlag"`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-20 — New template normalization moves into product N#
 
 `Program.NewCommand` no longer owns template alias normalization for `console`/`lib`/`web-api`/`systems` and the
