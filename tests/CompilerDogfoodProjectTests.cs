@@ -7129,6 +7129,10 @@ func outer(x: int): int {
         Assert.Contains("CliAuditOutputMode", methodNames!); // product audit output mode selection.
         Assert.Contains("CliInitOptionSummaryInto", methodNames!); // product init option parsing.
         Assert.Contains("CliRestoreOptionSummaryInto", methodNames!); // product restore option parsing.
+        Assert.Contains("CliRestoreHelpText", methodNames!); // product restore help text shaping.
+        Assert.Contains("CliRestoreMissingProjectFileMessage", methodNames!); // product restore missing-project message shaping.
+        Assert.Contains("CliRestoreGeneratedPropsMessage", methodNames!); // product restore success message shaping.
+        Assert.Contains("CliRestoreFailedMessage", methodNames!); // product restore failure message shaping.
 
         var sharedFrameworkMajors = new[] { 8, 10, 10, 9, 10 };
         var sharedFrameworkMinors = new[] { 0, 0, 0, 1, 0 };
@@ -16025,6 +16029,22 @@ class OtherZetaType {
                     "CliRestoreOptionSummaryInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliRestoreOptionSummaryInto.");
+            var cliRestoreHelpText = programType.GetMethod(
+                    "CliRestoreHelpText",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliRestoreHelpText.");
+            var cliRestoreMissingProjectFileMessage = programType.GetMethod(
+                    "CliRestoreMissingProjectFileMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliRestoreMissingProjectFileMessage.");
+            var cliRestoreGeneratedPropsMessage = programType.GetMethod(
+                    "CliRestoreGeneratedPropsMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliRestoreGeneratedPropsMessage.");
+            var cliRestoreFailedMessage = programType.GetMethod(
+                    "CliRestoreFailedMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliRestoreFailedMessage.");
             var cliUpdateAllNuGetDependencyIndicesInto = programType.GetMethod(
                     "CliUpdateAllNuGetDependencyIndicesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -17086,6 +17106,11 @@ func main(customer: Customer, résumé: Profile) {
             AssertCliJsonFlagOutputModesLikeProduction(cliAuditOutputMode);
             AssertCliInitOptionsLikeProduction(cliInitOptionSummaryInto);
             AssertCliRestoreOptionsLikeProduction(cliRestoreOptionSummaryInto);
+            AssertCliRestoreMessagesLikeProduction(
+                cliRestoreHelpText,
+                cliRestoreMissingProjectFileMessage,
+                cliRestoreGeneratedPropsMessage,
+                cliRestoreFailedMessage);
             AssertCliUpdateAllNuGetDependencyFilteringLikeProduction(
                 cliUpdateAllNuGetDependencyIndicesInto,
                 cliUpdateAllNuGetDependencyChecksumInto);
@@ -22667,6 +22692,27 @@ func main() {
             (int)(cliRestoreOptionSummaryInto.Invoke(
                 null,
                 new object[] { new[] { "--help" }, Array.Empty<int>() }) ?? 0));
+    }
+
+    private static void AssertCliRestoreMessagesLikeProduction(
+        MethodInfo cliRestoreHelpText,
+        MethodInfo cliRestoreMissingProjectFileMessage,
+        MethodInfo cliRestoreGeneratedPropsMessage,
+        MethodInfo cliRestoreFailedMessage)
+    {
+        var help = (string)(cliRestoreHelpText.Invoke(null, Array.Empty<object>()) ?? "<null>");
+        Assert.Contains("N# Restore", help);
+        Assert.Contains("Usage: nlc restore", help);
+        Assert.Contains("obj/project.g.props", help);
+
+        var missingProject = (string)(cliRestoreMissingProjectFileMessage.Invoke(null, Array.Empty<object>()) ?? "<null>");
+        Assert.Equal("No project.yml found. Run 'nlc new <name>' to create a project.", missingProject);
+
+        var generated = (string)(cliRestoreGeneratedPropsMessage.Invoke(null, Array.Empty<object>()) ?? "<null>");
+        Assert.Equal("Generated obj/project.g.props from project.yml", generated);
+
+        var failed = (string)(cliRestoreFailedMessage.Invoke(null, new object[] { "bad YAML" }) ?? "<null>");
+        Assert.Equal("Failed to restore project configuration: bad YAML", failed);
     }
 
     private static int[] CreateExpectedCliRestoreOptions(string[] args)

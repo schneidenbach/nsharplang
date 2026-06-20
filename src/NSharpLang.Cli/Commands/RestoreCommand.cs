@@ -49,7 +49,7 @@ public static class RestoreCommand
         if (!File.Exists(projectYmlPath))
         {
             if (!quiet)
-                Console.Error.WriteLine("No project.yml found. Run 'nlc new <name>' to create a project.");
+                Console.Error.WriteLine(RestoreCommandKernels.GetMissingProjectFileMessage());
             return false;
         }
 
@@ -128,29 +128,20 @@ public static class RestoreCommand
             }
 
             if (!quiet)
-                Console.WriteLine($"Generated obj/project.g.props from project.yml");
+                Console.WriteLine(RestoreCommandKernels.GetGeneratedPropsMessage());
 
             return true;
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"Failed to restore project configuration: {ex.Message}");
+            Console.Error.WriteLine(RestoreCommandKernels.GetFailedMessage(ex.Message));
             return false;
         }
     }
 
     static void ShowHelp()
     {
-        Console.WriteLine(@"N# Restore
-
-Usage: nlc restore
-
-Generates build configuration (obj/project.g.props) from project.yml.
-This must be run before 'dotnet build' can work directly against a minimal
-NSharpLang.Sdk .csproj. Native 'nlc build' reads project.yml directly.
-
-Options:
-  -h, --help    Show this help message");
+        Console.WriteLine(RestoreCommandKernels.GetHelpText());
     }
 
     internal static RestoreOptionSummary GetOptionSummary(string[] args)

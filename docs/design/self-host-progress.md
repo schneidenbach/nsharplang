@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-20 — Restore command messages move into product N#
+
+`RestoreCommand` no longer owns help, missing-project, generated-props, or failure message bodies in C#.
+The shipped `CliRestore*` dogfood kernels now shape those user-facing messages through
+`RestoreCommandKernels`; C# keeps current-directory selection, `project.yml` parsing, MSBuild projection,
+recursive project-reference restore, and fallback/oracle text only.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.RestoreCommandKernels_SummarizesOptions|FullyQualifiedName~CliCommandTests.RestoreCommand_DeduplicatesProjectReferencesInGeneratedProps|FullyQualifiedName~CliParityAuditTests.RestoreCommand_Help_ShowsProjectYmlProjection|FullyQualifiedName~CliParityAuditTests.RestoreCommand_NoProjectYml_ReturnsHelpfulError|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-20 — New command messages move into product N#
 
 `Program.NewCommand` no longer owns help, usage, invalid-template, directory-exists, project-creation,

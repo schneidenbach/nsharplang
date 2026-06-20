@@ -3184,6 +3184,20 @@ func Main() {
 
         Assert.False(RestoreCommand.GetOptionSummary(new[] { "help" }).ShowHelp);
         Assert.False(RestoreCommand.GetOptionSummary(Array.Empty<string>()).ShowHelp);
+
+        var helpText = RestoreCommandKernels.GetHelpText();
+        Assert.Contains("N# Restore", helpText);
+        Assert.Contains("Usage: nlc restore", helpText);
+        Assert.Contains("obj/project.g.props", helpText);
+        Assert.Equal(
+            "No project.yml found. Run 'nlc new <name>' to create a project.",
+            RestoreCommandKernels.GetMissingProjectFileMessage());
+        Assert.Equal(
+            "Generated obj/project.g.props from project.yml",
+            RestoreCommandKernels.GetGeneratedPropsMessage());
+        Assert.Equal(
+            "Failed to restore project configuration: bad YAML",
+            RestoreCommandKernels.GetFailedMessage("bad YAML"));
     }
 
     [Fact]

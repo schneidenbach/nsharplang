@@ -308,7 +308,7 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       completion shell option summary now lives beside `CompletionCommand` in `CompletionCommandKernels`;
       formatter `.editorconfig` integer parsing now lives beside `FormatterConfig` in
       `FormatterConfigKernels`;
-      restore option summary, reference filtering, and project-reference deduplication now live beside
+      restore option summary, help/error/status messages, reference filtering, and project-reference deduplication now live beside
       `RestoreCommand` in `RestoreCommandKernels`; stale generated-output directory de-duplication,
       generated source-path pruning, generated-source base-path derivation, and generated-output base-path
       derivation now live beside `Program.CleanStaleGeneratedFiles` in `GeneratedOutputDirectoryDeduplicator`; native

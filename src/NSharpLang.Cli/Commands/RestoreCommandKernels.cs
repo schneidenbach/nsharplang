@@ -177,6 +177,80 @@ internal static class RestoreCommandKernels
         }
     }
 
+    internal static string GetHelpText()
+    {
+        if (TryGetMessage(bindings => bindings.RestoreHelpText(), out var message))
+            return message;
+
+        return GetHelpTextWithCSharp();
+    }
+
+    internal static string GetMissingProjectFileMessage()
+    {
+        if (TryGetMessage(bindings => bindings.RestoreMissingProjectFileMessage(), out var message))
+            return message;
+
+        return GetMissingProjectFileMessageWithCSharp();
+    }
+
+    internal static string GetGeneratedPropsMessage()
+    {
+        if (TryGetMessage(bindings => bindings.RestoreGeneratedPropsMessage(), out var message))
+            return message;
+
+        return GetGeneratedPropsMessageWithCSharp();
+    }
+
+    internal static string GetFailedMessage(string message)
+    {
+        if (TryGetMessage(bindings => bindings.RestoreFailedMessage(message), out var result))
+            return result;
+
+        return GetFailedMessageWithCSharp(message);
+    }
+
+    private static bool TryGetMessage(Func<Bindings, string> getMessage, out string message)
+    {
+        message = string.Empty;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        try
+        {
+            message = getMessage(bindings);
+            return !string.IsNullOrEmpty(message);
+        }
+        catch
+        {
+            message = string.Empty;
+            return false;
+        }
+    }
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product restore command messages route through CliRestore* kernels.
+    private static string GetHelpTextWithCSharp()
+        => "N# Restore\n"
+           + "\n"
+           + "Usage: nlc restore\n"
+           + "\n"
+           + "Generates build configuration (obj/project.g.props) from project.yml.\n"
+           + "This must be run before 'dotnet build' can work directly against a minimal\n"
+           + "NSharpLang.Sdk .csproj. Native 'nlc build' reads project.yml directly.\n"
+           + "\n"
+           + "Options:\n"
+           + "  -h, --help    Show this help message";
+
+    private static string GetMissingProjectFileMessageWithCSharp()
+        => "No project.yml found. Run 'nlc new <name>' to create a project.";
+
+    private static string GetGeneratedPropsMessageWithCSharp()
+        => "Generated obj/project.g.props from project.yml";
+
+    private static string GetFailedMessageWithCSharp(string message)
+        => $"Failed to restore project configuration: {message}";
+
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
             DogfoodKernelLoader.CreateDelegate<CliReferenceTypeFilterIndicesInto>(
@@ -187,7 +261,19 @@ internal static class RestoreCommandKernels
                 "CliStableDistinctRankIndicesInto"),
             DogfoodKernelLoader.CreateDelegate<CliRestoreOptionSummaryInto>(
                 programType,
-                "CliRestoreOptionSummaryInto")));
+                "CliRestoreOptionSummaryInto"),
+            DogfoodKernelLoader.CreateDelegate<CliRestoreHelpText>(
+                programType,
+                "CliRestoreHelpText"),
+            DogfoodKernelLoader.CreateDelegate<CliRestoreMissingProjectFileMessage>(
+                programType,
+                "CliRestoreMissingProjectFileMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliRestoreGeneratedPropsMessage>(
+                programType,
+                "CliRestoreGeneratedPropsMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliRestoreFailedMessage>(
+                programType,
+                "CliRestoreFailedMessage")));
 
     private delegate int CliRestoreOptionSummaryInto(
         string[] args,
@@ -204,10 +290,19 @@ internal static class RestoreCommandKernels
         int[] seenRanks,
         int[] resultIndices);
 
+    private delegate string CliRestoreHelpText();
+    private delegate string CliRestoreMissingProjectFileMessage();
+    private delegate string CliRestoreGeneratedPropsMessage();
+    private delegate string CliRestoreFailedMessage(string message);
+
     private sealed record Bindings(
         CliReferenceTypeFilterIndicesInto ReferenceTypeFilterIndices,
         CliStableDistinctRankIndicesInto StableDistinctRankIndices,
-        CliRestoreOptionSummaryInto RestoreOptionSummary);
+        CliRestoreOptionSummaryInto RestoreOptionSummary,
+        CliRestoreHelpText RestoreHelpText,
+        CliRestoreMissingProjectFileMessage RestoreMissingProjectFileMessage,
+        CliRestoreGeneratedPropsMessage RestoreGeneratedPropsMessage,
+        CliRestoreFailedMessage RestoreFailedMessage);
 
     private static int GetReferenceTypeRank(ReferenceType type) =>
         type switch

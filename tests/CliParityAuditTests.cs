@@ -1339,6 +1339,43 @@ dependencies:
     }
 
     [Fact]
+    public void RestoreCommand_Help_ShowsProjectYmlProjection()
+    {
+        var (exitCode, stdout, stderr) = CaptureConsole(() =>
+            ExecuteProgram("restore", "--help"));
+
+        Assert.Equal(0, exitCode);
+        Assert.True(string.IsNullOrWhiteSpace(stderr));
+        Assert.Contains("N# Restore", stdout);
+        Assert.Contains("Usage: nlc restore", stdout);
+        Assert.Contains("obj/project.g.props", stdout);
+    }
+
+    [Fact]
+    public void RestoreCommand_NoProjectYml_ReturnsHelpfulError()
+    {
+        var tempDir = CreateTempDir();
+        var originalDirectory = Directory.GetCurrentDirectory();
+
+        try
+        {
+            Directory.SetCurrentDirectory(tempDir);
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                ExecuteProgram("restore"));
+
+            Assert.Equal(1, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stdout));
+            Assert.Contains("No project.yml found. Run 'nlc new <name>' to create a project.", stderr);
+        }
+        finally
+        {
+            Directory.SetCurrentDirectory(originalDirectory);
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void TidyCommand_Help_ShowsUsage()
     {
         var (exitCode, stdout, stderr) = CaptureConsole(() =>

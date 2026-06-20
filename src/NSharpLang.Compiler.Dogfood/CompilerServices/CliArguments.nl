@@ -2490,6 +2490,31 @@ func CliRestoreOptionSummaryCore(args: &CliArgumentTable, resultIndices: &CliInd
     return 0
 }
 
+func CliRestoreHelpText(): string {
+    return "N# Restore\n"
+        + "\n"
+        + "Usage: nlc restore\n"
+        + "\n"
+        + "Generates build configuration (obj/project.g.props) from project.yml.\n"
+        + "This must be run before 'dotnet build' can work directly against a minimal\n"
+        + "NSharpLang.Sdk .csproj. Native 'nlc build' reads project.yml directly.\n"
+        + "\n"
+        + "Options:\n"
+        + "  -h, --help    Show this help message"
+}
+
+func CliRestoreMissingProjectFileMessage(): string {
+    return "No project.yml found. Run 'nlc new <name>' to create a project."
+}
+
+func CliRestoreGeneratedPropsMessage(): string {
+    return "Generated obj/project.g.props from project.yml"
+}
+
+func CliRestoreFailedMessage(message: string): string {
+    return "Failed to restore project configuration: " + message
+}
+
 func CliPublishOptionsInto(args: string[], resultIndices: int[]): int {
     arguments := new CliArgumentTable { Args: args }
     results := new CliIndexResultTable { Indices: resultIndices }
