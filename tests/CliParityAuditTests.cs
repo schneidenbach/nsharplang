@@ -686,6 +686,108 @@ func Main() {
     }
 
     [Fact]
+    public void UpdateCommand_Help_ShowsUsage()
+    {
+        var (exitCode, stdout, stderr) = CaptureConsole(() =>
+            UpdateCommand.Execute(new[] { "--help" }));
+
+        Assert.Equal(0, exitCode);
+        Assert.True(string.IsNullOrWhiteSpace(stderr));
+        Assert.Contains("N# Update Dependencies", stdout);
+        Assert.Contains("Usage: nlc update [package] [options]", stdout);
+    }
+
+    [Fact]
+    public void UpdateCommand_NoProjectYml_ReturnsHelpfulMessage()
+    {
+        var tempDir = CreateTempDir();
+        var originalDirectory = Directory.GetCurrentDirectory();
+
+        try
+        {
+            Directory.SetCurrentDirectory(tempDir);
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                UpdateCommand.Execute(Array.Empty<string>()));
+
+            Assert.Equal(1, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stdout));
+            Assert.Contains("No project.yml found.", stderr);
+        }
+        finally
+        {
+            Directory.SetCurrentDirectory(originalDirectory);
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void UpdateCommand_NoNuGetDependencies_ReturnsStatusMessage()
+    {
+        var projectDir = CreateTempDir();
+        var originalDirectory = Directory.GetCurrentDirectory();
+
+        try
+        {
+            Directory.SetCurrentDirectory(projectDir);
+            File.WriteAllText("project.yml", """
+name: UpdateDemo
+version: 1.0.0
+backend: il
+targetFramework: net10.0
+
+dependencies:
+  - framework: Microsoft.AspNetCore.App
+""");
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                UpdateCommand.Execute(Array.Empty<string>()));
+
+            Assert.Equal(0, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stderr));
+            Assert.Contains("No NuGet dependencies to update.", stdout);
+        }
+        finally
+        {
+            Directory.SetCurrentDirectory(originalDirectory);
+            Directory.Delete(projectDir, true);
+        }
+    }
+
+    [Fact]
+    public void UpdateCommand_MissingTargetDependency_ReturnsHelpfulMessage()
+    {
+        var projectDir = CreateTempDir();
+        var originalDirectory = Directory.GetCurrentDirectory();
+
+        try
+        {
+            Directory.SetCurrentDirectory(projectDir);
+            File.WriteAllText("project.yml", """
+name: UpdateDemo
+version: 1.0.0
+backend: il
+targetFramework: net10.0
+
+dependencies:
+  - YamlDotNet@16.3.0
+""");
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                UpdateCommand.Execute(new[] { "Serilog" }));
+
+            Assert.Equal(1, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stdout));
+            Assert.Contains("Package 'Serilog' not found in dependencies.", stderr);
+        }
+        finally
+        {
+            Directory.SetCurrentDirectory(originalDirectory);
+            Directory.Delete(projectDir, true);
+        }
+    }
+
+    [Fact]
     public void RemoveCommand_Help_ShowsUsage()
     {
         var (exitCode, stdout, stderr) = CaptureConsole(() =>

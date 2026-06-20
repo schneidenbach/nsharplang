@@ -322,8 +322,8 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       effective output-mode selection now live beside `CheckCommand` in `CheckCommandKernels`; fix argument summary
       and effective output-mode selection now live beside `FixCommand` in `FixCommandArgumentKernels`; add argument summary, message shaping, dependency-add planning, and duplicate checks now live beside
       `AddCommand` in `AddCommandKernels`; remove argument summary, message shaping, and dependency-line pruning now live beside
-      `RemoveCommand` in `RemoveCommandKernels`; update argument summary now lives beside `UpdateCommand` in
-      `UpdateCommandKernels`; new argument summary, template normalization, effective-template selection, and
+      `RemoveCommand` in `RemoveCommandKernels`; update argument summary and message shaping now live beside
+      `UpdateCommand` in `UpdateCommandKernels`; new argument summary, template normalization, effective-template selection, and
       template source manifests now live beside `Program.NewCommand` in
       `NewCommandKernels`; tidy
       option summary, output-mode selection, import extraction, classification, status summary, and fix filtering now live beside `TidyCommand`

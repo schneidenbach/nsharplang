@@ -19,7 +19,7 @@ public static class UpdateCommand
         var dryRun = arguments.DryRun;
 
         if (!File.Exists(projectYml))
-            return Error("No project.yml found.");
+            return Error(UpdateCommandKernels.GetMissingProjectFileMessage());
 
         var targetPackage = arguments.TargetPackage;
 
@@ -30,7 +30,7 @@ public static class UpdateCommand
 
             if (allNuGetDeps.Count == 0)
             {
-                Console.WriteLine("No NuGet dependencies to update.");
+                Console.WriteLine(UpdateCommandKernels.GetNoNuGetDependenciesMessage());
                 return 0;
             }
 
@@ -39,7 +39,7 @@ public static class UpdateCommand
             {
                 nugetDeps = FilterNuGetDependencies(allNuGetDeps, targetPackage);
                 if (nugetDeps.Count == 0)
-                    return Error($"Package '{targetPackage}' not found in dependencies.");
+                    return Error(UpdateCommandKernels.GetPackageNotFoundMessage(targetPackage));
             }
 
             var lines = File.ReadAllLines(projectYml);
@@ -50,18 +50,25 @@ public static class UpdateCommand
                 var latest = AddCommand.ResolveLatestVersion(dep.Nuget!);
                 if (latest == null)
                 {
-                    Console.Error.WriteLine($"  Could not resolve latest version for {dep.Nuget}");
+                    Console.Error.WriteLine(UpdateCommandKernels.GetResolveLatestFailureMessage(dep.Nuget!));
                     continue;
                 }
 
                 if (dep.Version == latest)
                 {
                     if (dryRun || targetPackage != null)
-                        Console.WriteLine($"  {dep.Nuget}@{dep.Version} is up to date");
+                    {
+                        Console.WriteLine(UpdateCommandKernels.GetPackageUpToDateMessage(
+                            dep.Nuget!,
+                            dep.Version ?? string.Empty));
+                    }
                     continue;
                 }
 
-                Console.WriteLine($"  {dep.Nuget}: {dep.Version ?? "unversioned"} -> {latest}");
+                Console.WriteLine(UpdateCommandKernels.GetPackageUpdateMessage(
+                    dep.Nuget!,
+                    dep.Version ?? string.Empty,
+                    latest));
 
                 if (!dryRun)
                 {
@@ -102,48 +109,28 @@ public static class UpdateCommand
             {
                 File.WriteAllLines(projectYml, lines);
                 RestoreCommand.Restore(projectRoot, quiet: true);
-                Console.WriteLine($"Updated {updated} package{(updated == 1 ? "" : "s")}.");
+                Console.WriteLine(UpdateCommandKernels.GetUpdatedPackagesMessage(updated));
             }
             else if (dryRun)
             {
-                Console.WriteLine("(dry run — no changes made)");
+                Console.WriteLine(UpdateCommandKernels.GetDryRunMessage());
             }
             else
             {
-                Console.WriteLine("All packages are up to date.");
+                Console.WriteLine(UpdateCommandKernels.GetAllPackagesUpToDateMessage());
             }
 
             return 0;
         }
         catch (Exception ex)
         {
-            return Error($"Update failed: {ex.Message}");
+            return Error(UpdateCommandKernels.GetFailedMessage(ex.Message));
         }
     }
 
     static int ShowHelp()
     {
-        Console.WriteLine(@"N# Update Dependencies
-
-Usage: nlc update [package] [options]
-
-Update NuGet dependencies to their latest versions. If a package name is
-given, only that package is updated. Otherwise all NuGet dependencies
-are checked.
-
-Options:
-  --dry-run       Show what would change without modifying files
-  --help, -h      Show this help text
-
-Examples:
-  nlc update
-  nlc update Newtonsoft.Json
-  nlc update --dry-run
-
-Exit codes:
-  0  Update completed successfully
-  1  Update failed");
-
+        Console.WriteLine(UpdateCommandKernels.GetHelpText());
         return 0;
     }
 

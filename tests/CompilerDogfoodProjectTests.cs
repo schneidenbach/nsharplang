@@ -7084,6 +7084,17 @@ func outer(x: int): int {
         Assert.Contains("CliRemovePackageNotFoundMessage", methodNames!); // product remove missing-package message shaping.
         Assert.Contains("CliRemoveRemovedMessage", methodNames!); // product remove success message shaping.
         Assert.Contains("CliUpdateArgumentSummaryInto", methodNames!); // product update argument parsing.
+        Assert.Contains("CliUpdateHelpText", methodNames!); // product update help text shaping.
+        Assert.Contains("CliUpdateMissingProjectFileMessage", methodNames!); // product update missing-project message shaping.
+        Assert.Contains("CliUpdateNoNuGetDependenciesMessage", methodNames!); // product update no-dependencies message shaping.
+        Assert.Contains("CliUpdatePackageNotFoundMessage", methodNames!); // product update missing-package message shaping.
+        Assert.Contains("CliUpdateResolveLatestFailureMessage", methodNames!); // product update resolution failure message shaping.
+        Assert.Contains("CliUpdatePackageUpToDateMessage", methodNames!); // product update up-to-date message shaping.
+        Assert.Contains("CliUpdatePackageUpdateMessage", methodNames!); // product update planned-update message shaping.
+        Assert.Contains("CliUpdateUpdatedPackagesMessage", methodNames!); // product update count message shaping.
+        Assert.Contains("CliUpdateDryRunMessage", methodNames!); // product update dry-run message shaping.
+        Assert.Contains("CliUpdateAllPackagesUpToDateMessage", methodNames!); // product update all-current message shaping.
+        Assert.Contains("CliUpdateFailedMessage", methodNames!); // product update failure message shaping.
         Assert.Contains("CliTidyOptionSummaryInto", methodNames!); // product tidy option parsing.
         Assert.Contains("CliTidyOutputMode", methodNames!); // product tidy output mode selection.
         Assert.Contains("CliTidyImportNamespaceSpanInto", methodNames!); // product tidy import extraction.
@@ -15651,6 +15662,50 @@ class OtherZetaType {
                     "CliUpdateArgumentSummaryInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliUpdateArgumentSummaryInto.");
+            var cliUpdateHelpText = programType.GetMethod(
+                    "CliUpdateHelpText",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliUpdateHelpText.");
+            var cliUpdateMissingProjectFileMessage = programType.GetMethod(
+                    "CliUpdateMissingProjectFileMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliUpdateMissingProjectFileMessage.");
+            var cliUpdateNoNuGetDependenciesMessage = programType.GetMethod(
+                    "CliUpdateNoNuGetDependenciesMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliUpdateNoNuGetDependenciesMessage.");
+            var cliUpdatePackageNotFoundMessage = programType.GetMethod(
+                    "CliUpdatePackageNotFoundMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliUpdatePackageNotFoundMessage.");
+            var cliUpdateResolveLatestFailureMessage = programType.GetMethod(
+                    "CliUpdateResolveLatestFailureMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliUpdateResolveLatestFailureMessage.");
+            var cliUpdatePackageUpToDateMessage = programType.GetMethod(
+                    "CliUpdatePackageUpToDateMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliUpdatePackageUpToDateMessage.");
+            var cliUpdatePackageUpdateMessage = programType.GetMethod(
+                    "CliUpdatePackageUpdateMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliUpdatePackageUpdateMessage.");
+            var cliUpdateUpdatedPackagesMessage = programType.GetMethod(
+                    "CliUpdateUpdatedPackagesMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliUpdateUpdatedPackagesMessage.");
+            var cliUpdateDryRunMessage = programType.GetMethod(
+                    "CliUpdateDryRunMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliUpdateDryRunMessage.");
+            var cliUpdateAllPackagesUpToDateMessage = programType.GetMethod(
+                    "CliUpdateAllPackagesUpToDateMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliUpdateAllPackagesUpToDateMessage.");
+            var cliUpdateFailedMessage = programType.GetMethod(
+                    "CliUpdateFailedMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliUpdateFailedMessage.");
             var cliCompletionOptionSummaryInto = programType.GetMethod(
                     "CliCompletionOptionSummaryInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -16854,6 +16909,18 @@ func main(customer: Customer, résumé: Profile) {
                 cliRemovePackageNotFoundMessage,
                 cliRemoveRemovedMessage);
             AssertCliUpdateArgumentsLikeProduction(cliUpdateArgumentSummaryInto);
+            AssertCliUpdateMessagesLikeProduction(
+                cliUpdateHelpText,
+                cliUpdateMissingProjectFileMessage,
+                cliUpdateNoNuGetDependenciesMessage,
+                cliUpdatePackageNotFoundMessage,
+                cliUpdateResolveLatestFailureMessage,
+                cliUpdatePackageUpToDateMessage,
+                cliUpdatePackageUpdateMessage,
+                cliUpdateUpdatedPackagesMessage,
+                cliUpdateDryRunMessage,
+                cliUpdateAllPackagesUpToDateMessage,
+                cliUpdateFailedMessage);
             AssertCliCompletionOptionsLikeProduction(cliCompletionOptionSummaryInto);
             AssertCliDaemonOptionsLikeProduction(cliDaemonOptionSummaryInto);
             AssertCliWatchForwardedArgsLikeProduction(
@@ -20666,6 +20733,70 @@ func main() {
             (int)(cliUpdateArgumentSummaryInto.Invoke(
                 null,
                 new object[] { new[] { "Serilog" }, new int[2] }) ?? 0));
+    }
+
+    private static void AssertCliUpdateMessagesLikeProduction(
+        MethodInfo cliUpdateHelpText,
+        MethodInfo cliUpdateMissingProjectFileMessage,
+        MethodInfo cliUpdateNoNuGetDependenciesMessage,
+        MethodInfo cliUpdatePackageNotFoundMessage,
+        MethodInfo cliUpdateResolveLatestFailureMessage,
+        MethodInfo cliUpdatePackageUpToDateMessage,
+        MethodInfo cliUpdatePackageUpdateMessage,
+        MethodInfo cliUpdateUpdatedPackagesMessage,
+        MethodInfo cliUpdateDryRunMessage,
+        MethodInfo cliUpdateAllPackagesUpToDateMessage,
+        MethodInfo cliUpdateFailedMessage)
+    {
+        var help = (string)(cliUpdateHelpText.Invoke(null, Array.Empty<object>()) ?? "<null>");
+        Assert.Contains("N# Update Dependencies", help);
+        Assert.Contains("Usage: nlc update [package] [options]", help);
+        Assert.Contains("Update failed", help);
+
+        var missingProject = (string)(cliUpdateMissingProjectFileMessage.Invoke(null, Array.Empty<object>()) ?? "<null>");
+        Assert.Equal("No project.yml found.", missingProject);
+
+        var noDependencies = (string)(cliUpdateNoNuGetDependenciesMessage.Invoke(null, Array.Empty<object>()) ?? "<null>");
+        Assert.Equal("No NuGet dependencies to update.", noDependencies);
+
+        var missingPackage = (string)(cliUpdatePackageNotFoundMessage.Invoke(
+            null,
+            new object[] { "Serilog" }) ?? "<null>");
+        Assert.Equal("Package 'Serilog' not found in dependencies.", missingPackage);
+
+        var resolveFailure = (string)(cliUpdateResolveLatestFailureMessage.Invoke(
+            null,
+            new object[] { "Serilog" }) ?? "<null>");
+        Assert.Equal("  Could not resolve latest version for Serilog", resolveFailure);
+
+        var upToDate = (string)(cliUpdatePackageUpToDateMessage.Invoke(
+            null,
+            new object[] { "Serilog", "3.1.0" }) ?? "<null>");
+        Assert.Equal("  Serilog@3.1.0 is up to date", upToDate);
+
+        var plannedUpdate = (string)(cliUpdatePackageUpdateMessage.Invoke(
+            null,
+            new object[] { "Serilog", string.Empty, "3.1.0" }) ?? "<null>");
+        Assert.Equal("  Serilog: unversioned -> 3.1.0", plannedUpdate);
+
+        var updatedOne = (string)(cliUpdateUpdatedPackagesMessage.Invoke(
+            null,
+            new object[] { "1", 1 }) ?? "<null>");
+        Assert.Equal("Updated 1 package.", updatedOne);
+
+        var updatedMany = (string)(cliUpdateUpdatedPackagesMessage.Invoke(
+            null,
+            new object[] { "2", 2 }) ?? "<null>");
+        Assert.Equal("Updated 2 packages.", updatedMany);
+
+        var dryRun = (string)(cliUpdateDryRunMessage.Invoke(null, Array.Empty<object>()) ?? "<null>");
+        Assert.Equal("(dry run — no changes made)", dryRun);
+
+        var allCurrent = (string)(cliUpdateAllPackagesUpToDateMessage.Invoke(null, Array.Empty<object>()) ?? "<null>");
+        Assert.Equal("All packages are up to date.", allCurrent);
+
+        var failed = (string)(cliUpdateFailedMessage.Invoke(null, new object[] { "boom" }) ?? "<null>");
+        Assert.Equal("Update failed: boom", failed);
     }
 
     private static int[] CreateExpectedCliUpdateArguments(string[] args)

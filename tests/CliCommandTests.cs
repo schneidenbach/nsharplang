@@ -2078,6 +2078,30 @@ func Main() {
         Assert.Null(UpdateCommand.GetTargetPackage(new[] { "--dry-run" }));
         Assert.True(UpdateCommand.GetArgumentSummary(new[] { "help" }).ShowHelp);
         Assert.Equal("help", UpdateCommand.GetArgumentSummary(new[] { "help" }).TargetPackage);
+
+        var helpText = UpdateCommandKernels.GetHelpText();
+        Assert.Contains("N# Update Dependencies", helpText);
+        Assert.Contains("Usage: nlc update [package] [options]", helpText);
+        Assert.Contains("Update failed", helpText);
+        Assert.Equal("No project.yml found.", UpdateCommandKernels.GetMissingProjectFileMessage());
+        Assert.Equal("No NuGet dependencies to update.", UpdateCommandKernels.GetNoNuGetDependenciesMessage());
+        Assert.Equal(
+            "Package 'Serilog' not found in dependencies.",
+            UpdateCommandKernels.GetPackageNotFoundMessage("Serilog"));
+        Assert.Equal(
+            "  Could not resolve latest version for Serilog",
+            UpdateCommandKernels.GetResolveLatestFailureMessage("Serilog"));
+        Assert.Equal(
+            "  Serilog@3.1.0 is up to date",
+            UpdateCommandKernels.GetPackageUpToDateMessage("Serilog", "3.1.0"));
+        Assert.Equal(
+            "  Serilog: unversioned -> 3.1.0",
+            UpdateCommandKernels.GetPackageUpdateMessage("Serilog", string.Empty, "3.1.0"));
+        Assert.Equal("Updated 1 package.", UpdateCommandKernels.GetUpdatedPackagesMessage(1));
+        Assert.Equal("Updated 2 packages.", UpdateCommandKernels.GetUpdatedPackagesMessage(2));
+        Assert.Equal("(dry run — no changes made)", UpdateCommandKernels.GetDryRunMessage());
+        Assert.Equal("All packages are up to date.", UpdateCommandKernels.GetAllPackagesUpToDateMessage());
+        Assert.Equal("Update failed: boom", UpdateCommandKernels.GetFailedMessage("boom"));
     }
 
     [Fact]

@@ -1631,6 +1631,79 @@ func CliUpdateArgumentSummaryCore(args: &CliArgumentTable, resultIndices: &CliIn
     return 0
 }
 
+func CliUpdateHelpText(): string {
+    return "N# Update Dependencies\n"
+        + "\n"
+        + "Usage: nlc update [package] [options]\n"
+        + "\n"
+        + "Update NuGet dependencies to their latest versions. If a package name is\n"
+        + "given, only that package is updated. Otherwise all NuGet dependencies\n"
+        + "are checked.\n"
+        + "\n"
+        + "Options:\n"
+        + "  --dry-run       Show what would change without modifying files\n"
+        + "  --help, -h      Show this help text\n"
+        + "\n"
+        + "Examples:\n"
+        + "  nlc update\n"
+        + "  nlc update Newtonsoft.Json\n"
+        + "  nlc update --dry-run\n"
+        + "\n"
+        + "Exit codes:\n"
+        + "  0  Update completed successfully\n"
+        + "  1  Update failed"
+}
+
+func CliUpdateMissingProjectFileMessage(): string {
+    return "No project.yml found."
+}
+
+func CliUpdateNoNuGetDependenciesMessage(): string {
+    return "No NuGet dependencies to update."
+}
+
+func CliUpdatePackageNotFoundMessage(packageName: string): string {
+    return "Package '" + packageName + "' not found in dependencies."
+}
+
+func CliUpdateResolveLatestFailureMessage(packageName: string): string {
+    return "  Could not resolve latest version for " + packageName
+}
+
+func CliUpdatePackageUpToDateMessage(packageName: string, version: string): string {
+    return "  " + packageName + "@" + version + " is up to date"
+}
+
+func CliUpdatePackageUpdateMessage(packageName: string, currentVersion: string, latestVersion: string): string {
+    version := currentVersion
+    if version.Length == 0 {
+        version = "unversioned"
+    }
+
+    return "  " + packageName + ": " + version + " -> " + latestVersion
+}
+
+func CliUpdateUpdatedPackagesMessage(updatedCountText: string, updatedCount: int): string {
+    suffix := "s"
+    if updatedCount == 1 {
+        suffix = ""
+    }
+
+    return "Updated " + updatedCountText + " package" + suffix + "."
+}
+
+func CliUpdateDryRunMessage(): string {
+    return "(dry run — no changes made)"
+}
+
+func CliUpdateAllPackagesUpToDateMessage(): string {
+    return "All packages are up to date."
+}
+
+func CliUpdateFailedMessage(message: string): string {
+    return "Update failed: " + message
+}
+
 func CliNewArgumentSummaryInto(args: string[], resultIndices: int[]): int {
     arguments := new CliArgumentTable { Args: args }
     results := new CliIndexResultTable { Indices: resultIndices }

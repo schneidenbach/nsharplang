@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-20 — Update command messages move into product N#
+
+`UpdateCommand` no longer owns help, missing-project, no-dependency, missing-target, package-status,
+dry-run, summary, or failure message bodies in C#. The shipped `CliUpdate*Message` dogfood kernels now
+shape those user-facing messages through `UpdateCommandKernels`; C# keeps `project.yml` parsing/file edits,
+NuGet version resolution, restore invocation, and fallback/oracle text only.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.UpdateCommandKernels_SummarizesArguments|FullyQualifiedName~CliParityAuditTests.UpdateCommand_Help_ShowsUsage|FullyQualifiedName~CliParityAuditTests.UpdateCommand_NoProjectYml_ReturnsHelpfulMessage|FullyQualifiedName~CliParityAuditTests.UpdateCommand_NoNuGetDependencies_ReturnsStatusMessage|FullyQualifiedName~CliParityAuditTests.UpdateCommand_MissingTargetDependency_ReturnsHelpfulMessage|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-20 — Remove command messages move into product N#
 
 `RemoveCommand` no longer owns help, usage, missing-project, missing-dependency, or success message bodies
