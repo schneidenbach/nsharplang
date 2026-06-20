@@ -334,7 +334,8 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       stable reference de-duplication now live beside `ExportCommand` in `ExportCommandKernels`; run
       option summary and source operand selection now live beside `Program.RunCommand` in `RunCommandKernels`; publish
       option summary and help routing now live beside `Program.PublishCommand` in
-      `PublishCommandKernels`; pack option summary now lives beside `PackCommand` in
+      `PublishCommandKernels`; shared build/run/check/test/publish backend selection now lives beside the CLI backend
+      call sites in `CompilationBackendSelectionKernels`; pack option summary now lives beside `PackCommand` in
       `PackCommandKernels`; build option/help and operand summaries now live beside `Program.BuildCommand`
       in `BuildCommandKernels`; build/run define extraction now lives beside `Program` in
       `DefineArgumentKernels`; top-level command routing now lives beside `Program` in

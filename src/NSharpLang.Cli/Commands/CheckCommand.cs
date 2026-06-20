@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using NSharpLang.Cli;
 using NSharpLang.Compiler;
 using NSharpLang.Compiler.CodeIntelligence;
 
@@ -233,9 +234,7 @@ Exit codes:
 
     private static CompilationBackend ResolveCompilationBackend(string? backendOption, ProjectConfig? config)
     {
-        return !string.IsNullOrWhiteSpace(backendOption)
-            ? CompilationBackendExtensions.Parse(backendOption)
-            : config?.EffectiveBackend ?? CompilationBackend.Il;
+        return CompilationBackendSelectionKernels.Resolve(backendOption, config);
     }
 
     // Stage 6 oracle-bug/C#-surface-shrink fallback: --backend values are not project operands; product parsing routes through CheckCommandKernels.

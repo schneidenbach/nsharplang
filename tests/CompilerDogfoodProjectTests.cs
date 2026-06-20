@@ -7007,6 +7007,7 @@ func outer(x: int): int {
         Assert.Contains("CliExportTargetSummaryInto", methodNames!); // product export target routing.
         Assert.Contains("CliExportCSharpOptionSummaryInto", methodNames!); // product export csharp option parsing.
         Assert.Contains("CliExportIsTestSourceFile", methodNames!); // product export test-source classification.
+        Assert.Contains("CliEffectiveCompilationBackendKind", methodNames!); // product backend selection for build/run/check/test/publish.
         Assert.Contains("CliReferenceResolutionBestScoreIndex", methodNames!); // product resolver best-score selection.
         Assert.Contains("CliSharedFrameworkCandidateIndex", methodNames!); // product resolver shared-framework candidate selection.
         Assert.Contains("CliLatestNuGetVersionIndex", methodNames!); // product resolver latest NuGet version selection.
@@ -15457,6 +15458,10 @@ class OtherZetaType {
                     "CliBuildOptionSummaryChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliBuildOptionSummaryChecksumInto.");
+            var cliEffectiveCompilationBackendKind = programType.GetMethod(
+                    "CliEffectiveCompilationBackendKind",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliEffectiveCompilationBackendKind.");
             var cliExportCSharpFirstOperandIndexInto = programType.GetMethod(
                     "CliExportCSharpFirstOperandIndexInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -16591,6 +16596,7 @@ func main(customer: Customer, résumé: Profile) {
             AssertCliBuildOptionsLikeProduction(
                 cliBuildOptionSummaryInto,
                 cliBuildOptionSummaryChecksumInto);
+            AssertCliEffectiveBackendsLikeProduction(cliEffectiveCompilationBackendKind);
             AssertCliExportCSharpInputOperandLikeProduction(
                 cliExportCSharpFirstOperandIndexInto,
                 cliExportCSharpFirstOperandChecksumInto);
@@ -19436,6 +19442,30 @@ func main() {
         }
 
         return checksum;
+    }
+
+    private static void AssertCliEffectiveBackendsLikeProduction(MethodInfo cliEffectiveCompilationBackendKind)
+    {
+        var cases = new[]
+        {
+            (BackendOption: "", ProjectBackend: "", Expected: 1),
+            (BackendOption: "  ", ProjectBackend: " IL ", Expected: 1),
+            (BackendOption: "il", ProjectBackend: "transpile", Expected: 1),
+            (BackendOption: "IL", ProjectBackend: "native", Expected: 1),
+            (BackendOption: "", ProjectBackend: "transpile", Expected: -1),
+            (BackendOption: " transpile ", ProjectBackend: "il", Expected: -1),
+            (BackendOption: "", ProjectBackend: "native", Expected: 0),
+            (BackendOption: "native", ProjectBackend: "il", Expected: 0)
+        };
+
+        foreach (var (backendOption, projectBackend, expected) in cases)
+        {
+            var actual = (int)(cliEffectiveCompilationBackendKind.Invoke(
+                null,
+                new object[] { backendOption, projectBackend }) ?? -99);
+
+            Assert.Equal(expected, actual);
+        }
     }
 
     private static void AssertCliExportCSharpInputOperandLikeProduction(

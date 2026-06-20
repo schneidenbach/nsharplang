@@ -13,9 +13,7 @@ partial class Program
 {
     private static CompilationBackend ResolveCompilationBackend(string? backendOption, ProjectConfig? config)
     {
-        return !string.IsNullOrWhiteSpace(backendOption)
-            ? CompilationBackendExtensions.Parse(backendOption)
-            : config?.EffectiveBackend ?? CompilationBackend.Il;
+        return CompilationBackendSelectionKernels.Resolve(backendOption, config);
     }
 
     private static BuildCommandResult BuildWithIlBackend(string projectRoot, bool release, string? outputDir, bool timings, bool verbose = false, bool aot = false, IReadOnlyList<string>? cliDefines = null)

@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-20 — CLI backend selection moves into product N#
+
+`nlc build`, `run`, `test`, `publish`, and `check` no longer choose the effective compilation backend directly in
+C#. The shared `CompilationBackendSelectionKernels` binding now routes CLI override/project-config backend
+selection through the shipped `CliEffectiveCompilationBackendKind` dogfood kernel; C# keeps enum
+materialization, exception text, and fallback/oracle parsing only.
+
+Focused evidence:
+`./scripts/dev.sh CompilationBackend`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-20 — Clean artifact path classification moves into product N#
 
 `CleanArtifactDirectoryOrderer` no longer asks `CleanCommand` to classify artifact directory names or

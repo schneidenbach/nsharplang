@@ -309,6 +309,28 @@ func CliProgramCommandKindCore(args: &CliArgumentTable): int {
     return 0
 }
 
+func CliEffectiveCompilationBackendKind(backendOption: string, projectBackend: string): int {
+    selected := backendOption
+    if selected.Trim().Length == 0 {
+        selected = projectBackend
+    }
+
+    normalized := selected.Trim()
+    if normalized.Length == 0 {
+        return 1
+    }
+
+    if String.Compare(normalized, "il", StringComparison.OrdinalIgnoreCase) == 0 {
+        return 1
+    }
+
+    if String.Compare(normalized, "transpile", StringComparison.OrdinalIgnoreCase) == 0 {
+        return -1
+    }
+
+    return 0
+}
+
 func CliCompletionOptionSummaryInto(args: string[], resultIndices: int[]): int {
     arguments := new CliArgumentTable { Args: args }
     results := new CliIndexResultTable { Indices: resultIndices }

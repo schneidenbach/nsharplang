@@ -1725,6 +1725,39 @@ func Main() {
     }
 
     [Fact]
+    public void CompilationBackendSelectionKernels_ResolvesEffectiveBackend()
+    {
+        Assert.True(CompilationBackendSelectionKernels.TryGetEffectiveBackendKind(null, null, out var defaultBackend, out var defaultStatus));
+        Assert.Equal(1, defaultStatus);
+        Assert.Equal(CompilationBackend.Il, defaultBackend);
+
+        Assert.True(CompilationBackendSelectionKernels.TryGetEffectiveBackendKind("  ", " IL ", out var configBackend, out var configStatus));
+        Assert.Equal(1, configStatus);
+        Assert.Equal(CompilationBackend.Il, configBackend);
+
+        Assert.True(CompilationBackendSelectionKernels.TryGetEffectiveBackendKind("il", "transpile", out var optionBackend, out var optionStatus));
+        Assert.Equal(1, optionStatus);
+        Assert.Equal(CompilationBackend.Il, optionBackend);
+
+        Assert.True(CompilationBackendSelectionKernels.TryGetEffectiveBackendKind(null, " transpile ", out _, out var retiredStatus));
+        Assert.Equal(-1, retiredStatus);
+
+        Assert.True(CompilationBackendSelectionKernels.TryGetEffectiveBackendKind("native", "il", out _, out var invalidStatus));
+        Assert.Equal(0, invalidStatus);
+
+        Assert.Equal(CompilationBackend.Il, CompilationBackendSelectionKernels.Resolve(null, null));
+        Assert.Equal(CompilationBackend.Il, CompilationBackendSelectionKernels.Resolve("  ", new ProjectConfig { Backend = " il " }));
+
+        var retired = Assert.Throws<InvalidOperationException>(() =>
+            CompilationBackendSelectionKernels.Resolve("transpile", new ProjectConfig { Backend = "il" }));
+        Assert.Contains("removed", retired.Message);
+
+        var invalid = Assert.Throws<InvalidOperationException>(() =>
+            CompilationBackendSelectionKernels.Resolve(null, new ProjectConfig { Backend = "native" }));
+        Assert.Equal("Invalid backend: 'native'. Must be 'il'.", invalid.Message);
+    }
+
+    [Fact]
     public void FixCommandArgumentKernels_SummarizesOptionsAndProject()
     {
         var args = new[]
