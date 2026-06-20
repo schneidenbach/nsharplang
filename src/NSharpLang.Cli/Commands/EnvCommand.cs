@@ -80,22 +80,22 @@ public static class EnvCommand
         }
         else
         {
-            Console.WriteLine($"nlc version:    {nlcVersion}");
-            Console.WriteLine($"dotnet version: {dotnetVersion}");
-            Console.WriteLine($"runtime:        {runtime}");
-            Console.WriteLine($"os:             {os}");
-            Console.WriteLine($"arch:           {arch}");
-            Console.WriteLine($"nuget cache:    {nugetCachePath}");
-            Console.WriteLine($"nsharp bin:     {nsharpBinPath}");
-            Console.WriteLine($"nsharp packages: {nsharpPackageCachePath}");
+            Console.WriteLine(EnvCommandKernels.GetTextLine(EnvTextLineKind.NlcVersion, nlcVersion));
+            Console.WriteLine(EnvCommandKernels.GetTextLine(EnvTextLineKind.DotnetVersion, dotnetVersion));
+            Console.WriteLine(EnvCommandKernels.GetTextLine(EnvTextLineKind.Runtime, runtime));
+            Console.WriteLine(EnvCommandKernels.GetTextLine(EnvTextLineKind.Os, os));
+            Console.WriteLine(EnvCommandKernels.GetTextLine(EnvTextLineKind.Arch, arch));
+            Console.WriteLine(EnvCommandKernels.GetTextLine(EnvTextLineKind.NugetCache, nugetCachePath));
+            Console.WriteLine(EnvCommandKernels.GetTextLine(EnvTextLineKind.NsharpBin, nsharpBinPath));
+            Console.WriteLine(EnvCommandKernels.GetTextLine(EnvTextLineKind.NsharpPackages, nsharpPackageCachePath));
 
             if (projectName != null)
             {
                 Console.WriteLine();
-                Console.WriteLine($"project:        {projectName}");
-                Console.WriteLine($"target:         {targetFramework}");
-                Console.WriteLine($"output type:    {outputType}");
-                Console.WriteLine($"sdk:            {sdk}");
+                Console.WriteLine(EnvCommandKernels.GetTextLine(EnvTextLineKind.Project, projectName));
+                Console.WriteLine(EnvCommandKernels.GetTextLine(EnvTextLineKind.Target, targetFramework ?? string.Empty));
+                Console.WriteLine(EnvCommandKernels.GetTextLine(EnvTextLineKind.OutputType, outputType ?? string.Empty));
+                Console.WriteLine(EnvCommandKernels.GetTextLine(EnvTextLineKind.Sdk, sdk ?? string.Empty));
             }
         }
 
@@ -145,22 +145,7 @@ public static class EnvCommand
 
     static int ShowHelp()
     {
-        Console.WriteLine(@"N# Environment Info
-
-Usage: nlc env [options]
-
-Show toolchain and environment information.
-
-Options:
-  --json          Output as JSON envelope
-  --help, -h      Show this help text
-
-Examples:
-  nlc env
-  nlc env --json
-
-Exit codes:
-  0  Always succeeds");
+        Console.WriteLine(EnvCommandKernels.GetHelpText());
 
         return 0;
     }

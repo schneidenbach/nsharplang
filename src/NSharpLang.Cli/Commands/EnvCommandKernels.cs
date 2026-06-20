@@ -12,6 +12,22 @@ internal enum EnvOutputModeKind
     Text = 2
 }
 
+internal enum EnvTextLineKind
+{
+    NlcVersion = 1,
+    DotnetVersion = 2,
+    Runtime = 3,
+    Os = 4,
+    Arch = 5,
+    NugetCache = 6,
+    NsharpBin = 7,
+    NsharpPackages = 8,
+    Project = 9,
+    Target = 10,
+    OutputType = 11,
+    Sdk = 12
+}
+
 internal static class EnvCommandKernels
 {
     [ThreadStatic]
@@ -70,6 +86,79 @@ internal static class EnvCommandKernels
         }
     }
 
+    internal static string GetHelpText()
+    {
+        if (TryGetMessage(bindings => bindings.EnvHelpText(), out var message))
+            return message;
+
+        return GetHelpTextWithCSharp();
+    }
+
+    internal static string GetTextLine(EnvTextLineKind kind, string value)
+    {
+        if (TryGetMessage(bindings => bindings.EnvTextLine((int)kind, value), out var message))
+            return message;
+
+        return GetTextLineWithCSharp(kind, value);
+    }
+
+    private static bool TryGetMessage(Func<Bindings, string> getMessage, out string message)
+    {
+        message = string.Empty;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        try
+        {
+            message = getMessage(bindings);
+            return !string.IsNullOrEmpty(message);
+        }
+        catch
+        {
+            message = string.Empty;
+            return false;
+        }
+    }
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product env help and text labels route through CliEnv* kernels.
+    private static string GetHelpTextWithCSharp()
+        => "N# Environment Info\n"
+           + "\n"
+           + "Usage: nlc env [options]\n"
+           + "\n"
+           + "Show toolchain and environment information.\n"
+           + "\n"
+           + "Options:\n"
+           + "  --json          Output as JSON envelope\n"
+           + "  --help, -h      Show this help text\n"
+           + "\n"
+           + "Examples:\n"
+           + "  nlc env\n"
+           + "  nlc env --json\n"
+           + "\n"
+           + "Exit codes:\n"
+           + "  0  Always succeeds";
+
+    private static string GetTextLineWithCSharp(EnvTextLineKind kind, string value)
+        => kind switch
+        {
+            EnvTextLineKind.NlcVersion => $"nlc version:    {value}",
+            EnvTextLineKind.DotnetVersion => $"dotnet version: {value}",
+            EnvTextLineKind.Runtime => $"runtime:        {value}",
+            EnvTextLineKind.Os => $"os:             {value}",
+            EnvTextLineKind.Arch => $"arch:           {value}",
+            EnvTextLineKind.NugetCache => $"nuget cache:    {value}",
+            EnvTextLineKind.NsharpBin => $"nsharp bin:     {value}",
+            EnvTextLineKind.NsharpPackages => $"nsharp packages: {value}",
+            EnvTextLineKind.Project => $"project:        {value}",
+            EnvTextLineKind.Target => $"target:         {value}",
+            EnvTextLineKind.OutputType => $"output type:    {value}",
+            EnvTextLineKind.Sdk => $"sdk:            {value}",
+            _ => string.Empty
+        };
+
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
             DogfoodKernelLoader.CreateDelegate<CliEnvOptionSummaryInto>(
@@ -77,7 +166,13 @@ internal static class EnvCommandKernels
                 "CliEnvOptionSummaryInto"),
             DogfoodKernelLoader.CreateDelegate<CliEnvOutputMode>(
                 programType,
-                "CliEnvOutputMode")));
+                "CliEnvOutputMode"),
+            DogfoodKernelLoader.CreateDelegate<CliEnvHelpText>(
+                programType,
+                "CliEnvHelpText"),
+            DogfoodKernelLoader.CreateDelegate<CliEnvTextLine>(
+                programType,
+                "CliEnvTextLine")));
 
     private delegate int CliEnvOptionSummaryInto(
         string[] args,
@@ -85,7 +180,15 @@ internal static class EnvCommandKernels
 
     private delegate int CliEnvOutputMode(int json);
 
+    private delegate string CliEnvHelpText();
+
+    private delegate string CliEnvTextLine(
+        int lineKind,
+        string value);
+
     private sealed record Bindings(
         CliEnvOptionSummaryInto OptionSummary,
-        CliEnvOutputMode OutputMode);
+        CliEnvOutputMode OutputMode,
+        CliEnvHelpText EnvHelpText,
+        CliEnvTextLine EnvTextLine);
 }

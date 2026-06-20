@@ -2328,6 +2328,77 @@ func CliEnvOutputMode(useJson: int): int {
     return 2
 }
 
+func CliEnvHelpText(): string {
+    return "N# Environment Info\n"
+        + "\n"
+        + "Usage: nlc env [options]\n"
+        + "\n"
+        + "Show toolchain and environment information.\n"
+        + "\n"
+        + "Options:\n"
+        + "  --json          Output as JSON envelope\n"
+        + "  --help, -h      Show this help text\n"
+        + "\n"
+        + "Examples:\n"
+        + "  nlc env\n"
+        + "  nlc env --json\n"
+        + "\n"
+        + "Exit codes:\n"
+        + "  0  Always succeeds"
+}
+
+func CliEnvTextLine(lineKind: int, value: string): string {
+    if lineKind == 1 {
+        return "nlc version:    " + value
+    }
+
+    if lineKind == 2 {
+        return "dotnet version: " + value
+    }
+
+    if lineKind == 3 {
+        return "runtime:        " + value
+    }
+
+    if lineKind == 4 {
+        return "os:             " + value
+    }
+
+    if lineKind == 5 {
+        return "arch:           " + value
+    }
+
+    if lineKind == 6 {
+        return "nuget cache:    " + value
+    }
+
+    if lineKind == 7 {
+        return "nsharp bin:     " + value
+    }
+
+    if lineKind == 8 {
+        return "nsharp packages: " + value
+    }
+
+    if lineKind == 9 {
+        return "project:        " + value
+    }
+
+    if lineKind == 10 {
+        return "target:         " + value
+    }
+
+    if lineKind == 11 {
+        return "output type:    " + value
+    }
+
+    if lineKind == 12 {
+        return "sdk:            " + value
+    }
+
+    return ""
+}
+
 func CliDoctorOptionSummaryInto(args: string[], resultIndices: int[]): int {
     arguments := new CliArgumentTable { Args: args }
     results := new CliIndexResultTable { Indices: resultIndices }

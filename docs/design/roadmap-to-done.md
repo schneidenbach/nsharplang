@@ -296,8 +296,8 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       construction now lives beside `UnifiedDiff` in `UnifiedDiffHunkRangeBuilder`; fix safety/skipped/applied
       grouping routes now live beside `FixCommand` in `FixCommandKernels`; clean option summary now lives beside
       `CleanCommand` in `CleanCommandKernels`, and clean artifact directory classification plus ordering now lives beside
-      `CleanCommand` in `CleanArtifactDirectoryOrderer`; env option summary and output-mode selection now live
-      beside `EnvCommand` in `EnvCommandKernels`; doctor option summary and output-mode selection now live beside
+      `CleanCommand` in `CleanArtifactDirectoryOrderer`; env option summary, output-mode selection, help text,
+      and text-line rendering now live beside `EnvCommand` in `EnvCommandKernels`; doctor option summary and output-mode selection now live beside
       `DoctorCommand` in `DoctorCommandKernels`; audit option summary and output-mode selection now live beside
       `AuditCommand` in `AuditCommandKernels`; init option summary and help/error/status messages now live beside `InitCommand` in
       `InitCommandKernels`; update all-NuGet and target-package

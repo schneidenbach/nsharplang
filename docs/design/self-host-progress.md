@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-20 — Env command text rendering moves into product N#
+
+`EnvCommand` no longer owns help text or the stable text-output labels/spacings for `nlc env`. The shipped
+`CliEnvHelpText` and `CliEnvTextLine` dogfood kernels now shape those user-facing strings through
+`EnvCommandKernels`; C# keeps environment probing, project parsing, JSON envelope writing, and fallback/oracle
+text only.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.EnvCommandKernels_SummarizesOptions|FullyQualifiedName~CliCommandTests.EnvCommand_Text_UsesOutputMode|FullyQualifiedName~CliCommandTests.EnvCommand_Json_EmitsStableEnvelope|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-20 — Init command messages move into product N#
 
 `InitCommand` no longer owns help, invalid-type, existing-project, created-file, success, or failure

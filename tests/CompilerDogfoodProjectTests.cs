@@ -7123,6 +7123,8 @@ func outer(x: int): int {
         Assert.Contains("CliCleanIsUnderNodeModulesDirectory", methodNames!); // product clean node_modules exclusion.
         Assert.Contains("CliEnvOptionSummaryInto", methodNames!); // product env option parsing.
         Assert.Contains("CliEnvOutputMode", methodNames!); // product env output mode selection.
+        Assert.Contains("CliEnvHelpText", methodNames!); // product env help text shaping.
+        Assert.Contains("CliEnvTextLine", methodNames!); // product env text-line shaping.
         Assert.Contains("CliDoctorOptionSummaryInto", methodNames!); // product doctor option parsing.
         Assert.Contains("CliDoctorOutputMode", methodNames!); // product doctor output mode selection.
         Assert.Contains("CliAuditOptionSummaryInto", methodNames!); // product audit option parsing.
@@ -16011,6 +16013,14 @@ class OtherZetaType {
                     "CliEnvOutputMode",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliEnvOutputMode.");
+            var cliEnvHelpText = programType.GetMethod(
+                    "CliEnvHelpText",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliEnvHelpText.");
+            var cliEnvTextLine = programType.GetMethod(
+                    "CliEnvTextLine",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliEnvTextLine.");
             var cliDoctorOptionSummaryInto = programType.GetMethod(
                     "CliDoctorOptionSummaryInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -17130,6 +17140,7 @@ func main(customer: Customer, résumé: Profile) {
             AssertCliJsonFlagOutputModesLikeProduction(cliTreeOutputMode);
             AssertCliEnvOptionsLikeProduction(cliEnvOptionSummaryInto);
             AssertCliJsonFlagOutputModesLikeProduction(cliEnvOutputMode);
+            AssertCliEnvMessagesLikeProduction(cliEnvHelpText, cliEnvTextLine);
             AssertCliDoctorOptionsLikeProduction(cliDoctorOptionSummaryInto);
             AssertCliJsonFlagOutputModesLikeProduction(cliDoctorOutputMode);
             AssertCliAuditOptionsLikeProduction(cliAuditOptionSummaryInto);
@@ -22464,6 +22475,32 @@ func main() {
             (int)(cliEnvOptionSummaryInto.Invoke(
                 null,
                 new object[] { new[] { "--json" }, new int[1] }) ?? 0));
+    }
+
+    private static void AssertCliEnvMessagesLikeProduction(
+        MethodInfo cliEnvHelpText,
+        MethodInfo cliEnvTextLine)
+    {
+        var help = (string)(cliEnvHelpText.Invoke(null, Array.Empty<object>()) ?? "<null>");
+        Assert.Contains("N# Environment Info", help);
+        Assert.Contains("Usage: nlc env [options]", help);
+        Assert.Contains("Always succeeds", help);
+
+        Assert.Equal(
+            "nlc version:    1.2.3",
+            (string)(cliEnvTextLine.Invoke(null, new object[] { 1, "1.2.3" }) ?? "<null>"));
+        Assert.Equal(
+            "dotnet version: 10.0.105",
+            (string)(cliEnvTextLine.Invoke(null, new object[] { 2, "10.0.105" }) ?? "<null>"));
+        Assert.Equal(
+            "nsharp packages: /tmp/packages",
+            (string)(cliEnvTextLine.Invoke(null, new object[] { 8, "/tmp/packages" }) ?? "<null>"));
+        Assert.Equal(
+            "project:        Demo",
+            (string)(cliEnvTextLine.Invoke(null, new object[] { 9, "Demo" }) ?? "<null>"));
+        Assert.Equal(
+            string.Empty,
+            (string)(cliEnvTextLine.Invoke(null, new object[] { 99, "ignored" }) ?? "<null>"));
     }
 
     private static int[] CreateExpectedCliEnvOptions(string[] args)

@@ -576,6 +576,25 @@ func Main() {
         Assert.True(EnvCommandKernels.TryGetOutputMode(json: true, out var jsonMode));
         Assert.Equal(EnvOutputModeKind.Json, jsonMode);
         Assert.Equal(EnvOutputModeKind.Json, EnvCommand.GetOutputMode(json: true));
+
+        var helpText = EnvCommandKernels.GetHelpText();
+        Assert.Contains("N# Environment Info", helpText);
+        Assert.Contains("Usage: nlc env [options]", helpText);
+        Assert.Contains("Always succeeds", helpText);
+        Assert.Equal(
+            "nlc version:    1.2.3",
+            EnvCommandKernels.GetTextLine(EnvTextLineKind.NlcVersion, "1.2.3"));
+        Assert.Equal(
+            "nsharp packages: /tmp/packages",
+            EnvCommandKernels.GetTextLine(EnvTextLineKind.NsharpPackages, "/tmp/packages"));
+        Assert.Equal(
+            "project:        Demo",
+            EnvCommandKernels.GetTextLine(EnvTextLineKind.Project, "Demo"));
+
+        var (exitCode, stdout, stderr) = CaptureConsole(() => EnvCommand.Execute(new[] { "--help" }));
+        Assert.Equal(0, exitCode);
+        Assert.True(string.IsNullOrWhiteSpace(stderr));
+        Assert.Contains("Usage: nlc env [options]", stdout);
     }
 
     [Fact]
