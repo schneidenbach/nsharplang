@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-20 — Installed NuGet version selection moves into product N#
+
+`CompilationReferenceResolver` now chooses the best already-installed package version from the local NuGet cache
+through `CompilationReferenceResolverKernels`, which binds the shipped `CliBestNuGetVersionIndex` dogfood kernel in
+`CliArguments.nl`. Directory enumeration and package-cache path construction remain C# host-boundary work; the
+product decision that previously lived in `OrderByDescending(..., NuGetVersionComparer.Instance).FirstOrDefault()`
+now lives in N#, with the old ordering kept as fallback/oracle.
+
+Focused evidence:
+`./scripts/dev.sh CompilationReferenceResolverKernels`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-20 — C# project-reference output filtering moves into product N#
 
 `CompilationReferenceResolver` now detects `ref` output-path segments for built C# project references through

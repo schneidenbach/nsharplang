@@ -323,6 +323,33 @@ internal static class CompilationReferenceResolverKernels
         }
     }
 
+    internal static bool TrySelectBestNuGetVersionIndex(string[] versions, out int selectedIndex)
+    {
+        selectedIndex = -1;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        var compareScratch = t_nuGetVersionCompareResult ??= new int[9];
+        try
+        {
+            selectedIndex = bindings.BestNuGetVersionIndex(versions, compareScratch);
+            if (selectedIndex < -1 || selectedIndex >= versions.Length)
+            {
+                selectedIndex = -1;
+                return false;
+            }
+
+            return true;
+        }
+        catch
+        {
+            selectedIndex = -1;
+            return false;
+        }
+    }
+
     internal static bool TryPathHasSegmentIgnoreCase(string path, char separator, string segment, out bool hasSegment)
     {
         hasSegment = false;
@@ -373,6 +400,9 @@ internal static class CompilationReferenceResolverKernels
             DogfoodKernelLoader.CreateDelegate<CliLatestNuGetVersionIndex>(
                 programType,
                 "CliLatestNuGetVersionIndex"),
+            DogfoodKernelLoader.CreateDelegate<CliBestNuGetVersionIndex>(
+                programType,
+                "CliBestNuGetVersionIndex"),
             DogfoodKernelLoader.CreateDelegate<CliPathHasSegmentIgnoreCase>(
                 programType,
                 "CliPathHasSegmentIgnoreCase")));
@@ -406,6 +436,8 @@ internal static class CompilationReferenceResolverKernels
 
     private delegate int CliLatestNuGetVersionIndex(string[] versions);
 
+    private delegate int CliBestNuGetVersionIndex(string[] versions, int[] compareScratch);
+
     private delegate int CliPathHasSegmentIgnoreCase(string path, char separator, string segment);
 
     private sealed record Bindings(
@@ -417,6 +449,7 @@ internal static class CompilationReferenceResolverKernels
         CliNuGetDependencyVersionRangeInto NuGetDependencyVersionRange,
         CliSharedFrameworkCandidateIndex SharedFrameworkCandidateIndex,
         CliLatestNuGetVersionIndex LatestNuGetVersionIndex,
+        CliBestNuGetVersionIndex BestNuGetVersionIndex,
         CliPathHasSegmentIgnoreCase PathHasSegmentIgnoreCase);
 
     private static int GetReferenceTypeRank(ReferenceType type) =>

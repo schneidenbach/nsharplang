@@ -4428,6 +4428,41 @@ func CliLatestNuGetVersionIndex(versions: string[]): int {
     return versions.Length - 1
 }
 
+func CliBestNuGetVersionIndex(versions: string[], compareScratch: int[]): int {
+    if versions.Length == 0 {
+        return -1
+    }
+
+    if compareScratch.Length < 9 {
+        return -2
+    }
+
+    bestIndex := 0
+    index := 1
+    while index < versions.Length {
+        compare := CliBestNuGetVersionCompare(versions[index], versions[bestIndex], compareScratch)
+        if compare > 0 {
+            bestIndex = index
+        }
+
+        index = index + 1
+    }
+
+    return bestIndex
+}
+
+func CliBestNuGetVersionCompare(left: string, right: string, compareScratch: int[]): int {
+    code := CliNuGetVersionCompareInto(left, right, compareScratch)
+    if code == 1 {
+        compare := compareScratch[0]
+        if compare != 0 {
+            return compare
+        }
+    }
+
+    return String.Compare(left, right, StringComparison.OrdinalIgnoreCase)
+}
+
 func CliNuGetVersionHasPrereleaseSuffix(version: string): bool {
     index := 0
     while index < version.Length {

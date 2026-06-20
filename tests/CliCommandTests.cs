@@ -2547,6 +2547,25 @@ func Main() {
         }
     }
 
+    [Fact]
+    public void CompilationReferenceResolverKernels_SelectsBestNuGetVersion()
+    {
+        AssertSelected(new[] { "1.0.0", "2.0.0", "1.9.9" }, 1);
+        AssertSelected(new[] { "1.2", "1.2.1", "1.2.0" }, 1);
+        AssertSelected(new[] { "1.0.0", "1.0.0-preview" }, 1);
+        AssertSelected(new[] { "2.0.0-alpha", "2.0.0" }, 0);
+        AssertSelected(new[] { "bad", "1.0.0" }, 0);
+        AssertSelected(Array.Empty<string>(), -1);
+
+        static void AssertSelected(string[] versions, int expectedIndex)
+        {
+            Assert.True(CompilationReferenceResolverKernels.TrySelectBestNuGetVersionIndex(
+                versions,
+                out var selectedIndex));
+            Assert.Equal(expectedIndex, selectedIndex);
+        }
+    }
+
     [Theory]
     [InlineData("/tmp/project/bin/Debug/net10.0/App.dll", '/', "ref", false)]
     [InlineData("/tmp/project/bin/Debug/net10.0/ref/App.dll", '/', "ref", true)]

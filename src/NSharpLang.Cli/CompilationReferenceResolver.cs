@@ -552,12 +552,12 @@ internal static class CompilationReferenceResolver
 
         if (version == null && Directory.Exists(packageDirectory))
         {
-            var bestVersion = Directory.GetDirectories(packageDirectory)
+            var installedVersions = Directory.GetDirectories(packageDirectory)
                 .Select(Path.GetFileName)
                 .Where(name => !string.IsNullOrWhiteSpace(name))
                 .Cast<string>()
-                .OrderByDescending(name => name, NuGetVersionComparer.Instance)
-                .FirstOrDefault();
+                .ToArray();
+            var bestVersion = SelectBestInstalledNuGetVersion(installedVersions);
 
             if (!string.IsNullOrWhiteSpace(bestVersion))
             {
@@ -575,6 +575,24 @@ internal static class CompilationReferenceResolver
         DownloadPackage(packageName, resolvedVersion, versionDirectory);
         return versionDirectory;
     }
+
+    private static string? SelectBestInstalledNuGetVersion(string[] versions)
+    {
+        if (CompilationReferenceResolverKernels.TrySelectBestNuGetVersionIndex(versions, out var dogfoodIndex)
+            && dogfoodIndex >= 0)
+        {
+            return versions[dogfoodIndex];
+        }
+
+        return SelectBestInstalledNuGetVersionWithCSharp(versions);
+    }
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product installed NuGet version
+    // selection routes through CompilationReferenceResolverKernels.
+    private static string? SelectBestInstalledNuGetVersionWithCSharp(string[] versions)
+        => versions
+            .OrderByDescending(name => name, NuGetVersionComparer.Instance)
+            .FirstOrDefault();
 
     private static string GetLatestPackageVersion(string packageName)
     {
