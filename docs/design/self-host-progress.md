@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-20 — Export test-source classification moves into product N#
+
+`ExportCommand` no longer owns `.tests.nl` source classification when deciding whether to generate a sibling C#
+test project or which exported project directory receives each generated source. The shipped
+`CliExportIsTestSourceFile` dogfood kernel now owns that product decision through `ExportCommandKernels`; C# keeps
+filesystem/project-file writing and a fallback/oracle suffix predicate only.
+
+Focused evidence:
+`./scripts/dev.sh ExportCommandKernels`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~ExportCommandTests.ExportCommand_ProjectBundle_BuildsRunsAndTestsAsCSharp"`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-20 — Format test-file discovery exclusion moves into product N#
 
 `Program.FormatCommand` no longer owns the `.tests.nl` file exclusion in its C# traversal loop. The shipped

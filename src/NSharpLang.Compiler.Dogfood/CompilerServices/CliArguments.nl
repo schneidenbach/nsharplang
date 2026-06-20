@@ -2962,6 +2962,14 @@ func CliExportCSharpOptionSummaryKind(arg: string): int {
     return 0
 }
 
+func CliExportIsTestSourceFile(sourceFile: string): int {
+    if CliPathEndsWithTestsNl(sourceFile) {
+        return 1
+    }
+
+    return 0
+}
+
 func CliBuildOptionSummaryInto(args: string[], resultIndices: int[]): int {
     arguments := new CliArgumentTable { Args: args }
     results := new CliIndexResultTable { Indices: resultIndices }
@@ -5747,7 +5755,7 @@ func CliFormatOptionSummaryCore(args: &CliArgumentTable, resultIndices: &CliInde
 }
 
 func CliShouldFormatDiscoveredPath(relativePath: string): int {
-    if CliFormatPathEndsWithTestsFile(relativePath) {
+    if CliPathEndsWithTestsNl(relativePath) {
         return 0
     }
 
@@ -5824,17 +5832,21 @@ func CliFormatPathSegmentIsExcluded(text: string, start: int, end: int): bool {
     return false
 }
 
-func CliFormatPathEndsWithTestsFile(text: string): bool {
+func CliPathEndsWithTestsNl(text: string): bool {
     suffix := ".tests.nl"
     if text.Length < suffix.Length {
         return false
     }
 
     start := text.Length - suffix.Length
-    return CliFormatPathSegmentEquals(text, start, text.Length, suffix)
+    return CliPathSubstringEqualsAsciiIgnoreCase(text, start, text.Length, suffix)
 }
 
 func CliFormatPathSegmentEquals(text: string, start: int, end: int, value: string): bool {
+    return CliPathSubstringEqualsAsciiIgnoreCase(text, start, end, value)
+}
+
+func CliPathSubstringEqualsAsciiIgnoreCase(text: string, start: int, end: int, value: string): bool {
     length := end - start
     if length != value.Length {
         return false
@@ -5842,7 +5854,7 @@ func CliFormatPathSegmentEquals(text: string, start: int, end: int, value: strin
 
     i := 0
     while i < value.Length {
-        if !CliFormatPathCharsEqualAsciiIgnoreCase(text[start + i], value[i]) {
+        if !CliPathCharsEqualAsciiIgnoreCase(text[start + i], value[i]) {
             return false
         }
 
@@ -5852,7 +5864,7 @@ func CliFormatPathSegmentEquals(text: string, start: int, end: int, value: strin
     return true
 }
 
-func CliFormatPathCharsEqualAsciiIgnoreCase(left: char, right: char): bool {
+func CliPathCharsEqualAsciiIgnoreCase(left: char, right: char): bool {
     leftCode := (int)left
     rightCode := (int)right
 

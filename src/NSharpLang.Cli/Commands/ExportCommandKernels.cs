@@ -277,6 +277,30 @@ internal static class ExportCommandKernels
         }
     }
 
+    internal static bool TryIsTestSourceFile(string sourceFile, out bool isTestSource)
+    {
+        isTestSource = false;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        try
+        {
+            var result = bindings.IsTestSourceFile(sourceFile);
+            if (result is not 0 and not 1)
+                return false;
+
+            isTestSource = result != 0;
+            return true;
+        }
+        catch
+        {
+            isTestSource = false;
+            return false;
+        }
+    }
+
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
             DogfoodKernelLoader.CreateDelegate<CliExportCSharpFirstOperandIndexInto>(
@@ -293,7 +317,10 @@ internal static class ExportCommandKernels
                 "CliExportCSharpOptionSummaryInto"),
             DogfoodKernelLoader.CreateDelegate<CliExportTargetSummaryInto>(
                 programType,
-                "CliExportTargetSummaryInto")));
+                "CliExportTargetSummaryInto"),
+            DogfoodKernelLoader.CreateDelegate<CliExportIsTestSourceFile>(
+                programType,
+                "CliExportIsTestSourceFile")));
 
     private delegate int CliExportCSharpFirstOperandIndexInto(
         string[] args,
@@ -322,12 +349,16 @@ internal static class ExportCommandKernels
         string[] args,
         int[] resultIndices);
 
+    private delegate int CliExportIsTestSourceFile(
+        string sourceFile);
+
     private sealed record Bindings(
         CliExportCSharpFirstOperandIndexInto CSharpFirstOperandIndex,
         CliReferenceTypeFilterIndicesInto ReferenceTypeFilterIndices,
         CliStableDistinctRankIndicesInto StableDistinctRankIndices,
         CliExportCSharpOptionSummaryInto CSharpOptionSummary,
-        CliExportTargetSummaryInto TargetSummary);
+        CliExportTargetSummaryInto TargetSummary,
+        CliExportIsTestSourceFile IsTestSourceFile);
 
     private static bool TryGetOptionalArg(string[] args, int index, out string? value)
     {

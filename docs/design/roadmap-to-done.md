@@ -328,7 +328,7 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       lint option summary and file-argument extraction now live beside `LintCommand` in `LintCommandKernels`; format
       option summary, directory traversal pruning, test-file exclusion, and discovered-path filtering now live beside
       `Program.FormatCommand` in `FormatCommandKernels`; export
-      target routing, csharp option summary, input selection, reference filtering, and
+      target routing, csharp option summary, input selection, test-source classification, reference filtering, and
       stable reference de-duplication now live beside `ExportCommand` in `ExportCommandKernels`; run
       option summary and source operand selection now live beside `Program.RunCommand` in `RunCommandKernels`; publish
       option summary and help routing now live beside `Program.PublishCommand` in

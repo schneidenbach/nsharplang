@@ -7006,6 +7006,7 @@ func outer(x: int): int {
         Assert.Contains("CliExportCSharpFirstOperandChecksumInto", methodNames!); // char/int promotion
         Assert.Contains("CliExportTargetSummaryInto", methodNames!); // product export target routing.
         Assert.Contains("CliExportCSharpOptionSummaryInto", methodNames!); // product export csharp option parsing.
+        Assert.Contains("CliExportIsTestSourceFile", methodNames!); // product export test-source classification.
         Assert.Contains("CliReferenceResolutionBestScoreIndex", methodNames!); // product resolver best-score selection.
         Assert.Contains("CliSharedFrameworkCandidateIndex", methodNames!); // product resolver shared-framework candidate selection.
         Assert.Contains("CliLatestNuGetVersionIndex", methodNames!); // product resolver latest NuGet version selection.
@@ -7105,6 +7106,9 @@ func outer(x: int): int {
             ("CliShouldFormatDiscoveredPath", new object[] { "src/Program.nl" }),
             ("CliShouldFormatDiscoveredPath", new object[] { "src/Calculator.tests.nl" }),
             ("CliShouldFormatDiscoveredPath", new object[] { "src/Contest.nl" }),
+            ("CliExportIsTestSourceFile", new object[] { "src/Program.tests.nl" }),
+            ("CliExportIsTestSourceFile", new object[] { "src/Program.TESTS.NL" }),
+            ("CliExportIsTestSourceFile", new object[] { "src/Contest.nl" }),
             ("CliShouldSkipFormatDirectoryName", new object[] { ".git" }),
             ("CliShouldSkipFormatDirectoryName", new object[] { "NODE_MODULES" }),
             ("CliShouldSkipFormatDirectoryName", new object[] { "src" }),

@@ -313,6 +313,15 @@ Exit codes:
         return null;
     }
 
+    internal static bool IsTestSourceFile(string sourceFile)
+        => ExportCommandKernels.TryIsTestSourceFile(sourceFile, out var isTestSource)
+            ? isTestSource
+            : IsTestSourceFileWithCSharp(sourceFile);
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product export test-source classification routes through ExportCommandKernels.
+    private static bool IsTestSourceFileWithCSharp(string sourceFile)
+        => sourceFile.EndsWith(".tests.nl", StringComparison.OrdinalIgnoreCase);
+
     private static string[] StripOptionWithValue(string[] args, string option)
     {
         var result = new List<string>(args.Length);
@@ -407,8 +416,7 @@ Exit codes:
                 var mainDllReferences = ResolveDllReferences(exportConfig.Dependencies, projectRoot, projectOutputDirectory);
                 var mainPackageReferences = ResolvePackageReferences(exportConfig.Dependencies);
                 var mainFrameworkReferences = ResolveFrameworkReferences(exportConfig.Dependencies);
-                var hasTestFiles = exportResult.ExportedFiles.Keys.Any(sourceFile =>
-                    sourceFile.EndsWith(".tests.nl", StringComparison.OrdinalIgnoreCase));
+                var hasTestFiles = exportResult.ExportedFiles.Keys.Any(IsTestSourceFile);
                 if (hasTestFiles)
                 {
                     RecreateDirectory(testOutputDirectory);
@@ -418,7 +426,7 @@ Exit codes:
                 {
                     var relativeSourcePath = Path.GetRelativePath(projectRoot, sourceFile);
                     var relativeCSharpPath = ChangeSourceExtension(relativeSourcePath);
-                    var targetDirectory = sourceFile.EndsWith(".tests.nl", StringComparison.OrdinalIgnoreCase)
+                    var targetDirectory = IsTestSourceFile(sourceFile)
                         ? testOutputDirectory
                         : projectOutputDirectory;
                     var targetFilePath = Path.Combine(targetDirectory, relativeCSharpPath);

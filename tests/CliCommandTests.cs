@@ -2002,6 +2002,18 @@ func Main() {
         Assert.True(ExportCommand.GetExportCSharpOptionSummary(new[] { "ignored", "-h" }).ShowHelp);
     }
 
+    [Theory]
+    [InlineData("src/Program.tests.nl", true)]
+    [InlineData("src/Program.TESTS.NL", true)]
+    [InlineData("src/Contest.nl", false)]
+    [InlineData("src/Program.tests.nls", false)]
+    public void ExportCommandKernels_ClassifiesTestSourceFiles(string sourceFile, bool expected)
+    {
+        Assert.True(ExportCommandKernels.TryIsTestSourceFile(sourceFile, out var dogfoodIsTestSource));
+        Assert.Equal(expected, dogfoodIsTestSource);
+        Assert.Equal(expected, ExportCommand.IsTestSourceFile(sourceFile));
+    }
+
     [Fact]
     public void BuildCommandKernels_SelectsFirstOperandAfterOptionStripping()
     {

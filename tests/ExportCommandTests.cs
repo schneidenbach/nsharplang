@@ -171,6 +171,8 @@ test "union case construction exports cleanly" {
             Assert.True(File.Exists(appCsproj));
             Assert.True(File.Exists(testCsproj));
             Assert.True(File.Exists(exportedReference));
+            Assert.True(File.Exists(Path.Combine(bundleDir, "ExportedApp.Tests", "Program.tests.cs")));
+            Assert.False(File.Exists(Path.Combine(bundleDir, "ExportedApp", "Program.tests.cs")));
 
             var buildResult = DotnetRunner.Run(
                 $"build \"{appCsproj}\" -v q --disable-build-servers",
