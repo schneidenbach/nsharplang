@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-20 — Remaining query text output branches use product N# mode selection
+
+The remaining text-capable `QueryCommand` routes no longer branch directly on `options.UseText` for product
+text-vs-JSON output. `implementors`, `outline`, `type`, `definition`, `references`, and `completions` now use
+the shipped `CliQueryTextJsonOutputMode` dogfood kernel; C# keeps code-intelligence service calls, daemon
+forwarding, output emission, command-specific error text, and fallback/oracle mode selection only.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.QueryTextJsonOutputRoutes_RemainingCommandsUseTextMode|FullyQualifiedName~CliCommandTests.QueryTextJsonOutputRoutes_UseTextMode|FullyQualifiedName~CliCommandTests.QueryCommandKernels_SelectsTextJsonOutputMode"`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.QueryCommand_EmitsStableJsonEnvelope"`.
+
 ## 2026-06-20 — Query symbols/hover/call-graph output branches use product N# mode selection
 
 `QueryCommand` no longer lets the `symbols`, `hover`, and `call-graph` routes read `options.UseText` directly

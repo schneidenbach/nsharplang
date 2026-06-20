@@ -4642,6 +4642,140 @@ func Main() {
     }
 
     [Fact]
+    public void QueryTextJsonOutputRoutes_RemainingCommandsUseTextMode()
+    {
+        var examplesDir = FindExamplesDir();
+        var classesAndRecordsProject = Path.Combine(examplesDir, "06-classes-and-records");
+        var multiFileProject = Path.Combine(examplesDir, "12-multi-file-projects", "MultiFileProject");
+
+        void AssertTextSuccess(int exitCode, string stdout, string stderr, params string[] expectedStdout)
+        {
+            Assert.Equal(0, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stderr));
+            foreach (var expected in expectedStdout)
+            {
+                Assert.Contains(expected, stdout);
+            }
+            Assert.DoesNotContain("\"command\"", stdout);
+        }
+
+        void AssertTextError(int exitCode, string stdout, string stderr, string expectedStderr)
+        {
+            Assert.Equal(1, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stdout));
+            Assert.Contains(expectedStderr, stderr);
+            Assert.DoesNotContain("\"command\"", stderr);
+        }
+
+        var (implementorsExitCode, implementorsStdout, implementorsStderr) = CaptureConsole(() => QueryCommand.Execute(new[]
+        {
+            "implementors",
+            "--project", classesAndRecordsProject,
+            "--name", "IShape",
+            "--text"
+        }));
+        AssertTextSuccess(implementorsExitCode, implementorsStdout, implementorsStderr, "Implementors of IShape", "Circle");
+
+        var (outlineExitCode, outlineStdout, outlineStderr) = CaptureConsole(() => QueryCommand.Execute(new[]
+        {
+            "outline",
+            "--project", HelloWorldProject,
+            "Program.nl",
+            "--text"
+        }));
+        AssertTextSuccess(outlineExitCode, outlineStdout, outlineStderr, "File: Program.nl", "Function Main");
+
+        var (typeExitCode, typeStdout, typeStderr) = CaptureConsole(() => QueryCommand.Execute(new[]
+        {
+            "type",
+            "--project", IssueTrackerFixture,
+            "--file", "Service.nl",
+            "--pos", "11:5",
+            "--text"
+        }));
+        AssertTextSuccess(typeExitCode, typeStdout, typeStderr, "At Service.nl:11:5:", "IssueStore");
+
+        var (definitionSearchExitCode, definitionSearchStdout, definitionSearchStderr) = CaptureConsole(() => QueryCommand.Execute(new[]
+        {
+            "definition",
+            "--project", classesAndRecordsProject,
+            "--name", "Point",
+            "--text"
+        }));
+        AssertTextSuccess(definitionSearchExitCode, definitionSearchStdout, definitionSearchStderr, "Definitions of 'Point':", "record Point");
+
+        var (definitionExitCode, definitionStdout, definitionStderr) = CaptureConsole(() => QueryCommand.Execute(new[]
+        {
+            "definition",
+            "--project", IssueTrackerFixture,
+            "--file", "Service.nl",
+            "--pos", "22:10",
+            "--text"
+        }));
+        AssertTextSuccess(definitionExitCode, definitionStdout, definitionStderr, "CreateIssue", "Service.nl");
+
+        var (referencesExitCode, referencesStdout, referencesStderr) = CaptureConsole(() => QueryCommand.Execute(new[]
+        {
+            "references",
+            "--project", IssueTrackerFixture,
+            "--file", "Service.nl",
+            "--pos", "10:7",
+            "--text"
+        }));
+        AssertTextSuccess(referencesExitCode, referencesStdout, referencesStderr, "References to 'IssueService'", "Service.nl");
+
+        var (completionsExitCode, completionsStdout, completionsStderr) = CaptureConsole(() => QueryCommand.Execute(new[]
+        {
+            "completions",
+            "--project", multiFileProject,
+            "--file", "Services/PersonService.nl",
+            "--pos", "14:15",
+            "--text"
+        }));
+        AssertTextSuccess(completionsExitCode, completionsStdout, completionsStderr, "Completions at Services/PersonService.nl:14:15", "methods");
+
+        var (implementorsErrorExitCode, implementorsErrorStdout, implementorsErrorStderr) = CaptureConsole(() => QueryCommand.Execute(new[]
+        {
+            "implementors",
+            "--project", classesAndRecordsProject,
+            "--file", "RecordsAndInterfaces.nl",
+            "--pos", "4:8",
+            "--text"
+        }));
+        AssertTextError(implementorsErrorExitCode, implementorsErrorStdout, implementorsErrorStderr, "No interface found at RecordsAndInterfaces.nl:4:8");
+
+        var (typeErrorExitCode, typeErrorStdout, typeErrorStderr) = CaptureConsole(() => QueryCommand.Execute(new[]
+        {
+            "type",
+            "--project", IssueTrackerFixture,
+            "--file", "Program.nl",
+            "--pos", "1:1",
+            "--text"
+        }));
+        AssertTextError(typeErrorExitCode, typeErrorStdout, typeErrorStderr, "No type information found at Program.nl:1:1");
+
+        var (definitionErrorExitCode, definitionErrorStdout, definitionErrorStderr) = CaptureConsole(() => QueryCommand.Execute(new[]
+        {
+            "definition",
+            "--project", HelloWorldProject,
+            "--file", "Program.nl",
+            "--pos", "1:1",
+            "--text"
+        }));
+        AssertTextError(definitionErrorExitCode, definitionErrorStdout, definitionErrorStderr, "No definition found at Program.nl:1:1");
+
+        var (referencesErrorExitCode, referencesErrorStdout, referencesErrorStderr) = CaptureConsole(() => QueryCommand.Execute(new[]
+        {
+            "references",
+            "--project", HelloWorldProject,
+            "--file", "Program.nl",
+            "--pos", "1:1",
+            "--text"
+        }));
+        AssertTextError(referencesErrorExitCode, referencesErrorStdout, referencesErrorStderr, "No symbol found at Program.nl:1:1");
+    }
+
+    [Fact]
     public void ImplementorsCommand_FindsCircleForIShape()
     {
         var classesAndRecordsProject = Path.Combine(FindExamplesDir(), "06-classes-and-records");

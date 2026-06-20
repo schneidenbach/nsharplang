@@ -363,6 +363,7 @@ public static class QueryCommand
 
     private static int ImplementorsCommand(string[] args, QueryOptions options)
     {
+        var outputMode = GetTextJsonOutputMode(options.UseText);
         var summary = GetDaemonParameterSummary(args);
         var name = summary.Name;
         var file = summary.File ?? options.File;
@@ -376,7 +377,7 @@ public static class QueryCommand
 
             var result = Service.GetImplementors(snapshot, name);
 
-            if (options.UseText)
+            if (outputMode == QueryTextJsonOutputModeKind.Text)
             {
                 Console.Write(OutputFormatter.ImplementorsToText(result));
             }
@@ -402,7 +403,7 @@ public static class QueryCommand
             var definition = Service.FindDefinition(snapshot, file, line, col);
             if (definition == null || !string.Equals(definition.Kind, "interface", StringComparison.OrdinalIgnoreCase))
             {
-                if (options.UseText)
+                if (outputMode == QueryTextJsonOutputModeKind.Text)
                 {
                     Console.Error.WriteLine($"No interface found at {file}:{line}:{col}");
                 }
@@ -424,7 +425,7 @@ public static class QueryCommand
 
             var result = Service.GetImplementors(snapshot, definition.Name);
 
-            if (options.UseText)
+            if (outputMode == QueryTextJsonOutputModeKind.Text)
             {
                 Console.Write(OutputFormatter.ImplementorsToText(result));
             }
@@ -504,6 +505,7 @@ public static class QueryCommand
 
     private static int OutlineCommand(string[] args, QueryOptions options)
     {
+        var outputMode = GetTextJsonOutputMode(options.UseText);
         // Outline can work on a single file without full project analysis
         var commandSummary = GetCommandOptionSummary(args);
         var file = commandSummary.LeadingOperand ?? options.File;
@@ -527,7 +529,7 @@ public static class QueryCommand
         // Make the file path relative to project root for output
         result = result with { File = GetRelativePath(projectRoot, filePath) };
 
-        if (options.UseText)
+        if (outputMode == QueryTextJsonOutputModeKind.Text)
         {
             Console.Write(OutputFormatter.OutlineToText(result));
         }
@@ -579,6 +581,7 @@ public static class QueryCommand
 
     private static int TypeCommand(string[] args, QueryOptions options)
     {
+        var outputMode = GetTextJsonOutputMode(options.UseText);
         var summary = GetDaemonParameterSummary(args);
         var file = summary.File ?? options.File;
         var posStr = summary.Pos ?? options.Pos;
@@ -602,7 +605,7 @@ public static class QueryCommand
         var result = Service.GetTypeAtPosition(snapshot, file, line, col);
         if (result == null)
         {
-            if (options.UseText)
+            if (outputMode == QueryTextJsonOutputModeKind.Text)
             {
                 Console.Error.WriteLine($"No type information found at {file}:{line}:{col}");
             }
@@ -622,7 +625,7 @@ public static class QueryCommand
             return 1;
         }
 
-        if (options.UseText)
+        if (outputMode == QueryTextJsonOutputModeKind.Text)
         {
             Console.Write(OutputFormatter.TypeToText(result, file, line, col));
         }
@@ -636,6 +639,7 @@ public static class QueryCommand
 
     private static int DefinitionCommand(string[] args, QueryOptions options)
     {
+        var outputMode = GetTextJsonOutputMode(options.UseText);
         var summary = GetDaemonParameterSummary(args);
         var commandSummary = GetCommandOptionSummary(args);
         var file = summary.File ?? options.File;
@@ -659,7 +663,7 @@ public static class QueryCommand
             var result = Service.FindDefinition(snapshot, file, line, col);
             if (result == null)
             {
-                if (options.UseText)
+                if (outputMode == QueryTextJsonOutputModeKind.Text)
                 {
                     Console.Error.WriteLine($"No definition found at {file}:{line}:{col}");
                 }
@@ -679,7 +683,7 @@ public static class QueryCommand
                 return 1;
             }
 
-            if (options.UseText)
+            if (outputMode == QueryTextJsonOutputModeKind.Text)
             {
                 Console.Write(OutputFormatter.DefinitionToText(result));
             }
@@ -705,7 +709,7 @@ public static class QueryCommand
 
             var results = Service.FindDefinitionByName(snapshot, name);
 
-            if (options.UseText)
+            if (outputMode == QueryTextJsonOutputModeKind.Text)
             {
                 Console.Write(OutputFormatter.DefinitionSearchToText(name, results));
             }
@@ -819,6 +823,7 @@ public static class QueryCommand
 
     private static int ReferencesCommand(string[] args, QueryOptions options)
     {
+        var outputMode = GetTextJsonOutputMode(options.UseText);
         var summary = GetDaemonParameterSummary(args);
         var file = summary.File ?? options.File;
         var posStr = summary.Pos ?? options.Pos;
@@ -843,7 +848,7 @@ public static class QueryCommand
         var definition = Service.FindDefinition(snapshot, file, line, col);
         if (definition == null)
         {
-            if (options.UseText)
+            if (outputMode == QueryTextJsonOutputModeKind.Text)
             {
                 Console.Error.WriteLine($"No symbol found at {file}:{line}:{col}");
             }
@@ -875,7 +880,7 @@ public static class QueryCommand
                 "Semantic references are unavailable because the selected position is not backed by a precise compiler binding. " +
                 "No name-based or text-based fallback was used.";
 
-            if (options.UseText)
+            if (outputMode == QueryTextJsonOutputModeKind.Text)
             {
                 Console.Error.WriteLine(message);
             }
@@ -897,7 +902,7 @@ public static class QueryCommand
             return 1;
         }
 
-        if (options.UseText)
+        if (outputMode == QueryTextJsonOutputModeKind.Text)
         {
             Console.Write(OutputFormatter.ReferencesToText(symbolName, results));
         }
@@ -911,6 +916,7 @@ public static class QueryCommand
 
     private static int CompletionsCommand(string[] args, QueryOptions options)
     {
+        var outputMode = GetTextJsonOutputMode(options.UseText);
         var summary = GetDaemonParameterSummary(args);
         var file = summary.File ?? options.File;
         var posStr = summary.Pos ?? options.Pos;
@@ -935,7 +941,7 @@ public static class QueryCommand
         var engine = new CompletionEngine();
         var result = engine.GetCompletions(snapshot, file, line, col, includeKeywords);
 
-        if (options.UseText)
+        if (outputMode == QueryTextJsonOutputModeKind.Text)
         {
             Console.Write(OutputFormatter.CompletionsToText(result, file, line, col));
         }
