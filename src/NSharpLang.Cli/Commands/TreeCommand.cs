@@ -25,17 +25,17 @@ public static class TreeCommand
             return ShowHelp();
 
         var projectRoot = GetProjectRoot(options);
-        var json = options.Json;
+        var outputMode = GetOutputMode(options.Json);
         var maxDepth = GetMaxDepth(args, options);
 
         if (!Directory.Exists(projectRoot))
-            return Error($"Project directory not found: {projectRoot}", json, projectRoot);
+            return Error($"Project directory not found: {projectRoot}", outputMode, projectRoot);
 
         try
         {
             var report = BuildReport(projectRoot, maxDepth);
 
-            if (json)
+            if (outputMode == TreeOutputModeKind.Json)
             {
                 Console.WriteLine(JsonSerializer.Serialize(report, JsonOptions));
             }
@@ -48,7 +48,7 @@ public static class TreeCommand
         }
         catch (Exception ex)
         {
-            return Error($"Tree failed: {ex.Message}", json, projectRoot);
+            return Error($"Tree failed: {ex.Message}", outputMode, projectRoot);
         }
     }
 
@@ -308,6 +308,11 @@ public static class TreeCommand
             ? summary
             : GetOptionSummaryWithCSharp(args);
 
+    internal static TreeOutputModeKind GetOutputMode(bool json)
+        => TreeCommandKernels.TryGetOutputMode(json, out var outputMode)
+            ? outputMode
+            : GetOutputModeWithCSharp(json);
+
     // Stage 6 C#-surface-shrink: fallback/oracle only; product tree option parsing routes through TreeCommandKernels.
     private static TreeOptionSummary GetOptionSummaryWithCSharp(string[] args)
         => new(
@@ -315,6 +320,10 @@ public static class TreeCommand
             GetOptionWithCSharp(args, "--depth"),
             ContainsArgWithCSharp(args, "--json"),
             ContainsArgWithCSharp(args, "--help") || ContainsArgWithCSharp(args, "-h") || (args.Length > 0 && args[0] == "help"));
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product tree output mode selection routes through TreeCommandKernels.
+    private static TreeOutputModeKind GetOutputModeWithCSharp(bool json)
+        => json ? TreeOutputModeKind.Json : TreeOutputModeKind.Text;
 
     private static string GetProjectRoot(TreeOptionSummary options)
         => Path.GetFullPath(options.ProjectOption ?? Directory.GetCurrentDirectory());
@@ -390,9 +399,9 @@ Exit codes:
         return 0;
     }
 
-    static int Error(string message, bool json = false, string? projectRoot = null)
+    static int Error(string message, TreeOutputModeKind outputMode = TreeOutputModeKind.Text, string? projectRoot = null)
     {
-        if (json)
+        if (outputMode == TreeOutputModeKind.Json)
         {
             Console.Write(OutputFormatter.ErrorToJson("tree", message, projectRoot));
         }

@@ -7063,6 +7063,7 @@ func outer(x: int): int {
         Assert.Contains("CliDocOptionSummaryInto", methodNames!); // product doc option parsing.
         Assert.Contains("CliTreeOptionSummaryInto", methodNames!); // product tree option parsing.
         Assert.Contains("CliTreeMaxDepthInto", methodNames!); // product tree depth parsing.
+        Assert.Contains("CliTreeOutputMode", methodNames!); // product tree output mode selection.
         Assert.Contains("CliCleanOptionSummaryInto", methodNames!); // product clean option parsing.
         Assert.Contains("CliCleanArtifactDirectoryKindRank", methodNames!); // product clean artifact directory classification.
         Assert.Contains("CliCleanIsUnderNodeModulesDirectory", methodNames!); // product clean node_modules exclusion.
@@ -15630,6 +15631,10 @@ class OtherZetaType {
                     "CliTreeMaxDepthInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTreeMaxDepthInto.");
+            var cliTreeOutputMode = programType.GetMethod(
+                    "CliTreeOutputMode",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTreeOutputMode.");
             var cliLintFileArgIndicesInto = programType.GetMethod(
                     "CliLintFileArgIndicesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -16741,6 +16746,7 @@ func main(customer: Customer, résumé: Profile) {
                 cliCleanArtifactDirectoryKindRank,
                 cliCleanIsUnderNodeModulesDirectory);
             AssertCliCleanOptionsLikeProduction(cliCleanOptionSummaryInto);
+            AssertCliJsonFlagOutputModesLikeProduction(cliTreeOutputMode);
             AssertCliEnvOptionsLikeProduction(cliEnvOptionSummaryInto);
             AssertCliJsonFlagOutputModesLikeProduction(cliEnvOutputMode);
             AssertCliDoctorOptionsLikeProduction(cliDoctorOptionSummaryInto);

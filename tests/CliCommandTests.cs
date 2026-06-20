@@ -187,6 +187,45 @@ func Main() {
     }
 
     [Fact]
+    public void TreeCommand_ProjectYmlOnly_TextUsesOutputMode()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-tree-text-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: TreeText
+entry: Program.nl
+outputType: exe
+targetFramework: net10.0
+
+dependencies:
+  - nuget: Serilog
+    version: 3.1.1
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+func Main() {
+    print "ok"
+}
+""");
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                TreeCommand.Execute(new[] { "--project", tempDir }));
+
+            Assert.Equal(0, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stderr));
+            Assert.Contains("TreeText (net10.0)", stdout);
+            Assert.Contains("Serilog@3.1.1 [nuget]", stdout);
+            Assert.DoesNotContain("\"command\"", stdout);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void TreeCommand_JsonError_UsesGlobalErrorEnvelope()
     {
         var missingDir = Path.Combine(Path.GetTempPath(), $"nsharp-tree-missing-{Guid.NewGuid():N}");
@@ -231,6 +270,14 @@ func Main() {
         Assert.True(permissiveValue.ShowHelp);
 
         Assert.True(TreeCommand.GetOptionSummary(new[] { "help" }).ShowHelp);
+
+        Assert.True(TreeCommandKernels.TryGetOutputMode(json: false, out var textMode));
+        Assert.Equal(TreeOutputModeKind.Text, textMode);
+        Assert.Equal(TreeOutputModeKind.Text, TreeCommand.GetOutputMode(json: false));
+
+        Assert.True(TreeCommandKernels.TryGetOutputMode(json: true, out var jsonMode));
+        Assert.Equal(TreeOutputModeKind.Json, jsonMode);
+        Assert.Equal(TreeOutputModeKind.Json, TreeCommand.GetOutputMode(json: true));
     }
 
     [Fact]

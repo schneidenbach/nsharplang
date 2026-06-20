@@ -8,6 +8,12 @@ internal readonly record struct TreeOptionSummary(
     bool Json,
     bool ShowHelp);
 
+internal enum TreeOutputModeKind
+{
+    Json = 1,
+    Text = 2
+}
+
 internal static class TreeCommandKernels
 {
     [ThreadStatic]
@@ -79,6 +85,30 @@ internal static class TreeCommandKernels
         }
     }
 
+    internal static bool TryGetOutputMode(bool json, out TreeOutputModeKind outputMode)
+    {
+        outputMode = default;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        try
+        {
+            var code = bindings.OutputMode(json ? 1 : 0);
+            if (code is < 1 or > 2)
+                return false;
+
+            outputMode = (TreeOutputModeKind)code;
+            return true;
+        }
+        catch
+        {
+            outputMode = default;
+            return false;
+        }
+    }
+
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
             DogfoodKernelLoader.CreateDelegate<CliTreeOptionSummaryInto>(
@@ -86,7 +116,10 @@ internal static class TreeCommandKernels
                 "CliTreeOptionSummaryInto"),
             DogfoodKernelLoader.CreateDelegate<CliTreeMaxDepthInto>(
                 programType,
-                "CliTreeMaxDepthInto")));
+                "CliTreeMaxDepthInto"),
+            DogfoodKernelLoader.CreateDelegate<CliTreeOutputMode>(
+                programType,
+                "CliTreeOutputMode")));
 
     private delegate int CliTreeOptionSummaryInto(
         string[] args,
@@ -97,9 +130,12 @@ internal static class TreeCommandKernels
         int defaultDepth,
         int[] result);
 
+    private delegate int CliTreeOutputMode(int json);
+
     private sealed record Bindings(
         CliTreeOptionSummaryInto OptionSummary,
-        CliTreeMaxDepthInto MaxDepth);
+        CliTreeMaxDepthInto MaxDepth,
+        CliTreeOutputMode OutputMode);
 
     private static bool TryGetOptionalArg(string[] args, int index, out string? value)
     {

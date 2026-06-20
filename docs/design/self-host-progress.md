@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-20 — Tree output mode selection moves into product N#
+
+`TreeCommand` no longer branches directly on `options.Json` when choosing text vs JSON output or error
+envelope shape. The shipped `CliTreeOutputMode` dogfood kernel now selects the `nlc tree` render path; C#
+keeps project discovery, dependency graph materialization, output emission, and fallback/oracle mode selection only.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.TreeCommandKernels_SummarizesOptions|FullyQualifiedName~CliCommandTests.TreeCommand_ProjectYmlOnly_TextUsesOutputMode|FullyQualifiedName~CliCommandTests.TreeCommand_ProjectYmlOnly_EmitsStableJsonEnvelope|FullyQualifiedName~CliCommandTests.TreeCommand_JsonError_UsesGlobalErrorEnvelope|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-20 — Doctor and audit output mode selection moves into product N#
 
 `DoctorCommand` and `AuditCommand` no longer branch directly on their parsed JSON flags when selecting

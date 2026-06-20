@@ -1808,6 +1808,14 @@ func CliTreeMaxDepthInto(args: string[], defaultDepth: int, result: int[]): int 
     return 0
 }
 
+func CliTreeOutputMode(useJson: int): int {
+    if useJson != 0 {
+        return 1
+    }
+
+    return 2
+}
+
 func CliWatchPositiveIntInto(value: string, result: int[]): int {
     if result.Length < 1 {
         return -1
