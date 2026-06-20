@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-20 — Query inspect output mode selection moves into product N#
+
+`QueryCommand` no longer owns the `nlc query inspect` JSON/text/compact output-mode decision directly in C#.
+The shipped `CliQueryInspectOutputMode` dogfood kernel now selects default JSON, compact JSON, text, or the
+invalid `--text --compact/--summary` mode; C# keeps output emission, error text, and fallback/oracle mode
+selection only.
+
+Focused evidence:
+`./scripts/dev.sh QueryCommandKernels`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliQueryParsing|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-20 — Pack version source selection moves into product N#
 
 `PackCommand` no longer owns the package version source decision directly in C#. The shipped

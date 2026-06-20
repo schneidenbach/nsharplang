@@ -1511,6 +1511,50 @@ func Main() {
     }
 
     [Fact]
+    public void QueryCommandKernels_SelectsInspectOutputMode()
+    {
+        var cases = new[]
+        {
+            (UseText: false, InspectCompact: false, Expected: QueryInspectOutputModeKind.Json),
+            (UseText: false, InspectCompact: true, Expected: QueryInspectOutputModeKind.CompactJson),
+            (UseText: true, InspectCompact: false, Expected: QueryInspectOutputModeKind.Text),
+            (UseText: true, InspectCompact: true, Expected: QueryInspectOutputModeKind.InvalidCompactText)
+        };
+
+        foreach (var testCase in cases)
+        {
+            Assert.True(QueryCommandKernels.TryGetInspectOutputMode(
+                testCase.UseText,
+                testCase.InspectCompact,
+                out var dogfoodMode));
+            Assert.Equal(testCase.Expected, dogfoodMode);
+            Assert.Equal(
+                testCase.Expected,
+                QueryCommand.GetInspectOutputMode(testCase.UseText, testCase.InspectCompact));
+        }
+    }
+
+    [Fact]
+    public void QueryInspect_RejectsCompactTextOutputMode()
+    {
+        var (exitCode, stdout, stderr) = CaptureConsole(() => QueryCommand.Execute(new[]
+        {
+            "inspect",
+            "--file",
+            "Program.nl",
+            "--pos",
+            "1:1",
+            "--text",
+            "--compact",
+            "--no-daemon"
+        }));
+
+        Assert.Equal(1, exitCode);
+        Assert.True(string.IsNullOrWhiteSpace(stdout));
+        Assert.Contains("--compact/--summary is only supported with JSON output.", stderr);
+    }
+
+    [Fact]
     public void QueryCommandKernels_ParsePositionsLikeCSharpFallback()
     {
         var cases = new[]

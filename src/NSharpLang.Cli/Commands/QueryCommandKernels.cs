@@ -29,6 +29,14 @@ internal readonly record struct QueryTopLevelOptionSummary(
     bool InspectCompact,
     string[] RemainingArgs);
 
+internal enum QueryInspectOutputModeKind
+{
+    InvalidCompactText = -1,
+    Json = 1,
+    CompactJson = 2,
+    Text = 3
+}
+
 internal static class QueryCommandKernels
 {
     [ThreadStatic]
@@ -257,6 +265,38 @@ internal static class QueryCommandKernels
         }
     }
 
+    internal static bool TryGetInspectOutputMode(
+        bool useText,
+        bool inspectCompact,
+        out QueryInspectOutputModeKind mode)
+    {
+        mode = default;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        try
+        {
+            var code = bindings.QueryInspectOutputMode(useText ? 1 : 0, inspectCompact ? 1 : 0);
+            mode = code switch
+            {
+                -1 => QueryInspectOutputModeKind.InvalidCompactText,
+                1 => QueryInspectOutputModeKind.Json,
+                2 => QueryInspectOutputModeKind.CompactJson,
+                3 => QueryInspectOutputModeKind.Text,
+                _ => default
+            };
+
+            return code is -1 or 1 or 2 or 3;
+        }
+        catch
+        {
+            mode = default;
+            return false;
+        }
+    }
+
     internal static bool TryParseSymbolKind(string value, out SymbolKind kind)
     {
         if (TryParseSymbolKindWithDogfood(value, out var parsed, out kind))
@@ -319,6 +359,9 @@ internal static class QueryCommandKernels
             DogfoodKernelLoader.CreateDelegate<CliTryParsePositiveIntInto>(
                 programType,
                 "CliTryParsePositiveIntInto"),
+            DogfoodKernelLoader.CreateDelegate<CliQueryInspectOutputMode>(
+                programType,
+                "CliQueryInspectOutputMode"),
             DogfoodKernelLoader.CreateDelegate<CliQuerySymbolKindInto>(
                 programType,
                 "CliQuerySymbolKindInto")));
@@ -349,6 +392,8 @@ internal static class QueryCommandKernels
 
     private delegate int CliTryParsePositiveIntInto(string value, int[] result);
 
+    private delegate int CliQueryInspectOutputMode(int useText, int inspectCompact);
+
     private delegate int CliQuerySymbolKindInto(string value, int[] result);
 
     private sealed record Bindings(
@@ -357,5 +402,6 @@ internal static class QueryCommandKernels
         CliQueryTopLevelOptionSummaryInto QueryTopLevelOptionSummary,
         CliTryParsePositionInto TryParsePosition,
         CliTryParsePositiveIntInto TryParsePositiveInt,
+        CliQueryInspectOutputMode QueryInspectOutputMode,
         CliQuerySymbolKindInto TryParseSymbolKind);
 }

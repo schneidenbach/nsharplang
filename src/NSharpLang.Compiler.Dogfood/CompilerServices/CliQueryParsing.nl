@@ -260,6 +260,22 @@ func CliQueryTopLevelOptionSummaryInto(args: string[], resultIndices: int[], rem
     return resultCount
 }
 
+func CliQueryInspectOutputMode(useText: int, inspectCompact: int): int {
+    if useText != 0 && inspectCompact != 0 {
+        return -1
+    }
+
+    if inspectCompact != 0 {
+        return 2
+    }
+
+    if useText != 0 {
+        return 3
+    }
+
+    return 1
+}
+
 func CliQueryIsLongOption(arg: string): bool {
     return arg.Length >= 2 && arg[0] == '-' && arg[1] == '-'
 }

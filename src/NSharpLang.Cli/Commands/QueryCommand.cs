@@ -721,14 +721,15 @@ public static class QueryCommand
         var summary = GetDaemonParameterSummary(args);
         var file = summary.File ?? options.File;
         var posStr = summary.Pos ?? options.Pos;
-        var compactMode = options.InspectCompact;
+        var outputMode = GetInspectOutputMode(options.UseText, options.InspectCompact);
+        var compactMode = outputMode == QueryInspectOutputModeKind.CompactJson;
 
         if (file == null || posStr == null)
         {
             return QueryError("Usage: nlc query inspect --file <path> --pos <line>:<col>");
         }
 
-        if (compactMode && options.UseText)
+        if (outputMode == QueryInspectOutputModeKind.InvalidCompactText)
         {
             return QueryError("--compact/--summary is only supported with JSON output.");
         }
@@ -777,7 +778,7 @@ public static class QueryCommand
 
         if (type == null && definition == null && references.Count == 0)
         {
-            if (options.UseText)
+            if (outputMode == QueryInspectOutputModeKind.Text)
             {
                 Console.Error.WriteLine($"No symbol found at {file}:{line}:{col}");
             }
@@ -798,7 +799,7 @@ public static class QueryCommand
             return 1;
         }
 
-        if (options.UseText)
+        if (outputMode == QueryInspectOutputModeKind.Text)
         {
             Console.Write(OutputFormatter.InspectToText(inspect, file, line, col));
         }
@@ -1117,6 +1118,29 @@ public static class QueryCommand
 
         parsed = 0;
         return false;
+    }
+
+    internal static QueryInspectOutputModeKind GetInspectOutputMode(bool useText, bool inspectCompact)
+    {
+        if (QueryCommandKernels.TryGetInspectOutputMode(useText, inspectCompact, out var mode))
+            return mode;
+
+        return GetInspectOutputModeWithCSharp(useText, inspectCompact);
+    }
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product query inspect output-mode selection routes through QueryCommandKernels.
+    private static QueryInspectOutputModeKind GetInspectOutputModeWithCSharp(bool useText, bool inspectCompact)
+    {
+        if (useText && inspectCompact)
+            return QueryInspectOutputModeKind.InvalidCompactText;
+
+        if (inspectCompact)
+            return QueryInspectOutputModeKind.CompactJson;
+
+        if (useText)
+            return QueryInspectOutputModeKind.Text;
+
+        return QueryInspectOutputModeKind.Json;
     }
 
     private static ProjectSnapshot? LoadProjectOrFail(QueryOptions options)

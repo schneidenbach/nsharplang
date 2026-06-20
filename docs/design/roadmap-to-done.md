@@ -285,7 +285,7 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       symbol-name filtering now lives beside `QueryCommand` in `QuerySymbolNameFilter` instead of the broad CLI
       adapter, query symbol-kind parsing now lives beside `QueryCommand` in `QueryCommandKernels`, and product
       `QueryCommand` top-level/global, command-specific argument, `line:column` position,
-      and limit parsing now lives beside `QueryCommand` in
+      limit parsing, and inspect output-mode selection now lives beside `QueryCommand` in
       `QueryCommandKernels`;
       `nlc check`/`nlc lint` compiler-error severity filtering now lives beside the command implementations in
       `CompilerErrorSeverityFilter`; batch query duplicate-id validation and packed

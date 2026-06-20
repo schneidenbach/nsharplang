@@ -12136,6 +12136,7 @@ func outer(x: int): int {
         Assert.Contains("CliQueryTopLevelOptionSummaryInto", methodNames!); // product query top-level option parsing.
         Assert.Contains("CliTryParsePositionInto", methodNames!); // product query line/column position parsing.
         Assert.Contains("CliTryParsePositiveIntInto", methodNames!); // product query positive-limit parsing.
+        Assert.Contains("CliQueryInspectOutputMode", methodNames!); // product query inspect output-mode selection.
         Assert.Contains("CliQuerySymbolKindInto", methodNames!); // product query symbol-kind parsing.
         Assert.Contains("CliDaemonPositionInto", methodNames!); // product daemon query position compatibility parsing.
 
@@ -12154,6 +12155,10 @@ func outer(x: int): int {
             ("CliTryParsePositiveIntInto", new object[] { "25", new int[1] }),
             ("CliTryParsePositiveIntInto", new object[] { "0", new int[1] }),
             ("CliTryParsePositiveIntInto", new object[] { "2147483648", new int[1] }),
+            ("CliQueryInspectOutputMode", new object[] { 0, 0 }),
+            ("CliQueryInspectOutputMode", new object[] { 0, 1 }),
+            ("CliQueryInspectOutputMode", new object[] { 1, 0 }),
+            ("CliQueryInspectOutputMode", new object[] { 1, 1 }),
             ("CliQuerySymbolKindInto", new object[] { "function", new int[1] }),
             ("CliQuerySymbolKindInto", new object[] { " TypeAlias ", new int[1] }),
             ("CliQuerySymbolKindInto", new object[] { "15", new int[1] }),
@@ -15430,6 +15435,10 @@ class OtherZetaType {
                     "CliTryParsePositiveIntInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTryParsePositiveIntInto.");
+            var cliQueryInspectOutputMode = programType.GetMethod(
+                    "CliQueryInspectOutputMode",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliQueryInspectOutputMode.");
             var cliQuerySymbolKindInto = programType.GetMethod(
                     "CliQuerySymbolKindInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -16607,6 +16616,7 @@ func main(customer: Customer, résumé: Profile) {
             AssertCliQueryDaemonParametersLikeProduction(cliQueryDaemonParameterSummaryInto);
             AssertCliQueryCommandOptionsLikeProduction(cliQueryCommandOptionSummaryInto);
             AssertCliQueryPositiveIntsLikeProduction(cliTryParsePositiveIntInto);
+            AssertCliQueryInspectOutputModesLikeProduction(cliQueryInspectOutputMode);
             AssertCliQuerySymbolKindsLikeProduction(cliQuerySymbolKindInto);
             AssertCliDaemonPositionsLikeProduction(cliDaemonPositionInto);
             AssertCliBuildOperandsLikeProduction(
@@ -19166,6 +19176,29 @@ func main() {
             (int)(cliTryParsePositiveIntInto.Invoke(
                 null,
                 new object[] { "1", Array.Empty<int>() }) ?? 0));
+    }
+
+    private static void AssertCliQueryInspectOutputModesLikeProduction(MethodInfo cliQueryInspectOutputMode)
+    {
+        var cases = new[]
+        {
+            (UseText: 0, InspectCompact: 0, Expected: 1),
+            (UseText: 0, InspectCompact: 1, Expected: 2),
+            (UseText: 1, InspectCompact: 0, Expected: 3),
+            (UseText: 1, InspectCompact: 1, Expected: -1),
+            (UseText: 2, InspectCompact: 0, Expected: 3),
+            (UseText: 0, InspectCompact: 2, Expected: 2),
+            (UseText: 2, InspectCompact: 2, Expected: -1)
+        };
+
+        foreach (var testCase in cases)
+        {
+            var actual = (int)(cliQueryInspectOutputMode.Invoke(
+                null,
+                new object[] { testCase.UseText, testCase.InspectCompact }) ?? -99);
+
+            Assert.Equal(testCase.Expected, actual);
+        }
     }
 
     private static void AssertCliQuerySymbolKindsLikeProduction(MethodInfo cliQuerySymbolKindInto)
