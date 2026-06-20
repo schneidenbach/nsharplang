@@ -2519,6 +2519,16 @@ func Main() {
             RemoveDependencyLineAction.RemoveMappingBlock,
             RemoveCommand.GetDependencyLineAction(" - nuget: YamlDotNet", "YamlDotNet"));
         Assert.False(RemoveCommand.ShouldStopDependencyContinuationLine("  version: 1.0.0"));
+
+        var helpText = RemoveCommandKernels.GetHelpText();
+        Assert.Equal("Usage: nlc remove <package>", RemoveCommandKernels.GetUsageMessage());
+        Assert.Contains("N# Remove Dependency", helpText);
+        Assert.Contains("Failed to remove dependency", helpText);
+        Assert.Equal("No project.yml found.", RemoveCommandKernels.GetMissingProjectFileMessage());
+        Assert.Equal(
+            "Package 'Serilog' not found in dependencies.",
+            RemoveCommandKernels.GetPackageNotFoundMessage("Serilog"));
+        Assert.Equal("Removed Serilog from project.yml", RemoveCommandKernels.GetRemovedMessage("Serilog"));
     }
 
     [Fact]

@@ -1411,6 +1411,41 @@ func CliRemoveArgumentSummaryCore(args: &CliArgumentTable, resultIndices: &CliIn
     return 0
 }
 
+func CliRemoveHelpText(): string {
+    return "N# Remove Dependency\n"
+        + "\n"
+        + "Usage: nlc remove <package>\n"
+        + "\n"
+        + "Remove a dependency from project.yml.\n"
+        + "\n"
+        + "Options:\n"
+        + "  --help, -h    Show this help text\n"
+        + "\n"
+        + "Examples:\n"
+        + "  nlc remove Newtonsoft.Json\n"
+        + "  nlc remove Microsoft.AspNetCore.App\n"
+        + "\n"
+        + "Exit codes:\n"
+        + "  0  Dependency removed successfully\n"
+        + "  1  Failed to remove dependency"
+}
+
+func CliRemoveUsageMessage(): string {
+    return "Usage: nlc remove <package>"
+}
+
+func CliRemoveMissingProjectFileMessage(): string {
+    return "No project.yml found."
+}
+
+func CliRemovePackageNotFoundMessage(packageName: string): string {
+    return "Package '" + packageName + "' not found in dependencies."
+}
+
+func CliRemoveRemovedMessage(packageName: string): string {
+    return "Removed " + packageName + " from project.yml"
+}
+
 func CliRemoveDependencyLineAction(line: string, packageName: string): int {
     start := CliRemoveTrimStartIndex(line)
     end := CliRemoveTrimEndIndex(line, start)

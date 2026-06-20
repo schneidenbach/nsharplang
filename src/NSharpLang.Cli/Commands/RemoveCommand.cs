@@ -13,17 +13,17 @@ public static class RemoveCommand
             return ShowHelp();
 
         if (args.Length == 0)
-            return Error("Usage: nlc remove <package>");
+            return Error(RemoveCommandKernels.GetUsageMessage());
 
         var packageName = arguments.PackageOperand;
         if (string.IsNullOrWhiteSpace(packageName))
-            return Error("Usage: nlc remove <package>");
+            return Error(RemoveCommandKernels.GetUsageMessage());
 
         var projectRoot = Directory.GetCurrentDirectory();
         var projectYml = Path.Combine(projectRoot, "project.yml");
 
         if (!File.Exists(projectYml))
-            return Error("No project.yml found.");
+            return Error(RemoveCommandKernels.GetMissingProjectFileMessage());
 
         var lines = new List<string>(File.ReadAllLines(projectYml));
         var removed = false;
@@ -55,14 +55,14 @@ public static class RemoveCommand
         }
 
         if (!removed)
-            return Error($"Package '{packageName}' not found in dependencies.");
+            return Error(RemoveCommandKernels.GetPackageNotFoundMessage(packageName));
 
         File.WriteAllLines(projectYml, lines);
 
         // Restore
         RestoreCommand.Restore(projectRoot, quiet: true);
 
-        Console.WriteLine($"Removed {packageName} from project.yml");
+        Console.WriteLine(RemoveCommandKernels.GetRemovedMessage(packageName));
         return 0;
     }
 
@@ -135,23 +135,7 @@ public static class RemoveCommand
 
     static int ShowHelp()
     {
-        Console.WriteLine(@"N# Remove Dependency
-
-Usage: nlc remove <package>
-
-Remove a dependency from project.yml.
-
-Options:
-  --help, -h    Show this help text
-
-Examples:
-  nlc remove Newtonsoft.Json
-  nlc remove Microsoft.AspNetCore.App
-
-Exit codes:
-  0  Dependency removed successfully
-  1  Failed to remove dependency");
-
+        Console.WriteLine(RemoveCommandKernels.GetHelpText());
         return 0;
     }
 

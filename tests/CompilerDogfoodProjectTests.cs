@@ -7078,6 +7078,11 @@ func outer(x: int): int {
         Assert.Contains("CliRemoveArgumentSummaryInto", methodNames!); // product remove argument parsing.
         Assert.Contains("CliRemoveDependencyLineAction", methodNames!); // product remove dependency-line pruning.
         Assert.Contains("CliRemoveShouldStopDependencyContinuationLine", methodNames!); // product remove dependency continuation pruning.
+        Assert.Contains("CliRemoveHelpText", methodNames!); // product remove help text shaping.
+        Assert.Contains("CliRemoveUsageMessage", methodNames!); // product remove usage message shaping.
+        Assert.Contains("CliRemoveMissingProjectFileMessage", methodNames!); // product remove missing-project message shaping.
+        Assert.Contains("CliRemovePackageNotFoundMessage", methodNames!); // product remove missing-package message shaping.
+        Assert.Contains("CliRemoveRemovedMessage", methodNames!); // product remove success message shaping.
         Assert.Contains("CliUpdateArgumentSummaryInto", methodNames!); // product update argument parsing.
         Assert.Contains("CliTidyOptionSummaryInto", methodNames!); // product tidy option parsing.
         Assert.Contains("CliTidyOutputMode", methodNames!); // product tidy output mode selection.
@@ -15622,6 +15627,26 @@ class OtherZetaType {
                     "CliRemoveArgumentSummaryInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliRemoveArgumentSummaryInto.");
+            var cliRemoveHelpText = programType.GetMethod(
+                    "CliRemoveHelpText",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliRemoveHelpText.");
+            var cliRemoveUsageMessage = programType.GetMethod(
+                    "CliRemoveUsageMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliRemoveUsageMessage.");
+            var cliRemoveMissingProjectFileMessage = programType.GetMethod(
+                    "CliRemoveMissingProjectFileMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliRemoveMissingProjectFileMessage.");
+            var cliRemovePackageNotFoundMessage = programType.GetMethod(
+                    "CliRemovePackageNotFoundMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliRemovePackageNotFoundMessage.");
+            var cliRemoveRemovedMessage = programType.GetMethod(
+                    "CliRemoveRemovedMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliRemoveRemovedMessage.");
             var cliUpdateArgumentSummaryInto = programType.GetMethod(
                     "CliUpdateArgumentSummaryInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -16822,6 +16847,12 @@ func main(customer: Customer, résumé: Profile) {
                 cliAddPackageAddedMessage,
                 cliAddProjectReferenceAddedMessage);
             AssertCliRemoveArgumentsLikeProduction(cliRemoveArgumentSummaryInto);
+            AssertCliRemoveMessagesLikeProduction(
+                cliRemoveHelpText,
+                cliRemoveUsageMessage,
+                cliRemoveMissingProjectFileMessage,
+                cliRemovePackageNotFoundMessage,
+                cliRemoveRemovedMessage);
             AssertCliUpdateArgumentsLikeProduction(cliUpdateArgumentSummaryInto);
             AssertCliCompletionOptionsLikeProduction(cliCompletionOptionSummaryInto);
             AssertCliDaemonOptionsLikeProduction(cliDaemonOptionSummaryInto);
@@ -20557,6 +20588,31 @@ func main() {
             (int)(cliRemoveArgumentSummaryInto.Invoke(
                 null,
                 new object[] { new[] { "Serilog" }, new int[1] }) ?? 0));
+    }
+
+    private static void AssertCliRemoveMessagesLikeProduction(
+        MethodInfo cliRemoveHelpText,
+        MethodInfo cliRemoveUsageMessage,
+        MethodInfo cliRemoveMissingProjectFileMessage,
+        MethodInfo cliRemovePackageNotFoundMessage,
+        MethodInfo cliRemoveRemovedMessage)
+    {
+        var help = (string)(cliRemoveHelpText.Invoke(null, Array.Empty<object>()) ?? "<null>");
+        Assert.Contains("N# Remove Dependency", help);
+        Assert.Contains("Usage: nlc remove <package>", help);
+        Assert.Contains("Failed to remove dependency", help);
+
+        var usage = (string)(cliRemoveUsageMessage.Invoke(null, Array.Empty<object>()) ?? "<null>");
+        Assert.Equal("Usage: nlc remove <package>", usage);
+
+        var missingProject = (string)(cliRemoveMissingProjectFileMessage.Invoke(null, Array.Empty<object>()) ?? "<null>");
+        Assert.Equal("No project.yml found.", missingProject);
+
+        var missingPackage = (string)(cliRemovePackageNotFoundMessage.Invoke(null, new object[] { "Serilog" }) ?? "<null>");
+        Assert.Equal("Package 'Serilog' not found in dependencies.", missingPackage);
+
+        var removed = (string)(cliRemoveRemovedMessage.Invoke(null, new object[] { "Serilog" }) ?? "<null>");
+        Assert.Equal("Removed Serilog from project.yml", removed);
     }
 
     private static int[] CreateExpectedCliRemoveArguments(string[] args)

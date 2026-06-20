@@ -686,6 +686,86 @@ func Main() {
     }
 
     [Fact]
+    public void RemoveCommand_Help_ShowsUsage()
+    {
+        var (exitCode, stdout, stderr) = CaptureConsole(() =>
+            RemoveCommand.Execute(new[] { "--help" }));
+
+        Assert.Equal(0, exitCode);
+        Assert.True(string.IsNullOrWhiteSpace(stderr));
+        Assert.Contains("N# Remove Dependency", stdout);
+        Assert.Contains("Usage: nlc remove <package>", stdout);
+    }
+
+    [Fact]
+    public void RemoveCommand_NoArgs_ReturnsUsage()
+    {
+        var (exitCode, stdout, stderr) = CaptureConsole(() =>
+            RemoveCommand.Execute(Array.Empty<string>()));
+
+        Assert.Equal(1, exitCode);
+        Assert.True(string.IsNullOrWhiteSpace(stdout));
+        Assert.Contains("Usage: nlc remove <package>", stderr);
+    }
+
+    [Fact]
+    public void RemoveCommand_NoProjectYml_ReturnsHelpfulMessage()
+    {
+        var tempDir = CreateTempDir();
+        var originalDirectory = Directory.GetCurrentDirectory();
+
+        try
+        {
+            Directory.SetCurrentDirectory(tempDir);
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                RemoveCommand.Execute(new[] { "Serilog" }));
+
+            Assert.Equal(1, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stdout));
+            Assert.Contains("No project.yml found.", stderr);
+        }
+        finally
+        {
+            Directory.SetCurrentDirectory(originalDirectory);
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void RemoveCommand_MissingDependency_ReturnsHelpfulMessage()
+    {
+        var projectDir = CreateTempDir();
+        var originalDirectory = Directory.GetCurrentDirectory();
+
+        try
+        {
+            Directory.SetCurrentDirectory(projectDir);
+            File.WriteAllText("project.yml", """
+name: RemoveDemo
+version: 1.0.0
+backend: il
+targetFramework: net10.0
+
+dependencies:
+  - YamlDotNet@16.3.0
+""");
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                RemoveCommand.Execute(new[] { "Serilog" }));
+
+            Assert.Equal(1, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stdout));
+            Assert.Contains("Package 'Serilog' not found in dependencies.", stderr);
+        }
+        finally
+        {
+            Directory.SetCurrentDirectory(originalDirectory);
+            Directory.Delete(projectDir, true);
+        }
+    }
+
+    [Fact]
     public void RemoveCommand_RemovesMappingDependencyBlock()
     {
         var projectDir = CreateTempDir();

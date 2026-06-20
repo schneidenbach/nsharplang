@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-20 — Remove command messages move into product N#
+
+`RemoveCommand` no longer owns help, usage, missing-project, missing-dependency, or success message bodies
+in C#. The shipped `CliRemove*Message` dogfood kernels now shape those user-facing messages through
+`RemoveCommandKernels`; C# keeps `project.yml` file edits, restore invocation, and fallback/oracle text only.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.RemoveCommandKernels_SummarizesArguments|FullyQualifiedName~CliParityAuditTests.RemoveCommand_Help_ShowsUsage|FullyQualifiedName~CliParityAuditTests.RemoveCommand_NoArgs_ReturnsUsage|FullyQualifiedName~CliParityAuditTests.RemoveCommand_NoProjectYml_ReturnsHelpfulMessage|FullyQualifiedName~CliParityAuditTests.RemoveCommand_MissingDependency_ReturnsHelpfulMessage|FullyQualifiedName~CliParityAuditTests.RemoveCommand_RemovesMappingDependencyBlock|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-20 — Add command messages move into product N#
 
 `AddCommand` no longer owns help, usage, missing-project, package-resolution, duplicate-dependency, or
