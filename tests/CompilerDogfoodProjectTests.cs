@@ -7059,6 +7059,8 @@ func outer(x: int): int {
         Assert.Contains("CliTreeOptionSummaryInto", methodNames!); // product tree option parsing.
         Assert.Contains("CliTreeMaxDepthInto", methodNames!); // product tree depth parsing.
         Assert.Contains("CliCleanOptionSummaryInto", methodNames!); // product clean option parsing.
+        Assert.Contains("CliCleanArtifactDirectoryKindRank", methodNames!); // product clean artifact directory classification.
+        Assert.Contains("CliCleanIsUnderNodeModulesDirectory", methodNames!); // product clean node_modules exclusion.
         Assert.Contains("CliEnvOptionSummaryInto", methodNames!); // product env option parsing.
         Assert.Contains("CliDoctorOptionSummaryInto", methodNames!); // product doctor option parsing.
         Assert.Contains("CliAuditOptionSummaryInto", methodNames!); // product audit option parsing.
@@ -15635,6 +15637,14 @@ class OtherZetaType {
                     "CliCleanArtifactDirectoryChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliCleanArtifactDirectoryChecksumInto.");
+            var cliCleanArtifactDirectoryKindRank = programType.GetMethod(
+                    "CliCleanArtifactDirectoryKindRank",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliCleanArtifactDirectoryKindRank.");
+            var cliCleanIsUnderNodeModulesDirectory = programType.GetMethod(
+                    "CliCleanIsUnderNodeModulesDirectory",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliCleanIsUnderNodeModulesDirectory.");
             var cliCleanOptionSummaryInto = programType.GetMethod(
                     "CliCleanOptionSummaryInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -16636,6 +16646,9 @@ func main(customer: Customer, résumé: Profile) {
             AssertCliCleanArtifactDirectoryOrderingLikeProduction(
                 cliCleanArtifactDirectoryIndicesInto,
                 cliCleanArtifactDirectoryChecksumInto);
+            AssertCliCleanArtifactDirectoryClassificationLikeProduction(
+                cliCleanArtifactDirectoryKindRank,
+                cliCleanIsUnderNodeModulesDirectory);
             AssertCliCleanOptionsLikeProduction(cliCleanOptionSummaryInto);
             AssertCliEnvOptionsLikeProduction(cliEnvOptionSummaryInto);
             AssertCliDoctorOptionsLikeProduction(cliDoctorOptionSummaryInto);
@@ -22427,6 +22440,36 @@ func main() {
         }
 
         return checksum;
+    }
+
+    private static void AssertCliCleanArtifactDirectoryClassificationLikeProduction(
+        MethodInfo cliCleanArtifactDirectoryKindRank,
+        MethodInfo cliCleanIsUnderNodeModulesDirectory)
+    {
+        var cases = new[]
+        {
+            (Path: "/repo/bin", KindRank: 1, IsUnderNodeModules: 0),
+            (Path: "/repo/obj", KindRank: 2, IsUnderNodeModules: 0),
+            (Path: "/repo/.nlc", KindRank: 3, IsUnderNodeModules: 0),
+            (Path: "/repo/BIN", KindRank: 0, IsUnderNodeModules: 0),
+            (Path: "/repo/bin/", KindRank: 0, IsUnderNodeModules: 0),
+            (Path: "/repo/node_modules/pkg/bin", KindRank: 1, IsUnderNodeModules: 1),
+            (Path: "/repo/node_modules/pkg/obj", KindRank: 2, IsUnderNodeModules: 1),
+            (Path: "/repo/node_modules", KindRank: 0, IsUnderNodeModules: 0),
+            (Path: "/repo/node_modules_bin/pkg/bin", KindRank: 1, IsUnderNodeModules: 0),
+            (Path: "node_modules/pkg/bin", KindRank: 1, IsUnderNodeModules: 0),
+            (Path: @"C:\repo\node_modules\pkg\bin", KindRank: 1, IsUnderNodeModules: 1)
+        };
+
+        foreach (var (path, expectedKindRank, expectedIsUnderNodeModules) in cases)
+        {
+            Assert.Equal(
+                expectedKindRank,
+                (int)(cliCleanArtifactDirectoryKindRank.Invoke(null, new object[] { path }) ?? -1));
+            Assert.Equal(
+                expectedIsUnderNodeModules,
+                (int)(cliCleanIsUnderNodeModulesDirectory.Invoke(null, new object[] { path }) ?? -1));
+        }
     }
 
     private static void AssertCliUpdateTargetNuGetDependencyFilteringLikeProduction(

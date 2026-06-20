@@ -1,11 +1,19 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 
 namespace NSharpLang.Cli.Commands;
 
 internal static class CleanArtifactDirectoryOrderer
 {
+    private static readonly string[] ArtifactDirectories =
+    {
+        "bin",
+        "obj",
+        ".nlc"
+    };
+
     [ThreadStatic]
     private static Scratch? t_scratch;
 
@@ -35,8 +43,13 @@ internal static class CleanArtifactDirectoryOrderer
             for (var i = 0; i < directoryCount; i++)
             {
                 var directory = directories[i];
-                scratch.KindRanks[i] = CleanCommand.IsArtifactDirectoryName(Path.GetFileName(directory)) ? 1 : 0;
-                scratch.NodeModuleFlags[i] = CleanCommand.IsUnderNodeModulesDirectory(directory) ? 1 : 0;
+                if (!TryGetArtifactDirectoryKindRank(directory, bindings, out scratch.KindRanks[i]) ||
+                    !TryIsUnderNodeModulesDirectory(directory, bindings, out var isUnderNodeModules))
+                {
+                    return false;
+                }
+
+                scratch.NodeModuleFlags[i] = isUnderNodeModules ? 1 : 0;
                 scratch.PathLengths[i] = directory.Length;
                 scratch.AddPath(directory);
 
@@ -90,11 +103,97 @@ internal static class CleanArtifactDirectoryOrderer
         }
     }
 
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product clean artifact classification and ordering route through N#.
+    internal static string[] OrderWithCSharpFallback(IEnumerable<string> directories)
+        => directories
+            .Distinct(StringComparer.Ordinal)
+            .Where(dir => !IsUnderNodeModulesDirectoryWithCSharp(dir))
+            .Where(dir => IsArtifactDirectoryNameWithCSharp(Path.GetFileName(dir)))
+            .OrderByDescending(dir => dir.Length)
+            .ToArray();
+
+    internal static bool TryGetArtifactDirectoryKindRank(string path, out int kindRank)
+    {
+        kindRank = 0;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        return TryGetArtifactDirectoryKindRank(path, bindings, out kindRank);
+    }
+
+    internal static bool TryIsUnderNodeModulesDirectory(string path, out bool isUnderNodeModules)
+    {
+        isUnderNodeModules = false;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        return TryIsUnderNodeModulesDirectory(path, bindings, out isUnderNodeModules);
+    }
+
+    private static bool TryGetArtifactDirectoryKindRank(string path, Bindings bindings, out int kindRank)
+    {
+        kindRank = 0;
+
+        try
+        {
+            var code = bindings.ArtifactDirectoryKindRank(path);
+            if (code < 0 || code > ArtifactDirectories.Length)
+                return false;
+
+            kindRank = code;
+            return true;
+        }
+        catch
+        {
+            kindRank = 0;
+            return false;
+        }
+    }
+
+    private static bool TryIsUnderNodeModulesDirectory(string path, Bindings bindings, out bool isUnderNodeModules)
+    {
+        isUnderNodeModules = false;
+
+        try
+        {
+            var code = bindings.IsUnderNodeModulesDirectory(path);
+            if (code == 0)
+                return true;
+
+            if (code == 1)
+            {
+                isUnderNodeModules = true;
+                return true;
+            }
+
+            return false;
+        }
+        catch
+        {
+            isUnderNodeModules = false;
+            return false;
+        }
+    }
+
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
+            DogfoodKernelLoader.CreateDelegate<CliCleanArtifactDirectoryKindRank>(
+                programType,
+                "CliCleanArtifactDirectoryKindRank"),
+            DogfoodKernelLoader.CreateDelegate<CliCleanIsUnderNodeModulesDirectory>(
+                programType,
+                "CliCleanIsUnderNodeModulesDirectory"),
             DogfoodKernelLoader.CreateDelegate<CliCleanArtifactDirectoryIndicesInto>(
                 programType,
                 "CliCleanArtifactDirectoryIndicesInto")));
+
+    private delegate int CliCleanArtifactDirectoryKindRank(string path);
+
+    private delegate int CliCleanIsUnderNodeModulesDirectory(string path);
 
     private delegate int CliCleanArtifactDirectoryIndicesInto(
         int[] kindRanks,
@@ -107,7 +206,18 @@ internal static class CleanArtifactDirectoryOrderer
         int[] tempIndices,
         int[] resultIndices);
 
-    private sealed record Bindings(CliCleanArtifactDirectoryIndicesInto OrderArtifactDirectoryIndices);
+    private sealed record Bindings(
+        CliCleanArtifactDirectoryKindRank ArtifactDirectoryKindRank,
+        CliCleanIsUnderNodeModulesDirectory IsUnderNodeModulesDirectory,
+        CliCleanArtifactDirectoryIndicesInto OrderArtifactDirectoryIndices);
+
+    private static bool IsArtifactDirectoryNameWithCSharp(string name) =>
+        ArtifactDirectories.Contains(name, StringComparer.Ordinal);
+
+    private static bool IsUnderNodeModulesDirectoryWithCSharp(string dir) =>
+        NormalizePath(dir).Contains("/node_modules/", StringComparison.Ordinal);
+
+    private static string NormalizePath(string path) => path.Replace('\\', '/');
 
     private sealed class Scratch
     {

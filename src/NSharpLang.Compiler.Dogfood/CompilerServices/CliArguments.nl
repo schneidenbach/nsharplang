@@ -1852,6 +1852,82 @@ func CliCleanOptionSummaryInto(args: string[], resultIndices: int[]): int {
     return CliCleanOptionSummaryCore(ref arguments, ref results)
 }
 
+func CliCleanArtifactDirectoryKindRank(path: string): int {
+    fileNameStart := CliCleanFileNameStart(path)
+    if CliCleanPathSegmentEquals(path, fileNameStart, path.Length, "bin") {
+        return 1
+    }
+
+    if CliCleanPathSegmentEquals(path, fileNameStart, path.Length, "obj") {
+        return 2
+    }
+
+    if CliCleanPathSegmentEquals(path, fileNameStart, path.Length, ".nlc") {
+        return 3
+    }
+
+    return 0
+}
+
+func CliCleanIsUnderNodeModulesDirectory(path: string): int {
+    pattern := "/node_modules/"
+    if path.Length < pattern.Length {
+        return 0
+    }
+
+    start := 0
+    maxStart := path.Length - pattern.Length
+    while start <= maxStart {
+        if CliCleanPathSegmentEquals(path, start, start + pattern.Length, pattern) {
+            return 1
+        }
+
+        start = start + 1
+    }
+
+    return 0
+}
+
+func CliCleanFileNameStart(path: string): int {
+    index := path.Length - 1
+    while index >= 0 {
+        ch := path[index]
+        if ch == '/' || ch == '\\' {
+            return index + 1
+        }
+
+        index = index - 1
+    }
+
+    return 0
+}
+
+func CliCleanPathSegmentEquals(path: string, start: int, end: int, value: string): bool {
+    length := end - start
+    if length != value.Length {
+        return false
+    }
+
+    index := 0
+    while index < value.Length {
+        if CliCleanNormalizedPathChar(path[start + index]) != value[index] {
+            return false
+        }
+
+        index = index + 1
+    }
+
+    return true
+}
+
+func CliCleanNormalizedPathChar(ch: char): char {
+    if ch == '\\' {
+        return '/'
+    }
+
+    return ch
+}
+
 func CliCleanOptionSummaryCore(args: &CliArgumentTable, resultIndices: &CliIndexResultTable): int {
     if resultIndices.Indices.Length < 3 {
         return -1

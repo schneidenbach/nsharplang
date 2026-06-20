@@ -294,7 +294,7 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       `DaemonServerKernels`; unified-diff hunk range
       construction now lives beside `UnifiedDiff` in `UnifiedDiffHunkRangeBuilder`; fix safety/skipped/applied
       grouping routes now live beside `FixCommand` in `FixCommandKernels`; clean option summary now lives beside
-      `CleanCommand` in `CleanCommandKernels`, and clean artifact directory ordering now lives beside
+      `CleanCommand` in `CleanCommandKernels`, and clean artifact directory classification plus ordering now lives beside
       `CleanCommand` in `CleanArtifactDirectoryOrderer`; env option summary now lives beside `EnvCommand`
       in `EnvCommandKernels`; doctor option summary now lives beside `DoctorCommand` in
       `DoctorCommandKernels`; audit option summary now lives beside `AuditCommand` in

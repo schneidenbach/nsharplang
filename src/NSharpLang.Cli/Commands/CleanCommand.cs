@@ -70,12 +70,7 @@ public static class CleanCommand
             existingDirectories,
             out var dogfoodDirectories)
             ? dogfoodDirectories
-            : existingDirectories
-                .Distinct(StringComparer.Ordinal)
-                .Where(dir => !IsUnderNodeModulesDirectory(dir))
-                .Where(dir => IsArtifactDirectoryName(Path.GetFileName(dir)))
-                .OrderByDescending(dir => dir.Length)
-                .ToArray();
+            : CleanArtifactDirectoryOrderer.OrderWithCSharpFallback(existingDirectories);
 
         foreach (var dir in directories)
         {
@@ -168,10 +163,4 @@ Exit codes:
     }
 
     private static string NormalizePath(string path) => path.Replace('\\', '/');
-
-    internal static bool IsArtifactDirectoryName(string name) =>
-        ArtifactDirectories.Contains(name, StringComparer.Ordinal);
-
-    internal static bool IsUnderNodeModulesDirectory(string dir) =>
-        NormalizePath(dir).Contains("/node_modules/", StringComparison.Ordinal);
 }

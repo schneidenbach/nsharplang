@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-20 — Clean artifact path classification moves into product N#
+
+`CleanArtifactDirectoryOrderer` no longer asks `CleanCommand` to classify artifact directory names or
+`node_modules` paths before ordering removal candidates. The shipped `CliCleanArtifactDirectoryKindRank` and
+`CliCleanIsUnderNodeModulesDirectory` dogfood kernels now own those product path predicates; C# keeps filesystem
+enumeration/deletion, path materialization, and fallback/oracle ordering only.
+
+Focused evidence:
+`./scripts/dev.sh Clean`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-20 — Watch changed-file filtering moves into product N#
 
 `WatchCommand` no longer owns the file-change trigger predicate for `.nl`, `project.yml`, and `.editorconfig`
