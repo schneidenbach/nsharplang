@@ -308,7 +308,8 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       formatter `.editorconfig` integer parsing now lives beside `FormatterConfig` in
       `FormatterConfigKernels`;
       restore option summary, reference filtering, and project-reference deduplication now live beside
-      `RestoreCommand` in `RestoreCommandKernels`; stale generated-output directory de-duplication now lives beside
+      `RestoreCommand` in `RestoreCommandKernels`; stale generated-output directory de-duplication and
+      generated-source base-path derivation now live beside
       `Program.CleanStaleGeneratedFiles` in `GeneratedOutputDirectoryDeduplicator`; native
       compilation-reference filtering, C# project-reference output filtering, dependency-version normalization,
       latest and installed NuGet version selection,

@@ -2970,6 +2970,20 @@ func CliExportIsTestSourceFile(sourceFile: string): int {
     return 0
 }
 
+func CliGeneratedSourceBasePathLength(relativeSourcePath: string): int {
+    testsSuffix := ".tests.nl"
+    if CliPathEndsWithTestsNl(relativeSourcePath) {
+        return relativeSourcePath.Length - testsSuffix.Length
+    }
+
+    suffix := ".nl"
+    if CliPathEndsWithNl(relativeSourcePath) {
+        return relativeSourcePath.Length - suffix.Length
+    }
+
+    return -1
+}
+
 func CliBuildOptionSummaryInto(args: string[], resultIndices: int[]): int {
     arguments := new CliArgumentTable { Args: args }
     results := new CliIndexResultTable { Indices: resultIndices }
@@ -5833,7 +5847,14 @@ func CliFormatPathSegmentIsExcluded(text: string, start: int, end: int): bool {
 }
 
 func CliPathEndsWithTestsNl(text: string): bool {
-    suffix := ".tests.nl"
+    return CliPathEndsWithAsciiIgnoreCase(text, ".tests.nl")
+}
+
+func CliPathEndsWithNl(text: string): bool {
+    return CliPathEndsWithAsciiIgnoreCase(text, ".nl")
+}
+
+func CliPathEndsWithAsciiIgnoreCase(text: string, suffix: string): bool {
     if text.Length < suffix.Length {
         return false
     }

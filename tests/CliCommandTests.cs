@@ -322,6 +322,23 @@ func Main() {
             out var distinctDirs));
         Assert.Equal(new[] { "obj/Debug/net10.0/nsharp" }, distinctDirs);
 
+        Assert.True(GeneratedOutputDirectoryDeduplicator.TryGetSourceBasePathLength(
+            "src/Program.nl",
+            out var sourceBaseLength));
+        Assert.Equal("src/Program".Length, sourceBaseLength);
+        Assert.True(GeneratedOutputDirectoryDeduplicator.TryGetSourceBasePathLength(
+            "src/Calculator.tests.nl",
+            out var testSourceBaseLength));
+        Assert.Equal("src/Calculator".Length, testSourceBaseLength);
+        Assert.True(GeneratedOutputDirectoryDeduplicator.TryGetSourceBasePathLength(
+            "src/Calculator.TESTS.NL",
+            out var uppercaseTestSourceBaseLength));
+        Assert.Equal("src/Calculator".Length, uppercaseTestSourceBaseLength);
+        Assert.True(GeneratedOutputDirectoryDeduplicator.TryGetSourceBasePathLength(
+            "src/README.md",
+            out var nonSourceBaseLength));
+        Assert.Equal(-1, nonSourceBaseLength);
+
         var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-stale-generated-{Guid.NewGuid():N}");
         var generatedDir = Path.Combine(tempDir, "obj", "Debug", "net10.0", "nsharp");
         Directory.CreateDirectory(generatedDir);
@@ -329,15 +346,19 @@ func Main() {
         try
         {
             File.WriteAllText(Path.Combine(tempDir, "Program.nl"), "func main(): int { return 0 }");
+            File.WriteAllText(Path.Combine(tempDir, "Calculator.tests.nl"), "test \"keeps generated test output\" {}");
 
             var liveGeneratedFile = Path.Combine(generatedDir, "Program.g.cs");
+            var liveTestGeneratedFile = Path.Combine(generatedDir, "Calculator.g.cs");
             var staleGeneratedFile = Path.Combine(generatedDir, "Deleted.g.cs");
             File.WriteAllText(liveGeneratedFile, "// live");
+            File.WriteAllText(liveTestGeneratedFile, "// live test");
             File.WriteAllText(staleGeneratedFile, "// stale");
 
             Program.CleanStaleGeneratedFiles(tempDir);
 
             Assert.True(File.Exists(liveGeneratedFile));
+            Assert.True(File.Exists(liveTestGeneratedFile));
             Assert.False(File.Exists(staleGeneratedFile));
         }
         finally

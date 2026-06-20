@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-20 — Stale generated-source base paths move into product N#
+
+`Program.CleanStaleGeneratedFiles` no longer owns the `.nl` versus `.tests.nl` source base-name rule used to decide
+which `obj/**/nsharp/*.g.cs` outputs are still live. The shipped `CliGeneratedSourceBasePathLength` dogfood kernel
+now derives the base-path length through `GeneratedOutputDirectoryDeduplicator`; C# still owns filesystem
+enumeration/deletion and keeps only the fallback/oracle suffix logic.
+
+Focused evidence:
+`./scripts/dev.sh GeneratedOutputDirectoryDeduplicator`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-20 — Export test-source classification moves into product N#
 
 `ExportCommand` no longer owns `.tests.nl` source classification when deciding whether to generate a sibling C#

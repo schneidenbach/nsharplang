@@ -7012,6 +7012,7 @@ func outer(x: int): int {
         Assert.Contains("CliLatestNuGetVersionIndex", methodNames!); // product resolver latest NuGet version selection.
         Assert.Contains("CliBestNuGetVersionIndex", methodNames!); // product resolver installed NuGet version selection.
         Assert.Contains("CliPathHasSegmentIgnoreCase", methodNames!); // product resolver C# project-reference output filtering.
+        Assert.Contains("CliGeneratedSourceBasePathLength", methodNames!); // product stale generated-output cleanup.
         Assert.Contains("CliNuGetVersionCompareInto", methodNames!); // product resolver NuGet version comparison.
         Assert.Contains("CliNuGetDependencyVersionRangeInto", methodNames!); // product resolver NuGet dependency-version normalization.
         Assert.Contains("CliTargetFrameworkVersionInto", methodNames!); // product resolver target-framework version parsing.
@@ -7079,6 +7080,10 @@ func outer(x: int): int {
             ("CliPathHasSegmentIgnoreCase", new object[] { "/tmp/bin/reference/App.dll", '/', "ref" }),
             ("CliPathHasSegmentIgnoreCase", new object[] { @"C:\tmp\ref\App.dll", '\\', "ref" }),
             ("CliPathHasSegmentIgnoreCase", new object[] { "lib/REF/App.dll", '/', "ref" }),
+            ("CliGeneratedSourceBasePathLength", new object[] { "src/Program.nl" }),
+            ("CliGeneratedSourceBasePathLength", new object[] { "src/Calculator.tests.nl" }),
+            ("CliGeneratedSourceBasePathLength", new object[] { "src/Calculator.TESTS.NL" }),
+            ("CliGeneratedSourceBasePathLength", new object[] { "src/README.md" }),
             ("CliNuGetVersionCompareInto", new object[] { "13.0.3", "12.0.0", new int[9] }),
             ("CliNuGetVersionCompareInto", new object[] { "1.2", "1.2.1", new int[9] }),
             ("CliNuGetVersionCompareInto", new object[] { "2", "1.9.9", new int[9] }),

@@ -378,9 +378,11 @@ Exit codes:
                 continue;
 
             // Strip .nl (or .tests.nl) extension to get the base name with relative dir
-            var basePath = rel.EndsWith(".tests.nl", StringComparison.OrdinalIgnoreCase)
-                ? rel[..^".tests.nl".Length]
-                : rel[..^".nl".Length];
+            var basePathLength = GetGeneratedSourceBasePathLength(rel);
+            if (basePathLength < 0)
+                continue;
+
+            var basePath = rel[..basePathLength];
             nlRelativePaths.Add(basePath.Replace('\\', '/'));
         }
 
@@ -413,6 +415,23 @@ Exit codes:
                 }
             }
         }
+    }
+
+    static int GetGeneratedSourceBasePathLength(string relativeSourcePath)
+        => GeneratedOutputDirectoryDeduplicator.TryGetSourceBasePathLength(relativeSourcePath, out var basePathLength)
+            ? basePathLength
+            : GetGeneratedSourceBasePathLengthWithCSharp(relativeSourcePath);
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product stale-generated source base-path derivation routes through GeneratedOutputDirectoryDeduplicator.
+    static int GetGeneratedSourceBasePathLengthWithCSharp(string relativeSourcePath)
+    {
+        if (relativeSourcePath.EndsWith(".tests.nl", StringComparison.OrdinalIgnoreCase))
+            return relativeSourcePath.Length - ".tests.nl".Length;
+
+        if (relativeSourcePath.EndsWith(".nl", StringComparison.OrdinalIgnoreCase))
+            return relativeSourcePath.Length - ".nl".Length;
+
+        return -1;
     }
 
     static string FindRepoRoot(string startPath)

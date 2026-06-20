@@ -81,11 +81,38 @@ internal static class GeneratedOutputDirectoryDeduplicator
         }
     }
 
+    internal static bool TryGetSourceBasePathLength(string relativeSourcePath, out int basePathLength)
+    {
+        basePathLength = -1;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        try
+        {
+            var result = bindings.GeneratedSourceBasePathLength(relativeSourcePath);
+            if (result < -1 || result > relativeSourcePath.Length)
+                return false;
+
+            basePathLength = result;
+            return true;
+        }
+        catch
+        {
+            basePathLength = -1;
+            return false;
+        }
+    }
+
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
             DogfoodKernelLoader.CreateDelegate<CliStableDistinctRankIndicesInto>(
                 programType,
-                "CliStableDistinctRankIndicesInto")));
+                "CliStableDistinctRankIndicesInto"),
+            DogfoodKernelLoader.CreateDelegate<CliGeneratedSourceBasePathLength>(
+                programType,
+                "CliGeneratedSourceBasePathLength")));
 
     private delegate int CliStableDistinctRankIndicesInto(
         int[] ranks,
@@ -93,7 +120,12 @@ internal static class GeneratedOutputDirectoryDeduplicator
         int[] seenRanks,
         int[] resultIndices);
 
-    private sealed record Bindings(CliStableDistinctRankIndicesInto StableDistinctRankIndices);
+    private delegate int CliGeneratedSourceBasePathLength(
+        string relativeSourcePath);
+
+    private sealed record Bindings(
+        CliStableDistinctRankIndicesInto StableDistinctRankIndices,
+        CliGeneratedSourceBasePathLength GeneratedSourceBasePathLength);
 
     private sealed class Scratch
     {
