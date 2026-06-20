@@ -692,6 +692,70 @@ func Main() {
         Assert.True(AuditCommandKernels.TryGetOutputMode(json: true, out var jsonMode));
         Assert.Equal(AuditOutputModeKind.Json, jsonMode);
         Assert.Equal(AuditOutputModeKind.Json, AuditCommand.GetOutputMode(json: true));
+
+        var helpText = AuditCommandKernels.GetHelpText();
+        Assert.Contains("N# Security Audit", helpText);
+        Assert.Contains("Usage: nlc audit [options]", helpText);
+        Assert.Contains("Vulnerabilities found or audit failed", helpText);
+        Assert.Equal(
+            "Project directory not found: /missing/project",
+            AuditCommandKernels.GetProjectDirectoryNotFoundMessage("/missing/project"));
+        Assert.Equal(
+            "No .csproj file found. Run 'nlc init' to create one.",
+            AuditCommandKernels.GetNoCsprojFileMessage());
+        Assert.Equal(
+            "The --vulnerable flag requires .NET SDK 8.0 or later.",
+            AuditCommandKernels.GetVulnerableFlagUnsupportedMessage());
+        Assert.Equal("Audit failed: denied", AuditCommandKernels.GetFailedMessage("denied"));
+        Assert.Equal("No known vulnerabilities found.", AuditCommandKernels.GetNoKnownVulnerabilitiesMessage());
+        Assert.Equal("1 vulnerability found:", AuditCommandKernels.GetVulnerabilitySummaryMessage(1));
+        Assert.Equal("2 vulnerabilities found:", AuditCommandKernels.GetVulnerabilitySummaryMessage(2));
+        Assert.Equal(
+            "  High: Serilog@3.1.0",
+            AuditCommandKernels.GetVulnerabilityLine("High", "Serilog", "3.1.0"));
+        Assert.Equal(
+            "    https://example.test/advisory",
+            AuditCommandKernels.GetVulnerabilityUrlLine("https://example.test/advisory"));
+        Assert.Equal("  (could not parse vulnerability details)", AuditCommandKernels.GetParseFailureMessage());
+
+        var (helpExitCode, helpStdout, helpStderr) = CaptureConsole(() => AuditCommand.Execute(new[] { "--help" }));
+        Assert.Equal(0, helpExitCode);
+        Assert.True(string.IsNullOrWhiteSpace(helpStderr));
+        Assert.Contains("Usage: nlc audit [options]", helpStdout);
+    }
+
+    [Fact]
+    public void AuditCommand_MissingProjectDirectory_ReturnsHelpfulMessage()
+    {
+        var missingDir = Path.Combine(Path.GetTempPath(), $"nsharp-audit-missing-{Guid.NewGuid():N}");
+
+        var (exitCode, stdout, stderr) = CaptureConsole(() =>
+            AuditCommand.Execute(new[] { "--project", missingDir }));
+
+        Assert.Equal(1, exitCode);
+        Assert.True(string.IsNullOrWhiteSpace(stdout));
+        Assert.Contains($"Project directory not found: {missingDir}", stderr);
+    }
+
+    [Fact]
+    public void AuditCommand_NoCsproj_ReturnsHelpfulMessage()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-audit-no-csproj-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                AuditCommand.Execute(new[] { "--project", tempDir }));
+
+            Assert.Equal(1, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stdout));
+            Assert.Contains("No .csproj file found. Run 'nlc init' to create one.", stderr);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
     }
 
     [Fact]

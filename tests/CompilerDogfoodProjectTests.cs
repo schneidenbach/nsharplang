@@ -7129,6 +7129,16 @@ func outer(x: int): int {
         Assert.Contains("CliDoctorOutputMode", methodNames!); // product doctor output mode selection.
         Assert.Contains("CliAuditOptionSummaryInto", methodNames!); // product audit option parsing.
         Assert.Contains("CliAuditOutputMode", methodNames!); // product audit output mode selection.
+        Assert.Contains("CliAuditHelpText", methodNames!); // product audit help text shaping.
+        Assert.Contains("CliAuditProjectDirectoryNotFoundMessage", methodNames!); // product audit missing-project message shaping.
+        Assert.Contains("CliAuditNoCsprojFileMessage", methodNames!); // product audit missing-csproj message shaping.
+        Assert.Contains("CliAuditVulnerableFlagUnsupportedMessage", methodNames!); // product audit SDK capability message shaping.
+        Assert.Contains("CliAuditFailedMessage", methodNames!); // product audit failure message shaping.
+        Assert.Contains("CliAuditNoKnownVulnerabilitiesMessage", methodNames!); // product audit clean-result message shaping.
+        Assert.Contains("CliAuditVulnerabilitySummaryMessage", methodNames!); // product audit summary message shaping.
+        Assert.Contains("CliAuditVulnerabilityLine", methodNames!); // product audit vulnerability line shaping.
+        Assert.Contains("CliAuditVulnerabilityUrlLine", methodNames!); // product audit vulnerability URL line shaping.
+        Assert.Contains("CliAuditParseFailureMessage", methodNames!); // product audit parse-failure message shaping.
         Assert.Contains("CliInitOptionSummaryInto", methodNames!); // product init option parsing.
         Assert.Contains("CliInitHelpText", methodNames!); // product init help text shaping.
         Assert.Contains("CliInitInvalidTypeMessage", methodNames!); // product init invalid-type message shaping.
@@ -16037,6 +16047,46 @@ class OtherZetaType {
                     "CliAuditOutputMode",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliAuditOutputMode.");
+            var cliAuditHelpText = programType.GetMethod(
+                    "CliAuditHelpText",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliAuditHelpText.");
+            var cliAuditProjectDirectoryNotFoundMessage = programType.GetMethod(
+                    "CliAuditProjectDirectoryNotFoundMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliAuditProjectDirectoryNotFoundMessage.");
+            var cliAuditNoCsprojFileMessage = programType.GetMethod(
+                    "CliAuditNoCsprojFileMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliAuditNoCsprojFileMessage.");
+            var cliAuditVulnerableFlagUnsupportedMessage = programType.GetMethod(
+                    "CliAuditVulnerableFlagUnsupportedMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliAuditVulnerableFlagUnsupportedMessage.");
+            var cliAuditFailedMessage = programType.GetMethod(
+                    "CliAuditFailedMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliAuditFailedMessage.");
+            var cliAuditNoKnownVulnerabilitiesMessage = programType.GetMethod(
+                    "CliAuditNoKnownVulnerabilitiesMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliAuditNoKnownVulnerabilitiesMessage.");
+            var cliAuditVulnerabilitySummaryMessage = programType.GetMethod(
+                    "CliAuditVulnerabilitySummaryMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliAuditVulnerabilitySummaryMessage.");
+            var cliAuditVulnerabilityLine = programType.GetMethod(
+                    "CliAuditVulnerabilityLine",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliAuditVulnerabilityLine.");
+            var cliAuditVulnerabilityUrlLine = programType.GetMethod(
+                    "CliAuditVulnerabilityUrlLine",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliAuditVulnerabilityUrlLine.");
+            var cliAuditParseFailureMessage = programType.GetMethod(
+                    "CliAuditParseFailureMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliAuditParseFailureMessage.");
             var cliInitOptionSummaryInto = programType.GetMethod(
                     "CliInitOptionSummaryInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -17145,6 +17195,17 @@ func main(customer: Customer, résumé: Profile) {
             AssertCliJsonFlagOutputModesLikeProduction(cliDoctorOutputMode);
             AssertCliAuditOptionsLikeProduction(cliAuditOptionSummaryInto);
             AssertCliJsonFlagOutputModesLikeProduction(cliAuditOutputMode);
+            AssertCliAuditMessagesLikeProduction(
+                cliAuditHelpText,
+                cliAuditProjectDirectoryNotFoundMessage,
+                cliAuditNoCsprojFileMessage,
+                cliAuditVulnerableFlagUnsupportedMessage,
+                cliAuditFailedMessage,
+                cliAuditNoKnownVulnerabilitiesMessage,
+                cliAuditVulnerabilitySummaryMessage,
+                cliAuditVulnerabilityLine,
+                cliAuditVulnerabilityUrlLine,
+                cliAuditParseFailureMessage);
             AssertCliInitOptionsLikeProduction(cliInitOptionSummaryInto);
             AssertCliInitMessagesLikeProduction(
                 cliInitHelpText,
@@ -22640,6 +22701,61 @@ func main() {
             (int)(cliAuditOptionSummaryInto.Invoke(
                 null,
                 new object[] { new[] { "--json" }, new int[2] }) ?? 0));
+    }
+
+    private static void AssertCliAuditMessagesLikeProduction(
+        MethodInfo cliAuditHelpText,
+        MethodInfo cliAuditProjectDirectoryNotFoundMessage,
+        MethodInfo cliAuditNoCsprojFileMessage,
+        MethodInfo cliAuditVulnerableFlagUnsupportedMessage,
+        MethodInfo cliAuditFailedMessage,
+        MethodInfo cliAuditNoKnownVulnerabilitiesMessage,
+        MethodInfo cliAuditVulnerabilitySummaryMessage,
+        MethodInfo cliAuditVulnerabilityLine,
+        MethodInfo cliAuditVulnerabilityUrlLine,
+        MethodInfo cliAuditParseFailureMessage)
+    {
+        var help = (string)(cliAuditHelpText.Invoke(null, Array.Empty<object>()) ?? "<null>");
+        Assert.Contains("N# Security Audit", help);
+        Assert.Contains("Usage: nlc audit [options]", help);
+        Assert.Contains("Vulnerabilities found or audit failed", help);
+
+        Assert.Equal(
+            "Project directory not found: /missing/project",
+            (string)(cliAuditProjectDirectoryNotFoundMessage.Invoke(
+                null,
+                new object[] { "/missing/project" }) ?? "<null>"));
+        Assert.Equal(
+            "No .csproj file found. Run 'nlc init' to create one.",
+            (string)(cliAuditNoCsprojFileMessage.Invoke(null, Array.Empty<object>()) ?? "<null>"));
+        Assert.Equal(
+            "The --vulnerable flag requires .NET SDK 8.0 or later.",
+            (string)(cliAuditVulnerableFlagUnsupportedMessage.Invoke(null, Array.Empty<object>()) ?? "<null>"));
+        Assert.Equal(
+            "Audit failed: denied",
+            (string)(cliAuditFailedMessage.Invoke(null, new object[] { "denied" }) ?? "<null>"));
+        Assert.Equal(
+            "No known vulnerabilities found.",
+            (string)(cliAuditNoKnownVulnerabilitiesMessage.Invoke(null, Array.Empty<object>()) ?? "<null>"));
+        Assert.Equal(
+            "1 vulnerability found:",
+            (string)(cliAuditVulnerabilitySummaryMessage.Invoke(null, new object[] { "1", 1 }) ?? "<null>"));
+        Assert.Equal(
+            "2 vulnerabilities found:",
+            (string)(cliAuditVulnerabilitySummaryMessage.Invoke(null, new object[] { "2", 2 }) ?? "<null>"));
+        Assert.Equal(
+            "  High: Serilog@3.1.0",
+            (string)(cliAuditVulnerabilityLine.Invoke(
+                null,
+                new object[] { "High", "Serilog", "3.1.0" }) ?? "<null>"));
+        Assert.Equal(
+            "    https://example.test/advisory",
+            (string)(cliAuditVulnerabilityUrlLine.Invoke(
+                null,
+                new object[] { "https://example.test/advisory" }) ?? "<null>"));
+        Assert.Equal(
+            "  (could not parse vulnerability details)",
+            (string)(cliAuditParseFailureMessage.Invoke(null, Array.Empty<object>()) ?? "<null>"));
     }
 
     private static int[] CreateExpectedCliAuditOptions(string[] args)

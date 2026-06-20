@@ -2492,6 +2492,69 @@ func CliAuditOutputMode(useJson: int): int {
     return 2
 }
 
+func CliAuditHelpText(): string {
+    return "N# Security Audit\n"
+        + "\n"
+        + "Usage: nlc audit [options]\n"
+        + "\n"
+        + "Check dependencies for known security vulnerabilities.\n"
+        + "\n"
+        + "Options:\n"
+        + "  --project <dir>   Project root directory (default: current directory)\n"
+        + "  --json            Output as JSON envelope\n"
+        + "  --help, -h        Show this help text\n"
+        + "\n"
+        + "Examples:\n"
+        + "  nlc audit\n"
+        + "  nlc audit --json\n"
+        + "  nlc audit --project examples/14-minimal-api\n"
+        + "\n"
+        + "Exit codes:\n"
+        + "  0  No vulnerabilities found\n"
+        + "  1  Vulnerabilities found or audit failed"
+}
+
+func CliAuditProjectDirectoryNotFoundMessage(projectRoot: string): string {
+    return "Project directory not found: " + projectRoot
+}
+
+func CliAuditNoCsprojFileMessage(): string {
+    return "No .csproj file found. Run 'nlc init' to create one."
+}
+
+func CliAuditVulnerableFlagUnsupportedMessage(): string {
+    return "The --vulnerable flag requires .NET SDK 8.0 or later."
+}
+
+func CliAuditFailedMessage(message: string): string {
+    return "Audit failed: " + message
+}
+
+func CliAuditNoKnownVulnerabilitiesMessage(): string {
+    return "No known vulnerabilities found."
+}
+
+func CliAuditVulnerabilitySummaryMessage(countText: string, vulnerabilityCount: int): string {
+    suffix := "ies"
+    if vulnerabilityCount == 1 {
+        suffix = "y"
+    }
+
+    return countText + " vulnerabilit" + suffix + " found:"
+}
+
+func CliAuditVulnerabilityLine(severity: string, packageId: string, version: string): string {
+    return "  " + severity + ": " + packageId + "@" + version
+}
+
+func CliAuditVulnerabilityUrlLine(url: string): string {
+    return "    " + url
+}
+
+func CliAuditParseFailureMessage(): string {
+    return "  (could not parse vulnerability details)"
+}
+
 func CliInitOptionSummaryInto(args: string[], resultIndices: int[]): int {
     arguments := new CliArgumentTable { Args: args }
     results := new CliIndexResultTable { Indices: resultIndices }

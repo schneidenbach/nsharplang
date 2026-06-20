@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-20 — Audit command messages move into product N#
+
+`AuditCommand` no longer owns help, project validation, SDK capability, failure, clean-result, vulnerability
+summary, vulnerability detail, URL, or parse-failure message bodies in C#. The shipped `CliAudit*` dogfood
+kernels now shape those user-facing strings through `AuditCommandKernels`; C# keeps project probing,
+`dotnet list package --vulnerable` execution, JSON envelope writing, JSON vulnerability traversal, and
+fallback/oracle text only.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.AuditCommandKernels_SummarizesOptions|FullyQualifiedName~CliCommandTests.AuditCommand_MissingProjectDirectory_ReturnsHelpfulMessage|FullyQualifiedName~CliCommandTests.AuditCommand_NoCsproj_ReturnsHelpfulMessage|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-20 — Env command text rendering moves into product N#
 
 `EnvCommand` no longer owns help text or the stable text-output labels/spacings for `nlc env`. The shipped

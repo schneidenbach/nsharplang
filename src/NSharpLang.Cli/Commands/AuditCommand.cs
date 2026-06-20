@@ -16,11 +16,11 @@ public static class AuditCommand
         var outputMode = GetOutputMode(options.Json);
 
         if (!Directory.Exists(projectRoot))
-            return Error($"Project directory not found: {projectRoot}");
+            return Error(AuditCommandKernels.GetProjectDirectoryNotFoundMessage(projectRoot));
 
         var csprojFiles = Directory.GetFiles(projectRoot, "*.csproj");
         if (csprojFiles.Length == 0)
-            return Error("No .csproj file found. Run 'nlc init' to create one.");
+            return Error(AuditCommandKernels.GetNoCsprojFileMessage());
 
         var csproj = csprojFiles[0];
 
@@ -34,8 +34,8 @@ public static class AuditCommand
             {
                 // dotnet list --vulnerable may not be available in older SDKs
                 if (result.Stderr.Contains("--vulnerable"))
-                    return Error("The --vulnerable flag requires .NET SDK 8.0 or later.");
-                return Error($"Audit failed: {result.Stderr}".Trim());
+                    return Error(AuditCommandKernels.GetVulnerableFlagUnsupportedMessage());
+                return Error(AuditCommandKernels.GetFailedMessage(result.Stderr).Trim());
             }
 
             var output = result.Stdout;
@@ -68,7 +68,7 @@ public static class AuditCommand
         }
         catch (Exception ex)
         {
-            return Error($"Audit failed: {ex.Message}");
+            return Error(AuditCommandKernels.GetFailedMessage(ex.Message));
         }
     }
 
@@ -107,11 +107,11 @@ public static class AuditCommand
     {
         if (vulnCount == 0)
         {
-            Console.WriteLine("No known vulnerabilities found.");
+            Console.WriteLine(AuditCommandKernels.GetNoKnownVulnerabilitiesMessage());
             return;
         }
 
-        Console.WriteLine($"{vulnCount} vulnerabilit{(vulnCount == 1 ? "y" : "ies")} found:");
+        Console.WriteLine(AuditCommandKernels.GetVulnerabilitySummaryMessage(vulnCount));
         Console.WriteLine();
 
         try
@@ -136,9 +136,12 @@ public static class AuditCommand
                             {
                                 var severity = vuln.TryGetProperty("severity", out var s) ? s.GetString() : "Unknown";
                                 var url = vuln.TryGetProperty("advisoryurl", out var u) ? u.GetString() : "";
-                                Console.WriteLine($"  {severity}: {id}@{version}");
+                                Console.WriteLine(AuditCommandKernels.GetVulnerabilityLine(
+                                    severity ?? "Unknown",
+                                    id ?? string.Empty,
+                                    version ?? string.Empty));
                                 if (!string.IsNullOrEmpty(url))
-                                    Console.WriteLine($"    {url}");
+                                    Console.WriteLine(AuditCommandKernels.GetVulnerabilityUrlLine(url));
                             }
                         }
                     }
@@ -147,7 +150,7 @@ public static class AuditCommand
         }
         catch
         {
-            Console.WriteLine("  (could not parse vulnerability details)");
+            Console.WriteLine(AuditCommandKernels.GetParseFailureMessage());
         }
     }
 
@@ -193,25 +196,7 @@ public static class AuditCommand
 
     static int ShowHelp()
     {
-        Console.WriteLine(@"N# Security Audit
-
-Usage: nlc audit [options]
-
-Check dependencies for known security vulnerabilities.
-
-Options:
-  --project <dir>   Project root directory (default: current directory)
-  --json            Output as JSON envelope
-  --help, -h        Show this help text
-
-Examples:
-  nlc audit
-  nlc audit --json
-  nlc audit --project examples/14-minimal-api
-
-Exit codes:
-  0  No vulnerabilities found
-  1  Vulnerabilities found or audit failed");
+        Console.WriteLine(AuditCommandKernels.GetHelpText());
 
         return 0;
     }
