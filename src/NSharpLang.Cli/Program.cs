@@ -1517,8 +1517,7 @@ Exit codes:
 
             foreach (var file in childFiles)
             {
-                if (!file.EndsWith(".tests.nl", StringComparison.OrdinalIgnoreCase)
-                    && ShouldFormatDiscoveredFile(projectRoot, file))
+                if (ShouldFormatDiscoveredFile(projectRoot, file))
                 {
                     yield return file;
                 }
@@ -1562,6 +1561,9 @@ Exit codes:
     // Stage 6 C#-surface-shrink: fallback/oracle only; product discovery routes through FormatCommandKernels.
     static bool ShouldFormatDiscoveredPathWithCSharp(string relativePath)
     {
+        if (relativePath.EndsWith(".tests.nl", StringComparison.OrdinalIgnoreCase))
+            return false;
+
         var segments = relativePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
         if (segments.Any(segment => segment.Equals(".git", StringComparison.OrdinalIgnoreCase)
             || segment.Equals(".hg", StringComparison.OrdinalIgnoreCase)

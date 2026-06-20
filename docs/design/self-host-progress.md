@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-20 — Format test-file discovery exclusion moves into product N#
+
+`Program.FormatCommand` no longer owns the `.tests.nl` file exclusion in its C# traversal loop. The shipped
+`CliShouldFormatDiscoveredPath` dogfood kernel now rejects test-suite files along with generated/fixture/cache paths,
+so the product decision for project-wide format discovery lives in `FormatCommandKernels`; C# still owns filesystem
+enumeration and keeps only the fallback/oracle predicate.
+
+Focused evidence:
+`./scripts/dev.sh FormatCommandKernels`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliParityAuditTests.FormatCommand_ProjectDiscovery_SkipsGeneratedAndInvalidFixtureTrees"`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-20 — Format directory traversal pruning moves into product N#
 
 `Program.FormatCommand` now asks `FormatCommandKernels` whether discovered directory names such as `.git`, `bin`,

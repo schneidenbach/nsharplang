@@ -5747,6 +5747,10 @@ func CliFormatOptionSummaryCore(args: &CliArgumentTable, resultIndices: &CliInde
 }
 
 func CliShouldFormatDiscoveredPath(relativePath: string): int {
+    if CliFormatPathEndsWithTestsFile(relativePath) {
+        return 0
+    }
+
     previousWasTestRoot := false
     segmentStart := 0
     i := 0
@@ -5818,6 +5822,16 @@ func CliFormatPathSegmentIsExcluded(text: string, start: int, end: int): bool {
     }
 
     return false
+}
+
+func CliFormatPathEndsWithTestsFile(text: string): bool {
+    suffix := ".tests.nl"
+    if text.Length < suffix.Length {
+        return false
+    }
+
+    start := text.Length - suffix.Length
+    return CliFormatPathSegmentEquals(text, start, text.Length, suffix)
 }
 
 func CliFormatPathSegmentEquals(text: string, start: int, end: int, value: string): bool {

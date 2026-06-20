@@ -7103,6 +7103,8 @@ func outer(x: int): int {
             ("CliFrameworkCompatibilityScoreInto", new object[] { "net10.0", "net10.0", new int[0] }),
             ("CliShouldFormatDiscoveredPath", new object[] { "tests/fixtures/generated/Bad.nl" }),
             ("CliShouldFormatDiscoveredPath", new object[] { "src/Program.nl" }),
+            ("CliShouldFormatDiscoveredPath", new object[] { "src/Calculator.tests.nl" }),
+            ("CliShouldFormatDiscoveredPath", new object[] { "src/Contest.nl" }),
             ("CliShouldSkipFormatDirectoryName", new object[] { ".git" }),
             ("CliShouldSkipFormatDirectoryName", new object[] { "NODE_MODULES" }),
             ("CliShouldSkipFormatDirectoryName", new object[] { "src" }),

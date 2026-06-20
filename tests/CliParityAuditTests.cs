@@ -169,6 +169,7 @@ public class CliParityAuditTests
         try
         {
             File.WriteAllText(Path.Combine(tempDir, "Program.nl"), "func Main() {\n    print \"ok\"\n}\n");
+            File.WriteAllText(Path.Combine(tempDir, "Program.tests.nl"), "func Broken(x y) {");
             Directory.CreateDirectory(Path.Combine(tempDir, ".worktrees", "old"));
             File.WriteAllText(Path.Combine(tempDir, ".worktrees", "old", "Bad.nl"), "func Broken(x y) {");
             Directory.CreateDirectory(Path.Combine(tempDir, "tests", "fixtures", "generated", "Models"));

@@ -2684,6 +2684,9 @@ func Main() {
     [InlineData("editors\\vscode\\test\\fixtures\\errors\\Bad.nl", false)]
     [InlineData(".nlc/cache/File.nl", false)]
     [InlineData("src/node_modulesx/File.nl", true)]
+    [InlineData("src/Calculator.tests.nl", false)]
+    [InlineData("src/Calculator.TESTS.NL", false)]
+    [InlineData("src/Contest.nl", true)]
     public void FormatCommandKernels_SelectsDiscoveredPaths(string relativePath, bool expected)
     {
         Assert.True(FormatCommandKernels.TryShouldFormatDiscoveredPath(relativePath, out var shouldFormat));
