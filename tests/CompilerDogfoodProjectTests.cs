@@ -7028,6 +7028,7 @@ func outer(x: int): int {
         Assert.Contains("CliTestOptionSummaryInto", methodNames!); // product test option parsing.
         Assert.Contains("CliTestFilterMatches", methodNames!); // product test filter matching.
         Assert.Contains("CliPackOptionSummaryInto", methodNames!); // product pack option parsing.
+        Assert.Contains("CliPackOutputMode", methodNames!); // product pack output mode selection.
         Assert.Contains("CliCompletionOptionSummaryInto", methodNames!); // product completion option parsing.
         Assert.Contains("CliDaemonOptionSummaryInto", methodNames!); // product daemon option parsing.
         Assert.Contains("CliWatchTargetSummaryInto", methodNames!); // product watch target parsing.
@@ -15601,6 +15602,10 @@ class OtherZetaType {
                     "CliPackOptionSummaryInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliPackOptionSummaryInto.");
+            var cliPackOutputMode = programType.GetMethod(
+                    "CliPackOutputMode",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliPackOutputMode.");
             var cliPackEffectiveVersionSource = programType.GetMethod(
                     "CliPackEffectiveVersionSource",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -16717,6 +16722,7 @@ func main(customer: Customer, résumé: Profile) {
             AssertCliWatchPositiveIntsLikeProduction(cliWatchPositiveIntInto);
             AssertCliPublishOptionsLikeProduction(cliPublishOptionsInto);
             AssertCliPackOptionsLikeProduction(cliPackOptionSummaryInto);
+            AssertCliJsonFlagOutputModesLikeProduction(cliPackOutputMode);
             AssertCliPackEffectiveVersionSourcesLikeProduction(cliPackEffectiveVersionSource);
             AssertCliPositionalArgsLikeProduction(
                 cliPositionalArgIndicesInto,

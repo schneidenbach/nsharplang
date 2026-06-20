@@ -18,6 +18,12 @@ internal enum PackVersionSourceKind
     Project = 2
 }
 
+internal enum PackOutputModeKind
+{
+    Json = 1,
+    Text = 2
+}
+
 internal static class PackCommandKernels
 {
     [ThreadStatic]
@@ -62,6 +68,30 @@ internal static class PackCommandKernels
         catch
         {
             summary = default;
+            return false;
+        }
+    }
+
+    internal static bool TryGetOutputMode(bool json, out PackOutputModeKind outputMode)
+    {
+        outputMode = default;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        try
+        {
+            var code = bindings.PackOutputMode(json ? 1 : 0);
+            if (code is < 1 or > 2)
+                return false;
+
+            outputMode = (PackOutputModeKind)code;
+            return true;
+        }
+        catch
+        {
+            outputMode = default;
             return false;
         }
     }
@@ -114,11 +144,16 @@ internal static class PackCommandKernels
             DogfoodKernelLoader.CreateDelegate<CliPackOptionSummaryInto>(
                 programType,
                 "CliPackOptionSummaryInto"),
+            DogfoodKernelLoader.CreateDelegate<CliPackOutputMode>(
+                programType,
+                "CliPackOutputMode"),
             DogfoodKernelLoader.CreateDelegate<CliPackEffectiveVersionSource>(
                 programType,
                 "CliPackEffectiveVersionSource")));
 
     private delegate int CliPackOptionSummaryInto(string[] args, int[] resultIndices);
+
+    private delegate int CliPackOutputMode(int json);
 
     private delegate int CliPackEffectiveVersionSource(
         int hasVersionOverride,
@@ -127,5 +162,6 @@ internal static class PackCommandKernels
 
     private sealed record Bindings(
         CliPackOptionSummaryInto PackOptionSummary,
+        CliPackOutputMode PackOutputMode,
         CliPackEffectiveVersionSource PackEffectiveVersionSource);
 }

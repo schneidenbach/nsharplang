@@ -2888,6 +2888,14 @@ func Main() {
 
         Assert.True(PackCommand.GetOptionSummary(new[] { "help" }).ShowHelp);
         Assert.True(PackCommand.GetOptionSummary(new[] { "ignored", "-h" }).ShowHelp);
+
+        Assert.True(PackCommandKernels.TryGetOutputMode(json: false, out var textMode));
+        Assert.Equal(PackOutputModeKind.Text, textMode);
+        Assert.Equal(PackOutputModeKind.Text, PackCommand.GetOutputMode(json: false));
+
+        Assert.True(PackCommandKernels.TryGetOutputMode(json: true, out var jsonMode));
+        Assert.Equal(PackOutputModeKind.Json, jsonMode);
+        Assert.Equal(PackOutputModeKind.Json, PackCommand.GetOutputMode(json: true));
     }
 
     [Fact]

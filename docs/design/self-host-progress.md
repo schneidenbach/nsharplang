@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-20 — Pack output mode selection moves into product N#
+
+`PackCommand` no longer branches directly on `options.JsonOutput` when choosing progress text,
+JSON result envelopes, or JSON error envelopes. The shipped `CliPackOutputMode` dogfood kernel now
+selects the `nlc pack` render path; C# keeps project loading, package creation, build invocation,
+output emission, and fallback/oracle mode selection only.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.PackCommandKernels_SummarizesOptions|FullyQualifiedName~CliParityAuditTests.PackCommand_NoProjectYml_Fails|FullyQualifiedName~CliParityAuditTests.PackCommand_NoProjectYml_JsonOutput_ReturnsErrorEnvelope|FullyQualifiedName~CompilationBackendTests.PackCommand_UsesConfiguredIlBackendAndProducesNuGetPackage|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-20 — Doc output mode selection moves into product N#
 
 `DocCommand` no longer branches directly on `options.Json` when choosing text vs JSON output or

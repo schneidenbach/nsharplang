@@ -2677,6 +2677,14 @@ func CliPackEffectiveVersionSource(hasVersionOverride: int, versionOverride: str
     return 2
 }
 
+func CliPackOutputMode(useJson: int): int {
+    if useJson != 0 {
+        return 1
+    }
+
+    return 2
+}
+
 func CliLintOptionSummaryInto(args: string[], resultIndices: int[]): int {
     arguments := new CliArgumentTable { Args: args }
     results := new CliIndexResultTable { Indices: resultIndices }

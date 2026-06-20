@@ -24,13 +24,13 @@ public static class PackCommand
         var versionOverride = options.VersionOverride;
         var configuration = options.Configuration;
         var includeSymbols = options.IncludeSymbols;
-        var jsonOutput = options.JsonOutput;
+        var outputMode = GetOutputMode(options.JsonOutput);
 
         // Locate project.yml
         var projectYmlPath = Path.Combine(projectRoot, "project.yml");
         if (!File.Exists(projectYmlPath))
         {
-            if (jsonOutput)
+            if (outputMode == PackOutputModeKind.Json)
             {
                 WriteErrorJson("No project.yml found. Run 'nlc new <name>' to create a project.");
             }
@@ -49,14 +49,14 @@ public static class PackCommand
         }
         catch (Exception ex)
         {
-            if (jsonOutput)
+            if (outputMode == PackOutputModeKind.Json)
                 WriteErrorJson($"Failed to parse project.yml: {ex.Message}");
             else
                 Console.Error.WriteLine($"Error: Failed to parse project.yml: {ex.Message}");
             return 1;
         }
 
-        if (!jsonOutput)
+        if (outputMode == PackOutputModeKind.Text)
         {
             Console.WriteLine($"Packing {config.EffectiveName} {config.Version ?? "(no version)"}...");
             Console.WriteLine();
@@ -74,7 +74,7 @@ public static class PackCommand
             };
             if (effectiveVersion == null)
             {
-                if (jsonOutput)
+                if (outputMode == PackOutputModeKind.Json)
                     WriteErrorJson("Package version is required. Set version in project.yml or pass --version.");
                 else
                     Console.Error.WriteLine("Error: Package version is required. Set version in project.yml or pass --version.");
@@ -90,7 +90,7 @@ public static class PackCommand
                 includeTests: false);
             if (assemblyPath == null)
             {
-                if (jsonOutput)
+                if (outputMode == PackOutputModeKind.Json)
                     WriteErrorJson("Pack build failed.");
                 else
                     Console.Error.WriteLine("Error: Pack build failed.");
@@ -111,7 +111,7 @@ public static class PackCommand
                 CreateSymbolsPackage(projectName, effectiveVersion, assemblyPath, symbolsPath);
             }
 
-            if (jsonOutput)
+            if (outputMode == PackOutputModeKind.Json)
             {
                 WriteJson(writer =>
                 {
@@ -134,7 +134,7 @@ public static class PackCommand
         }
         catch (Exception ex)
         {
-            if (jsonOutput)
+            if (outputMode == PackOutputModeKind.Json)
                 WriteErrorJson($"Pack failed: {ex.Message}");
             else
                 Console.Error.WriteLine($"Error: Pack failed: {ex.Message}");
@@ -257,6 +257,11 @@ public static class PackCommand
             ? versionSource
             : GetEffectiveVersionSourceWithCSharp(versionOverride, projectVersion);
 
+    internal static PackOutputModeKind GetOutputMode(bool json)
+        => PackCommandKernels.TryGetOutputMode(json, out var outputMode)
+            ? outputMode
+            : GetOutputModeWithCSharp(json);
+
     // Stage 6 C#-surface-shrink: fallback/oracle only; product pack option parsing routes through PackCommandKernels.
     private static PackOptionSummary GetOptionSummaryWithCSharp(string[] args)
         => new(
@@ -267,6 +272,10 @@ public static class PackCommand
             ContainsArgWithCSharp(args, "--include-symbols"),
             ContainsArgWithCSharp(args, "--json"),
             ContainsArgWithCSharp(args, "--help") || ContainsArgWithCSharp(args, "-h") || (args.Length > 0 && args[0] == "help"));
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product pack output mode selection routes through PackCommandKernels.
+    private static PackOutputModeKind GetOutputModeWithCSharp(bool json)
+        => json ? PackOutputModeKind.Json : PackOutputModeKind.Text;
 
     // Stage 6 C#-surface-shrink: fallback/oracle only; product pack version source selection routes through PackCommandKernels.
     private static PackVersionSourceKind GetEffectiveVersionSourceWithCSharp(
