@@ -1535,6 +1535,30 @@ func Main() {
     }
 
     [Fact]
+    public void QueryCommandKernels_SelectsDaemonRouting()
+    {
+        var cases = new[]
+        {
+            (UseText: false, NoDaemon: false, Expected: true),
+            (UseText: false, NoDaemon: true, Expected: false),
+            (UseText: true, NoDaemon: false, Expected: false),
+            (UseText: true, NoDaemon: true, Expected: false)
+        };
+
+        foreach (var testCase in cases)
+        {
+            Assert.True(QueryCommandKernels.TryShouldUseDaemon(
+                testCase.UseText,
+                testCase.NoDaemon,
+                out var dogfoodShouldUse));
+            Assert.Equal(testCase.Expected, dogfoodShouldUse);
+            Assert.Equal(
+                testCase.Expected,
+                QueryCommand.ShouldTryExecuteViaDaemon(testCase.UseText, testCase.NoDaemon));
+        }
+    }
+
+    [Fact]
     public void QueryInspect_RejectsCompactTextOutputMode()
     {
         var (exitCode, stdout, stderr) = CaptureConsole(() => QueryCommand.Execute(new[]

@@ -297,6 +297,30 @@ internal static class QueryCommandKernels
         }
     }
 
+    internal static bool TryShouldUseDaemon(bool useText, bool noDaemon, out bool shouldUse)
+    {
+        shouldUse = false;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        try
+        {
+            var code = bindings.QueryShouldUseDaemon(useText ? 1 : 0, noDaemon ? 1 : 0);
+            if (code is not 0 and not 1)
+                return false;
+
+            shouldUse = code != 0;
+            return true;
+        }
+        catch
+        {
+            shouldUse = false;
+            return false;
+        }
+    }
+
     internal static bool TryParseSymbolKind(string value, out SymbolKind kind)
     {
         if (TryParseSymbolKindWithDogfood(value, out var parsed, out kind))
@@ -362,6 +386,9 @@ internal static class QueryCommandKernels
             DogfoodKernelLoader.CreateDelegate<CliQueryInspectOutputMode>(
                 programType,
                 "CliQueryInspectOutputMode"),
+            DogfoodKernelLoader.CreateDelegate<CliQueryShouldUseDaemon>(
+                programType,
+                "CliQueryShouldUseDaemon"),
             DogfoodKernelLoader.CreateDelegate<CliQuerySymbolKindInto>(
                 programType,
                 "CliQuerySymbolKindInto")));
@@ -394,6 +421,8 @@ internal static class QueryCommandKernels
 
     private delegate int CliQueryInspectOutputMode(int useText, int inspectCompact);
 
+    private delegate int CliQueryShouldUseDaemon(int useText, int noDaemon);
+
     private delegate int CliQuerySymbolKindInto(string value, int[] result);
 
     private sealed record Bindings(
@@ -403,5 +432,6 @@ internal static class QueryCommandKernels
         CliTryParsePositionInto TryParsePosition,
         CliTryParsePositiveIntInto TryParsePositiveInt,
         CliQueryInspectOutputMode QueryInspectOutputMode,
+        CliQueryShouldUseDaemon QueryShouldUseDaemon,
         CliQuerySymbolKindInto TryParseSymbolKind);
 }

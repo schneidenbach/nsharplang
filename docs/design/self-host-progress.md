@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-20 — Query daemon routing policy moves into product N#
+
+`QueryCommand.TryExecuteViaDaemon` no longer owns the `--text`/`--no-daemon` daemon bypass policy directly in
+C#. The shipped `CliQueryShouldUseDaemon` dogfood kernel now decides whether product query commands may attempt
+daemon execution; C# keeps project-root discovery, filesystem checks, daemon-client I/O, JSON exit-code handling,
+and fallback/oracle routing only.
+
+Focused evidence:
+`./scripts/dev.sh QueryCommandKernels`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliQueryParsing|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-20 — Query inspect output mode selection moves into product N#
 
 `QueryCommand` no longer owns the `nlc query inspect` JSON/text/compact output-mode decision directly in C#.

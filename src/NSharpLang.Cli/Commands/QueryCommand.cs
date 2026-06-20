@@ -1274,7 +1274,7 @@ public static class QueryCommand
         Dictionary<string, object?> parameters, out int exitCode)
     {
         exitCode = 0;
-        if (options.UseText || options.NoDaemon)
+        if (!ShouldTryExecuteViaDaemon(options.UseText, options.NoDaemon))
             return false;
 
         var projectRoot = GetProjectRoot(options);
@@ -1303,6 +1303,18 @@ public static class QueryCommand
         exitCode = GetJsonExitCode(result);
         return true;
     }
+
+    internal static bool ShouldTryExecuteViaDaemon(bool useText, bool noDaemon)
+    {
+        if (QueryCommandKernels.TryShouldUseDaemon(useText, noDaemon, out var shouldUse))
+            return shouldUse;
+
+        return ShouldTryExecuteViaDaemonWithCSharp(useText, noDaemon);
+    }
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product query daemon routing policy routes through QueryCommandKernels.
+    private static bool ShouldTryExecuteViaDaemonWithCSharp(bool useText, bool noDaemon)
+        => !useText && !noDaemon;
 
     private static int GetJsonExitCode(string json)
     {

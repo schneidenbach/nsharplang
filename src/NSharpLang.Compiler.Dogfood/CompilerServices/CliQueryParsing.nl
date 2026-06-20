@@ -276,6 +276,14 @@ func CliQueryInspectOutputMode(useText: int, inspectCompact: int): int {
     return 1
 }
 
+func CliQueryShouldUseDaemon(useText: int, noDaemon: int): int {
+    if useText != 0 || noDaemon != 0 {
+        return 0
+    }
+
+    return 1
+}
+
 func CliQueryIsLongOption(arg: string): bool {
     return arg.Length >= 2 && arg[0] == '-' && arg[1] == '-'
 }

@@ -12137,6 +12137,7 @@ func outer(x: int): int {
         Assert.Contains("CliTryParsePositionInto", methodNames!); // product query line/column position parsing.
         Assert.Contains("CliTryParsePositiveIntInto", methodNames!); // product query positive-limit parsing.
         Assert.Contains("CliQueryInspectOutputMode", methodNames!); // product query inspect output-mode selection.
+        Assert.Contains("CliQueryShouldUseDaemon", methodNames!); // product query daemon routing policy.
         Assert.Contains("CliQuerySymbolKindInto", methodNames!); // product query symbol-kind parsing.
         Assert.Contains("CliDaemonPositionInto", methodNames!); // product daemon query position compatibility parsing.
 
@@ -12159,6 +12160,10 @@ func outer(x: int): int {
             ("CliQueryInspectOutputMode", new object[] { 0, 1 }),
             ("CliQueryInspectOutputMode", new object[] { 1, 0 }),
             ("CliQueryInspectOutputMode", new object[] { 1, 1 }),
+            ("CliQueryShouldUseDaemon", new object[] { 0, 0 }),
+            ("CliQueryShouldUseDaemon", new object[] { 1, 0 }),
+            ("CliQueryShouldUseDaemon", new object[] { 0, 1 }),
+            ("CliQueryShouldUseDaemon", new object[] { 1, 1 }),
             ("CliQuerySymbolKindInto", new object[] { "function", new int[1] }),
             ("CliQuerySymbolKindInto", new object[] { " TypeAlias ", new int[1] }),
             ("CliQuerySymbolKindInto", new object[] { "15", new int[1] }),
@@ -15439,6 +15444,10 @@ class OtherZetaType {
                     "CliQueryInspectOutputMode",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliQueryInspectOutputMode.");
+            var cliQueryShouldUseDaemon = programType.GetMethod(
+                    "CliQueryShouldUseDaemon",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliQueryShouldUseDaemon.");
             var cliQuerySymbolKindInto = programType.GetMethod(
                     "CliQuerySymbolKindInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -16617,6 +16626,7 @@ func main(customer: Customer, résumé: Profile) {
             AssertCliQueryCommandOptionsLikeProduction(cliQueryCommandOptionSummaryInto);
             AssertCliQueryPositiveIntsLikeProduction(cliTryParsePositiveIntInto);
             AssertCliQueryInspectOutputModesLikeProduction(cliQueryInspectOutputMode);
+            AssertCliQueryDaemonRoutingLikeProduction(cliQueryShouldUseDaemon);
             AssertCliQuerySymbolKindsLikeProduction(cliQuerySymbolKindInto);
             AssertCliDaemonPositionsLikeProduction(cliDaemonPositionInto);
             AssertCliBuildOperandsLikeProduction(
@@ -19196,6 +19206,29 @@ func main() {
             var actual = (int)(cliQueryInspectOutputMode.Invoke(
                 null,
                 new object[] { testCase.UseText, testCase.InspectCompact }) ?? -99);
+
+            Assert.Equal(testCase.Expected, actual);
+        }
+    }
+
+    private static void AssertCliQueryDaemonRoutingLikeProduction(MethodInfo cliQueryShouldUseDaemon)
+    {
+        var cases = new[]
+        {
+            (UseText: 0, NoDaemon: 0, Expected: 1),
+            (UseText: 0, NoDaemon: 1, Expected: 0),
+            (UseText: 1, NoDaemon: 0, Expected: 0),
+            (UseText: 1, NoDaemon: 1, Expected: 0),
+            (UseText: 2, NoDaemon: 0, Expected: 0),
+            (UseText: 0, NoDaemon: 2, Expected: 0),
+            (UseText: 2, NoDaemon: 2, Expected: 0)
+        };
+
+        foreach (var testCase in cases)
+        {
+            var actual = (int)(cliQueryShouldUseDaemon.Invoke(
+                null,
+                new object[] { testCase.UseText, testCase.NoDaemon }) ?? -99);
 
             Assert.Equal(testCase.Expected, actual);
         }
