@@ -568,12 +568,28 @@ internal static class CompilationReferenceResolver
             .Cast<string>()
             .ToArray();
 
-        return versions
-            .Where(candidate => !candidate.Contains('-', StringComparison.Ordinal))
-            .DefaultIfEmpty(versions.LastOrDefault())
-            .Last()
+        return SelectLatestNuGetVersion(versions)
             ?? throw new InvalidOperationException($"Package '{packageName}' has no published versions on NuGet.org.");
     }
+
+    private static string? SelectLatestNuGetVersion(string[] versions)
+    {
+        if (CompilationReferenceResolverKernels.TrySelectLatestNuGetVersionIndex(versions, out var dogfoodIndex)
+            && dogfoodIndex >= 0)
+        {
+            return versions[dogfoodIndex];
+        }
+
+        return SelectLatestNuGetVersionWithCSharp(versions);
+    }
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product latest-version selection routes
+    // through CompilationReferenceResolverKernels.
+    private static string? SelectLatestNuGetVersionWithCSharp(string[] versions)
+        => versions
+            .Where(candidate => !candidate.Contains('-', StringComparison.Ordinal))
+            .DefaultIfEmpty(versions.LastOrDefault())
+            .Last();
 
     private static void DownloadPackage(string packageName, string version, string versionDirectory)
     {

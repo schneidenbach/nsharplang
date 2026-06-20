@@ -7008,6 +7008,7 @@ func outer(x: int): int {
         Assert.Contains("CliExportCSharpOptionSummaryInto", methodNames!); // product export csharp option parsing.
         Assert.Contains("CliReferenceResolutionBestScoreIndex", methodNames!); // product resolver best-score selection.
         Assert.Contains("CliSharedFrameworkCandidateIndex", methodNames!); // product resolver shared-framework candidate selection.
+        Assert.Contains("CliLatestNuGetVersionIndex", methodNames!); // product resolver latest NuGet version selection.
         Assert.Contains("CliNuGetVersionCompareInto", methodNames!); // product resolver NuGet version comparison.
         Assert.Contains("CliNuGetDependencyVersionRangeInto", methodNames!); // product resolver NuGet dependency-version normalization.
         Assert.Contains("CliTargetFrameworkVersionInto", methodNames!); // product resolver target-framework version parsing.
@@ -7063,6 +7064,9 @@ func outer(x: int): int {
             ("CliSharedFrameworkCandidateIndex", new object[] { sharedFrameworkMajors, sharedFrameworkMinors, sharedFrameworkBuilds, sharedFrameworkRevisions, 5, 1, 7 }),
             ("CliSharedFrameworkCandidateIndex", new object[] { sharedFrameworkMajors, sharedFrameworkMinors, sharedFrameworkBuilds, sharedFrameworkRevisions, 5, 0, 0 }),
             ("CliSharedFrameworkCandidateIndex", new object[] { new[] { 8 }, new[] { 0 }, new[] { 12 }, new[] { -1 }, 2, 0, 0 }),
+            ("CliLatestNuGetVersionIndex", new object[] { new[] { "1.0.0", "1.1.0-beta", "1.1.0" } }),
+            ("CliLatestNuGetVersionIndex", new object[] { new[] { "2.0.0-alpha", "2.0.0-beta" } }),
+            ("CliLatestNuGetVersionIndex", new object[] { Array.Empty<string>() }),
             ("CliNuGetVersionCompareInto", new object[] { "13.0.3", "12.0.0", new int[9] }),
             ("CliNuGetVersionCompareInto", new object[] { "1.2", "1.2.1", new int[9] }),
             ("CliNuGetVersionCompareInto", new object[] { "2", "1.9.9", new int[9] }),

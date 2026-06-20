@@ -4406,6 +4406,41 @@ func CliNuGetDependencyVersionIsBracket(ch: char): bool {
     return ch == '[' || ch == ']' || ch == '(' || ch == ')'
 }
 
+func CliLatestNuGetVersionIndex(versions: string[]): int {
+    if versions.Length == 0 {
+        return -1
+    }
+
+    latestStableIndex := -1
+    index := 0
+    while index < versions.Length {
+        if !CliNuGetVersionHasPrereleaseSuffix(versions[index]) {
+            latestStableIndex = index
+        }
+
+        index = index + 1
+    }
+
+    if latestStableIndex >= 0 {
+        return latestStableIndex
+    }
+
+    return versions.Length - 1
+}
+
+func CliNuGetVersionHasPrereleaseSuffix(version: string): bool {
+    index := 0
+    while index < version.Length {
+        if version[index] == '-' {
+            return true
+        }
+
+        index = index + 1
+    }
+
+    return false
+}
+
 func CliNuGetVersionCompareInto(x: string, y: string, result: int[]): int {
     if result.Length < 9 {
         return -1

@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-20 — Latest NuGet version selection moves into product N#
+
+`CompilationReferenceResolver` now chooses the latest package version from NuGet flat-container metadata through
+`CompilationReferenceResolverKernels`, which binds the shipped `CliLatestNuGetVersionIndex` dogfood kernel in
+`CliArguments.nl`. HTTP/JSON materialization remains C# host-boundary work; the product decision to prefer the
+last stable version and fall back to the last available prerelease now lives in N#, with the previous LINQ
+filter/default selection isolated as fallback/oracle.
+
+Focused evidence:
+`./scripts/dev.sh CompilationReferenceResolverKernels`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-19 — Columnar OWNS value-struct union emission (real ownership transfer into N#)
 
 Supersedes the same-day decline below: instead of routing value-struct-emittable unions back to the C# oracle,

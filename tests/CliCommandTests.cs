@@ -2530,6 +2530,24 @@ func Main() {
     }
 
     [Fact]
+    public void CompilationReferenceResolverKernels_SelectsLatestNuGetVersion()
+    {
+        AssertSelected(new[] { "1.0.0", "1.1.0-beta", "1.1.0" }, 2);
+        AssertSelected(new[] { "1.0.0", "2.0.0-preview", "1.9.0" }, 2);
+        AssertSelected(new[] { "2.0.0-alpha", "2.0.0-beta" }, 1);
+        AssertSelected(new[] { "1.0.0" }, 0);
+        AssertSelected(Array.Empty<string>(), -1);
+
+        static void AssertSelected(string[] versions, int expectedIndex)
+        {
+            Assert.True(CompilationReferenceResolverKernels.TrySelectLatestNuGetVersionIndex(
+                versions,
+                out var selectedIndex));
+            Assert.Equal(expectedIndex, selectedIndex);
+        }
+    }
+
+    [Fact]
     public void CompilationReferenceResolverKernels_NormalizesNuGetDependencyVersions()
     {
         AssertNormalized(null, null);

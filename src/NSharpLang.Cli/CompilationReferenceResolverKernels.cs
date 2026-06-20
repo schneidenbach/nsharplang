@@ -297,6 +297,32 @@ internal static class CompilationReferenceResolverKernels
         }
     }
 
+    internal static bool TrySelectLatestNuGetVersionIndex(string[] versions, out int selectedIndex)
+    {
+        selectedIndex = -1;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        try
+        {
+            selectedIndex = bindings.LatestNuGetVersionIndex(versions);
+            if (selectedIndex < -1 || selectedIndex >= versions.Length)
+            {
+                selectedIndex = -1;
+                return false;
+            }
+
+            return true;
+        }
+        catch
+        {
+            selectedIndex = -1;
+            return false;
+        }
+    }
+
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
             DogfoodKernelLoader.CreateDelegate<CliReferenceTypeFilterIndicesInto>(
@@ -319,7 +345,10 @@ internal static class CompilationReferenceResolverKernels
                 "CliNuGetDependencyVersionRangeInto"),
             DogfoodKernelLoader.CreateDelegate<CliSharedFrameworkCandidateIndex>(
                 programType,
-                "CliSharedFrameworkCandidateIndex")));
+                "CliSharedFrameworkCandidateIndex"),
+            DogfoodKernelLoader.CreateDelegate<CliLatestNuGetVersionIndex>(
+                programType,
+                "CliLatestNuGetVersionIndex")));
 
     private delegate int CliReferenceTypeFilterIndicesInto(
         int[] typeRanks,
@@ -348,6 +377,8 @@ internal static class CompilationReferenceResolverKernels
         int targetParsed,
         int targetMajor);
 
+    private delegate int CliLatestNuGetVersionIndex(string[] versions);
+
     private sealed record Bindings(
         CliReferenceTypeFilterIndicesInto ReferenceTypeFilterIndices,
         CliReferenceResolutionBestScoreIndex ReferenceResolutionBestScoreIndex,
@@ -355,7 +386,8 @@ internal static class CompilationReferenceResolverKernels
         CliNuGetVersionCompareInto NuGetVersionCompare,
         CliFrameworkCompatibilityScoreInto FrameworkCompatibilityScore,
         CliNuGetDependencyVersionRangeInto NuGetDependencyVersionRange,
-        CliSharedFrameworkCandidateIndex SharedFrameworkCandidateIndex);
+        CliSharedFrameworkCandidateIndex SharedFrameworkCandidateIndex,
+        CliLatestNuGetVersionIndex LatestNuGetVersionIndex);
 
     private static int GetReferenceTypeRank(ReferenceType type) =>
         type switch
