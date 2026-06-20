@@ -1529,6 +1529,16 @@ Exit codes:
     static bool ShouldSkipDiscoveredDirectory(string directory)
     {
         var name = Path.GetFileName(directory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        if (FormatCommandKernels.TryShouldSkipDiscoveredDirectoryName(name, out var shouldSkip))
+            return shouldSkip;
+
+        return ShouldSkipDiscoveredDirectoryNameWithCSharp(name);
+    }
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product format directory
+    // traversal pruning routes through FormatCommandKernels.
+    static bool ShouldSkipDiscoveredDirectoryNameWithCSharp(string name)
+    {
         return name.Equals(".git", StringComparison.OrdinalIgnoreCase)
             || name.Equals(".hg", StringComparison.OrdinalIgnoreCase)
             || name.Equals(".svn", StringComparison.OrdinalIgnoreCase)

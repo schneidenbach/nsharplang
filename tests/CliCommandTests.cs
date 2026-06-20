@@ -2690,6 +2690,21 @@ func Main() {
         Assert.Equal(expected, shouldFormat);
     }
 
+    [Theory]
+    [InlineData(".git", true)]
+    [InlineData(".HG", true)]
+    [InlineData("bin", true)]
+    [InlineData("OBJ", true)]
+    [InlineData("node_modules", true)]
+    [InlineData("node_modulesx", false)]
+    [InlineData("fixtures", false)]
+    [InlineData("src", false)]
+    public void FormatCommandKernels_SelectsDiscoveredDirectorySkips(string directoryName, bool expected)
+    {
+        Assert.True(FormatCommandKernels.TryShouldSkipDiscoveredDirectoryName(directoryName, out var shouldSkip));
+        Assert.Equal(expected, shouldSkip);
+    }
+
     [Fact]
     public void FormatCommandKernels_SummarizesOptions()
     {

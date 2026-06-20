@@ -7016,6 +7016,7 @@ func outer(x: int): int {
         Assert.Contains("CliTargetFrameworkVersionInto", methodNames!); // product resolver target-framework version parsing.
         Assert.Contains("CliFrameworkCompatibilityScoreInto", methodNames!); // product resolver framework compatibility scoring.
         Assert.Contains("CliShouldFormatDiscoveredPath", methodNames!); // product format discovery filtering.
+        Assert.Contains("CliShouldSkipFormatDirectoryName", methodNames!); // product format directory traversal pruning.
         Assert.Contains("CliFormatOptionSummaryInto", methodNames!); // product format option parsing.
         Assert.Contains("CliBuildOperandSummaryInto", methodNames!); // product build operand summary.
         Assert.Contains("CliBuildOptionSummaryInto", methodNames!); // product build option parsing.
@@ -7102,6 +7103,9 @@ func outer(x: int): int {
             ("CliFrameworkCompatibilityScoreInto", new object[] { "net10.0", "net10.0", new int[0] }),
             ("CliShouldFormatDiscoveredPath", new object[] { "tests/fixtures/generated/Bad.nl" }),
             ("CliShouldFormatDiscoveredPath", new object[] { "src/Program.nl" }),
+            ("CliShouldSkipFormatDirectoryName", new object[] { ".git" }),
+            ("CliShouldSkipFormatDirectoryName", new object[] { "NODE_MODULES" }),
+            ("CliShouldSkipFormatDirectoryName", new object[] { "src" }),
             ("CliBuildOptionSummaryChecksumInto", new object[] { new[] { "--release", "-o", "short", "--output", "dist", "--backend", "il", "--project", "demo", "--verbose", "--timings", "--perf-report", "--aot" }, new int[9] }),
             ("CliTestOptionSummaryChecksumInto", new object[] { new[] { "--project", "demo", "--backend", "il", "--filter", "Adds", "--timeout", "30s", "--verbose", "--json", "--coverage-report", "--no-cache" }, new int[10] }),
             ("CliTestFilterMatches", new object[] { "addperson", "Add Person", "", "Tests.AddPerson" }),

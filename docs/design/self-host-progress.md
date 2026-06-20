@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-20 — Format directory traversal pruning moves into product N#
+
+`Program.FormatCommand` now asks `FormatCommandKernels` whether discovered directory names such as `.git`, `bin`,
+`obj`, `.nlc`, and `node_modules` should be pruned during project-wide formatting. The shipped
+`CliShouldSkipFormatDirectoryName` dogfood kernel in `CliArguments.nl` owns that exclusion decision; filesystem
+enumeration remains C# host-boundary work, and the previous C# name list is kept only as fallback/oracle.
+
+Focused evidence:
+`./scripts/dev.sh FormatCommandKernels`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliParityAuditTests.FormatCommand_ProjectDiscovery_SkipsGeneratedAndInvalidFixtureTrees"`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-20 — Installed NuGet version selection moves into product N#
 
 `CompilationReferenceResolver` now chooses the best already-installed package version from the local NuGet cache

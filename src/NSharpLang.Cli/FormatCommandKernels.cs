@@ -76,6 +76,30 @@ internal static class FormatCommandKernels
         }
     }
 
+    internal static bool TryShouldSkipDiscoveredDirectoryName(string directoryName, out bool shouldSkip)
+    {
+        shouldSkip = false;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        try
+        {
+            var result = bindings.ShouldSkipDiscoveredDirectoryName(directoryName);
+            if (result is not 0 and not 1)
+                return false;
+
+            shouldSkip = result == 1;
+            return true;
+        }
+        catch
+        {
+            shouldSkip = false;
+            return false;
+        }
+    }
+
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
             DogfoodKernelLoader.CreateDelegate<CliFormatOptionSummaryInto>(
@@ -83,15 +107,21 @@ internal static class FormatCommandKernels
                 "CliFormatOptionSummaryInto"),
             DogfoodKernelLoader.CreateDelegate<CliShouldFormatDiscoveredPath>(
                 programType,
-                "CliShouldFormatDiscoveredPath")));
+                "CliShouldFormatDiscoveredPath"),
+            DogfoodKernelLoader.CreateDelegate<CliShouldSkipFormatDirectoryName>(
+                programType,
+                "CliShouldSkipFormatDirectoryName")));
 
     private delegate int CliFormatOptionSummaryInto(string[] args, int[] resultIndices);
 
     private delegate int CliShouldFormatDiscoveredPath(string relativePath);
 
+    private delegate int CliShouldSkipFormatDirectoryName(string directoryName);
+
     private sealed record Bindings(
         CliFormatOptionSummaryInto OptionSummary,
-        CliShouldFormatDiscoveredPath ShouldFormatDiscoveredPath);
+        CliShouldFormatDiscoveredPath ShouldFormatDiscoveredPath,
+        CliShouldSkipFormatDirectoryName ShouldSkipDiscoveredDirectoryName);
 
     private static bool TryGetOptionalArg(string[] args, int index, out string? value)
     {

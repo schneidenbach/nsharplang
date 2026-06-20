@@ -5783,6 +5783,14 @@ func CliShouldFormatDiscoveredPath(relativePath: string): int {
     return 1
 }
 
+func CliShouldSkipFormatDirectoryName(directoryName: string): int {
+    if CliFormatPathSegmentIsExcluded(directoryName, 0, directoryName.Length) {
+        return 1
+    }
+
+    return 0
+}
+
 func CliFormatPathSegmentIsExcluded(text: string, start: int, end: int): bool {
     length := end - start
     if length == 3 {
