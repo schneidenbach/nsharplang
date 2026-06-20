@@ -3305,6 +3305,44 @@ func Main() {
         Assert.True(PackCommandKernels.TryGetOutputMode(json: true, out var jsonMode));
         Assert.Equal(PackOutputModeKind.Json, jsonMode);
         Assert.Equal(PackOutputModeKind.Json, PackCommand.GetOutputMode(json: true));
+
+        var helpText = PackCommandKernels.GetHelpText();
+        Assert.Contains("N# Pack", helpText);
+        Assert.Contains("Usage: nlc pack [options]", helpText);
+        Assert.Contains("Pack failed", helpText);
+
+        Assert.Equal(
+            "No project.yml found. Run 'nlc new <name>' to create a project.",
+            PackCommandKernels.GetMissingProjectFileJsonMessage());
+        Assert.Equal(
+            "Error: No project.yml found in current directory.\nRun 'nlc new <name>' to create a project.",
+            PackCommandKernels.GetMissingProjectFileTextMessage());
+        Assert.Equal(
+            "Failed to parse project.yml: bad yaml",
+            PackCommandKernels.GetParseFailedJsonMessage("bad yaml"));
+        Assert.Equal(
+            "Error: Failed to parse project.yml: bad yaml",
+            PackCommandKernels.GetParseFailedTextMessage("bad yaml"));
+        Assert.Equal("Packing Demo 1.2.3...", PackCommandKernels.GetStartMessage("Demo", "1.2.3"));
+        Assert.Equal("Packing Demo (no version)...", PackCommandKernels.GetStartMessage("Demo", null));
+        Assert.Equal("Packing Demo ...", PackCommandKernels.GetStartMessage("Demo", string.Empty));
+        Assert.Equal(
+            "Package version is required. Set version in project.yml or pass --version.",
+            PackCommandKernels.GetMissingVersionJsonMessage());
+        Assert.Equal(
+            "Error: Package version is required. Set version in project.yml or pass --version.",
+            PackCommandKernels.GetMissingVersionTextMessage());
+        Assert.Equal("Pack build failed.", PackCommandKernels.GetBuildFailedJsonMessage());
+        Assert.Equal("Error: Pack build failed.", PackCommandKernels.GetBuildFailedTextMessage());
+        Assert.Equal("Pack successful!", PackCommandKernels.GetSuccessMessage());
+        Assert.Equal("  Package: /tmp/pkg/Demo.1.2.3.nupkg", PackCommandKernels.GetPackagePathLine("/tmp/pkg/Demo.1.2.3.nupkg"));
+        Assert.Equal("Pack failed: zip exploded", PackCommandKernels.GetFailedJsonMessage("zip exploded"));
+        Assert.Equal("Error: Pack failed: zip exploded", PackCommandKernels.GetFailedTextMessage("zip exploded"));
+
+        var (helpExitCode, helpStdout, helpStderr) = CaptureConsole(() => PackCommand.Execute(new[] { "--help" }));
+        Assert.Equal(0, helpExitCode);
+        Assert.Contains("Usage: nlc pack [options]", helpStdout);
+        Assert.True(string.IsNullOrWhiteSpace(helpStderr));
     }
 
     [Fact]

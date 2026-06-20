@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-20 — Pack command messages move into product N#
+
+`PackCommand` no longer owns help text, missing-project diagnostics, project.yml parse failures,
+missing-version/build-failure text, pack start/success text, package-path text rendering, or exception failure
+text in C#. The shipped `CliPack*` dogfood kernels now shape those strings through `PackCommandKernels`; C# keeps
+project.yml/file IO, build invocation, NuGet package zip creation, JSON envelope serialization, and fallback/oracle
+text only.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.PackCommandKernels_SummarizesOptions|FullyQualifiedName~CliCommandTests.PackCommandKernels_SelectsEffectiveVersionSource|FullyQualifiedName~CliParityAuditTests.PackCommand_Help_ShowsUsage|FullyQualifiedName~CliParityAuditTests.PackCommand_NoProjectYml_Fails|FullyQualifiedName~CliParityAuditTests.PackCommand_NoProjectYml_JsonOutput_ReturnsErrorEnvelope|FullyQualifiedName~CompilationBackendTests.PackCommand_UsesConfiguredIlBackendAndProducesNuGetPackage|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-20 — Tree command messages move into product N#
 
 `TreeCommand` no longer owns help text, missing-project/tree failure messages, project.yml limitation text,

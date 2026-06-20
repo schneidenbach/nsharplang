@@ -3621,6 +3621,108 @@ func CliPackOutputMode(useJson: int): int {
     return 2
 }
 
+func CliPackHelpText(): string {
+    return "N# Pack\n"
+        + "\n"
+        + "Usage: nlc pack [options]\n"
+        + "\n"
+        + "Generate a NuGet package from the current N# project.\n"
+        + "\n"
+        + "Reads package metadata from the 'package' section of project.yml and packs\n"
+        + "the native nlc IL build output. The package section is optional but\n"
+        + "recommended for library projects intended for distribution.\n"
+        + "\n"
+        + "project.yml example:\n"
+        + "  name: MyLibrary\n"
+        + "  version: 1.2.0\n"
+        + "  outputType: library\n"
+        + "  package:\n"
+        + "    author: Your Name\n"
+        + "    description: A concise description of your library\n"
+        + "    license: MIT\n"
+        + "    repository: https://github.com/you/MyLibrary\n"
+        + "    tags:\n"
+        + "      - dotnet\n"
+        + "      - nsharp\n"
+        + "\n"
+        + "Options:\n"
+        + "  --output <dir>          Output directory for the .nupkg file\n"
+        + "  --version <ver>         Override the version from project.yml\n"
+        + "  --configuration <cfg>   Build configuration (default: Release)\n"
+        + "  --include-symbols       Also produce a .snupkg symbols package\n"
+        + "  --project <dir>         Project root directory (default: current directory)\n"
+        + "  --json                  Output structured JSON (schemaVersion 1 envelope)\n"
+        + "  --help, -h              Show this help text\n"
+        + "\n"
+        + "Examples:\n"
+        + "  nlc pack\n"
+        + "  nlc pack --output ./artifacts\n"
+        + "  nlc pack --version 2.0.0-beta.1\n"
+        + "  nlc pack --include-symbols\n"
+        + "  nlc pack --json\n"
+        + "\n"
+        + "Exit codes:\n"
+        + "  0  Pack succeeded\n"
+        + "  1  Pack failed"
+}
+
+func CliPackMissingProjectFileJsonMessage(): string {
+    return "No project.yml found. Run 'nlc new <name>' to create a project."
+}
+
+func CliPackMissingProjectFileTextMessage(): string {
+    return "Error: No project.yml found in current directory.\nRun 'nlc new <name>' to create a project."
+}
+
+func CliPackParseFailedJsonMessage(message: string): string {
+    return "Failed to parse project.yml: " + message
+}
+
+func CliPackParseFailedTextMessage(message: string): string {
+    return "Error: Failed to parse project.yml: " + message
+}
+
+func CliPackStartMessage(name: string, hasVersion: int, version: string): string {
+    versionText := "(no version)"
+    if hasVersion != 0 {
+        versionText = version
+    }
+
+    return "Packing " + name + " " + versionText + "..."
+}
+
+func CliPackMissingVersionJsonMessage(): string {
+    return "Package version is required. Set version in project.yml or pass --version."
+}
+
+func CliPackMissingVersionTextMessage(): string {
+    return "Error: Package version is required. Set version in project.yml or pass --version."
+}
+
+func CliPackBuildFailedJsonMessage(): string {
+    return "Pack build failed."
+}
+
+func CliPackBuildFailedTextMessage(): string {
+    return "Error: Pack build failed."
+}
+
+func CliPackSuccessMessage(): string {
+    return "Pack successful!"
+}
+
+func CliPackPackagePathLine(packagePath: string): string {
+    return "  Package: " + packagePath
+}
+
+func CliPackFailedJsonMessage(message: string): string {
+    return "Pack failed: " + message
+}
+
+func CliPackFailedTextMessage(message: string): string {
+    return "Error: Pack failed: " + message
+}
+
 func CliLintOptionSummaryInto(args: string[], resultIndices: int[]): int {
     arguments := new CliArgumentTable { Args: args }
     results := new CliIndexResultTable { Indices: resultIndices }

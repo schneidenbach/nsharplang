@@ -7039,6 +7039,20 @@ func outer(x: int): int {
         Assert.Contains("CliPublishSuccessMessage", methodNames!); // product publish success message shaping.
         Assert.Contains("CliPackOptionSummaryInto", methodNames!); // product pack option parsing.
         Assert.Contains("CliPackOutputMode", methodNames!); // product pack output mode selection.
+        Assert.Contains("CliPackHelpText", methodNames!); // product pack help text shaping.
+        Assert.Contains("CliPackMissingProjectFileJsonMessage", methodNames!); // product pack missing-project JSON message shaping.
+        Assert.Contains("CliPackMissingProjectFileTextMessage", methodNames!); // product pack missing-project text message shaping.
+        Assert.Contains("CliPackParseFailedJsonMessage", methodNames!); // product pack parse-failure JSON message shaping.
+        Assert.Contains("CliPackParseFailedTextMessage", methodNames!); // product pack parse-failure text message shaping.
+        Assert.Contains("CliPackStartMessage", methodNames!); // product pack start message shaping.
+        Assert.Contains("CliPackMissingVersionJsonMessage", methodNames!); // product pack missing-version JSON message shaping.
+        Assert.Contains("CliPackMissingVersionTextMessage", methodNames!); // product pack missing-version text message shaping.
+        Assert.Contains("CliPackBuildFailedJsonMessage", methodNames!); // product pack build-failure JSON message shaping.
+        Assert.Contains("CliPackBuildFailedTextMessage", methodNames!); // product pack build-failure text message shaping.
+        Assert.Contains("CliPackSuccessMessage", methodNames!); // product pack success message shaping.
+        Assert.Contains("CliPackPackagePathLine", methodNames!); // product pack package-path text rendering.
+        Assert.Contains("CliPackFailedJsonMessage", methodNames!); // product pack failure JSON message shaping.
+        Assert.Contains("CliPackFailedTextMessage", methodNames!); // product pack failure text message shaping.
         Assert.Contains("CliCompletionOptionSummaryInto", methodNames!); // product completion option parsing.
         Assert.Contains("CliCompletionHelpText", methodNames!); // product completion help text shaping.
         Assert.Contains("CliCompletionUnknownShellMessage", methodNames!); // product completion error message shaping.
@@ -16016,6 +16030,62 @@ class OtherZetaType {
                     "CliPackEffectiveVersionSource",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliPackEffectiveVersionSource.");
+            var cliPackHelpText = programType.GetMethod(
+                    "CliPackHelpText",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliPackHelpText.");
+            var cliPackMissingProjectFileJsonMessage = programType.GetMethod(
+                    "CliPackMissingProjectFileJsonMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliPackMissingProjectFileJsonMessage.");
+            var cliPackMissingProjectFileTextMessage = programType.GetMethod(
+                    "CliPackMissingProjectFileTextMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliPackMissingProjectFileTextMessage.");
+            var cliPackParseFailedJsonMessage = programType.GetMethod(
+                    "CliPackParseFailedJsonMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliPackParseFailedJsonMessage.");
+            var cliPackParseFailedTextMessage = programType.GetMethod(
+                    "CliPackParseFailedTextMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliPackParseFailedTextMessage.");
+            var cliPackStartMessage = programType.GetMethod(
+                    "CliPackStartMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliPackStartMessage.");
+            var cliPackMissingVersionJsonMessage = programType.GetMethod(
+                    "CliPackMissingVersionJsonMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliPackMissingVersionJsonMessage.");
+            var cliPackMissingVersionTextMessage = programType.GetMethod(
+                    "CliPackMissingVersionTextMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliPackMissingVersionTextMessage.");
+            var cliPackBuildFailedJsonMessage = programType.GetMethod(
+                    "CliPackBuildFailedJsonMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliPackBuildFailedJsonMessage.");
+            var cliPackBuildFailedTextMessage = programType.GetMethod(
+                    "CliPackBuildFailedTextMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliPackBuildFailedTextMessage.");
+            var cliPackSuccessMessage = programType.GetMethod(
+                    "CliPackSuccessMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliPackSuccessMessage.");
+            var cliPackPackagePathLine = programType.GetMethod(
+                    "CliPackPackagePathLine",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliPackPackagePathLine.");
+            var cliPackFailedJsonMessage = programType.GetMethod(
+                    "CliPackFailedJsonMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliPackFailedJsonMessage.");
+            var cliPackFailedTextMessage = programType.GetMethod(
+                    "CliPackFailedTextMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliPackFailedTextMessage.");
             var cliFirstPositionalArgIndex = programType.GetMethod(
                     "CliFirstPositionalArgIndex",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -17451,6 +17521,21 @@ func main(customer: Customer, résumé: Profile) {
             AssertCliPackOptionsLikeProduction(cliPackOptionSummaryInto);
             AssertCliJsonFlagOutputModesLikeProduction(cliPackOutputMode);
             AssertCliPackEffectiveVersionSourcesLikeProduction(cliPackEffectiveVersionSource);
+            AssertCliPackMessagesLikeProduction(
+                cliPackHelpText,
+                cliPackMissingProjectFileJsonMessage,
+                cliPackMissingProjectFileTextMessage,
+                cliPackParseFailedJsonMessage,
+                cliPackParseFailedTextMessage,
+                cliPackStartMessage,
+                cliPackMissingVersionJsonMessage,
+                cliPackMissingVersionTextMessage,
+                cliPackBuildFailedJsonMessage,
+                cliPackBuildFailedTextMessage,
+                cliPackSuccessMessage,
+                cliPackPackagePathLine,
+                cliPackFailedJsonMessage,
+                cliPackFailedTextMessage);
             AssertCliPositionalArgsLikeProduction(
                 cliPositionalArgIndicesInto,
                 cliFirstPositionalArgIndex,
@@ -22298,6 +22383,74 @@ func main() {
 
             Assert.Equal(expected, actual);
         }
+    }
+
+    private static void AssertCliPackMessagesLikeProduction(
+        MethodInfo cliPackHelpText,
+        MethodInfo cliPackMissingProjectFileJsonMessage,
+        MethodInfo cliPackMissingProjectFileTextMessage,
+        MethodInfo cliPackParseFailedJsonMessage,
+        MethodInfo cliPackParseFailedTextMessage,
+        MethodInfo cliPackStartMessage,
+        MethodInfo cliPackMissingVersionJsonMessage,
+        MethodInfo cliPackMissingVersionTextMessage,
+        MethodInfo cliPackBuildFailedJsonMessage,
+        MethodInfo cliPackBuildFailedTextMessage,
+        MethodInfo cliPackSuccessMessage,
+        MethodInfo cliPackPackagePathLine,
+        MethodInfo cliPackFailedJsonMessage,
+        MethodInfo cliPackFailedTextMessage)
+    {
+        var help = (string)(cliPackHelpText.Invoke(null, Array.Empty<object>()) ?? string.Empty);
+        Assert.Contains("N# Pack", help);
+        Assert.Contains("Usage: nlc pack [options]", help);
+        Assert.Contains("Pack failed", help);
+
+        Assert.Equal(
+            "No project.yml found. Run 'nlc new <name>' to create a project.",
+            (string)(cliPackMissingProjectFileJsonMessage.Invoke(null, Array.Empty<object>()) ?? string.Empty));
+        Assert.Equal(
+            "Error: No project.yml found in current directory.\nRun 'nlc new <name>' to create a project.",
+            (string)(cliPackMissingProjectFileTextMessage.Invoke(null, Array.Empty<object>()) ?? string.Empty));
+        Assert.Equal(
+            "Failed to parse project.yml: bad yaml",
+            (string)(cliPackParseFailedJsonMessage.Invoke(null, new object[] { "bad yaml" }) ?? string.Empty));
+        Assert.Equal(
+            "Error: Failed to parse project.yml: bad yaml",
+            (string)(cliPackParseFailedTextMessage.Invoke(null, new object[] { "bad yaml" }) ?? string.Empty));
+        Assert.Equal(
+            "Packing Demo 1.2.3...",
+            (string)(cliPackStartMessage.Invoke(null, new object[] { "Demo", 1, "1.2.3" }) ?? string.Empty));
+        Assert.Equal(
+            "Packing Demo (no version)...",
+            (string)(cliPackStartMessage.Invoke(null, new object[] { "Demo", 0, string.Empty }) ?? string.Empty));
+        Assert.Equal(
+            "Packing Demo ...",
+            (string)(cliPackStartMessage.Invoke(null, new object[] { "Demo", 1, string.Empty }) ?? string.Empty));
+        Assert.Equal(
+            "Package version is required. Set version in project.yml or pass --version.",
+            (string)(cliPackMissingVersionJsonMessage.Invoke(null, Array.Empty<object>()) ?? string.Empty));
+        Assert.Equal(
+            "Error: Package version is required. Set version in project.yml or pass --version.",
+            (string)(cliPackMissingVersionTextMessage.Invoke(null, Array.Empty<object>()) ?? string.Empty));
+        Assert.Equal(
+            "Pack build failed.",
+            (string)(cliPackBuildFailedJsonMessage.Invoke(null, Array.Empty<object>()) ?? string.Empty));
+        Assert.Equal(
+            "Error: Pack build failed.",
+            (string)(cliPackBuildFailedTextMessage.Invoke(null, Array.Empty<object>()) ?? string.Empty));
+        Assert.Equal(
+            "Pack successful!",
+            (string)(cliPackSuccessMessage.Invoke(null, Array.Empty<object>()) ?? string.Empty));
+        Assert.Equal(
+            "  Package: /tmp/pkg/Demo.1.2.3.nupkg",
+            (string)(cliPackPackagePathLine.Invoke(null, new object[] { "/tmp/pkg/Demo.1.2.3.nupkg" }) ?? string.Empty));
+        Assert.Equal(
+            "Pack failed: zip exploded",
+            (string)(cliPackFailedJsonMessage.Invoke(null, new object[] { "zip exploded" }) ?? string.Empty));
+        Assert.Equal(
+            "Error: Pack failed: zip exploded",
+            (string)(cliPackFailedTextMessage.Invoke(null, new object[] { "zip exploded" }) ?? string.Empty));
     }
 
     private static int[] CreateExpectedCliPackOptions(string[] args)

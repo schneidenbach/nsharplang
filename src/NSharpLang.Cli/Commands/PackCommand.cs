@@ -32,12 +32,11 @@ public static class PackCommand
         {
             if (outputMode == PackOutputModeKind.Json)
             {
-                WriteErrorJson("No project.yml found. Run 'nlc new <name>' to create a project.");
+                WriteErrorJson(PackCommandKernels.GetMissingProjectFileJsonMessage());
             }
             else
             {
-                Console.Error.WriteLine("Error: No project.yml found in current directory.");
-                Console.Error.WriteLine("Run 'nlc new <name>' to create a project.");
+                Console.Error.WriteLine(PackCommandKernels.GetMissingProjectFileTextMessage());
             }
             return 1;
         }
@@ -50,15 +49,15 @@ public static class PackCommand
         catch (Exception ex)
         {
             if (outputMode == PackOutputModeKind.Json)
-                WriteErrorJson($"Failed to parse project.yml: {ex.Message}");
+                WriteErrorJson(PackCommandKernels.GetParseFailedJsonMessage(ex.Message));
             else
-                Console.Error.WriteLine($"Error: Failed to parse project.yml: {ex.Message}");
+                Console.Error.WriteLine(PackCommandKernels.GetParseFailedTextMessage(ex.Message));
             return 1;
         }
 
         if (outputMode == PackOutputModeKind.Text)
         {
-            Console.WriteLine($"Packing {config.EffectiveName} {config.Version ?? "(no version)"}...");
+            Console.WriteLine(PackCommandKernels.GetStartMessage(config.EffectiveName, config.Version));
             Console.WriteLine();
         }
 
@@ -75,9 +74,9 @@ public static class PackCommand
             if (effectiveVersion == null)
             {
                 if (outputMode == PackOutputModeKind.Json)
-                    WriteErrorJson("Package version is required. Set version in project.yml or pass --version.");
+                    WriteErrorJson(PackCommandKernels.GetMissingVersionJsonMessage());
                 else
-                    Console.Error.WriteLine("Error: Package version is required. Set version in project.yml or pass --version.");
+                    Console.Error.WriteLine(PackCommandKernels.GetMissingVersionTextMessage());
                 return 1;
             }
 
@@ -91,9 +90,9 @@ public static class PackCommand
             if (assemblyPath == null)
             {
                 if (outputMode == PackOutputModeKind.Json)
-                    WriteErrorJson("Pack build failed.");
+                    WriteErrorJson(PackCommandKernels.GetBuildFailedJsonMessage());
                 else
-                    Console.Error.WriteLine("Error: Pack build failed.");
+                    Console.Error.WriteLine(PackCommandKernels.GetBuildFailedTextMessage());
                 return 1;
             }
 
@@ -126,8 +125,8 @@ public static class PackCommand
             }
             else
             {
-                Console.WriteLine("Pack successful!");
-                Console.WriteLine($"  Package: {packagePath}");
+                Console.WriteLine(PackCommandKernels.GetSuccessMessage());
+                Console.WriteLine(PackCommandKernels.GetPackagePathLine(packagePath));
             }
 
             return 0;
@@ -135,9 +134,9 @@ public static class PackCommand
         catch (Exception ex)
         {
             if (outputMode == PackOutputModeKind.Json)
-                WriteErrorJson($"Pack failed: {ex.Message}");
+                WriteErrorJson(PackCommandKernels.GetFailedJsonMessage(ex.Message));
             else
-                Console.Error.WriteLine($"Error: Pack failed: {ex.Message}");
+                Console.Error.WriteLine(PackCommandKernels.GetFailedTextMessage(ex.Message));
             return 1;
         }
     }
@@ -334,49 +333,7 @@ public static class PackCommand
 
     static int ShowHelp()
     {
-        Console.WriteLine(@"N# Pack
-
-Usage: nlc pack [options]
-
-Generate a NuGet package from the current N# project.
-
-Reads package metadata from the 'package' section of project.yml and packs
-the native nlc IL build output. The package section is optional but
-recommended for library projects intended for distribution.
-
-project.yml example:
-  name: MyLibrary
-  version: 1.2.0
-  outputType: library
-  package:
-    author: Your Name
-    description: A concise description of your library
-    license: MIT
-    repository: https://github.com/you/MyLibrary
-    tags:
-      - dotnet
-      - nsharp
-
-Options:
-  --output <dir>          Output directory for the .nupkg file
-  --version <ver>         Override the version from project.yml
-  --configuration <cfg>   Build configuration (default: Release)
-  --include-symbols       Also produce a .snupkg symbols package
-  --project <dir>         Project root directory (default: current directory)
-  --json                  Output structured JSON (schemaVersion 1 envelope)
-  --help, -h              Show this help text
-
-Examples:
-  nlc pack
-  nlc pack --output ./artifacts
-  nlc pack --version 2.0.0-beta.1
-  nlc pack --include-symbols
-  nlc pack --json
-
-Exit codes:
-  0  Pack succeeded
-  1  Pack failed");
-
+        Console.WriteLine(PackCommandKernels.GetHelpText());
         return 0;
     }
 }
