@@ -19,7 +19,7 @@ public static class CompletionCommand
             CompletionShellKind.Bash => WriteScript(BashScript),
             CompletionShellKind.Zsh => WriteScript(ZshScript),
             CompletionShellKind.Fish => WriteScript(FishScript),
-            _ => Error($"Unknown shell '{GetShellForError(args)}'. Expected bash, zsh, or fish.")
+            _ => Error(CompletionCommandKernels.GetUnknownShellMessage(GetShellForError(args)))
         };
     }
 
@@ -67,21 +67,7 @@ public static class CompletionCommand
 
     private static int ShowHelp()
     {
-        Console.WriteLine(@"N# Shell Completion
-
-Usage: nlc completion <bash|zsh|fish>
-
-Generate shell completion scripts from the current `nlc` command tree.
-
-Examples:
-  nlc completion bash > /etc/bash_completion.d/nlc
-  nlc completion zsh > ~/.zsh/completions/_nlc
-  nlc completion fish > ~/.config/fish/completions/nlc.fish
-
-Exit codes:
-  0  Script generated successfully
-  1  Invalid shell name");
-
+        Console.WriteLine(CompletionCommandKernels.GetHelpText());
         return 0;
     }
 

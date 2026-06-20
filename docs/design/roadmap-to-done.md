@@ -307,7 +307,7 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       output-mode selection, symbol/member ordering, and slug generation now live beside `DocCommand` in `DocCommandKernels`; tree option
       summary, depth parsing, and output-mode selection now live beside `TreeCommand` in `TreeCommandKernels`, and tree dependency and
       target-framework deduplication now live beside `TreeCommand` in `TreeDependencyDeduplicator`;
-      completion shell option summary now lives beside `CompletionCommand` in `CompletionCommandKernels`;
+      completion shell option summary plus help/error messages now live beside `CompletionCommand` in `CompletionCommandKernels`;
       formatter `.editorconfig` integer parsing now lives beside `FormatterConfig` in
       `FormatterConfigKernels`;
       restore option summary, help/error/status messages, reference filtering, and project-reference deduplication now live beside

@@ -5335,6 +5335,24 @@ func Main() {
         Assert.True(CompletionCommand.GetOptionSummary(Array.Empty<string>()).ShowHelp);
         Assert.True(CompletionCommand.GetOptionSummary(new[] { "help" }).ShowHelp);
         Assert.True(CompletionCommand.GetOptionSummary(new[] { "-h" }).ShowHelp);
+
+        var helpText = CompletionCommandKernels.GetHelpText();
+        Assert.Contains("N# Shell Completion", helpText);
+        Assert.Contains("Usage: nlc completion <bash|zsh|fish>", helpText);
+        Assert.Contains("Invalid shell name", helpText);
+        Assert.Equal(
+            "Unknown shell 'powershell'. Expected bash, zsh, or fish.",
+            CompletionCommandKernels.GetUnknownShellMessage("powershell"));
+
+        var (helpExitCode, helpStdout, helpStderr) = CaptureConsole(() => CompletionCommand.Execute(new[] { "--help" }));
+        Assert.Equal(0, helpExitCode);
+        Assert.True(string.IsNullOrWhiteSpace(helpStderr));
+        Assert.Contains("Usage: nlc completion <bash|zsh|fish>", helpStdout);
+
+        var (errorExitCode, errorStdout, errorStderr) = CaptureConsole(() => CompletionCommand.Execute(new[] { "PowerShell" }));
+        Assert.Equal(1, errorExitCode);
+        Assert.True(string.IsNullOrWhiteSpace(errorStdout));
+        Assert.Contains("Unknown shell 'powershell'. Expected bash, zsh, or fish.", errorStderr);
     }
 
     private static int ExecuteProgram(params string[] args)

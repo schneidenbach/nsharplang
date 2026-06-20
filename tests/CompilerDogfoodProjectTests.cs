@@ -7040,6 +7040,8 @@ func outer(x: int): int {
         Assert.Contains("CliPackOptionSummaryInto", methodNames!); // product pack option parsing.
         Assert.Contains("CliPackOutputMode", methodNames!); // product pack output mode selection.
         Assert.Contains("CliCompletionOptionSummaryInto", methodNames!); // product completion option parsing.
+        Assert.Contains("CliCompletionHelpText", methodNames!); // product completion help text shaping.
+        Assert.Contains("CliCompletionUnknownShellMessage", methodNames!); // product completion error message shaping.
         Assert.Contains("CliDaemonOptionSummaryInto", methodNames!); // product daemon option parsing.
         Assert.Contains("CliWatchTargetSummaryInto", methodNames!); // product watch target parsing.
         Assert.Contains("CliWatchForwardedArgIndicesInto", methodNames!); // product watch forwarding.
@@ -15823,6 +15825,14 @@ class OtherZetaType {
                     "CliCompletionOptionSummaryInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliCompletionOptionSummaryInto.");
+            var cliCompletionHelpText = programType.GetMethod(
+                    "CliCompletionHelpText",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliCompletionHelpText.");
+            var cliCompletionUnknownShellMessage = programType.GetMethod(
+                    "CliCompletionUnknownShellMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliCompletionUnknownShellMessage.");
             var cliDaemonOptionSummaryInto = programType.GetMethod(
                     "CliDaemonOptionSummaryInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -17203,6 +17213,7 @@ func main(customer: Customer, résumé: Profile) {
                 cliUpdateAllPackagesUpToDateMessage,
                 cliUpdateFailedMessage);
             AssertCliCompletionOptionsLikeProduction(cliCompletionOptionSummaryInto);
+            AssertCliCompletionMessagesLikeProduction(cliCompletionHelpText, cliCompletionUnknownShellMessage);
             AssertCliDaemonOptionsLikeProduction(cliDaemonOptionSummaryInto);
             AssertCliWatchForwardedArgsLikeProduction(
                 cliWatchForwardedArgIndicesInto,
@@ -21261,6 +21272,19 @@ func main() {
             (int)(cliCompletionOptionSummaryInto.Invoke(
                 null,
                 new object[] { new[] { "bash" }, new int[1] }) ?? 0));
+    }
+
+    private static void AssertCliCompletionMessagesLikeProduction(
+        MethodInfo cliCompletionHelpText,
+        MethodInfo cliCompletionUnknownShellMessage)
+    {
+        var help = (string)(cliCompletionHelpText.Invoke(null, Array.Empty<object>()) ?? "<null>");
+        Assert.Contains("N# Shell Completion", help);
+        Assert.Contains("Usage: nlc completion <bash|zsh|fish>", help);
+        Assert.Contains("Invalid shell name", help);
+        Assert.Equal(
+            "Unknown shell 'powershell'. Expected bash, zsh, or fish.",
+            (string)(cliCompletionUnknownShellMessage.Invoke(null, new object[] { "powershell" }) ?? "<null>"));
     }
 
     private static int[] CreateExpectedCliCompletionOptions(string[] args)

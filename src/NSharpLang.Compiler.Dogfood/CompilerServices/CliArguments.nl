@@ -432,6 +432,27 @@ func CliCompletionOptionSummaryCore(args: &CliArgumentTable, resultIndices: &Cli
     return 0
 }
 
+func CliCompletionHelpText(): string {
+    return "N# Shell Completion\n"
+        + "\n"
+        + "Usage: nlc completion <bash|zsh|fish>\n"
+        + "\n"
+        + "Generate shell completion scripts from the current `nlc` command tree.\n"
+        + "\n"
+        + "Examples:\n"
+        + "  nlc completion bash > /etc/bash_completion.d/nlc\n"
+        + "  nlc completion zsh > ~/.zsh/completions/_nlc\n"
+        + "  nlc completion fish > ~/.config/fish/completions/nlc.fish\n"
+        + "\n"
+        + "Exit codes:\n"
+        + "  0  Script generated successfully\n"
+        + "  1  Invalid shell name"
+}
+
+func CliCompletionUnknownShellMessage(shell: string): string {
+    return "Unknown shell '" + shell + "'. Expected bash, zsh, or fish."
+}
+
 func CliWatchOptionSummaryInto(args: string[], resultIndices: int[]): int {
     arguments := new CliArgumentTable { Args: args }
     results := new CliIndexResultTable { Indices: resultIndices }

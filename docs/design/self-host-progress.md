@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-20 — Completion command messages move into product N#
+
+`CompletionCommand` no longer owns help text or invalid-shell diagnostic text in C#. The shipped
+`CliCompletion*` dogfood kernels now shape those user-facing strings through `CompletionCommandKernels`;
+C# keeps shell script emission, dynamic command-registry script content, and fallback/oracle text only.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.CompletionCommandKernels_SummarizesOptions|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-20 — Doctor command messages move into product N#
 
 `DoctorCommand` no longer owns help text, install/check diagnostic detail strings, status labels, check markers,
