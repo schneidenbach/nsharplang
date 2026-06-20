@@ -132,6 +132,22 @@ internal static class PublishCommandKernels
         return GetCrossRuntimeUnsupportedMessageWithCSharp(requestedRuntime, currentRuntime);
     }
 
+    internal static string GetBuildFailureMessage(bool aotMode)
+    {
+        if (TryGetPublishMessage(bindings => bindings.PublishBuildFailureMessage(aotMode ? 1 : 0), out var message))
+            return message;
+
+        return GetBuildFailureMessageWithCSharp(aotMode);
+    }
+
+    internal static string GetExceptionFailureMessage(string exceptionMessage)
+    {
+        if (TryGetPublishMessage(bindings => bindings.PublishExceptionFailureMessage(exceptionMessage), out var message))
+            return message;
+
+        return GetExceptionFailureMessageWithCSharp(exceptionMessage);
+    }
+
     private static bool TryGetPublishMessage(Func<Bindings, string> getMessage, out string message)
     {
         message = string.Empty;
@@ -169,6 +185,16 @@ internal static class PublishCommandKernels
         => $"Cross-runtime publish is not available in nlc publish yet. Requested runtime '{requestedRuntime}', but this machine is '{currentRuntime}'. " +
            "Today --runtime only supports the current host runtime to add a framework-dependent launcher. " +
            "Omit --runtime for portable 'dotnet <app>.dll' output, or run nlc publish on the target runtime.";
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product publish failure messages route through CliPublish*FailureMessage kernels.
+    private static string GetBuildFailureMessageWithCSharp(bool aotMode)
+        => aotMode
+            ? "Publish failed: Native AOT blockers were found (see the diagnostics above). Fix them, then publish again."
+            : "Publish failed";
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product publish failure messages route through CliPublish*FailureMessage kernels.
+    private static string GetExceptionFailureMessageWithCSharp(string exceptionMessage)
+        => $"Publish failed: {exceptionMessage}";
 
     // Stage 6 C#-surface-shrink: fallback/oracle only; product publish validation messages route through CliPublishValidationErrorMessage.
     private static string? GetValidationErrorWithCSharp(string[] args, int code, int errorArgIndex)
@@ -219,18 +245,28 @@ internal static class PublishCommandKernels
                 "CliPublishSelfContainedUnsupportedMessage"),
             DogfoodKernelLoader.CreateDelegate<CliPublishCrossRuntimeUnsupportedMessage>(
                 programType,
-                "CliPublishCrossRuntimeUnsupportedMessage")));
+                "CliPublishCrossRuntimeUnsupportedMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliPublishBuildFailureMessage>(
+                programType,
+                "CliPublishBuildFailureMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliPublishExceptionFailureMessage>(
+                programType,
+                "CliPublishExceptionFailureMessage")));
 
     private delegate int CliPublishOptionsInto(string[] args, int[] resultIndices);
     private delegate string CliPublishValidationErrorMessage(int code, string arg);
     private delegate string CliPublishAotAnalysisOnlyNotice();
     private delegate string CliPublishSelfContainedUnsupportedMessage();
     private delegate string CliPublishCrossRuntimeUnsupportedMessage(string requestedRuntime, string currentRuntime);
+    private delegate string CliPublishBuildFailureMessage(int aotMode);
+    private delegate string CliPublishExceptionFailureMessage(string exceptionMessage);
 
     private sealed record Bindings(
         CliPublishOptionsInto PublishOptionsInto,
         CliPublishValidationErrorMessage PublishValidationErrorMessage,
         CliPublishAotAnalysisOnlyNotice PublishAotAnalysisOnlyNotice,
         CliPublishSelfContainedUnsupportedMessage PublishSelfContainedUnsupportedMessage,
-        CliPublishCrossRuntimeUnsupportedMessage PublishCrossRuntimeUnsupportedMessage);
+        CliPublishCrossRuntimeUnsupportedMessage PublishCrossRuntimeUnsupportedMessage,
+        CliPublishBuildFailureMessage PublishBuildFailureMessage,
+        CliPublishExceptionFailureMessage PublishExceptionFailureMessage);
 }

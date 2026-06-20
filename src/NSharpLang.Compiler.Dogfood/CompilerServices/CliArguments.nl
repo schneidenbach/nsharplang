@@ -2575,6 +2575,18 @@ func CliPublishCrossRuntimeUnsupportedMessage(requestedRuntime: string, currentR
         + "Omit --runtime for portable 'dotnet <app>.dll' output, or run nlc publish on the target runtime."
 }
 
+func CliPublishBuildFailureMessage(aotMode: int): string {
+    if aotMode != 0 {
+        return "Publish failed: Native AOT blockers were found (see the diagnostics above). Fix them, then publish again."
+    }
+
+    return "Publish failed"
+}
+
+func CliPublishExceptionFailureMessage(message: string): string {
+    return "Publish failed: " + message
+}
+
 func CliPackOptionSummaryInto(args: string[], resultIndices: int[]): int {
     arguments := new CliArgumentTable { Args: args }
     results := new CliIndexResultTable { Indices: resultIndices }

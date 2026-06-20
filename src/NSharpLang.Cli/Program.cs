@@ -675,9 +675,7 @@ Exit codes:
                 aotMode: publishArguments.Aot);
             if (outputPath == null)
             {
-                return Error(publishArguments.Aot
-                    ? "Publish failed: Native AOT blockers were found (see the diagnostics above). Fix them, then publish again."
-                    : "Publish failed");
+                return Error(PublishCommandKernels.GetBuildFailureMessage(publishArguments.Aot));
             }
 
             if (!string.IsNullOrWhiteSpace(runtime))
@@ -690,7 +688,7 @@ Exit codes:
         }
         catch (Exception ex)
         {
-            return Error($"Publish failed: {ex.Message}");
+            return Error(PublishCommandKernels.GetExceptionFailureMessage(ex.Message));
         }
     }
 

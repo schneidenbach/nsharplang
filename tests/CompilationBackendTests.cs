@@ -1607,6 +1607,46 @@ func main() {
     }
 
     [Fact]
+    public void PublishCommand_RetiredBackend_ReturnsHelpfulFailureMessage()
+    {
+        var tempDir = CreateTempDir();
+        var originalDirectory = Directory.GetCurrentDirectory();
+
+        try
+        {
+            TestSdkFeed.WriteSdkResolutionFiles(tempDir);
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: RetiredBackendPublish
+backend: il
+outputType: exe
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+func main() {
+    print "retired backend publish"
+}
+""");
+
+            var publishDir = Path.Combine(tempDir, "publish-retired-backend");
+            Directory.SetCurrentDirectory(tempDir);
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                ExecuteProgram("publish", "--backend", "transpile", "--output", publishDir));
+
+            Assert.Equal(1, exitCode);
+            Assert.Contains("Publishing project in", stdout);
+            Assert.Contains("Publish failed: The 'transpile' backend has been removed.", stderr);
+            Assert.Contains("nlc export csharp", stderr);
+            Assert.False(Directory.Exists(publishDir));
+        }
+        finally
+        {
+            Directory.SetCurrentDirectory(originalDirectory);
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void TestCommand_BackendOverrideToIl_RunsTestsThroughSdkProject()
     {
         var tempDir = CreateTempDir();

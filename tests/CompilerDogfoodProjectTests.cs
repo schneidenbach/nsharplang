@@ -7032,6 +7032,8 @@ func outer(x: int): int {
         Assert.Contains("CliPublishAotAnalysisOnlyNotice", methodNames!); // product publish AOT notice shaping.
         Assert.Contains("CliPublishSelfContainedUnsupportedMessage", methodNames!); // product publish unsupported-shape message shaping.
         Assert.Contains("CliPublishCrossRuntimeUnsupportedMessage", methodNames!); // product publish runtime message shaping.
+        Assert.Contains("CliPublishBuildFailureMessage", methodNames!); // product publish build-failure message shaping.
+        Assert.Contains("CliPublishExceptionFailureMessage", methodNames!); // product publish exception-failure message shaping.
         Assert.Contains("CliPackOptionSummaryInto", methodNames!); // product pack option parsing.
         Assert.Contains("CliPackOutputMode", methodNames!); // product pack output mode selection.
         Assert.Contains("CliCompletionOptionSummaryInto", methodNames!); // product completion option parsing.
@@ -15619,6 +15621,14 @@ class OtherZetaType {
                     "CliPublishCrossRuntimeUnsupportedMessage",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliPublishCrossRuntimeUnsupportedMessage.");
+            var cliPublishBuildFailureMessage = programType.GetMethod(
+                    "CliPublishBuildFailureMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliPublishBuildFailureMessage.");
+            var cliPublishExceptionFailureMessage = programType.GetMethod(
+                    "CliPublishExceptionFailureMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliPublishExceptionFailureMessage.");
             var cliPackOptionSummaryInto = programType.GetMethod(
                     "CliPackOptionSummaryInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -16751,6 +16761,9 @@ func main(customer: Customer, résumé: Profile) {
                 cliPublishAotAnalysisOnlyNotice,
                 cliPublishSelfContainedUnsupportedMessage,
                 cliPublishCrossRuntimeUnsupportedMessage);
+            AssertCliPublishFailureMessagesLikeProduction(
+                cliPublishBuildFailureMessage,
+                cliPublishExceptionFailureMessage);
             AssertCliJsonFlagOutputModesLikeProduction(cliTestOutputMode);
             AssertCliPackOptionsLikeProduction(cliPackOptionSummaryInto);
             AssertCliJsonFlagOutputModesLikeProduction(cliPackOutputMode);
@@ -21005,6 +21018,24 @@ func main() {
             "Today --runtime only supports the current host runtime to add a framework-dependent launcher. " +
             "Omit --runtime for portable 'dotnet <app>.dll' output, or run nlc publish on the target runtime.",
             crossRuntime);
+    }
+
+    private static void AssertCliPublishFailureMessagesLikeProduction(
+        MethodInfo cliPublishBuildFailureMessage,
+        MethodInfo cliPublishExceptionFailureMessage)
+    {
+        var plainFailure = (string)(cliPublishBuildFailureMessage.Invoke(null, new object[] { 0 }) ?? "<null>");
+        Assert.Equal("Publish failed", plainFailure);
+
+        var aotFailure = (string)(cliPublishBuildFailureMessage.Invoke(null, new object[] { 1 }) ?? "<null>");
+        Assert.Equal(
+            "Publish failed: Native AOT blockers were found (see the diagnostics above). Fix them, then publish again.",
+            aotFailure);
+
+        var exceptionFailure = (string)(cliPublishExceptionFailureMessage.Invoke(
+            null,
+            new object[] { "backend exploded" }) ?? "<null>");
+        Assert.Equal("Publish failed: backend exploded", exceptionFailure);
     }
 
     private static (int Code, int[] Indices, int ErrorIndex) CreateExpectedCliPublishOptions(string[] args)

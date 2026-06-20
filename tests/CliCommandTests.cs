@@ -2843,6 +2843,11 @@ func Main() {
             "Today --runtime only supports the current host runtime to add a framework-dependent launcher. " +
             "Omit --runtime for portable 'dotnet <app>.dll' output, or run nlc publish on the target runtime.",
             PublishCommandKernels.GetCrossRuntimeUnsupportedMessage("linux-x64", "osx-arm64"));
+        Assert.Equal("Publish failed", PublishCommandKernels.GetBuildFailureMessage(aotMode: false));
+        Assert.Equal(
+            "Publish failed: Native AOT blockers were found (see the diagnostics above). Fix them, then publish again.",
+            PublishCommandKernels.GetBuildFailureMessage(aotMode: true));
+        Assert.Equal("Publish failed: backend exploded", PublishCommandKernels.GetExceptionFailureMessage("backend exploded"));
 
         Assert.Equal(
             "Debug",

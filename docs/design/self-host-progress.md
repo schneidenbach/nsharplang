@@ -11,6 +11,15 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-20 — Publish failure messages move into product N#
+
+`Program.PublishCommand` no longer chooses publish build-failure or exception-failure message bodies in C#.
+The shipped `CliPublishBuildFailureMessage` and `CliPublishExceptionFailureMessage` dogfood kernels now shape
+those failure messages; C# remains the host boundary for exception capture and fallback/oracle text.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.PublishCommandKernels_NormalizesOptionsAndValidation|FullyQualifiedName~CompilationBackendTests.PublishCommand_RetiredBackend_ReturnsHelpfulFailureMessage|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-20 — Publish unsupported-shape messages move into product N#
 
 `Program.PublishCommand` no longer owns the self-contained, cross-runtime, or AOT analysis-only publish
