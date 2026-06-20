@@ -31,30 +31,21 @@ public static class RemoveCommand
         // Find and remove the dependency (text-based to preserve comments)
         for (var i = 0; i < lines.Count; i++)
         {
-            var trimmed = lines[i].Trim();
-
-            // Match shorthand: "- Package@Version" or "- Package"
-            if (trimmed.StartsWith("- ") &&
-                (trimmed.Contains(packageName + "@", StringComparison.OrdinalIgnoreCase) ||
-                 trimmed.Equals($"- {packageName}", StringComparison.OrdinalIgnoreCase)))
+            var action = GetDependencyLineAction(lines[i], packageName);
+            if (action == RemoveDependencyLineAction.RemoveSingleLine)
             {
                 lines.RemoveAt(i);
                 removed = true;
                 break;
             }
 
-            // Match mapping: "- nuget: Package" or "- framework: Package"
-            if ((trimmed.StartsWith("- nuget:", StringComparison.OrdinalIgnoreCase) ||
-                 trimmed.StartsWith("- framework:", StringComparison.OrdinalIgnoreCase)) &&
-                trimmed.Contains(packageName, StringComparison.OrdinalIgnoreCase))
+            if (action == RemoveDependencyLineAction.RemoveMappingBlock)
             {
                 lines.RemoveAt(i);
                 // Remove continuation lines (version:, etc.)
                 while (i < lines.Count)
                 {
-                    var next = lines[i];
-                    if (next.Length == 0 || next.TrimStart().StartsWith("- ") ||
-                        (!next.StartsWith(" ") && !next.StartsWith("\t")))
+                    if (ShouldStopDependencyContinuationLine(lines[i]))
                         break;
                     lines.RemoveAt(i);
                 }
@@ -99,6 +90,40 @@ public static class RemoveCommand
 
         return null;
     }
+
+    internal static RemoveDependencyLineAction GetDependencyLineAction(string line, string packageName)
+        => RemoveCommandKernels.TryGetDependencyLineAction(line, packageName, out var action)
+            ? action
+            : GetDependencyLineActionWithCSharp(line, packageName);
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product remove dependency line matching routes through RemoveCommandKernels.
+    private static RemoveDependencyLineAction GetDependencyLineActionWithCSharp(string line, string packageName)
+    {
+        var trimmed = line.Trim();
+
+        if (trimmed.StartsWith("- ") &&
+            (trimmed.Contains(packageName + "@", StringComparison.OrdinalIgnoreCase) ||
+             trimmed.Equals($"- {packageName}", StringComparison.OrdinalIgnoreCase)))
+            return RemoveDependencyLineAction.RemoveSingleLine;
+
+        if ((trimmed.StartsWith("- nuget:", StringComparison.OrdinalIgnoreCase) ||
+             trimmed.StartsWith("- framework:", StringComparison.OrdinalIgnoreCase)) &&
+            trimmed.Contains(packageName, StringComparison.OrdinalIgnoreCase))
+            return RemoveDependencyLineAction.RemoveMappingBlock;
+
+        return RemoveDependencyLineAction.Keep;
+    }
+
+    internal static bool ShouldStopDependencyContinuationLine(string line)
+        => RemoveCommandKernels.TryShouldStopDependencyContinuationLine(line, out var shouldStop)
+            ? shouldStop
+            : ShouldStopDependencyContinuationLineWithCSharp(line);
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product remove dependency continuation pruning routes through RemoveCommandKernels.
+    private static bool ShouldStopDependencyContinuationLineWithCSharp(string line)
+        => line.Length == 0 ||
+           line.TrimStart().StartsWith("- ") ||
+           (!line.StartsWith(" ") && !line.StartsWith("\t"));
 
     private static bool ContainsArgWithCSharp(string[] args, string value)
     {

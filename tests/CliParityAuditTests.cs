@@ -628,6 +628,50 @@ func Main() {
     }
 
     [Fact]
+    public void RemoveCommand_RemovesMappingDependencyBlock()
+    {
+        var projectDir = CreateTempDir();
+        var originalDirectory = Directory.GetCurrentDirectory();
+
+        try
+        {
+            Directory.SetCurrentDirectory(projectDir);
+            File.WriteAllText("project.yml", """
+name: RemoveDemo
+version: 1.0.0
+backend: il
+targetFramework: net10.0
+
+dependencies:
+  - nuget: Newtonsoft.Json
+    version: 13.0.3
+  - framework: Microsoft.AspNetCore.App
+  - nuget: YamlDotNet
+    version: 16.3.0
+""");
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() => ExecuteProgram("remove", "Newtonsoft.Json"));
+
+            Assert.Equal(0, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stderr));
+            Assert.Contains("Removed Newtonsoft.Json from project.yml", stdout);
+
+            var projectYaml = File.ReadAllText(Path.Combine(projectDir, "project.yml"));
+            Assert.DoesNotContain("Newtonsoft.Json", projectYaml);
+            Assert.DoesNotContain("13.0.3", projectYaml);
+            Assert.Contains("Microsoft.AspNetCore.App", projectYaml);
+            Assert.Contains("YamlDotNet", projectYaml);
+            Assert.Contains("16.3.0", projectYaml);
+            Assert.True(File.Exists(Path.Combine(projectDir, "obj", "project.g.props")));
+        }
+        finally
+        {
+            Directory.SetCurrentDirectory(originalDirectory);
+            Directory.Delete(projectDir, true);
+        }
+    }
+
+    [Fact]
     public void ConvertCommand_IsNotRegisteredAsPublicCliSurface()
     {
         var (exitCode, stdout, stderr) = CaptureConsole(() => ExecuteProgram("convert", "--help"));

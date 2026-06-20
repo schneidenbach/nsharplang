@@ -7045,6 +7045,8 @@ func outer(x: int): int {
         Assert.Contains("CliNewTemplateSourceFileKindsInto", methodNames!); // product new template source manifest.
         Assert.Contains("CliAddArgumentSummaryInto", methodNames!); // product add argument parsing.
         Assert.Contains("CliRemoveArgumentSummaryInto", methodNames!); // product remove argument parsing.
+        Assert.Contains("CliRemoveDependencyLineAction", methodNames!); // product remove dependency-line pruning.
+        Assert.Contains("CliRemoveShouldStopDependencyContinuationLine", methodNames!); // product remove dependency continuation pruning.
         Assert.Contains("CliUpdateArgumentSummaryInto", methodNames!); // product update argument parsing.
         Assert.Contains("CliTidyOptionSummaryInto", methodNames!); // product tidy option parsing.
         Assert.Contains("CliDocOptionSummaryInto", methodNames!); // product doc option parsing.
@@ -7157,6 +7159,13 @@ func outer(x: int): int {
             ("CliNewTemplateSourceFileKindsInto", new object[] { "systems-lib", new int[2] }),
             ("CliNewTemplateSourceFileKindsInto", new object[] { "unknown", new int[2] }),
             ("CliNewTemplateSourceFileKindsInto", new object[] { "test", new int[1] }),
+            ("CliRemoveDependencyLineAction", new object[] { "- Newtonsoft.Json@13.0.3", "Newtonsoft.Json" }),
+            ("CliRemoveDependencyLineAction", new object[] { "  - serilog", "Serilog" }),
+            ("CliRemoveDependencyLineAction", new object[] { "- nuget: YamlDotNet", "YamlDotNet" }),
+            ("CliRemoveDependencyLineAction", new object[] { "- package: Other", "Serilog" }),
+            ("CliRemoveShouldStopDependencyContinuationLine", new object[] { "    version: 13.0.3" }),
+            ("CliRemoveShouldStopDependencyContinuationLine", new object[] { "- nuget: Other" }),
+            ("CliRemoveShouldStopDependencyContinuationLine", new object[] { "dependencies:" }),
             ("CliPositionalArgChecksumInto", new object[] { new[] { "--template", "library", "systems-cli", "PacketTool", "--systems", "--diff", "src/App.nl" }, new[] { "--template", "--type" }, new int[7] }));
     }
 

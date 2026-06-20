@@ -1078,6 +1078,149 @@ func CliRemoveArgumentSummaryCore(args: &CliArgumentTable, resultIndices: &CliIn
     return 0
 }
 
+func CliRemoveDependencyLineAction(line: string, packageName: string): int {
+    start := CliRemoveTrimStartIndex(line)
+    end := CliRemoveTrimEndIndex(line, start)
+
+    if CliRemoveSubstringStartsWithAsciiIgnoreCase(line, start, end, "- ") {
+        if CliRemoveTrimmedEqualsPackageLine(line, start, end, packageName) {
+            return 1
+        }
+
+        if CliRemoveContainsPackageVersion(line, start, end, packageName) {
+            return 1
+        }
+    }
+
+    if CliRemoveSubstringStartsWithAsciiIgnoreCase(line, start, end, "- nuget:")
+        || CliRemoveSubstringStartsWithAsciiIgnoreCase(line, start, end, "- framework:") {
+        if CliRemoveContainsAsciiIgnoreCase(line, start, end, packageName) {
+            return 2
+        }
+    }
+
+    return 0
+}
+
+func CliRemoveShouldStopDependencyContinuationLine(line: string): int {
+    if line.Length == 0 {
+        return 1
+    }
+
+    start := CliRemoveTrimStartIndex(line)
+    if CliRemoveSubstringStartsWithAsciiIgnoreCase(line, start, line.Length, "- ") {
+        return 1
+    }
+
+    if line[0] != ' ' && line[0] != '\t' {
+        return 1
+    }
+
+    return 0
+}
+
+func CliRemoveTrimStartIndex(text: string): int {
+    index := 0
+    while index < text.Length && char.IsWhiteSpace(text[index]) {
+        index = index + 1
+    }
+
+    return index
+}
+
+func CliRemoveTrimEndIndex(text: string, start: int): int {
+    end := text.Length
+    while end > start && char.IsWhiteSpace(text[end - 1]) {
+        end = end - 1
+    }
+
+    return end
+}
+
+func CliRemoveSubstringStartsWithAsciiIgnoreCase(text: string, start: int, end: int, prefix: string): bool {
+    if end - start < prefix.Length {
+        return false
+    }
+
+    return CliRemoveRangeEqualsAsciiIgnoreCase(text, start, prefix)
+}
+
+func CliRemoveTrimmedEqualsPackageLine(text: string, start: int, end: int, packageName: string): bool {
+    prefixLength := 2
+    if end - start != prefixLength + packageName.Length {
+        return false
+    }
+
+    if text[start] != '-' || text[start + 1] != ' ' {
+        return false
+    }
+
+    return CliRemoveRangeEqualsAsciiIgnoreCase(text, start + prefixLength, packageName)
+}
+
+func CliRemoveContainsPackageVersion(text: string, start: int, end: int, packageName: string): bool {
+    if packageName.Length == 0 {
+        index := start
+        while index < end {
+            if text[index] == '@' {
+                return true
+            }
+
+            index = index + 1
+        }
+
+        return false
+    }
+
+    limit := end - packageName.Length
+    index := start
+    while index < limit {
+        if text[index + packageName.Length] == '@'
+            && CliRemoveRangeEqualsAsciiIgnoreCase(text, index, packageName) {
+            return true
+        }
+
+        index = index + 1
+    }
+
+    return false
+}
+
+func CliRemoveContainsAsciiIgnoreCase(text: string, start: int, end: int, value: string): bool {
+    if value.Length == 0 {
+        return true
+    }
+
+    limit := end - value.Length
+    index := start
+    while index <= limit {
+        if CliRemoveRangeEqualsAsciiIgnoreCase(text, index, value) {
+            return true
+        }
+
+        index = index + 1
+    }
+
+    return false
+}
+
+func CliRemoveRangeEqualsAsciiIgnoreCase(text: string, start: int, value: string): bool {
+    if start < 0 || start + value.Length > text.Length {
+        return false
+    }
+
+    index := 0
+    while index < value.Length {
+        if !CliPathCharsEqualAsciiIgnoreCase(text[start + index], value[index]) {
+            return false
+        }
+
+        index = index + 1
+    }
+
+    return true
+}
+
 func CliUpdateArgumentSummaryInto(args: string[], resultIndices: int[]): int {
     arguments := new CliArgumentTable { Args: args }
     results := new CliIndexResultTable { Indices: resultIndices }

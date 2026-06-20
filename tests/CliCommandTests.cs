@@ -1994,6 +1994,56 @@ func Main() {
         Assert.Null(RemoveCommand.GetPackageOperand(new[] { "--dry-run" }));
         Assert.True(RemoveCommand.GetArgumentSummary(new[] { "help" }).ShowHelp);
         Assert.Equal("help", RemoveCommand.GetArgumentSummary(new[] { "help" }).PackageOperand);
+
+        Assert.True(RemoveCommandKernels.TryGetDependencyLineAction(
+            "- Newtonsoft.Json@13.0.3",
+            "Newtonsoft.Json",
+            out var shorthandVersion));
+        Assert.Equal(RemoveDependencyLineAction.RemoveSingleLine, shorthandVersion);
+
+        Assert.True(RemoveCommandKernels.TryGetDependencyLineAction(
+            "  - serilog",
+            "Serilog",
+            out var shorthandPackage));
+        Assert.Equal(RemoveDependencyLineAction.RemoveSingleLine, shorthandPackage);
+
+        Assert.True(RemoveCommandKernels.TryGetDependencyLineAction(
+            "- nuget: YamlDotNet",
+            "YamlDotNet",
+            out var nugetMapping));
+        Assert.Equal(RemoveDependencyLineAction.RemoveMappingBlock, nugetMapping);
+
+        Assert.True(RemoveCommandKernels.TryGetDependencyLineAction(
+            "- framework: Microsoft.AspNetCore.App",
+            "Microsoft.AspNetCore.App",
+            out var frameworkMapping));
+        Assert.Equal(RemoveDependencyLineAction.RemoveMappingBlock, frameworkMapping);
+
+        Assert.True(RemoveCommandKernels.TryGetDependencyLineAction(
+            "- package: Other",
+            "Serilog",
+            out var keep));
+        Assert.Equal(RemoveDependencyLineAction.Keep, keep);
+
+        Assert.True(RemoveCommandKernels.TryShouldStopDependencyContinuationLine(
+            "    version: 1.0.0",
+            out var stopIndented));
+        Assert.False(stopIndented);
+
+        Assert.True(RemoveCommandKernels.TryShouldStopDependencyContinuationLine(
+            "- nuget: Other",
+            out var stopNextItem));
+        Assert.True(stopNextItem);
+
+        Assert.True(RemoveCommandKernels.TryShouldStopDependencyContinuationLine(
+            "dependencies:",
+            out var stopTopLevel));
+        Assert.True(stopTopLevel);
+
+        Assert.Equal(
+            RemoveDependencyLineAction.RemoveMappingBlock,
+            RemoveCommand.GetDependencyLineAction(" - nuget: YamlDotNet", "YamlDotNet"));
+        Assert.False(RemoveCommand.ShouldStopDependencyContinuationLine("  version: 1.0.0"));
     }
 
     [Fact]

@@ -6,6 +6,13 @@ internal readonly record struct RemoveArgumentSummary(
     string? PackageOperand,
     bool ShowHelp);
 
+internal enum RemoveDependencyLineAction
+{
+    Keep = 0,
+    RemoveSingleLine = 1,
+    RemoveMappingBlock = 2
+}
+
 internal static class RemoveCommandKernels
 {
     [ThreadStatic]
@@ -73,6 +80,57 @@ internal static class RemoveCommandKernels
         }
     }
 
+    internal static bool TryGetDependencyLineAction(
+        string line,
+        string packageName,
+        out RemoveDependencyLineAction action)
+    {
+        action = RemoveDependencyLineAction.Keep;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        try
+        {
+            var result = bindings.RemoveDependencyLineAction(line, packageName);
+            if (result is < 0 or > 2)
+                return false;
+
+            action = (RemoveDependencyLineAction)result;
+            return true;
+        }
+        catch
+        {
+            action = RemoveDependencyLineAction.Keep;
+            return false;
+        }
+    }
+
+    internal static bool TryShouldStopDependencyContinuationLine(string line, out bool shouldStop)
+    {
+        shouldStop = false;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        try
+        {
+            var result = bindings.RemoveShouldStopDependencyContinuationLine(line);
+            if (result is not 0 and not 1)
+                return false;
+
+            shouldStop = result == 1;
+            return true;
+        }
+        catch
+        {
+            shouldStop = false;
+            return false;
+        }
+    }
+
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
             DogfoodKernelLoader.CreateDelegate<CliFirstPositionalArgIndex>(
@@ -80,7 +138,13 @@ internal static class RemoveCommandKernels
                 "CliFirstPositionalArgIndex"),
             DogfoodKernelLoader.CreateDelegate<CliRemoveArgumentSummaryInto>(
                 programType,
-                "CliRemoveArgumentSummaryInto")));
+                "CliRemoveArgumentSummaryInto"),
+            DogfoodKernelLoader.CreateDelegate<CliRemoveDependencyLineAction>(
+                programType,
+                "CliRemoveDependencyLineAction"),
+            DogfoodKernelLoader.CreateDelegate<CliRemoveShouldStopDependencyContinuationLine>(
+                programType,
+                "CliRemoveShouldStopDependencyContinuationLine")));
 
     private delegate int CliFirstPositionalArgIndex(
         string[] args,
@@ -90,9 +154,18 @@ internal static class RemoveCommandKernels
         string[] args,
         int[] resultIndices);
 
+    private delegate int CliRemoveDependencyLineAction(
+        string line,
+        string packageName);
+
+    private delegate int CliRemoveShouldStopDependencyContinuationLine(
+        string line);
+
     private sealed record Bindings(
         CliFirstPositionalArgIndex FirstPositionalArgIndex,
-        CliRemoveArgumentSummaryInto RemoveArgumentSummary);
+        CliRemoveArgumentSummaryInto RemoveArgumentSummary,
+        CliRemoveDependencyLineAction RemoveDependencyLineAction,
+        CliRemoveShouldStopDependencyContinuationLine RemoveShouldStopDependencyContinuationLine);
 
     private static bool TryGetOptionalArg(string[] args, int index, out string? value)
     {

@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-20 — Remove dependency pruning moves into product N#
+
+`RemoveCommand` no longer owns dependency-line matching or mapping-block continuation pruning for `project.yml`
+removal. The shipped `CliRemoveDependencyLineAction` and
+`CliRemoveShouldStopDependencyContinuationLine` dogfood kernels now classify the text-preserving edit path through
+`RemoveCommandKernels`; C# keeps file I/O, local restore generation, and fallback/oracle matching only.
+
+Focused evidence:
+`./scripts/dev.sh RemoveCommandKernels`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliParityAuditTests.RemoveCommand_RemovesMappingDependencyBlock"`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-20 — New template source manifests move into product N#
 
 `Program.NewCommand` no longer owns the per-template source-file manifest used to write canonical `nlc new`
