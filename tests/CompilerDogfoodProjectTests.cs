@@ -7044,6 +7044,8 @@ func outer(x: int): int {
         Assert.Contains("CliNewEffectiveTemplateKind", methodNames!); // product new --systems template selection.
         Assert.Contains("CliNewTemplateSourceFileKindsInto", methodNames!); // product new template source manifest.
         Assert.Contains("CliAddArgumentSummaryInto", methodNames!); // product add argument parsing.
+        Assert.Contains("CliAddPackageSpecInto", methodNames!); // product add package/version spec shaping.
+        Assert.Contains("CliAddDependencyInsertIndex", methodNames!); // product add dependency insertion planning.
         Assert.Contains("CliRemoveArgumentSummaryInto", methodNames!); // product remove argument parsing.
         Assert.Contains("CliRemoveDependencyLineAction", methodNames!); // product remove dependency-line pruning.
         Assert.Contains("CliRemoveShouldStopDependencyContinuationLine", methodNames!); // product remove dependency continuation pruning.
@@ -7159,6 +7161,12 @@ func outer(x: int): int {
             ("CliNewTemplateSourceFileKindsInto", new object[] { "systems-lib", new int[2] }),
             ("CliNewTemplateSourceFileKindsInto", new object[] { "unknown", new int[2] }),
             ("CliNewTemplateSourceFileKindsInto", new object[] { "test", new int[1] }),
+            ("CliAddPackageSpecInto", new object[] { "Serilog@3.1.0", "ignored", 1, new int[4] }),
+            ("CliAddPackageSpecInto", new object[] { "Serilog", "3.1.0", 1, new int[4] }),
+            ("CliAddPackageSpecInto", new object[] { "@scope@1.0", "2.0.0", 1, new int[4] }),
+            ("CliAddPackageSpecInto", new object[] { "Serilog", "", 0, new int[4] }),
+            ("CliAddDependencyInsertIndex", new object[] { new[] { "name: Demo", "dependencies:", "  - Newtonsoft.Json@13.0.3", "targetFramework: net10.0" } }),
+            ("CliAddDependencyInsertIndex", new object[] { new[] { "name: Demo", "targetFramework: net10.0" } }),
             ("CliRemoveDependencyLineAction", new object[] { "- Newtonsoft.Json@13.0.3", "Newtonsoft.Json" }),
             ("CliRemoveDependencyLineAction", new object[] { "  - serilog", "Serilog" }),
             ("CliRemoveDependencyLineAction", new object[] { "- nuget: YamlDotNet", "YamlDotNet" }),

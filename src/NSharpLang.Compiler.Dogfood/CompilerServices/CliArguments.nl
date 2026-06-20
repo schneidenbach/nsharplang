@@ -1041,6 +1041,118 @@ func CliAddArgumentSummaryKind(arg: string): int {
     return 0
 }
 
+func CliAddPackageSpecInto(raw: string, explicitVersion: string, explicitVersionPresent: int, result: int[]): int {
+    if result.Length < 4 {
+        return -1
+    }
+
+    separator := CliAddInlineVersionSeparatorIndex(raw)
+    if separator > 0 {
+        result[0] = separator
+        result[1] = 1
+        result[2] = separator + 1
+        result[3] = raw.Length - separator - 1
+        return 0
+    }
+
+    result[0] = raw.Length
+    if explicitVersionPresent != 0 {
+        result[1] = 2
+        result[2] = 0
+        result[3] = explicitVersion.Length
+    } else {
+        result[1] = 0
+        result[2] = 0
+        result[3] = 0
+    }
+
+    return 0
+}
+
+func CliAddInlineVersionSeparatorIndex(raw: string): int {
+    index := 0
+    while index < raw.Length {
+        if raw[index] == '@' {
+            if index > 0 {
+                return index
+            }
+
+            return -1
+        }
+
+        index = index + 1
+    }
+
+    return -1
+}
+
+func CliAddDependencyInsertIndex(lines: string[]): int {
+    depIndex := -1
+    index := 0
+    while index < lines.Length {
+        if CliAddIsDependencySectionLine(lines[index]) {
+            depIndex = index
+            break
+        }
+
+        index = index + 1
+    }
+
+    if depIndex < 0 {
+        return -1
+    }
+
+    insertAt := depIndex + 1
+    while insertAt < lines.Length {
+        if CliAddDependencyBlockStopsAtLine(lines[insertAt]) {
+            return insertAt
+        }
+
+        insertAt = insertAt + 1
+    }
+
+    return insertAt
+}
+
+func CliAddIsDependencySectionLine(line: string): bool {
+    start := CliAddTrimStartIndex(line)
+    return CliAddSubstringStartsWith(line, start, line.Length, "dependencies:")
+}
+
+func CliAddDependencyBlockStopsAtLine(line: string): bool {
+    if line.Length == 0 {
+        return true
+    }
+
+    return line[0] != ' ' && line[0] != '\t'
+}
+
+func CliAddTrimStartIndex(text: string): int {
+    index := 0
+    while index < text.Length && char.IsWhiteSpace(text[index]) {
+        index = index + 1
+    }
+
+    return index
+}
+
+func CliAddSubstringStartsWith(text: string, start: int, end: int, prefix: string): bool {
+    if end - start < prefix.Length {
+        return false
+    }
+
+    index := 0
+    while index < prefix.Length {
+        if text[start + index] != prefix[index] {
+            return false
+        }
+
+        index = index + 1
+    }
+
+    return true
+}
+
 func CliRemoveArgumentSummaryInto(args: string[], resultIndices: int[]): int {
     arguments := new CliArgumentTable { Args: args }
     results := new CliIndexResultTable { Indices: resultIndices }

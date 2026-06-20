@@ -1805,6 +1805,39 @@ func Main() {
         Assert.Equal("../MyLibrary", permissiveValue.PackageOperand);
         Assert.True(AddCommand.GetArgumentSummary(new[] { "help" }).ShowHelp);
         Assert.Null(AddCommand.GetPackageOperand(new[] { "--version", "13.0.3" }));
+
+        Assert.True(AddCommandKernels.TryGetPackageSpec("Serilog@3.1.0", "ignored", out var inlineSpec));
+        Assert.Equal("Serilog", inlineSpec.PackageName);
+        Assert.Equal("3.1.0", inlineSpec.Version);
+
+        Assert.True(AddCommandKernels.TryGetPackageSpec("Serilog", "3.1.0", out var explicitSpec));
+        Assert.Equal("Serilog", explicitSpec.PackageName);
+        Assert.Equal("3.1.0", explicitSpec.Version);
+
+        Assert.True(AddCommandKernels.TryGetPackageSpec("Serilog", null, out var unversionedSpec));
+        Assert.Equal("Serilog", unversionedSpec.PackageName);
+        Assert.Null(unversionedSpec.Version);
+
+        var leadingAtSpec = AddCommand.GetPackageSpec("@scope@1.0", "2.0.0");
+        Assert.Equal("@scope@1.0", leadingAtSpec.PackageName);
+        Assert.Equal("2.0.0", leadingAtSpec.Version);
+
+        var dependencyLines = new[]
+        {
+            "name: Demo",
+            "dependencies:",
+            "  - Newtonsoft.Json@13.0.3",
+            "    version: ignored",
+            "targetFramework: net10.0"
+        };
+        Assert.True(AddCommandKernels.TryGetDependencyInsertIndex(dependencyLines, out var insertAt));
+        Assert.Equal(4, insertAt);
+        Assert.Equal(4, AddCommand.GetDependencyInsertIndex(dependencyLines));
+
+        Assert.True(AddCommandKernels.TryGetDependencyInsertIndex(
+            new[] { "name: Demo", "targetFramework: net10.0" },
+            out var missingDependencySection));
+        Assert.Equal(-1, missingDependencySection);
     }
 
     [Fact]

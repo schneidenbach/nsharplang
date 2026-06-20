@@ -319,8 +319,8 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       the same resolver-local kernels; source-generator target-framework version parsing now lives beside
       `SourceGeneratorReferenceResolver` in `SourceGeneratorReferenceResolverKernels`; check argument summary now lives beside `CheckCommand` in
       `CheckCommandKernels`; fix argument summary now lives beside `FixCommand` in
-      `FixCommandArgumentKernels`; add argument summary now lives beside `AddCommand` in
-      `AddCommandKernels`; remove argument summary and dependency-line pruning now live beside
+      `FixCommandArgumentKernels`; add argument summary and dependency-add planning now live beside
+      `AddCommand` in `AddCommandKernels`; remove argument summary and dependency-line pruning now live beside
       `RemoveCommand` in `RemoveCommandKernels`; update argument summary now lives beside `UpdateCommand` in
       `UpdateCommandKernels`; new argument summary, template normalization, effective-template selection, and
       template source manifests now live beside `Program.NewCommand` in

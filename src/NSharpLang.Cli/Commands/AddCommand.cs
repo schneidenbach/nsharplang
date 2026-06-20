@@ -38,21 +38,9 @@ public static class AddCommand
         if (string.IsNullOrWhiteSpace(raw))
             return Error("Usage: nlc add <package> [--version <ver>]\n       nlc add <package>@<version>");
 
-        string packageName;
-        string? version = null;
-
-        // Parse Package@Version syntax
-        var atIndex = raw.IndexOf('@');
-        if (atIndex > 0)
-        {
-            packageName = raw[..atIndex];
-            version = raw[(atIndex + 1)..];
-        }
-        else
-        {
-            packageName = raw;
-            version = arguments.VersionOption;
-        }
+        var packageSpec = GetPackageSpec(raw, arguments.VersionOption);
+        var packageName = packageSpec.PackageName;
+        var version = packageSpec.Version;
 
         // For NuGet packages, resolve version if not specified
         if (!isFramework && version == null)
@@ -79,8 +67,9 @@ public static class AddCommand
         }
 
         // Text-based insertion into project.yml
-        var lines = new List<string>(File.ReadAllLines(projectYml));
-        var depIndex = lines.FindIndex(l => l.TrimStart().StartsWith("dependencies:"));
+        var lineArray = File.ReadAllLines(projectYml);
+        var lines = new List<string>(lineArray);
+        var insertAt = GetDependencyInsertIndex(lineArray);
 
         string newEntry;
         if (isFramework)
@@ -88,17 +77,8 @@ public static class AddCommand
         else
             newEntry = $"  - {packageName}@{version}";
 
-        if (depIndex >= 0)
+        if (insertAt >= 0)
         {
-            // Find the end of the dependencies block
-            var insertAt = depIndex + 1;
-            while (insertAt < lines.Count)
-            {
-                var line = lines[insertAt];
-                if (line.Length == 0 || (!line.StartsWith(" ") && !line.StartsWith("\t")))
-                    break;
-                insertAt++;
-            }
             lines.Insert(insertAt, newEntry);
         }
         else
@@ -129,6 +109,45 @@ public static class AddCommand
         => AddCommandKernels.TryGetArgumentSummary(args, out var summary)
             ? summary
             : GetArgumentSummaryWithCSharp(args);
+
+    internal static AddPackageSpec GetPackageSpec(string raw, string? explicitVersion)
+        => AddCommandKernels.TryGetPackageSpec(raw, explicitVersion, out var spec)
+            ? spec
+            : GetPackageSpecWithCSharp(raw, explicitVersion);
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product add package spec shaping routes through AddCommandKernels.
+    private static AddPackageSpec GetPackageSpecWithCSharp(string raw, string? explicitVersion)
+    {
+        var atIndex = raw.IndexOf('@');
+        if (atIndex > 0)
+            return new AddPackageSpec(raw[..atIndex], raw[(atIndex + 1)..]);
+
+        return new AddPackageSpec(raw, explicitVersion);
+    }
+
+    internal static int GetDependencyInsertIndex(string[] lines)
+        => AddCommandKernels.TryGetDependencyInsertIndex(lines, out var insertIndex)
+            ? insertIndex
+            : GetDependencyInsertIndexWithCSharp(lines);
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product add dependency insertion planning routes through AddCommandKernels.
+    private static int GetDependencyInsertIndexWithCSharp(string[] lines)
+    {
+        var depIndex = Array.FindIndex(lines, l => l.TrimStart().StartsWith("dependencies:"));
+        if (depIndex < 0)
+            return -1;
+
+        var insertAt = depIndex + 1;
+        while (insertAt < lines.Length)
+        {
+            var line = lines[insertAt];
+            if (line.Length == 0 || (!line.StartsWith(" ") && !line.StartsWith("\t")))
+                break;
+            insertAt++;
+        }
+
+        return insertAt;
+    }
 
     // Stage 6 C#-surface-shrink: fallback/oracle only; product add argument parsing routes through AddCommandKernels.
     private static AddArgumentSummary GetArgumentSummaryWithCSharp(string[] args)
@@ -181,20 +200,13 @@ public static class AddCommand
             // If parse fails, proceed anyway — text-based edit doesn't require full parse
         }
 
-        var lines = new List<string>(File.ReadAllLines(projectYml));
-        var depIndex = lines.FindIndex(l => l.TrimStart().StartsWith("dependencies:"));
+        var lineArray = File.ReadAllLines(projectYml);
+        var lines = new List<string>(lineArray);
+        var insertAt = GetDependencyInsertIndex(lineArray);
         var newEntry = $"  - project: {localPath}";
 
-        if (depIndex >= 0)
+        if (insertAt >= 0)
         {
-            var insertAt = depIndex + 1;
-            while (insertAt < lines.Count)
-            {
-                var line = lines[insertAt];
-                if (line.Length == 0 || (!line.StartsWith(" ") && !line.StartsWith("\t")))
-                    break;
-                insertAt++;
-            }
             lines.Insert(insertAt, newEntry);
         }
         else

@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-20 — Add dependency planning moves into product N#
+
+`AddCommand` no longer owns `Package@Version` splitting or dependency-block insertion planning for
+`project.yml` edits. The shipped `CliAddPackageSpecInto` and `CliAddDependencyInsertIndex` dogfood kernels now
+shape the package/version spec and locate the existing dependency block through `AddCommandKernels`; C# keeps
+NuGet lookup, duplicate checks, file I/O, restore generation, and fallback/oracle planning only.
+
+Focused evidence:
+`./scripts/dev.sh AddCommandKernels`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliParityAuditTests.AddCommand_AddsInlinePackageBeforeNextTopLevelBlock"`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-20 — Remove dependency pruning moves into product N#
 
 `RemoveCommand` no longer owns dependency-line matching or mapping-block continuation pruning for `project.yml`

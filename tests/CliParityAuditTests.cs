@@ -1165,6 +1165,47 @@ func Main() {
         Assert.Contains("--path", stdout);
     }
 
+    [Fact]
+    public void AddCommand_AddsInlinePackageBeforeNextTopLevelBlock()
+    {
+        var projectDir = CreateTempDir();
+        var originalDirectory = Directory.GetCurrentDirectory();
+
+        try
+        {
+            Directory.SetCurrentDirectory(projectDir);
+            File.WriteAllText("project.yml", """
+name: AddDemo
+version: 1.0.0
+backend: il
+
+dependencies:
+  - Newtonsoft.Json@13.0.3
+targetFramework: net10.0
+""");
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() => AddCommand.Execute(new[] { "Serilog@3.1.0" }));
+
+            Assert.Equal(0, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stderr));
+            Assert.Contains("Added Serilog@3.1.0 to project.yml", stdout);
+
+            var projectYaml = File.ReadAllText(Path.Combine(projectDir, "project.yml"));
+            var newDependencyIndex = projectYaml.IndexOf("Serilog@3.1.0", StringComparison.Ordinal);
+            var nextTopLevelIndex = projectYaml.IndexOf("targetFramework: net10.0", StringComparison.Ordinal);
+
+            Assert.Contains("Newtonsoft.Json@13.0.3", projectYaml);
+            Assert.True(newDependencyIndex >= 0);
+            Assert.True(nextTopLevelIndex > newDependencyIndex);
+            Assert.True(File.Exists(Path.Combine(projectDir, "obj", "project.g.props")));
+        }
+        finally
+        {
+            Directory.SetCurrentDirectory(originalDirectory);
+            Directory.Delete(projectDir, true);
+        }
+    }
+
     // ── Test command: build failure properly returns error ────────────
 
     [Fact]

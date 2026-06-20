@@ -10,10 +10,16 @@ internal readonly record struct AddArgumentSummary(
     bool Prerelease,
     bool ShowHelp);
 
+internal readonly record struct AddPackageSpec(
+    string PackageName,
+    string? Version);
+
 internal static class AddCommandKernels
 {
     [ThreadStatic]
     private static int[]? t_resultIndices;
+    [ThreadStatic]
+    private static int[]? t_packageSpecResult;
 
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
 
@@ -56,6 +62,80 @@ internal static class AddCommandKernels
         }
     }
 
+    internal static bool TryGetPackageSpec(string raw, string? explicitVersion, out AddPackageSpec spec)
+    {
+        spec = default;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        var result = t_packageSpecResult ??= new int[4];
+        try
+        {
+            var explicitVersionPresent = explicitVersion == null ? 0 : 1;
+            var code = bindings.AddPackageSpec(raw, explicitVersion ?? string.Empty, explicitVersionPresent, result);
+            if (code != 0)
+                return false;
+
+            var packageLength = result[0];
+            if (packageLength < 0 || packageLength > raw.Length)
+                return false;
+
+            var versionSource = result[1];
+            var versionStart = result[2];
+            var versionLength = result[3];
+
+            string? version = null;
+            if (versionSource == 1)
+            {
+                if (!TrySlice(raw, versionStart, versionLength, out version))
+                    return false;
+            }
+            else if (versionSource == 2)
+            {
+                if (explicitVersion == null || !TrySlice(explicitVersion, versionStart, versionLength, out version))
+                    return false;
+            }
+            else if (versionSource != 0)
+            {
+                return false;
+            }
+
+            spec = new AddPackageSpec(raw[..packageLength], version);
+            return true;
+        }
+        catch
+        {
+            spec = default;
+            return false;
+        }
+    }
+
+    internal static bool TryGetDependencyInsertIndex(string[] lines, out int insertIndex)
+    {
+        insertIndex = -1;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        try
+        {
+            var result = bindings.AddDependencyInsertIndex(lines);
+            if (result < -1 || result > lines.Length)
+                return false;
+
+            insertIndex = result;
+            return true;
+        }
+        catch
+        {
+            insertIndex = -1;
+            return false;
+        }
+    }
+
     internal static bool TryGetPackageOperand(
         string[] args,
         string[] optionsWithValues,
@@ -93,7 +173,13 @@ internal static class AddCommandKernels
                 "CliFirstPositionalArgIndex"),
             DogfoodKernelLoader.CreateDelegate<CliAddArgumentSummaryInto>(
                 programType,
-                "CliAddArgumentSummaryInto")));
+                "CliAddArgumentSummaryInto"),
+            DogfoodKernelLoader.CreateDelegate<CliAddPackageSpecInto>(
+                programType,
+                "CliAddPackageSpecInto"),
+            DogfoodKernelLoader.CreateDelegate<CliAddDependencyInsertIndex>(
+                programType,
+                "CliAddDependencyInsertIndex")));
 
     private delegate int CliFirstPositionalArgIndex(
         string[] args,
@@ -103,9 +189,20 @@ internal static class AddCommandKernels
         string[] args,
         int[] resultIndices);
 
+    private delegate int CliAddPackageSpecInto(
+        string raw,
+        string explicitVersion,
+        int explicitVersionPresent,
+        int[] result);
+
+    private delegate int CliAddDependencyInsertIndex(
+        string[] lines);
+
     private sealed record Bindings(
         CliFirstPositionalArgIndex FirstPositionalArgIndex,
-        CliAddArgumentSummaryInto AddArgumentSummary);
+        CliAddArgumentSummaryInto AddArgumentSummary,
+        CliAddPackageSpecInto AddPackageSpec,
+        CliAddDependencyInsertIndex AddDependencyInsertIndex);
 
     private static bool TryGetOptionalArg(string[] args, int index, out string? value)
     {
@@ -117,6 +214,16 @@ internal static class AddCommandKernels
             return false;
 
         value = args[index];
+        return true;
+    }
+
+    private static bool TrySlice(string value, int start, int length, out string slice)
+    {
+        slice = string.Empty;
+        if (start < 0 || length < 0 || start + length > value.Length)
+            return false;
+
+        slice = value.Substring(start, length);
         return true;
     }
 }
