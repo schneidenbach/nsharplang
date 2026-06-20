@@ -7026,6 +7026,7 @@ func outer(x: int): int {
         Assert.Contains("CliBuildOperandSummaryInto", methodNames!); // product build operand summary.
         Assert.Contains("CliBuildOptionSummaryInto", methodNames!); // product build option parsing.
         Assert.Contains("CliTestOptionSummaryInto", methodNames!); // product test option parsing.
+        Assert.Contains("CliTestOutputMode", methodNames!); // product test output mode selection.
         Assert.Contains("CliTestFilterMatches", methodNames!); // product test filter matching.
         Assert.Contains("CliPackOptionSummaryInto", methodNames!); // product pack option parsing.
         Assert.Contains("CliPackOutputMode", methodNames!); // product pack output mode selection.
@@ -15602,6 +15603,10 @@ class OtherZetaType {
                     "CliPackOptionSummaryInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliPackOptionSummaryInto.");
+            var cliTestOutputMode = programType.GetMethod(
+                    "CliTestOutputMode",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTestOutputMode.");
             var cliPackOutputMode = programType.GetMethod(
                     "CliPackOutputMode",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -16721,6 +16726,7 @@ func main(customer: Customer, résumé: Profile) {
             AssertCliWatchOptionsLikeProduction(cliWatchOptionSummaryInto);
             AssertCliWatchPositiveIntsLikeProduction(cliWatchPositiveIntInto);
             AssertCliPublishOptionsLikeProduction(cliPublishOptionsInto);
+            AssertCliJsonFlagOutputModesLikeProduction(cliTestOutputMode);
             AssertCliPackOptionsLikeProduction(cliPackOptionSummaryInto);
             AssertCliJsonFlagOutputModesLikeProduction(cliPackOutputMode);
             AssertCliPackEffectiveVersionSourcesLikeProduction(cliPackEffectiveVersionSource);

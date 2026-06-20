@@ -2,6 +2,12 @@ using System;
 
 namespace NSharpLang.Cli;
 
+internal enum TestOutputModeKind
+{
+    Json = 1,
+    Text = 2
+}
+
 internal static class TestCommandKernels
 {
     [ThreadStatic]
@@ -112,6 +118,30 @@ internal static class TestCommandKernels
         }
     }
 
+    internal static bool TryGetOutputMode(bool json, out TestOutputModeKind outputMode)
+    {
+        outputMode = default;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        try
+        {
+            var code = bindings.TestOutputMode(json ? 1 : 0);
+            if (code is < 1 or > 2)
+                return false;
+
+            outputMode = (TestOutputModeKind)code;
+            return true;
+        }
+        catch
+        {
+            outputMode = default;
+            return false;
+        }
+    }
+
     internal static bool TryGetDurationMilliseconds(string duration, out int? milliseconds)
     {
         milliseconds = null;
@@ -173,6 +203,9 @@ internal static class TestCommandKernels
             DogfoodKernelLoader.CreateDelegate<CliTestOptionSummaryInto>(
                 programType,
                 "CliTestOptionSummaryInto"),
+            DogfoodKernelLoader.CreateDelegate<CliTestOutputMode>(
+                programType,
+                "CliTestOutputMode"),
             DogfoodKernelLoader.CreateDelegate<CliTestDurationMilliseconds>(
                 programType,
                 "CliTestDurationMilliseconds"),
@@ -187,6 +220,8 @@ internal static class TestCommandKernels
 
     private delegate int CliTestOptionSummaryInto(string[] args, int[] resultIndices);
 
+    private delegate int CliTestOutputMode(int json);
+
     private delegate int CliTestDurationMilliseconds(string duration);
 
     private delegate int CliTestFilterMatches(
@@ -198,6 +233,7 @@ internal static class TestCommandKernels
     private sealed record Bindings(
         CliTestOutcomeSummaryInto TestOutcomeSummary,
         CliTestOptionSummaryInto TestOptionSummary,
+        CliTestOutputMode TestOutputMode,
         CliTestDurationMilliseconds TestDurationMilliseconds,
         CliTestFilterMatches TestFilterMatches);
 

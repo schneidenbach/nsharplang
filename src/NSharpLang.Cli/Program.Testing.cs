@@ -70,7 +70,7 @@ partial class Program
         ProjectConfig? projectConfig,
         string? filter,
         bool verbose,
-        bool jsonOutput,
+        TestOutputModeKind outputMode,
         int? timeoutMs,
         bool noCache,
         bool collectCoverage,
@@ -80,7 +80,7 @@ partial class Program
         var projectYmlPath = Path.Combine(projectRoot, "project.yml");
         if (!File.Exists(projectYmlPath))
         {
-            if (jsonOutput)
+            if (outputMode == TestOutputModeKind.Json)
             {
                 OutputNativeTestJson(projectRoot, false, Array.Empty<NativeTestResult>(), "IL-backed test runs require a project.yml file.");
                 return 1;
@@ -91,7 +91,7 @@ partial class Program
 
         if (collectCoverage || coverageReport)
         {
-            if (jsonOutput)
+            if (outputMode == TestOutputModeKind.Json)
             {
                 OutputNativeTestJson(projectRoot, false, Array.Empty<NativeTestResult>(), CoverageUnsupportedMessage);
                 return 1;
@@ -119,7 +119,7 @@ partial class Program
 
             if (outputPath == null)
             {
-                if (jsonOutput)
+                if (outputMode == TestOutputModeKind.Json)
                 {
                     OutputNativeTestJson(projectRoot, false, Array.Empty<NativeTestResult>(), "Test build failed.");
                     return 1;
@@ -134,7 +134,7 @@ partial class Program
             var testResults = testRun.Results;
             var summary = SummarizeNativeTestRun(testRun);
 
-            if (jsonOutput)
+            if (outputMode == TestOutputModeKind.Json)
             {
                 OutputNativeTestJson(projectRoot, summary.Ok, testResults, summary: summary);
             }
@@ -149,12 +149,12 @@ partial class Program
         }
         catch (Exception ex)
         {
-            if (!jsonOutput)
+            if (outputMode == TestOutputModeKind.Text)
             {
                 Console.WriteLine($"  Tests failed in {FormatElapsed(stopwatch.Elapsed)}");
             }
 
-            if (jsonOutput)
+            if (outputMode == TestOutputModeKind.Json)
             {
                 OutputNativeTestJson(projectRoot, false, Array.Empty<NativeTestResult>(), ex.Message);
                 return 1;

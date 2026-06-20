@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-20 — Test output mode selection moves into product N#
+
+`Program.TestCommand` and the IL-backed test runner no longer branch directly on `TestOptionSummary.JsonOutput`
+when choosing progress text, JSON result envelopes, or JSON error envelopes. The shipped
+`CliTestOutputMode` dogfood kernel now selects the `nlc test` render path; C# keeps project/test discovery,
+IL test execution, output emission, and fallback/oracle mode selection only.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.TestCommandKernels_SummarizesOptions|FullyQualifiedName~CliCommandTests.TestCommandKernels_ParsesTimeoutDurations|FullyQualifiedName~CliParityAuditTests.TestCommand_NoTestFiles_ReturnsZero|FullyQualifiedName~CompilationBackendTests.TestCommand_CoverageJson_ReturnsUnsupportedErrorBeforeDiscovery|FullyQualifiedName~CompilationBackendTests.TestCommand_UsesConfiguredIlBackendAndRunsExecutableProjectTests|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-20 — Pack output mode selection moves into product N#
 
 `PackCommand` no longer branches directly on `options.JsonOutput` when choosing progress text,

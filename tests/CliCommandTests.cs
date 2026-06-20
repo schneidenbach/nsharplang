@@ -3770,6 +3770,14 @@ dependencies:
             out var helpAsProjectValue));
         Assert.Equal("--help", helpAsProjectValue.ProjectOption);
         Assert.True(helpAsProjectValue.ShowHelp);
+
+        Assert.True(TestCommandKernels.TryGetOutputMode(json: false, out var textMode));
+        Assert.Equal(TestOutputModeKind.Text, textMode);
+        Assert.Equal(TestOutputModeKind.Text, Program.GetTestOutputMode(json: false));
+
+        Assert.True(TestCommandKernels.TryGetOutputMode(json: true, out var jsonMode));
+        Assert.Equal(TestOutputModeKind.Json, jsonMode);
+        Assert.Equal(TestOutputModeKind.Json, Program.GetTestOutputMode(json: true));
     }
 
     [Fact]
@@ -3794,6 +3802,16 @@ dependencies:
             Program.Execute(new[] { "test", "--timeout", "2147484s" }));
         Assert.Equal(1, exitCode);
         Assert.Contains("Invalid timeout format '2147484s'", stderr);
+
+        var (jsonExitCode, jsonStdout, jsonStderr) = CaptureConsole(() =>
+            Program.Execute(new[] { "test", "--timeout", "2147484s", "--json" }));
+        Assert.Equal(1, jsonExitCode);
+        Assert.True(string.IsNullOrWhiteSpace(jsonStderr));
+
+        using var doc = JsonDocument.Parse(jsonStdout);
+        Assert.Equal("test", doc.RootElement.GetProperty("command").GetString());
+        Assert.False(doc.RootElement.GetProperty("ok").GetBoolean());
+        Assert.Contains("Invalid timeout format '2147484s'", doc.RootElement.GetProperty("error").GetString());
     }
 
     [Fact]

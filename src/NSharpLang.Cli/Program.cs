@@ -1367,6 +1367,7 @@ Exit codes:
 
         var projectRoot = testOptions.ProjectOption ?? Directory.GetCurrentDirectory();
         projectRoot = Path.GetFullPath(projectRoot);
+        var outputMode = GetTestOutputMode(testOptions.JsonOutput);
 
         // Parse timeout to milliseconds
         int? timeoutMs = null;
@@ -1374,17 +1375,26 @@ Exit codes:
         {
             timeoutMs = ParseDurationToMs(testOptions.Timeout);
             if (timeoutMs == null)
-                return Error($"Invalid timeout format '{testOptions.Timeout}'. Expected a duration like 30s, 5m, or 1h.");
+            {
+                var message = $"Invalid timeout format '{testOptions.Timeout}'. Expected a duration like 30s, 5m, or 1h.";
+                if (outputMode == TestOutputModeKind.Json)
+                {
+                    OutputNativeTestJson(projectRoot, false, Array.Empty<NativeTestResult>(), message);
+                    return 1;
+                }
+
+                return Error(message);
+            }
         }
 
         var sw = System.Diagnostics.Stopwatch.StartNew();
         try
         {
-            if (!testOptions.JsonOutput) Console.WriteLine($"Testing project in {projectRoot}...");
+            if (outputMode == TestOutputModeKind.Text) Console.WriteLine($"Testing project in {projectRoot}...");
 
             if (testOptions.CollectCoverage || testOptions.CoverageReport)
             {
-                if (testOptions.JsonOutput)
+                if (outputMode == TestOutputModeKind.Json)
                 {
                     OutputNativeTestJson(projectRoot, false, Array.Empty<NativeTestResult>(), CoverageUnsupportedMessage);
                     return 1;
@@ -1398,7 +1408,7 @@ Exit codes:
 
             if (testFiles.Length == 0)
             {
-                if (testOptions.JsonOutput)
+                if (outputMode == TestOutputModeKind.Json)
                 {
                     OutputNativeTestJson(projectRoot, true, Array.Empty<NativeTestResult>());
                     return 0;
@@ -1407,7 +1417,7 @@ Exit codes:
                 return 0;
             }
 
-            if (!testOptions.JsonOutput) Console.WriteLine($"Found {testFiles.Length} test file(s)");
+            if (outputMode == TestOutputModeKind.Text) Console.WriteLine($"Found {testFiles.Length} test file(s)");
 
             var projectConfig = ProjectFileParser.ParseFromDirectory(projectRoot);
             _ = ResolveCompilationBackend(testOptions.BackendOption, projectConfig);
@@ -1417,7 +1427,7 @@ Exit codes:
                 projectConfig,
                 testOptions.Filter,
                 testOptions.Verbose,
-                testOptions.JsonOutput,
+                outputMode,
                 timeoutMs,
                 testOptions.NoCache,
                 testOptions.CollectCoverage,
@@ -1426,8 +1436,8 @@ Exit codes:
         }
         catch (Exception ex)
         {
-            if (!testOptions.JsonOutput) Console.WriteLine($"  Tests failed in {FormatElapsed(sw.Elapsed)}");
-            if (testOptions.JsonOutput) { OutputNativeTestJson(projectRoot, false, Array.Empty<NativeTestResult>(), ex.Message); return 1; }
+            if (outputMode == TestOutputModeKind.Text) Console.WriteLine($"  Tests failed in {FormatElapsed(sw.Elapsed)}");
+            if (outputMode == TestOutputModeKind.Json) { OutputNativeTestJson(projectRoot, false, Array.Empty<NativeTestResult>(), ex.Message); return 1; }
             return Error($"Test failed: {ex.Message}");
         }
     }
@@ -1884,6 +1894,11 @@ Exit codes:
         return GetTestOptionSummaryWithCSharp(args);
     }
 
+    internal static TestOutputModeKind GetTestOutputMode(bool json)
+        => TestCommandKernels.TryGetOutputMode(json, out var outputMode)
+            ? outputMode
+            : GetTestOutputModeWithCSharp(json);
+
     // Stage 6 C#-surface-shrink: fallback/oracle only; product test option parsing routes through TestCommandKernels.
     static TestOptionSummary GetTestOptionSummaryWithCSharp(string[] args)
     {
@@ -1900,6 +1915,10 @@ Exit codes:
             args.Contains("--no-cache"),
             args.Contains("--help") || args.Contains("-h") || (args.Length > 0 && args[0] == "help"));
     }
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product test output mode selection routes through TestCommandKernels.
+    private static TestOutputModeKind GetTestOutputModeWithCSharp(bool json)
+        => json ? TestOutputModeKind.Json : TestOutputModeKind.Text;
 
     static BuildOperandSummary GetBuildOperandSummary(string[] args)
     {

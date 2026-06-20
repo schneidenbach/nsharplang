@@ -6058,6 +6058,14 @@ func CliTestOptionSummaryInto(args: string[], resultIndices: int[]): int {
     return CliTestOptionSummaryCore(ref arguments, ref results)
 }
 
+func CliTestOutputMode(useJson: int): int {
+    if useJson != 0 {
+        return 1
+    }
+
+    return 2
+}
+
 func CliTestDurationMilliseconds(duration: string): int {
     start := 0
     end := duration.Length - 1
