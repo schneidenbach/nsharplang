@@ -1628,6 +1628,17 @@ func Main() {
         Assert.True(NewCommandKernels.TryResolveTemplate("web-api", systems: false, out var effectiveWebApi));
         Assert.Equal(NewProjectTemplateKind.WebApi, effectiveWebApi);
 
+        Assert.True(NewCommandKernels.TryGetTemplateSourceFileKinds("webapi", out var webApiSourceKinds));
+        Assert.Equal(
+            new[] { NewTemplateSourceFileKind.Program, NewTemplateSourceFileKind.WebApiController },
+            webApiSourceKinds);
+        Assert.True(NewCommandKernels.TryGetTemplateSourceFileKinds("systems-lib", out var systemsLibSourceKinds));
+        Assert.Equal(
+            new[] { NewTemplateSourceFileKind.PacketCore, NewTemplateSourceFileKind.PacketCoreTests },
+            systemsLibSourceKinds);
+        Assert.True(NewCommandKernels.TryGetTemplateSourceFileKinds("unknown", out var unknownSourceKinds));
+        Assert.Empty(unknownSourceKinds);
+
         Assert.True(Program.GetNewArgumentSummary(new[] { "help" }).ShowHelp);
     }
 

@@ -322,7 +322,8 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       `FixCommandArgumentKernels`; add argument summary now lives beside `AddCommand` in
       `AddCommandKernels`; remove argument summary now lives beside `RemoveCommand` in
       `RemoveCommandKernels`; update argument summary now lives beside `UpdateCommand` in
-      `UpdateCommandKernels`; new argument summary, template normalization, and effective-template selection now live beside `Program.NewCommand` in
+      `UpdateCommandKernels`; new argument summary, template normalization, effective-template selection, and
+      template source manifests now live beside `Program.NewCommand` in
       `NewCommandKernels`; tidy
       option summary, classification, status summary, and fix filtering now live beside `TidyCommand`
       in `TidyCommandKernels`;

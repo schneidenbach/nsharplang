@@ -941,16 +941,45 @@ Exit codes:
             args.Contains("--help") || args.Contains("-h") || (args.Length > 0 && args[0] == "help"));
     }
 
-    static string[] GetTemplateSourceFiles(string template) => template switch
+    static string[] GetTemplateSourceFiles(string template)
     {
-        "console" => new[] { "Program.nl" },
-        "library" => new[] { "Calculator.nl" },
-        "test" => new[] { "Calculator.nl", "Calculator.tests.nl" },
-        "webapi" => new[] { "Program.nl", "Controllers/WeatherController.nl" },
-        "systems-cli" => new[] { "Program.nl", "Systems.tests.nl" },
-        "systems-lib" => new[] { "PacketCore.nl", "PacketCore.tests.nl" },
-        _ => Array.Empty<string>(),
+        var sourceFileKinds = GetTemplateSourceFileKinds(template);
+        var sourceFiles = new string[sourceFileKinds.Length];
+        for (var i = 0; i < sourceFileKinds.Length; i++)
+            sourceFiles[i] = GetTemplateSourceFileName(sourceFileKinds[i]);
+
+        return sourceFiles;
+    }
+
+    static NewTemplateSourceFileKind[] GetTemplateSourceFileKinds(string template)
+        => NewCommandKernels.TryGetTemplateSourceFileKinds(template, out var dogfoodKinds)
+            ? dogfoodKinds
+            : GetTemplateSourceFileKindsWithCSharp(template);
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product new-template source manifests route through NewCommandKernels.
+    static NewTemplateSourceFileKind[] GetTemplateSourceFileKindsWithCSharp(string template) => template switch
+    {
+        "console" => new[] { NewTemplateSourceFileKind.Program },
+        "library" => new[] { NewTemplateSourceFileKind.Calculator },
+        "test" => new[] { NewTemplateSourceFileKind.Calculator, NewTemplateSourceFileKind.CalculatorTests },
+        "webapi" => new[] { NewTemplateSourceFileKind.Program, NewTemplateSourceFileKind.WebApiController },
+        "systems-cli" => new[] { NewTemplateSourceFileKind.Program, NewTemplateSourceFileKind.SystemsTests },
+        "systems-lib" => new[] { NewTemplateSourceFileKind.PacketCore, NewTemplateSourceFileKind.PacketCoreTests },
+        _ => Array.Empty<NewTemplateSourceFileKind>(),
     };
+
+    static string GetTemplateSourceFileName(NewTemplateSourceFileKind sourceFileKind)
+        => sourceFileKind switch
+        {
+            NewTemplateSourceFileKind.Program => "Program.nl",
+            NewTemplateSourceFileKind.Calculator => "Calculator.nl",
+            NewTemplateSourceFileKind.CalculatorTests => "Calculator.tests.nl",
+            NewTemplateSourceFileKind.WebApiController => "Controllers/WeatherController.nl",
+            NewTemplateSourceFileKind.SystemsTests => "Systems.tests.nl",
+            NewTemplateSourceFileKind.PacketCore => "PacketCore.nl",
+            NewTemplateSourceFileKind.PacketCoreTests => "PacketCore.tests.nl",
+            _ => throw new ArgumentOutOfRangeException(nameof(sourceFileKind), sourceFileKind, "Unknown template source file kind."),
+        };
 
     static string? NormalizeProjectTemplate(string value)
     {
@@ -1014,31 +1043,47 @@ Exit codes:
         File.WriteAllText(Path.Combine(projectDir, "project.yml"), GenerateProjectYaml(projectName, template));
         WriteSdkSupportFiles(projectDir);
 
-        switch (template)
+        foreach (var sourceFileKind in GetTemplateSourceFileKinds(template))
+            WriteTemplateSourceFile(projectDir, template, sourceFileKind);
+    }
+
+    static void WriteTemplateSourceFile(
+        string projectDir,
+        string template,
+        NewTemplateSourceFileKind sourceFileKind)
+    {
+        switch (sourceFileKind)
         {
-            case "console":
-                File.WriteAllText(Path.Combine(projectDir, "Program.nl"), ConsoleProgramSource);
-                break;
-            case "library":
+            case NewTemplateSourceFileKind.Program:
+                var programSource = template switch
+                {
+                    "webapi" => WebApiProgramSource,
+                    "systems-cli" => SystemsCliSource,
+                    _ => ConsoleProgramSource,
+                };
+                File.WriteAllText(Path.Combine(projectDir, "Program.nl"), programSource);
+                return;
+            case NewTemplateSourceFileKind.Calculator:
                 File.WriteAllText(Path.Combine(projectDir, "Calculator.nl"), CalculatorSource);
-                break;
-            case "test":
-                File.WriteAllText(Path.Combine(projectDir, "Calculator.nl"), CalculatorSource);
+                return;
+            case NewTemplateSourceFileKind.CalculatorTests:
                 File.WriteAllText(Path.Combine(projectDir, "Calculator.tests.nl"), CalculatorTestsSource);
-                break;
-            case "webapi":
+                return;
+            case NewTemplateSourceFileKind.WebApiController:
                 Directory.CreateDirectory(Path.Combine(projectDir, "Controllers"));
-                File.WriteAllText(Path.Combine(projectDir, "Program.nl"), WebApiProgramSource);
                 File.WriteAllText(Path.Combine(projectDir, "Controllers", "WeatherController.nl"), WebApiControllerSource);
-                break;
-            case "systems-cli":
-                File.WriteAllText(Path.Combine(projectDir, "Program.nl"), SystemsCliSource);
+                return;
+            case NewTemplateSourceFileKind.SystemsTests:
                 File.WriteAllText(Path.Combine(projectDir, "Systems.tests.nl"), SystemsTestsSource);
-                break;
-            case "systems-lib":
+                return;
+            case NewTemplateSourceFileKind.PacketCore:
                 File.WriteAllText(Path.Combine(projectDir, "PacketCore.nl"), SystemsLibrarySource);
+                return;
+            case NewTemplateSourceFileKind.PacketCoreTests:
                 File.WriteAllText(Path.Combine(projectDir, "PacketCore.tests.nl"), SystemsTestsSource);
-                break;
+                return;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(sourceFileKind), sourceFileKind, "Unknown template source file kind.");
         }
     }
 

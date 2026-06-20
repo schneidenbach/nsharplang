@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-20 — New template source manifests move into product N#
+
+`Program.NewCommand` no longer owns the per-template source-file manifest used to write canonical `nlc new`
+projects and print their created source files. The shipped `CliNewTemplateSourceFileKindsInto` dogfood kernel now
+returns the ordered source-file kind list through `NewCommandKernels`; C# keeps filesystem writes, embedded source
+text materialization, and fallback/oracle manifest logic only.
+
+Focused evidence:
+`./scripts/dev.sh NewCommandKernels`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliParityAuditTests.NewCommand_CreatesCanonicalCsprojFreeProjectShape|FullyQualifiedName~CliParityAuditTests.NewCommand_CreatesSystemsProjectShape"`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-20 — Stale generated source path pruning moves into product N#
 
 `Program.CleanStaleGeneratedFiles` no longer owns the root `obj/` and `bin/` source-path skip rule used while

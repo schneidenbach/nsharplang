@@ -20,10 +20,23 @@ internal enum NewProjectTemplateKind
     SystemsLib = 6
 }
 
+internal enum NewTemplateSourceFileKind
+{
+    Program = 1,
+    Calculator = 2,
+    CalculatorTests = 3,
+    WebApiController = 4,
+    SystemsTests = 5,
+    PacketCore = 6,
+    PacketCoreTests = 7
+}
+
 internal static class NewCommandKernels
 {
     [ThreadStatic]
     private static int[]? t_resultIndices;
+    [ThreadStatic]
+    private static int[]? t_sourceFileKinds;
 
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
 
@@ -143,6 +156,42 @@ internal static class NewCommandKernels
         }
     }
 
+    internal static bool TryGetTemplateSourceFileKinds(
+        string template,
+        out NewTemplateSourceFileKind[] sourceFileKinds)
+    {
+        sourceFileKinds = Array.Empty<NewTemplateSourceFileKind>();
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        var resultKinds = t_sourceFileKinds ??= new int[2];
+        try
+        {
+            var count = bindings.NewTemplateSourceFileKinds(template, resultKinds);
+            if (count < 0 || count > resultKinds.Length)
+                return false;
+
+            var kinds = new NewTemplateSourceFileKind[count];
+            for (var i = 0; i < count; i++)
+            {
+                if (resultKinds[i] is < 1 or > 7)
+                    return false;
+
+                kinds[i] = (NewTemplateSourceFileKind)resultKinds[i];
+            }
+
+            sourceFileKinds = kinds;
+            return true;
+        }
+        catch
+        {
+            sourceFileKinds = Array.Empty<NewTemplateSourceFileKind>();
+            return false;
+        }
+    }
+
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
             DogfoodKernelLoader.CreateDelegate<CliFirstPositionalArgIndex>(
@@ -156,7 +205,10 @@ internal static class NewCommandKernels
                 "CliNewTemplateKind"),
             DogfoodKernelLoader.CreateDelegate<CliNewEffectiveTemplateKind>(
                 programType,
-                "CliNewEffectiveTemplateKind")));
+                "CliNewEffectiveTemplateKind"),
+            DogfoodKernelLoader.CreateDelegate<CliNewTemplateSourceFileKindsInto>(
+                programType,
+                "CliNewTemplateSourceFileKindsInto")));
 
     private delegate int CliFirstPositionalArgIndex(
         string[] args,
@@ -173,11 +225,16 @@ internal static class NewCommandKernels
         string value,
         int systems);
 
+    private delegate int CliNewTemplateSourceFileKindsInto(
+        string template,
+        int[] resultKinds);
+
     private sealed record Bindings(
         CliFirstPositionalArgIndex FirstPositionalArgIndex,
         CliNewArgumentSummaryInto NewArgumentSummary,
         CliNewTemplateKind NewTemplateKind,
-        CliNewEffectiveTemplateKind NewEffectiveTemplateKind);
+        CliNewEffectiveTemplateKind NewEffectiveTemplateKind,
+        CliNewTemplateSourceFileKindsInto NewTemplateSourceFileKinds);
 
     private static bool TryGetOptionalArg(string[] args, int index, out string? value)
     {

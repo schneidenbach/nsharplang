@@ -1178,6 +1178,49 @@ func CliNewEffectiveTemplateKind(value: string, systems: int): int {
     return templateKind
 }
 
+func CliNewTemplateSourceFileKindsInto(template: string, resultKinds: int[]): int {
+    if resultKinds.Length < 2 {
+        return -1
+    }
+
+    templateKind := CliNewTemplateKind(template)
+    if templateKind == 1 {
+        resultKinds[0] = 1
+        return 1
+    }
+
+    if templateKind == 2 {
+        resultKinds[0] = 2
+        return 1
+    }
+
+    if templateKind == 3 {
+        resultKinds[0] = 2
+        resultKinds[1] = 3
+        return 2
+    }
+
+    if templateKind == 4 {
+        resultKinds[0] = 1
+        resultKinds[1] = 4
+        return 2
+    }
+
+    if templateKind == 5 {
+        resultKinds[0] = 1
+        resultKinds[1] = 5
+        return 2
+    }
+
+    if templateKind == 6 {
+        resultKinds[0] = 6
+        resultKinds[1] = 7
+        return 2
+    }
+
+    return 0
+}
+
 func CliNewArgumentSummaryCore(args: &CliArgumentTable, resultIndices: &CliIndexResultTable): int {
     if resultIndices.Indices.Length < 5 {
         return -1
