@@ -8,6 +8,12 @@ internal readonly record struct DoctorOptionSummary(
     bool SkipVscode,
     bool ShowHelp);
 
+internal enum DoctorOutputModeKind
+{
+    Json = 1,
+    Text = 2
+}
+
 internal static class DoctorCommandKernels
 {
     [ThreadStatic]
@@ -44,15 +50,46 @@ internal static class DoctorCommandKernels
         }
     }
 
+    internal static bool TryGetOutputMode(bool json, out DoctorOutputModeKind outputMode)
+    {
+        outputMode = default;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        try
+        {
+            var code = bindings.OutputMode(json ? 1 : 0);
+            if (code is < 1 or > 2)
+                return false;
+
+            outputMode = (DoctorOutputModeKind)code;
+            return true;
+        }
+        catch
+        {
+            outputMode = default;
+            return false;
+        }
+    }
+
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
             DogfoodKernelLoader.CreateDelegate<CliDoctorOptionSummaryInto>(
                 programType,
-                "CliDoctorOptionSummaryInto")));
+                "CliDoctorOptionSummaryInto"),
+            DogfoodKernelLoader.CreateDelegate<CliDoctorOutputMode>(
+                programType,
+                "CliDoctorOutputMode")));
 
     private delegate int CliDoctorOptionSummaryInto(
         string[] args,
         int[] resultIndices);
 
-    private sealed record Bindings(CliDoctorOptionSummaryInto OptionSummary);
+    private delegate int CliDoctorOutputMode(int json);
+
+    private sealed record Bindings(
+        CliDoctorOptionSummaryInto OptionSummary,
+        CliDoctorOutputMode OutputMode);
 }

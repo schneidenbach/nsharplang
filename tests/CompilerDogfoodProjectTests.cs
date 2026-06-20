@@ -7069,7 +7069,9 @@ func outer(x: int): int {
         Assert.Contains("CliEnvOptionSummaryInto", methodNames!); // product env option parsing.
         Assert.Contains("CliEnvOutputMode", methodNames!); // product env output mode selection.
         Assert.Contains("CliDoctorOptionSummaryInto", methodNames!); // product doctor option parsing.
+        Assert.Contains("CliDoctorOutputMode", methodNames!); // product doctor output mode selection.
         Assert.Contains("CliAuditOptionSummaryInto", methodNames!); // product audit option parsing.
+        Assert.Contains("CliAuditOutputMode", methodNames!); // product audit output mode selection.
         Assert.Contains("CliInitOptionSummaryInto", methodNames!); // product init option parsing.
         Assert.Contains("CliRestoreOptionSummaryInto", methodNames!); // product restore option parsing.
 
@@ -15728,10 +15730,18 @@ class OtherZetaType {
                     "CliDoctorOptionSummaryInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDoctorOptionSummaryInto.");
+            var cliDoctorOutputMode = programType.GetMethod(
+                    "CliDoctorOutputMode",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDoctorOutputMode.");
             var cliAuditOptionSummaryInto = programType.GetMethod(
                     "CliAuditOptionSummaryInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliAuditOptionSummaryInto.");
+            var cliAuditOutputMode = programType.GetMethod(
+                    "CliAuditOutputMode",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliAuditOutputMode.");
             var cliInitOptionSummaryInto = programType.GetMethod(
                     "CliInitOptionSummaryInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -16732,9 +16742,11 @@ func main(customer: Customer, résumé: Profile) {
                 cliCleanIsUnderNodeModulesDirectory);
             AssertCliCleanOptionsLikeProduction(cliCleanOptionSummaryInto);
             AssertCliEnvOptionsLikeProduction(cliEnvOptionSummaryInto);
-            AssertCliEnvOutputModesLikeProduction(cliEnvOutputMode);
+            AssertCliJsonFlagOutputModesLikeProduction(cliEnvOutputMode);
             AssertCliDoctorOptionsLikeProduction(cliDoctorOptionSummaryInto);
+            AssertCliJsonFlagOutputModesLikeProduction(cliDoctorOutputMode);
             AssertCliAuditOptionsLikeProduction(cliAuditOptionSummaryInto);
+            AssertCliJsonFlagOutputModesLikeProduction(cliAuditOutputMode);
             AssertCliInitOptionsLikeProduction(cliInitOptionSummaryInto);
             AssertCliRestoreOptionsLikeProduction(cliRestoreOptionSummaryInto);
             AssertCliUpdateAllNuGetDependencyFilteringLikeProduction(
@@ -21753,7 +21765,7 @@ func main() {
         return indices;
     }
 
-    private static void AssertCliEnvOutputModesLikeProduction(MethodInfo cliEnvOutputMode)
+    private static void AssertCliJsonFlagOutputModesLikeProduction(MethodInfo outputMode)
     {
         var cases = new[]
         {
@@ -21763,7 +21775,7 @@ func main() {
 
         foreach (var testCase in cases)
         {
-            var actual = (int)(cliEnvOutputMode.Invoke(
+            var actual = (int)(outputMode.Invoke(
                 null,
                 new object[] { testCase.UseJson }) ?? 0);
 

@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-20 — Doctor and audit output mode selection moves into product N#
+
+`DoctorCommand` and `AuditCommand` no longer branch directly on their parsed JSON flags when selecting
+text vs JSON output. The shipped `CliDoctorOutputMode` and `CliAuditOutputMode` dogfood kernels now select
+those render paths; C# keeps machine probing, `dotnet` process execution, JSON/text emission, and
+fallback/oracle mode selection only.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.DoctorCommandKernels_SummarizesOptions|FullyQualifiedName~CliCommandTests.AuditCommandKernels_SummarizesOptions|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-20 — Env output mode selection moves into product N#
 
 `EnvCommand` no longer branches directly on `options.Json` when choosing text vs JSON output. The shipped

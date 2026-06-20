@@ -17,7 +17,7 @@ public static class DoctorCommand
         if (options.ShowHelp)
             return ShowHelp();
 
-        var json = options.Json;
+        var outputMode = GetOutputMode(options.Json);
         var requireVscode = options.RequireVscode;
         var skipVscode = options.SkipVscode;
         var checks = new List<DoctorCheck>();
@@ -86,7 +86,7 @@ public static class DoctorCommand
         }
 
         var ok = checks.All(c => c.Status != "fail");
-        if (json)
+        if (outputMode == DoctorOutputModeKind.Json)
             WriteJson(ok, checks);
         else
             WriteText(ok, checks);
@@ -180,6 +180,11 @@ public static class DoctorCommand
             ? summary
             : GetOptionSummaryWithCSharp(args);
 
+    internal static DoctorOutputModeKind GetOutputMode(bool json)
+        => DoctorCommandKernels.TryGetOutputMode(json, out var outputMode)
+            ? outputMode
+            : GetOutputModeWithCSharp(json);
+
     // Stage 6 C#-surface-shrink: fallback/oracle only; product doctor option parsing routes through DoctorCommandKernels.
     private static DoctorOptionSummary GetOptionSummaryWithCSharp(string[] args)
         => new(
@@ -187,6 +192,10 @@ public static class DoctorCommand
             ContainsArgWithCSharp(args, "--require-vscode"),
             ContainsArgWithCSharp(args, "--skip-vscode"),
             ContainsArgWithCSharp(args, "--help") || ContainsArgWithCSharp(args, "-h") || (args.Length > 0 && args[0] == "help"));
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product doctor output mode selection routes through DoctorCommandKernels.
+    private static DoctorOutputModeKind GetOutputModeWithCSharp(bool json)
+        => json ? DoctorOutputModeKind.Json : DoctorOutputModeKind.Text;
 
     private static bool ContainsArgWithCSharp(string[] args, string value)
     {

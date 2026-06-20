@@ -2086,6 +2086,14 @@ func CliDoctorOptionSummaryCore(args: &CliArgumentTable, resultIndices: &CliInde
     return 0
 }
 
+func CliDoctorOutputMode(useJson: int): int {
+    if useJson != 0 {
+        return 1
+    }
+
+    return 2
+}
+
 func CliAuditOptionSummaryInto(args: string[], resultIndices: int[]): int {
     arguments := new CliArgumentTable { Args: args }
     results := new CliIndexResultTable { Indices: resultIndices }
@@ -2122,6 +2130,14 @@ func CliAuditOptionSummaryCore(args: &CliArgumentTable, resultIndices: &CliIndex
     }
 
     return 0
+}
+
+func CliAuditOutputMode(useJson: int): int {
+    if useJson != 0 {
+        return 1
+    }
+
+    return 2
 }
 
 func CliInitOptionSummaryInto(args: string[], resultIndices: int[]): int {

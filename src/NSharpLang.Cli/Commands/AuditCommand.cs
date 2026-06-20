@@ -13,7 +13,7 @@ public static class AuditCommand
             return ShowHelp();
 
         var projectRoot = GetProjectRoot(options);
-        var json = options.Json;
+        var outputMode = GetOutputMode(options.Json);
 
         if (!Directory.Exists(projectRoot))
             return Error($"Project directory not found: {projectRoot}");
@@ -42,7 +42,7 @@ public static class AuditCommand
 
             var vulnCount = CountVulnerabilities(output);
 
-            if (json)
+            if (outputMode == AuditOutputModeKind.Json)
             {
                 using var rawDoc = JsonDocument.Parse(output);
                 using var stream = new MemoryStream();
@@ -156,12 +156,21 @@ public static class AuditCommand
             ? summary
             : GetOptionSummaryWithCSharp(args);
 
+    internal static AuditOutputModeKind GetOutputMode(bool json)
+        => AuditCommandKernels.TryGetOutputMode(json, out var outputMode)
+            ? outputMode
+            : GetOutputModeWithCSharp(json);
+
     // Stage 6 C#-surface-shrink: fallback/oracle only; product audit option parsing routes through AuditCommandKernels.
     private static AuditOptionSummary GetOptionSummaryWithCSharp(string[] args)
         => new(
             GetOptionWithCSharp(args, "--project"),
             ContainsArgWithCSharp(args, "--json"),
             ContainsArgWithCSharp(args, "--help") || ContainsArgWithCSharp(args, "-h") || (args.Length > 0 && args[0] == "help"));
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product audit output mode selection routes through AuditCommandKernels.
+    private static AuditOutputModeKind GetOutputModeWithCSharp(bool json)
+        => json ? AuditOutputModeKind.Json : AuditOutputModeKind.Text;
 
     private static string GetProjectRoot(AuditOptionSummary options)
         => Path.GetFullPath(options.ProjectOption ?? Directory.GetCurrentDirectory());

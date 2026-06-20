@@ -7,6 +7,12 @@ internal readonly record struct AuditOptionSummary(
     bool Json,
     bool ShowHelp);
 
+internal enum AuditOutputModeKind
+{
+    Json = 1,
+    Text = 2
+}
+
 internal static class AuditCommandKernels
 {
     [ThreadStatic]
@@ -48,17 +54,48 @@ internal static class AuditCommandKernels
         }
     }
 
+    internal static bool TryGetOutputMode(bool json, out AuditOutputModeKind outputMode)
+    {
+        outputMode = default;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        try
+        {
+            var code = bindings.OutputMode(json ? 1 : 0);
+            if (code is < 1 or > 2)
+                return false;
+
+            outputMode = (AuditOutputModeKind)code;
+            return true;
+        }
+        catch
+        {
+            outputMode = default;
+            return false;
+        }
+    }
+
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
             DogfoodKernelLoader.CreateDelegate<CliAuditOptionSummaryInto>(
                 programType,
-                "CliAuditOptionSummaryInto")));
+                "CliAuditOptionSummaryInto"),
+            DogfoodKernelLoader.CreateDelegate<CliAuditOutputMode>(
+                programType,
+                "CliAuditOutputMode")));
 
     private delegate int CliAuditOptionSummaryInto(
         string[] args,
         int[] resultIndices);
 
-    private sealed record Bindings(CliAuditOptionSummaryInto OptionSummary);
+    private delegate int CliAuditOutputMode(int json);
+
+    private sealed record Bindings(
+        CliAuditOptionSummaryInto OptionSummary,
+        CliAuditOutputMode OutputMode);
 
     private static bool TryGetOptionalArg(string[] args, int index, out string? value)
     {
