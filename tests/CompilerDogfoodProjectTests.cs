@@ -7039,6 +7039,7 @@ func outer(x: int): int {
         Assert.Contains("CliDefineExtractionInto", methodNames!); // product build/run define extraction.
         Assert.Contains("CliPositionalArgIndicesInto", methodNames!); // product positional collection.
         Assert.Contains("CliLintOptionSummaryInto", methodNames!); // product lint option parsing.
+        Assert.Contains("CliLintEffectiveOutputMode", methodNames!); // product lint output mode selection.
         Assert.Contains("CliCheckArgumentSummaryInto", methodNames!); // product check argument parsing.
         Assert.Contains("CliFixArgumentSummaryInto", methodNames!); // product fix argument parsing.
         Assert.Contains("CliNewArgumentSummaryInto", methodNames!); // product new argument parsing.
@@ -15550,6 +15551,10 @@ class OtherZetaType {
                     "CliLintOptionSummaryInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliLintOptionSummaryInto.");
+            var cliLintEffectiveOutputMode = programType.GetMethod(
+                    "CliLintEffectiveOutputMode",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliLintEffectiveOutputMode.");
             var cliTidyOptionSummaryInto = programType.GetMethod(
                     "CliTidyOptionSummaryInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -16624,6 +16629,7 @@ func main(customer: Customer, résumé: Profile) {
                 cliFirstPositionalArgIndex,
                 cliPositionalArgChecksumInto);
             AssertCliLintOptionsLikeProduction(cliLintOptionSummaryInto);
+            AssertCliLintEffectiveOutputModesLikeProduction(cliLintEffectiveOutputMode);
             AssertCliTidyOptionsLikeProduction(cliTidyOptionSummaryInto);
             AssertCliDocOptionsLikeProduction(cliDocOptionSummaryInto);
             AssertCliTreeOptionsLikeProduction(cliTreeOptionSummaryInto, cliTreeMaxDepthInto);
@@ -21070,6 +21076,28 @@ func main() {
         }
 
         return checksum;
+    }
+
+    private static void AssertCliLintEffectiveOutputModesLikeProduction(MethodInfo cliLintEffectiveOutputMode)
+    {
+        var cases = new[]
+        {
+            (UseText: 0, UseJson: 0, Expected: 1),
+            (UseText: 0, UseJson: 1, Expected: 1),
+            (UseText: 1, UseJson: 0, Expected: 2),
+            (UseText: 1, UseJson: 1, Expected: 1),
+            (UseText: 2, UseJson: 0, Expected: 2),
+            (UseText: 0, UseJson: 2, Expected: 1)
+        };
+
+        foreach (var (useText, useJson, expected) in cases)
+        {
+            var actual = (int)(cliLintEffectiveOutputMode.Invoke(
+                null,
+                new object[] { useText, useJson }) ?? -99);
+
+            Assert.Equal(expected, actual);
+        }
     }
 
     private static void AssertCliLintOptionsLikeProduction(MethodInfo cliLintOptionSummaryInto)

@@ -1999,6 +1999,32 @@ func Main() {
     }
 
     [Fact]
+    public void LintCommandKernels_SelectsEffectiveOutputMode()
+    {
+        Assert.True(LintCommandKernels.TryGetEffectiveOutputMode(false, false, out var defaultMode));
+        Assert.Equal(LintOutputModeKind.Json, defaultMode);
+
+        Assert.True(LintCommandKernels.TryGetEffectiveOutputMode(false, true, out var explicitJson));
+        Assert.Equal(LintOutputModeKind.Json, explicitJson);
+
+        Assert.True(LintCommandKernels.TryGetEffectiveOutputMode(true, false, out var explicitText));
+        Assert.Equal(LintOutputModeKind.Text, explicitText);
+
+        Assert.True(LintCommandKernels.TryGetEffectiveOutputMode(true, true, out var jsonWins));
+        Assert.Equal(LintOutputModeKind.Json, jsonWins);
+
+        Assert.Equal(
+            LintOutputModeKind.Json,
+            LintCommand.GetEffectiveOutputMode(new LintOptionSummary(null, UseText: false, UseJson: false, ShowHelp: false)));
+        Assert.Equal(
+            LintOutputModeKind.Text,
+            LintCommand.GetEffectiveOutputMode(new LintOptionSummary(null, UseText: true, UseJson: false, ShowHelp: false)));
+        Assert.Equal(
+            LintOutputModeKind.Json,
+            LintCommand.GetEffectiveOutputMode(new LintOptionSummary(null, UseText: true, UseJson: true, ShowHelp: false)));
+    }
+
+    [Fact]
     public void WatchCommandKernels_SelectsForwardedArgs()
     {
         var args = new[]

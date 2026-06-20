@@ -15,15 +15,10 @@ public static class LintCommand
         if (options.ShowHelp)
             return ShowHelp();
 
-        var useText = options.UseText;
-        var useJson = options.UseJson;
+        var useJson = GetEffectiveOutputMode(options) == LintOutputModeKind.Json;
         var projectRoot = Path.GetFullPath(options.ProjectOption ?? Directory.GetCurrentDirectory());
 
         var positionalFiles = GetPositionalFiles(args);
-
-        // Default to JSON when no explicit mode is specified (matches check/fix contract)
-        if (!useText && !useJson)
-            useJson = true;
 
         if (!Directory.Exists(projectRoot))
             return EmitError(useJson, $"Directory not found: {projectRoot}", projectRoot);
@@ -252,6 +247,11 @@ Exit codes:
             ? summary
             : GetOptionSummaryWithCSharp(args);
 
+    internal static LintOutputModeKind GetEffectiveOutputMode(LintOptionSummary options)
+        => LintCommandKernels.TryGetEffectiveOutputMode(options.UseText, options.UseJson, out var outputMode)
+            ? outputMode
+            : GetEffectiveOutputModeWithCSharp(options.UseText, options.UseJson);
+
     // Stage 6 C#-surface-shrink: fallback/oracle only; product lint option parsing routes through LintCommandKernels.
     private static LintOptionSummary GetOptionSummaryWithCSharp(string[] args)
         => new(
@@ -259,6 +259,18 @@ Exit codes:
             ContainsArgWithCSharp(args, "--text"),
             ContainsArgWithCSharp(args, "--json"),
             ContainsArgWithCSharp(args, "--help") || ContainsArgWithCSharp(args, "-h") || (args.Length > 0 && args[0] == "help"));
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product lint output mode selection routes through LintCommandKernels.
+    private static LintOutputModeKind GetEffectiveOutputModeWithCSharp(bool useText, bool useJson)
+    {
+        if (useJson)
+            return LintOutputModeKind.Json;
+
+        if (useText)
+            return LintOutputModeKind.Text;
+
+        return LintOutputModeKind.Json;
+    }
 
     private static string? GetOptionValueWithCSharp(string[] args, string flag)
     {

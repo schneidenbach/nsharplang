@@ -2667,6 +2667,18 @@ func CliLintOptionSummaryKind(arg: string): int {
     return 0
 }
 
+func CliLintEffectiveOutputMode(useText: int, useJson: int): int {
+    if useJson != 0 {
+        return 1
+    }
+
+    if useText != 0 {
+        return 2
+    }
+
+    return 1
+}
+
 func CliLintFileArgIndicesInto(
     args: string[],
     projectValueIndices: int[],

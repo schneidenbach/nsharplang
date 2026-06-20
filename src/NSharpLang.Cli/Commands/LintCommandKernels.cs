@@ -8,6 +8,12 @@ internal readonly record struct LintOptionSummary(
     bool UseJson,
     bool ShowHelp);
 
+internal enum LintOutputModeKind
+{
+    Json = 1,
+    Text = 2
+}
+
 internal static class LintCommandKernels
 {
     [ThreadStatic]
@@ -102,6 +108,33 @@ internal static class LintCommandKernels
         }
     }
 
+    internal static bool TryGetEffectiveOutputMode(
+        bool useText,
+        bool useJson,
+        out LintOutputModeKind outputMode)
+    {
+        outputMode = default;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        try
+        {
+            var result = bindings.LintEffectiveOutputMode(useText ? 1 : 0, useJson ? 1 : 0);
+            if (result is < 1 or > 2)
+                return false;
+
+            outputMode = (LintOutputModeKind)result;
+            return true;
+        }
+        catch
+        {
+            outputMode = default;
+            return false;
+        }
+    }
+
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
             DogfoodKernelLoader.CreateDelegate<CliLintOptionSummaryInto>(
@@ -109,7 +142,10 @@ internal static class LintCommandKernels
                 "CliLintOptionSummaryInto"),
             DogfoodKernelLoader.CreateDelegate<CliLintFileArgIndicesInto>(
                 programType,
-                "CliLintFileArgIndicesInto")));
+                "CliLintFileArgIndicesInto"),
+            DogfoodKernelLoader.CreateDelegate<CliLintEffectiveOutputMode>(
+                programType,
+                "CliLintEffectiveOutputMode")));
 
     private delegate int CliLintOptionSummaryInto(string[] args, int[] resultIndices);
 
@@ -118,9 +154,12 @@ internal static class LintCommandKernels
         int[] projectValueIndices,
         int[] resultIndices);
 
+    private delegate int CliLintEffectiveOutputMode(int useText, int useJson);
+
     private sealed record Bindings(
         CliLintOptionSummaryInto LintOptionSummary,
-        CliLintFileArgIndicesInto LintFileArgIndices);
+        CliLintFileArgIndicesInto LintFileArgIndices,
+        CliLintEffectiveOutputMode LintEffectiveOutputMode);
 
     private static bool TryGetOptionalArg(string[] args, int index, out string? value)
     {

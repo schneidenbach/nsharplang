@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-20 — Lint output mode selection moves into product N#
+
+`LintCommand` no longer owns the effective JSON/text output-mode decision. The shipped
+`CliLintEffectiveOutputMode` dogfood kernel now keeps JSON as the default and as the winner when `--json` and
+`--text` are both present; C# keeps option materialization, output emission, and fallback/oracle mode selection
+only.
+
+Focused evidence:
+`./scripts/dev.sh LintCommandKernels`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-20 — CLI backend selection moves into product N#
 
 `nlc build`, `run`, `test`, `publish`, and `check` no longer choose the effective compilation backend directly in
