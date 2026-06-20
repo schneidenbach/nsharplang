@@ -629,6 +629,76 @@ func CliWatchArgumentIsOptionWithValue(arg: string): bool {
     return arg == "--project" || arg == "--debounce-ms" || arg == "--max-runs"
 }
 
+func CliWatchTargetCommandName(targetKind: int): string {
+    if targetKind == 1 {
+        return "check"
+    }
+
+    if targetKind == 2 {
+        return "build"
+    }
+
+    if targetKind == 3 {
+        return "test"
+    }
+
+    if targetKind == 4 {
+        return "lint"
+    }
+
+    if targetKind == 5 {
+        return "format"
+    }
+
+    return ""
+}
+
+func CliWatchHelpText(): string {
+    return "N# Watch\n"
+        + "\n"
+        + "Usage: nlc watch <check|build|test|lint|format> [command-options]\n"
+        + "\n"
+        + "Re-run an N# command when `.nl`, `project.yml`, or `.editorconfig` files change.\n"
+        + "\n"
+        + "Options:\n"
+        + "  --project <dir>      Project root directory to watch (default: current directory)\n"
+        + "  --debounce-ms <ms>   Debounce window before rerunning (default: 250)\n"
+        + "  --max-runs <count>   Exit after N command executions (useful for scripts and tests)\n"
+        + "  --help, -h           Show this help text\n"
+        + "\n"
+        + "Examples:\n"
+        + "  nlc watch check\n"
+        + "  nlc watch build\n"
+        + "  nlc watch test --filter AddPerson\n"
+        + "  nlc watch lint\n"
+        + "  nlc watch format --check\n"
+        + "  nlc watch check --project examples/16-task-cli --max-runs 2\n"
+        + "\n"
+        + "Exit codes:\n"
+        + "  0  Watch finished and the last run succeeded\n"
+        + "  1  Invalid usage or the last watched run failed"
+}
+
+func CliWatchUnsupportedTargetMessage(target: string): string {
+    return "Unsupported watch target '" + target + "'. Expected check, build, test, lint, or format."
+}
+
+func CliWatchProjectDirectoryNotFoundMessage(projectRoot: string): string {
+    return "Project directory not found: " + projectRoot
+}
+
+func CliWatchPositiveIntExpectedMessage(flag: string): string {
+    return flag + " expects a positive integer."
+}
+
+func CliWatchStartedMessage(projectRoot: string): string {
+    return "Watching " + projectRoot + " for N# changes. Press Ctrl+C to stop."
+}
+
+func CliWatchChangeDetectedMessage(timeText: string, watchedCommand: string): string {
+    return "Change detected at " + timeText + ". Re-running `nlc " + watchedCommand + "`."
+}
+
 func CliFirstPositionalArgIndex(args: string[], optionsWithValues: string[]): int {
     arguments := new CliArgumentTable { Args: args }
     options := new CliOptionValueTable { Options: optionsWithValues }

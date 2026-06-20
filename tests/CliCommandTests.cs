@@ -2560,6 +2560,15 @@ func Main() {
             new[] { "serve", "--max-runs", "1" },
             out var unknown));
         Assert.Equal(WatchTargetKind.Unknown, unknown.TargetKind);
+        Assert.Equal("check", WatchCommandKernels.GetTargetCommandName(WatchTargetKind.Check));
+        Assert.Equal("build", WatchCommandKernels.GetTargetCommandName(WatchTargetKind.Build));
+        Assert.Equal("test", WatchCommandKernels.GetTargetCommandName(WatchTargetKind.Test));
+        Assert.Equal("lint", WatchCommandKernels.GetTargetCommandName(WatchTargetKind.Lint));
+        Assert.Equal("format", WatchCommandKernels.GetTargetCommandName(WatchTargetKind.Format));
+        Assert.Equal(string.Empty, WatchCommandKernels.GetTargetCommandName(WatchTargetKind.Unknown));
+        Assert.Equal(
+            "Unsupported watch target 'serve'. Expected check, build, test, lint, or format.",
+            WatchCommandKernels.GetUnsupportedTargetMessage("serve"));
 
         var (exitCode, _, stderr) = CaptureConsole(() =>
             WatchCommand.Execute(new[] { "SERVE", "--max-runs", "1" }));
@@ -2604,6 +2613,41 @@ func Main() {
 
         Assert.True(WatchCommand.GetOptionSummary(Array.Empty<string>()).ShowHelp);
         Assert.True(WatchCommand.GetOptionSummary(new[] { "help" }).ShowHelp);
+
+        var helpText = WatchCommandKernels.GetHelpText();
+        Assert.Contains("N# Watch", helpText);
+        Assert.Contains("Usage: nlc watch <check|build|test|lint|format>", helpText);
+        Assert.Contains("Invalid usage or the last watched run failed", helpText);
+        Assert.Equal(
+            "Project directory not found: /tmp/nsharp-missing",
+            WatchCommandKernels.GetProjectDirectoryNotFoundMessage("/tmp/nsharp-missing"));
+        Assert.Equal(
+            "--debounce-ms expects a positive integer.",
+            WatchCommandKernels.GetPositiveIntExpectedMessage("--debounce-ms"));
+        Assert.Equal(
+            "Watching /tmp/nsharp for N# changes. Press Ctrl+C to stop.",
+            WatchCommandKernels.GetStartedMessage("/tmp/nsharp"));
+        Assert.Equal(
+            "Change detected at 12:34:56. Re-running `nlc check`.",
+            WatchCommandKernels.GetChangeDetectedMessage("12:34:56", "check"));
+
+        var (helpExitCode, helpStdout, helpStderr) = CaptureConsole(() => WatchCommand.Execute(new[] { "--help" }));
+        Assert.Equal(0, helpExitCode);
+        Assert.True(string.IsNullOrWhiteSpace(helpStderr));
+        Assert.Contains("Usage: nlc watch <check|build|test|lint|format>", helpStdout);
+
+        var missingDir = Path.Combine(Path.GetTempPath(), $"nsharp-watch-missing-{Guid.NewGuid():N}");
+        var (missingExitCode, missingStdout, missingStderr) = CaptureConsole(() =>
+            WatchCommand.Execute(new[] { "check", "--project", missingDir }));
+        Assert.Equal(1, missingExitCode);
+        Assert.True(string.IsNullOrWhiteSpace(missingStdout));
+        Assert.Contains($"Project directory not found: {Path.GetFullPath(missingDir)}", missingStderr);
+
+        var (debounceExitCode, debounceStdout, debounceStderr) = CaptureConsole(() =>
+            WatchCommand.Execute(new[] { "check", "--debounce-ms", "0" }));
+        Assert.Equal(1, debounceExitCode);
+        Assert.True(string.IsNullOrWhiteSpace(debounceStdout));
+        Assert.Contains("--debounce-ms expects a positive integer.", debounceStderr);
     }
 
     [Fact]

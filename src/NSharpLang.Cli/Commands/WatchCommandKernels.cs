@@ -173,6 +173,134 @@ internal static class WatchCommandKernels
         }
     }
 
+    internal static string GetTargetCommandName(WatchTargetKind targetKind)
+    {
+        if (TryGetMessage(bindings => bindings.WatchTargetCommandName((int)targetKind), out var message))
+            return message;
+
+        return GetTargetCommandNameWithCSharp(targetKind);
+    }
+
+    internal static string GetHelpText()
+    {
+        if (TryGetMessage(bindings => bindings.WatchHelpText(), out var message))
+            return message;
+
+        return GetHelpTextWithCSharp();
+    }
+
+    internal static string GetUnsupportedTargetMessage(string target)
+    {
+        if (TryGetMessage(bindings => bindings.WatchUnsupportedTargetMessage(target), out var message))
+            return message;
+
+        return GetUnsupportedTargetMessageWithCSharp(target);
+    }
+
+    internal static string GetProjectDirectoryNotFoundMessage(string projectRoot)
+    {
+        if (TryGetMessage(bindings => bindings.WatchProjectDirectoryNotFoundMessage(projectRoot), out var message))
+            return message;
+
+        return GetProjectDirectoryNotFoundMessageWithCSharp(projectRoot);
+    }
+
+    internal static string GetPositiveIntExpectedMessage(string flag)
+    {
+        if (TryGetMessage(bindings => bindings.WatchPositiveIntExpectedMessage(flag), out var message))
+            return message;
+
+        return GetPositiveIntExpectedMessageWithCSharp(flag);
+    }
+
+    internal static string GetStartedMessage(string projectRoot)
+    {
+        if (TryGetMessage(bindings => bindings.WatchStartedMessage(projectRoot), out var message))
+            return message;
+
+        return GetStartedMessageWithCSharp(projectRoot);
+    }
+
+    internal static string GetChangeDetectedMessage(string timeText, string watchedCommand)
+    {
+        if (TryGetMessage(bindings => bindings.WatchChangeDetectedMessage(timeText, watchedCommand), out var message))
+            return message;
+
+        return GetChangeDetectedMessageWithCSharp(timeText, watchedCommand);
+    }
+
+    private static bool TryGetMessage(Func<Bindings, string> getMessage, out string message)
+    {
+        message = string.Empty;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        try
+        {
+            message = getMessage(bindings);
+            return message.Length > 0;
+        }
+        catch
+        {
+            message = string.Empty;
+            return false;
+        }
+    }
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product watch command text routes through CliWatch* kernels.
+    private static string GetTargetCommandNameWithCSharp(WatchTargetKind targetKind)
+        => targetKind switch
+        {
+            WatchTargetKind.Check => "check",
+            WatchTargetKind.Build => "build",
+            WatchTargetKind.Test => "test",
+            WatchTargetKind.Lint => "lint",
+            WatchTargetKind.Format => "format",
+            _ => string.Empty
+        };
+
+    private static string GetHelpTextWithCSharp()
+        => "N# Watch\n"
+           + "\n"
+           + "Usage: nlc watch <check|build|test|lint|format> [command-options]\n"
+           + "\n"
+           + "Re-run an N# command when `.nl`, `project.yml`, or `.editorconfig` files change.\n"
+           + "\n"
+           + "Options:\n"
+           + "  --project <dir>      Project root directory to watch (default: current directory)\n"
+           + "  --debounce-ms <ms>   Debounce window before rerunning (default: 250)\n"
+           + "  --max-runs <count>   Exit after N command executions (useful for scripts and tests)\n"
+           + "  --help, -h           Show this help text\n"
+           + "\n"
+           + "Examples:\n"
+           + "  nlc watch check\n"
+           + "  nlc watch build\n"
+           + "  nlc watch test --filter AddPerson\n"
+           + "  nlc watch lint\n"
+           + "  nlc watch format --check\n"
+           + "  nlc watch check --project examples/16-task-cli --max-runs 2\n"
+           + "\n"
+           + "Exit codes:\n"
+           + "  0  Watch finished and the last run succeeded\n"
+           + "  1  Invalid usage or the last watched run failed";
+
+    private static string GetUnsupportedTargetMessageWithCSharp(string target)
+        => $"Unsupported watch target '{target}'. Expected check, build, test, lint, or format.";
+
+    private static string GetProjectDirectoryNotFoundMessageWithCSharp(string projectRoot)
+        => $"Project directory not found: {projectRoot}";
+
+    private static string GetPositiveIntExpectedMessageWithCSharp(string flag)
+        => $"{flag} expects a positive integer.";
+
+    private static string GetStartedMessageWithCSharp(string projectRoot)
+        => $"Watching {projectRoot} for N# changes. Press Ctrl+C to stop.";
+
+    private static string GetChangeDetectedMessageWithCSharp(string timeText, string watchedCommand)
+        => $"Change detected at {timeText}. Re-running `nlc {watchedCommand}`.";
+
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
             DogfoodKernelLoader.CreateDelegate<CliWatchOptionSummaryInto>(
@@ -189,7 +317,28 @@ internal static class WatchCommandKernels
                 "CliWatchTargetSummaryInto"),
             DogfoodKernelLoader.CreateDelegate<CliWatchPositiveIntInto>(
                 programType,
-                "CliWatchPositiveIntInto")));
+                "CliWatchPositiveIntInto"),
+            DogfoodKernelLoader.CreateDelegate<CliWatchTargetCommandName>(
+                programType,
+                "CliWatchTargetCommandName"),
+            DogfoodKernelLoader.CreateDelegate<CliWatchHelpText>(
+                programType,
+                "CliWatchHelpText"),
+            DogfoodKernelLoader.CreateDelegate<CliWatchUnsupportedTargetMessage>(
+                programType,
+                "CliWatchUnsupportedTargetMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliWatchProjectDirectoryNotFoundMessage>(
+                programType,
+                "CliWatchProjectDirectoryNotFoundMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliWatchPositiveIntExpectedMessage>(
+                programType,
+                "CliWatchPositiveIntExpectedMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliWatchStartedMessage>(
+                programType,
+                "CliWatchStartedMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliWatchChangeDetectedMessage>(
+                programType,
+                "CliWatchChangeDetectedMessage")));
 
     private delegate int CliWatchOptionSummaryInto(string[] args, int[] resultIndices);
 
@@ -201,12 +350,33 @@ internal static class WatchCommandKernels
 
     private delegate int CliWatchPositiveIntInto(string value, int[] result);
 
+    private delegate string CliWatchTargetCommandName(int targetKind);
+
+    private delegate string CliWatchHelpText();
+
+    private delegate string CliWatchUnsupportedTargetMessage(string target);
+
+    private delegate string CliWatchProjectDirectoryNotFoundMessage(string projectRoot);
+
+    private delegate string CliWatchPositiveIntExpectedMessage(string flag);
+
+    private delegate string CliWatchStartedMessage(string projectRoot);
+
+    private delegate string CliWatchChangeDetectedMessage(string timeText, string watchedCommand);
+
     private sealed record Bindings(
         CliWatchOptionSummaryInto OptionSummary,
         CliWatchForwardedArgIndicesInto WatchForwardedArgIndices,
         CliWatchShouldTriggerForChangedPath WatchShouldTriggerForChangedPath,
         CliWatchTargetSummaryInto TargetSummary,
-        CliWatchPositiveIntInto PositiveInt);
+        CliWatchPositiveIntInto PositiveInt,
+        CliWatchTargetCommandName WatchTargetCommandName,
+        CliWatchHelpText WatchHelpText,
+        CliWatchUnsupportedTargetMessage WatchUnsupportedTargetMessage,
+        CliWatchProjectDirectoryNotFoundMessage WatchProjectDirectoryNotFoundMessage,
+        CliWatchPositiveIntExpectedMessage WatchPositiveIntExpectedMessage,
+        CliWatchStartedMessage WatchStartedMessage,
+        CliWatchChangeDetectedMessage WatchChangeDetectedMessage);
 
     internal static bool TryShouldTriggerForChangedPath(string path, out bool shouldTrigger)
     {

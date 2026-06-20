@@ -18,7 +18,7 @@ public static class WatchCommand
 
         var targetSummary = GetTargetSummary(args);
         if (targetSummary.TargetKind == WatchTargetKind.Unknown)
-            return Error($"Unsupported watch target '{GetUnsupportedTargetName(args)}'. Expected check, build, test, lint, or format.");
+            return Error(WatchCommandKernels.GetUnsupportedTargetMessage(GetUnsupportedTargetName(args)));
 
         var watchedCommand = GetWatchedCommandName(targetSummary.TargetKind);
 
@@ -27,7 +27,7 @@ public static class WatchCommand
         projectRoot = Path.GetFullPath(projectRoot);
 
         if (!Directory.Exists(projectRoot))
-            return Error($"Project directory not found: {projectRoot}");
+            return Error(WatchCommandKernels.GetProjectDirectoryNotFoundMessage(projectRoot));
 
         var debounceMs = ParsePositiveInt(options.DebounceMsOption, 250, "--debounce-ms");
         if (debounceMs == null)
@@ -74,7 +74,7 @@ public static class WatchCommand
         watcher.Renamed += (_, eventArgs) => HandleChange(eventArgs.FullPath);
         watcher.EnableRaisingEvents = true;
 
-        Console.WriteLine($"Watching {projectRoot} for N# changes. Press Ctrl+C to stop.");
+        Console.WriteLine(WatchCommandKernels.GetStartedMessage(projectRoot));
 
         ConsoleCancelEventHandler cancelHandler = (_, eventArgs) =>
         {
@@ -103,7 +103,7 @@ public static class WatchCommand
                     continue;
 
                 Console.WriteLine();
-                Console.WriteLine($"Change detected at {DateTime.Now:T}. Re-running `nlc {watchedCommand}`.");
+                Console.WriteLine(WatchCommandKernels.GetChangeDetectedMessage(DateTime.Now.ToString("T"), watchedCommand));
                 lastExitCode = RunWatchedCommand(projectRoot, watchedCommand, forwardedArgs);
                 runCount++;
 
@@ -230,7 +230,7 @@ public static class WatchCommand
             if (parsedFromKernel > 0)
                 return parsedFromKernel;
 
-            Error($"{flag} expects a positive integer.");
+            Error(WatchCommandKernels.GetPositiveIntExpectedMessage(flag));
             return null;
         }
 
@@ -243,20 +243,12 @@ public static class WatchCommand
         if (int.TryParse(value, out var parsed) && parsed > 0)
             return parsed;
 
-        Error($"{flag} expects a positive integer.");
+        Error(WatchCommandKernels.GetPositiveIntExpectedMessage(flag));
         return null;
     }
 
     private static string GetWatchedCommandName(WatchTargetKind targetKind)
-        => targetKind switch
-        {
-            WatchTargetKind.Check => "check",
-            WatchTargetKind.Build => "build",
-            WatchTargetKind.Test => "test",
-            WatchTargetKind.Lint => "lint",
-            WatchTargetKind.Format => "format",
-            _ => string.Empty
-        };
+        => WatchCommandKernels.GetTargetCommandName(targetKind);
 
     private static string GetUnsupportedTargetName(string[] args)
         => args.Length == 0 ? string.Empty : args[0].ToLowerInvariant();
@@ -282,30 +274,7 @@ public static class WatchCommand
 
     private static int ShowHelp()
     {
-        Console.WriteLine(@"N# Watch
-
-Usage: nlc watch <check|build|test|lint|format> [command-options]
-
-Re-run an N# command when `.nl`, `project.yml`, or `.editorconfig` files change.
-
-Options:
-  --project <dir>      Project root directory to watch (default: current directory)
-  --debounce-ms <ms>   Debounce window before rerunning (default: 250)
-  --max-runs <count>   Exit after N command executions (useful for scripts and tests)
-  --help, -h           Show this help text
-
-Examples:
-  nlc watch check
-  nlc watch build
-  nlc watch test --filter AddPerson
-  nlc watch lint
-  nlc watch format --check
-  nlc watch check --project examples/16-task-cli --max-runs 2
-
-Exit codes:
-  0  Watch finished and the last run succeeded
-  1  Invalid usage or the last watched run failed");
-
+        Console.WriteLine(WatchCommandKernels.GetHelpText());
         return 0;
     }
 

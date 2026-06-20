@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-20 — Watch command messages move into product N#
+
+`WatchCommand` no longer owns help text, unsupported-target diagnostics, project-directory diagnostics,
+positive-int validation messages, watched-command names, startup notices, or change-detected rerun text in C#.
+The shipped `CliWatch*` dogfood kernels now shape those user-facing strings through `WatchCommandKernels`;
+C# keeps the `FileSystemWatcher` loop, current-directory/process execution, and fallback/oracle text only.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.WatchCommandKernels_SummarizesTargets|FullyQualifiedName~CliCommandTests.WatchCommandKernels_SummarizesOptions|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-20 — Daemon command messages move into product N#
 
 `DaemonCommand` no longer owns help text, lifecycle status strings, or daemon status fallback text in C#.

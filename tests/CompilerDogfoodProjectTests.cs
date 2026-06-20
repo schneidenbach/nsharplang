@@ -7057,6 +7057,13 @@ func outer(x: int): int {
         Assert.Contains("CliWatchShouldTriggerForChangedPath", methodNames!); // product watch change filtering.
         Assert.Contains("CliWatchOptionSummaryInto", methodNames!); // product watch option parsing.
         Assert.Contains("CliWatchPositiveIntInto", methodNames!); // product watch numeric option parsing.
+        Assert.Contains("CliWatchTargetCommandName", methodNames!); // product watch command-name shaping.
+        Assert.Contains("CliWatchHelpText", methodNames!); // product watch help text shaping.
+        Assert.Contains("CliWatchUnsupportedTargetMessage", methodNames!); // product watch unsupported-target message shaping.
+        Assert.Contains("CliWatchProjectDirectoryNotFoundMessage", methodNames!); // product watch project-dir message shaping.
+        Assert.Contains("CliWatchPositiveIntExpectedMessage", methodNames!); // product watch numeric-error message shaping.
+        Assert.Contains("CliWatchStartedMessage", methodNames!); // product watch started message shaping.
+        Assert.Contains("CliWatchChangeDetectedMessage", methodNames!); // product watch change-detected message shaping.
         Assert.Contains("CliRunOptionSummaryInto", methodNames!); // product run option parsing.
         Assert.Contains("CliDefineExtractionInto", methodNames!); // product build/run define extraction.
         Assert.Contains("CliPositionalArgIndicesInto", methodNames!); // product positional collection.
@@ -15898,6 +15905,34 @@ class OtherZetaType {
                     "CliWatchPositiveIntInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliWatchPositiveIntInto.");
+            var cliWatchTargetCommandName = programType.GetMethod(
+                    "CliWatchTargetCommandName",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliWatchTargetCommandName.");
+            var cliWatchHelpText = programType.GetMethod(
+                    "CliWatchHelpText",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliWatchHelpText.");
+            var cliWatchUnsupportedTargetMessage = programType.GetMethod(
+                    "CliWatchUnsupportedTargetMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliWatchUnsupportedTargetMessage.");
+            var cliWatchProjectDirectoryNotFoundMessage = programType.GetMethod(
+                    "CliWatchProjectDirectoryNotFoundMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliWatchProjectDirectoryNotFoundMessage.");
+            var cliWatchPositiveIntExpectedMessage = programType.GetMethod(
+                    "CliWatchPositiveIntExpectedMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliWatchPositiveIntExpectedMessage.");
+            var cliWatchStartedMessage = programType.GetMethod(
+                    "CliWatchStartedMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliWatchStartedMessage.");
+            var cliWatchChangeDetectedMessage = programType.GetMethod(
+                    "CliWatchChangeDetectedMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliWatchChangeDetectedMessage.");
             var cliWatchForwardedArgChecksumInto = programType.GetMethod(
                     "CliWatchForwardedArgChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -17276,6 +17311,14 @@ func main(customer: Customer, résumé: Profile) {
             AssertCliWatchChangedPathsLikeProduction(cliWatchShouldTriggerForChangedPath);
             AssertCliWatchOptionsLikeProduction(cliWatchOptionSummaryInto);
             AssertCliWatchPositiveIntsLikeProduction(cliWatchPositiveIntInto);
+            AssertCliWatchMessagesLikeProduction(
+                cliWatchTargetCommandName,
+                cliWatchHelpText,
+                cliWatchUnsupportedTargetMessage,
+                cliWatchProjectDirectoryNotFoundMessage,
+                cliWatchPositiveIntExpectedMessage,
+                cliWatchStartedMessage,
+                cliWatchChangeDetectedMessage);
             AssertCliPublishOptionsLikeProduction(cliPublishOptionsInto);
             AssertCliPublishValidationMessagesLikeProduction(cliPublishValidationErrorMessage);
             AssertCliPublishUnsupportedMessagesLikeProduction(
@@ -21743,6 +21786,43 @@ func main() {
             (int)(cliWatchPositiveIntInto.Invoke(
                 null,
                 new object[] { "7", Array.Empty<int>() }) ?? 0));
+    }
+
+    private static void AssertCliWatchMessagesLikeProduction(
+        MethodInfo cliWatchTargetCommandName,
+        MethodInfo cliWatchHelpText,
+        MethodInfo cliWatchUnsupportedTargetMessage,
+        MethodInfo cliWatchProjectDirectoryNotFoundMessage,
+        MethodInfo cliWatchPositiveIntExpectedMessage,
+        MethodInfo cliWatchStartedMessage,
+        MethodInfo cliWatchChangeDetectedMessage)
+    {
+        Assert.Equal("check", (string)(cliWatchTargetCommandName.Invoke(null, new object[] { 1 }) ?? "<null>"));
+        Assert.Equal("build", (string)(cliWatchTargetCommandName.Invoke(null, new object[] { 2 }) ?? "<null>"));
+        Assert.Equal("test", (string)(cliWatchTargetCommandName.Invoke(null, new object[] { 3 }) ?? "<null>"));
+        Assert.Equal("lint", (string)(cliWatchTargetCommandName.Invoke(null, new object[] { 4 }) ?? "<null>"));
+        Assert.Equal("format", (string)(cliWatchTargetCommandName.Invoke(null, new object[] { 5 }) ?? "<null>"));
+        Assert.Equal(string.Empty, (string)(cliWatchTargetCommandName.Invoke(null, new object[] { 0 }) ?? "<null>"));
+
+        var help = (string)(cliWatchHelpText.Invoke(null, Array.Empty<object>()) ?? "<null>");
+        Assert.Contains("N# Watch", help);
+        Assert.Contains("Usage: nlc watch <check|build|test|lint|format>", help);
+        Assert.Contains("Invalid usage or the last watched run failed", help);
+        Assert.Equal(
+            "Unsupported watch target 'serve'. Expected check, build, test, lint, or format.",
+            (string)(cliWatchUnsupportedTargetMessage.Invoke(null, new object[] { "serve" }) ?? "<null>"));
+        Assert.Equal(
+            "Project directory not found: /tmp/nsharp-missing",
+            (string)(cliWatchProjectDirectoryNotFoundMessage.Invoke(null, new object[] { "/tmp/nsharp-missing" }) ?? "<null>"));
+        Assert.Equal(
+            "--debounce-ms expects a positive integer.",
+            (string)(cliWatchPositiveIntExpectedMessage.Invoke(null, new object[] { "--debounce-ms" }) ?? "<null>"));
+        Assert.Equal(
+            "Watching /tmp/nsharp for N# changes. Press Ctrl+C to stop.",
+            (string)(cliWatchStartedMessage.Invoke(null, new object[] { "/tmp/nsharp" }) ?? "<null>"));
+        Assert.Equal(
+            "Change detected at 12:34:56. Re-running `nlc check`.",
+            (string)(cliWatchChangeDetectedMessage.Invoke(null, new object[] { "12:34:56", "check" }) ?? "<null>"));
     }
 
     private static void AssertCliPublishOptionsLikeProduction(MethodInfo cliPublishOptionsInto)
