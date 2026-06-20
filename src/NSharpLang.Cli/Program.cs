@@ -645,12 +645,12 @@ Exit codes:
             var runtime = publishArguments.Runtime;
             if (publishArguments.SelfContained)
             {
-                return Error(SelfContainedPublishUnsupportedMessage);
+                return Error(PublishCommandKernels.GetSelfContainedUnsupportedMessage());
             }
 
             if (publishArguments.Aot)
             {
-                Console.WriteLine(AotPublishAnalysisOnlyNotice);
+                Console.WriteLine(PublishCommandKernels.GetAotAnalysisOnlyNotice());
             }
 
             if (!string.IsNullOrWhiteSpace(runtime))
@@ -658,7 +658,7 @@ Exit codes:
                 var currentRuntime = RuntimeInformation.RuntimeIdentifier;
                 if (!string.Equals(runtime, currentRuntime, StringComparison.OrdinalIgnoreCase))
                 {
-                    return Error(CrossRuntimePublishUnsupportedMessage(runtime, currentRuntime));
+                    return Error(PublishCommandKernels.GetCrossRuntimeUnsupportedMessage(runtime, currentRuntime));
                 }
             }
 
@@ -725,21 +725,6 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
             // Best-effort on filesystems that do not support Unix modes.
         }
     }
-
-    private const string AotPublishAnalysisOnlyNotice =
-        "nlc publish --aot is analysis-only in this release: it verifies your project is Native AOT-safe " +
-        "(failing on any AOT blocker) and stamps [RequiresUnreferencedCode]/[RequiresDynamicCode] on public APIs, " +
-        "but it does NOT produce a native image yet. The output is the usual framework-dependent assembly.";
-
-    private const string SelfContainedPublishUnsupportedMessage =
-        "Self-contained publish is not available in nlc publish yet. " +
-        "Today nlc publish produces framework-dependent artifacts. " +
-        "Omit --self-contained, or use dotnet publish with an MSBuild compatibility project when you need a true apphost/self-contained bundle.";
-
-    private static string CrossRuntimePublishUnsupportedMessage(string requestedRuntime, string currentRuntime)
-        => $"Cross-runtime publish is not available in nlc publish yet. Requested runtime '{requestedRuntime}', but this machine is '{currentRuntime}'. " +
-           "Today --runtime only supports the current host runtime to add a framework-dependent launcher. " +
-           "Omit --runtime for portable 'dotnet <app>.dll' output, or run nlc publish on the target runtime.";
 
     private static string? ValidatePublishArguments(string[] args)
     {

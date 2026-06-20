@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-20 — Publish unsupported-shape messages move into product N#
+
+`Program.PublishCommand` no longer owns the self-contained, cross-runtime, or AOT analysis-only publish
+message bodies. The shipped `CliPublishAotAnalysisOnlyNotice`, `CliPublishSelfContainedUnsupportedMessage`,
+and `CliPublishCrossRuntimeUnsupportedMessage` dogfood kernels now shape those user-facing messages;
+`PublishCommandKernels` remains the C# host boundary with fallback/oracle text only.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.PublishCommandKernels_NormalizesOptionsAndValidation|FullyQualifiedName~CompilationBackendTests.PublishCommand_SelfContainedOutput_ReturnsHelpfulUnsupportedMessage|FullyQualifiedName~CompilationBackendTests.PublishCommand_CrossRuntimeOutput_ReturnsHelpfulUnsupportedMessage|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-20 — Publish validation messages move into product N#
 
 `PublishCommandKernels` no longer shapes publish validation errors in C# after `CliPublishOptionsInto`

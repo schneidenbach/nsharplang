@@ -2554,6 +2554,27 @@ func CliPublishValidationErrorMessage(code: int, arg: string): string {
     return ""
 }
 
+func CliPublishAotAnalysisOnlyNotice(): string {
+    return "nlc publish --aot is analysis-only in this release: it verifies your project is Native AOT-safe "
+        + "(failing on any AOT blocker) and stamps [RequiresUnreferencedCode]/[RequiresDynamicCode] on public APIs, "
+        + "but it does NOT produce a native image yet. The output is the usual framework-dependent assembly."
+}
+
+func CliPublishSelfContainedUnsupportedMessage(): string {
+    return "Self-contained publish is not available in nlc publish yet. "
+        + "Today nlc publish produces framework-dependent artifacts. "
+        + "Omit --self-contained, or use dotnet publish with an MSBuild compatibility project when you need a true apphost/self-contained bundle."
+}
+
+func CliPublishCrossRuntimeUnsupportedMessage(requestedRuntime: string, currentRuntime: string): string {
+    return "Cross-runtime publish is not available in nlc publish yet. Requested runtime '"
+        + requestedRuntime
+        + "', but this machine is '"
+        + currentRuntime
+        + "'. Today --runtime only supports the current host runtime to add a framework-dependent launcher. "
+        + "Omit --runtime for portable 'dotnet <app>.dll' output, or run nlc publish on the target runtime."
+}
+
 func CliPackOptionSummaryInto(args: string[], resultIndices: int[]): int {
     arguments := new CliArgumentTable { Args: args }
     results := new CliIndexResultTable { Indices: resultIndices }

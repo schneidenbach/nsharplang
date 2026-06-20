@@ -7029,6 +7029,9 @@ func outer(x: int): int {
         Assert.Contains("CliTestOutputMode", methodNames!); // product test output mode selection.
         Assert.Contains("CliTestFilterMatches", methodNames!); // product test filter matching.
         Assert.Contains("CliPublishValidationErrorMessage", methodNames!); // product publish validation message shaping.
+        Assert.Contains("CliPublishAotAnalysisOnlyNotice", methodNames!); // product publish AOT notice shaping.
+        Assert.Contains("CliPublishSelfContainedUnsupportedMessage", methodNames!); // product publish unsupported-shape message shaping.
+        Assert.Contains("CliPublishCrossRuntimeUnsupportedMessage", methodNames!); // product publish runtime message shaping.
         Assert.Contains("CliPackOptionSummaryInto", methodNames!); // product pack option parsing.
         Assert.Contains("CliPackOutputMode", methodNames!); // product pack output mode selection.
         Assert.Contains("CliCompletionOptionSummaryInto", methodNames!); // product completion option parsing.
@@ -15604,6 +15607,18 @@ class OtherZetaType {
                     "CliPublishValidationErrorMessage",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliPublishValidationErrorMessage.");
+            var cliPublishAotAnalysisOnlyNotice = programType.GetMethod(
+                    "CliPublishAotAnalysisOnlyNotice",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliPublishAotAnalysisOnlyNotice.");
+            var cliPublishSelfContainedUnsupportedMessage = programType.GetMethod(
+                    "CliPublishSelfContainedUnsupportedMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliPublishSelfContainedUnsupportedMessage.");
+            var cliPublishCrossRuntimeUnsupportedMessage = programType.GetMethod(
+                    "CliPublishCrossRuntimeUnsupportedMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliPublishCrossRuntimeUnsupportedMessage.");
             var cliPackOptionSummaryInto = programType.GetMethod(
                     "CliPackOptionSummaryInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -16732,6 +16747,10 @@ func main(customer: Customer, résumé: Profile) {
             AssertCliWatchPositiveIntsLikeProduction(cliWatchPositiveIntInto);
             AssertCliPublishOptionsLikeProduction(cliPublishOptionsInto);
             AssertCliPublishValidationMessagesLikeProduction(cliPublishValidationErrorMessage);
+            AssertCliPublishUnsupportedMessagesLikeProduction(
+                cliPublishAotAnalysisOnlyNotice,
+                cliPublishSelfContainedUnsupportedMessage,
+                cliPublishCrossRuntimeUnsupportedMessage);
             AssertCliJsonFlagOutputModesLikeProduction(cliTestOutputMode);
             AssertCliPackOptionsLikeProduction(cliPackOptionSummaryInto);
             AssertCliJsonFlagOutputModesLikeProduction(cliPackOutputMode);
@@ -20957,6 +20976,35 @@ func main() {
                 new object[] { testCase.Code, testCase.Arg }) ?? "<null>");
             Assert.Equal(testCase.Expected, actual);
         }
+    }
+
+    private static void AssertCliPublishUnsupportedMessagesLikeProduction(
+        MethodInfo cliPublishAotAnalysisOnlyNotice,
+        MethodInfo cliPublishSelfContainedUnsupportedMessage,
+        MethodInfo cliPublishCrossRuntimeUnsupportedMessage)
+    {
+        var aotNotice = (string)(cliPublishAotAnalysisOnlyNotice.Invoke(null, Array.Empty<object>()) ?? "<null>");
+        Assert.Equal(
+            "nlc publish --aot is analysis-only in this release: it verifies your project is Native AOT-safe " +
+            "(failing on any AOT blocker) and stamps [RequiresUnreferencedCode]/[RequiresDynamicCode] on public APIs, " +
+            "but it does NOT produce a native image yet. The output is the usual framework-dependent assembly.",
+            aotNotice);
+
+        var selfContained = (string)(cliPublishSelfContainedUnsupportedMessage.Invoke(null, Array.Empty<object>()) ?? "<null>");
+        Assert.Equal(
+            "Self-contained publish is not available in nlc publish yet. " +
+            "Today nlc publish produces framework-dependent artifacts. " +
+            "Omit --self-contained, or use dotnet publish with an MSBuild compatibility project when you need a true apphost/self-contained bundle.",
+            selfContained);
+
+        var crossRuntime = (string)(cliPublishCrossRuntimeUnsupportedMessage.Invoke(
+            null,
+            new object[] { "linux-x64", "osx-arm64" }) ?? "<null>");
+        Assert.Equal(
+            "Cross-runtime publish is not available in nlc publish yet. Requested runtime 'linux-x64', but this machine is 'osx-arm64'. " +
+            "Today --runtime only supports the current host runtime to add a framework-dependent launcher. " +
+            "Omit --runtime for portable 'dotnet <app>.dll' output, or run nlc publish on the target runtime.",
+            crossRuntime);
     }
 
     private static (int Code, int[] Indices, int ErrorIndex) CreateExpectedCliPublishOptions(string[] args)

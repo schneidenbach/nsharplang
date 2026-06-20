@@ -2829,6 +2829,22 @@ func Main() {
         Assert.Equal("Unexpected publish argument 'Project.nl'. Run 'nlc publish --help' for usage.", unexpected.ValidationError);
 
         Assert.Equal(
+            "nlc publish --aot is analysis-only in this release: it verifies your project is Native AOT-safe " +
+            "(failing on any AOT blocker) and stamps [RequiresUnreferencedCode]/[RequiresDynamicCode] on public APIs, " +
+            "but it does NOT produce a native image yet. The output is the usual framework-dependent assembly.",
+            PublishCommandKernels.GetAotAnalysisOnlyNotice());
+        Assert.Equal(
+            "Self-contained publish is not available in nlc publish yet. " +
+            "Today nlc publish produces framework-dependent artifacts. " +
+            "Omit --self-contained, or use dotnet publish with an MSBuild compatibility project when you need a true apphost/self-contained bundle.",
+            PublishCommandKernels.GetSelfContainedUnsupportedMessage());
+        Assert.Equal(
+            "Cross-runtime publish is not available in nlc publish yet. Requested runtime 'linux-x64', but this machine is 'osx-arm64'. " +
+            "Today --runtime only supports the current host runtime to add a framework-dependent launcher. " +
+            "Omit --runtime for portable 'dotnet <app>.dll' output, or run nlc publish on the target runtime.",
+            PublishCommandKernels.GetCrossRuntimeUnsupportedMessage("linux-x64", "osx-arm64"));
+
+        Assert.Equal(
             "Debug",
             Program.GetPublishArgumentSummary(new[] { "-c", "Debug" }).Configuration);
 

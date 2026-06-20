@@ -104,6 +104,72 @@ internal static class PublishCommandKernels
         }
     }
 
+    internal static string GetAotAnalysisOnlyNotice()
+    {
+        if (TryGetPublishMessage(bindings => bindings.PublishAotAnalysisOnlyNotice(), out var message))
+            return message;
+
+        return GetAotAnalysisOnlyNoticeWithCSharp();
+    }
+
+    internal static string GetSelfContainedUnsupportedMessage()
+    {
+        if (TryGetPublishMessage(bindings => bindings.PublishSelfContainedUnsupportedMessage(), out var message))
+            return message;
+
+        return GetSelfContainedUnsupportedMessageWithCSharp();
+    }
+
+    internal static string GetCrossRuntimeUnsupportedMessage(string requestedRuntime, string currentRuntime)
+    {
+        if (TryGetPublishMessage(
+                bindings => bindings.PublishCrossRuntimeUnsupportedMessage(requestedRuntime, currentRuntime),
+                out var message))
+        {
+            return message;
+        }
+
+        return GetCrossRuntimeUnsupportedMessageWithCSharp(requestedRuntime, currentRuntime);
+    }
+
+    private static bool TryGetPublishMessage(Func<Bindings, string> getMessage, out string message)
+    {
+        message = string.Empty;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        try
+        {
+            message = getMessage(bindings);
+            return !string.IsNullOrEmpty(message);
+        }
+        catch
+        {
+            message = string.Empty;
+            return false;
+        }
+    }
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product publish status messages route through CliPublish*Message kernels.
+    private static string GetAotAnalysisOnlyNoticeWithCSharp()
+        => "nlc publish --aot is analysis-only in this release: it verifies your project is Native AOT-safe " +
+           "(failing on any AOT blocker) and stamps [RequiresUnreferencedCode]/[RequiresDynamicCode] on public APIs, " +
+           "but it does NOT produce a native image yet. The output is the usual framework-dependent assembly.";
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product publish unsupported-shape messages route through CliPublish*Message kernels.
+    private static string GetSelfContainedUnsupportedMessageWithCSharp()
+        => "Self-contained publish is not available in nlc publish yet. " +
+           "Today nlc publish produces framework-dependent artifacts. " +
+           "Omit --self-contained, or use dotnet publish with an MSBuild compatibility project when you need a true apphost/self-contained bundle.";
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product publish unsupported-shape messages route through CliPublish*Message kernels.
+    private static string GetCrossRuntimeUnsupportedMessageWithCSharp(string requestedRuntime, string currentRuntime)
+        => $"Cross-runtime publish is not available in nlc publish yet. Requested runtime '{requestedRuntime}', but this machine is '{currentRuntime}'. " +
+           "Today --runtime only supports the current host runtime to add a framework-dependent launcher. " +
+           "Omit --runtime for portable 'dotnet <app>.dll' output, or run nlc publish on the target runtime.";
+
     // Stage 6 C#-surface-shrink: fallback/oracle only; product publish validation messages route through CliPublishValidationErrorMessage.
     private static string? GetValidationErrorWithCSharp(string[] args, int code, int errorArgIndex)
     {
@@ -144,12 +210,27 @@ internal static class PublishCommandKernels
                 "CliPublishOptionsInto"),
             DogfoodKernelLoader.CreateDelegate<CliPublishValidationErrorMessage>(
                 programType,
-                "CliPublishValidationErrorMessage")));
+                "CliPublishValidationErrorMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliPublishAotAnalysisOnlyNotice>(
+                programType,
+                "CliPublishAotAnalysisOnlyNotice"),
+            DogfoodKernelLoader.CreateDelegate<CliPublishSelfContainedUnsupportedMessage>(
+                programType,
+                "CliPublishSelfContainedUnsupportedMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliPublishCrossRuntimeUnsupportedMessage>(
+                programType,
+                "CliPublishCrossRuntimeUnsupportedMessage")));
 
     private delegate int CliPublishOptionsInto(string[] args, int[] resultIndices);
     private delegate string CliPublishValidationErrorMessage(int code, string arg);
+    private delegate string CliPublishAotAnalysisOnlyNotice();
+    private delegate string CliPublishSelfContainedUnsupportedMessage();
+    private delegate string CliPublishCrossRuntimeUnsupportedMessage(string requestedRuntime, string currentRuntime);
 
     private sealed record Bindings(
         CliPublishOptionsInto PublishOptionsInto,
-        CliPublishValidationErrorMessage PublishValidationErrorMessage);
+        CliPublishValidationErrorMessage PublishValidationErrorMessage,
+        CliPublishAotAnalysisOnlyNotice PublishAotAnalysisOnlyNotice,
+        CliPublishSelfContainedUnsupportedMessage PublishSelfContainedUnsupportedMessage,
+        CliPublishCrossRuntimeUnsupportedMessage PublishCrossRuntimeUnsupportedMessage);
 }
