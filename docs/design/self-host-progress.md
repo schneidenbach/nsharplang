@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-20 — JSON-only query output validation moves into product N#
+
+`QueryCommand` no longer owns the shared JSON-only output-mode validation for `nlc query perf`, `nlc query
+trusted`, and `nlc query batch` directly in C#. The shipped `CliQueryJsonOnlyOutputMode` dogfood kernel now
+rejects text mode for those product routes; C# keeps command-specific error text, output emission, and
+fallback/oracle mode selection only.
+
+Focused evidence:
+`./scripts/dev.sh QueryCommandKernels`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliQueryParsing|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-20 — Query diagnostics output mode selection moves into product N#
 
 `DiagnosticsCommand` no longer owns the `nlc query diagnostics` regular JSON/text/cluster JSON output-mode

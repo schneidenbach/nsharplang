@@ -260,7 +260,7 @@ public static class QueryCommand
             return QueryError($"Invalid position format: {posStr}. Expected <line>:<col> (e.g. 5:12)");
         }
 
-        if (options.UseText)
+        if (GetJsonOnlyOutputMode(options.UseText) == QueryJsonOnlyOutputModeKind.TextUnsupported)
         {
             return QueryError("Performance facts are only available as JSON output.");
         }
@@ -334,7 +334,7 @@ public static class QueryCommand
 
     private static int TrustedCommand(string[] args, QueryOptions options)
     {
-        if (options.UseText)
+        if (GetJsonOnlyOutputMode(options.UseText) == QueryJsonOnlyOutputModeKind.TextUnsupported)
         {
             return QueryError("Trusted-site reports are only available as JSON output.");
         }
@@ -438,7 +438,7 @@ public static class QueryCommand
 
     private static int BatchCommand(string[] args, QueryOptions options)
     {
-        if (options.UseText)
+        if (GetJsonOnlyOutputMode(options.UseText) == QueryJsonOnlyOutputModeKind.TextUnsupported)
         {
             return QueryError("Batch queries only support JSON output.");
         }
@@ -1163,6 +1163,18 @@ public static class QueryCommand
 
         return QueryDiagnosticsOutputModeKind.Json;
     }
+
+    internal static QueryJsonOnlyOutputModeKind GetJsonOnlyOutputMode(bool useText)
+    {
+        if (QueryCommandKernels.TryGetJsonOnlyOutputMode(useText, out var mode))
+            return mode;
+
+        return GetJsonOnlyOutputModeWithCSharp(useText);
+    }
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product JSON-only query output-mode validation routes through QueryCommandKernels.
+    private static QueryJsonOnlyOutputModeKind GetJsonOnlyOutputModeWithCSharp(bool useText)
+        => useText ? QueryJsonOnlyOutputModeKind.TextUnsupported : QueryJsonOnlyOutputModeKind.Json;
 
     private static ProjectSnapshot? LoadProjectOrFail(QueryOptions options)
     {

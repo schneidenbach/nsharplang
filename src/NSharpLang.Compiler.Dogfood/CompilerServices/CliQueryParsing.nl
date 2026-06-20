@@ -288,6 +288,14 @@ func CliQueryDiagnosticsOutputMode(useText: int, clusters: int): int {
     return 1
 }
 
+func CliQueryJsonOnlyOutputMode(useText: int): int {
+    if useText != 0 {
+        return -1
+    }
+
+    return 1
+}
+
 func CliQueryShouldUseDaemon(useText: int, noDaemon: int): int {
     if useText != 0 || noDaemon != 0 {
         return 0

@@ -44,6 +44,12 @@ internal enum QueryDiagnosticsOutputModeKind
     ClustersJson = 3
 }
 
+internal enum QueryJsonOnlyOutputModeKind
+{
+    TextUnsupported = -1,
+    Json = 1
+}
+
 internal static class QueryCommandKernels
 {
     [ThreadStatic]
@@ -359,6 +365,33 @@ internal static class QueryCommandKernels
         }
     }
 
+    internal static bool TryGetJsonOnlyOutputMode(bool useText, out QueryJsonOnlyOutputModeKind mode)
+    {
+        mode = default;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        try
+        {
+            var code = bindings.QueryJsonOnlyOutputMode(useText ? 1 : 0);
+            mode = code switch
+            {
+                -1 => QueryJsonOnlyOutputModeKind.TextUnsupported,
+                1 => QueryJsonOnlyOutputModeKind.Json,
+                _ => default
+            };
+
+            return code is -1 or 1;
+        }
+        catch
+        {
+            mode = default;
+            return false;
+        }
+    }
+
     internal static bool TryParseSymbolKind(string value, out SymbolKind kind)
     {
         if (TryParseSymbolKindWithDogfood(value, out var parsed, out kind))
@@ -427,6 +460,9 @@ internal static class QueryCommandKernels
             DogfoodKernelLoader.CreateDelegate<CliQueryDiagnosticsOutputMode>(
                 programType,
                 "CliQueryDiagnosticsOutputMode"),
+            DogfoodKernelLoader.CreateDelegate<CliQueryJsonOnlyOutputMode>(
+                programType,
+                "CliQueryJsonOnlyOutputMode"),
             DogfoodKernelLoader.CreateDelegate<CliQueryShouldUseDaemon>(
                 programType,
                 "CliQueryShouldUseDaemon"),
@@ -464,6 +500,8 @@ internal static class QueryCommandKernels
 
     private delegate int CliQueryDiagnosticsOutputMode(int useText, int clusters);
 
+    private delegate int CliQueryJsonOnlyOutputMode(int useText);
+
     private delegate int CliQueryShouldUseDaemon(int useText, int noDaemon);
 
     private delegate int CliQuerySymbolKindInto(string value, int[] result);
@@ -476,6 +514,7 @@ internal static class QueryCommandKernels
         CliTryParsePositiveIntInto TryParsePositiveInt,
         CliQueryInspectOutputMode QueryInspectOutputMode,
         CliQueryDiagnosticsOutputMode QueryDiagnosticsOutputMode,
+        CliQueryJsonOnlyOutputMode QueryJsonOnlyOutputMode,
         CliQueryShouldUseDaemon QueryShouldUseDaemon,
         CliQuerySymbolKindInto TryParseSymbolKind);
 }

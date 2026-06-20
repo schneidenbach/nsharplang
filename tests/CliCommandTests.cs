@@ -1559,6 +1559,23 @@ func Main() {
     }
 
     [Fact]
+    public void QueryCommandKernels_SelectsJsonOnlyOutputMode()
+    {
+        var cases = new[]
+        {
+            (UseText: false, Expected: QueryJsonOnlyOutputModeKind.Json),
+            (UseText: true, Expected: QueryJsonOnlyOutputModeKind.TextUnsupported)
+        };
+
+        foreach (var testCase in cases)
+        {
+            Assert.True(QueryCommandKernels.TryGetJsonOnlyOutputMode(testCase.UseText, out var dogfoodMode));
+            Assert.Equal(testCase.Expected, dogfoodMode);
+            Assert.Equal(testCase.Expected, QueryCommand.GetJsonOnlyOutputMode(testCase.UseText));
+        }
+    }
+
+    [Fact]
     public void QueryCommandKernels_SelectsDaemonRouting()
     {
         var cases = new[]
