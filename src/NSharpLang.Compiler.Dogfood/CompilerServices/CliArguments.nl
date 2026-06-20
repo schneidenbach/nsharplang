@@ -3036,6 +3036,31 @@ func CliGeneratedSourceBasePathLength(relativeSourcePath: string): int {
     return -1
 }
 
+func CliShouldSkipGeneratedSourcePath(relativeSourcePath: string): int {
+    if CliPathStartsWithBuildOutputSegment(relativeSourcePath, "obj") {
+        return 1
+    }
+
+    if CliPathStartsWithBuildOutputSegment(relativeSourcePath, "bin") {
+        return 1
+    }
+
+    return 0
+}
+
+func CliPathStartsWithBuildOutputSegment(text: string, segment: string): bool {
+    if text.Length <= segment.Length {
+        return false
+    }
+
+    separator := text[segment.Length]
+    if separator != '/' && separator != '\\' {
+        return false
+    }
+
+    return CliPathSubstringEqualsAsciiIgnoreCase(text, 0, segment.Length, segment)
+}
+
 func CliGeneratedOutputBasePathLength(relativeGeneratedPath: string): int {
     suffix := ".g.cs"
     if CliPathEndsWithAsciiIgnoreCase(relativeGeneratedPath, suffix) {

@@ -7013,6 +7013,7 @@ func outer(x: int): int {
         Assert.Contains("CliBestNuGetVersionIndex", methodNames!); // product resolver installed NuGet version selection.
         Assert.Contains("CliPathHasSegmentIgnoreCase", methodNames!); // product resolver C# project-reference output filtering.
         Assert.Contains("CliGeneratedSourceBasePathLength", methodNames!); // product stale generated-output cleanup.
+        Assert.Contains("CliShouldSkipGeneratedSourcePath", methodNames!); // product stale generated-output cleanup.
         Assert.Contains("CliGeneratedOutputBasePathLength", methodNames!); // product stale generated-output cleanup.
         Assert.Contains("CliNuGetVersionCompareInto", methodNames!); // product resolver NuGet version comparison.
         Assert.Contains("CliNuGetDependencyVersionRangeInto", methodNames!); // product resolver NuGet dependency-version normalization.
@@ -7087,6 +7088,10 @@ func outer(x: int): int {
             ("CliGeneratedSourceBasePathLength", new object[] { "src/Calculator.tests.nl" }),
             ("CliGeneratedSourceBasePathLength", new object[] { "src/Calculator.TESTS.NL" }),
             ("CliGeneratedSourceBasePathLength", new object[] { "src/README.md" }),
+            ("CliShouldSkipGeneratedSourcePath", new object[] { "obj/Debug/Program.nl" }),
+            ("CliShouldSkipGeneratedSourcePath", new object[] { "BIN\\Debug\\Program.nl" }),
+            ("CliShouldSkipGeneratedSourcePath", new object[] { "src/obj/Program.nl" }),
+            ("CliShouldSkipGeneratedSourcePath", new object[] { "object/Program.nl" }),
             ("CliGeneratedOutputBasePathLength", new object[] { "Program.g.cs" }),
             ("CliGeneratedOutputBasePathLength", new object[] { "nested/Calculator.G.CS" }),
             ("CliGeneratedOutputBasePathLength", new object[] { "Program.cs" }),

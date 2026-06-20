@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-20 — Stale generated source path pruning moves into product N#
+
+`Program.CleanStaleGeneratedFiles` no longer owns the root `obj/` and `bin/` source-path skip rule used while
+collecting live `.nl` files for stale generated-output cleanup. The shipped `CliShouldSkipGeneratedSourcePath`
+dogfood kernel now classifies those build-output relative paths through `GeneratedOutputDirectoryDeduplicator`;
+C# still owns filesystem enumeration/deletion and keeps only the fallback/oracle `StartsWith` predicate.
+
+Focused evidence:
+`./scripts/dev.sh GeneratedOutputDirectoryDeduplicator`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-20 — Stale generated-output base paths move into product N#
 
 `Program.CleanStaleGeneratedFiles` no longer owns the `.g.cs` generated-output base-name rule used to match

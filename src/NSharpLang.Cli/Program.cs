@@ -371,10 +371,8 @@ Exit codes:
         var nlRelativePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var nlFile in Directory.GetFiles(projectRoot, "*.nl", SearchOption.AllDirectories))
         {
-            // Skip files inside obj/ and bin/
             var rel = Path.GetRelativePath(projectRoot, nlFile);
-            if (rel.StartsWith("obj" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) ||
-                rel.StartsWith("bin" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            if (ShouldSkipGeneratedSourcePath(rel))
                 continue;
 
             // Strip .nl (or .tests.nl) extension to get the base name with relative dir
@@ -431,6 +429,16 @@ Exit codes:
 
         return -1;
     }
+
+    static bool ShouldSkipGeneratedSourcePath(string relativeSourcePath)
+        => GeneratedOutputDirectoryDeduplicator.TryShouldSkipSourcePath(relativeSourcePath, out var shouldSkip)
+            ? shouldSkip
+            : ShouldSkipGeneratedSourcePathWithCSharp(relativeSourcePath);
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product stale-generated source path pruning routes through GeneratedOutputDirectoryDeduplicator.
+    static bool ShouldSkipGeneratedSourcePathWithCSharp(string relativeSourcePath)
+        => relativeSourcePath.StartsWith("obj" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) ||
+           relativeSourcePath.StartsWith("bin" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
 
     static int GetGeneratedOutputBasePathLength(string relativeGeneratedPath)
         => GeneratedOutputDirectoryDeduplicator.TryGetGeneratedOutputBasePathLength(relativeGeneratedPath, out var basePathLength)

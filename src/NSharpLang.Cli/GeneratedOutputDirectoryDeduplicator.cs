@@ -105,6 +105,30 @@ internal static class GeneratedOutputDirectoryDeduplicator
         }
     }
 
+    internal static bool TryShouldSkipSourcePath(string relativeSourcePath, out bool shouldSkip)
+    {
+        shouldSkip = false;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        try
+        {
+            var result = bindings.ShouldSkipGeneratedSourcePath(relativeSourcePath);
+            if (result is not 0 and not 1)
+                return false;
+
+            shouldSkip = result == 1;
+            return true;
+        }
+        catch
+        {
+            shouldSkip = false;
+            return false;
+        }
+    }
+
     internal static bool TryGetGeneratedOutputBasePathLength(string relativeGeneratedPath, out int basePathLength)
     {
         basePathLength = -1;
@@ -137,6 +161,9 @@ internal static class GeneratedOutputDirectoryDeduplicator
             DogfoodKernelLoader.CreateDelegate<CliGeneratedSourceBasePathLength>(
                 programType,
                 "CliGeneratedSourceBasePathLength"),
+            DogfoodKernelLoader.CreateDelegate<CliShouldSkipGeneratedSourcePath>(
+                programType,
+                "CliShouldSkipGeneratedSourcePath"),
             DogfoodKernelLoader.CreateDelegate<CliGeneratedOutputBasePathLength>(
                 programType,
                 "CliGeneratedOutputBasePathLength")));
@@ -150,12 +177,16 @@ internal static class GeneratedOutputDirectoryDeduplicator
     private delegate int CliGeneratedSourceBasePathLength(
         string relativeSourcePath);
 
+    private delegate int CliShouldSkipGeneratedSourcePath(
+        string relativeSourcePath);
+
     private delegate int CliGeneratedOutputBasePathLength(
         string relativeGeneratedPath);
 
     private sealed record Bindings(
         CliStableDistinctRankIndicesInto StableDistinctRankIndices,
         CliGeneratedSourceBasePathLength GeneratedSourceBasePathLength,
+        CliShouldSkipGeneratedSourcePath ShouldSkipGeneratedSourcePath,
         CliGeneratedOutputBasePathLength GeneratedOutputBasePathLength);
 
     private sealed class Scratch

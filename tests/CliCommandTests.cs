@@ -339,6 +339,23 @@ func Main() {
             out var nonSourceBaseLength));
         Assert.Equal(-1, nonSourceBaseLength);
 
+        Assert.True(GeneratedOutputDirectoryDeduplicator.TryShouldSkipSourcePath(
+            "obj/Debug/Generated.nl",
+            out var skipObjSource));
+        Assert.True(skipObjSource);
+        Assert.True(GeneratedOutputDirectoryDeduplicator.TryShouldSkipSourcePath(
+            "BIN\\Debug\\Generated.nl",
+            out var skipBinSource));
+        Assert.True(skipBinSource);
+        Assert.True(GeneratedOutputDirectoryDeduplicator.TryShouldSkipSourcePath(
+            "src/obj/Generated.nl",
+            out var keepNestedObjSource));
+        Assert.False(keepNestedObjSource);
+        Assert.True(GeneratedOutputDirectoryDeduplicator.TryShouldSkipSourcePath(
+            "object/Generated.nl",
+            out var keepObjectSource));
+        Assert.False(keepObjectSource);
+
         Assert.True(GeneratedOutputDirectoryDeduplicator.TryGetGeneratedOutputBasePathLength(
             "Program.g.cs",
             out var generatedBaseLength));
