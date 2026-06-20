@@ -12139,6 +12139,7 @@ func outer(x: int): int {
         Assert.Contains("CliQueryInspectOutputMode", methodNames!); // product query inspect output-mode selection.
         Assert.Contains("CliQueryDiagnosticsOutputMode", methodNames!); // product query diagnostics output-mode selection.
         Assert.Contains("CliQueryJsonOnlyOutputMode", methodNames!); // product JSON-only query output-mode validation.
+        Assert.Contains("CliQueryTextJsonOutputMode", methodNames!); // product query text/json output-mode selection.
         Assert.Contains("CliQueryShouldUseDaemon", methodNames!); // product query daemon routing policy.
         Assert.Contains("CliQuerySymbolKindInto", methodNames!); // product query symbol-kind parsing.
         Assert.Contains("CliDaemonPositionInto", methodNames!); // product daemon query position compatibility parsing.
@@ -12168,6 +12169,8 @@ func outer(x: int): int {
             ("CliQueryDiagnosticsOutputMode", new object[] { 1, 1 }),
             ("CliQueryJsonOnlyOutputMode", new object[] { 0 }),
             ("CliQueryJsonOnlyOutputMode", new object[] { 1 }),
+            ("CliQueryTextJsonOutputMode", new object[] { 0 }),
+            ("CliQueryTextJsonOutputMode", new object[] { 1 }),
             ("CliQueryShouldUseDaemon", new object[] { 0, 0 }),
             ("CliQueryShouldUseDaemon", new object[] { 1, 0 }),
             ("CliQueryShouldUseDaemon", new object[] { 0, 1 }),
@@ -15460,6 +15463,10 @@ class OtherZetaType {
                     "CliQueryJsonOnlyOutputMode",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliQueryJsonOnlyOutputMode.");
+            var cliQueryTextJsonOutputMode = programType.GetMethod(
+                    "CliQueryTextJsonOutputMode",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliQueryTextJsonOutputMode.");
             var cliQueryShouldUseDaemon = programType.GetMethod(
                     "CliQueryShouldUseDaemon",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -16644,6 +16651,7 @@ func main(customer: Customer, résumé: Profile) {
             AssertCliQueryInspectOutputModesLikeProduction(cliQueryInspectOutputMode);
             AssertCliQueryDiagnosticsOutputModesLikeProduction(cliQueryDiagnosticsOutputMode);
             AssertCliQueryJsonOnlyOutputModesLikeProduction(cliQueryJsonOnlyOutputMode);
+            AssertCliQueryTextJsonOutputModesLikeProduction(cliQueryTextJsonOutputMode);
             AssertCliQueryDaemonRoutingLikeProduction(cliQueryShouldUseDaemon);
             AssertCliQuerySymbolKindsLikeProduction(cliQuerySymbolKindInto);
             AssertCliDaemonPositionsLikeProduction(cliDaemonPositionInto);
@@ -19264,6 +19272,25 @@ func main() {
         foreach (var testCase in cases)
         {
             var actual = (int)(cliQueryJsonOnlyOutputMode.Invoke(
+                null,
+                new object[] { testCase.UseText }) ?? -99);
+
+            Assert.Equal(testCase.Expected, actual);
+        }
+    }
+
+    private static void AssertCliQueryTextJsonOutputModesLikeProduction(MethodInfo cliQueryTextJsonOutputMode)
+    {
+        var cases = new[]
+        {
+            (UseText: 0, Expected: 1),
+            (UseText: 1, Expected: 2),
+            (UseText: 2, Expected: 2)
+        };
+
+        foreach (var testCase in cases)
+        {
+            var actual = (int)(cliQueryTextJsonOutputMode.Invoke(
                 null,
                 new object[] { testCase.UseText }) ?? -99);
 

@@ -50,6 +50,12 @@ internal enum QueryJsonOnlyOutputModeKind
     Json = 1
 }
 
+internal enum QueryTextJsonOutputModeKind
+{
+    Json = 1,
+    Text = 2
+}
+
 internal static class QueryCommandKernels
 {
     [ThreadStatic]
@@ -392,6 +398,33 @@ internal static class QueryCommandKernels
         }
     }
 
+    internal static bool TryGetTextJsonOutputMode(bool useText, out QueryTextJsonOutputModeKind mode)
+    {
+        mode = default;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        try
+        {
+            var code = bindings.QueryTextJsonOutputMode(useText ? 1 : 0);
+            mode = code switch
+            {
+                1 => QueryTextJsonOutputModeKind.Json,
+                2 => QueryTextJsonOutputModeKind.Text,
+                _ => default
+            };
+
+            return code is 1 or 2;
+        }
+        catch
+        {
+            mode = default;
+            return false;
+        }
+    }
+
     internal static bool TryParseSymbolKind(string value, out SymbolKind kind)
     {
         if (TryParseSymbolKindWithDogfood(value, out var parsed, out kind))
@@ -463,6 +496,9 @@ internal static class QueryCommandKernels
             DogfoodKernelLoader.CreateDelegate<CliQueryJsonOnlyOutputMode>(
                 programType,
                 "CliQueryJsonOnlyOutputMode"),
+            DogfoodKernelLoader.CreateDelegate<CliQueryTextJsonOutputMode>(
+                programType,
+                "CliQueryTextJsonOutputMode"),
             DogfoodKernelLoader.CreateDelegate<CliQueryShouldUseDaemon>(
                 programType,
                 "CliQueryShouldUseDaemon"),
@@ -502,6 +538,8 @@ internal static class QueryCommandKernels
 
     private delegate int CliQueryJsonOnlyOutputMode(int useText);
 
+    private delegate int CliQueryTextJsonOutputMode(int useText);
+
     private delegate int CliQueryShouldUseDaemon(int useText, int noDaemon);
 
     private delegate int CliQuerySymbolKindInto(string value, int[] result);
@@ -515,6 +553,7 @@ internal static class QueryCommandKernels
         CliQueryInspectOutputMode QueryInspectOutputMode,
         CliQueryDiagnosticsOutputMode QueryDiagnosticsOutputMode,
         CliQueryJsonOnlyOutputMode QueryJsonOnlyOutputMode,
+        CliQueryTextJsonOutputMode QueryTextJsonOutputMode,
         CliQueryShouldUseDaemon QueryShouldUseDaemon,
         CliQuerySymbolKindInto TryParseSymbolKind);
 }

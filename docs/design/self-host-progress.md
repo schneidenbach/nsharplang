@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-20 — Query doc text/JSON output selection moves into product N#
+
+`DocCommand` no longer owns the `nlc query doc` text-vs-JSON output-mode decision directly in C#. The shipped
+`CliQueryTextJsonOutputMode` dogfood kernel now selects the doc route's text or JSON branch for both success and
+not-found output; C# keeps `DocQuery` lookup, output emission, command-specific error text, and fallback/oracle
+mode selection only.
+
+Focused evidence:
+`./scripts/dev.sh QueryCommandKernels`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliQueryParsing|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-20 — JSON-only query output validation moves into product N#
 
 `QueryCommand` no longer owns the shared JSON-only output-mode validation for `nlc query perf`, `nlc query

@@ -1576,6 +1576,23 @@ func Main() {
     }
 
     [Fact]
+    public void QueryCommandKernels_SelectsTextJsonOutputMode()
+    {
+        var cases = new[]
+        {
+            (UseText: false, Expected: QueryTextJsonOutputModeKind.Json),
+            (UseText: true, Expected: QueryTextJsonOutputModeKind.Text)
+        };
+
+        foreach (var testCase in cases)
+        {
+            Assert.True(QueryCommandKernels.TryGetTextJsonOutputMode(testCase.UseText, out var dogfoodMode));
+            Assert.Equal(testCase.Expected, dogfoodMode);
+            Assert.Equal(testCase.Expected, QueryCommand.GetTextJsonOutputMode(testCase.UseText));
+        }
+    }
+
+    [Fact]
     public void QueryCommandKernels_SelectsDaemonRouting()
     {
         var cases = new[]

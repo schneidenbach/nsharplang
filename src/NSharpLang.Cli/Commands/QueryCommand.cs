@@ -955,6 +955,7 @@ public static class QueryCommand
     {
         var commandSummary = GetCommandOptionSummary(args);
         var query = commandSummary.LeadingOperand;
+        var outputMode = GetTextJsonOutputMode(options.UseText);
 
         if (query == null)
         {
@@ -964,7 +965,7 @@ public static class QueryCommand
         var result = _docQuery.Value.Lookup(query);
         if (result == null)
         {
-            if (options.UseText)
+            if (outputMode == QueryTextJsonOutputModeKind.Text)
             {
                 Console.Error.WriteLine($"No documentation found for '{query}'.");
             }
@@ -975,7 +976,7 @@ public static class QueryCommand
             return 1;
         }
 
-        if (options.UseText)
+        if (outputMode == QueryTextJsonOutputModeKind.Text)
         {
             Console.Write(OutputFormatter.DocToText(result));
         }
@@ -1175,6 +1176,18 @@ public static class QueryCommand
     // Stage 6 C#-surface-shrink: fallback/oracle only; product JSON-only query output-mode validation routes through QueryCommandKernels.
     private static QueryJsonOnlyOutputModeKind GetJsonOnlyOutputModeWithCSharp(bool useText)
         => useText ? QueryJsonOnlyOutputModeKind.TextUnsupported : QueryJsonOnlyOutputModeKind.Json;
+
+    internal static QueryTextJsonOutputModeKind GetTextJsonOutputMode(bool useText)
+    {
+        if (QueryCommandKernels.TryGetTextJsonOutputMode(useText, out var mode))
+            return mode;
+
+        return GetTextJsonOutputModeWithCSharp(useText);
+    }
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product query text/json output-mode selection routes through QueryCommandKernels.
+    private static QueryTextJsonOutputModeKind GetTextJsonOutputModeWithCSharp(bool useText)
+        => useText ? QueryTextJsonOutputModeKind.Text : QueryTextJsonOutputModeKind.Json;
 
     private static ProjectSnapshot? LoadProjectOrFail(QueryOptions options)
     {
