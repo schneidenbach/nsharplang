@@ -11,6 +11,12 @@ internal readonly record struct FixArgumentSummary(
     bool IncludeReviewNeeded,
     bool ShowHelp);
 
+internal enum FixOutputModeKind
+{
+    Json = 1,
+    Text = 2
+}
+
 internal static class FixCommandArgumentKernels
 {
     [ThreadStatic]
@@ -58,15 +64,46 @@ internal static class FixCommandArgumentKernels
         }
     }
 
+    internal static bool TryGetEffectiveOutputMode(bool useText, out FixOutputModeKind outputMode)
+    {
+        outputMode = default;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        try
+        {
+            var result = bindings.FixEffectiveOutputMode(useText ? 1 : 0);
+            if (result is < 1 or > 2)
+                return false;
+
+            outputMode = (FixOutputModeKind)result;
+            return true;
+        }
+        catch
+        {
+            outputMode = default;
+            return false;
+        }
+    }
+
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
             DogfoodKernelLoader.CreateDelegate<CliFixArgumentSummaryInto>(
                 programType,
-                "CliFixArgumentSummaryInto")));
+                "CliFixArgumentSummaryInto"),
+            DogfoodKernelLoader.CreateDelegate<CliFixEffectiveOutputMode>(
+                programType,
+                "CliFixEffectiveOutputMode")));
 
     private delegate int CliFixArgumentSummaryInto(string[] args, int[] resultIndices);
 
-    private sealed record Bindings(CliFixArgumentSummaryInto FixArgumentSummary);
+    private delegate int CliFixEffectiveOutputMode(int useText);
+
+    private sealed record Bindings(
+        CliFixArgumentSummaryInto FixArgumentSummary,
+        CliFixEffectiveOutputMode FixEffectiveOutputMode);
 
     private static bool TryGetOptionalArg(string[] args, int index, out string? value)
     {

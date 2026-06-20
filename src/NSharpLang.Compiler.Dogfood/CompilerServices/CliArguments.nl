@@ -1029,6 +1029,14 @@ func CliFixArgumentSummaryKind(arg: string): int {
     return 0
 }
 
+func CliFixEffectiveOutputMode(useText: int): int {
+    if useText != 0 {
+        return 2
+    }
+
+    return 1
+}
+
 func CliAddArgumentSummaryInto(args: string[], resultIndices: int[]): int {
     arguments := new CliArgumentTable { Args: args }
     results := new CliIndexResultTable { Indices: resultIndices }

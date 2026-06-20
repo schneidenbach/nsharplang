@@ -1829,6 +1829,23 @@ func Main() {
     }
 
     [Fact]
+    public void FixCommandArgumentKernels_SelectsEffectiveOutputMode()
+    {
+        Assert.True(FixCommandArgumentKernels.TryGetEffectiveOutputMode(false, out var defaultMode));
+        Assert.Equal(FixOutputModeKind.Json, defaultMode);
+
+        Assert.True(FixCommandArgumentKernels.TryGetEffectiveOutputMode(true, out var textMode));
+        Assert.Equal(FixOutputModeKind.Text, textMode);
+
+        Assert.Equal(
+            FixOutputModeKind.Json,
+            FixCommand.GetEffectiveOutputMode(new FixArgumentSummary(null, null, null, DryRun: false, UseText: false, IncludeReviewNeeded: false, ShowHelp: false)));
+        Assert.Equal(
+            FixOutputModeKind.Text,
+            FixCommand.GetEffectiveOutputMode(new FixArgumentSummary(null, null, null, DryRun: false, UseText: true, IncludeReviewNeeded: false, ShowHelp: false)));
+    }
+
+    [Fact]
     public void UpdateCommandKernels_SummarizesArguments()
     {
         var args = new[] { "--dry-run", "-v", "Newtonsoft.Json", "-h" };

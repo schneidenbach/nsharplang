@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-20 — Fix output mode selection moves into product N#
+
+`FixCommand` no longer owns the effective JSON/text output-mode decision directly in C#. The shipped
+`CliFixEffectiveOutputMode` dogfood kernel now keeps JSON as the default and selects text only for `--text`;
+C# keeps output emission, error text, and fallback/oracle mode selection only.
+
+Focused evidence:
+`./scripts/dev.sh FixCommandArgumentKernels`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-20 — Check output mode selection moves into product N#
 
 `CheckCommand` no longer owns the effective text/default-JSON/systems-report output-mode decision directly in

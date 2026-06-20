@@ -7043,6 +7043,7 @@ func outer(x: int): int {
         Assert.Contains("CliCheckArgumentSummaryInto", methodNames!); // product check argument parsing.
         Assert.Contains("CliCheckEffectiveOutputMode", methodNames!); // product check output mode selection.
         Assert.Contains("CliFixArgumentSummaryInto", methodNames!); // product fix argument parsing.
+        Assert.Contains("CliFixEffectiveOutputMode", methodNames!); // product fix output mode selection.
         Assert.Contains("CliNewArgumentSummaryInto", methodNames!); // product new argument parsing.
         Assert.Contains("CliNewTemplateKind", methodNames!); // product new template normalization.
         Assert.Contains("CliNewEffectiveTemplateKind", methodNames!); // product new --systems template selection.
@@ -15496,6 +15497,10 @@ class OtherZetaType {
                     "CliFixArgumentSummaryInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliFixArgumentSummaryInto.");
+            var cliFixEffectiveOutputMode = programType.GetMethod(
+                    "CliFixEffectiveOutputMode",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliFixEffectiveOutputMode.");
             var cliNewArgumentSummaryInto = programType.GetMethod(
                     "CliNewArgumentSummaryInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -16616,6 +16621,7 @@ func main(customer: Customer, résumé: Profile) {
             AssertCliCheckArgumentsLikeProduction(cliCheckArgumentSummaryInto);
             AssertCliCheckOutputModesLikeProduction(cliCheckEffectiveOutputMode);
             AssertCliFixArgumentsLikeProduction(cliFixArgumentSummaryInto);
+            AssertCliFixOutputModesLikeProduction(cliFixEffectiveOutputMode);
             AssertCliNewArgumentsLikeProduction(cliNewArgumentSummaryInto);
             AssertCliAddArgumentsLikeProduction(cliAddArgumentSummaryInto);
             AssertCliRemoveArgumentsLikeProduction(cliRemoveArgumentSummaryInto);
@@ -19840,6 +19846,25 @@ func main() {
             var actual = (int)(cliCheckEffectiveOutputMode.Invoke(
                 null,
                 new object[] { useText, systemsReport }) ?? -99);
+
+            Assert.Equal(expected, actual);
+        }
+    }
+
+    private static void AssertCliFixOutputModesLikeProduction(MethodInfo cliFixEffectiveOutputMode)
+    {
+        var cases = new[]
+        {
+            (UseText: 0, Expected: 1),
+            (UseText: 1, Expected: 2),
+            (UseText: 2, Expected: 2)
+        };
+
+        foreach (var (useText, expected) in cases)
+        {
+            var actual = (int)(cliFixEffectiveOutputMode.Invoke(
+                null,
+                new object[] { useText }) ?? -99);
 
             Assert.Equal(expected, actual);
         }

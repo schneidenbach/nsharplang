@@ -37,7 +37,7 @@ public static class FixCommand
             return ShowHelp();
 
         var dryRun = arguments.DryRun;
-        var useText = arguments.UseText;
+        var useText = GetEffectiveOutputMode(arguments) == FixOutputModeKind.Text;
         var includeReviewNeeded = arguments.IncludeReviewNeeded;
         var fileArg = arguments.FileOption;
         var projectDir = GetProjectDir(arguments);
@@ -340,6 +340,11 @@ Examples:
             ? summary
             : GetArgumentSummaryWithCSharp(args);
 
+    internal static FixOutputModeKind GetEffectiveOutputMode(FixArgumentSummary arguments)
+        => FixCommandArgumentKernels.TryGetEffectiveOutputMode(arguments.UseText, out var outputMode)
+            ? outputMode
+            : GetEffectiveOutputModeWithCSharp(arguments.UseText);
+
     private static string GetProjectDir(FixArgumentSummary arguments)
     {
         if (!string.IsNullOrWhiteSpace(arguments.ProjectOption))
@@ -358,6 +363,10 @@ Examples:
             ContainsArgWithCSharp(args, "--text"),
             ContainsArgWithCSharp(args, "--include-review-needed"),
             ContainsArgWithCSharp(args, "--help") || ContainsArgWithCSharp(args, "-h") || (args.Length > 0 && args[0] == "help"));
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product fix output mode selection routes through FixCommandArgumentKernels.
+    private static FixOutputModeKind GetEffectiveOutputModeWithCSharp(bool useText)
+        => useText ? FixOutputModeKind.Text : FixOutputModeKind.Json;
 
     private static string? GetOptionValueWithCSharp(string[] args, string flag)
     {
