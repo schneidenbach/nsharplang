@@ -498,31 +498,7 @@ Exit codes:
         var helpOptions = GetRunOptionSummary(args);
         if (helpOptions.ShowHelp)
         {
-            Console.WriteLine(@"N# Run
-
-Usage: nlc run [file.nl]
-
-Build and run either the current project or a single N# source file.
-
-Options:
-  --backend <mode>   Compilation backend: il
-  --define <symbol>  Define a conditional-compilation symbol for #if (-d shorthand);
-                     repeatable, and accepts comma-separated lists
-  --help, -h         Show this help text
-
-Conditional compilation:
-  DEBUG is defined automatically when running (a debug build).
-  Project-wide symbols can also be set via 'defines:' in project.yml.
-
-Examples:
-  nlc run
-  nlc run --backend il
-  nlc run Program.nl
-  nlc run --define FEATURE_X
-
-Exit codes:
-  0  Program ran successfully
-  1  Build or execution failed");
+            Console.WriteLine(RunCommandKernels.GetHelpText());
             return 0;
         }
 
@@ -550,10 +526,10 @@ Exit codes:
 
             if (!File.Exists(sourceFile))
             {
-                return Error($"File not found: {sourceFile}");
+                return Error(RunCommandKernels.GetFileNotFoundMessage(sourceFile));
             }
 
-            Console.WriteLine($"Running {sourceFile}...");
+            Console.WriteLine(RunCommandKernels.GetSourceStartingMessage(sourceFile));
 
             var sourceDir = Path.GetDirectoryName(Path.GetFullPath(sourceFile)) ?? Directory.GetCurrentDirectory();
             var sourceProjectConfig = ProjectFileParser.ParseFromDirectory(sourceDir);
@@ -562,7 +538,7 @@ Exit codes:
         }
         catch (Exception ex)
         {
-            return Error($"Run failed: {ex.Message}");
+            return Error(RunCommandKernels.GetFailedMessage(ex.Message));
         }
     }
 

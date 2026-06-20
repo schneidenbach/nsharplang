@@ -3140,6 +3140,25 @@ func Main() {
 
         Assert.True(Program.GetRunOptionSummary(new[] { "-h" }).ShowHelp);
         Assert.Null(Program.GetRunOptionSummary(new[] { "--backend" }).BackendOption);
+
+        var helpText = RunCommandKernels.GetHelpText();
+        Assert.Contains("N# Run", helpText);
+        Assert.Contains("Usage: nlc run [file.nl]", helpText);
+        Assert.Contains("Build or execution failed", helpText);
+        Assert.Equal("File not found: Missing.nl", RunCommandKernels.GetFileNotFoundMessage("Missing.nl"));
+        Assert.Equal("Running Program.nl...", RunCommandKernels.GetSourceStartingMessage("Program.nl"));
+        Assert.Equal("Run failed: backend exploded", RunCommandKernels.GetFailedMessage("backend exploded"));
+
+        var (helpExitCode, helpStdout, helpStderr) = CaptureConsole(() => ExecuteProgram("run", "--help"));
+        Assert.Equal(0, helpExitCode);
+        Assert.Contains("Usage: nlc run [file.nl]", helpStdout);
+        Assert.True(string.IsNullOrWhiteSpace(helpStderr));
+
+        var missingPath = Path.Combine(Path.GetTempPath(), $"missing-{Guid.NewGuid():N}.nl");
+        var (missingExitCode, missingStdout, missingStderr) = CaptureConsole(() => ExecuteProgram("run", missingPath));
+        Assert.Equal(1, missingExitCode);
+        Assert.True(string.IsNullOrWhiteSpace(missingStdout));
+        Assert.Contains($"File not found: {missingPath}", missingStderr);
     }
 
     [Fact]

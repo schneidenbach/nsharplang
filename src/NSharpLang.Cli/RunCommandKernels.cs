@@ -73,6 +73,95 @@ internal static class RunCommandKernels
         }
     }
 
+    internal static string GetHelpText()
+    {
+        if (TryGetMessage(bindings => bindings.RunHelpText(), out var message))
+            return message;
+
+        return GetHelpTextWithCSharp();
+    }
+
+    internal static string GetFileNotFoundMessage(string sourceFile)
+    {
+        if (TryGetMessage(bindings => bindings.RunFileNotFoundMessage(sourceFile), out var message))
+            return message;
+
+        return GetFileNotFoundMessageWithCSharp(sourceFile);
+    }
+
+    internal static string GetSourceStartingMessage(string sourceFile)
+    {
+        if (TryGetMessage(bindings => bindings.RunSourceStartingMessage(sourceFile), out var message))
+            return message;
+
+        return GetSourceStartingMessageWithCSharp(sourceFile);
+    }
+
+    internal static string GetFailedMessage(string message)
+    {
+        if (TryGetMessage(bindings => bindings.RunFailedMessage(message), out var result))
+            return result;
+
+        return GetFailedMessageWithCSharp(message);
+    }
+
+    private static bool TryGetMessage(Func<Bindings, string> getMessage, out string message)
+    {
+        message = string.Empty;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        try
+        {
+            message = getMessage(bindings);
+            return !string.IsNullOrEmpty(message);
+        }
+        catch
+        {
+            message = string.Empty;
+            return false;
+        }
+    }
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product run messages route through CliRun* kernels.
+    private static string GetHelpTextWithCSharp()
+        => "N# Run\n"
+           + "\n"
+           + "Usage: nlc run [file.nl]\n"
+           + "\n"
+           + "Build and run either the current project or a single N# source file.\n"
+           + "\n"
+           + "Options:\n"
+           + "  --backend <mode>   Compilation backend: il\n"
+           + "  --define <symbol>  Define a conditional-compilation symbol for #if (-d shorthand);\n"
+           + "                     repeatable, and accepts comma-separated lists\n"
+           + "  --help, -h         Show this help text\n"
+           + "\n"
+           + "Conditional compilation:\n"
+           + "  DEBUG is defined automatically when running (a debug build).\n"
+           + "  Project-wide symbols can also be set via 'defines:' in project.yml.\n"
+           + "\n"
+           + "Examples:\n"
+           + "  nlc run\n"
+           + "  nlc run --backend il\n"
+           + "  nlc run Program.nl\n"
+           + "  nlc run --define FEATURE_X\n"
+           + "\n"
+           + "Exit codes:\n"
+           + "  0  Program ran successfully\n"
+           + "  1  Build or execution failed";
+
+    private static string GetFileNotFoundMessageWithCSharp(string sourceFile)
+        => $"File not found: {sourceFile}";
+
+    private static string GetSourceStartingMessageWithCSharp(string sourceFile)
+        => $"Running {sourceFile}...";
+
+    private static string GetFailedMessageWithCSharp(string message)
+        => $"Run failed: {message}";
+
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
             DogfoodKernelLoader.CreateDelegate<CliRunOptionSummaryInto>(
@@ -80,15 +169,36 @@ internal static class RunCommandKernels
                 "CliRunOptionSummaryInto"),
             DogfoodKernelLoader.CreateDelegate<CliRunFirstOperandIndex>(
                 programType,
-                "CliRunFirstOperandIndex")));
+                "CliRunFirstOperandIndex"),
+            DogfoodKernelLoader.CreateDelegate<CliRunHelpText>(
+                programType,
+                "CliRunHelpText"),
+            DogfoodKernelLoader.CreateDelegate<CliRunFileNotFoundMessage>(
+                programType,
+                "CliRunFileNotFoundMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliRunSourceStartingMessage>(
+                programType,
+                "CliRunSourceStartingMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliRunFailedMessage>(
+                programType,
+                "CliRunFailedMessage")));
 
     private delegate int CliRunOptionSummaryInto(string[] args, int[] resultIndices);
 
     private delegate int CliRunFirstOperandIndex(string[] args);
 
+    private delegate string CliRunHelpText();
+    private delegate string CliRunFileNotFoundMessage(string sourceFile);
+    private delegate string CliRunSourceStartingMessage(string sourceFile);
+    private delegate string CliRunFailedMessage(string message);
+
     private sealed record Bindings(
         CliRunOptionSummaryInto RunOptionSummary,
-        CliRunFirstOperandIndex RunFirstOperandIndex);
+        CliRunFirstOperandIndex RunFirstOperandIndex,
+        CliRunHelpText RunHelpText,
+        CliRunFileNotFoundMessage RunFileNotFoundMessage,
+        CliRunSourceStartingMessage RunSourceStartingMessage,
+        CliRunFailedMessage RunFailedMessage);
 
     private static bool TryGetOptionalArg(string[] args, int index, out string? value)
     {

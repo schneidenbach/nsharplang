@@ -7079,6 +7079,10 @@ func outer(x: int): int {
         Assert.Contains("CliWatchStartedMessage", methodNames!); // product watch started message shaping.
         Assert.Contains("CliWatchChangeDetectedMessage", methodNames!); // product watch change-detected message shaping.
         Assert.Contains("CliRunOptionSummaryInto", methodNames!); // product run option parsing.
+        Assert.Contains("CliRunHelpText", methodNames!); // product run help text shaping.
+        Assert.Contains("CliRunFileNotFoundMessage", methodNames!); // product run missing-file message shaping.
+        Assert.Contains("CliRunSourceStartingMessage", methodNames!); // product run source-start message shaping.
+        Assert.Contains("CliRunFailedMessage", methodNames!); // product run failure message shaping.
         Assert.Contains("CliDefineExtractionInto", methodNames!); // product build/run define extraction.
         Assert.Contains("CliPositionalArgIndicesInto", methodNames!); // product positional collection.
         Assert.Contains("CliPackEffectiveVersionSource", methodNames!); // product pack version source selection.
@@ -15678,6 +15682,22 @@ class OtherZetaType {
                     "CliRunOptionSummaryInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliRunOptionSummaryInto.");
+            var cliRunHelpText = programType.GetMethod(
+                    "CliRunHelpText",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliRunHelpText.");
+            var cliRunFileNotFoundMessage = programType.GetMethod(
+                    "CliRunFileNotFoundMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliRunFileNotFoundMessage.");
+            var cliRunSourceStartingMessage = programType.GetMethod(
+                    "CliRunSourceStartingMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliRunSourceStartingMessage.");
+            var cliRunFailedMessage = programType.GetMethod(
+                    "CliRunFailedMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliRunFailedMessage.");
             var cliCheckArgumentSummaryInto = programType.GetMethod(
                     "CliCheckArgumentSummaryInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -17424,6 +17444,11 @@ func main(customer: Customer, résumé: Profile) {
             AssertCliExportCSharpOptionsLikeProduction(cliExportCSharpOptionSummaryInto);
             AssertCliRunSourceOperandLikeProduction(cliRunFirstOperandIndex);
             AssertCliRunOptionsLikeProduction(cliRunOptionSummaryInto);
+            AssertCliRunMessagesLikeProduction(
+                cliRunHelpText,
+                cliRunFileNotFoundMessage,
+                cliRunSourceStartingMessage,
+                cliRunFailedMessage);
             AssertCliCheckArgumentsLikeProduction(cliCheckArgumentSummaryInto);
             AssertCliCheckOutputModesLikeProduction(cliCheckEffectiveOutputMode);
             AssertCliFixArgumentsLikeProduction(cliFixArgumentSummaryInto);
@@ -20817,6 +20842,28 @@ func main() {
         }
 
         return indices;
+    }
+
+    private static void AssertCliRunMessagesLikeProduction(
+        MethodInfo cliRunHelpText,
+        MethodInfo cliRunFileNotFoundMessage,
+        MethodInfo cliRunSourceStartingMessage,
+        MethodInfo cliRunFailedMessage)
+    {
+        var help = (string)(cliRunHelpText.Invoke(null, Array.Empty<object>()) ?? string.Empty);
+        Assert.Contains("N# Run", help);
+        Assert.Contains("Usage: nlc run [file.nl]", help);
+        Assert.Contains("Build or execution failed", help);
+
+        Assert.Equal(
+            "File not found: Missing.nl",
+            (string)(cliRunFileNotFoundMessage.Invoke(null, new object[] { "Missing.nl" }) ?? string.Empty));
+        Assert.Equal(
+            "Running Program.nl...",
+            (string)(cliRunSourceStartingMessage.Invoke(null, new object[] { "Program.nl" }) ?? string.Empty));
+        Assert.Equal(
+            "Run failed: backend exploded",
+            (string)(cliRunFailedMessage.Invoke(null, new object[] { "backend exploded" }) ?? string.Empty));
     }
 
     private static void AssertCliCheckArgumentsLikeProduction(MethodInfo cliCheckArgumentSummaryInto)

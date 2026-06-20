@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-20 — Run command messages move into product N#
+
+`Program.RunCommand` no longer owns help text, missing-source-file diagnostics, single-file start text, or
+exception failure text in C#. The shipped `CliRun*` dogfood kernels now shape those strings through
+`RunCommandKernels`; C# keeps current-directory selection, project.yml parsing, backend execution, file existence,
+process/build work, and fallback/oracle text only.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.RunCommandKernels_SummarizesOptions|FullyQualifiedName~CliCommandTests.RunCommandKernels_SelectsSourceOperandAfterBackendStripping|FullyQualifiedName~CompilationBackendTests.RunCommand_UsesConfiguredIlBackendAndExecutesProject|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-20 — Pack command messages move into product N#
 
 `PackCommand` no longer owns help text, missing-project diagnostics, project.yml parse failures,

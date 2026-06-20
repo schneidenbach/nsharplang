@@ -827,6 +827,46 @@ func CliRunFirstOperandIndexCore(args: &CliArgumentTable): int {
     return -1
 }
 
+func CliRunHelpText(): string {
+    return "N# Run\n"
+        + "\n"
+        + "Usage: nlc run [file.nl]\n"
+        + "\n"
+        + "Build and run either the current project or a single N# source file.\n"
+        + "\n"
+        + "Options:\n"
+        + "  --backend <mode>   Compilation backend: il\n"
+        + "  --define <symbol>  Define a conditional-compilation symbol for #if (-d shorthand);\n"
+        + "                     repeatable, and accepts comma-separated lists\n"
+        + "  --help, -h         Show this help text\n"
+        + "\n"
+        + "Conditional compilation:\n"
+        + "  DEBUG is defined automatically when running (a debug build).\n"
+        + "  Project-wide symbols can also be set via 'defines:' in project.yml.\n"
+        + "\n"
+        + "Examples:\n"
+        + "  nlc run\n"
+        + "  nlc run --backend il\n"
+        + "  nlc run Program.nl\n"
+        + "  nlc run --define FEATURE_X\n"
+        + "\n"
+        + "Exit codes:\n"
+        + "  0  Program ran successfully\n"
+        + "  1  Build or execution failed"
+}
+
+func CliRunFileNotFoundMessage(sourceFile: string): string {
+    return "File not found: " + sourceFile
+}
+
+func CliRunSourceStartingMessage(sourceFile: string): string {
+    return "Running " + sourceFile + "..."
+}
+
+func CliRunFailedMessage(message: string): string {
+    return "Run failed: " + message
+}
+
 func CliDefineExtractionInto(args: string[], defineSymbols: string[], remainingIndices: int[], resultCounts: int[]): int {
     arguments := new CliArgumentTable { Args: args }
     symbols := new CliStringResultTable { Values: defineSymbols }
