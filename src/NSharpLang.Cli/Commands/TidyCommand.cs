@@ -142,17 +142,9 @@ public static class TidyCommand
             {
                 foreach (var line in File.ReadLines(file))
                 {
-                    var trimmed = line.TrimStart();
-                    if (!trimmed.StartsWith("import ", StringComparison.Ordinal))
-                        continue;
-
-                    // import <namespace>  or  import <namespace>.<type>
-                    var importValue = trimmed["import ".Length..].Trim();
-
-                    // Remove trailing semicolons, braces etc. — keep the dotted identifier
-                    var clean = new string(importValue.TakeWhile(c => char.IsLetterOrDigit(c) || c == '.' || c == '_').ToArray());
-                    if (clean.Length > 0)
-                        namespaces.Add(clean);
+                    var importedNamespace = GetImportedNamespace(line);
+                    if (importedNamespace != null)
+                        namespaces.Add(importedNamespace);
                 }
             }
             catch
@@ -395,6 +387,26 @@ public static class TidyCommand
         => TidyCommandKernels.TryGetOptionSummary(args, out var summary)
             ? summary
             : GetOptionSummaryWithCSharp(args);
+
+    internal static string? GetImportedNamespace(string line)
+        => TidyCommandKernels.TryGetImportedNamespace(line, out var importedNamespace)
+            ? importedNamespace
+            : GetImportedNamespaceWithCSharp(line);
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product tidy import extraction routes through TidyCommandKernels.
+    private static string? GetImportedNamespaceWithCSharp(string line)
+    {
+        var trimmed = line.TrimStart();
+        if (!trimmed.StartsWith("import ", StringComparison.Ordinal))
+            return null;
+
+        // import <namespace>  or  import <namespace>.<type>
+        var importValue = trimmed["import ".Length..].Trim();
+
+        // Remove trailing semicolons, braces etc. — keep the dotted identifier
+        var clean = new string(importValue.TakeWhile(c => char.IsLetterOrDigit(c) || c == '.' || c == '_').ToArray());
+        return clean.Length > 0 ? clean : null;
+    }
 
     // Stage 6 C#-surface-shrink: fallback/oracle only; product tidy option parsing routes through TidyCommandKernels.
     private static TidyOptionSummary GetOptionSummaryWithCSharp(string[] args)

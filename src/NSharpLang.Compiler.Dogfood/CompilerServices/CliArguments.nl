@@ -2663,6 +2663,65 @@ func CliTidyOptionSummaryKind(arg: string): int {
     return 0
 }
 
+func CliTidyImportNamespaceSpanInto(line: string, resultSpan: int[]): int {
+    if resultSpan.Length < 3 {
+        return -1
+    }
+
+    resultSpan[0] = 0
+    resultSpan[1] = 0
+    resultSpan[2] = 0
+
+    start := 0
+    while start < line.Length && char.IsWhiteSpace(line[start]) {
+        start = start + 1
+    }
+
+    if !CliTidySubstringStartsWith(line, start, line.Length, "import ") {
+        return 0
+    }
+
+    namespaceStart := start + 7
+    while namespaceStart < line.Length && char.IsWhiteSpace(line[namespaceStart]) {
+        namespaceStart = namespaceStart + 1
+    }
+
+    namespaceEnd := namespaceStart
+    while namespaceEnd < line.Length && CliTidyImportNamespaceChar(line[namespaceEnd]) {
+        namespaceEnd = namespaceEnd + 1
+    }
+
+    if namespaceEnd == namespaceStart {
+        return 0
+    }
+
+    resultSpan[0] = 1
+    resultSpan[1] = namespaceStart
+    resultSpan[2] = namespaceEnd - namespaceStart
+    return 0
+}
+
+func CliTidyImportNamespaceChar(value: char): bool {
+    return char.IsLetterOrDigit(value) || value == '.' || value == '_'
+}
+
+func CliTidySubstringStartsWith(text: string, start: int, end: int, prefix: string): bool {
+    if start < 0 || end > text.Length || end - start < prefix.Length {
+        return false
+    }
+
+    index := 0
+    while index < prefix.Length {
+        if text[start + index] != prefix[index] {
+            return false
+        }
+
+        index = index + 1
+    }
+
+    return true
+}
+
 func CliDocOptionSummaryInto(args: string[], resultIndices: int[]): int {
     arguments := new CliArgumentTable { Args: args }
     results := new CliIndexResultTable { Indices: resultIndices }

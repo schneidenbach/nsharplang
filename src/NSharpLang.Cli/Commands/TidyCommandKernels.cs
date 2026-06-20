@@ -20,6 +20,8 @@ internal static class TidyCommandKernels
     private static RemovalLineScratch? t_removalLineScratch;
     [ThreadStatic]
     private static int[]? t_optionSummaryIndices;
+    [ThreadStatic]
+    private static int[]? t_importNamespaceSpan;
 
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
 
@@ -54,6 +56,43 @@ internal static class TidyCommandKernels
         catch
         {
             summary = default;
+            return false;
+        }
+    }
+
+    internal static bool TryGetImportedNamespace(string line, out string? importedNamespace)
+    {
+        importedNamespace = null;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        var span = t_importNamespaceSpan ??= new int[3];
+        try
+        {
+            var code = bindings.ImportNamespaceSpan(line, span);
+            if (code != 0)
+                return false;
+
+            var hasImport = span[0];
+            if (hasImport == 0)
+                return true;
+
+            if (hasImport != 1)
+                return false;
+
+            var start = span[1];
+            var length = span[2];
+            if (start < 0 || length <= 0 || start + length > line.Length)
+                return false;
+
+            importedNamespace = line.Substring(start, length);
+            return true;
+        }
+        catch
+        {
+            importedNamespace = null;
             return false;
         }
     }
@@ -343,7 +382,10 @@ internal static class TidyCommandKernels
                 "CliTidyRemovalLineKeepFlagsInto"),
             DogfoodKernelLoader.CreateDelegate<CliTidyOptionSummaryInto>(
                 programType,
-                "CliTidyOptionSummaryInto")));
+                "CliTidyOptionSummaryInto"),
+            DogfoodKernelLoader.CreateDelegate<CliTidyImportNamespaceSpanInto>(
+                programType,
+                "CliTidyImportNamespaceSpanInto")));
 
     private static int GetStatusRank(string status) =>
         status switch
@@ -388,12 +430,17 @@ internal static class TidyCommandKernels
         string[] args,
         int[] resultIndices);
 
+    private delegate int CliTidyImportNamespaceSpanInto(
+        string line,
+        int[] resultSpan);
+
     private sealed record Bindings(
         DiagnosticSeverityFilterIndicesInto StatusFilter,
         CliTidyDependencyStatusSummaryInto StatusSummary,
         CliTidyDependencyStatusRanksInto DependencyStatusRanks,
         CliTidyRemovalLineKeepFlagsInto RemovalLineKeepFlags,
-        CliTidyOptionSummaryInto OptionSummary);
+        CliTidyOptionSummaryInto OptionSummary,
+        CliTidyImportNamespaceSpanInto ImportNamespaceSpan);
 
     private static bool TryGetOptionalArg(string[] args, int index, out string? value)
     {

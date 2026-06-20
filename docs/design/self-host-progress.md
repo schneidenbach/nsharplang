@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-20 — Tidy import extraction moves into product N#
+
+`TidyCommand` no longer owns the per-line `import` namespace extraction that feeds dependency usage
+classification. The shipped `CliTidyImportNamespaceSpanInto` dogfood kernel now locates the namespace span
+through `TidyCommandKernels`; C# keeps source-file enumeration, string slicing/materialization, and the
+fallback/oracle extractor only.
+
+Focused evidence:
+`./scripts/dev.sh TidyCommandKernels`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliParityAuditTests.TidyCommand_Json_ClassifiesDependencyUsage"`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-20 — Add duplicate checks move into product N#
 
 `AddCommand` no longer owns duplicate dependency matching for NuGet/framework package names or local project

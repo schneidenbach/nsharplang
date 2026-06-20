@@ -3226,6 +3226,20 @@ dependencies:
 
         Assert.True(TidyCommand.GetOptionSummary(new[] { "help" }).ShowHelp);
         Assert.True(TidyCommand.GetOptionSummary(new[] { "ignored", "-h" }).ShowHelp);
+
+        Assert.True(TidyCommandKernels.TryGetImportedNamespace(
+            "  import  Newtonsoft.Json.Linq // trailing comment",
+            out var importedNamespace));
+        Assert.Equal("Newtonsoft.Json.Linq", importedNamespace);
+        Assert.Equal("System.Text", TidyCommand.GetImportedNamespace("\timport System.Text;"));
+
+        Assert.True(TidyCommandKernels.TryGetImportedNamespace(
+            "import\tSystem.Text",
+            out var tabAfterKeyword));
+        Assert.Null(tabAfterKeyword);
+        Assert.Null(TidyCommand.GetImportedNamespace("print \"import System.Text\""));
+        Assert.Null(TidyCommand.GetImportedNamespace("import ;"));
+        Assert.Equal("Résumé.Json", TidyCommand.GetImportedNamespace("import Résumé.Json"));
     }
 
     [Fact]

@@ -7053,6 +7053,7 @@ func outer(x: int): int {
         Assert.Contains("CliRemoveShouldStopDependencyContinuationLine", methodNames!); // product remove dependency continuation pruning.
         Assert.Contains("CliUpdateArgumentSummaryInto", methodNames!); // product update argument parsing.
         Assert.Contains("CliTidyOptionSummaryInto", methodNames!); // product tidy option parsing.
+        Assert.Contains("CliTidyImportNamespaceSpanInto", methodNames!); // product tidy import extraction.
         Assert.Contains("CliDocOptionSummaryInto", methodNames!); // product doc option parsing.
         Assert.Contains("CliTreeOptionSummaryInto", methodNames!); // product tree option parsing.
         Assert.Contains("CliTreeMaxDepthInto", methodNames!); // product tree depth parsing.
@@ -7181,6 +7182,10 @@ func outer(x: int): int {
             ("CliRemoveShouldStopDependencyContinuationLine", new object[] { "    version: 13.0.3" }),
             ("CliRemoveShouldStopDependencyContinuationLine", new object[] { "- nuget: Other" }),
             ("CliRemoveShouldStopDependencyContinuationLine", new object[] { "dependencies:" }),
+            ("CliTidyImportNamespaceSpanInto", new object[] { "  import  Newtonsoft.Json.Linq // comment", new int[3] }),
+            ("CliTidyImportNamespaceSpanInto", new object[] { "import\tSystem.Text", new int[3] }),
+            ("CliTidyImportNamespaceSpanInto", new object[] { "print \"import System.Text\"", new int[3] }),
+            ("CliTidyImportNamespaceSpanInto", new object[] { "import R\u00e9sum\u00e9.Json", new int[3] }),
             ("CliPositionalArgChecksumInto", new object[] { new[] { "--template", "library", "systems-cli", "PacketTool", "--systems", "--diff", "src/App.nl" }, new[] { "--template", "--type" }, new int[7] }));
     }
 

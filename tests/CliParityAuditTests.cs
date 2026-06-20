@@ -1125,7 +1125,7 @@ dependencies:
     version: 8.0.0
 """);
             File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
-import Newtonsoft.Json.Linq
+  import  Newtonsoft.Json.Linq // used by tidy import extraction
 
 func Main() {
     print "ok"
