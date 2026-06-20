@@ -3036,6 +3036,15 @@ func CliGeneratedSourceBasePathLength(relativeSourcePath: string): int {
     return -1
 }
 
+func CliGeneratedOutputBasePathLength(relativeGeneratedPath: string): int {
+    suffix := ".g.cs"
+    if CliPathEndsWithAsciiIgnoreCase(relativeGeneratedPath, suffix) {
+        return relativeGeneratedPath.Length - suffix.Length
+    }
+
+    return -1
+}
+
 func CliBuildOptionSummaryInto(args: string[], resultIndices: int[]): int {
     arguments := new CliArgumentTable { Args: args }
     results := new CliIndexResultTable { Indices: resultIndices }

@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-20 — Stale generated-output base paths move into product N#
+
+`Program.CleanStaleGeneratedFiles` no longer owns the `.g.cs` generated-output base-name rule used to match
+`obj/**/nsharp/*.g.cs` files back to live `.nl` and `.tests.nl` sources. The shipped
+`CliGeneratedOutputBasePathLength` dogfood kernel now derives the generated-output base-path length through
+`GeneratedOutputDirectoryDeduplicator`; C# still owns filesystem enumeration/deletion and keeps only the
+fallback/oracle suffix logic.
+
+Focused evidence:
+`./scripts/dev.sh GeneratedOutputDirectoryDeduplicator`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-20 — New effective template selection moves into product N#
 
 `Program.NewCommand` no longer owns the `--systems` rewrite that turns `console` into `systems-cli` and `library`

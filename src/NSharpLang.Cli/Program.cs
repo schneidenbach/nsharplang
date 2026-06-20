@@ -403,11 +403,9 @@ Exit codes:
 
             foreach (var gcsFile in Directory.GetFiles(nsharpDir, "*.g.cs", SearchOption.AllDirectories))
             {
-                // Generated files are named like Program.g.cs — strip .g.cs to get base name
                 var relToNsharp = Path.GetRelativePath(nsharpDir, gcsFile).Replace('\\', '/');
-                var basePath = relToNsharp;
-                if (basePath.EndsWith(".g.cs", StringComparison.OrdinalIgnoreCase))
-                    basePath = basePath[..^".g.cs".Length];
+                var basePathLength = GetGeneratedOutputBasePathLength(relToNsharp);
+                var basePath = basePathLength >= 0 ? relToNsharp[..basePathLength] : relToNsharp;
 
                 if (!nlRelativePaths.Contains(basePath))
                 {
@@ -430,6 +428,20 @@ Exit codes:
 
         if (relativeSourcePath.EndsWith(".nl", StringComparison.OrdinalIgnoreCase))
             return relativeSourcePath.Length - ".nl".Length;
+
+        return -1;
+    }
+
+    static int GetGeneratedOutputBasePathLength(string relativeGeneratedPath)
+        => GeneratedOutputDirectoryDeduplicator.TryGetGeneratedOutputBasePathLength(relativeGeneratedPath, out var basePathLength)
+            ? basePathLength
+            : GetGeneratedOutputBasePathLengthWithCSharp(relativeGeneratedPath);
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product stale-generated output base-path derivation routes through GeneratedOutputDirectoryDeduplicator.
+    static int GetGeneratedOutputBasePathLengthWithCSharp(string relativeGeneratedPath)
+    {
+        if (relativeGeneratedPath.EndsWith(".g.cs", StringComparison.OrdinalIgnoreCase))
+            return relativeGeneratedPath.Length - ".g.cs".Length;
 
         return -1;
     }

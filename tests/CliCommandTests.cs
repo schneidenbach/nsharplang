@@ -339,6 +339,19 @@ func Main() {
             out var nonSourceBaseLength));
         Assert.Equal(-1, nonSourceBaseLength);
 
+        Assert.True(GeneratedOutputDirectoryDeduplicator.TryGetGeneratedOutputBasePathLength(
+            "Program.g.cs",
+            out var generatedBaseLength));
+        Assert.Equal("Program".Length, generatedBaseLength);
+        Assert.True(GeneratedOutputDirectoryDeduplicator.TryGetGeneratedOutputBasePathLength(
+            "nested/Calculator.G.CS",
+            out var uppercaseGeneratedBaseLength));
+        Assert.Equal("nested/Calculator".Length, uppercaseGeneratedBaseLength);
+        Assert.True(GeneratedOutputDirectoryDeduplicator.TryGetGeneratedOutputBasePathLength(
+            "Program.cs",
+            out var nonGeneratedBaseLength));
+        Assert.Equal(-1, nonGeneratedBaseLength);
+
         var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-stale-generated-{Guid.NewGuid():N}");
         var generatedDir = Path.Combine(tempDir, "obj", "Debug", "net10.0", "nsharp");
         Directory.CreateDirectory(generatedDir);

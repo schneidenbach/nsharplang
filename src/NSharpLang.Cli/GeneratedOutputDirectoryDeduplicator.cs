@@ -105,6 +105,30 @@ internal static class GeneratedOutputDirectoryDeduplicator
         }
     }
 
+    internal static bool TryGetGeneratedOutputBasePathLength(string relativeGeneratedPath, out int basePathLength)
+    {
+        basePathLength = -1;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        try
+        {
+            var result = bindings.GeneratedOutputBasePathLength(relativeGeneratedPath);
+            if (result < -1 || result > relativeGeneratedPath.Length)
+                return false;
+
+            basePathLength = result;
+            return true;
+        }
+        catch
+        {
+            basePathLength = -1;
+            return false;
+        }
+    }
+
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
             DogfoodKernelLoader.CreateDelegate<CliStableDistinctRankIndicesInto>(
@@ -112,7 +136,10 @@ internal static class GeneratedOutputDirectoryDeduplicator
                 "CliStableDistinctRankIndicesInto"),
             DogfoodKernelLoader.CreateDelegate<CliGeneratedSourceBasePathLength>(
                 programType,
-                "CliGeneratedSourceBasePathLength")));
+                "CliGeneratedSourceBasePathLength"),
+            DogfoodKernelLoader.CreateDelegate<CliGeneratedOutputBasePathLength>(
+                programType,
+                "CliGeneratedOutputBasePathLength")));
 
     private delegate int CliStableDistinctRankIndicesInto(
         int[] ranks,
@@ -123,9 +150,13 @@ internal static class GeneratedOutputDirectoryDeduplicator
     private delegate int CliGeneratedSourceBasePathLength(
         string relativeSourcePath);
 
+    private delegate int CliGeneratedOutputBasePathLength(
+        string relativeGeneratedPath);
+
     private sealed record Bindings(
         CliStableDistinctRankIndicesInto StableDistinctRankIndices,
-        CliGeneratedSourceBasePathLength GeneratedSourceBasePathLength);
+        CliGeneratedSourceBasePathLength GeneratedSourceBasePathLength,
+        CliGeneratedOutputBasePathLength GeneratedOutputBasePathLength);
 
     private sealed class Scratch
     {
