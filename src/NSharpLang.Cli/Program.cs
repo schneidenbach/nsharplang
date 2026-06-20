@@ -625,12 +625,12 @@ Exit codes:
 
         try
         {
-            Console.WriteLine($"Publishing project in {projectRoot}...");
+            Console.WriteLine(PublishCommandKernels.GetStartMessage(projectRoot));
 
             var projectYmlPath = Path.Combine(projectRoot, "project.yml");
             if (!File.Exists(projectYmlPath))
             {
-                return Error("No project.yml found in current directory. Run 'nlc new <name>' to create a project.");
+                return Error(PublishCommandKernels.GetMissingProjectFileMessage());
             }
 
             var config = ProjectFileParser.Parse(projectYmlPath);
@@ -683,7 +683,7 @@ Exit codes:
                 WriteDotnetLauncher(publishDir, CompilationReferenceResolver.GetProjectAssemblyName(projectRoot, config));
             }
 
-            Console.WriteLine("Publish successful!");
+            Console.WriteLine(PublishCommandKernels.GetSuccessMessage());
             return 0;
         }
         catch (Exception ex)

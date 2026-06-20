@@ -7034,6 +7034,9 @@ func outer(x: int): int {
         Assert.Contains("CliPublishCrossRuntimeUnsupportedMessage", methodNames!); // product publish runtime message shaping.
         Assert.Contains("CliPublishBuildFailureMessage", methodNames!); // product publish build-failure message shaping.
         Assert.Contains("CliPublishExceptionFailureMessage", methodNames!); // product publish exception-failure message shaping.
+        Assert.Contains("CliPublishStartMessage", methodNames!); // product publish start message shaping.
+        Assert.Contains("CliPublishMissingProjectFileMessage", methodNames!); // product publish missing-project message shaping.
+        Assert.Contains("CliPublishSuccessMessage", methodNames!); // product publish success message shaping.
         Assert.Contains("CliPackOptionSummaryInto", methodNames!); // product pack option parsing.
         Assert.Contains("CliPackOutputMode", methodNames!); // product pack output mode selection.
         Assert.Contains("CliCompletionOptionSummaryInto", methodNames!); // product completion option parsing.
@@ -15629,6 +15632,18 @@ class OtherZetaType {
                     "CliPublishExceptionFailureMessage",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliPublishExceptionFailureMessage.");
+            var cliPublishStartMessage = programType.GetMethod(
+                    "CliPublishStartMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliPublishStartMessage.");
+            var cliPublishMissingProjectFileMessage = programType.GetMethod(
+                    "CliPublishMissingProjectFileMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliPublishMissingProjectFileMessage.");
+            var cliPublishSuccessMessage = programType.GetMethod(
+                    "CliPublishSuccessMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliPublishSuccessMessage.");
             var cliPackOptionSummaryInto = programType.GetMethod(
                     "CliPackOptionSummaryInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -16764,6 +16779,10 @@ func main(customer: Customer, résumé: Profile) {
             AssertCliPublishFailureMessagesLikeProduction(
                 cliPublishBuildFailureMessage,
                 cliPublishExceptionFailureMessage);
+            AssertCliPublishStatusMessagesLikeProduction(
+                cliPublishStartMessage,
+                cliPublishMissingProjectFileMessage,
+                cliPublishSuccessMessage);
             AssertCliJsonFlagOutputModesLikeProduction(cliTestOutputMode);
             AssertCliPackOptionsLikeProduction(cliPackOptionSummaryInto);
             AssertCliJsonFlagOutputModesLikeProduction(cliPackOutputMode);
@@ -21036,6 +21055,23 @@ func main() {
             null,
             new object[] { "backend exploded" }) ?? "<null>");
         Assert.Equal("Publish failed: backend exploded", exceptionFailure);
+    }
+
+    private static void AssertCliPublishStatusMessagesLikeProduction(
+        MethodInfo cliPublishStartMessage,
+        MethodInfo cliPublishMissingProjectFileMessage,
+        MethodInfo cliPublishSuccessMessage)
+    {
+        var start = (string)(cliPublishStartMessage.Invoke(null, new object[] { "/tmp/demo" }) ?? "<null>");
+        Assert.Equal("Publishing project in /tmp/demo...", start);
+
+        var missingProject = (string)(cliPublishMissingProjectFileMessage.Invoke(null, Array.Empty<object>()) ?? "<null>");
+        Assert.Equal(
+            "No project.yml found in current directory. Run 'nlc new <name>' to create a project.",
+            missingProject);
+
+        var success = (string)(cliPublishSuccessMessage.Invoke(null, Array.Empty<object>()) ?? "<null>");
+        Assert.Equal("Publish successful!", success);
     }
 
     private static (int Code, int[] Indices, int ErrorIndex) CreateExpectedCliPublishOptions(string[] args)

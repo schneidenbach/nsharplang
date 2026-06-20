@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-20 — Publish status messages move into product N#
+
+`Program.PublishCommand` no longer owns the publishing-start, missing-project, or publish-success message
+bodies. The shipped `CliPublishStartMessage`, `CliPublishMissingProjectFileMessage`, and
+`CliPublishSuccessMessage` dogfood kernels now shape those status messages; C# keeps console/file-system
+host duties and fallback/oracle text only.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.PublishCommandKernels_NormalizesOptionsAndValidation|FullyQualifiedName~CompilationBackendTests.PublishCommand_BackendOverrideToIl_UsesSdkProjectReferencesAndRuntimeAssets|FullyQualifiedName~CompilationBackendTests.PublishCommand_NoProjectFile_ReturnsHelpfulMessage|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-20 — Publish failure messages move into product N#
 
 `Program.PublishCommand` no longer chooses publish build-failure or exception-failure message bodies in C#.

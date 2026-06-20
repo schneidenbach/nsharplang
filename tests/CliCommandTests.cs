@@ -2848,6 +2848,11 @@ func Main() {
             "Publish failed: Native AOT blockers were found (see the diagnostics above). Fix them, then publish again.",
             PublishCommandKernels.GetBuildFailureMessage(aotMode: true));
         Assert.Equal("Publish failed: backend exploded", PublishCommandKernels.GetExceptionFailureMessage("backend exploded"));
+        Assert.Equal("Publishing project in /tmp/demo...", PublishCommandKernels.GetStartMessage("/tmp/demo"));
+        Assert.Equal(
+            "No project.yml found in current directory. Run 'nlc new <name>' to create a project.",
+            PublishCommandKernels.GetMissingProjectFileMessage());
+        Assert.Equal("Publish successful!", PublishCommandKernels.GetSuccessMessage());
 
         Assert.Equal(
             "Debug",

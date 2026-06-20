@@ -2587,6 +2587,18 @@ func CliPublishExceptionFailureMessage(message: string): string {
     return "Publish failed: " + message
 }
 
+func CliPublishStartMessage(projectRoot: string): string {
+    return "Publishing project in " + projectRoot + "..."
+}
+
+func CliPublishMissingProjectFileMessage(): string {
+    return "No project.yml found in current directory. Run 'nlc new <name>' to create a project."
+}
+
+func CliPublishSuccessMessage(): string {
+    return "Publish successful!"
+}
+
 func CliPackOptionSummaryInto(args: string[], resultIndices: int[]): int {
     arguments := new CliArgumentTable { Args: args }
     results := new CliIndexResultTable { Indices: resultIndices }

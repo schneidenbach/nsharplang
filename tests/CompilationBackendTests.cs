@@ -1647,6 +1647,30 @@ func main() {
     }
 
     [Fact]
+    public void PublishCommand_NoProjectFile_ReturnsHelpfulMessage()
+    {
+        var tempDir = CreateTempDir();
+        var originalDirectory = Directory.GetCurrentDirectory();
+
+        try
+        {
+            Directory.SetCurrentDirectory(tempDir);
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                ExecuteProgram("publish", "--backend", "il"));
+
+            Assert.Equal(1, exitCode);
+            Assert.Contains("Publishing project in", stdout);
+            Assert.Contains("No project.yml found in current directory. Run 'nlc new <name>' to create a project.", stderr);
+        }
+        finally
+        {
+            Directory.SetCurrentDirectory(originalDirectory);
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void TestCommand_BackendOverrideToIl_RunsTestsThroughSdkProject()
     {
         var tempDir = CreateTempDir();

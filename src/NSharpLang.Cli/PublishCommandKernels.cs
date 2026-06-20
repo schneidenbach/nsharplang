@@ -148,6 +148,30 @@ internal static class PublishCommandKernels
         return GetExceptionFailureMessageWithCSharp(exceptionMessage);
     }
 
+    internal static string GetStartMessage(string projectRoot)
+    {
+        if (TryGetPublishMessage(bindings => bindings.PublishStartMessage(projectRoot), out var message))
+            return message;
+
+        return GetStartMessageWithCSharp(projectRoot);
+    }
+
+    internal static string GetMissingProjectFileMessage()
+    {
+        if (TryGetPublishMessage(bindings => bindings.PublishMissingProjectFileMessage(), out var message))
+            return message;
+
+        return GetMissingProjectFileMessageWithCSharp();
+    }
+
+    internal static string GetSuccessMessage()
+    {
+        if (TryGetPublishMessage(bindings => bindings.PublishSuccessMessage(), out var message))
+            return message;
+
+        return GetSuccessMessageWithCSharp();
+    }
+
     private static bool TryGetPublishMessage(Func<Bindings, string> getMessage, out string message)
     {
         message = string.Empty;
@@ -195,6 +219,18 @@ internal static class PublishCommandKernels
     // Stage 6 C#-surface-shrink: fallback/oracle only; product publish failure messages route through CliPublish*FailureMessage kernels.
     private static string GetExceptionFailureMessageWithCSharp(string exceptionMessage)
         => $"Publish failed: {exceptionMessage}";
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product publish status messages route through CliPublish*Message kernels.
+    private static string GetStartMessageWithCSharp(string projectRoot)
+        => $"Publishing project in {projectRoot}...";
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product publish status messages route through CliPublish*Message kernels.
+    private static string GetMissingProjectFileMessageWithCSharp()
+        => "No project.yml found in current directory. Run 'nlc new <name>' to create a project.";
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product publish status messages route through CliPublish*Message kernels.
+    private static string GetSuccessMessageWithCSharp()
+        => "Publish successful!";
 
     // Stage 6 C#-surface-shrink: fallback/oracle only; product publish validation messages route through CliPublishValidationErrorMessage.
     private static string? GetValidationErrorWithCSharp(string[] args, int code, int errorArgIndex)
@@ -251,7 +287,16 @@ internal static class PublishCommandKernels
                 "CliPublishBuildFailureMessage"),
             DogfoodKernelLoader.CreateDelegate<CliPublishExceptionFailureMessage>(
                 programType,
-                "CliPublishExceptionFailureMessage")));
+                "CliPublishExceptionFailureMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliPublishStartMessage>(
+                programType,
+                "CliPublishStartMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliPublishMissingProjectFileMessage>(
+                programType,
+                "CliPublishMissingProjectFileMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliPublishSuccessMessage>(
+                programType,
+                "CliPublishSuccessMessage")));
 
     private delegate int CliPublishOptionsInto(string[] args, int[] resultIndices);
     private delegate string CliPublishValidationErrorMessage(int code, string arg);
@@ -260,6 +305,9 @@ internal static class PublishCommandKernels
     private delegate string CliPublishCrossRuntimeUnsupportedMessage(string requestedRuntime, string currentRuntime);
     private delegate string CliPublishBuildFailureMessage(int aotMode);
     private delegate string CliPublishExceptionFailureMessage(string exceptionMessage);
+    private delegate string CliPublishStartMessage(string projectRoot);
+    private delegate string CliPublishMissingProjectFileMessage();
+    private delegate string CliPublishSuccessMessage();
 
     private sealed record Bindings(
         CliPublishOptionsInto PublishOptionsInto,
@@ -268,5 +316,8 @@ internal static class PublishCommandKernels
         CliPublishSelfContainedUnsupportedMessage PublishSelfContainedUnsupportedMessage,
         CliPublishCrossRuntimeUnsupportedMessage PublishCrossRuntimeUnsupportedMessage,
         CliPublishBuildFailureMessage PublishBuildFailureMessage,
-        CliPublishExceptionFailureMessage PublishExceptionFailureMessage);
+        CliPublishExceptionFailureMessage PublishExceptionFailureMessage,
+        CliPublishStartMessage PublishStartMessage,
+        CliPublishMissingProjectFileMessage PublishMissingProjectFileMessage,
+        CliPublishSuccessMessage PublishSuccessMessage);
 }
