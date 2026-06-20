@@ -181,6 +181,9 @@ internal static class WatchCommandKernels
             DogfoodKernelLoader.CreateDelegate<CliWatchForwardedArgIndicesInto>(
                 programType,
                 "CliWatchForwardedArgIndicesInto"),
+            DogfoodKernelLoader.CreateDelegate<CliWatchShouldTriggerForChangedPath>(
+                programType,
+                "CliWatchShouldTriggerForChangedPath"),
             DogfoodKernelLoader.CreateDelegate<CliWatchTargetSummaryInto>(
                 programType,
                 "CliWatchTargetSummaryInto"),
@@ -192,6 +195,8 @@ internal static class WatchCommandKernels
 
     private delegate int CliWatchForwardedArgIndicesInto(string[] args, int[] resultIndices);
 
+    private delegate int CliWatchShouldTriggerForChangedPath(string path);
+
     private delegate int CliWatchTargetSummaryInto(string[] args, int[] resultIndices);
 
     private delegate int CliWatchPositiveIntInto(string value, int[] result);
@@ -199,8 +204,38 @@ internal static class WatchCommandKernels
     private sealed record Bindings(
         CliWatchOptionSummaryInto OptionSummary,
         CliWatchForwardedArgIndicesInto WatchForwardedArgIndices,
+        CliWatchShouldTriggerForChangedPath WatchShouldTriggerForChangedPath,
         CliWatchTargetSummaryInto TargetSummary,
         CliWatchPositiveIntInto PositiveInt);
+
+    internal static bool TryShouldTriggerForChangedPath(string path, out bool shouldTrigger)
+    {
+        shouldTrigger = false;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        try
+        {
+            var code = bindings.WatchShouldTriggerForChangedPath(path);
+            if (code == 0)
+                return true;
+
+            if (code == 1)
+            {
+                shouldTrigger = true;
+                return true;
+            }
+
+            return false;
+        }
+        catch
+        {
+            shouldTrigger = false;
+            return false;
+        }
+    }
 
     private static bool TryGetOptionalArg(string[] args, int index, out string? value)
     {

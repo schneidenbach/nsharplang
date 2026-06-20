@@ -201,7 +201,13 @@ public static class WatchCommand
         return forwarded.ToArray();
     }
 
-    private static bool ShouldWatch(string path)
+    internal static bool ShouldWatch(string path)
+        => WatchCommandKernels.TryShouldTriggerForChangedPath(path, out var shouldWatch)
+            ? shouldWatch
+            : ShouldWatchWithCSharp(path);
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product watch change filtering routes through WatchCommandKernels.
+    private static bool ShouldWatchWithCSharp(string path)
     {
         var fileName = Path.GetFileName(path);
         if (fileName.Equals("project.yml", StringComparison.OrdinalIgnoreCase) ||

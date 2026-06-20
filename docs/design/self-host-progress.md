@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-20 — Watch changed-file filtering moves into product N#
+
+`WatchCommand` no longer owns the file-change trigger predicate for `.nl`, `project.yml`, and `.editorconfig`
+paths. The shipped `CliWatchShouldTriggerForChangedPath` dogfood kernel now classifies watched paths through
+`WatchCommandKernels`; C# keeps the `FileSystemWatcher` loop, process reruns, and fallback/oracle path logic only.
+
+Focused evidence:
+`./scripts/dev.sh WatchCommandKernels`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-20 — Tidy import extraction moves into product N#
 
 `TidyCommand` no longer owns the per-line `import` namespace extraction that feeds dependency usage

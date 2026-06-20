@@ -2047,6 +2047,38 @@ func Main() {
     }
 
     [Fact]
+    public void WatchCommandKernels_ClassifiesChangedPathsLikeCSharpFallback()
+    {
+        var cases = new[]
+        {
+            "Program.nl",
+            "Program.NL",
+            "src/Program.nl",
+            "src\\Program.nl",
+            "project.yml",
+            "PROJECT.YML",
+            "src/project.yml",
+            ".editorconfig",
+            "src/.editorconfig",
+            "src/project.yml.bak",
+            "src/.nl",
+            ".nl",
+            "src/Program.cs",
+            "src/nested/",
+            string.Empty
+        };
+
+        foreach (var path in cases)
+        {
+            var expected = ShouldWatchWithCSharpEquivalent(path);
+
+            Assert.True(WatchCommandKernels.TryShouldTriggerForChangedPath(path, out var dogfood));
+            Assert.Equal(expected, dogfood);
+            Assert.Equal(expected, WatchCommand.ShouldWatch(path));
+        }
+    }
+
+    [Fact]
     public void RemoveCommandKernels_SummarizesArguments()
     {
         var args = new[] { "--dry-run", "Serilog", "-h" };
@@ -4743,6 +4775,19 @@ func Main() {
 
     private static int ParseWatchPositiveIntWithCSharpFallback(string value)
         => int.TryParse(value, out var parsed) && parsed > 0 ? parsed : 0;
+
+    private static bool ShouldWatchWithCSharpEquivalent(string path)
+    {
+        var fileName = Path.GetFileName(path);
+        if (fileName.Equals("project.yml", StringComparison.OrdinalIgnoreCase) ||
+            fileName.Equals(".editorconfig", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        var extension = Path.GetExtension(path);
+        return extension.Equals(".nl", StringComparison.OrdinalIgnoreCase);
+    }
 
     private sealed record ExportReferenceValue(string Name, string Version);
 

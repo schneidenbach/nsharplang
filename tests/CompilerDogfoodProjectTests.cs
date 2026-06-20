@@ -7031,6 +7031,7 @@ func outer(x: int): int {
         Assert.Contains("CliDaemonOptionSummaryInto", methodNames!); // product daemon option parsing.
         Assert.Contains("CliWatchTargetSummaryInto", methodNames!); // product watch target parsing.
         Assert.Contains("CliWatchForwardedArgIndicesInto", methodNames!); // product watch forwarding.
+        Assert.Contains("CliWatchShouldTriggerForChangedPath", methodNames!); // product watch change filtering.
         Assert.Contains("CliWatchOptionSummaryInto", methodNames!); // product watch option parsing.
         Assert.Contains("CliWatchPositiveIntInto", methodNames!); // product watch numeric option parsing.
         Assert.Contains("CliRunOptionSummaryInto", methodNames!); // product run option parsing.
@@ -15510,6 +15511,10 @@ class OtherZetaType {
                     "CliWatchForwardedArgIndicesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliWatchForwardedArgIndicesInto.");
+            var cliWatchShouldTriggerForChangedPath = programType.GetMethod(
+                    "CliWatchShouldTriggerForChangedPath",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliWatchShouldTriggerForChangedPath.");
             var cliWatchOptionSummaryInto = programType.GetMethod(
                     "CliWatchOptionSummaryInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -16593,6 +16598,7 @@ func main(customer: Customer, résumé: Profile) {
             AssertCliWatchForwardedArgsLikeProduction(
                 cliWatchForwardedArgIndicesInto,
                 cliWatchForwardedArgChecksumInto);
+            AssertCliWatchChangedPathsLikeProduction(cliWatchShouldTriggerForChangedPath);
             AssertCliWatchOptionsLikeProduction(cliWatchOptionSummaryInto);
             AssertCliWatchPositiveIntsLikeProduction(cliWatchPositiveIntInto);
             AssertCliPublishOptionsLikeProduction(cliPublishOptionsInto);
@@ -20388,6 +20394,51 @@ func main() {
         }
 
         return checksum;
+    }
+
+    private static void AssertCliWatchChangedPathsLikeProduction(MethodInfo cliWatchShouldTriggerForChangedPath)
+    {
+        var cases = new[]
+        {
+            "Program.nl",
+            "Program.NL",
+            "src/Program.nl",
+            "src\\Program.nl",
+            "project.yml",
+            "PROJECT.YML",
+            "src/project.yml",
+            ".editorconfig",
+            "src/.editorconfig",
+            "src/project.yml.bak",
+            "src/.nl",
+            ".nl",
+            "src/Program.cs",
+            "src/nested/",
+            string.Empty
+        };
+
+        foreach (var path in cases)
+        {
+            var expected = CreateExpectedCliWatchChangedPathTrigger(path);
+            var actual = (int)(cliWatchShouldTriggerForChangedPath.Invoke(
+                null,
+                new object[] { path }) ?? -1);
+
+            Assert.Equal(expected, actual);
+        }
+    }
+
+    private static int CreateExpectedCliWatchChangedPathTrigger(string path)
+    {
+        var fileName = Path.GetFileName(path);
+        if (fileName.Equals("project.yml", StringComparison.OrdinalIgnoreCase)
+            || fileName.Equals(".editorconfig", StringComparison.OrdinalIgnoreCase))
+        {
+            return 1;
+        }
+
+        var extension = Path.GetExtension(path);
+        return extension.Equals(".nl", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
     }
 
     private static void AssertCliWatchOptionsLikeProduction(MethodInfo cliWatchOptionSummaryInto)

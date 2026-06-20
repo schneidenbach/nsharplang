@@ -128,6 +128,50 @@ func CliWatchForwardedArgIndicesInto(args: string[], resultIndices: int[]): int 
     return CliWatchForwardedArgIndicesCore(ref arguments, ref results)
 }
 
+func CliWatchShouldTriggerForChangedPath(path: string): int {
+    fileNameStart := CliWatchFileNameStart(path)
+
+    if CliPathSubstringEqualsAsciiIgnoreCase(path, fileNameStart, path.Length, "project.yml")
+        || CliPathSubstringEqualsAsciiIgnoreCase(path, fileNameStart, path.Length, ".editorconfig") {
+        return 1
+    }
+
+    extensionStart := CliWatchExtensionStart(path, fileNameStart)
+    if extensionStart >= 0
+        && CliPathSubstringEqualsAsciiIgnoreCase(path, extensionStart, path.Length, ".nl") {
+        return 1
+    }
+
+    return 0
+}
+
+func CliWatchFileNameStart(path: string): int {
+    index := path.Length - 1
+    while index >= 0 {
+        ch := path[index]
+        if ch == '/' || ch == '\\' {
+            return index + 1
+        }
+
+        index = index - 1
+    }
+
+    return 0
+}
+
+func CliWatchExtensionStart(path: string, fileNameStart: int): int {
+    index := path.Length - 1
+    while index >= fileNameStart {
+        if path[index] == '.' {
+            return index
+        }
+
+        index = index - 1
+    }
+
+    return -1
+}
+
 func CliProgramCommandKind(args: string[]): int {
     arguments := new CliArgumentTable { Args: args }
     return CliProgramCommandKindCore(ref arguments)
