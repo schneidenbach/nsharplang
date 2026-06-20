@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using NSharpLang.Compiler;
 
 namespace NSharpLang.Cli.Commands;
 
@@ -20,6 +22,8 @@ internal static class AddCommandKernels
     private static int[]? t_resultIndices;
     [ThreadStatic]
     private static int[]? t_packageSpecResult;
+    [ThreadStatic]
+    private static DependencyExistsScratch? t_dependencyExistsScratch;
 
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
 
@@ -112,6 +116,92 @@ internal static class AddCommandKernels
         }
     }
 
+    internal static bool TryPackageOrFrameworkDependencyExists(
+        IReadOnlyList<Reference> dependencies,
+        string packageName,
+        out bool exists)
+    {
+        exists = false;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        var scratch = t_dependencyExistsScratch ??= new DependencyExistsScratch();
+        scratch.EnsureCapacity(dependencies.Count);
+
+        for (var i = 0; i < dependencies.Count; i++)
+        {
+            var dependency = dependencies[i];
+            scratch.NugetNames[i] = dependency.Nuget ?? string.Empty;
+            scratch.NugetPresent[i] = dependency.Nuget == null ? 0 : 1;
+            scratch.FrameworkNames[i] = dependency.Framework ?? string.Empty;
+            scratch.FrameworkPresent[i] = dependency.Framework == null ? 0 : 1;
+        }
+
+        try
+        {
+            var result = bindings.AddPackageOrFrameworkDependencyExists(
+                scratch.NugetNames,
+                scratch.NugetPresent,
+                scratch.FrameworkNames,
+                scratch.FrameworkPresent,
+                dependencies.Count,
+                packageName);
+            if (result is not 0 and not 1)
+                return false;
+
+            exists = result == 1;
+            return true;
+        }
+        catch
+        {
+            exists = false;
+            return false;
+        }
+    }
+
+    internal static bool TryProjectDependencyExists(
+        IReadOnlyList<Reference> dependencies,
+        string localPath,
+        out bool exists)
+    {
+        exists = false;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        var scratch = t_dependencyExistsScratch ??= new DependencyExistsScratch();
+        scratch.EnsureCapacity(dependencies.Count);
+
+        for (var i = 0; i < dependencies.Count; i++)
+        {
+            var dependency = dependencies[i];
+            scratch.ProjectNames[i] = dependency.Project ?? string.Empty;
+            scratch.ProjectPresent[i] = dependency.Project == null ? 0 : 1;
+        }
+
+        try
+        {
+            var result = bindings.AddProjectDependencyExists(
+                scratch.ProjectNames,
+                scratch.ProjectPresent,
+                dependencies.Count,
+                localPath);
+            if (result is not 0 and not 1)
+                return false;
+
+            exists = result == 1;
+            return true;
+        }
+        catch
+        {
+            exists = false;
+            return false;
+        }
+    }
+
     internal static bool TryGetDependencyInsertIndex(string[] lines, out int insertIndex)
     {
         insertIndex = -1;
@@ -179,7 +269,13 @@ internal static class AddCommandKernels
                 "CliAddPackageSpecInto"),
             DogfoodKernelLoader.CreateDelegate<CliAddDependencyInsertIndex>(
                 programType,
-                "CliAddDependencyInsertIndex")));
+                "CliAddDependencyInsertIndex"),
+            DogfoodKernelLoader.CreateDelegate<CliAddPackageOrFrameworkDependencyExists>(
+                programType,
+                "CliAddPackageOrFrameworkDependencyExists"),
+            DogfoodKernelLoader.CreateDelegate<CliAddProjectDependencyExists>(
+                programType,
+                "CliAddProjectDependencyExists")));
 
     private delegate int CliFirstPositionalArgIndex(
         string[] args,
@@ -198,11 +294,27 @@ internal static class AddCommandKernels
     private delegate int CliAddDependencyInsertIndex(
         string[] lines);
 
+    private delegate int CliAddPackageOrFrameworkDependencyExists(
+        string[] nugetNames,
+        int[] nugetPresent,
+        string[] frameworkNames,
+        int[] frameworkPresent,
+        int count,
+        string packageName);
+
+    private delegate int CliAddProjectDependencyExists(
+        string[] projectNames,
+        int[] projectPresent,
+        int count,
+        string localPath);
+
     private sealed record Bindings(
         CliFirstPositionalArgIndex FirstPositionalArgIndex,
         CliAddArgumentSummaryInto AddArgumentSummary,
         CliAddPackageSpecInto AddPackageSpec,
-        CliAddDependencyInsertIndex AddDependencyInsertIndex);
+        CliAddDependencyInsertIndex AddDependencyInsertIndex,
+        CliAddPackageOrFrameworkDependencyExists AddPackageOrFrameworkDependencyExists,
+        CliAddProjectDependencyExists AddProjectDependencyExists);
 
     private static bool TryGetOptionalArg(string[] args, int index, out string? value)
     {
@@ -225,5 +337,28 @@ internal static class AddCommandKernels
 
         slice = value.Substring(start, length);
         return true;
+    }
+
+    private sealed class DependencyExistsScratch
+    {
+        internal string[] NugetNames = Array.Empty<string>();
+        internal int[] NugetPresent = Array.Empty<int>();
+        internal string[] FrameworkNames = Array.Empty<string>();
+        internal int[] FrameworkPresent = Array.Empty<int>();
+        internal string[] ProjectNames = Array.Empty<string>();
+        internal int[] ProjectPresent = Array.Empty<int>();
+
+        internal void EnsureCapacity(int count)
+        {
+            if (NugetNames.Length >= count)
+                return;
+
+            NugetNames = new string[count];
+            NugetPresent = new int[count];
+            FrameworkNames = new string[count];
+            FrameworkPresent = new int[count];
+            ProjectNames = new string[count];
+            ProjectPresent = new int[count];
+        }
     }
 }

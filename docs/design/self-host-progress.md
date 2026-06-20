@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-20 — Add duplicate checks move into product N#
+
+`AddCommand` no longer owns duplicate dependency matching for NuGet/framework package names or local project
+references. The shipped `CliAddPackageOrFrameworkDependencyExists` and `CliAddProjectDependencyExists` dogfood
+kernels now scan the parsed dependency fields through `AddCommandKernels`; C# keeps `project.yml` parsing,
+filesystem edits, and fallback/oracle matching only.
+
+Focused evidence:
+`./scripts/dev.sh AddCommandKernels`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliParityAuditTests.AddCommand_RejectsDuplicatePackageDependency|FullyQualifiedName~CliParityAuditTests.AddCommand_RejectsDuplicateProjectDependency"`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-20 — Add dependency planning moves into product N#
 
 `AddCommand` no longer owns `Package@Version` splitting or dependency-block insertion planning for

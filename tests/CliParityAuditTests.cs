@@ -1206,6 +1206,84 @@ targetFramework: net10.0
         }
     }
 
+    [Fact]
+    public void AddCommand_RejectsDuplicatePackageDependency()
+    {
+        var projectDir = CreateTempDir();
+        var originalDirectory = Directory.GetCurrentDirectory();
+
+        try
+        {
+            Directory.SetCurrentDirectory(projectDir);
+            File.WriteAllText("project.yml", """
+name: AddDuplicatePackageDemo
+version: 1.0.0
+backend: il
+targetFramework: net10.0
+
+dependencies:
+  - Newtonsoft.Json@13.0.3
+""");
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() => AddCommand.Execute(new[] { "newtonsoft.json@14.0.0" }));
+
+            Assert.Equal(1, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stdout));
+            Assert.Contains("already in dependencies", stderr);
+
+            var projectYaml = File.ReadAllText(Path.Combine(projectDir, "project.yml"));
+            Assert.Contains("Newtonsoft.Json@13.0.3", projectYaml);
+            Assert.DoesNotContain("14.0.0", projectYaml);
+        }
+        finally
+        {
+            Directory.SetCurrentDirectory(originalDirectory);
+            Directory.Delete(projectDir, true);
+        }
+    }
+
+    [Fact]
+    public void AddCommand_RejectsDuplicateProjectDependency()
+    {
+        var projectDir = CreateTempDir();
+        var originalDirectory = Directory.GetCurrentDirectory();
+
+        try
+        {
+            Directory.SetCurrentDirectory(projectDir);
+            Directory.CreateDirectory("Shared");
+            File.WriteAllText(Path.Combine("Shared", "project.yml"), """
+name: Shared
+version: 1.0.0
+targetFramework: net10.0
+outputType: library
+""");
+            File.WriteAllText("project.yml", """
+name: AddDuplicateProjectDemo
+version: 1.0.0
+backend: il
+targetFramework: net10.0
+
+dependencies:
+  - project: Shared/project.yml
+""");
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() => AddCommand.Execute(new[] { "--path", "shared/PROJECT.yml" }));
+
+            Assert.Equal(1, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stdout));
+            Assert.Contains("already in dependencies", stderr);
+
+            var projectYaml = File.ReadAllText(Path.Combine(projectDir, "project.yml"));
+            Assert.Equal(1, projectYaml.Split("project:").Length - 1);
+        }
+        finally
+        {
+            Directory.SetCurrentDirectory(originalDirectory);
+            Directory.Delete(projectDir, true);
+        }
+    }
+
     // ── Test command: build failure properly returns error ────────────
 
     [Fact]

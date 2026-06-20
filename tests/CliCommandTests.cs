@@ -1838,6 +1838,47 @@ func Main() {
             new[] { "name: Demo", "targetFramework: net10.0" },
             out var missingDependencySection));
         Assert.Equal(-1, missingDependencySection);
+
+        var dependencies = new List<Reference>
+        {
+            new() { Nuget = "Newtonsoft.Json" },
+            new() { Framework = "Microsoft.AspNetCore.App" },
+            new() { Project = "../Shared/project.yml" },
+            new()
+        };
+
+        Assert.True(AddCommandKernels.TryPackageOrFrameworkDependencyExists(
+            dependencies,
+            "newtonsoft.json",
+            out var packageExists));
+        Assert.True(packageExists);
+
+        Assert.True(AddCommandKernels.TryPackageOrFrameworkDependencyExists(
+            dependencies,
+            "microsoft.aspnetcore.app",
+            out var frameworkExists));
+        Assert.True(frameworkExists);
+
+        Assert.True(AddCommandKernels.TryPackageOrFrameworkDependencyExists(
+            dependencies,
+            "Serilog",
+            out var packageMissing));
+        Assert.False(packageMissing);
+
+        Assert.True(AddCommandKernels.TryProjectDependencyExists(
+            dependencies,
+            "../shared/PROJECT.yml",
+            out var projectExists));
+        Assert.True(projectExists);
+
+        Assert.True(AddCommandKernels.TryProjectDependencyExists(
+            dependencies,
+            "../Other/project.yml",
+            out var projectMissing));
+        Assert.False(projectMissing);
+
+        Assert.True(AddCommand.PackageOrFrameworkDependencyExists(dependencies, "NEWTONSOFT.JSON"));
+        Assert.True(AddCommand.ProjectDependencyExists(dependencies, "../SHARED/project.yml"));
     }
 
     [Fact]

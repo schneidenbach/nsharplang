@@ -7046,6 +7046,8 @@ func outer(x: int): int {
         Assert.Contains("CliAddArgumentSummaryInto", methodNames!); // product add argument parsing.
         Assert.Contains("CliAddPackageSpecInto", methodNames!); // product add package/version spec shaping.
         Assert.Contains("CliAddDependencyInsertIndex", methodNames!); // product add dependency insertion planning.
+        Assert.Contains("CliAddPackageOrFrameworkDependencyExists", methodNames!); // product add duplicate package/framework checks.
+        Assert.Contains("CliAddProjectDependencyExists", methodNames!); // product add duplicate project checks.
         Assert.Contains("CliRemoveArgumentSummaryInto", methodNames!); // product remove argument parsing.
         Assert.Contains("CliRemoveDependencyLineAction", methodNames!); // product remove dependency-line pruning.
         Assert.Contains("CliRemoveShouldStopDependencyContinuationLine", methodNames!); // product remove dependency continuation pruning.
@@ -7167,6 +7169,11 @@ func outer(x: int): int {
             ("CliAddPackageSpecInto", new object[] { "Serilog", "", 0, new int[4] }),
             ("CliAddDependencyInsertIndex", new object[] { new[] { "name: Demo", "dependencies:", "  - Newtonsoft.Json@13.0.3", "targetFramework: net10.0" } }),
             ("CliAddDependencyInsertIndex", new object[] { new[] { "name: Demo", "targetFramework: net10.0" } }),
+            ("CliAddPackageOrFrameworkDependencyExists", new object[] { new[] { "Newtonsoft.Json", "" }, new[] { 1, 0 }, new[] { "", "Microsoft.AspNetCore.App" }, new[] { 0, 1 }, 2, "newtonsoft.json" }),
+            ("CliAddPackageOrFrameworkDependencyExists", new object[] { new[] { "Newtonsoft.Json", "" }, new[] { 1, 0 }, new[] { "", "Microsoft.AspNetCore.App" }, new[] { 0, 1 }, 2, "microsoft.aspnetcore.app" }),
+            ("CliAddPackageOrFrameworkDependencyExists", new object[] { new[] { "Newtonsoft.Json" }, new[] { 1 }, new[] { "" }, new[] { 0 }, 1, "Serilog" }),
+            ("CliAddProjectDependencyExists", new object[] { new[] { "../Shared/project.yml", "" }, new[] { 1, 0 }, 2, "../shared/PROJECT.yml" }),
+            ("CliAddProjectDependencyExists", new object[] { new[] { "../Shared/project.yml" }, new[] { 1 }, 1, "../Other/project.yml" }),
             ("CliRemoveDependencyLineAction", new object[] { "- Newtonsoft.Json@13.0.3", "Newtonsoft.Json" }),
             ("CliRemoveDependencyLineAction", new object[] { "  - serilog", "Serilog" }),
             ("CliRemoveDependencyLineAction", new object[] { "- nuget: YamlDotNet", "YamlDotNet" }),

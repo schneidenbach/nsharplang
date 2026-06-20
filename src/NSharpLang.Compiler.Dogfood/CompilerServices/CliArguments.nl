@@ -1114,6 +1114,54 @@ func CliAddDependencyInsertIndex(lines: string[]): int {
     return insertAt
 }
 
+func CliAddPackageOrFrameworkDependencyExists(
+    nugetNames: string[],
+    nugetPresent: int[],
+    frameworkNames: string[],
+    frameworkPresent: int[],
+    count: int,
+    packageName: string): int {
+    if count < 0
+        || count > nugetNames.Length
+        || count > nugetPresent.Length
+        || count > frameworkNames.Length
+        || count > frameworkPresent.Length {
+        return -1
+    }
+
+    index := 0
+    while index < count {
+        if nugetPresent[index] != 0 && CliAddStringEqualsAsciiIgnoreCase(nugetNames[index], packageName) {
+            return 1
+        }
+
+        if frameworkPresent[index] != 0 && CliAddStringEqualsAsciiIgnoreCase(frameworkNames[index], packageName) {
+            return 1
+        }
+
+        index = index + 1
+    }
+
+    return 0
+}
+
+func CliAddProjectDependencyExists(projectNames: string[], projectPresent: int[], count: int, localPath: string): int {
+    if count < 0 || count > projectNames.Length || count > projectPresent.Length {
+        return -1
+    }
+
+    index := 0
+    while index < count {
+        if projectPresent[index] != 0 && CliAddStringEqualsAsciiIgnoreCase(projectNames[index], localPath) {
+            return 1
+        }
+
+        index = index + 1
+    }
+
+    return 0
+}
+
 func CliAddIsDependencySectionLine(line: string): bool {
     start := CliAddTrimStartIndex(line)
     return CliAddSubstringStartsWith(line, start, line.Length, "dependencies:")
@@ -1144,6 +1192,23 @@ func CliAddSubstringStartsWith(text: string, start: int, end: int, prefix: strin
     index := 0
     while index < prefix.Length {
         if text[start + index] != prefix[index] {
+            return false
+        }
+
+        index = index + 1
+    }
+
+    return true
+}
+
+func CliAddStringEqualsAsciiIgnoreCase(left: string, right: string): bool {
+    if left.Length != right.Length {
+        return false
+    }
+
+    index := 0
+    while index < left.Length {
+        if !CliPathCharsEqualAsciiIgnoreCase(left[index], right[index]) {
             return false
         }
 

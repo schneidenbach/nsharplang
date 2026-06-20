@@ -55,10 +55,7 @@ public static class AddCommand
         try
         {
             var config = ProjectFileParser.Parse(projectYml);
-            var existing = config.Dependencies.FirstOrDefault(d =>
-                string.Equals(d.Nuget, packageName, StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(d.Framework, packageName, StringComparison.OrdinalIgnoreCase));
-            if (existing != null)
+            if (PackageOrFrameworkDependencyExists(config.Dependencies, packageName))
                 return Error($"'{packageName}' is already in dependencies. Use 'nlc update' to change the version.");
         }
         catch
@@ -130,6 +127,46 @@ public static class AddCommand
             ? insertIndex
             : GetDependencyInsertIndexWithCSharp(lines);
 
+    internal static bool PackageOrFrameworkDependencyExists(IReadOnlyList<Reference> dependencies, string packageName)
+        => AddCommandKernels.TryPackageOrFrameworkDependencyExists(dependencies, packageName, out var exists)
+            ? exists
+            : PackageOrFrameworkDependencyExistsWithCSharp(dependencies, packageName);
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product add duplicate package/framework checks route through AddCommandKernels.
+    private static bool PackageOrFrameworkDependencyExistsWithCSharp(
+        IReadOnlyList<Reference> dependencies,
+        string packageName)
+    {
+        for (var i = 0; i < dependencies.Count; i++)
+        {
+            var dependency = dependencies[i];
+            if (string.Equals(dependency.Nuget, packageName, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(dependency.Framework, packageName, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        return false;
+    }
+
+    internal static bool ProjectDependencyExists(IReadOnlyList<Reference> dependencies, string localPath)
+        => AddCommandKernels.TryProjectDependencyExists(dependencies, localPath, out var exists)
+            ? exists
+            : ProjectDependencyExistsWithCSharp(dependencies, localPath);
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product add duplicate project checks route through AddCommandKernels.
+    private static bool ProjectDependencyExistsWithCSharp(
+        IReadOnlyList<Reference> dependencies,
+        string localPath)
+    {
+        for (var i = 0; i < dependencies.Count; i++)
+        {
+            if (string.Equals(dependencies[i].Project, localPath, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        return false;
+    }
+
     // Stage 6 C#-surface-shrink: fallback/oracle only; product add dependency insertion planning routes through AddCommandKernels.
     private static int GetDependencyInsertIndexWithCSharp(string[] lines)
     {
@@ -190,9 +227,7 @@ public static class AddCommand
         try
         {
             var config = ProjectFileParser.Parse(projectYml);
-            var existing = config.Dependencies.FirstOrDefault(d =>
-                string.Equals(d.Project, localPath, StringComparison.OrdinalIgnoreCase));
-            if (existing != null)
+            if (ProjectDependencyExists(config.Dependencies, localPath))
                 return Error($"Project reference '{localPath}' is already in dependencies.");
         }
         catch
