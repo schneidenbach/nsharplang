@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-22 — Batch query validation messages move into product N#
+
+`BatchQueryRunner` no longer owns request-file, malformed-payload, duplicate-id, unsupported-command,
+required-parameter, or invalid-position message text in C#. The shipped `CliBatch*Message` dogfood kernels
+in `CliQueryParsing.nl` now shape those strings through `BatchQueryKernels`; C# keeps file/JSON parsing,
+batch request dispatch, service execution, and JSON envelope materialization. This is a Stage 6
+`C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.BatchQueryKernels_ShapesMessages|FullyQualifiedName~CliCommandTests.BatchQueryRunner_LoadRequestsErrorsUseMessageKernels|FullyQualifiedName~CliCommandTests.BatchCommand_DuplicateRequestIds_AreRejectedInOrdinalOrder|FullyQualifiedName~CliCommandTests.BatchCommand_InvalidRequestsUseMessageKernels|FullyQualifiedName~CliCommandTests.BatchCommand_PositionParsingUsesQueryKernelSemantics|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliQueryParsing|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`;
+`./scripts/dev.sh BatchQueryKernels`.
+
 ## 2026-06-22 — Batch query shared messages reuse product N#
 
 `BatchQueryRunner` no longer owns no-symbol, semantic-reference-unavailable, or documentation-miss

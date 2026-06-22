@@ -12396,6 +12396,16 @@ func outer(x: int): int {
         var (ok, _, _, methodNames) = RouteColumnarProgram(source);
         Assert.True(ok, "Columnar backend declined the real CliQueryParsing.nl (expected full support).");
         Assert.Contains("CliBatchResultPackedSuccessCount", methodNames!); // ulong[] + Shr_Un + PopCount.
+        Assert.Contains("CliBatchRequestsFileNotFoundMessage", methodNames!); // product batch request-file message shaping.
+        Assert.Contains("CliBatchPayloadShapeMessage", methodNames!); // product batch malformed-payload message shaping.
+        Assert.Contains("CliBatchRequestObjectRequiredMessage", methodNames!); // product batch item-shape message shaping.
+        Assert.Contains("CliBatchRequestDeserializeFailedMessage", methodNames!); // product batch deserialize-failure message shaping.
+        Assert.Contains("CliBatchDuplicateRequestIdsMessage", methodNames!); // product batch duplicate-id message shaping.
+        Assert.Contains("CliBatchUnsupportedCommandMessage", methodNames!); // product batch unsupported-command message shaping.
+        Assert.Contains("CliBatchOutlineFileRequiredMessage", methodNames!); // product batch outline validation message shaping.
+        Assert.Contains("CliBatchDocQueryRequiredMessage", methodNames!); // product batch doc validation message shaping.
+        Assert.Contains("CliBatchFileAndPosRequiredMessage", methodNames!); // product batch position validation message shaping.
+        Assert.Contains("CliBatchInvalidPositionMessage", methodNames!); // product batch invalid-position message shaping.
         Assert.Contains("CliQueryDaemonParameterSummaryInto", methodNames!); // product query daemon parameter parsing.
         Assert.Contains("CliQueryCommandOptionSummaryInto", methodNames!); // product query command-option parsing.
         Assert.Contains("CliQueryTopLevelOptionSummaryInto", methodNames!); // product query top-level option parsing.
@@ -12455,6 +12465,16 @@ func outer(x: int): int {
             ("CliBatchResultPackedSuccessCount", new object[] { new[] { full }, 64 }),
             ("CliBatchResultPackedSuccessCount", new object[] { new ulong[] { 0xAAAAAAAAAAAAAAAAUL }, 40 }),
             ("CliBatchResultPackedCountChecksum", new object[] { new[] { full, 0x00000000000000FFUL }, 72 }),
+            ("CliBatchRequestsFileNotFoundMessage", new object[] { "/tmp/requests.json" }),
+            ("CliBatchPayloadShapeMessage", Array.Empty<object>()),
+            ("CliBatchRequestObjectRequiredMessage", Array.Empty<object>()),
+            ("CliBatchRequestDeserializeFailedMessage", Array.Empty<object>()),
+            ("CliBatchDuplicateRequestIdsMessage", new object[] { "alpha, zeta" }),
+            ("CliBatchUnsupportedCommandMessage", new object[] { "unknown" }),
+            ("CliBatchOutlineFileRequiredMessage", Array.Empty<object>()),
+            ("CliBatchDocQueryRequiredMessage", Array.Empty<object>()),
+            ("CliBatchFileAndPosRequiredMessage", Array.Empty<object>()),
+            ("CliBatchInvalidPositionMessage", new object[] { "bad" }),
             ("CliQueryIsWhiteSpace", new object[] { ' ' }), ("CliQueryIsWhiteSpace", new object[] { 'x' }),
             ("CliTryParsePositionInto", new object[] { "12:34", new int[2] }),
             ("CliTryParsePositionInto", new object[] { "bad", new int[2] }),
@@ -17312,6 +17332,46 @@ class OtherZetaType {
                     "CliBatchResultPackedCountChecksum",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliBatchResultPackedCountChecksum.");
+            var cliBatchRequestsFileNotFoundMessage = programType.GetMethod(
+                    "CliBatchRequestsFileNotFoundMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliBatchRequestsFileNotFoundMessage.");
+            var cliBatchPayloadShapeMessage = programType.GetMethod(
+                    "CliBatchPayloadShapeMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliBatchPayloadShapeMessage.");
+            var cliBatchRequestObjectRequiredMessage = programType.GetMethod(
+                    "CliBatchRequestObjectRequiredMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliBatchRequestObjectRequiredMessage.");
+            var cliBatchRequestDeserializeFailedMessage = programType.GetMethod(
+                    "CliBatchRequestDeserializeFailedMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliBatchRequestDeserializeFailedMessage.");
+            var cliBatchDuplicateRequestIdsMessage = programType.GetMethod(
+                    "CliBatchDuplicateRequestIdsMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliBatchDuplicateRequestIdsMessage.");
+            var cliBatchUnsupportedCommandMessage = programType.GetMethod(
+                    "CliBatchUnsupportedCommandMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliBatchUnsupportedCommandMessage.");
+            var cliBatchOutlineFileRequiredMessage = programType.GetMethod(
+                    "CliBatchOutlineFileRequiredMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliBatchOutlineFileRequiredMessage.");
+            var cliBatchDocQueryRequiredMessage = programType.GetMethod(
+                    "CliBatchDocQueryRequiredMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliBatchDocQueryRequiredMessage.");
+            var cliBatchFileAndPosRequiredMessage = programType.GetMethod(
+                    "CliBatchFileAndPosRequiredMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliBatchFileAndPosRequiredMessage.");
+            var cliBatchInvalidPositionMessage = programType.GetMethod(
+                    "CliBatchInvalidPositionMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliBatchInvalidPositionMessage.");
             var cliTestOutcomeSummaryChecksumInto = programType.GetMethod(
                     "CliTestOutcomeSummaryChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -18586,6 +18646,17 @@ func main(customer: Customer, résumé: Profile) {
                 cliBatchDuplicateIdRanksInto,
                 cliBatchDuplicateIdRankChecksumInto);
             AssertCliBatchResultCountsLikeProduction(cliBatchResultPackedCountChecksum);
+            AssertCliBatchMessagesLikeProduction(
+                cliBatchRequestsFileNotFoundMessage,
+                cliBatchPayloadShapeMessage,
+                cliBatchRequestObjectRequiredMessage,
+                cliBatchRequestDeserializeFailedMessage,
+                cliBatchDuplicateRequestIdsMessage,
+                cliBatchUnsupportedCommandMessage,
+                cliBatchOutlineFileRequiredMessage,
+                cliBatchDocQueryRequiredMessage,
+                cliBatchFileAndPosRequiredMessage,
+                cliBatchInvalidPositionMessage);
             AssertCliTestOutcomeSummaryLikeProduction(cliTestOutcomeSummaryChecksumInto);
             AssertCliTestMessagesLikeProduction(
                 cliTestHelpText,
@@ -27271,6 +27342,50 @@ func main() {
         }
 
         return checksum;
+    }
+
+    private static void AssertCliBatchMessagesLikeProduction(
+        MethodInfo cliBatchRequestsFileNotFoundMessage,
+        MethodInfo cliBatchPayloadShapeMessage,
+        MethodInfo cliBatchRequestObjectRequiredMessage,
+        MethodInfo cliBatchRequestDeserializeFailedMessage,
+        MethodInfo cliBatchDuplicateRequestIdsMessage,
+        MethodInfo cliBatchUnsupportedCommandMessage,
+        MethodInfo cliBatchOutlineFileRequiredMessage,
+        MethodInfo cliBatchDocQueryRequiredMessage,
+        MethodInfo cliBatchFileAndPosRequiredMessage,
+        MethodInfo cliBatchInvalidPositionMessage)
+    {
+        Assert.Equal(
+            BatchQueryKernels.GetRequestsFileNotFoundMessage("/tmp/requests.json"),
+            (string)(cliBatchRequestsFileNotFoundMessage.Invoke(null, new object[] { "/tmp/requests.json" }) ?? string.Empty));
+        Assert.Equal(
+            BatchQueryKernels.GetPayloadShapeMessage(),
+            (string)(cliBatchPayloadShapeMessage.Invoke(null, Array.Empty<object>()) ?? string.Empty));
+        Assert.Equal(
+            BatchQueryKernels.GetRequestObjectRequiredMessage(),
+            (string)(cliBatchRequestObjectRequiredMessage.Invoke(null, Array.Empty<object>()) ?? string.Empty));
+        Assert.Equal(
+            BatchQueryKernels.GetRequestDeserializeFailedMessage(),
+            (string)(cliBatchRequestDeserializeFailedMessage.Invoke(null, Array.Empty<object>()) ?? string.Empty));
+        Assert.Equal(
+            BatchQueryKernels.GetDuplicateRequestIdsMessage("alpha, zeta"),
+            (string)(cliBatchDuplicateRequestIdsMessage.Invoke(null, new object[] { "alpha, zeta" }) ?? string.Empty));
+        Assert.Equal(
+            BatchQueryKernels.GetUnsupportedCommandMessage("unknown"),
+            (string)(cliBatchUnsupportedCommandMessage.Invoke(null, new object[] { "unknown" }) ?? string.Empty));
+        Assert.Equal(
+            BatchQueryKernels.GetOutlineFileRequiredMessage(),
+            (string)(cliBatchOutlineFileRequiredMessage.Invoke(null, Array.Empty<object>()) ?? string.Empty));
+        Assert.Equal(
+            BatchQueryKernels.GetDocQueryRequiredMessage(),
+            (string)(cliBatchDocQueryRequiredMessage.Invoke(null, Array.Empty<object>()) ?? string.Empty));
+        Assert.Equal(
+            BatchQueryKernels.GetFileAndPosRequiredMessage(),
+            (string)(cliBatchFileAndPosRequiredMessage.Invoke(null, Array.Empty<object>()) ?? string.Empty));
+        Assert.Equal(
+            BatchQueryKernels.GetInvalidPositionMessage("bad"),
+            (string)(cliBatchInvalidPositionMessage.Invoke(null, new object[] { "bad" }) ?? string.Empty));
     }
 
     private static void AssertCliBatchDuplicateIdsLikeProduction(

@@ -129,6 +129,86 @@ internal static class BatchQueryKernels
         }
     }
 
+    internal static string GetRequestsFileNotFoundMessage(string path)
+    {
+        if (TryGetMessage(bindings => bindings.RequestsFileNotFoundMessage(path), out var message))
+            return message;
+
+        return GetRequestsFileNotFoundMessageWithCSharp(path);
+    }
+
+    internal static string GetPayloadShapeMessage()
+    {
+        if (TryGetMessage(bindings => bindings.PayloadShapeMessage(), out var message))
+            return message;
+
+        return GetPayloadShapeMessageWithCSharp();
+    }
+
+    internal static string GetRequestObjectRequiredMessage()
+    {
+        if (TryGetMessage(bindings => bindings.RequestObjectRequiredMessage(), out var message))
+            return message;
+
+        return GetRequestObjectRequiredMessageWithCSharp();
+    }
+
+    internal static string GetRequestDeserializeFailedMessage()
+    {
+        if (TryGetMessage(bindings => bindings.RequestDeserializeFailedMessage(), out var message))
+            return message;
+
+        return GetRequestDeserializeFailedMessageWithCSharp();
+    }
+
+    internal static string GetDuplicateRequestIdsMessage(string duplicateIdsText)
+    {
+        if (TryGetMessage(bindings => bindings.DuplicateRequestIdsMessage(duplicateIdsText), out var message))
+            return message;
+
+        return GetDuplicateRequestIdsMessageWithCSharp(duplicateIdsText);
+    }
+
+    internal static string GetUnsupportedCommandMessage(string command)
+    {
+        if (TryGetMessage(bindings => bindings.UnsupportedCommandMessage(command), out var message))
+            return message;
+
+        return GetUnsupportedCommandMessageWithCSharp(command);
+    }
+
+    internal static string GetOutlineFileRequiredMessage()
+    {
+        if (TryGetMessage(bindings => bindings.OutlineFileRequiredMessage(), out var message))
+            return message;
+
+        return GetOutlineFileRequiredMessageWithCSharp();
+    }
+
+    internal static string GetDocQueryRequiredMessage()
+    {
+        if (TryGetMessage(bindings => bindings.DocQueryRequiredMessage(), out var message))
+            return message;
+
+        return GetDocQueryRequiredMessageWithCSharp();
+    }
+
+    internal static string GetFileAndPosRequiredMessage()
+    {
+        if (TryGetMessage(bindings => bindings.FileAndPosRequiredMessage(), out var message))
+            return message;
+
+        return GetFileAndPosRequiredMessageWithCSharp();
+    }
+
+    internal static string GetInvalidPositionMessage(string position)
+    {
+        if (TryGetMessage(bindings => bindings.InvalidPositionMessage(position), out var message))
+            return message;
+
+        return GetInvalidPositionMessageWithCSharp(position);
+    }
+
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
             DogfoodKernelLoader.CreateDelegate<CliBatchDuplicateIdRanksInto>(
@@ -136,7 +216,88 @@ internal static class BatchQueryKernels
                 "CliBatchDuplicateIdRanksInto"),
             DogfoodKernelLoader.CreateDelegate<CliBatchResultPackedSuccessCount>(
                 programType,
-                "CliBatchResultPackedSuccessCount")));
+                "CliBatchResultPackedSuccessCount"),
+            DogfoodKernelLoader.CreateDelegate<CliBatchRequestsFileNotFoundMessage>(
+                programType,
+                "CliBatchRequestsFileNotFoundMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliBatchPayloadShapeMessage>(
+                programType,
+                "CliBatchPayloadShapeMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliBatchRequestObjectRequiredMessage>(
+                programType,
+                "CliBatchRequestObjectRequiredMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliBatchRequestDeserializeFailedMessage>(
+                programType,
+                "CliBatchRequestDeserializeFailedMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliBatchDuplicateRequestIdsMessage>(
+                programType,
+                "CliBatchDuplicateRequestIdsMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliBatchUnsupportedCommandMessage>(
+                programType,
+                "CliBatchUnsupportedCommandMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliBatchOutlineFileRequiredMessage>(
+                programType,
+                "CliBatchOutlineFileRequiredMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliBatchDocQueryRequiredMessage>(
+                programType,
+                "CliBatchDocQueryRequiredMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliBatchFileAndPosRequiredMessage>(
+                programType,
+                "CliBatchFileAndPosRequiredMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliBatchInvalidPositionMessage>(
+                programType,
+                "CliBatchInvalidPositionMessage")));
+
+    private static bool TryGetMessage(Func<Bindings, string> getMessage, out string message)
+    {
+        message = string.Empty;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        try
+        {
+            message = getMessage(bindings);
+            return !string.IsNullOrEmpty(message);
+        }
+        catch
+        {
+            message = string.Empty;
+            return false;
+        }
+    }
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product batch query messages route through BatchQueryKernels.
+    private static string GetRequestsFileNotFoundMessageWithCSharp(string path)
+        => $"Requests file not found: {path}";
+
+    private static string GetPayloadShapeMessageWithCSharp()
+        => "Batch requests must be a JSON array or an object with a 'requests' array.";
+
+    private static string GetRequestObjectRequiredMessageWithCSharp()
+        => "Each batch request must be a JSON object.";
+
+    private static string GetRequestDeserializeFailedMessageWithCSharp()
+        => "Failed to deserialize a batch request.";
+
+    private static string GetDuplicateRequestIdsMessageWithCSharp(string duplicateIdsText)
+        => $"Duplicate batch request ids are not allowed: {duplicateIdsText}";
+
+    private static string GetUnsupportedCommandMessageWithCSharp(string command)
+        => $"Unsupported batch query command '{command}'.";
+
+    private static string GetOutlineFileRequiredMessageWithCSharp()
+        => "file is required for outline requests.";
+
+    private static string GetDocQueryRequiredMessageWithCSharp()
+        => "query is required for doc requests.";
+
+    private static string GetFileAndPosRequiredMessageWithCSharp()
+        => "file and pos are required.";
+
+    private static string GetInvalidPositionMessageWithCSharp(string position)
+        => $"Invalid position format '{position}'. Expected <line>:<col>.";
 
     private delegate int CliBatchDuplicateIdRanksInto(
         int[] idRanks,
@@ -148,9 +309,30 @@ internal static class BatchQueryKernels
         ulong[] okWords,
         int itemCount);
 
+    private delegate string CliBatchRequestsFileNotFoundMessage(string path);
+    private delegate string CliBatchPayloadShapeMessage();
+    private delegate string CliBatchRequestObjectRequiredMessage();
+    private delegate string CliBatchRequestDeserializeFailedMessage();
+    private delegate string CliBatchDuplicateRequestIdsMessage(string duplicateIdsText);
+    private delegate string CliBatchUnsupportedCommandMessage(string command);
+    private delegate string CliBatchOutlineFileRequiredMessage();
+    private delegate string CliBatchDocQueryRequiredMessage();
+    private delegate string CliBatchFileAndPosRequiredMessage();
+    private delegate string CliBatchInvalidPositionMessage(string position);
+
     private sealed record Bindings(
         CliBatchDuplicateIdRanksInto DuplicateIdRanks,
-        CliBatchResultPackedSuccessCount ResultPackedSuccessCount);
+        CliBatchResultPackedSuccessCount ResultPackedSuccessCount,
+        CliBatchRequestsFileNotFoundMessage RequestsFileNotFoundMessage,
+        CliBatchPayloadShapeMessage PayloadShapeMessage,
+        CliBatchRequestObjectRequiredMessage RequestObjectRequiredMessage,
+        CliBatchRequestDeserializeFailedMessage RequestDeserializeFailedMessage,
+        CliBatchDuplicateRequestIdsMessage DuplicateRequestIdsMessage,
+        CliBatchUnsupportedCommandMessage UnsupportedCommandMessage,
+        CliBatchOutlineFileRequiredMessage OutlineFileRequiredMessage,
+        CliBatchDocQueryRequiredMessage DocQueryRequiredMessage,
+        CliBatchFileAndPosRequiredMessage FileAndPosRequiredMessage,
+        CliBatchInvalidPositionMessage InvalidPositionMessage);
 
     private sealed class DuplicateIdScratch
     {

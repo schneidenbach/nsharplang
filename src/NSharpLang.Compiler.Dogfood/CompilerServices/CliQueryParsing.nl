@@ -109,6 +109,46 @@ func CliBatchResultPopCount64(value: ulong): int {
     return BitOperations.PopCount(value)
 }
 
+func CliBatchRequestsFileNotFoundMessage(path: string): string {
+    return "Requests file not found: " + path
+}
+
+func CliBatchPayloadShapeMessage(): string {
+    return "Batch requests must be a JSON array or an object with a 'requests' array."
+}
+
+func CliBatchRequestObjectRequiredMessage(): string {
+    return "Each batch request must be a JSON object."
+}
+
+func CliBatchRequestDeserializeFailedMessage(): string {
+    return "Failed to deserialize a batch request."
+}
+
+func CliBatchDuplicateRequestIdsMessage(duplicateIdsText: string): string {
+    return "Duplicate batch request ids are not allowed: " + duplicateIdsText
+}
+
+func CliBatchUnsupportedCommandMessage(command: string): string {
+    return "Unsupported batch query command '" + command + "'."
+}
+
+func CliBatchOutlineFileRequiredMessage(): string {
+    return "file is required for outline requests."
+}
+
+func CliBatchDocQueryRequiredMessage(): string {
+    return "query is required for doc requests."
+}
+
+func CliBatchFileAndPosRequiredMessage(): string {
+    return "file and pos are required."
+}
+
+func CliBatchInvalidPositionMessage(position: string): string {
+    return "Invalid position format '" + position + "'. Expected <line>:<col>."
+}
+
 func CliQueryDaemonParameterSummaryInto(args: string[], resultIndices: int[]): int {
     if resultIndices.Length < 7 {
         return -1

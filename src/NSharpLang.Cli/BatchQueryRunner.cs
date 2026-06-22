@@ -65,7 +65,7 @@ internal static class BatchQueryRunner
     {
         if (!File.Exists(path))
         {
-            throw new FileNotFoundException($"Requests file not found: {path}");
+            throw new FileNotFoundException(BatchQueryKernels.GetRequestsFileNotFoundMessage(path));
         }
 
         using var document = JsonDocument.Parse(File.ReadAllText(path));
@@ -83,7 +83,7 @@ internal static class BatchQueryRunner
         }
         else
         {
-            throw new InvalidDataException("Batch requests must be a JSON array or an object with a 'requests' array.");
+            throw new InvalidDataException(BatchQueryKernels.GetPayloadShapeMessage());
         }
 
         var requests = new List<BatchQueryRequest>();
@@ -91,13 +91,13 @@ internal static class BatchQueryRunner
         {
             if (item.ValueKind != JsonValueKind.Object)
             {
-                throw new InvalidDataException("Each batch request must be a JSON object.");
+                throw new InvalidDataException(BatchQueryKernels.GetRequestObjectRequiredMessage());
             }
 
             var request = item.Deserialize<BatchQueryRequest>(RequestJsonOptions);
             if (request == null)
             {
-                throw new InvalidDataException("Failed to deserialize a batch request.");
+                throw new InvalidDataException(BatchQueryKernels.GetRequestDeserializeFailedMessage());
             }
 
             requests.Add(request with
@@ -110,7 +110,7 @@ internal static class BatchQueryRunner
 
         if (duplicateIds.Length > 0)
         {
-            throw new InvalidDataException($"Duplicate batch request ids are not allowed: {string.Join(", ", duplicateIds)}");
+            throw new InvalidDataException(BatchQueryKernels.GetDuplicateRequestIdsMessage(string.Join(", ", duplicateIds)));
         }
 
         return requests;
@@ -210,7 +210,7 @@ internal static class BatchQueryRunner
                 "doc" => ExecuteDoc(request),
                 _ => OutputFormatter.ErrorToJson(
                     request.Command,
-                    $"Unsupported batch query command '{request.Command}'.",
+                    BatchQueryKernels.GetUnsupportedCommandMessage(request.Command),
                     projectRoot,
                     "unsupportedCommand")
             };
@@ -251,7 +251,7 @@ internal static class BatchQueryRunner
     {
         if (string.IsNullOrWhiteSpace(request.File))
         {
-            return InvalidRequest("outline", "file is required for outline requests.", projectRoot, request);
+            return InvalidRequest("outline", BatchQueryKernels.GetOutlineFileRequiredMessage(), projectRoot, request);
         }
 
         var snapshot = getSnapshot();
@@ -477,7 +477,7 @@ internal static class BatchQueryRunner
     {
         if (string.IsNullOrWhiteSpace(request.Query))
         {
-            return InvalidRequest("doc", "query is required for doc requests.", null, request);
+            return InvalidRequest("doc", BatchQueryKernels.GetDocQueryRequiredMessage(), null, request);
         }
 
         var result = DocQuery.Value.Lookup(request.Query);
@@ -505,7 +505,7 @@ internal static class BatchQueryRunner
 
         if (string.IsNullOrWhiteSpace(file) || string.IsNullOrWhiteSpace(request.Pos))
         {
-            invalid = InvalidRequest(command, "file and pos are required.", projectRoot, request);
+            invalid = InvalidRequest(command, BatchQueryKernels.GetFileAndPosRequiredMessage(), projectRoot, request);
             return false;
         }
 
@@ -513,7 +513,7 @@ internal static class BatchQueryRunner
         {
             invalid = InvalidRequest(
                 command,
-                $"Invalid position format '{request.Pos}'. Expected <line>:<col>.",
+                BatchQueryKernels.GetInvalidPositionMessage(request.Pos),
                 projectRoot,
                 request);
             return false;

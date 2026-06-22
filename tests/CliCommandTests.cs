@@ -1610,6 +1610,49 @@ func Main() {
     }
 
     [Fact]
+    public void BatchQueryKernels_ShapesMessages()
+    {
+        Assert.Equal("Requests file not found: /tmp/requests.json", BatchQueryKernels.GetRequestsFileNotFoundMessage("/tmp/requests.json"));
+        Assert.Equal("Batch requests must be a JSON array or an object with a 'requests' array.", BatchQueryKernels.GetPayloadShapeMessage());
+        Assert.Equal("Each batch request must be a JSON object.", BatchQueryKernels.GetRequestObjectRequiredMessage());
+        Assert.Equal("Failed to deserialize a batch request.", BatchQueryKernels.GetRequestDeserializeFailedMessage());
+        Assert.Equal("Duplicate batch request ids are not allowed: alpha, zeta", BatchQueryKernels.GetDuplicateRequestIdsMessage("alpha, zeta"));
+        Assert.Equal("Unsupported batch query command 'unknown'.", BatchQueryKernels.GetUnsupportedCommandMessage("unknown"));
+        Assert.Equal("file is required for outline requests.", BatchQueryKernels.GetOutlineFileRequiredMessage());
+        Assert.Equal("query is required for doc requests.", BatchQueryKernels.GetDocQueryRequiredMessage());
+        Assert.Equal("file and pos are required.", BatchQueryKernels.GetFileAndPosRequiredMessage());
+        Assert.Equal("Invalid position format 'bad'. Expected <line>:<col>.", BatchQueryKernels.GetInvalidPositionMessage("bad"));
+    }
+
+    [Fact]
+    public void BatchQueryRunner_LoadRequestsErrorsUseMessageKernels()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-batch-load-errors-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            var missingPath = Path.Combine(tempDir, "missing.json");
+            var missing = Assert.Throws<FileNotFoundException>(() => BatchQueryRunner.LoadRequests(missingPath));
+            Assert.Contains(BatchQueryKernels.GetRequestsFileNotFoundMessage(missingPath), missing.Message);
+
+            var payloadPath = Path.Combine(tempDir, "payload.json");
+            File.WriteAllText(payloadPath, "{}");
+            var malformedPayload = Assert.Throws<InvalidDataException>(() => BatchQueryRunner.LoadRequests(payloadPath));
+            Assert.Equal(BatchQueryKernels.GetPayloadShapeMessage(), malformedPayload.Message);
+
+            var itemPath = Path.Combine(tempDir, "item.json");
+            File.WriteAllText(itemPath, "[1]");
+            var nonObjectItem = Assert.Throws<InvalidDataException>(() => BatchQueryRunner.LoadRequests(itemPath));
+            Assert.Equal(BatchQueryKernels.GetRequestObjectRequiredMessage(), nonObjectItem.Message);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void BatchCommand_DuplicateRequestIds_AreRejectedInOrdinalOrder()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-batch-duplicates-{Guid.NewGuid():N}");
@@ -1630,7 +1673,7 @@ func Main() {
 """);
 
             var exception = Assert.Throws<InvalidDataException>(() => BatchQueryRunner.LoadRequests(requestsPath));
-            Assert.Contains("Duplicate batch request ids are not allowed: alpha, zeta", exception.Message);
+            Assert.Equal(BatchQueryKernels.GetDuplicateRequestIdsMessage("alpha, zeta"), exception.Message);
 
             var requests = new List<BatchQueryRequest>
             {
@@ -1651,6 +1694,75 @@ func Main() {
 
             Assert.True(BatchQueryKernels.TryCountResultSuccesses(Array.Empty<ulong>(), 0, out successCount));
             Assert.Equal(0, successCount);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void BatchCommand_InvalidRequestsUseMessageKernels()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-batch-invalid-requests-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            var requestsPath = Path.Combine(tempDir, "requests.json");
+            File.WriteAllText(requestsPath, """
+[
+  {
+    "command": "outline"
+  },
+  {
+    "command": "doc"
+  },
+  {
+    "command": "type",
+    "file": "Program.nl"
+  },
+  {
+    "command": "definition",
+    "file": "Program.nl",
+    "pos": "bad"
+  },
+  {
+    "command": "unknown"
+  }
+]
+""");
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() => QueryCommand.Execute(new[]
+            {
+                "batch",
+                "--project", IssueTrackerFixture,
+                "--requests", requestsPath
+            }));
+
+            Assert.Equal(1, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stderr));
+
+            using var doc = JsonDocument.Parse(stdout);
+            Assert.False(doc.RootElement.GetProperty("ok").GetBoolean());
+            Assert.Equal(5, doc.RootElement.GetProperty("failureCount").GetInt32());
+
+            var results = doc.RootElement.GetProperty("results").EnumerateArray().ToArray();
+            Assert.Equal(
+                BatchQueryKernels.GetOutlineFileRequiredMessage(),
+                results[0].GetProperty("response").GetProperty("error").GetProperty("message").GetString());
+            Assert.Equal(
+                BatchQueryKernels.GetDocQueryRequiredMessage(),
+                results[1].GetProperty("response").GetProperty("error").GetProperty("message").GetString());
+            Assert.Equal(
+                BatchQueryKernels.GetFileAndPosRequiredMessage(),
+                results[2].GetProperty("response").GetProperty("error").GetProperty("message").GetString());
+            Assert.Equal(
+                BatchQueryKernels.GetInvalidPositionMessage("bad"),
+                results[3].GetProperty("response").GetProperty("error").GetProperty("message").GetString());
+            Assert.Equal(
+                BatchQueryKernels.GetUnsupportedCommandMessage("unknown"),
+                results[4].GetProperty("response").GetProperty("error").GetProperty("message").GetString());
         }
         finally
         {
@@ -1708,8 +1820,16 @@ func Main() {
             Assert.Equal(
                 QueryCommandKernels.GetNoSymbolAtPositionMessage("Program.nl", 1, 1),
                 firstError.GetProperty("message").GetString());
-            Assert.Equal("invalidRequest", results[1].GetProperty("response").GetProperty("error").GetProperty("code").GetString());
-            Assert.Equal("invalidRequest", results[2].GetProperty("response").GetProperty("error").GetProperty("code").GetString());
+            var overflowError = results[1].GetProperty("response").GetProperty("error");
+            Assert.Equal("invalidRequest", overflowError.GetProperty("code").GetString());
+            Assert.Equal(
+                BatchQueryKernels.GetInvalidPositionMessage("2147483648:1"),
+                overflowError.GetProperty("message").GetString());
+            var separatorError = results[2].GetProperty("response").GetProperty("error");
+            Assert.Equal("invalidRequest", separatorError.GetProperty("code").GetString());
+            Assert.Equal(
+                BatchQueryKernels.GetInvalidPositionMessage("1_000:2"),
+                separatorError.GetProperty("message").GetString());
         }
         finally
         {
