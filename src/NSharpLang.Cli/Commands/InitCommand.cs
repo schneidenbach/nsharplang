@@ -58,32 +58,11 @@ public static class InitCommand
     }
 
     internal static InitOptionSummary GetOptionSummary(string[] args)
-        => InitCommandKernels.TryGetOptionSummary(args, out var summary)
-            ? summary
-            : GetOptionSummaryWithCSharp(args);
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product init option parsing routes through InitCommandKernels.
-    private static InitOptionSummary GetOptionSummaryWithCSharp(string[] args)
-        => new(
-            GetOptionWithCSharp(args, "--name"),
-            GetOptionWithCSharp(args, "--type"),
-            ContainsArgWithCSharp(args, "--force"),
-            ContainsArgWithCSharp(args, "--help") || ContainsArgWithCSharp(args, "-h") || (args.Length > 0 && args[0] == "help"));
-
-    private static string? GetOptionWithCSharp(string[] args, string flag)
     {
-        for (var i = 0; i < args.Length - 1; i++)
-            if (args[i] == flag)
-                return args[i + 1];
-        return null;
-    }
+        if (InitCommandKernels.TryGetOptionSummary(args, out var summary))
+            return summary;
 
-    private static bool ContainsArgWithCSharp(string[] args, string value)
-    {
-        for (var i = 0; i < args.Length; i++)
-            if (args[i] == value)
-                return true;
-        return false;
+        throw new InvalidOperationException("N# init option summary kernel rejected the arguments.");
     }
 
     static int ShowHelp()

@@ -1,6 +1,4 @@
 using System;
-using System.Linq;
-using NSharpLang.Compiler;
 
 namespace NSharpLang.Cli.Commands;
 
@@ -54,155 +52,31 @@ internal static class InitCommandKernels
     }
 
     internal static string GetHelpText()
-    {
-        if (TryGetMessage(bindings => bindings.InitHelpText(), out var message))
-            return message;
-
-        return GetHelpTextWithCSharp();
-    }
+        => RequiredBindings.InitHelpText();
 
     internal static string GetInvalidTypeMessage(string type)
-    {
-        if (TryGetMessage(bindings => bindings.InitInvalidTypeMessage(type), out var message))
-            return message;
-
-        return GetInvalidTypeMessageWithCSharp(type);
-    }
+        => RequiredBindings.InitInvalidTypeMessage(type);
 
     internal static string GetProjectFileExistsMessage()
-    {
-        if (TryGetMessage(bindings => bindings.InitProjectFileExistsMessage(), out var message))
-            return message;
-
-        return GetProjectFileExistsMessageWithCSharp();
-    }
+        => RequiredBindings.InitProjectFileExistsMessage();
 
     internal static string GetCreatedFileMessage(string sourceFile)
-    {
-        if (TryGetMessage(bindings => bindings.InitCreatedFileMessage(sourceFile), out var message))
-            return message;
-
-        return GetCreatedFileMessageWithCSharp(sourceFile);
-    }
+        => RequiredBindings.InitCreatedFileMessage(sourceFile);
 
     internal static string GetSuccessMessage()
-    {
-        if (TryGetMessage(bindings => bindings.InitSuccessMessage(), out var message))
-            return message;
-
-        return GetSuccessMessageWithCSharp();
-    }
+        => RequiredBindings.InitSuccessMessage();
 
     internal static string GetFailedMessage(string message)
-    {
-        if (TryGetMessage(bindings => bindings.InitFailedMessage(message), out var result))
-            return result;
-
-        return GetFailedMessageWithCSharp(message);
-    }
+        => RequiredBindings.InitFailedMessage(message);
 
     internal static string GetProjectYamlText(string projectName, string projectType)
-    {
-        if (TryGetMessage(bindings => bindings.InitProjectYamlText(projectName, projectType), out var text))
-            return text;
-
-        return GetProjectYamlTextWithCSharp(projectName, projectType);
-    }
+        => RequiredBindings.InitProjectYamlText(projectName, projectType);
 
     internal static string GetCsprojText()
-    {
-        if (TryGetMessage(bindings => bindings.InitCsprojText(), out var text))
-            return text;
-
-        return GetCsprojTextWithCSharp();
-    }
+        => RequiredBindings.InitCsprojText();
 
     internal static string GetProgramSourceText()
-    {
-        if (TryGetMessage(bindings => bindings.InitProgramSourceText(), out var text))
-            return text;
-
-        return GetProgramSourceTextWithCSharp();
-    }
-
-    private static bool TryGetMessage(Func<Bindings, string> getMessage, out string message)
-    {
-        message = string.Empty;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        try
-        {
-            message = getMessage(bindings);
-            return !string.IsNullOrEmpty(message);
-        }
-        catch
-        {
-            message = string.Empty;
-            return false;
-        }
-    }
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product init command messages route through CliInit* kernels.
-    private static string GetHelpTextWithCSharp()
-        => "N# Init\n"
-           + "\n"
-           + "Usage: nlc init [options]\n"
-           + "\n"
-           + "Initialize N# in the current directory. Like 'cargo init' — works in an\n"
-           + "existing directory instead of creating a new one.\n"
-           + "\n"
-           + "Options:\n"
-           + "  --name <name>   Project name (default: current directory name)\n"
-           + "  --type <type>   Output type: exe or library (default: exe)\n"
-           + "  --force         Overwrite existing project.yml\n"
-           + "  --help, -h      Show this help text\n"
-           + "\n"
-           + "Examples:\n"
-           + "  nlc init\n"
-           + "  nlc init --name MyLib --type library\n"
-           + "  nlc init --force\n"
-           + "\n"
-           + "Exit codes:\n"
-           + "  0  Project initialized successfully\n"
-           + "  1  Initialization failed";
-
-    private static string GetInvalidTypeMessageWithCSharp(string type)
-        => $"Invalid type '{type}'. Expected 'exe' or 'library'.";
-
-    private static string GetProjectFileExistsMessageWithCSharp()
-        => "project.yml already exists. Use --force to overwrite.";
-
-    private static string GetCreatedFileMessageWithCSharp(string sourceFile)
-        => $"Created: {sourceFile}";
-
-    private static string GetSuccessMessageWithCSharp()
-        => "N# project initialized. Run 'nlc build' to compile.";
-
-    private static string GetFailedMessageWithCSharp(string message)
-        => $"Init failed: {message}";
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product init file content routes through CliInit* kernels.
-    private static string GetProjectYamlTextWithCSharp(string projectName, string projectType)
-    {
-        var template = ProjectFileParser.GenerateTemplate(projectName);
-        if (projectType == "library")
-        {
-            template = template.Replace("outputType: exe", "outputType: library");
-            template = string.Join("\n", template.Split('\n')
-                .Where(line => !line.TrimStart().StartsWith("entry:", StringComparison.Ordinal)));
-        }
-
-        return template;
-    }
-
-    private static string GetCsprojTextWithCSharp()
-        => "<Project Sdk=\"NSharpLang.Sdk\" />\n";
-
-    private static string GetProgramSourceTextWithCSharp()
-        => "func main() {\n    print \"Hello, N#!\"\n}";
+        => RequiredBindings.InitProgramSourceText();
 
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
@@ -262,6 +136,9 @@ internal static class InitCommandKernels
         CliInitProjectYamlText InitProjectYamlText,
         CliInitCsprojText InitCsprojText,
         CliInitProgramSourceText InitProgramSourceText);
+
+    private static Bindings RequiredBindings
+        => s_bindings.Value ?? throw new InvalidOperationException("N# init command kernels are unavailable.");
 
     private static bool TryGetOptionalArg(string[] args, int index, out string? value)
     {
