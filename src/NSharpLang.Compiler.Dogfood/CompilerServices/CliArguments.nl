@@ -7702,6 +7702,72 @@ func CliFormatOptionSummaryCore(args: &CliArgumentTable, resultIndices: &CliInde
     return 0
 }
 
+func CliFormatHelpText(): string {
+    return "N# Format\n"
+        + "\n"
+        + "Usage: nlc format [options] [files...]\n"
+        + "\n"
+        + "Format N# source files with the canonical formatter.\n"
+        + "\n"
+        + "Options:\n"
+        + "  --project <dir>         Project root directory (default: current directory)\n"
+        + "  --check                 Exit with code 1 if any file needs formatting\n"
+        + "  --verify-no-changes     Back-compat alias for --check\n"
+        + "  --diff                  Print unified diffs instead of writing files\n"
+        + "  --stdin                 Read source from stdin and write the formatted result to stdout\n"
+        + "  --help, -h              Show this help text\n"
+        + "\n"
+        + "Examples:\n"
+        + "  nlc format\n"
+        + "  nlc format --check\n"
+        + "  nlc format --diff Program.nl\n"
+        + "  nlc format --stdin < Program.nl\n"
+        + "\n"
+        + "Exit codes:\n"
+        + "  0  Formatting succeeded\n"
+        + "  1  Formatting failed or --check found unformatted files"
+}
+
+func CliFormatStdinWithFilesMessage(): string {
+    return "Cannot combine --stdin with file arguments."
+}
+
+func CliFormatNoFilesFoundMessage(): string {
+    return "No .nl files found to format."
+}
+
+func CliFormatFileNotFoundMessage(sourceFile: string): string {
+    return "File not found: " + sourceFile
+}
+
+func CliFormatErrorFormattingMessage(sourceFile: string, message: string): string {
+    return "Error formatting " + sourceFile + ": " + message
+}
+
+func CliFormatCheckFailedHeader(countText: string): string {
+    return "Formatting check failed for " + countText + " file(s):"
+}
+
+func CliFormatCheckFailedPathLine(sourceFile: string): string {
+    return "  " + sourceFile
+}
+
+func CliFormatAllFilesFormattedMessage(): string {
+    return "All files are properly formatted."
+}
+
+func CliFormatFormattedCountMessage(countText: string): string {
+    return "Formatted " + countText + " file(s)."
+}
+
+func CliFormatFailedMessage(message: string): string {
+    return "Format failed: " + message
+}
+
+func CliFormatParseErrorsMessage(relativePath: string, messages: string): string {
+    return "Parse errors in " + relativePath + ": " + messages
+}
+
 func CliShouldFormatDiscoveredPath(relativePath: string): int {
     if CliPathEndsWithTestsNl(relativePath) {
         return 0

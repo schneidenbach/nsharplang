@@ -7023,6 +7023,17 @@ func outer(x: int): int {
         Assert.Contains("CliShouldFormatDiscoveredPath", methodNames!); // product format discovery filtering.
         Assert.Contains("CliShouldSkipFormatDirectoryName", methodNames!); // product format directory traversal pruning.
         Assert.Contains("CliFormatOptionSummaryInto", methodNames!); // product format option parsing.
+        Assert.Contains("CliFormatHelpText", methodNames!); // product format help text shaping.
+        Assert.Contains("CliFormatStdinWithFilesMessage", methodNames!); // product format stdin/file conflict message shaping.
+        Assert.Contains("CliFormatNoFilesFoundMessage", methodNames!); // product format empty-discovery message shaping.
+        Assert.Contains("CliFormatFileNotFoundMessage", methodNames!); // product format missing-file message shaping.
+        Assert.Contains("CliFormatErrorFormattingMessage", methodNames!); // product format per-file failure message shaping.
+        Assert.Contains("CliFormatCheckFailedHeader", methodNames!); // product format check failure header shaping.
+        Assert.Contains("CliFormatCheckFailedPathLine", methodNames!); // product format check failure path-line shaping.
+        Assert.Contains("CliFormatAllFilesFormattedMessage", methodNames!); // product format all-good message shaping.
+        Assert.Contains("CliFormatFormattedCountMessage", methodNames!); // product format formatted-count message shaping.
+        Assert.Contains("CliFormatFailedMessage", methodNames!); // product format failure wrapper shaping.
+        Assert.Contains("CliFormatParseErrorsMessage", methodNames!); // product format parse-error wrapper shaping.
         Assert.Contains("CliBuildOperandSummaryInto", methodNames!); // product build operand summary.
         Assert.Contains("CliBuildOptionSummaryInto", methodNames!); // product build option parsing.
         Assert.Contains("CliBuildHelpText", methodNames!); // product build help text shaping.
@@ -16676,6 +16687,50 @@ class OtherZetaType {
                     "CliFormatOptionSummaryInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliFormatOptionSummaryInto.");
+            var cliFormatHelpText = programType.GetMethod(
+                    "CliFormatHelpText",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliFormatHelpText.");
+            var cliFormatStdinWithFilesMessage = programType.GetMethod(
+                    "CliFormatStdinWithFilesMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliFormatStdinWithFilesMessage.");
+            var cliFormatNoFilesFoundMessage = programType.GetMethod(
+                    "CliFormatNoFilesFoundMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliFormatNoFilesFoundMessage.");
+            var cliFormatFileNotFoundMessage = programType.GetMethod(
+                    "CliFormatFileNotFoundMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliFormatFileNotFoundMessage.");
+            var cliFormatErrorFormattingMessage = programType.GetMethod(
+                    "CliFormatErrorFormattingMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliFormatErrorFormattingMessage.");
+            var cliFormatCheckFailedHeader = programType.GetMethod(
+                    "CliFormatCheckFailedHeader",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliFormatCheckFailedHeader.");
+            var cliFormatCheckFailedPathLine = programType.GetMethod(
+                    "CliFormatCheckFailedPathLine",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliFormatCheckFailedPathLine.");
+            var cliFormatAllFilesFormattedMessage = programType.GetMethod(
+                    "CliFormatAllFilesFormattedMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliFormatAllFilesFormattedMessage.");
+            var cliFormatFormattedCountMessage = programType.GetMethod(
+                    "CliFormatFormattedCountMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliFormatFormattedCountMessage.");
+            var cliFormatFailedMessage = programType.GetMethod(
+                    "CliFormatFailedMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliFormatFailedMessage.");
+            var cliFormatParseErrorsMessage = programType.GetMethod(
+                    "CliFormatParseErrorsMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliFormatParseErrorsMessage.");
             var cliFormatDiscoveredPathChecksumInto = programType.GetMethod(
                     "CliFormatDiscoveredPathChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -17779,6 +17834,18 @@ func main(customer: Customer, résumé: Profile) {
             AssertCliBatchResultCountsLikeProduction(cliBatchResultPackedCountChecksum);
             AssertCliTestOutcomeSummaryLikeProduction(cliTestOutcomeSummaryChecksumInto);
             AssertCliFormatOptionsLikeProduction(cliFormatOptionSummaryInto);
+            AssertCliFormatMessagesLikeProduction(
+                cliFormatHelpText,
+                cliFormatStdinWithFilesMessage,
+                cliFormatNoFilesFoundMessage,
+                cliFormatFileNotFoundMessage,
+                cliFormatErrorFormattingMessage,
+                cliFormatCheckFailedHeader,
+                cliFormatCheckFailedPathLine,
+                cliFormatAllFilesFormattedMessage,
+                cliFormatFormattedCountMessage,
+                cliFormatFailedMessage,
+                cliFormatParseErrorsMessage);
             AssertCliFormatDiscoveryLikeProduction(
                 cliShouldFormatDiscoveredPath,
                 cliFormatDiscoveredPathChecksumInto);
@@ -26027,6 +26094,60 @@ func main() {
             Assert.Equal(expectedChecksum, actualChecksum);
             Assert.Equal(new[] { passed, failed, skipped, nonOk }, counts);
         }
+    }
+
+    private static void AssertCliFormatMessagesLikeProduction(
+        MethodInfo cliFormatHelpText,
+        MethodInfo cliFormatStdinWithFilesMessage,
+        MethodInfo cliFormatNoFilesFoundMessage,
+        MethodInfo cliFormatFileNotFoundMessage,
+        MethodInfo cliFormatErrorFormattingMessage,
+        MethodInfo cliFormatCheckFailedHeader,
+        MethodInfo cliFormatCheckFailedPathLine,
+        MethodInfo cliFormatAllFilesFormattedMessage,
+        MethodInfo cliFormatFormattedCountMessage,
+        MethodInfo cliFormatFailedMessage,
+        MethodInfo cliFormatParseErrorsMessage)
+    {
+        var helpText = (string)(cliFormatHelpText.Invoke(null, Array.Empty<object>()) ?? "<null>");
+        Assert.Contains("N# Format", helpText);
+        Assert.Contains("Usage: nlc format [options] [files...]", helpText);
+        Assert.Contains("Formatting failed or --check found unformatted files", helpText);
+
+        Assert.Equal(
+            "Cannot combine --stdin with file arguments.",
+            (string)(cliFormatStdinWithFilesMessage.Invoke(null, Array.Empty<object>()) ?? "<null>"));
+        Assert.Equal(
+            "No .nl files found to format.",
+            (string)(cliFormatNoFilesFoundMessage.Invoke(null, Array.Empty<object>()) ?? "<null>"));
+        Assert.Equal(
+            "File not found: Missing.nl",
+            (string)(cliFormatFileNotFoundMessage.Invoke(null, new object[] { "Missing.nl" }) ?? "<null>"));
+        Assert.Equal(
+            "Error formatting Broken.nl: parse failed",
+            (string)(cliFormatErrorFormattingMessage.Invoke(
+                null,
+                new object[] { "Broken.nl", "parse failed" }) ?? "<null>"));
+        Assert.Equal(
+            "Formatting check failed for 2 file(s):",
+            (string)(cliFormatCheckFailedHeader.Invoke(null, new object[] { "2" }) ?? "<null>"));
+        Assert.Equal(
+            "  src/Program.nl",
+            (string)(cliFormatCheckFailedPathLine.Invoke(null, new object[] { "src/Program.nl" }) ?? "<null>"));
+        Assert.Equal(
+            "All files are properly formatted.",
+            (string)(cliFormatAllFilesFormattedMessage.Invoke(null, Array.Empty<object>()) ?? "<null>"));
+        Assert.Equal(
+            "Formatted 3 file(s).",
+            (string)(cliFormatFormattedCountMessage.Invoke(null, new object[] { "3" }) ?? "<null>"));
+        Assert.Equal(
+            "Format failed: disk full",
+            (string)(cliFormatFailedMessage.Invoke(null, new object[] { "disk full" }) ?? "<null>"));
+        Assert.Equal(
+            "Parse errors in src/Broken.nl: expected expression",
+            (string)(cliFormatParseErrorsMessage.Invoke(
+                null,
+                new object[] { "src/Broken.nl", "expected expression" }) ?? "<null>"));
     }
 
     private static void AssertCliFormatOptionsLikeProduction(MethodInfo cliFormatOptionSummaryInto)

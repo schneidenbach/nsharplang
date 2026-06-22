@@ -1333,29 +1333,7 @@ Exit codes:
         var formatOptions = GetFormatOptionSummary(args);
         if (formatOptions.ShowHelp)
         {
-            Console.WriteLine(@"N# Format
-
-Usage: nlc format [options] [files...]
-
-Format N# source files with the canonical formatter.
-
-Options:
-  --project <dir>         Project root directory (default: current directory)
-  --check                 Exit with code 1 if any file needs formatting
-  --verify-no-changes     Back-compat alias for --check
-  --diff                  Print unified diffs instead of writing files
-  --stdin                 Read source from stdin and write the formatted result to stdout
-  --help, -h              Show this help text
-
-Examples:
-  nlc format
-  nlc format --check
-  nlc format --diff Program.nl
-  nlc format --stdin < Program.nl
-
-Exit codes:
-  0  Formatting succeeded
-  1  Formatting failed or --check found unformatted files");
+            Console.WriteLine(FormatCommandKernels.GetHelpText());
             return 0;
         }
 
@@ -1369,7 +1347,7 @@ Exit codes:
 
             if (stdinMode && positionalFiles.Length > 0)
             {
-                Console.Error.WriteLine("Cannot combine --stdin with file arguments.");
+                Console.Error.WriteLine(FormatCommandKernels.GetStdinWithFilesMessage());
                 return 1;
             }
 
@@ -1400,7 +1378,7 @@ Exit codes:
 
             if (files.Length == 0)
             {
-                Console.WriteLine("No .nl files found to format.");
+                Console.WriteLine(FormatCommandKernels.GetNoFilesFoundMessage());
                 return 0;
             }
 
@@ -1412,7 +1390,7 @@ Exit codes:
             {
                 if (!File.Exists(file))
                 {
-                    Console.Error.WriteLine($"File not found: {file}");
+                    Console.Error.WriteLine(FormatCommandKernels.GetFileNotFoundMessage(file));
                     failed = true;
                     continue;
                 }
@@ -1439,7 +1417,7 @@ Exit codes:
                 }
                 catch (Exception ex)
                 {
-                    Console.Error.WriteLine($"Error formatting {file}: {ex.Message}");
+                    Console.Error.WriteLine(FormatCommandKernels.GetErrorFormattingMessage(file, ex.Message));
                     failed = true;
                 }
             }
@@ -1449,31 +1427,31 @@ Exit codes:
 
             if (verifyOnly && filesNeedingFormatting.Count > 0)
             {
-                Console.Error.WriteLine($"Formatting check failed for {filesNeedingFormatting.Count} file(s):");
+                Console.Error.WriteLine(FormatCommandKernels.GetCheckFailedHeader(filesNeedingFormatting.Count));
                 foreach (var file in filesNeedingFormatting)
-                    Console.Error.WriteLine($"  {file}");
+                    Console.Error.WriteLine(FormatCommandKernels.GetCheckFailedPathLine(file));
                 return 1;
             }
 
             if (diffOnly)
             {
                 if (filesNeedingFormatting.Count == 0)
-                    Console.WriteLine("All files are properly formatted.");
+                    Console.WriteLine(FormatCommandKernels.GetAllFilesFormattedMessage());
                 return 0;
             }
 
             if (verifyOnly)
             {
-                Console.WriteLine("All files are properly formatted.");
+                Console.WriteLine(FormatCommandKernels.GetAllFilesFormattedMessage());
                 return 0;
             }
 
-            Console.WriteLine($"Formatted {formattedCount} file(s).");
+            Console.WriteLine(FormatCommandKernels.GetFormattedCountMessage(formattedCount));
             return 0;
         }
         catch (Exception ex)
         {
-            return Error($"Format failed: {ex.Message}");
+            return Error(FormatCommandKernels.GetFailedMessage(ex.Message));
         }
     }
 
@@ -1486,7 +1464,9 @@ Exit codes:
 
         if (parseResult.Errors.Any(e => e.Severity == ErrorSeverity.Error))
         {
-            throw new Exception($"Parse errors in {NormalizePath(Path.GetRelativePath(projectRoot, file))}: {string.Join(", ", parseResult.Errors.Select(e => e.Message))}");
+            throw new Exception(FormatCommandKernels.GetParseErrorsMessage(
+                NormalizePath(Path.GetRelativePath(projectRoot, file)),
+                string.Join(", ", parseResult.Errors.Select(e => e.Message))));
         }
 
         var fileDir = Path.GetDirectoryName(Path.GetFullPath(file)) ?? projectRoot;

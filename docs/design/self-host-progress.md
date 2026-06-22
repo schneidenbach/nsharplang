@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-22 — Format command messages move into product N#
+
+`Program.FormatCommand` no longer owns format help text, stdin/file conflict diagnostics, no-files status,
+missing-file text, per-file formatting failure text, check-failure headers/path lines, all-good status,
+formatted-count status, parse-error wrapper text, or final failure wrapper text in C#. The shipped `CliFormat*`
+dogfood kernels now shape those strings through `FormatCommandKernels`; C# keeps console/stdin/file IO, path
+resolution, parser/formatter execution, unified-diff emission, and fallback/oracle text only.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.FormatCommandKernels_SummarizesOptions|FullyQualifiedName~CliCommandTests.FormatCommandKernels_SelectsDiscoveredPaths|FullyQualifiedName~CliCommandTests.FormatCommandKernels_SelectsDiscoveredDirectorySkips|FullyQualifiedName~CliParityAuditTests.FormatCommand_Diff_EmitsUnifiedDiff|FullyQualifiedName~CliParityAuditTests.FormatCommand_ProjectDiscovery_SkipsGeneratedAndInvalidFixtureTrees|FullyQualifiedName~CliParityAuditTests.FormatCommand_Stdin_FormatsToStdout|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`;
+`./scripts/dev.sh FormatCommandKernels`.
+
 ## 2026-06-20 — Build command messages move into product N#
 
 `Program.BuildCommand` and the IL build backend no longer own the build help text, missing source-file

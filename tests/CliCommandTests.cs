@@ -3873,6 +3873,41 @@ func Main() {
         Assert.True(Program.GetFormatOptionSummary(new[] { "help" }).ShowHelp);
         Assert.True(Program.GetFormatOptionSummary(new[] { "--help" }).ShowHelp);
         Assert.True(Program.GetFormatOptionSummary(new[] { "-h" }).ShowHelp);
+
+        var helpText = FormatCommandKernels.GetHelpText();
+        Assert.Contains("N# Format", helpText);
+        Assert.Contains("Usage: nlc format [options] [files...]", helpText);
+        Assert.Contains("Formatting failed or --check found unformatted files", helpText);
+
+        Assert.Equal(
+            "Cannot combine --stdin with file arguments.",
+            FormatCommandKernels.GetStdinWithFilesMessage());
+        Assert.Equal("No .nl files found to format.", FormatCommandKernels.GetNoFilesFoundMessage());
+        Assert.Equal("File not found: Missing.nl", FormatCommandKernels.GetFileNotFoundMessage("Missing.nl"));
+        Assert.Equal(
+            "Error formatting Broken.nl: parse failed",
+            FormatCommandKernels.GetErrorFormattingMessage("Broken.nl", "parse failed"));
+        Assert.Equal(
+            "Formatting check failed for 2 file(s):",
+            FormatCommandKernels.GetCheckFailedHeader(2));
+        Assert.Equal("  src/Program.nl", FormatCommandKernels.GetCheckFailedPathLine("src/Program.nl"));
+        Assert.Equal("All files are properly formatted.", FormatCommandKernels.GetAllFilesFormattedMessage());
+        Assert.Equal("Formatted 3 file(s).", FormatCommandKernels.GetFormattedCountMessage(3));
+        Assert.Equal("Format failed: disk full", FormatCommandKernels.GetFailedMessage("disk full"));
+        Assert.Equal(
+            "Parse errors in src/Broken.nl: expected expression",
+            FormatCommandKernels.GetParseErrorsMessage("src/Broken.nl", "expected expression"));
+
+        var (helpExitCode, helpStdout, helpStderr) = CaptureConsole(() => ExecuteProgram("format", "--help"));
+        Assert.Equal(0, helpExitCode);
+        Assert.Contains("Usage: nlc format [options] [files...]", helpStdout);
+        Assert.True(string.IsNullOrWhiteSpace(helpStderr));
+
+        var (stdinExitCode, stdinStdout, stdinStderr) = CaptureConsole(() =>
+            ExecuteProgram("format", "--stdin", "Program.nl"));
+        Assert.Equal(1, stdinExitCode);
+        Assert.True(string.IsNullOrWhiteSpace(stdinStdout));
+        Assert.Contains("Cannot combine --stdin with file arguments.", stdinStderr);
     }
 
     [Fact]
