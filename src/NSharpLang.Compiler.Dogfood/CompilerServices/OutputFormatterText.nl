@@ -244,6 +244,108 @@ func QueryImplementorLineText(kindText: string, typeName: string, fileName: stri
     return "  " + kindText + " " + typeName + "  (" + fileName + ":" + line.ToString() + ")"
 }
 
+func QueryDocHeaderText(kindText: string, fullName: string): string {
+    return kindText + " " + fullName
+}
+
+func QueryDocNamespaceLineText(namespaceName: string): string {
+    return "  Namespace: " + namespaceName
+}
+
+func QueryDocSummaryLineText(summary: string): string {
+    return "  " + summary
+}
+
+func QueryDocImplementsLineText(baseTypes: string[], requestedCount: int): string {
+    count := QuerySymbolMinInt(requestedCount, baseTypes.Length)
+    builder := new StringBuilder(32)
+    builder.Append("  Implements: ")
+
+    i := 0
+    while i < count {
+        if i > 0 {
+            builder.Append(", ")
+        }
+
+        builder.Append(baseTypes[i])
+        i = i + 1
+    }
+
+    return builder.ToString()
+}
+
+func QueryDocParametersHeaderText(): string {
+    return "  Parameters:"
+}
+
+func QueryDocParameterLineText(
+    name: string,
+    typeName: string,
+    summary: string,
+    hasSummary: int,
+    separator: string): string {
+    docText := ""
+    if hasSummary != 0 {
+        docText = " " + separator + " " + summary
+    }
+
+    return "    " + name + ": " + typeName + docText
+}
+
+func QueryDocReturnsLineText(
+    returnType: string,
+    returnDoc: string,
+    hasReturnDoc: int,
+    separator: string): string {
+    docText := ""
+    if hasReturnDoc != 0 {
+        docText = " " + separator + " " + returnDoc
+    }
+
+    return "  Returns: " + returnType + docText
+}
+
+func QueryDocMembersHeaderText(kindText: string): string {
+    label := "Members:"
+    if kindText.IndexOf("overload", StringComparison.Ordinal) >= 0 {
+        label = "Overloads:"
+    }
+
+    return "  " + label
+}
+
+func QueryDocMemberLineText(
+    kindText: string,
+    name: string,
+    parameters: string,
+    hasParameters: int,
+    typeName: string,
+    hasType: int,
+    summary: string,
+    hasSummary: int,
+    separator: string): string {
+    parameterText := ""
+    if hasParameters != 0 {
+        parameterText = " " + parameters
+    }
+
+    typeText := ""
+    if hasType != 0 {
+        typeText = ": " + typeName
+    }
+
+    docText := ""
+    if hasSummary != 0 {
+        docText = " " + separator + " " + summary
+    }
+
+    return "    " + kindText + " " + name + parameterText + typeText + docText
+}
+
+func QueryDocOverflowLineText(remaining: int): string {
+    return "    ... and " + remaining.ToString() + " more"
+}
+
 func QueryNoReferencesText(symbolName: string): string {
     return "No references found for '" + symbolName + "'."
 }

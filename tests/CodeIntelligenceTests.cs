@@ -1216,6 +1216,85 @@ public class CodeIntelligenceOutputTests
             text);
     }
 
+    [Fact]
+    public void DocToText_FormatsSummaryParametersReturnsAndMembers()
+    {
+        var result = new DocResult(
+            "WriteLine",
+            "System.Console.WriteLine",
+            "method overloads",
+            "Writes the text representation of the specified objects.",
+            "System",
+            new[]
+            {
+                new DocMemberResult("WriteLine", "method", "void", "Writes a line", "(string value)"),
+                new DocMemberResult("ReadLine", "method", "string", null, null)
+            },
+            new[]
+            {
+                new DocParameterResult("value", "string", "The text to write"),
+                new DocParameterResult("format", "string", null)
+            },
+            "bool",
+            "true on success",
+            new[] { "Object", "TextWriter" });
+
+        var text = OutputFormatter.DocToText(result);
+
+        Assert.Equal(
+            string.Join(Environment.NewLine,
+                "method overloads System.Console.WriteLine",
+                "  Namespace: System",
+                string.Empty,
+                "  Writes the text representation of the specified objects.",
+                string.Empty,
+                "  Implements: Object, TextWriter",
+                string.Empty,
+                "  Parameters:",
+                "    value: string — The text to write",
+                "    format: string",
+                string.Empty,
+                "  Returns: bool — true on success",
+                string.Empty,
+                "  Overloads:",
+                "    method WriteLine (string value): void — Writes a line",
+                "    method ReadLine: string",
+                string.Empty),
+            text);
+    }
+
+    [Fact]
+    public void DocToText_TruncatesMembersAfterThirty()
+    {
+        var members = Enumerable.Range(1, 31)
+            .Select(i => new DocMemberResult($"M{i:D2}", "method", null, null, null))
+            .ToArray();
+        var result = new DocResult(
+            "Sample",
+            "Sample",
+            "class",
+            null,
+            null,
+            members,
+            null,
+            null,
+            null,
+            null);
+
+        var text = OutputFormatter.DocToText(result);
+        var expectedLines = new List<string>
+        {
+            "class Sample",
+            string.Empty,
+            "  Members:"
+        };
+        expectedLines.AddRange(Enumerable.Range(1, 30).Select(i => $"    method M{i:D2}"));
+        expectedLines.Add("    ... and 1 more");
+        expectedLines.Add(string.Empty);
+
+        Assert.Equal(string.Join(Environment.NewLine, expectedLines), text);
+    }
+
     // ── Model Record Tests ──────────────────────────────────────────────
 
     [Fact]

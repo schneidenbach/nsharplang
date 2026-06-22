@@ -11,6 +11,19 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-22 — Query doc text moves into product N#
+
+`OutputFormatter.DocToText` no longer owns the visible `nlc query doc --text` header, namespace, summary,
+base-type, parameter, return, member, or truncation rows in C#. The shipped `OutputFormatterText.nl` dogfood
+kernel now shapes those documentation-query lines through `OutputFormatterTextKernels`; C# keeps result traversal,
+CLR object access, member truncation, and fallback/oracle rendering only. This is a Stage 6 `C#-surface-shrink`
+product-route slice.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CodeIntelligenceOutputTests.DocToText_FormatsSummaryParametersReturnsAndMembers|FullyQualifiedName~CodeIntelligenceOutputTests.DocToText_TruncatesMembersAfterThirty|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_OutputFormatterText"`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`;
+`./scripts/dev.sh DocToText`.
+
 ## 2026-06-22 — Query implementors text moves into product N#
 
 `OutputFormatter.ImplementorsToText` no longer owns the visible `nlc query implementors --text` header or result

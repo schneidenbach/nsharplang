@@ -768,6 +768,214 @@ internal static class OutputFormatterTextKernels
         return GetImplementorLineTextWithCSharp(result);
     }
 
+    internal static string GetDocHeaderText(DocResult result)
+    {
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return GetDocHeaderTextWithCSharp(result);
+
+        try
+        {
+            var text = bindings.QueryDocHeaderText(result.Kind, result.FullName);
+            if (!string.IsNullOrEmpty(text))
+                return text;
+        }
+        catch
+        {
+        }
+
+        return GetDocHeaderTextWithCSharp(result);
+    }
+
+    internal static string GetDocNamespaceLineText(string namespaceName)
+    {
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return GetDocNamespaceLineTextWithCSharp(namespaceName);
+
+        try
+        {
+            var text = bindings.QueryDocNamespaceLineText(namespaceName);
+            if (!string.IsNullOrEmpty(text))
+                return text;
+        }
+        catch
+        {
+        }
+
+        return GetDocNamespaceLineTextWithCSharp(namespaceName);
+    }
+
+    internal static string GetDocSummaryLineText(string summary)
+    {
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return GetDocSummaryLineTextWithCSharp(summary);
+
+        try
+        {
+            var text = bindings.QueryDocSummaryLineText(summary);
+            if (!string.IsNullOrEmpty(text))
+                return text;
+        }
+        catch
+        {
+        }
+
+        return GetDocSummaryLineTextWithCSharp(summary);
+    }
+
+    internal static string GetDocImplementsLineText(string[] baseTypes)
+    {
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return GetDocImplementsLineTextWithCSharp(baseTypes);
+
+        try
+        {
+            var text = bindings.QueryDocImplementsLineText(baseTypes, baseTypes.Length);
+            if (!string.IsNullOrEmpty(text))
+                return text;
+        }
+        catch
+        {
+        }
+
+        return GetDocImplementsLineTextWithCSharp(baseTypes);
+    }
+
+    internal static string GetDocParametersHeaderText()
+    {
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return GetDocParametersHeaderTextWithCSharp();
+
+        try
+        {
+            var text = bindings.QueryDocParametersHeaderText();
+            if (!string.IsNullOrEmpty(text))
+                return text;
+        }
+        catch
+        {
+        }
+
+        return GetDocParametersHeaderTextWithCSharp();
+    }
+
+    internal static string GetDocParameterLineText(DocParameterResult parameter)
+    {
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return GetDocParameterLineTextWithCSharp(parameter);
+
+        try
+        {
+            var text = bindings.QueryDocParameterLineText(
+                parameter.Name,
+                parameter.Type,
+                parameter.Summary ?? string.Empty,
+                parameter.Summary != null ? 1 : 0,
+                "\u2014");
+            if (!string.IsNullOrEmpty(text))
+                return text;
+        }
+        catch
+        {
+        }
+
+        return GetDocParameterLineTextWithCSharp(parameter);
+    }
+
+    internal static string GetDocReturnsLineText(string returnType, string? returnDoc)
+    {
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return GetDocReturnsLineTextWithCSharp(returnType, returnDoc);
+
+        try
+        {
+            var text = bindings.QueryDocReturnsLineText(
+                returnType,
+                returnDoc ?? string.Empty,
+                returnDoc != null ? 1 : 0,
+                "\u2014");
+            if (!string.IsNullOrEmpty(text))
+                return text;
+        }
+        catch
+        {
+        }
+
+        return GetDocReturnsLineTextWithCSharp(returnType, returnDoc);
+    }
+
+    internal static string GetDocMembersHeaderText(string kind)
+    {
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return GetDocMembersHeaderTextWithCSharp(kind);
+
+        try
+        {
+            var text = bindings.QueryDocMembersHeaderText(kind);
+            if (!string.IsNullOrEmpty(text))
+                return text;
+        }
+        catch
+        {
+        }
+
+        return GetDocMembersHeaderTextWithCSharp(kind);
+    }
+
+    internal static string GetDocMemberLineText(DocMemberResult member)
+    {
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return GetDocMemberLineTextWithCSharp(member);
+
+        try
+        {
+            var text = bindings.QueryDocMemberLineText(
+                member.Kind,
+                member.Name,
+                member.Parameters ?? string.Empty,
+                member.Parameters != null ? 1 : 0,
+                member.Type ?? string.Empty,
+                member.Type != null ? 1 : 0,
+                member.Summary ?? string.Empty,
+                member.Summary != null ? 1 : 0,
+                "\u2014");
+            if (!string.IsNullOrEmpty(text))
+                return text;
+        }
+        catch
+        {
+        }
+
+        return GetDocMemberLineTextWithCSharp(member);
+    }
+
+    internal static string GetDocOverflowLineText(int remaining)
+    {
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return GetDocOverflowLineTextWithCSharp(remaining);
+
+        try
+        {
+            var text = bindings.QueryDocOverflowLineText(remaining);
+            if (!string.IsNullOrEmpty(text))
+                return text;
+        }
+        catch
+        {
+        }
+
+        return GetDocOverflowLineTextWithCSharp(remaining);
+    }
+
     internal static string GetNoReferencesText(string symbolName)
     {
         var bindings = s_bindings.Value;
@@ -1030,6 +1238,36 @@ internal static class OutputFormatterTextKernels
             DogfoodKernelLoader.CreateDelegate<QueryImplementorLineText>(
                 programType,
                 "QueryImplementorLineText"),
+            DogfoodKernelLoader.CreateDelegate<QueryDocHeaderText>(
+                programType,
+                "QueryDocHeaderText"),
+            DogfoodKernelLoader.CreateDelegate<QueryDocNamespaceLineText>(
+                programType,
+                "QueryDocNamespaceLineText"),
+            DogfoodKernelLoader.CreateDelegate<QueryDocSummaryLineText>(
+                programType,
+                "QueryDocSummaryLineText"),
+            DogfoodKernelLoader.CreateDelegate<QueryDocImplementsLineText>(
+                programType,
+                "QueryDocImplementsLineText"),
+            DogfoodKernelLoader.CreateDelegate<QueryDocParametersHeaderText>(
+                programType,
+                "QueryDocParametersHeaderText"),
+            DogfoodKernelLoader.CreateDelegate<QueryDocParameterLineText>(
+                programType,
+                "QueryDocParameterLineText"),
+            DogfoodKernelLoader.CreateDelegate<QueryDocReturnsLineText>(
+                programType,
+                "QueryDocReturnsLineText"),
+            DogfoodKernelLoader.CreateDelegate<QueryDocMembersHeaderText>(
+                programType,
+                "QueryDocMembersHeaderText"),
+            DogfoodKernelLoader.CreateDelegate<QueryDocMemberLineText>(
+                programType,
+                "QueryDocMemberLineText"),
+            DogfoodKernelLoader.CreateDelegate<QueryDocOverflowLineText>(
+                programType,
+                "QueryDocOverflowLineText"),
             DogfoodKernelLoader.CreateDelegate<QueryNoReferencesText>(
                 programType,
                 "QueryNoReferencesText"),
@@ -1158,6 +1396,44 @@ internal static class OutputFormatterTextKernels
 
     private delegate string QueryImplementorLineText(string kindText, string typeName, string fileName, int line);
 
+    private delegate string QueryDocHeaderText(string kindText, string fullName);
+
+    private delegate string QueryDocNamespaceLineText(string namespaceName);
+
+    private delegate string QueryDocSummaryLineText(string summary);
+
+    private delegate string QueryDocImplementsLineText(string[] baseTypes, int requestedCount);
+
+    private delegate string QueryDocParametersHeaderText();
+
+    private delegate string QueryDocParameterLineText(
+        string name,
+        string typeName,
+        string summary,
+        int hasSummary,
+        string separator);
+
+    private delegate string QueryDocReturnsLineText(
+        string returnType,
+        string returnDoc,
+        int hasReturnDoc,
+        string separator);
+
+    private delegate string QueryDocMembersHeaderText(string kindText);
+
+    private delegate string QueryDocMemberLineText(
+        string kindText,
+        string name,
+        string parameters,
+        int hasParameters,
+        string typeName,
+        int hasType,
+        string summary,
+        int hasSummary,
+        string separator);
+
+    private delegate string QueryDocOverflowLineText(int remaining);
+
     private delegate string QueryNoReferencesText(string symbolName);
 
     private delegate string QueryReferencesHeaderText(string symbolName, int count);
@@ -1226,6 +1502,16 @@ internal static class OutputFormatterTextKernels
         QueryCallGraphTruncatedLineText QueryCallGraphTruncatedLineText,
         QueryImplementorsHeaderText QueryImplementorsHeaderText,
         QueryImplementorLineText QueryImplementorLineText,
+        QueryDocHeaderText QueryDocHeaderText,
+        QueryDocNamespaceLineText QueryDocNamespaceLineText,
+        QueryDocSummaryLineText QueryDocSummaryLineText,
+        QueryDocImplementsLineText QueryDocImplementsLineText,
+        QueryDocParametersHeaderText QueryDocParametersHeaderText,
+        QueryDocParameterLineText QueryDocParameterLineText,
+        QueryDocReturnsLineText QueryDocReturnsLineText,
+        QueryDocMembersHeaderText QueryDocMembersHeaderText,
+        QueryDocMemberLineText QueryDocMemberLineText,
+        QueryDocOverflowLineText QueryDocOverflowLineText,
         QueryNoReferencesText QueryNoReferencesText,
         QueryReferencesHeaderText QueryReferencesHeaderText,
         QueryReferenceLineText QueryReferenceLineText,
@@ -1379,6 +1665,47 @@ internal static class OutputFormatterTextKernels
 
     private static string GetImplementorLineTextWithCSharp(ImplementorResult result)
         => $"  {result.Kind} {result.TypeName}  ({result.File}:{result.Line})";
+
+    private static string GetDocHeaderTextWithCSharp(DocResult result)
+        => $"{result.Kind} {result.FullName}";
+
+    private static string GetDocNamespaceLineTextWithCSharp(string namespaceName)
+        => $"  Namespace: {namespaceName}";
+
+    private static string GetDocSummaryLineTextWithCSharp(string summary)
+        => $"  {summary}";
+
+    private static string GetDocImplementsLineTextWithCSharp(string[] baseTypes)
+        => $"  Implements: {string.Join(", ", baseTypes)}";
+
+    private static string GetDocParametersHeaderTextWithCSharp()
+        => "  Parameters:";
+
+    private static string GetDocParameterLineTextWithCSharp(DocParameterResult parameter)
+    {
+        var doc = parameter.Summary != null ? $" \u2014 {parameter.Summary}" : string.Empty;
+        return $"    {parameter.Name}: {parameter.Type}{doc}";
+    }
+
+    private static string GetDocReturnsLineTextWithCSharp(string returnType, string? returnDoc)
+    {
+        var doc = returnDoc != null ? $" \u2014 {returnDoc}" : string.Empty;
+        return $"  Returns: {returnType}{doc}";
+    }
+
+    private static string GetDocMembersHeaderTextWithCSharp(string kind)
+        => $"  {(kind.Contains("overload") ? "Overloads:" : "Members:")}";
+
+    private static string GetDocMemberLineTextWithCSharp(DocMemberResult member)
+    {
+        var typeStr = member.Type != null ? $": {member.Type}" : string.Empty;
+        var docStr = member.Summary != null ? $" \u2014 {member.Summary}" : string.Empty;
+        var paramStr = member.Parameters != null ? $" {member.Parameters}" : string.Empty;
+        return $"    {member.Kind} {member.Name}{paramStr}{typeStr}{docStr}";
+    }
+
+    private static string GetDocOverflowLineTextWithCSharp(int remaining)
+        => $"    ... and {remaining} more";
 
     private static string GetNoReferencesTextWithCSharp(string symbolName)
         => $"No references found for '{symbolName}'.";

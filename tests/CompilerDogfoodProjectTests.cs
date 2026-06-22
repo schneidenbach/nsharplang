@@ -7629,8 +7629,8 @@ func outer(x: int): int {
 
     // MILESTONE: OutputFormatterText.nl compiles end-to-end with no C# AST and owns shipped
     // `nlc query symbols --text`, `outline --text`, `type --text`, `completions --text`,
-    // `inspect --text`, `hover --text`, `call-graph --text`, `implementors --text`, `definition --text`, and
-    // `references --text` line shaping.
+    // `inspect --text`, `hover --text`, `call-graph --text`, `implementors --text`, `doc --text`,
+    // `definition --text`, and `references --text` line shaping.
     [Fact]
     public void ColumnarCodegen_CompilesRealDogfoodFile_OutputFormatterText()
     {
@@ -7674,6 +7674,16 @@ func outer(x: int): int {
         Assert.Contains("QueryCallGraphTruncatedLineText", methodNames!);
         Assert.Contains("QueryImplementorsHeaderText", methodNames!);
         Assert.Contains("QueryImplementorLineText", methodNames!);
+        Assert.Contains("QueryDocHeaderText", methodNames!);
+        Assert.Contains("QueryDocNamespaceLineText", methodNames!);
+        Assert.Contains("QueryDocSummaryLineText", methodNames!);
+        Assert.Contains("QueryDocImplementsLineText", methodNames!);
+        Assert.Contains("QueryDocParametersHeaderText", methodNames!);
+        Assert.Contains("QueryDocParameterLineText", methodNames!);
+        Assert.Contains("QueryDocReturnsLineText", methodNames!);
+        Assert.Contains("QueryDocMembersHeaderText", methodNames!);
+        Assert.Contains("QueryDocMemberLineText", methodNames!);
+        Assert.Contains("QueryDocOverflowLineText", methodNames!);
         Assert.Contains("QueryNoReferencesText", methodNames!);
         Assert.Contains("QueryReferencesHeaderText", methodNames!);
         Assert.Contains("QueryReferenceLineText", methodNames!);
@@ -7734,6 +7744,16 @@ func outer(x: int): int {
             ("QueryCallGraphTruncatedLineText", new object[] { "\u2014" }),
             ("QueryImplementorsHeaderText", new object[] { "IShape", 2 }),
             ("QueryImplementorLineText", new object[] { "class", "Circle", "Geometry.nl", 19 }),
+            ("QueryDocHeaderText", new object[] { "class", "System.Console" }),
+            ("QueryDocNamespaceLineText", new object[] { "System" }),
+            ("QueryDocSummaryLineText", new object[] { "Writes output." }),
+            ("QueryDocImplementsLineText", new object[] { new[] { "Object", "IDisposable" }, 2 }),
+            ("QueryDocParametersHeaderText", Array.Empty<object>()),
+            ("QueryDocParameterLineText", new object[] { "value", "string", "text to write", 1, "\u2014" }),
+            ("QueryDocReturnsLineText", new object[] { "bool", "true on success", 1, "\u2014" }),
+            ("QueryDocMembersHeaderText", new object[] { "method overloads" }),
+            ("QueryDocMemberLineText", new object[] { "method", "WriteLine", "(string value)", 1, "void", 1, "Writes a line", 1, "\u2014" }),
+            ("QueryDocOverflowLineText", new object[] { 4 }),
             ("QueryNoReferencesText", new object[] { "Person" }),
             ("QueryReferencesHeaderText", new object[] { "Person", 3 }),
             ("QueryReferenceLineText", new object[] { "Models.nl", 5, 0, 1, "  class Person {  ", 1 }),

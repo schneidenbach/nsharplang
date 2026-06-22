@@ -1836,33 +1836,32 @@ public static class OutputFormatter
         var sb = new StringBuilder();
 
         // Header
-        sb.AppendLine($"{result.Kind} {result.FullName}");
+        sb.AppendLine(OutputFormatterTextKernels.GetDocHeaderText(result));
         if (result.Namespace != null)
-            sb.AppendLine($"  Namespace: {result.Namespace}");
+            sb.AppendLine(OutputFormatterTextKernels.GetDocNamespaceLineText(result.Namespace));
 
         // Summary
         if (!string.IsNullOrWhiteSpace(result.Summary))
         {
             sb.AppendLine();
-            sb.AppendLine($"  {result.Summary}");
+            sb.AppendLine(OutputFormatterTextKernels.GetDocSummaryLineText(result.Summary));
         }
 
         // Base types
         if (result.BaseTypes is { Length: > 0 })
         {
             sb.AppendLine();
-            sb.AppendLine($"  Implements: {string.Join(", ", result.BaseTypes)}");
+            sb.AppendLine(OutputFormatterTextKernels.GetDocImplementsLineText(result.BaseTypes));
         }
 
         // Parameters (for methods)
         if (result.Parameters is { Length: > 0 })
         {
             sb.AppendLine();
-            sb.AppendLine("  Parameters:");
+            sb.AppendLine(OutputFormatterTextKernels.GetDocParametersHeaderText());
             foreach (var p in result.Parameters)
             {
-                var doc = p.Summary != null ? $" — {p.Summary}" : "";
-                sb.AppendLine($"    {p.Name}: {p.Type}{doc}");
+                sb.AppendLine(OutputFormatterTextKernels.GetDocParameterLineText(p));
             }
         }
 
@@ -1870,26 +1869,21 @@ public static class OutputFormatter
         if (result.ReturnType != null && result.ReturnType != "void")
         {
             sb.AppendLine();
-            var doc = result.ReturnDoc != null ? $" — {result.ReturnDoc}" : "";
-            sb.AppendLine($"  Returns: {result.ReturnType}{doc}");
+            sb.AppendLine(OutputFormatterTextKernels.GetDocReturnsLineText(result.ReturnType, result.ReturnDoc));
         }
 
         // Members (for types, or overloads for methods)
         if (result.Members is { Length: > 0 })
         {
             sb.AppendLine();
-            var memberLabel = result.Kind.Contains("overload") ? "Overloads:" : "Members:";
-            sb.AppendLine($"  {memberLabel}");
+            sb.AppendLine(OutputFormatterTextKernels.GetDocMembersHeaderText(result.Kind));
             foreach (var m in result.Members.Take(30))
             {
-                var typeStr = m.Type != null ? $": {m.Type}" : "";
-                var docStr = m.Summary != null ? $" — {m.Summary}" : "";
-                var paramStr = m.Parameters != null ? $" {m.Parameters}" : "";
-                sb.AppendLine($"    {m.Kind} {m.Name}{paramStr}{typeStr}{docStr}");
+                sb.AppendLine(OutputFormatterTextKernels.GetDocMemberLineText(m));
             }
             if (result.Members.Length > 30)
             {
-                sb.AppendLine($"    ... and {result.Members.Length - 30} more");
+                sb.AppendLine(OutputFormatterTextKernels.GetDocOverflowLineText(result.Members.Length - 30));
             }
         }
 
