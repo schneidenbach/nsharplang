@@ -338,8 +338,8 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       option summary, help/status/error messages, parse-error wrapper text, directory traversal pruning,
       test-file exclusion, and discovered-path filtering now live beside
       `Program.FormatCommand` in `FormatCommandKernels`; export
-      target routing, csharp option summary, input selection, test-source classification, reference filtering, and
-      stable reference de-duplication now live beside `ExportCommand` in `ExportCommandKernels`; run
+      target routing, csharp option summary, input selection, help/status/error message shaping, test-source classification,
+      reference filtering, and stable reference de-duplication now live beside `ExportCommand` in `ExportCommandKernels`; run
       option summary, source operand selection, help text, source/backend-start text, project/library diagnostics,
       and failure messages now live beside `Program.RunCommand` in `RunCommandKernels`; publish
       option summary, validation/unsupported/failure/status message shaping, and help routing now live beside `Program.PublishCommand` in

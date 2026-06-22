@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-22 — Export command messages move into product N#
+
+`ExportCommand` no longer owns target/help text, C# target help text, input validation diagnostics, export failure
+wrappers, missing-output diagnostics, overwrite guard text, or single/project export success lines in C#. The shipped
+`CliExport*` dogfood kernels now shape those strings through `ExportCommandKernels`; C# keeps filesystem probing,
+project export orchestration, path resolution, C# project-file writing, and fallback/oracle text only.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.ExportCommandKernels_SummarizesTargets|FullyQualifiedName~CliCommandTests.ExportCommandKernels_SummarizesCSharpOptions|FullyQualifiedName~CliCommandTests.ExportCommandKernels_ClassifiesTestSourceFiles|FullyQualifiedName~CliCommandTests.ExportCommandKernels_ShapesMessages|FullyQualifiedName~CliParityAuditTests.ExportCommand_Help_ExplainsCSharpFlow|FullyQualifiedName~CliParityAuditTests.ExportCommand_ProjectAndSourceOperand_AreRejected|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`;
+`./scripts/dev.sh ExportCommandKernels`.
+
 ## 2026-06-22 — Fix command messages move into product N#
 
 `FixCommand` no longer owns help text, missing-project/file diagnostics, no-files and nothing-to-fix status,

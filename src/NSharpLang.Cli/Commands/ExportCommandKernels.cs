@@ -301,6 +301,96 @@ internal static class ExportCommandKernels
         }
     }
 
+    internal static string GetHelpText()
+        => TryGetMessage(bindings => bindings.HelpText(), out var message)
+            ? message
+            : FallbackHelpText();
+
+    internal static string GetCSharpHelpText()
+        => TryGetMessage(bindings => bindings.CSharpHelpText(), out var message)
+            ? message
+            : FallbackCSharpHelpText();
+
+    internal static string GetUnknownTargetMessage(string target)
+        => TryGetMessage(bindings => bindings.UnknownTargetMessage(target), out var message)
+            ? message
+            : FallbackUnknownTargetMessage(target);
+
+    internal static string GetSourceAndProjectConflictMessage()
+        => TryGetMessage(bindings => bindings.SourceAndProjectConflictMessage(), out var message)
+            ? message
+            : FallbackSourceAndProjectConflictMessage();
+
+    internal static string GetPathNotFoundMessage(string path)
+        => TryGetMessage(bindings => bindings.PathNotFoundMessage(path), out var message)
+            ? message
+            : FallbackPathNotFoundMessage(path);
+
+    internal static string GetNoInputMessage()
+        => TryGetMessage(bindings => bindings.NoInputMessage(), out var message)
+            ? message
+            : FallbackNoInputMessage();
+
+    internal static string GetFailedMessage(string message)
+        => TryGetMessage(bindings => bindings.FailedMessage(message), out var result)
+            ? result
+            : FallbackFailedMessage(message);
+
+    internal static string GetExpectedNlFileMessage(string path)
+        => TryGetMessage(bindings => bindings.ExpectedNlFileMessage(path), out var message)
+            ? message
+            : FallbackExpectedNlFileMessage(path);
+
+    internal static string GetMissingOutputMessage(string sourceFile)
+        => TryGetMessage(bindings => bindings.MissingOutputMessage(sourceFile), out var message)
+            ? message
+            : FallbackMissingOutputMessage(sourceFile);
+
+    internal static string GetRefuseOverwriteMessage()
+        => TryGetMessage(bindings => bindings.RefuseOverwriteMessage(), out var message)
+            ? message
+            : FallbackRefuseOverwriteMessage();
+
+    internal static string GetSingleFileSuccessMessage(string fileName, string outputPath)
+        => TryGetMessage(bindings => bindings.SingleFileSuccessMessage(fileName, outputPath), out var message)
+            ? message
+            : FallbackSingleFileSuccessMessage(fileName, outputPath);
+
+    internal static string GetNoProjectFileMessage(string projectRoot)
+        => TryGetMessage(bindings => bindings.NoProjectFileMessage(projectRoot), out var message)
+            ? message
+            : FallbackNoProjectFileMessage(projectRoot);
+
+    internal static string GetProjectSuccessMessage(string projectName, string projectFilePath)
+        => TryGetMessage(bindings => bindings.ProjectSuccessMessage(projectName, projectFilePath), out var message)
+            ? message
+            : FallbackProjectSuccessMessage(projectName, projectFilePath);
+
+    internal static string GetTestsSuccessMessage(string testProjectFilePath)
+        => TryGetMessage(bindings => bindings.TestsSuccessMessage(testProjectFilePath), out var message)
+            ? message
+            : FallbackTestsSuccessMessage(testProjectFilePath);
+
+    private static bool TryGetMessage(Func<Bindings, string> getMessage, out string message)
+    {
+        message = string.Empty;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        try
+        {
+            message = getMessage(bindings);
+            return !string.IsNullOrEmpty(message);
+        }
+        catch
+        {
+            message = string.Empty;
+            return false;
+        }
+    }
+
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
             DogfoodKernelLoader.CreateDelegate<CliExportCSharpFirstOperandIndexInto>(
@@ -320,7 +410,49 @@ internal static class ExportCommandKernels
                 "CliExportTargetSummaryInto"),
             DogfoodKernelLoader.CreateDelegate<CliExportIsTestSourceFile>(
                 programType,
-                "CliExportIsTestSourceFile")));
+                "CliExportIsTestSourceFile"),
+            DogfoodKernelLoader.CreateDelegate<CliExportHelpText>(
+                programType,
+                "CliExportHelpText"),
+            DogfoodKernelLoader.CreateDelegate<CliExportCSharpHelpText>(
+                programType,
+                "CliExportCSharpHelpText"),
+            DogfoodKernelLoader.CreateDelegate<CliExportUnknownTargetMessage>(
+                programType,
+                "CliExportUnknownTargetMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliExportSourceAndProjectConflictMessage>(
+                programType,
+                "CliExportSourceAndProjectConflictMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliExportPathNotFoundMessage>(
+                programType,
+                "CliExportPathNotFoundMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliExportNoInputMessage>(
+                programType,
+                "CliExportNoInputMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliExportFailedMessage>(
+                programType,
+                "CliExportFailedMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliExportExpectedNlFileMessage>(
+                programType,
+                "CliExportExpectedNlFileMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliExportMissingOutputMessage>(
+                programType,
+                "CliExportMissingOutputMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliExportRefuseOverwriteMessage>(
+                programType,
+                "CliExportRefuseOverwriteMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliExportSingleFileSuccessMessage>(
+                programType,
+                "CliExportSingleFileSuccessMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliExportNoProjectFileMessage>(
+                programType,
+                "CliExportNoProjectFileMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliExportProjectSuccessMessage>(
+                programType,
+                "CliExportProjectSuccessMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliExportTestsSuccessMessage>(
+                programType,
+                "CliExportTestsSuccessMessage")));
 
     private delegate int CliExportCSharpFirstOperandIndexInto(
         string[] args,
@@ -352,13 +484,138 @@ internal static class ExportCommandKernels
     private delegate int CliExportIsTestSourceFile(
         string sourceFile);
 
+    private delegate string CliExportHelpText();
+
+    private delegate string CliExportCSharpHelpText();
+
+    private delegate string CliExportUnknownTargetMessage(string target);
+
+    private delegate string CliExportSourceAndProjectConflictMessage();
+
+    private delegate string CliExportPathNotFoundMessage(string path);
+
+    private delegate string CliExportNoInputMessage();
+
+    private delegate string CliExportFailedMessage(string message);
+
+    private delegate string CliExportExpectedNlFileMessage(string path);
+
+    private delegate string CliExportMissingOutputMessage(string sourceFile);
+
+    private delegate string CliExportRefuseOverwriteMessage();
+
+    private delegate string CliExportSingleFileSuccessMessage(string fileName, string outputPath);
+
+    private delegate string CliExportNoProjectFileMessage(string projectRoot);
+
+    private delegate string CliExportProjectSuccessMessage(string projectName, string projectFilePath);
+
+    private delegate string CliExportTestsSuccessMessage(string testProjectFilePath);
+
     private sealed record Bindings(
         CliExportCSharpFirstOperandIndexInto CSharpFirstOperandIndex,
         CliReferenceTypeFilterIndicesInto ReferenceTypeFilterIndices,
         CliStableDistinctRankIndicesInto StableDistinctRankIndices,
         CliExportCSharpOptionSummaryInto CSharpOptionSummary,
         CliExportTargetSummaryInto TargetSummary,
-        CliExportIsTestSourceFile IsTestSourceFile);
+        CliExportIsTestSourceFile IsTestSourceFile,
+        CliExportHelpText HelpText,
+        CliExportCSharpHelpText CSharpHelpText,
+        CliExportUnknownTargetMessage UnknownTargetMessage,
+        CliExportSourceAndProjectConflictMessage SourceAndProjectConflictMessage,
+        CliExportPathNotFoundMessage PathNotFoundMessage,
+        CliExportNoInputMessage NoInputMessage,
+        CliExportFailedMessage FailedMessage,
+        CliExportExpectedNlFileMessage ExpectedNlFileMessage,
+        CliExportMissingOutputMessage MissingOutputMessage,
+        CliExportRefuseOverwriteMessage RefuseOverwriteMessage,
+        CliExportSingleFileSuccessMessage SingleFileSuccessMessage,
+        CliExportNoProjectFileMessage NoProjectFileMessage,
+        CliExportProjectSuccessMessage ProjectSuccessMessage,
+        CliExportTestsSuccessMessage TestsSuccessMessage);
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product export messages route through CliExport* kernels.
+    private static string FallbackHelpText()
+        => "N# Export\n"
+           + "\n"
+           + "Usage: nlc export <target> [options]\n"
+           + "\n"
+           + "Export N# sources into other representations without changing the build backend.\n"
+           + "\n"
+           + "Targets:\n"
+           + "  csharp              Export a single file or an entire project bundle to C#\n"
+           + "\n"
+           + "Examples:\n"
+           + "  nlc export csharp Program.nl\n"
+           + "  nlc export csharp Program.nl -o Program.cs\n"
+           + "  nlc export csharp --project .\n"
+           + "  nlc export csharp examples/12-multi-file-projects/WeatherDemo -o ./weather-csharp\n"
+           + "\n"
+           + "Run 'nlc export <target> --help' for target-specific options.";
+
+    private static string FallbackCSharpHelpText()
+        => "N# Export C#\n"
+           + "\n"
+           + "Usage:\n"
+           + "  nlc export csharp <file.nl> [-o output.cs]\n"
+           + "  nlc export csharp <project-dir> [-o bundle-dir]\n"
+           + "  nlc export csharp --project <project-dir> [-o bundle-dir]\n"
+           + "\n"
+           + "Exports N# sources to C# without using generated C# as a build backend.\n"
+           + "\n"
+           + "Single-file mode:\n"
+           + "  Writes the exported C# to stdout by default, or to the file passed with -o/--output.\n"
+           + "\n"
+           + "Project mode:\n"
+           + "  Writes a self-contained C# bundle containing:\n"
+           + "  - the exported main project\n"
+           + "  - a sibling test project when .tests.nl files exist\n"
+           + "  - exported N# project references under _nsharp_refs\n"
+           + "\n"
+           + "Options:\n"
+           + "  --project <dir>    Export a project from a specific directory\n"
+           + "  --output <path>    Output .cs file or bundle directory (-o shorthand)\n"
+           + "  --help, -h         Show this help text\n"
+           + "\n"
+           + "Exit codes:\n"
+           + "  0  Export succeeded\n"
+           + "  1  Export failed";
+
+    private static string FallbackUnknownTargetMessage(string target)
+        => $"Unknown export target '{target}'. Expected 'csharp'.";
+
+    private static string FallbackSourceAndProjectConflictMessage()
+        => "Specify either a source path or --project, not both.";
+
+    private static string FallbackPathNotFoundMessage(string path)
+        => $"Path not found: {path}";
+
+    private static string FallbackNoInputMessage()
+        => "No input provided. Pass a .nl file or project directory, or run from a directory containing project.yml.";
+
+    private static string FallbackFailedMessage(string message)
+        => $"Export failed: {message}";
+
+    private static string FallbackExpectedNlFileMessage(string path)
+        => $"Expected an .nl file, got: {path}";
+
+    private static string FallbackMissingOutputMessage(string sourceFile)
+        => $"The export pipeline did not produce output for {sourceFile}.";
+
+    private static string FallbackRefuseOverwriteMessage()
+        => "Refusing to overwrite the source .nl file. Choose a different output path.";
+
+    private static string FallbackSingleFileSuccessMessage(string fileName, string outputPath)
+        => $"Exported {fileName} to {outputPath}";
+
+    private static string FallbackNoProjectFileMessage(string projectRoot)
+        => $"No project.yml found in {projectRoot}.";
+
+    private static string FallbackProjectSuccessMessage(string projectName, string projectFilePath)
+        => $"Exported {projectName} to {projectFilePath}";
+
+    private static string FallbackTestsSuccessMessage(string testProjectFilePath)
+        => $"Exported tests to {testProjectFilePath}";
 
     private static bool TryGetOptionalArg(string[] args, int index, out string? value)
     {

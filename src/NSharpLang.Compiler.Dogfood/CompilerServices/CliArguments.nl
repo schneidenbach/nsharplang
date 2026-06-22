@@ -5091,6 +5091,102 @@ func CliExportIsTestSourceFile(sourceFile: string): int {
     return 0
 }
 
+func CliExportHelpText(): string {
+    return "N# Export\n"
+        + "\n"
+        + "Usage: nlc export <target> [options]\n"
+        + "\n"
+        + "Export N# sources into other representations without changing the build backend.\n"
+        + "\n"
+        + "Targets:\n"
+        + "  csharp              Export a single file or an entire project bundle to C#\n"
+        + "\n"
+        + "Examples:\n"
+        + "  nlc export csharp Program.nl\n"
+        + "  nlc export csharp Program.nl -o Program.cs\n"
+        + "  nlc export csharp --project .\n"
+        + "  nlc export csharp examples/12-multi-file-projects/WeatherDemo -o ./weather-csharp\n"
+        + "\n"
+        + "Run 'nlc export <target> --help' for target-specific options."
+}
+
+func CliExportCSharpHelpText(): string {
+    return "N# Export C#\n"
+        + "\n"
+        + "Usage:\n"
+        + "  nlc export csharp <file.nl> [-o output.cs]\n"
+        + "  nlc export csharp <project-dir> [-o bundle-dir]\n"
+        + "  nlc export csharp --project <project-dir> [-o bundle-dir]\n"
+        + "\n"
+        + "Exports N# sources to C# without using generated C# as a build backend.\n"
+        + "\n"
+        + "Single-file mode:\n"
+        + "  Writes the exported C# to stdout by default, or to the file passed with -o/--output.\n"
+        + "\n"
+        + "Project mode:\n"
+        + "  Writes a self-contained C# bundle containing:\n"
+        + "  - the exported main project\n"
+        + "  - a sibling test project when .tests.nl files exist\n"
+        + "  - exported N# project references under _nsharp_refs\n"
+        + "\n"
+        + "Options:\n"
+        + "  --project <dir>    Export a project from a specific directory\n"
+        + "  --output <path>    Output .cs file or bundle directory (-o shorthand)\n"
+        + "  --help, -h         Show this help text\n"
+        + "\n"
+        + "Exit codes:\n"
+        + "  0  Export succeeded\n"
+        + "  1  Export failed"
+}
+
+func CliExportUnknownTargetMessage(target: string): string {
+    return "Unknown export target '" + target + "'. Expected 'csharp'."
+}
+
+func CliExportSourceAndProjectConflictMessage(): string {
+    return "Specify either a source path or --project, not both."
+}
+
+func CliExportPathNotFoundMessage(path: string): string {
+    return "Path not found: " + path
+}
+
+func CliExportNoInputMessage(): string {
+    return "No input provided. Pass a .nl file or project directory, or run from a directory containing project.yml."
+}
+
+func CliExportFailedMessage(message: string): string {
+    return "Export failed: " + message
+}
+
+func CliExportExpectedNlFileMessage(path: string): string {
+    return "Expected an .nl file, got: " + path
+}
+
+func CliExportMissingOutputMessage(sourceFile: string): string {
+    return "The export pipeline did not produce output for " + sourceFile + "."
+}
+
+func CliExportRefuseOverwriteMessage(): string {
+    return "Refusing to overwrite the source .nl file. Choose a different output path."
+}
+
+func CliExportSingleFileSuccessMessage(fileName: string, outputPath: string): string {
+    return "Exported " + fileName + " to " + outputPath
+}
+
+func CliExportNoProjectFileMessage(projectRoot: string): string {
+    return "No project.yml found in " + projectRoot + "."
+}
+
+func CliExportProjectSuccessMessage(projectName: string, projectFilePath: string): string {
+    return "Exported " + projectName + " to " + projectFilePath
+}
+
+func CliExportTestsSuccessMessage(testProjectFilePath: string): string {
+    return "Exported tests to " + testProjectFilePath
+}
+
 func CliGeneratedSourceBasePathLength(relativeSourcePath: string): int {
     testsSuffix := ".tests.nl"
     if CliPathEndsWithTestsNl(relativeSourcePath) {

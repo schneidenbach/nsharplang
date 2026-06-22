@@ -7007,6 +7007,20 @@ func outer(x: int): int {
         Assert.Contains("CliExportTargetSummaryInto", methodNames!); // product export target routing.
         Assert.Contains("CliExportCSharpOptionSummaryInto", methodNames!); // product export csharp option parsing.
         Assert.Contains("CliExportIsTestSourceFile", methodNames!); // product export test-source classification.
+        Assert.Contains("CliExportHelpText", methodNames!); // product export help text shaping.
+        Assert.Contains("CliExportCSharpHelpText", methodNames!); // product export csharp help text shaping.
+        Assert.Contains("CliExportUnknownTargetMessage", methodNames!); // product export target-error message shaping.
+        Assert.Contains("CliExportSourceAndProjectConflictMessage", methodNames!); // product export input-conflict message shaping.
+        Assert.Contains("CliExportPathNotFoundMessage", methodNames!); // product export missing-path message shaping.
+        Assert.Contains("CliExportNoInputMessage", methodNames!); // product export no-input message shaping.
+        Assert.Contains("CliExportFailedMessage", methodNames!); // product export failure message shaping.
+        Assert.Contains("CliExportExpectedNlFileMessage", methodNames!); // product export file-kind message shaping.
+        Assert.Contains("CliExportMissingOutputMessage", methodNames!); // product export missing-output message shaping.
+        Assert.Contains("CliExportRefuseOverwriteMessage", methodNames!); // product export overwrite guard message shaping.
+        Assert.Contains("CliExportSingleFileSuccessMessage", methodNames!); // product export single-file success message shaping.
+        Assert.Contains("CliExportNoProjectFileMessage", methodNames!); // product export missing-project message shaping.
+        Assert.Contains("CliExportProjectSuccessMessage", methodNames!); // product export project success message shaping.
+        Assert.Contains("CliExportTestsSuccessMessage", methodNames!); // product export test-project success message shaping.
         Assert.Contains("CliEffectiveCompilationBackendKind", methodNames!); // product backend selection for build/run/check/test/publish.
         Assert.Contains("CliReferenceResolutionBestScoreIndex", methodNames!); // product resolver best-score selection.
         Assert.Contains("CliSharedFrameworkCandidateIndex", methodNames!); // product resolver shared-framework candidate selection.
@@ -15778,6 +15792,62 @@ class OtherZetaType {
                     "CliExportCSharpOptionSummaryInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliExportCSharpOptionSummaryInto.");
+            var cliExportHelpText = programType.GetMethod(
+                    "CliExportHelpText",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliExportHelpText.");
+            var cliExportCSharpHelpText = programType.GetMethod(
+                    "CliExportCSharpHelpText",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliExportCSharpHelpText.");
+            var cliExportUnknownTargetMessage = programType.GetMethod(
+                    "CliExportUnknownTargetMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliExportUnknownTargetMessage.");
+            var cliExportSourceAndProjectConflictMessage = programType.GetMethod(
+                    "CliExportSourceAndProjectConflictMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliExportSourceAndProjectConflictMessage.");
+            var cliExportPathNotFoundMessage = programType.GetMethod(
+                    "CliExportPathNotFoundMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliExportPathNotFoundMessage.");
+            var cliExportNoInputMessage = programType.GetMethod(
+                    "CliExportNoInputMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliExportNoInputMessage.");
+            var cliExportFailedMessage = programType.GetMethod(
+                    "CliExportFailedMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliExportFailedMessage.");
+            var cliExportExpectedNlFileMessage = programType.GetMethod(
+                    "CliExportExpectedNlFileMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliExportExpectedNlFileMessage.");
+            var cliExportMissingOutputMessage = programType.GetMethod(
+                    "CliExportMissingOutputMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliExportMissingOutputMessage.");
+            var cliExportRefuseOverwriteMessage = programType.GetMethod(
+                    "CliExportRefuseOverwriteMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliExportRefuseOverwriteMessage.");
+            var cliExportSingleFileSuccessMessage = programType.GetMethod(
+                    "CliExportSingleFileSuccessMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliExportSingleFileSuccessMessage.");
+            var cliExportNoProjectFileMessage = programType.GetMethod(
+                    "CliExportNoProjectFileMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliExportNoProjectFileMessage.");
+            var cliExportProjectSuccessMessage = programType.GetMethod(
+                    "CliExportProjectSuccessMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliExportProjectSuccessMessage.");
+            var cliExportTestsSuccessMessage = programType.GetMethod(
+                    "CliExportTestsSuccessMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliExportTestsSuccessMessage.");
             var cliRunFirstOperandIndex = programType.GetMethod(
                     "CliRunFirstOperandIndex",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -17773,6 +17843,21 @@ func main(customer: Customer, résumé: Profile) {
                 cliExportCSharpFirstOperandIndexInto,
                 cliExportCSharpFirstOperandChecksumInto);
             AssertCliExportCSharpOptionsLikeProduction(cliExportCSharpOptionSummaryInto);
+            AssertCliExportMessagesLikeProduction(
+                cliExportHelpText,
+                cliExportCSharpHelpText,
+                cliExportUnknownTargetMessage,
+                cliExportSourceAndProjectConflictMessage,
+                cliExportPathNotFoundMessage,
+                cliExportNoInputMessage,
+                cliExportFailedMessage,
+                cliExportExpectedNlFileMessage,
+                cliExportMissingOutputMessage,
+                cliExportRefuseOverwriteMessage,
+                cliExportSingleFileSuccessMessage,
+                cliExportNoProjectFileMessage,
+                cliExportProjectSuccessMessage,
+                cliExportTestsSuccessMessage);
             AssertCliRunSourceOperandLikeProduction(cliRunFirstOperandIndex);
             AssertCliRunOptionsLikeProduction(cliRunOptionSummaryInto);
             AssertCliRunMessagesLikeProduction(
@@ -21186,6 +21271,72 @@ func main() {
             indices[1] = shortOutputIndex;
 
         return indices;
+    }
+
+    private static void AssertCliExportMessagesLikeProduction(
+        MethodInfo cliExportHelpText,
+        MethodInfo cliExportCSharpHelpText,
+        MethodInfo cliExportUnknownTargetMessage,
+        MethodInfo cliExportSourceAndProjectConflictMessage,
+        MethodInfo cliExportPathNotFoundMessage,
+        MethodInfo cliExportNoInputMessage,
+        MethodInfo cliExportFailedMessage,
+        MethodInfo cliExportExpectedNlFileMessage,
+        MethodInfo cliExportMissingOutputMessage,
+        MethodInfo cliExportRefuseOverwriteMessage,
+        MethodInfo cliExportSingleFileSuccessMessage,
+        MethodInfo cliExportNoProjectFileMessage,
+        MethodInfo cliExportProjectSuccessMessage,
+        MethodInfo cliExportTestsSuccessMessage)
+    {
+        var helpText = (string)(cliExportHelpText.Invoke(null, Array.Empty<object>()) ?? "<null>");
+        Assert.Contains("N# Export", helpText);
+        Assert.Contains("Usage: nlc export <target> [options]", helpText);
+
+        var csharpHelpText = (string)(cliExportCSharpHelpText.Invoke(null, Array.Empty<object>()) ?? "<null>");
+        Assert.Contains("N# Export C#", csharpHelpText);
+        Assert.Contains("self-contained C# bundle", csharpHelpText);
+
+        Assert.Equal(
+            "Unknown export target 'python'. Expected 'csharp'.",
+            (string)(cliExportUnknownTargetMessage.Invoke(null, new object[] { "python" }) ?? "<null>"));
+        Assert.Equal(
+            "Specify either a source path or --project, not both.",
+            (string)(cliExportSourceAndProjectConflictMessage.Invoke(null, Array.Empty<object>()) ?? "<null>"));
+        Assert.Equal(
+            "Path not found: missing.nl",
+            (string)(cliExportPathNotFoundMessage.Invoke(null, new object[] { "missing.nl" }) ?? "<null>"));
+        Assert.Equal(
+            "No input provided. Pass a .nl file or project directory, or run from a directory containing project.yml.",
+            (string)(cliExportNoInputMessage.Invoke(null, Array.Empty<object>()) ?? "<null>"));
+        Assert.Equal(
+            "Export failed: boom",
+            (string)(cliExportFailedMessage.Invoke(null, new object[] { "boom" }) ?? "<null>"));
+        Assert.Equal(
+            "Expected an .nl file, got: README.md",
+            (string)(cliExportExpectedNlFileMessage.Invoke(null, new object[] { "README.md" }) ?? "<null>"));
+        Assert.Equal(
+            "The export pipeline did not produce output for Program.nl.",
+            (string)(cliExportMissingOutputMessage.Invoke(null, new object[] { "Program.nl" }) ?? "<null>"));
+        Assert.Equal(
+            "Refusing to overwrite the source .nl file. Choose a different output path.",
+            (string)(cliExportRefuseOverwriteMessage.Invoke(null, Array.Empty<object>()) ?? "<null>"));
+        Assert.Equal(
+            "Exported Program.nl to /tmp/Program.cs",
+            (string)(cliExportSingleFileSuccessMessage.Invoke(
+                null,
+                new object[] { "Program.nl", "/tmp/Program.cs" }) ?? "<null>"));
+        Assert.Equal(
+            "No project.yml found in /tmp/demo.",
+            (string)(cliExportNoProjectFileMessage.Invoke(null, new object[] { "/tmp/demo" }) ?? "<null>"));
+        Assert.Equal(
+            "Exported Demo to /tmp/Demo.csproj",
+            (string)(cliExportProjectSuccessMessage.Invoke(
+                null,
+                new object[] { "Demo", "/tmp/Demo.csproj" }) ?? "<null>"));
+        Assert.Equal(
+            "Exported tests to /tmp/Demo.Tests.csproj",
+            (string)(cliExportTestsSuccessMessage.Invoke(null, new object[] { "/tmp/Demo.Tests.csproj" }) ?? "<null>"));
     }
 
     private static void AssertCliRunSourceOperandLikeProduction(MethodInfo cliRunFirstOperandIndex)

@@ -22,7 +22,7 @@ public static class ExportCommand
         return targetSummary.TargetKind switch
         {
             ExportTargetKind.CSharp => ExportCSharp(args.Skip(1).ToArray()),
-            _ => Error($"Unknown export target '{args[0]}'. Expected 'csharp'.")
+            _ => Error(ExportCommandKernels.GetUnknownTargetMessage(args[0]))
         };
     }
 
@@ -58,7 +58,7 @@ public static class ExportCommand
         var firstPositional = GetExportCSharpInputOperand(args);
         if (!string.IsNullOrWhiteSpace(projectOption) && firstPositional != null)
         {
-            return Error("Specify either a source path or --project, not both.");
+            return Error(ExportCommandKernels.GetSourceAndProjectConflictMessage());
         }
 
         try
@@ -81,7 +81,7 @@ public static class ExportCommand
                     return ExportProjectBundle(inputPath, outputPath);
                 }
 
-                return Error($"Path not found: {firstPositional}");
+                return Error(ExportCommandKernels.GetPathNotFoundMessage(firstPositional));
             }
 
             var currentDirectory = Directory.GetCurrentDirectory();
@@ -90,11 +90,11 @@ public static class ExportCommand
                 return ExportProjectBundle(currentDirectory, outputPath);
             }
 
-            return Error("No input provided. Pass a .nl file or project directory, or run from a directory containing project.yml.");
+            return Error(ExportCommandKernels.GetNoInputMessage());
         }
         catch (Exception ex)
         {
-            return Error($"Export failed: {ex.Message}");
+            return Error(ExportCommandKernels.GetFailedMessage(ex.Message));
         }
     }
 
@@ -102,7 +102,7 @@ public static class ExportCommand
     {
         if (!sourceFile.EndsWith(".nl", StringComparison.OrdinalIgnoreCase))
         {
-            return Error($"Expected an .nl file, got: {sourceFile}");
+            return Error(ExportCommandKernels.GetExpectedNlFileMessage(sourceFile));
         }
 
         var projectRoot = FindContainingProjectRoot(sourceFile)
@@ -123,7 +123,7 @@ public static class ExportCommand
 
         if (!result.ExportedFiles.TryGetValue(sourceFile, out var csharpSource))
         {
-            return Error($"The export pipeline did not produce output for {sourceFile}.");
+            return Error(ExportCommandKernels.GetMissingOutputMessage(sourceFile));
         }
 
         if (string.IsNullOrWhiteSpace(outputPath))
@@ -135,12 +135,12 @@ public static class ExportCommand
         var resolvedOutputPath = ResolveFileExportPath(sourceFile, outputPath);
         if (string.Equals(Path.GetFullPath(resolvedOutputPath), Path.GetFullPath(sourceFile), StringComparison.OrdinalIgnoreCase))
         {
-            return Error("Refusing to overwrite the source .nl file. Choose a different output path.");
+            return Error(ExportCommandKernels.GetRefuseOverwriteMessage());
         }
 
         Directory.CreateDirectory(Path.GetDirectoryName(resolvedOutputPath) ?? Directory.GetCurrentDirectory());
         File.WriteAllText(resolvedOutputPath, csharpSource);
-        Console.WriteLine($"Exported {Path.GetFileName(sourceFile)} to {resolvedOutputPath}");
+        Console.WriteLine(ExportCommandKernels.GetSingleFileSuccessMessage(Path.GetFileName(sourceFile), resolvedOutputPath));
         return 0;
     }
 
@@ -148,7 +148,7 @@ public static class ExportCommand
     {
         if (!File.Exists(Path.Combine(projectRoot, "project.yml")))
         {
-            return Error($"No project.yml found in {projectRoot}.");
+            return Error(ExportCommandKernels.GetNoProjectFileMessage(projectRoot));
         }
 
         var bundleRoot = Path.GetFullPath(outputPath ?? Path.Combine(projectRoot, "csharp-export"));
@@ -160,10 +160,10 @@ public static class ExportCommand
         try
         {
             var exportedProject = exporter.ExportProject(projectRoot, isRoot: true);
-            Console.WriteLine($"Exported {exportedProject.ProjectName} to {exportedProject.ProjectFilePath}");
+            Console.WriteLine(ExportCommandKernels.GetProjectSuccessMessage(exportedProject.ProjectName, exportedProject.ProjectFilePath));
             if (exportedProject.TestProjectFilePath != null)
             {
-                Console.WriteLine($"Exported tests to {exportedProject.TestProjectFilePath}");
+                Console.WriteLine(ExportCommandKernels.GetTestsSuccessMessage(exportedProject.TestProjectFilePath));
             }
             return 0;
         }
@@ -176,54 +176,14 @@ public static class ExportCommand
 
     private static int ShowHelp()
     {
-        Console.WriteLine(@"N# Export
-
-Usage: nlc export <target> [options]
-
-Export N# sources into other representations without changing the build backend.
-
-Targets:
-  csharp              Export a single file or an entire project bundle to C#
-
-Examples:
-  nlc export csharp Program.nl
-  nlc export csharp Program.nl -o Program.cs
-  nlc export csharp --project .
-  nlc export csharp examples/12-multi-file-projects/WeatherDemo -o ./weather-csharp
-
-Run 'nlc export <target> --help' for target-specific options.");
+        Console.WriteLine(ExportCommandKernels.GetHelpText());
 
         return 0;
     }
 
     private static int ShowCSharpHelp()
     {
-        Console.WriteLine(@"N# Export C#
-
-Usage:
-  nlc export csharp <file.nl> [-o output.cs]
-  nlc export csharp <project-dir> [-o bundle-dir]
-  nlc export csharp --project <project-dir> [-o bundle-dir]
-
-Exports N# sources to C# without using generated C# as a build backend.
-
-Single-file mode:
-  Writes the exported C# to stdout by default, or to the file passed with -o/--output.
-
-Project mode:
-  Writes a self-contained C# bundle containing:
-  - the exported main project
-  - a sibling test project when .tests.nl files exist
-  - exported N# project references under _nsharp_refs
-
-Options:
-  --project <dir>    Export a project from a specific directory
-  --output <path>    Output .cs file or bundle directory (-o shorthand)
-  --help, -h         Show this help text
-
-Exit codes:
-  0  Export succeeded
-  1  Export failed");
+        Console.WriteLine(ExportCommandKernels.GetCSharpHelpText());
 
         return 0;
     }

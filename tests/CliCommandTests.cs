@@ -3092,6 +3092,62 @@ func Main() {
     }
 
     [Fact]
+    public void ExportCommandKernels_ShapesMessages()
+    {
+        var helpText = ExportCommandKernels.GetHelpText();
+        Assert.Contains("N# Export", helpText);
+        Assert.Contains("Usage: nlc export <target> [options]", helpText);
+
+        var csharpHelpText = ExportCommandKernels.GetCSharpHelpText();
+        Assert.Contains("N# Export C#", csharpHelpText);
+        Assert.Contains("self-contained C# bundle", csharpHelpText);
+
+        Assert.Equal(
+            "Unknown export target 'python'. Expected 'csharp'.",
+            ExportCommandKernels.GetUnknownTargetMessage("python"));
+        Assert.Equal(
+            "Specify either a source path or --project, not both.",
+            ExportCommandKernels.GetSourceAndProjectConflictMessage());
+        Assert.Equal("Path not found: missing.nl", ExportCommandKernels.GetPathNotFoundMessage("missing.nl"));
+        Assert.Equal(
+            "No input provided. Pass a .nl file or project directory, or run from a directory containing project.yml.",
+            ExportCommandKernels.GetNoInputMessage());
+        Assert.Equal("Export failed: boom", ExportCommandKernels.GetFailedMessage("boom"));
+        Assert.Equal(
+            "Expected an .nl file, got: README.md",
+            ExportCommandKernels.GetExpectedNlFileMessage("README.md"));
+        Assert.Equal(
+            "The export pipeline did not produce output for Program.nl.",
+            ExportCommandKernels.GetMissingOutputMessage("Program.nl"));
+        Assert.Equal(
+            "Refusing to overwrite the source .nl file. Choose a different output path.",
+            ExportCommandKernels.GetRefuseOverwriteMessage());
+        Assert.Equal(
+            "Exported Program.nl to /tmp/Program.cs",
+            ExportCommandKernels.GetSingleFileSuccessMessage("Program.nl", "/tmp/Program.cs"));
+        Assert.Equal(
+            "No project.yml found in /tmp/demo.",
+            ExportCommandKernels.GetNoProjectFileMessage("/tmp/demo"));
+        Assert.Equal(
+            "Exported Demo to /tmp/Demo.csproj",
+            ExportCommandKernels.GetProjectSuccessMessage("Demo", "/tmp/Demo.csproj"));
+        Assert.Equal(
+            "Exported tests to /tmp/Demo.Tests.csproj",
+            ExportCommandKernels.GetTestsSuccessMessage("/tmp/Demo.Tests.csproj"));
+
+        var (helpExitCode, helpStdout, helpStderr) = CaptureConsole(() =>
+            ExportCommand.Execute(new[] { "--help" }));
+        Assert.Equal(0, helpExitCode);
+        Assert.Contains("N# Export", helpStdout);
+        Assert.True(string.IsNullOrWhiteSpace(helpStderr));
+
+        var (unknownExitCode, _, unknownStderr) = CaptureConsole(() =>
+            ExportCommand.Execute(new[] { "python" }));
+        Assert.Equal(1, unknownExitCode);
+        Assert.Contains("Unknown export target 'python'. Expected 'csharp'.", unknownStderr);
+    }
+
+    [Fact]
     public void BuildCommandKernels_SelectsFirstOperandAfterOptionStripping()
     {
         Assert.True(BuildCommandKernels.TryGetOperandSummary(
