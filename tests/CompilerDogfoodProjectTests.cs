@@ -7275,6 +7275,8 @@ func outer(x: int): int {
         Assert.Contains("CliDocGenerationFailedMessage", methodNames!); // product doc failure wrapper shaping.
         Assert.Contains("CliDocOpenFailedMessage", methodNames!); // product doc open-failure message shaping.
         Assert.Contains("CliDocOpenFailedWithDetailMessage", methodNames!); // product doc open-failure detail shaping.
+        Assert.Contains("CliDocParameterText", methodNames!); // product doc parameter text shaping.
+        Assert.Contains("CliDocSignatureText", methodNames!); // product doc symbol signature shaping.
         Assert.Contains("CliTreeOptionSummaryInto", methodNames!); // product tree option parsing.
         Assert.Contains("CliTreeMaxDepthInto", methodNames!); // product tree depth parsing.
         Assert.Contains("CliTreeOutputMode", methodNames!); // product tree output mode selection.
@@ -7388,6 +7390,15 @@ func outer(x: int): int {
             ("CliPathHasSegmentIgnoreCase", new object[] { @"C:\tmp\ref\App.dll", '\\', "ref" }),
             ("CliPathHasSegmentIgnoreCase", new object[] { "lib/REF/App.dll", '/', "ref" }),
             ("CliCSharpProjectReferenceBuildMessage", new object[] { "/tmp/Demo/Demo.csproj" }),
+            ("CliDaemonClientConnectionErrorMessage", new object[] { "socket refused" }),
+            ("CliDaemonClientExecutablePathMissingMessage", Array.Empty<object>()),
+            ("CliDaemonClientStartTimeoutMessage", Array.Empty<object>()),
+            ("CliDaemonClientStartFailedWithReasonMessage", new object[] { "denied" }),
+            ("CliDocParameterText", new object[] { "value", "int", 0, "" }),
+            ("CliDocParameterText", new object[] { "value", "int", 1, "42" }),
+            ("CliDocSignatureText", new object[] { (int)SymbolKind.Function, "Compute", 1, "value: int = 42", "string" }),
+            ("CliDocSignatureText", new object[] { (int)SymbolKind.Constructor, "Widget", 1, "", "" }),
+            ("CliDocSignatureText", new object[] { (int)SymbolKind.Class, "Widget", 0, "", "" }),
             ("CliGeneratedSourceBasePathLength", new object[] { "src/Program.nl" }),
             ("CliGeneratedSourceBasePathLength", new object[] { "src/Calculator.tests.nl" }),
             ("CliGeneratedSourceBasePathLength", new object[] { "src/Calculator.TESTS.NL" }),
@@ -12565,10 +12576,6 @@ func outer(x: int): int {
             ("CliDaemonFileChangedMessage", new object[] { "Program.nl" }),
             ("CliDaemonShutdownCompleteMessage", Array.Empty<object>()),
             ("CliDaemonMalformedRequestParamMessage", new object[] { "pos", "String", "invalid token" }),
-            ("CliDaemonClientConnectionErrorMessage", new object[] { "socket refused" }),
-            ("CliDaemonClientExecutablePathMissingMessage", Array.Empty<object>()),
-            ("CliDaemonClientStartTimeoutMessage", Array.Empty<object>()),
-            ("CliDaemonClientStartFailedWithReasonMessage", new object[] { "denied" }),
             ("CliDaemonPositionInto", new object[] { "bad:5", new int[2] }),
             ("CliDaemonPositionInto", new object[] { "5:bad", new int[2] }),
             ("CliDaemonPositionInto", new object[] { "12:34", new int[2] }),
@@ -16981,6 +16988,14 @@ class OtherZetaType {
                     "CliDocOpenFailedWithDetailMessage",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDocOpenFailedWithDetailMessage.");
+            var cliDocParameterText = programType.GetMethod(
+                    "CliDocParameterText",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDocParameterText.");
+            var cliDocSignatureText = programType.GetMethod(
+                    "CliDocSignatureText",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDocSignatureText.");
             var cliTreeOptionSummaryInto = programType.GetMethod(
                     "CliTreeOptionSummaryInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -18660,7 +18675,9 @@ func main(customer: Customer, résumé: Profile) {
                 cliDocOpenedMessage,
                 cliDocGenerationFailedMessage,
                 cliDocOpenFailedMessage,
-                cliDocOpenFailedWithDetailMessage);
+                cliDocOpenFailedWithDetailMessage,
+                cliDocParameterText,
+                cliDocSignatureText);
             AssertCliTreeOptionsLikeProduction(cliTreeOptionSummaryInto, cliTreeMaxDepthInto);
             AssertCliTreeMessagesLikeProduction(
                 cliTreeHelpText,
@@ -25278,7 +25295,9 @@ func main() {
         MethodInfo cliDocOpenedMessage,
         MethodInfo cliDocGenerationFailedMessage,
         MethodInfo cliDocOpenFailedMessage,
-        MethodInfo cliDocOpenFailedWithDetailMessage)
+        MethodInfo cliDocOpenFailedWithDetailMessage,
+        MethodInfo cliDocParameterText,
+        MethodInfo cliDocSignatureText)
     {
         var helpText = (string)(cliDocHelpText.Invoke(null, Array.Empty<object>()) ?? "<null>");
         Assert.Contains("N# API Documentation", helpText);
@@ -25313,6 +25332,27 @@ func main() {
             (string)(cliDocOpenFailedWithDetailMessage.Invoke(
                 null,
                 new object[] { "/tmp/api/index.html", "denied" }) ?? "<null>"));
+        Assert.Equal(
+            "value: int",
+            (string)(cliDocParameterText.Invoke(null, new object[] { "value", "int", 0, string.Empty }) ?? "<null>"));
+        Assert.Equal(
+            "value: int = 42",
+            (string)(cliDocParameterText.Invoke(null, new object[] { "value", "int", 1, "42" }) ?? "<null>"));
+        Assert.Equal(
+            "func Compute(value: int = 42): string",
+            (string)(cliDocSignatureText.Invoke(
+                null,
+                new object[] { (int)SymbolKind.Function, "Compute", 1, "value: int = 42", "string" }) ?? "<null>"));
+        Assert.Equal(
+            "ctor Widget()",
+            (string)(cliDocSignatureText.Invoke(
+                null,
+                new object[] { (int)SymbolKind.Constructor, "Widget", 1, string.Empty, string.Empty }) ?? "<null>"));
+        Assert.Equal(
+            "class Widget",
+            (string)(cliDocSignatureText.Invoke(
+                null,
+                new object[] { (int)SymbolKind.Class, "Widget", 0, string.Empty, string.Empty }) ?? "<null>"));
     }
 
     private static void AssertCliAuditOptionsLikeProduction(MethodInfo cliAuditOptionSummaryInto)

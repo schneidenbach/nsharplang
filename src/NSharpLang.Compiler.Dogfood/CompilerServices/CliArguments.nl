@@ -4684,6 +4684,54 @@ func CliDocOpenFailedWithDetailMessage(indexPath: string, message: string): stri
     return "Generated docs, but failed to open " + indexPath + ": " + message
 }
 
+func CliDocParameterText(name: string, typeName: string, hasDefault: int, defaultValue: string): string {
+    if hasDefault != 0 {
+        return name + ": " + typeName + " = " + defaultValue
+    }
+
+    return name + ": " + typeName
+}
+
+func CliDocSignatureText(kind: int, name: string, hasParameterList: int, parametersText: string, typeName: string): string {
+    prefix := ""
+    if kind == 0 || kind == 9 {
+        prefix = "func "
+    } else if kind == 12 {
+        prefix = "ctor "
+    } else if kind == 1 {
+        prefix = "class "
+    } else if kind == 2 {
+        prefix = "struct "
+    } else if kind == 3 {
+        prefix = "record "
+    } else if kind == 4 {
+        prefix = "interface "
+    } else if kind == 5 {
+        prefix = "enum "
+    } else if kind == 6 {
+        prefix = "union "
+    } else if kind == 7 {
+        prefix = "prop "
+    } else if kind == 8 {
+        prefix = "field "
+    } else if kind == 14 {
+        prefix = "type "
+    } else if kind == 15 {
+        prefix = "test "
+    }
+
+    result := prefix + name
+    if hasParameterList != 0 {
+        result = result + "(" + parametersText + ")"
+    }
+
+    if typeName != "" {
+        result = result + ": " + typeName
+    }
+
+    return result
+}
+
 func CliTidyDependencyStatusRanksInto(
     packageNames: string[],
     importNamespaces: string[],

@@ -171,6 +171,23 @@ internal static class DocCommandKernels
             ? message
             : FallbackOpenFailedWithDetailMessage(indexPath, exceptionMessage);
 
+    internal static string GetParameterText(string name, string typeName, bool hasDefault, string defaultValue)
+        => TryGetMessage(bindings => bindings.ParameterText(name, typeName, hasDefault ? 1 : 0, defaultValue), out var message)
+            ? message
+            : FallbackParameterText(name, typeName, hasDefault, defaultValue);
+
+    internal static string GetSignatureText(
+        SymbolKind kind,
+        string name,
+        bool hasParameterList,
+        string parametersText,
+        string typeName)
+        => TryGetMessage(
+            bindings => bindings.SignatureText((int)kind, name, hasParameterList ? 1 : 0, parametersText, typeName),
+            out var message)
+            ? message
+            : FallbackSignatureText(kind, name, hasParameterList, parametersText, typeName);
+
     private static bool TryOrderEntriesForGeneration(
         IReadOnlyList<SymbolResult> symbols,
         bool includeAllKinds,
@@ -286,7 +303,13 @@ internal static class DocCommandKernels
                 "CliDocOpenFailedMessage"),
             DogfoodKernelLoader.CreateDelegate<CliDocOpenFailedWithDetailMessage>(
                 programType,
-                "CliDocOpenFailedWithDetailMessage")));
+                "CliDocOpenFailedWithDetailMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliDocParameterText>(
+                programType,
+                "CliDocParameterText"),
+            DogfoodKernelLoader.CreateDelegate<CliDocSignatureText>(
+                programType,
+                "CliDocSignatureText")));
 
     private static bool IsDocumentedSymbolKind(SymbolKind kind) =>
         kind is not SymbolKind.Variable and not SymbolKind.Parameter;
@@ -350,6 +373,15 @@ internal static class DocCommandKernels
 
     private delegate string CliDocOpenFailedWithDetailMessage(string indexPath, string message);
 
+    private delegate string CliDocParameterText(string name, string typeName, int hasDefault, string defaultValue);
+
+    private delegate string CliDocSignatureText(
+        int kind,
+        string name,
+        int hasParameterList,
+        string parametersText,
+        string typeName);
+
     private sealed record Bindings(
         CliDocSymbolOrderCountingIndicesInto SymbolOrderCountingIndices,
         CliDocSlugsInto DocSlugs,
@@ -363,7 +395,9 @@ internal static class DocCommandKernels
         CliDocOpenedMessage OpenedMessage,
         CliDocGenerationFailedMessage GenerationFailedMessage,
         CliDocOpenFailedMessage OpenFailedMessage,
-        CliDocOpenFailedWithDetailMessage OpenFailedWithDetailMessage);
+        CliDocOpenFailedWithDetailMessage OpenFailedWithDetailMessage,
+        CliDocParameterText ParameterText,
+        CliDocSignatureText SignatureText);
 
     private static bool TryGetMessage(Func<Bindings, string> getMessage, out string message)
     {
@@ -386,6 +420,42 @@ internal static class DocCommandKernels
     }
 
     // Stage 6 C#-surface-shrink: fallback/oracle only; product doc messages route through CliDoc* kernels.
+    private static string FallbackParameterText(string name, string typeName, bool hasDefault, string defaultValue)
+        => hasDefault
+            ? $"{name}: {typeName} = {defaultValue}"
+            : $"{name}: {typeName}";
+
+    private static string FallbackSignatureText(
+        SymbolKind kind,
+        string name,
+        bool hasParameterList,
+        string parametersText,
+        string typeName)
+    {
+        var parameters = hasParameterList ? $"({parametersText})" : string.Empty;
+        var suffix = string.IsNullOrEmpty(typeName) ? string.Empty : $": {typeName}";
+        return $"{FallbackSignaturePrefix(kind)}{name}{parameters}{suffix}";
+    }
+
+    private static string FallbackSignaturePrefix(SymbolKind kind)
+        => kind switch
+        {
+            SymbolKind.Function => "func ",
+            SymbolKind.Method => "func ",
+            SymbolKind.Constructor => "ctor ",
+            SymbolKind.Class => "class ",
+            SymbolKind.Struct => "struct ",
+            SymbolKind.Record => "record ",
+            SymbolKind.Interface => "interface ",
+            SymbolKind.Enum => "enum ",
+            SymbolKind.Union => "union ",
+            SymbolKind.Property => "prop ",
+            SymbolKind.Field => "field ",
+            SymbolKind.TypeAlias => "type ",
+            SymbolKind.Test => "test ",
+            _ => string.Empty
+        };
+
     private static string FallbackHelpText()
         => @"N# API Documentation
 

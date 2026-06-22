@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-22 — Doc generated signatures move into product N#
+
+`DocCommand` no longer owns generated API signature prefixes, parameter text, default-value text, or return-type
+suffix rendering in C#. The shipped `CliDocParameterText` and `CliDocSignatureText` dogfood kernels now shape
+those strings through `DocCommandKernels`; C# keeps symbol collection, parameter-list joining, HTML escaping, and
+file emission only. This is a Stage 6 `C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.DocCommandKernels_SummarizesOptions|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`;
+`./scripts/dev.sh DocCommandKernels`.
+
 ## 2026-06-22 — Daemon client errors move into product N#
 
 `DaemonClient` no longer owns connection/startup error text such as connection failures, missing executable paths,

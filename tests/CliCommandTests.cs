@@ -5122,6 +5122,36 @@ dependencies:
         Assert.Equal(
             "Generated docs, but failed to open /tmp/api/index.html: denied",
             DocCommandKernels.GetOpenFailedWithDetailMessage("/tmp/api/index.html", "denied"));
+        Assert.Equal(
+            "value: int",
+            DocCommandKernels.GetParameterText("value", "int", hasDefault: false, defaultValue: string.Empty));
+        Assert.Equal(
+            "value: int = 42",
+            DocCommandKernels.GetParameterText("value", "int", hasDefault: true, defaultValue: "42"));
+        Assert.Equal(
+            "func Compute(value: int = 42): string",
+            DocCommandKernels.GetSignatureText(
+                SymbolKind.Function,
+                "Compute",
+                hasParameterList: true,
+                parametersText: "value: int = 42",
+                typeName: "string"));
+        Assert.Equal(
+            "ctor Widget()",
+            DocCommandKernels.GetSignatureText(
+                SymbolKind.Constructor,
+                "Widget",
+                hasParameterList: true,
+                parametersText: string.Empty,
+                typeName: string.Empty));
+        Assert.Equal(
+            "class Widget",
+            DocCommandKernels.GetSignatureText(
+                SymbolKind.Class,
+                "Widget",
+                hasParameterList: false,
+                parametersText: string.Empty,
+                typeName: string.Empty));
 
         var (helpExitCode, helpStdout, helpStderr) = CaptureConsole(() => DocCommand.Execute(new[] { "--help" }));
         Assert.Equal(0, helpExitCode);

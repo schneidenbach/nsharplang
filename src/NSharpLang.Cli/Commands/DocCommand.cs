@@ -412,36 +412,20 @@ internal static class ProjectDocGenerator
 
     private static string FormatSignature(SymbolResult symbol)
     {
-        var prefix = symbol.Kind switch
-        {
-            SymbolKind.Function => "func ",
-            SymbolKind.Method => "func ",
-            SymbolKind.Constructor => "ctor ",
-            SymbolKind.Class => "class ",
-            SymbolKind.Struct => "struct ",
-            SymbolKind.Record => "record ",
-            SymbolKind.Interface => "interface ",
-            SymbolKind.Enum => "enum ",
-            SymbolKind.Union => "union ",
-            SymbolKind.Property => "prop ",
-            SymbolKind.Field => "field ",
-            SymbolKind.TypeAlias => "type ",
-            SymbolKind.Test => "test ",
-            _ => string.Empty
-        };
-
-        var parameters = symbol.Parameters == null
-            ? string.Empty
-            : $"({string.Join(", ", symbol.Parameters.Select(FormatParameter))})";
-
-        var suffix = string.IsNullOrWhiteSpace(symbol.TypeName) ? string.Empty : $": {symbol.TypeName}";
-        return $"{prefix}{symbol.Name}{parameters}{suffix}";
+        var hasParameterList = symbol.Parameters != null;
+        var parameters = hasParameterList
+            ? string.Join(", ", symbol.Parameters!.Select(FormatParameter))
+            : string.Empty;
+        var typeName = string.IsNullOrWhiteSpace(symbol.TypeName) ? string.Empty : symbol.TypeName!;
+        return DocCommandKernels.GetSignatureText(symbol.Kind, symbol.Name, hasParameterList, parameters, typeName);
     }
 
     private static string FormatParameter(ParameterResult parameter)
-        => parameter.HasDefault
-            ? $"{parameter.Name}: {parameter.Type} = {parameter.DefaultValue}"
-            : $"{parameter.Name}: {parameter.Type}";
+        => DocCommandKernels.GetParameterText(
+            parameter.Name,
+            parameter.Type,
+            parameter.HasDefault,
+            parameter.DefaultValue ?? string.Empty);
 
     private static string[] CreateSlugs(IReadOnlyList<SymbolResult> symbols)
     {
