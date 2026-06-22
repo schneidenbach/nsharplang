@@ -1748,11 +1748,11 @@ public static class OutputFormatter
     public static string OutlineToText(OutlineResult result)
     {
         var sb = new StringBuilder();
-        sb.AppendLine($"File: {result.File}");
+        sb.AppendLine(OutputFormatterTextKernels.GetOutlineFileLineText(result.File));
 
         if (result.Imports.Length > 0)
         {
-            sb.AppendLine($"Imports: {string.Join(", ", result.Imports)}");
+            sb.AppendLine(OutputFormatterTextKernels.GetOutlineImportsLineText(result.Imports));
         }
 
         sb.AppendLine();
@@ -1767,10 +1767,7 @@ public static class OutputFormatter
 
     private static void FormatOutlineEntryText(StringBuilder sb, OutlineEntry entry, int indent)
     {
-        var prefix = new string(' ', indent * 2);
-        var typeStr = entry.ReturnType != null ? $" -> {entry.ReturnType}" : "";
-        var rangeStr = entry.EndLine > entry.Line ? $" (lines {entry.Line}-{entry.EndLine})" : $" (line {entry.Line})";
-        sb.AppendLine($"{prefix}{entry.Kind} {entry.Name}{typeStr}{rangeStr}");
+        sb.AppendLine(OutputFormatterTextKernels.GetOutlineEntryLineText(entry, indent));
 
         if (entry.Children is { Length: > 0 })
         {

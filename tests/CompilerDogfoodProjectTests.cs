@@ -7627,8 +7627,8 @@ func outer(x: int): int {
             ("DiagnosticDeduplicationMinInt", new object[] { 4, 9 }), ("DiagnosticDeduplicationMinInt", new object[] { 9, 4 }));
     }
 
-    // MILESTONE: OutputFormatterText.nl compiles end-to-end with no C# AST and owns the shipped
-    // `nlc query symbols --text` empty, symbol, modifier, indentation, and parameter line shaping.
+    // MILESTONE: OutputFormatterText.nl compiles end-to-end with no C# AST and owns shipped
+    // `nlc query symbols --text` and `nlc query outline --text` line shaping.
     [Fact]
     public void ColumnarCodegen_CompilesRealDogfoodFile_OutputFormatterText()
     {
@@ -7638,6 +7638,9 @@ func outer(x: int): int {
         Assert.Contains("QueryNoSymbolsText", methodNames!);
         Assert.Contains("QuerySymbolLineText", methodNames!);
         Assert.Contains("QuerySymbolParametersLineText", methodNames!);
+        Assert.Contains("QueryOutlineFileLineText", methodNames!);
+        Assert.Contains("QueryOutlineImportsLineText", methodNames!);
+        Assert.Contains("QueryOutlineEntryLineText", methodNames!);
 
         AssertColumnarProgramMatchesCSharp(source,
             ("QueryNoSymbolsText", Array.Empty<object>()),
@@ -7652,7 +7655,12 @@ func outer(x: int): int {
                 new[] { 0, 1 },
                 new[] { string.Empty, "42" },
                 2
-            }));
+            }),
+            ("QueryOutlineFileLineText", new object[] { "Program.nl" }),
+            ("QueryOutlineImportsLineText", new object[] { new[] { "System", "System.Text" }, 2 }),
+            ("QueryOutlineEntryLineText", new object[] { 0, "Class", "Person", string.Empty, 0, 5, 15 }),
+            ("QueryOutlineEntryLineText", new object[] { 1, "Property", "Name", string.Empty, 0, 6, 6 }),
+            ("QueryOutlineEntryLineText", new object[] { 1, "Function", "Greet", "string", 1, 8, 12 }));
     }
 
     // Lowercase `char` as a static-method receiver — the builtin alias (it lexes as an Identifier and binds to

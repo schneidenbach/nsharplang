@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-22 — Query outline text moves into product N#
+
+`OutputFormatter.OutlineToText` no longer owns the visible `nlc query outline --text` file, imports, indentation,
+type, and line-range text in C#. The shipped `OutputFormatterText.nl` dogfood kernel now shapes those outline
+lines through `OutputFormatterTextKernels`; C# keeps outline tree traversal, CLR object access, StringBuilder
+assembly, and fallback/oracle rendering only. This is a Stage 6 `C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CodeIntelligenceOutputTests.OutlineToText_FormatsWithIndentation|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_OutputFormatterText"`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`;
+`./scripts/dev.sh OutlineToText`.
+
 ## 2026-06-22 — Query symbol text moves into product N#
 
 `OutputFormatter.SymbolsToText` no longer owns the visible `nlc query symbols --text` empty-result, symbol,

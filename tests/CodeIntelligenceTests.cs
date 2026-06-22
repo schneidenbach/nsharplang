@@ -822,11 +822,16 @@ public class CodeIntelligenceOutputTests
             });
 
         var text = OutputFormatter.OutlineToText(outline);
-        Assert.Contains("File: Program.nl", text);
-        Assert.Contains("Imports: System", text);
-        Assert.Contains("Class Person", text);
-        Assert.Contains("Property Name", text);
-        Assert.Contains("Function Greet", text);
+        Assert.Equal(
+            string.Join(Environment.NewLine,
+                "File: Program.nl",
+                "Imports: System",
+                string.Empty,
+                "Class Person (lines 5-15)",
+                "  Property Name (line 6)",
+                "  Function Greet -> string (lines 8-12)",
+                string.Empty),
+            text);
     }
 
     [Fact]

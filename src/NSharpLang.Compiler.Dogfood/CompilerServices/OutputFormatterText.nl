@@ -61,6 +61,50 @@ func QuerySymbolParametersLineText(
     return builder.ToString()
 }
 
+func QueryOutlineFileLineText(fileName: string): string {
+    return "File: " + fileName
+}
+
+func QueryOutlineImportsLineText(imports: string[], requestedCount: int): string {
+    count := QuerySymbolMinInt(requestedCount, imports.Length)
+    builder := new StringBuilder(32)
+    builder.Append("Imports: ")
+
+    i := 0
+    while i < count {
+        if i > 0 {
+            builder.Append(", ")
+        }
+
+        builder.Append(imports[i])
+        i = i + 1
+    }
+
+    return builder.ToString()
+}
+
+func QueryOutlineEntryLineText(
+    indent: int,
+    kindText: string,
+    name: string,
+    returnType: string,
+    hasReturnType: int,
+    line: int,
+    endLine: int): string {
+    prefix := QuerySymbolIndentText(indent)
+    typeText := ""
+    if hasReturnType != 0 {
+        typeText = " -> " + returnType
+    }
+
+    rangeText := " (line " + line.ToString() + ")"
+    if endLine > line {
+        rangeText = " (lines " + line.ToString() + "-" + endLine.ToString() + ")"
+    }
+
+    return prefix + kindText + " " + name + typeText + rangeText
+}
+
 func QuerySymbolModifierText(modifiers: string[], requestedCount: int): string {
     count := QuerySymbolMinInt(requestedCount, modifiers.Length)
     if count <= 0 {

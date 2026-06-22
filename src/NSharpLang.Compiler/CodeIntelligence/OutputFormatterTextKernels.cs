@@ -95,6 +95,70 @@ internal static class OutputFormatterTextKernels
         return GetSymbolParametersLineTextWithCSharp(parameters, indent);
     }
 
+    internal static string GetOutlineFileLineText(string file)
+    {
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return GetOutlineFileLineTextWithCSharp(file);
+
+        try
+        {
+            var text = bindings.QueryOutlineFileLineText(file);
+            if (!string.IsNullOrEmpty(text))
+                return text;
+        }
+        catch
+        {
+        }
+
+        return GetOutlineFileLineTextWithCSharp(file);
+    }
+
+    internal static string GetOutlineImportsLineText(string[] imports)
+    {
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return GetOutlineImportsLineTextWithCSharp(imports);
+
+        try
+        {
+            var text = bindings.QueryOutlineImportsLineText(imports, imports.Length);
+            if (!string.IsNullOrEmpty(text))
+                return text;
+        }
+        catch
+        {
+        }
+
+        return GetOutlineImportsLineTextWithCSharp(imports);
+    }
+
+    internal static string GetOutlineEntryLineText(OutlineEntry entry, int indent)
+    {
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return GetOutlineEntryLineTextWithCSharp(entry, indent);
+
+        try
+        {
+            var text = bindings.QueryOutlineEntryLineText(
+                indent,
+                entry.Kind.ToString(),
+                entry.Name,
+                entry.ReturnType ?? string.Empty,
+                entry.ReturnType != null ? 1 : 0,
+                entry.Line,
+                entry.EndLine);
+            if (!string.IsNullOrEmpty(text))
+                return text;
+        }
+        catch
+        {
+        }
+
+        return GetOutlineEntryLineTextWithCSharp(entry, indent);
+    }
+
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
             DogfoodKernelLoader.CreateDelegate<QueryNoSymbolsText>(
@@ -105,7 +169,16 @@ internal static class OutputFormatterTextKernels
                 "QuerySymbolLineText"),
             DogfoodKernelLoader.CreateDelegate<QuerySymbolParametersLineText>(
                 programType,
-                "QuerySymbolParametersLineText")));
+                "QuerySymbolParametersLineText"),
+            DogfoodKernelLoader.CreateDelegate<QueryOutlineFileLineText>(
+                programType,
+                "QueryOutlineFileLineText"),
+            DogfoodKernelLoader.CreateDelegate<QueryOutlineImportsLineText>(
+                programType,
+                "QueryOutlineImportsLineText"),
+            DogfoodKernelLoader.CreateDelegate<QueryOutlineEntryLineText>(
+                programType,
+                "QueryOutlineEntryLineText")));
 
     private delegate string QueryNoSymbolsText();
 
@@ -128,12 +201,28 @@ internal static class OutputFormatterTextKernels
         string[] defaultValues,
         int requestedCount);
 
+    private delegate string QueryOutlineFileLineText(string fileName);
+
+    private delegate string QueryOutlineImportsLineText(string[] imports, int requestedCount);
+
+    private delegate string QueryOutlineEntryLineText(
+        int indent,
+        string kindText,
+        string name,
+        string returnType,
+        int hasReturnType,
+        int line,
+        int endLine);
+
     private sealed record Bindings(
         QueryNoSymbolsText QueryNoSymbolsText,
         QuerySymbolLineText QuerySymbolLineText,
-        QuerySymbolParametersLineText QuerySymbolParametersLineText);
+        QuerySymbolParametersLineText QuerySymbolParametersLineText,
+        QueryOutlineFileLineText QueryOutlineFileLineText,
+        QueryOutlineImportsLineText QueryOutlineImportsLineText,
+        QueryOutlineEntryLineText QueryOutlineEntryLineText);
 
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product symbol text routes through OutputFormatterText.nl.
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product query text routes through OutputFormatterText.nl.
     private static string GetSymbolLineTextWithCSharp(SymbolResult symbol, int indent)
     {
         var prefix = new string(' ', indent * 2);
@@ -166,5 +255,19 @@ internal static class OutputFormatterTextKernels
 
         builder.Append(')');
         return builder.ToString();
+    }
+
+    private static string GetOutlineFileLineTextWithCSharp(string file)
+        => $"File: {file}";
+
+    private static string GetOutlineImportsLineTextWithCSharp(string[] imports)
+        => $"Imports: {string.Join(", ", imports)}";
+
+    private static string GetOutlineEntryLineTextWithCSharp(OutlineEntry entry, int indent)
+    {
+        var prefix = new string(' ', indent * 2);
+        var typeText = entry.ReturnType != null ? $" -> {entry.ReturnType}" : string.Empty;
+        var rangeText = entry.EndLine > entry.Line ? $" (lines {entry.Line}-{entry.EndLine})" : $" (line {entry.Line})";
+        return $"{prefix}{entry.Kind} {entry.Name}{typeText}{rangeText}";
     }
 }
