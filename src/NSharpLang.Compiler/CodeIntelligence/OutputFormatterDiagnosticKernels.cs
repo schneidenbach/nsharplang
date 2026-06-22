@@ -106,6 +106,25 @@ internal static class OutputFormatterDiagnosticKernels
         }
     }
 
+    internal static string GetDiagnosticTitle(string code, string severity)
+    {
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return GetDiagnosticTitleWithCSharp(code, severity);
+
+        try
+        {
+            var title = bindings.DiagnosticTitle(code, severity);
+            if (!string.IsNullOrEmpty(title))
+                return title;
+        }
+        catch
+        {
+        }
+
+        return GetDiagnosticTitleWithCSharp(code, severity);
+    }
+
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
             DogfoodKernelLoader.CreateDelegate<DiagnosticSeveritySummaryInto>(
@@ -113,7 +132,10 @@ internal static class OutputFormatterDiagnosticKernels
                 "DiagnosticSeveritySummaryInto"),
             DogfoodKernelLoader.CreateDelegate<DiagnosticSeverityFilterIndicesInto>(
                 programType,
-                "DiagnosticSeverityFilterIndicesInto")));
+                "DiagnosticSeverityFilterIndicesInto"),
+            DogfoodKernelLoader.CreateDelegate<DiagnosticTitleText>(
+                programType,
+                "DiagnosticTitleText")));
 
     private delegate int DiagnosticSeveritySummaryInto(
         string[] severities,
@@ -125,9 +147,16 @@ internal static class OutputFormatterDiagnosticKernels
         int targetRank,
         int[] resultIndices);
 
+    private delegate string DiagnosticTitleText(string code, string severity);
+
     private sealed record Bindings(
         DiagnosticSeveritySummaryInto DiagnosticSeveritySummary,
-        DiagnosticSeverityFilterIndicesInto DiagnosticSeverityFilter);
+        DiagnosticSeverityFilterIndicesInto DiagnosticSeverityFilter,
+        DiagnosticTitleText DiagnosticTitle);
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product diagnostic title text routes through DiagnosticTitleText.
+    private static string GetDiagnosticTitleWithCSharp(string code, string severity)
+        => $"[{code}] {severity.ToUpperInvariant()}";
 
     private sealed class DiagnosticSummaryScratch
     {

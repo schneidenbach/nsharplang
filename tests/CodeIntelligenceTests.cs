@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -671,8 +672,7 @@ public class CodeIntelligenceOutputTests
         var text = OutputFormatter.DiagnosticsToText(diagnostics);
 
         // Header
-        Assert.Contains("NL202", text);
-        Assert.Contains("ERROR", text);
+        Assert.Contains("[NL202] ERROR", text);
         Assert.Contains("Program.nl:5:4", text);
 
         // Source snippet with caret
@@ -700,6 +700,31 @@ public class CodeIntelligenceOutputTests
 
         // Summary
         Assert.Contains("1 error", text);
+    }
+
+    [Fact]
+    public void DiagnosticsToText_UnknownSeverityUsesInvariantFallback()
+    {
+        var previousCulture = CultureInfo.CurrentCulture;
+        CultureInfo.CurrentCulture = new CultureInfo("tr-TR");
+
+        try
+        {
+            var diagnostics = new List<DiagnosticResult>
+            {
+                new("NL777", "idi", "Unknown severity edge case", "Program.nl", 1, 1, 1,
+                    null, null, null, null, null, null, null)
+            };
+
+            var text = OutputFormatter.DiagnosticsToText(diagnostics);
+
+            Assert.Contains("[NL777] IDI", text);
+            Assert.DoesNotContain("[NL777] \u0130D\u0130", text);
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = previousCulture;
+        }
     }
 
     [Fact]

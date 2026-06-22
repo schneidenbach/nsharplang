@@ -156,6 +156,31 @@ func DiagnosticSeverityFilterIndicesInto(
     return DiagnosticSeverityFilterIndicesCore(ref severityTable, targetRank, ref output)
 }
 
+func DiagnosticTitleText(code: string, severity: string): string {
+    label := DiagnosticSeverityLabel(severity)
+    if label == "" {
+        return ""
+    }
+
+    return "[" + code + "] " + label
+}
+
+func DiagnosticSeverityLabel(severity: string): string {
+    if severity == "error" {
+        return "ERROR"
+    }
+
+    if severity == "warning" {
+        return "WARNING"
+    }
+
+    if severity == "info" {
+        return "INFO"
+    }
+
+    return ""
+}
+
 func DiagnosticSeverityFilterIndicesCore(
     severityRanks: &DiagnosticSeverityRankTable,
     targetRank: int,

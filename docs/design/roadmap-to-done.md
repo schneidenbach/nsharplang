@@ -289,8 +289,9 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       output-mode selection, daemon-routing policy, and shared help/error/usage message shaping now lives beside `QueryCommand` in
       `QueryCommandKernels`;
       `nlc check`/`nlc lint` compiler-error severity filtering now lives beside the command implementations in
-      `CompilerErrorSeverityFilter`, and lint diagnostic severity text rendering now lives beside `LintCommand` in
-      `LintCommandKernels`; batch query duplicate-id validation and packed
+      `CompilerErrorSeverityFilter`, lint diagnostic severity text rendering now lives beside `LintCommand` in
+      `LintCommandKernels`, and diagnostic title text rendering now lives beside `OutputFormatter` in
+      `OutputFormatterDiagnosticKernels`; batch query duplicate-id validation and packed
       success counting plus batch request/validation/error message shaping now live beside `BatchQueryRunner` in
       `BatchQueryKernels`, and batch query position parsing plus shared no-symbol/reference/doc-miss message
       shaping reuse `QueryCommandKernels`; daemon query position parsing, query error/parameter message shaping,

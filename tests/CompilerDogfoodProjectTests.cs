@@ -7688,8 +7688,13 @@ func outer(x: int): int {
         Assert.Contains("FormatDiagnosticClusterId", methodNames!);  // Math.Abs + int.ToString("x") + new string
         Assert.Contains("StartsWithIgnoreCase", methodNames!);       // 6-arg String.Compare
         Assert.Contains("NormalizeDiagnosticMessagePattern", methodNames!); // string.Trim()
+        Assert.Contains("DiagnosticTitleText", methodNames!); // product diagnostics text title shaping.
 
         AssertColumnarProgramMatchesCSharp(source,
+            ("DiagnosticTitleText", new object[] { "NL202", "error" }),
+            ("DiagnosticTitleText", new object[] { "NL901", "warning" }),
+            ("DiagnosticTitleText", new object[] { "NL000", "info" }),
+            ("DiagnosticTitleText", new object[] { "NL777", "idi" }),
             // Small buffer (< 13) -> "diag-" + Math.Abs(hash).ToString("x"); large buffer -> built into the buffer.
             ("FormatDiagnosticClusterId", new object[] { 255, new char[4] }),
             ("FormatDiagnosticClusterId", new object[] { 0, new char[4] }),
@@ -17679,6 +17684,10 @@ class OtherZetaType {
                     "DiagnosticSeverityFilterIndicesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit DiagnosticSeverityFilterIndicesInto.");
+            var diagnosticTitleText = programType.GetMethod(
+                    "DiagnosticTitleText",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit DiagnosticTitleText.");
             var diagnosticSeverityFilterChecksumInto = programType.GetMethod(
                     "DiagnosticSeverityFilterChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -19017,6 +19026,7 @@ func main() {
             AssertDiagnosticSeveritySummaryLikeProduction(
                 diagnosticSeveritySummaryInto,
                 diagnosticSeveritySummaryChecksumInto);
+            AssertDiagnosticTitleTextLikeProduction(diagnosticTitleText);
             AssertDiagnosticSeverityFilteringLikeProduction(
                 diagnosticSeverityFilterIndicesInto,
                 diagnosticSeverityFilterChecksumInto);
@@ -28387,6 +28397,22 @@ func main() {
 
         Assert.Equal(severities.Length, paddedCount);
         Assert.Equal(expectedCounts, paddedCounts);
+    }
+
+    private static void AssertDiagnosticTitleTextLikeProduction(MethodInfo diagnosticTitleText)
+    {
+        Assert.Equal(
+            "[NL202] ERROR",
+            (string)(diagnosticTitleText.Invoke(null, new object[] { "NL202", "error" }) ?? "<null>"));
+        Assert.Equal(
+            "[NL901] WARNING",
+            (string)(diagnosticTitleText.Invoke(null, new object[] { "NL901", "warning" }) ?? "<null>"));
+        Assert.Equal(
+            "[NL000] INFO",
+            (string)(diagnosticTitleText.Invoke(null, new object[] { "NL000", "info" }) ?? "<null>"));
+        Assert.Equal(
+            "",
+            (string)(diagnosticTitleText.Invoke(null, new object[] { "NL777", "idi" }) ?? "<null>"));
     }
 
     private static void AssertDiagnosticSeverityFilteringLikeProduction(

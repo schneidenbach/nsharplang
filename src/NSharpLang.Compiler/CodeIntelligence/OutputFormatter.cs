@@ -1724,10 +1724,7 @@ public static class OutputFormatter
     }
 
     private static string FormatDiagnosticTitle(DiagnosticResult diag)
-    {
-        var severityLabel = diag.Severity.ToUpperInvariant();
-        return $"[{diag.Code}] {severityLabel}";
-    }
+        => OutputFormatterDiagnosticKernels.GetDiagnosticTitle(diag.Code, diag.Severity);
 
     public static string SymbolsToText(List<SymbolResult> results)
     {
