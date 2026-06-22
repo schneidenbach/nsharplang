@@ -901,10 +901,12 @@ public static class OutputFormatter
     public static string ImplementorsToText(ImplementorsResult result)
     {
         var sb = new StringBuilder();
-        sb.AppendLine($"Implementors of {result.Interface} ({result.Results.Count}):");
+        sb.AppendLine(OutputFormatterTextKernels.GetImplementorsHeaderText(
+            result.Interface,
+            result.Results.Count));
         sb.AppendLine();
         foreach (var r in result.Results)
-            sb.AppendLine($"  {r.Kind} {r.TypeName}  ({r.File}:{r.Line})");
+            sb.AppendLine(OutputFormatterTextKernels.GetImplementorLineText(r));
         return sb.ToString();
     }
 

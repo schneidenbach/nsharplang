@@ -726,6 +726,48 @@ internal static class OutputFormatterTextKernels
         return GetCallGraphTruncatedLineTextWithCSharp();
     }
 
+    internal static string GetImplementorsHeaderText(string interfaceName, int count)
+    {
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return GetImplementorsHeaderTextWithCSharp(interfaceName, count);
+
+        try
+        {
+            var text = bindings.QueryImplementorsHeaderText(interfaceName, count);
+            if (!string.IsNullOrEmpty(text))
+                return text;
+        }
+        catch
+        {
+        }
+
+        return GetImplementorsHeaderTextWithCSharp(interfaceName, count);
+    }
+
+    internal static string GetImplementorLineText(ImplementorResult result)
+    {
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return GetImplementorLineTextWithCSharp(result);
+
+        try
+        {
+            var text = bindings.QueryImplementorLineText(
+                result.Kind,
+                result.TypeName,
+                result.File ?? string.Empty,
+                result.Line);
+            if (!string.IsNullOrEmpty(text))
+                return text;
+        }
+        catch
+        {
+        }
+
+        return GetImplementorLineTextWithCSharp(result);
+    }
+
     internal static string GetNoReferencesText(string symbolName)
     {
         var bindings = s_bindings.Value;
@@ -982,6 +1024,12 @@ internal static class OutputFormatterTextKernels
             DogfoodKernelLoader.CreateDelegate<QueryCallGraphTruncatedLineText>(
                 programType,
                 "QueryCallGraphTruncatedLineText"),
+            DogfoodKernelLoader.CreateDelegate<QueryImplementorsHeaderText>(
+                programType,
+                "QueryImplementorsHeaderText"),
+            DogfoodKernelLoader.CreateDelegate<QueryImplementorLineText>(
+                programType,
+                "QueryImplementorLineText"),
             DogfoodKernelLoader.CreateDelegate<QueryNoReferencesText>(
                 programType,
                 "QueryNoReferencesText"),
@@ -1106,6 +1154,10 @@ internal static class OutputFormatterTextKernels
 
     private delegate string QueryCallGraphTruncatedLineText(string separator);
 
+    private delegate string QueryImplementorsHeaderText(string interfaceName, int count);
+
+    private delegate string QueryImplementorLineText(string kindText, string typeName, string fileName, int line);
+
     private delegate string QueryNoReferencesText(string symbolName);
 
     private delegate string QueryReferencesHeaderText(string symbolName, int count);
@@ -1172,6 +1224,8 @@ internal static class OutputFormatterTextKernels
         QueryCallGraphSectionHeaderText QueryCallGraphSectionHeaderText,
         QueryCallGraphEdgeLineText QueryCallGraphEdgeLineText,
         QueryCallGraphTruncatedLineText QueryCallGraphTruncatedLineText,
+        QueryImplementorsHeaderText QueryImplementorsHeaderText,
+        QueryImplementorLineText QueryImplementorLineText,
         QueryNoReferencesText QueryNoReferencesText,
         QueryReferencesHeaderText QueryReferencesHeaderText,
         QueryReferenceLineText QueryReferenceLineText,
@@ -1319,6 +1373,12 @@ internal static class OutputFormatterTextKernels
 
     private static string GetCallGraphTruncatedLineTextWithCSharp()
         => "(results truncated \u2014 use --limit to increase)";
+
+    private static string GetImplementorsHeaderTextWithCSharp(string interfaceName, int count)
+        => $"Implementors of {interfaceName} ({count}):";
+
+    private static string GetImplementorLineTextWithCSharp(ImplementorResult result)
+        => $"  {result.Kind} {result.TypeName}  ({result.File}:{result.Line})";
 
     private static string GetNoReferencesTextWithCSharp(string symbolName)
         => $"No references found for '{symbolName}'.";

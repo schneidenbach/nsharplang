@@ -1178,6 +1178,44 @@ public class CodeIntelligenceOutputTests
             text);
     }
 
+    [Fact]
+    public void ImplementorsToText_FormatsResults()
+    {
+        var result = new ImplementorsResult(
+            "IShape",
+            new List<ImplementorResult>
+            {
+                new("Circle", "class", "Geometry.nl", 19, 0),
+                new("Square", "record", null, 25, 0)
+            });
+
+        var text = OutputFormatter.ImplementorsToText(result);
+
+        Assert.Equal(
+            string.Join(Environment.NewLine,
+                "Implementors of IShape (2):",
+                string.Empty,
+                "  class Circle  (Geometry.nl:19)",
+                "  record Square  (:25)",
+                string.Empty),
+            text);
+    }
+
+    [Fact]
+    public void ImplementorsToText_FormatsEmptyResults()
+    {
+        var result = new ImplementorsResult("IFoo", new List<ImplementorResult>());
+
+        var text = OutputFormatter.ImplementorsToText(result);
+
+        Assert.Equal(
+            string.Join(Environment.NewLine,
+                "Implementors of IFoo (0):",
+                string.Empty,
+                string.Empty),
+            text);
+    }
+
     // ── Model Record Tests ──────────────────────────────────────────────
 
     [Fact]

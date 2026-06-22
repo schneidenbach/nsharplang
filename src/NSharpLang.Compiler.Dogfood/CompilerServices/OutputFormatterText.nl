@@ -236,6 +236,14 @@ func QueryCallGraphTruncatedLineText(separator: string): string {
     return "(results truncated " + separator + " use --limit to increase)"
 }
 
+func QueryImplementorsHeaderText(interfaceName: string, count: int): string {
+    return "Implementors of " + interfaceName + " (" + count.ToString() + "):"
+}
+
+func QueryImplementorLineText(kindText: string, typeName: string, fileName: string, line: int): string {
+    return "  " + kindText + " " + typeName + "  (" + fileName + ":" + line.ToString() + ")"
+}
+
 func QueryNoReferencesText(symbolName: string): string {
     return "No references found for '" + symbolName + "'."
 }

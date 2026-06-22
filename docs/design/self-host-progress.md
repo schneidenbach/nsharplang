@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-22 — Query implementors text moves into product N#
+
+`OutputFormatter.ImplementorsToText` no longer owns the visible `nlc query implementors --text` header or result
+rows in C#. The shipped `OutputFormatterText.nl` dogfood kernel now shapes those implementor-query lines through
+`OutputFormatterTextKernels`; C# keeps result traversal, CLR object access, StringBuilder assembly, and
+fallback/oracle rendering only. This is a Stage 6 `C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CodeIntelligenceOutputTests.ImplementorsToText_FormatsResults|FullyQualifiedName~CodeIntelligenceOutputTests.ImplementorsToText_FormatsEmptyResults|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_OutputFormatterText"`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`;
+`./scripts/dev.sh ImplementorsToText`.
+
 ## 2026-06-22 — Query call graph text moves into product N#
 
 `OutputFormatter.CallGraphToText` no longer owns the visible `nlc query call-graph --text` function/full-project
