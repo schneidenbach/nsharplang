@@ -122,12 +122,7 @@ public static class LintCommand
                     {
                         allDiagnostics.Add(new DiagnosticResult(
                             diag.Code,
-                            diag.Severity switch
-                            {
-                                DiagnosticSeverity.Error => "error",
-                                DiagnosticSeverity.Warning => "warning",
-                                _ => "info"
-                            },
+                            LintCommandKernels.GetSeverityText(diag.Severity),
                             diag.Message,
                             NormalizePath(Path.GetRelativePath(projectRoot, file)),
                             diag.Location.Line,

@@ -4158,6 +4158,18 @@ func CliLintEffectiveOutputMode(useText: int, useJson: int): int {
     return 1
 }
 
+func CliLintSeverityText(severity: int): string {
+    if severity == 1 {
+        return "error"
+    }
+
+    if severity == 0 {
+        return "warning"
+    }
+
+    return "info"
+}
+
 func CliLintHelpText(): string {
     return "N# Lint\n"
         + "\n"

@@ -7159,6 +7159,7 @@ func outer(x: int): int {
         Assert.Contains("CliPackEffectiveVersionSource", methodNames!); // product pack version source selection.
         Assert.Contains("CliLintOptionSummaryInto", methodNames!); // product lint option parsing.
         Assert.Contains("CliLintEffectiveOutputMode", methodNames!); // product lint output mode selection.
+        Assert.Contains("CliLintSeverityText", methodNames!); // product lint diagnostic severity text rendering.
         Assert.Contains("CliLintHelpText", methodNames!); // product lint help text shaping.
         Assert.Contains("CliLintProjectDirectoryNotFoundMessage", methodNames!); // product lint missing-project message shaping.
         Assert.Contains("CliLintNoFilesFoundMessage", methodNames!); // product lint no-files message shaping.
@@ -7395,6 +7396,10 @@ func outer(x: int): int {
             ("CliDaemonClientExecutablePathMissingMessage", Array.Empty<object>()),
             ("CliDaemonClientStartTimeoutMessage", Array.Empty<object>()),
             ("CliDaemonClientStartFailedWithReasonMessage", new object[] { "denied" }),
+            ("CliLintSeverityText", new object[] { (int)DiagnosticSeverity.Warning }),
+            ("CliLintSeverityText", new object[] { (int)DiagnosticSeverity.Error }),
+            ("CliLintSeverityText", new object[] { (int)DiagnosticSeverity.Info }),
+            ("CliLintSeverityText", new object[] { 99 }),
             ("CliDocLocationText", new object[] { "src/Program.nl", "12", "4" }),
             ("CliDocParameterText", new object[] { "value", "int", 0, "" }),
             ("CliDocParameterText", new object[] { "value", "int", 1, "42" }),
@@ -16838,6 +16843,10 @@ class OtherZetaType {
                     "CliLintEffectiveOutputMode",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliLintEffectiveOutputMode.");
+            var cliLintSeverityText = programType.GetMethod(
+                    "CliLintSeverityText",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliLintSeverityText.");
             var cliLintHelpText = programType.GetMethod(
                     "CliLintHelpText",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -18642,6 +18651,7 @@ func main(customer: Customer, résumé: Profile) {
             AssertCliLintOptionsLikeProduction(cliLintOptionSummaryInto);
             AssertCliLintEffectiveOutputModesLikeProduction(cliLintEffectiveOutputMode);
             AssertCliLintMessagesLikeProduction(
+                cliLintSeverityText,
                 cliLintHelpText,
                 cliLintProjectDirectoryNotFoundMessage,
                 cliLintNoFilesFoundMessage,
@@ -24423,6 +24433,7 @@ func main() {
     }
 
     private static void AssertCliLintMessagesLikeProduction(
+        MethodInfo cliLintSeverityText,
         MethodInfo cliLintHelpText,
         MethodInfo cliLintProjectDirectoryNotFoundMessage,
         MethodInfo cliLintNoFilesFoundMessage,
@@ -24434,6 +24445,19 @@ func main() {
         MethodInfo cliLintElapsedMessage,
         MethodInfo cliLintFailedMessage)
     {
+        Assert.Equal(
+            "warning",
+            (string)(cliLintSeverityText.Invoke(null, new object[] { (int)DiagnosticSeverity.Warning }) ?? "<null>"));
+        Assert.Equal(
+            "error",
+            (string)(cliLintSeverityText.Invoke(null, new object[] { (int)DiagnosticSeverity.Error }) ?? "<null>"));
+        Assert.Equal(
+            "info",
+            (string)(cliLintSeverityText.Invoke(null, new object[] { (int)DiagnosticSeverity.Info }) ?? "<null>"));
+        Assert.Equal(
+            "info",
+            (string)(cliLintSeverityText.Invoke(null, new object[] { 99 }) ?? "<null>"));
+
         var helpText = (string)(cliLintHelpText.Invoke(null, Array.Empty<object>()) ?? "<null>");
         Assert.Contains("N# Lint", helpText);
         Assert.Contains("Usage: nlc lint [options] [files...]", helpText);

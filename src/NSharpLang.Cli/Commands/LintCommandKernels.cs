@@ -1,5 +1,6 @@
 using System;
 using System.Globalization;
+using NSharpLang.Compiler;
 
 namespace NSharpLang.Cli.Commands;
 
@@ -141,6 +142,11 @@ internal static class LintCommandKernels
             ? message
             : FallbackHelpText();
 
+    internal static string GetSeverityText(DiagnosticSeverity severity)
+        => TryGetMessage(bindings => bindings.SeverityText((int)severity), out var message)
+            ? message
+            : FallbackSeverityText(severity);
+
     internal static string GetProjectDirectoryNotFoundMessage(string projectRoot)
         => TryGetMessage(bindings => bindings.ProjectDirectoryNotFoundMessage(projectRoot), out var message)
             ? message
@@ -220,6 +226,9 @@ internal static class LintCommandKernels
             DogfoodKernelLoader.CreateDelegate<CliLintEffectiveOutputMode>(
                 programType,
                 "CliLintEffectiveOutputMode"),
+            DogfoodKernelLoader.CreateDelegate<CliLintSeverityText>(
+                programType,
+                "CliLintSeverityText"),
             DogfoodKernelLoader.CreateDelegate<CliLintHelpText>(
                 programType,
                 "CliLintHelpText"),
@@ -260,6 +269,8 @@ internal static class LintCommandKernels
 
     private delegate int CliLintEffectiveOutputMode(int useText, int useJson);
 
+    private delegate string CliLintSeverityText(int severity);
+
     private delegate string CliLintHelpText();
 
     private delegate string CliLintProjectDirectoryNotFoundMessage(string projectRoot);
@@ -284,6 +295,7 @@ internal static class LintCommandKernels
         CliLintOptionSummaryInto LintOptionSummary,
         CliLintFileArgIndicesInto LintFileArgIndices,
         CliLintEffectiveOutputMode LintEffectiveOutputMode,
+        CliLintSeverityText SeverityText,
         CliLintHelpText HelpText,
         CliLintProjectDirectoryNotFoundMessage ProjectDirectoryNotFoundMessage,
         CliLintNoFilesFoundMessage NoFilesFoundMessage,
@@ -295,7 +307,15 @@ internal static class LintCommandKernels
         CliLintElapsedMessage ElapsedMessage,
         CliLintFailedMessage FailedMessage);
 
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product lint messages route through CliLint* kernels.
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product lint messages and severity text route through CliLint* kernels.
+    private static string FallbackSeverityText(DiagnosticSeverity severity)
+        => severity switch
+        {
+            DiagnosticSeverity.Error => "error",
+            DiagnosticSeverity.Warning => "warning",
+            _ => "info"
+        };
+
     private static string FallbackHelpText()
         => "N# Lint\n"
            + "\n"

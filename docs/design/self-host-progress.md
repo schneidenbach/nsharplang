@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-22 — Lint diagnostic severity text moves into product N#
+
+`LintCommand` no longer owns diagnostic severity string rendering (`error`, `warning`, `info`) in C#. The shipped
+`CliLintSeverityText` dogfood kernel now shapes lint diagnostic severity text through `LintCommandKernels`; C# keeps
+diagnostic collection, source-line extraction, formatter handoff, and fallback/oracle mapping only. This is a Stage 6
+`C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.LintCommandKernels_SummarizesOptions|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`;
+`./scripts/dev.sh LintCommandKernels`.
+
 ## 2026-06-22 — Doc generated locations move into product N#
 
 `DocCommand` no longer owns generated API location text (`relative/path:line:column`) in C#. The shipped

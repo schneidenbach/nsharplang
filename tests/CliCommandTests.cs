@@ -2931,6 +2931,10 @@ func Main() {
         Assert.Contains("Usage: nlc lint [options] [files...]", helpText);
         Assert.Contains("One or more errors were reported", helpText);
 
+        Assert.Equal("warning", LintCommandKernels.GetSeverityText(DiagnosticSeverity.Warning));
+        Assert.Equal("error", LintCommandKernels.GetSeverityText(DiagnosticSeverity.Error));
+        Assert.Equal("info", LintCommandKernels.GetSeverityText(DiagnosticSeverity.Info));
+
         Assert.Equal(
             "Directory not found: /tmp/missing-lint-project",
             LintCommandKernels.GetProjectDirectoryNotFoundMessage("/tmp/missing-lint-project"));
