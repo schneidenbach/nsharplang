@@ -104,189 +104,40 @@ internal static class BuildCommandKernels
     }
 
     internal static string GetHelpText()
-    {
-        if (TryGetMessage(bindings => bindings.BuildHelpText(), out var message))
-            return message;
-
-        return GetHelpTextWithCSharp();
-    }
+        => RequiredBindings.BuildHelpText();
 
     internal static string GetFileNotFoundMessage(string sourceFile)
-    {
-        if (TryGetMessage(bindings => bindings.BuildFileNotFoundMessage(sourceFile), out var message))
-            return message;
-
-        return GetFileNotFoundMessageWithCSharp(sourceFile);
-    }
+        => RequiredBindings.BuildFileNotFoundMessage(sourceFile);
 
     internal static string GetFailedMessage(string message)
-    {
-        if (TryGetMessage(bindings => bindings.BuildFailedMessage(message), out var result))
-            return result;
-
-        return GetFailedMessageWithCSharp(message);
-    }
+        => RequiredBindings.BuildFailedMessage(message);
 
     internal static string GetProjectStartMessage(string projectRoot)
-    {
-        if (TryGetMessage(bindings => bindings.BuildProjectStartMessage(projectRoot), out var message))
-            return message;
-
-        return GetProjectStartMessageWithCSharp(projectRoot);
-    }
+        => RequiredBindings.BuildProjectStartMessage(projectRoot);
 
     internal static string GetSingleFileStartMessage(string sourceFile)
-    {
-        if (TryGetMessage(bindings => bindings.BuildSingleFileStartMessage(sourceFile), out var message))
-            return message;
-
-        return GetSingleFileStartMessageWithCSharp(sourceFile);
-    }
+        => RequiredBindings.BuildSingleFileStartMessage(sourceFile);
 
     internal static string GetMissingProjectFileMessage()
-    {
-        if (TryGetMessage(bindings => bindings.BuildMissingProjectFileMessage(), out var message))
-            return message;
-
-        return GetMissingProjectFileMessageWithCSharp();
-    }
+        => RequiredBindings.BuildMissingProjectFileMessage();
 
     internal static string GetFailedElapsedMessage(string elapsedText)
-    {
-        if (TryGetMessage(bindings => bindings.BuildFailedElapsedMessage(elapsedText), out var message))
-            return message;
-
-        return GetFailedElapsedMessageWithCSharp(elapsedText);
-    }
+        => RequiredBindings.BuildFailedElapsedMessage(elapsedText);
 
     internal static string GetSuccessElapsedMessage(bool release, string elapsedText)
-    {
-        if (TryGetMessage(bindings => bindings.BuildSuccessElapsedMessage(release ? 1 : 0, elapsedText), out var message))
-            return message;
-
-        return GetSuccessElapsedMessageWithCSharp(release, elapsedText);
-    }
+        => RequiredBindings.BuildSuccessElapsedMessage(release ? 1 : 0, elapsedText);
 
     internal static string GetSuccessMessage(bool release)
-    {
-        if (TryGetMessage(bindings => bindings.BuildSuccessMessage(release ? 1 : 0), out var message))
-            return message;
-
-        return GetSuccessMessageWithCSharp(release);
-    }
+        => RequiredBindings.BuildSuccessMessage(release ? 1 : 0);
 
     internal static string GetOutputPathMessage(string outputPath)
-    {
-        if (TryGetMessage(bindings => bindings.BuildOutputPathMessage(outputPath), out var message))
-            return message;
-
-        return GetOutputPathMessageWithCSharp(outputPath);
-    }
+        => RequiredBindings.BuildOutputPathMessage(outputPath);
 
     internal static string GetTimingsMessage(string resolveElapsed, string compileElapsed, string totalElapsed)
-    {
-        if (TryGetMessage(bindings => bindings.BuildTimingsMessage(resolveElapsed, compileElapsed, totalElapsed), out var message))
-            return message;
+        => RequiredBindings.BuildTimingsMessage(resolveElapsed, compileElapsed, totalElapsed);
 
-        return GetTimingsMessageWithCSharp(resolveElapsed, compileElapsed, totalElapsed);
-    }
-
-    private static bool TryGetMessage(Func<Bindings, string> getMessage, out string message)
-    {
-        message = string.Empty;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        try
-        {
-            message = getMessage(bindings);
-            return !string.IsNullOrEmpty(message);
-        }
-        catch
-        {
-            message = string.Empty;
-            return false;
-        }
-    }
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product build messages route through CliBuild* kernels.
-    private static string GetHelpTextWithCSharp()
-        => "N# Build\n"
-           + "\n"
-           + "Usage: nlc build [file.nl] [options]\n"
-           + "\n"
-           + "Build a project or a single N# source file.\n"
-           + "\n"
-           + "When run in a directory with project.yml, compiles directly from project.yml\n"
-           + "through the native IL backend. No user-authored .csproj is needed.\n"
-           + "\n"
-           + "Options:\n"
-           + "  --backend <mode>   Compilation backend: il\n"
-           + "  --project <dir>    Project root directory (default: current directory)\n"
-           + "  --release          Build with Release configuration/output layout (default: Debug)\n"
-           + "  --verbose          Show detailed build output\n"
-           + "  --timings          Emit per-phase timing breakdown after build\n"
-           + "  --perf-report      Emit a versioned JSON performance report after build\n"
-           + "  --aot              Analyze for Native AOT safety; AOT blockers become build errors\n"
-           + "  --output <path>    Output directory for build artifacts (-o shorthand)\n"
-           + "  --define <symbol>  Define a conditional-compilation symbol for #if (-d shorthand);\n"
-           + "                     repeatable, and accepts comma-separated lists\n"
-           + "  --help, -h         Show this help text\n"
-           + "\n"
-           + "Conditional compilation:\n"
-           + "  DEBUG is defined automatically for debug builds (omitted with --release).\n"
-           + "  Project-wide symbols can also be set via 'defines:' in project.yml.\n"
-           + "\n"
-           + "Examples:\n"
-           + "  nlc build              Build the current project\n"
-           + "  nlc build --backend il Build the current project with the IL backend\n"
-           + "  nlc build --release    Release configuration/output layout\n"
-           + "  nlc build --verbose    Show detailed build output\n"
-           + "  nlc build --timings    Show phase-level timing breakdown\n"
-           + "  nlc build --perf-report Emit a JSON performance report\n"
-           + "  nlc build --aot        Fail the build on Native AOT blockers\n"
-           + "  nlc build -o ./dist    Build to a specific output directory\n"
-           + "  nlc build --define FEATURE_X  Build with FEATURE_X defined\n"
-           + "  nlc build Program.nl   Build a single file\n"
-           + "\n"
-           + "Exit codes:\n"
-           + "  0  Build succeeded\n"
-           + "  1  Build failed";
-
-    private static string GetFileNotFoundMessageWithCSharp(string sourceFile)
-        => $"File not found: {sourceFile}";
-
-    private static string GetFailedMessageWithCSharp(string message)
-        => $"Build failed: {message}";
-
-    private static string GetProjectStartMessageWithCSharp(string projectRoot)
-        => $"Building project in {projectRoot} with the IL backend...";
-
-    private static string GetSingleFileStartMessageWithCSharp(string sourceFile)
-        => $"Building {sourceFile} with the IL backend...";
-
-    private static string GetMissingProjectFileMessageWithCSharp()
-        => "No project.yml found in current directory. Run 'nlc new <name>' to create a project, or use 'nlc build <file.nl>' for a single file.";
-
-    private static string GetFailedElapsedMessageWithCSharp(string elapsedText)
-        => $"  Build failed in {elapsedText}";
-
-    private static string GetSuccessElapsedMessageWithCSharp(bool release, string elapsedText)
-        => $"Build successful! (il, {(release ? "release" : "debug")}) [{elapsedText}]";
-
-    private static string GetSuccessMessageWithCSharp(bool release)
-        => $"Build successful! (il, {(release ? "release" : "debug")})";
-
-    private static string GetOutputPathMessageWithCSharp(string outputPath)
-        => $"Output: {outputPath}";
-
-    private static string GetTimingsMessageWithCSharp(string resolveElapsed, string compileElapsed, string totalElapsed)
-        => "Build timings:\n"
-           + $"  Resolve:    {resolveElapsed}\n"
-           + $"  Emit IL:    {compileElapsed}\n"
-           + $"  Total:      {totalElapsed}";
+    private static Bindings RequiredBindings
+        => s_bindings.Value ?? throw new InvalidOperationException("N# build command kernels are unavailable.");
 
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
