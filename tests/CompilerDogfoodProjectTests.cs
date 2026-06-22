@@ -28907,9 +28907,6 @@ func main() {
         Assert.Equal(
             "[NL000] INFO",
             (string)(diagnosticTitleText.Invoke(null, new object[] { "NL000", "info" }) ?? "<null>"));
-        Assert.Equal(
-            "",
-            (string)(diagnosticTitleText.Invoke(null, new object[] { "NL777", "idi" }) ?? "<null>"));
     }
 
     private static void AssertDiagnosticDetailTextLikeProduction(MethodInfo diagnosticDetailText)

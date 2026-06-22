@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 
 namespace NSharpLang.Compiler.CodeIntelligence;
 
@@ -115,152 +114,40 @@ internal static class OutputFormatterDiagnosticKernels
     }
 
     internal static string GetDiagnosticTitle(string code, string severity)
-    {
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return GetDiagnosticTitleWithCSharp(code, severity);
-
-        try
-        {
-            var title = bindings.DiagnosticTitle(code, severity);
-            if (!string.IsNullOrEmpty(title))
-                return title;
-        }
-        catch
-        {
-        }
-
-        return GetDiagnosticTitleWithCSharp(code, severity);
-    }
+        => RequiredBindings.DiagnosticTitle(code, severity);
 
     internal static string GetExpectedTypeText(string expectedType)
-        => GetDiagnosticDetailText(DiagnosticDetailExpectedType, expectedType, $"Expected: `{expectedType}`");
+        => GetDiagnosticDetailText(DiagnosticDetailExpectedType, expectedType);
 
     internal static string GetActualTypeText(string actualType)
-        => GetDiagnosticDetailText(DiagnosticDetailActualType, actualType, $"  Actual: `{actualType}`");
+        => GetDiagnosticDetailText(DiagnosticDetailActualType, actualType);
 
     internal static string GetHintText(string hint)
-        => GetDiagnosticDetailText(DiagnosticDetailHint, hint, $"Hint: {hint}");
+        => GetDiagnosticDetailText(DiagnosticDetailHint, hint);
 
     internal static string GetSuggestionText(string suggestion)
-        => GetDiagnosticDetailText(DiagnosticDetailSuggestion, suggestion, $"Suggestion: {suggestion}");
+        => GetDiagnosticDetailText(DiagnosticDetailSuggestion, suggestion);
 
     internal static string GetDocsUrlText(string docsUrl)
-        => GetDiagnosticDetailText(DiagnosticDetailDocsUrl, docsUrl, $"See: {docsUrl}");
+        => GetDiagnosticDetailText(DiagnosticDetailDocsUrl, docsUrl);
 
-    private static string GetDiagnosticDetailText(int kind, string value, string fallback)
-    {
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return fallback;
-
-        try
-        {
-            var detail = bindings.DiagnosticDetail(kind, value);
-            if (!string.IsNullOrEmpty(detail))
-                return detail;
-        }
-        catch
-        {
-        }
-
-        return fallback;
-    }
+    private static string GetDiagnosticDetailText(int kind, string value)
+        => RequiredBindings.DiagnosticDetail(kind, value);
 
     internal static string GetNoDiagnosticsText()
-    {
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return "No diagnostics found.";
-
-        try
-        {
-            var text = bindings.DiagnosticNoDiagnostics();
-            if (!string.IsNullOrEmpty(text))
-                return text;
-        }
-        catch
-        {
-        }
-
-        return "No diagnostics found.";
-    }
+        => RequiredBindings.DiagnosticNoDiagnostics();
 
     internal static string GetFoundSummaryText(DiagnosticSummary summary)
-    {
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return GetFoundSummaryTextWithCSharp(summary);
-
-        try
-        {
-            var text = bindings.DiagnosticFoundSummary(summary.Errors, summary.Warnings, summary.Info);
-            if (!string.IsNullOrEmpty(text))
-                return text;
-        }
-        catch
-        {
-        }
-
-        return GetFoundSummaryTextWithCSharp(summary);
-    }
+        => RequiredBindings.DiagnosticFoundSummary(summary.Errors, summary.Warnings, summary.Info);
 
     internal static string GetSourceLineText(int line, string sourceSnippet)
-    {
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return GetSourceLineTextWithCSharp(line, sourceSnippet);
-
-        try
-        {
-            var text = bindings.DiagnosticSourceLine(line, sourceSnippet);
-            if (!string.IsNullOrEmpty(text))
-                return text;
-        }
-        catch
-        {
-        }
-
-        return GetSourceLineTextWithCSharp(line, sourceSnippet);
-    }
+        => RequiredBindings.DiagnosticSourceLine(line, sourceSnippet);
 
     internal static string GetHeaderLineText(string title, string file, int line, int column)
-    {
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return GetHeaderLineTextWithCSharp(title, file, line, column);
-
-        try
-        {
-            var text = bindings.DiagnosticHeaderLine(title, file, line, column, DiagnosticHeaderRuler);
-            if (!string.IsNullOrEmpty(text))
-                return text;
-        }
-        catch
-        {
-        }
-
-        return GetHeaderLineTextWithCSharp(title, file, line, column);
-    }
+        => RequiredBindings.DiagnosticHeaderLine(title, file, line, column, DiagnosticHeaderRuler);
 
     internal static string GetCaretLineText(int line, int column, int length)
-    {
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return GetCaretLineTextWithCSharp(line, column, length);
-
-        try
-        {
-            var text = bindings.DiagnosticCaretLine(line, column, length);
-            if (!string.IsNullOrEmpty(text))
-                return text;
-        }
-        catch
-        {
-        }
-
-        return GetCaretLineTextWithCSharp(line, column, length);
-    }
+        => RequiredBindings.DiagnosticCaretLine(line, column, length);
 
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
@@ -327,39 +214,8 @@ internal static class OutputFormatterDiagnosticKernels
         DiagnosticHeaderLineText DiagnosticHeaderLine,
         DiagnosticCaretLineText DiagnosticCaretLine);
 
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product diagnostic text routes through DiagnosticClusters.nl.
-    private static string GetDiagnosticTitleWithCSharp(string code, string severity)
-        => $"[{code}] {severity.ToUpperInvariant()}";
-
-    private static string GetFoundSummaryTextWithCSharp(DiagnosticSummary summary)
-    {
-        var parts = new List<string>();
-        if (summary.Errors > 0) parts.Add($"{summary.Errors} error{(summary.Errors == 1 ? "" : "s")}");
-        if (summary.Warnings > 0) parts.Add($"{summary.Warnings} warning{(summary.Warnings == 1 ? "" : "s")}");
-        if (summary.Info > 0) parts.Add($"{summary.Info} info");
-        return $"Found {string.Join(", ", parts)}.";
-    }
-
-    private static string GetSourceLineTextWithCSharp(int line, string sourceSnippet)
-        => $"    {line} | {sourceSnippet}";
-
-    private static string GetHeaderLineTextWithCSharp(string title, string file, int line, int column)
-    {
-        var location = $"{file}:{line}:{column}";
-        var headerContent = $" {title} ";
-        var locationPart = $" {location} ";
-        var remainingWidth = Math.Max(0, 60 - headerContent.Length - locationPart.Length);
-        var dashes = new string('\u2500', Math.Max(2, remainingWidth));
-        return $"\u2500\u2500{headerContent}{dashes}{locationPart}\u2500\u2500";
-    }
-
-    private static string GetCaretLineTextWithCSharp(int line, int column, int length)
-    {
-        var padding = new string(' ', line.ToString().Length);
-        var caretOffset = Math.Max(0, column - 1);
-        var caretLine = new string(' ', caretOffset) + new string('^', Math.Max(1, length));
-        return $"    {padding} | {caretLine}";
-    }
+    private static Bindings RequiredBindings
+        => s_bindings.Value ?? throw new InvalidOperationException("N# diagnostic text kernels are unavailable.");
 
     private sealed class DiagnosticSummaryScratch
     {

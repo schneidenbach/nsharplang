@@ -133,10 +133,7 @@ public static class OutputFormatter
         if (OutputFormatterDiagnosticKernels.TrySummarizeDiagnosticSeverities(results, out var summary))
             return summary;
 
-        return new DiagnosticSummary(
-            Errors: results.Count(d => d.Severity == "error"),
-            Warnings: results.Count(d => d.Severity == "warning"),
-            Info: results.Count(d => d.Severity == "info"));
+        throw new InvalidOperationException("N# diagnostic severity summary kernel rejected the diagnostics.");
     }
 
     public static List<DiagnosticResult> FilterDiagnosticsBySeverity(
@@ -154,7 +151,7 @@ public static class OutputFormatter
             {
                 var diagnosticIndex = resultIndices[i];
                 if (diagnosticIndex < 0 || diagnosticIndex >= diagnostics.Count)
-                    return FilterDiagnosticsBySeverityWithLinq(diagnostics, severity);
+                    throw new InvalidOperationException("N# diagnostic severity filter kernel returned an invalid index.");
 
                 results.Add(diagnostics[diagnosticIndex]);
             }
@@ -162,15 +159,8 @@ public static class OutputFormatter
             return results;
         }
 
-        return FilterDiagnosticsBySeverityWithLinq(diagnostics, severity);
+        throw new InvalidOperationException("N# diagnostic severity filter kernel rejected the diagnostics.");
     }
-
-    private static List<DiagnosticResult> FilterDiagnosticsBySeverityWithLinq(
-        IReadOnlyList<DiagnosticResult> diagnostics,
-        string severity) =>
-        diagnostics
-            .Where(diagnostic => diagnostic.Severity.Equals(severity, StringComparison.OrdinalIgnoreCase))
-            .ToList();
 
     public static List<DiagnosticResult> DeduplicateAndSortDiagnostics(IReadOnlyList<DiagnosticResult> diagnostics)
     {

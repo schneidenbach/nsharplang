@@ -179,7 +179,22 @@ func DiagnosticSeverityLabel(severity: string): string {
         return "INFO"
     }
 
-    return ""
+    return DiagnosticUpperInvariant(severity)
+}
+
+func DiagnosticUpperInvariant(value: string): string {
+    if value.Length == 0 {
+        return ""
+    }
+
+    chars := new char[](value.Length)
+    i := 0
+    while i < value.Length {
+        chars[i] = Char.ToUpperInvariant(value[i])
+        i = i + 1
+    }
+
+    return new string(chars, 0, value.Length)
 }
 
 func DiagnosticDetailText(kind: int, value: string): string {
