@@ -181,6 +181,30 @@ func DiagnosticSeverityLabel(severity: string): string {
     return ""
 }
 
+func DiagnosticDetailText(kind: int, value: string): string {
+    if kind == 1 {
+        return "Expected: `" + value + "`"
+    }
+
+    if kind == 2 {
+        return "  Actual: `" + value + "`"
+    }
+
+    if kind == 3 {
+        return "Hint: " + value
+    }
+
+    if kind == 4 {
+        return "Suggestion: " + value
+    }
+
+    if kind == 5 {
+        return "See: " + value
+    }
+
+    return ""
+}
+
 func DiagnosticSeverityFilterIndicesCore(
     severityRanks: &DiagnosticSeverityRankTable,
     targetRank: int,

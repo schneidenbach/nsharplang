@@ -11,6 +11,19 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-22 — Diagnostic detail lines move into product N#
+
+`OutputFormatter.DiagnosticsToText` no longer owns labeled diagnostic detail lines (`Expected`, `Actual`,
+`Hint`, `Suggestion`, and `See`) in C#. The shipped `DiagnosticDetailText` dogfood kernel now shapes those
+stable labels through `OutputFormatterDiagnosticKernels`; C# keeps whitespace gating, section ordering,
+StringBuilder assembly, and fallback/oracle labels only. This is a Stage 6 `C#-surface-shrink`
+product-route slice.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CodeIntelligenceOutputTests.DiagnosticsToText_ElmStyleFormatting|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_DiagnosticClusters"`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`;
+`./scripts/dev.sh DiagnosticsToText`.
+
 ## 2026-06-22 — Diagnostic title text moves into product N#
 
 `OutputFormatter.DiagnosticsToText` no longer owns diagnostic title rendering (`[CODE] SEVERITY`) in C#.

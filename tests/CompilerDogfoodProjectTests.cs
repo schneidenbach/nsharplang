@@ -7689,12 +7689,19 @@ func outer(x: int): int {
         Assert.Contains("StartsWithIgnoreCase", methodNames!);       // 6-arg String.Compare
         Assert.Contains("NormalizeDiagnosticMessagePattern", methodNames!); // string.Trim()
         Assert.Contains("DiagnosticTitleText", methodNames!); // product diagnostics text title shaping.
+        Assert.Contains("DiagnosticDetailText", methodNames!); // product diagnostics detail line shaping.
 
         AssertColumnarProgramMatchesCSharp(source,
             ("DiagnosticTitleText", new object[] { "NL202", "error" }),
             ("DiagnosticTitleText", new object[] { "NL901", "warning" }),
             ("DiagnosticTitleText", new object[] { "NL000", "info" }),
             ("DiagnosticTitleText", new object[] { "NL777", "idi" }),
+            ("DiagnosticDetailText", new object[] { 1, "int" }),
+            ("DiagnosticDetailText", new object[] { 2, "string" }),
+            ("DiagnosticDetailText", new object[] { 3, "Check your types" }),
+            ("DiagnosticDetailText", new object[] { 4, "Use int.Parse" }),
+            ("DiagnosticDetailText", new object[] { 5, "https://docs.n-sharp.dev/errors/NL202" }),
+            ("DiagnosticDetailText", new object[] { 99, "ignored" }),
             // Small buffer (< 13) -> "diag-" + Math.Abs(hash).ToString("x"); large buffer -> built into the buffer.
             ("FormatDiagnosticClusterId", new object[] { 255, new char[4] }),
             ("FormatDiagnosticClusterId", new object[] { 0, new char[4] }),
@@ -17688,6 +17695,10 @@ class OtherZetaType {
                     "DiagnosticTitleText",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit DiagnosticTitleText.");
+            var diagnosticDetailText = programType.GetMethod(
+                    "DiagnosticDetailText",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit DiagnosticDetailText.");
             var diagnosticSeverityFilterChecksumInto = programType.GetMethod(
                     "DiagnosticSeverityFilterChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -19027,6 +19038,7 @@ func main() {
                 diagnosticSeveritySummaryInto,
                 diagnosticSeveritySummaryChecksumInto);
             AssertDiagnosticTitleTextLikeProduction(diagnosticTitleText);
+            AssertDiagnosticDetailTextLikeProduction(diagnosticDetailText);
             AssertDiagnosticSeverityFilteringLikeProduction(
                 diagnosticSeverityFilterIndicesInto,
                 diagnosticSeverityFilterChecksumInto);
@@ -28413,6 +28425,30 @@ func main() {
         Assert.Equal(
             "",
             (string)(diagnosticTitleText.Invoke(null, new object[] { "NL777", "idi" }) ?? "<null>"));
+    }
+
+    private static void AssertDiagnosticDetailTextLikeProduction(MethodInfo diagnosticDetailText)
+    {
+        Assert.Equal(
+            "Expected: `int`",
+            (string)(diagnosticDetailText.Invoke(null, new object[] { 1, "int" }) ?? "<null>"));
+        Assert.Equal(
+            "  Actual: `string`",
+            (string)(diagnosticDetailText.Invoke(null, new object[] { 2, "string" }) ?? "<null>"));
+        Assert.Equal(
+            "Hint: Check your types",
+            (string)(diagnosticDetailText.Invoke(null, new object[] { 3, "Check your types" }) ?? "<null>"));
+        Assert.Equal(
+            "Suggestion: Use int.Parse",
+            (string)(diagnosticDetailText.Invoke(null, new object[] { 4, "Use int.Parse" }) ?? "<null>"));
+        Assert.Equal(
+            "See: https://docs.n-sharp.dev/errors/NL202",
+            (string)(diagnosticDetailText.Invoke(
+                null,
+                new object[] { 5, "https://docs.n-sharp.dev/errors/NL202" }) ?? "<null>"));
+        Assert.Equal(
+            "",
+            (string)(diagnosticDetailText.Invoke(null, new object[] { 99, "ignored" }) ?? "<null>"));
     }
 
     private static void AssertDiagnosticSeverityFilteringLikeProduction(

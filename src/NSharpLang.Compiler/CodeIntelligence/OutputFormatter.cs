@@ -1694,30 +1694,30 @@ public static class OutputFormatter
         {
             sb.AppendLine();
             if (!string.IsNullOrWhiteSpace(diag.ExpectedType))
-                sb.AppendLine($"Expected: `{diag.ExpectedType}`");
+                sb.AppendLine(OutputFormatterDiagnosticKernels.GetExpectedTypeText(diag.ExpectedType));
             if (!string.IsNullOrWhiteSpace(diag.ActualType))
-                sb.AppendLine($"  Actual: `{diag.ActualType}`");
+                sb.AppendLine(OutputFormatterDiagnosticKernels.GetActualTypeText(diag.ActualType));
         }
 
         // Hint
         if (!string.IsNullOrWhiteSpace(diag.Hint))
         {
             sb.AppendLine();
-            sb.AppendLine($"Hint: {diag.Hint}");
+            sb.AppendLine(OutputFormatterDiagnosticKernels.GetHintText(diag.Hint));
         }
 
         // Suggestion
         if (!string.IsNullOrWhiteSpace(diag.Suggestion))
         {
             sb.AppendLine();
-            sb.AppendLine($"Suggestion: {diag.Suggestion}");
+            sb.AppendLine(OutputFormatterDiagnosticKernels.GetSuggestionText(diag.Suggestion));
         }
 
         // Docs URL
         if (!string.IsNullOrWhiteSpace(diag.DocsUrl))
         {
             sb.AppendLine();
-            sb.AppendLine($"See: {diag.DocsUrl}");
+            sb.AppendLine(OutputFormatterDiagnosticKernels.GetDocsUrlText(diag.DocsUrl));
         }
 
         return sb.ToString();

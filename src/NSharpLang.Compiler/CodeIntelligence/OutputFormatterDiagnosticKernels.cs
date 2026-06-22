@@ -6,6 +6,12 @@ namespace NSharpLang.Compiler.CodeIntelligence;
 
 internal static class OutputFormatterDiagnosticKernels
 {
+    private const int DiagnosticDetailExpectedType = 1;
+    private const int DiagnosticDetailActualType = 2;
+    private const int DiagnosticDetailHint = 3;
+    private const int DiagnosticDetailSuggestion = 4;
+    private const int DiagnosticDetailDocsUrl = 5;
+
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
     [ThreadStatic]
     private static DiagnosticSummaryScratch? t_diagnosticSummaryScratch;
@@ -125,6 +131,40 @@ internal static class OutputFormatterDiagnosticKernels
         return GetDiagnosticTitleWithCSharp(code, severity);
     }
 
+    internal static string GetExpectedTypeText(string expectedType)
+        => GetDiagnosticDetailText(DiagnosticDetailExpectedType, expectedType, $"Expected: `{expectedType}`");
+
+    internal static string GetActualTypeText(string actualType)
+        => GetDiagnosticDetailText(DiagnosticDetailActualType, actualType, $"  Actual: `{actualType}`");
+
+    internal static string GetHintText(string hint)
+        => GetDiagnosticDetailText(DiagnosticDetailHint, hint, $"Hint: {hint}");
+
+    internal static string GetSuggestionText(string suggestion)
+        => GetDiagnosticDetailText(DiagnosticDetailSuggestion, suggestion, $"Suggestion: {suggestion}");
+
+    internal static string GetDocsUrlText(string docsUrl)
+        => GetDiagnosticDetailText(DiagnosticDetailDocsUrl, docsUrl, $"See: {docsUrl}");
+
+    private static string GetDiagnosticDetailText(int kind, string value, string fallback)
+    {
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return fallback;
+
+        try
+        {
+            var detail = bindings.DiagnosticDetail(kind, value);
+            if (!string.IsNullOrEmpty(detail))
+                return detail;
+        }
+        catch
+        {
+        }
+
+        return fallback;
+    }
+
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
             DogfoodKernelLoader.CreateDelegate<DiagnosticSeveritySummaryInto>(
@@ -135,7 +175,10 @@ internal static class OutputFormatterDiagnosticKernels
                 "DiagnosticSeverityFilterIndicesInto"),
             DogfoodKernelLoader.CreateDelegate<DiagnosticTitleText>(
                 programType,
-                "DiagnosticTitleText")));
+                "DiagnosticTitleText"),
+            DogfoodKernelLoader.CreateDelegate<DiagnosticDetailText>(
+                programType,
+                "DiagnosticDetailText")));
 
     private delegate int DiagnosticSeveritySummaryInto(
         string[] severities,
@@ -149,12 +192,15 @@ internal static class OutputFormatterDiagnosticKernels
 
     private delegate string DiagnosticTitleText(string code, string severity);
 
+    private delegate string DiagnosticDetailText(int kind, string value);
+
     private sealed record Bindings(
         DiagnosticSeveritySummaryInto DiagnosticSeveritySummary,
         DiagnosticSeverityFilterIndicesInto DiagnosticSeverityFilter,
-        DiagnosticTitleText DiagnosticTitle);
+        DiagnosticTitleText DiagnosticTitle,
+        DiagnosticDetailText DiagnosticDetail);
 
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product diagnostic title text routes through DiagnosticTitleText.
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product diagnostic text routes through DiagnosticClusters.nl.
     private static string GetDiagnosticTitleWithCSharp(string code, string severity)
         => $"[{code}] {severity.ToUpperInvariant()}";
 
