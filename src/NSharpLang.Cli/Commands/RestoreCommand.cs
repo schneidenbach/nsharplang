@@ -131,37 +131,32 @@ public static class RestoreCommand
     }
 
     internal static RestoreOptionSummary GetOptionSummary(string[] args)
-        => RestoreCommandKernels.TryGetOptionSummary(args, out var summary)
-            ? summary
-            : GetOptionSummaryWithCSharp(args);
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product restore option parsing routes through RestoreCommandKernels.
-    private static RestoreOptionSummary GetOptionSummaryWithCSharp(string[] args)
-        => new(ContainsArgWithCSharp(args, "--help") || ContainsArgWithCSharp(args, "-h"));
-
-    private static bool ContainsArgWithCSharp(string[] args, string value)
     {
-        for (var i = 0; i < args.Length; i++)
-            if (args[i] == value)
-                return true;
-        return false;
+        if (RestoreCommandKernels.TryGetOptionSummary(args, out var summary))
+            return summary;
+
+        throw new InvalidOperationException("N# restore option summary kernel rejected the arguments.");
     }
 
     internal static string[] DeduplicateProjectReferences(IReadOnlyList<string> projectReferences)
     {
-        return RestoreCommandKernels.TryDeduplicateProjectReferences(
-            projectReferences,
-            out var dogfoodProjectReferences)
-            ? dogfoodProjectReferences
-            : projectReferences.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        if (RestoreCommandKernels.TryDeduplicateProjectReferences(
+                projectReferences,
+                out var dogfoodProjectReferences))
+        {
+            return dogfoodProjectReferences;
+        }
+
+        throw new InvalidOperationException("N# restore project-reference deduplication kernel rejected the references.");
     }
 
     private static List<Reference> FilterReferencesByType(
         IReadOnlyList<Reference> references,
         ReferenceType referenceType)
     {
-        return RestoreCommandKernels.TryFilterReferencesByType(references, referenceType, out var dogfoodReferences)
-            ? dogfoodReferences
-            : references.Where(reference => reference.Type == referenceType).ToList();
+        if (RestoreCommandKernels.TryFilterReferencesByType(references, referenceType, out var dogfoodReferences))
+            return dogfoodReferences;
+
+        throw new InvalidOperationException("N# restore reference filter kernel rejected the references.");
     }
 }

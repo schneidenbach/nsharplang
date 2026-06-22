@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Text;
 using NSharpLang.Compiler;
 
 namespace NSharpLang.Cli.Commands;
@@ -179,36 +178,16 @@ internal static class RestoreCommandKernels
     }
 
     internal static string GetHelpText()
-    {
-        if (TryGetMessage(bindings => bindings.RestoreHelpText(), out var message))
-            return message;
-
-        return GetHelpTextWithCSharp();
-    }
+        => RequiredBindings.RestoreHelpText();
 
     internal static string GetMissingProjectFileMessage()
-    {
-        if (TryGetMessage(bindings => bindings.RestoreMissingProjectFileMessage(), out var message))
-            return message;
-
-        return GetMissingProjectFileMessageWithCSharp();
-    }
+        => RequiredBindings.RestoreMissingProjectFileMessage();
 
     internal static string GetGeneratedPropsMessage()
-    {
-        if (TryGetMessage(bindings => bindings.RestoreGeneratedPropsMessage(), out var message))
-            return message;
-
-        return GetGeneratedPropsMessageWithCSharp();
-    }
+        => RequiredBindings.RestoreGeneratedPropsMessage();
 
     internal static string GetFailedMessage(string message)
-    {
-        if (TryGetMessage(bindings => bindings.RestoreFailedMessage(message), out var result))
-            return result;
-
-        return GetFailedMessageWithCSharp(message);
-    }
+        => RequiredBindings.RestoreFailedMessage(message);
 
     internal static string GetGeneratedPropsText(
         string targetFramework,
@@ -218,22 +197,7 @@ internal static class RestoreCommandKernels
         string testFramework,
         string baseSdk,
         string[] projectReferences)
-    {
-        if (TryGetMessage(
-            bindings => bindings.RestoreGeneratedPropsText(
-                targetFramework,
-                outputType,
-                projectName,
-                backend,
-                testFramework,
-                baseSdk,
-                projectReferences),
-            out var text))
-        {
-            return text;
-        }
-
-        return GetGeneratedPropsTextWithCSharp(
+        => RequiredBindings.RestoreGeneratedPropsText(
             targetFramework,
             outputType,
             projectName,
@@ -241,92 +205,6 @@ internal static class RestoreCommandKernels
             testFramework,
             baseSdk,
             projectReferences);
-    }
-
-    private static bool TryGetMessage(Func<Bindings, string> getMessage, out string message)
-    {
-        message = string.Empty;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        try
-        {
-            message = getMessage(bindings);
-            return !string.IsNullOrEmpty(message);
-        }
-        catch
-        {
-            message = string.Empty;
-            return false;
-        }
-    }
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product restore command messages route through CliRestore* kernels.
-    private static string GetHelpTextWithCSharp()
-        => "N# Restore\n"
-           + "\n"
-           + "Usage: nlc restore\n"
-           + "\n"
-           + "Generates build configuration (obj/project.g.props) from project.yml.\n"
-           + "This must be run before 'dotnet build' can work directly against a minimal\n"
-           + "NSharpLang.Sdk .csproj. Native 'nlc build' reads project.yml directly.\n"
-           + "\n"
-           + "Options:\n"
-           + "  -h, --help    Show this help message";
-
-    private static string GetMissingProjectFileMessageWithCSharp()
-        => "No project.yml found. Run 'nlc new <name>' to create a project.";
-
-    private static string GetGeneratedPropsMessageWithCSharp()
-        => "Generated obj/project.g.props from project.yml";
-
-    private static string GetFailedMessageWithCSharp(string message)
-        => $"Failed to restore project configuration: {message}";
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product restore MSBuild projection text routes through CliRestore* kernels.
-    private static string GetGeneratedPropsTextWithCSharp(
-        string targetFramework,
-        string outputType,
-        string projectName,
-        string backend,
-        string testFramework,
-        string baseSdk,
-        string[] projectReferences)
-    {
-        var sb = new StringBuilder();
-        sb.AppendLine(@"<Project xmlns=""http://schemas.microsoft.com/developer/msbuild/2003"">");
-        sb.AppendLine(@"  <PropertyGroup>");
-        sb.AppendLine($"    <TargetFramework>{targetFramework}</TargetFramework>");
-        sb.AppendLine($"    <OutputType>{outputType}</OutputType>");
-        sb.AppendLine($"    <_NSharpOriginalOutputType>{outputType}</_NSharpOriginalOutputType>");
-        sb.AppendLine($"    <AssemblyName>{projectName}</AssemblyName>");
-        sb.AppendLine($"    <NSharpCompilationBackend>{backend}</NSharpCompilationBackend>");
-        sb.AppendLine($"    <NSharpTestFramework>{testFramework}</NSharpTestFramework>");
-        sb.AppendLine($"    <_NSharpBaseSdk>{baseSdk}</_NSharpBaseSdk>");
-        sb.AppendLine(@"  </PropertyGroup>");
-
-        if (projectReferences.Length > 0)
-        {
-            sb.AppendLine(@"  <ItemGroup>");
-            foreach (var projectReference in projectReferences)
-                sb.AppendLine($"    <ProjectReference Include=\"{EscapeXml(projectReference)}\" />");
-            sb.AppendLine(@"  </ItemGroup>");
-        }
-
-        sb.AppendLine(@"</Project>");
-        return sb.ToString();
-    }
-
-    private static string EscapeXml(string value)
-    {
-        return value
-            .Replace("&", "&amp;", StringComparison.Ordinal)
-            .Replace("\"", "&quot;", StringComparison.Ordinal)
-            .Replace("<", "&lt;", StringComparison.Ordinal)
-            .Replace(">", "&gt;", StringComparison.Ordinal);
-    }
 
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
@@ -392,6 +270,9 @@ internal static class RestoreCommandKernels
         CliRestoreGeneratedPropsMessage RestoreGeneratedPropsMessage,
         CliRestoreFailedMessage RestoreFailedMessage,
         CliRestoreGeneratedPropsText RestoreGeneratedPropsText);
+
+    private static Bindings RequiredBindings
+        => s_bindings.Value ?? throw new InvalidOperationException("N# restore command kernels are unavailable.");
 
     private static int GetReferenceTypeRank(ReferenceType type) =>
         type switch
