@@ -49,60 +49,13 @@ internal static class CompletionCommandKernels
     }
 
     internal static string GetHelpText()
-    {
-        if (TryGetMessage(bindings => bindings.CompletionHelpText(), out var message))
-            return message;
-
-        return GetHelpTextWithCSharp();
-    }
+        => RequiredBindings.CompletionHelpText();
 
     internal static string GetUnknownShellMessage(string shell)
-    {
-        if (TryGetMessage(bindings => bindings.CompletionUnknownShellMessage(shell), out var message))
-            return message;
+        => RequiredBindings.CompletionUnknownShellMessage(shell);
 
-        return GetUnknownShellMessageWithCSharp(shell);
-    }
-
-    private static bool TryGetMessage(Func<Bindings, string> getMessage, out string message)
-    {
-        message = string.Empty;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        try
-        {
-            message = getMessage(bindings);
-            return !string.IsNullOrEmpty(message);
-        }
-        catch
-        {
-            message = string.Empty;
-            return false;
-        }
-    }
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product completion command messages route through CliCompletion* kernels.
-    private static string GetHelpTextWithCSharp()
-        => "N# Shell Completion\n"
-           + "\n"
-           + "Usage: nlc completion <bash|zsh|fish>\n"
-           + "\n"
-           + "Generate shell completion scripts from the current `nlc` command tree.\n"
-           + "\n"
-           + "Examples:\n"
-           + "  nlc completion bash > /etc/bash_completion.d/nlc\n"
-           + "  nlc completion zsh > ~/.zsh/completions/_nlc\n"
-           + "  nlc completion fish > ~/.config/fish/completions/nlc.fish\n"
-           + "\n"
-           + "Exit codes:\n"
-           + "  0  Script generated successfully\n"
-           + "  1  Invalid shell name";
-
-    private static string GetUnknownShellMessageWithCSharp(string shell)
-        => $"Unknown shell '{shell}'. Expected bash, zsh, or fish.";
+    private static Bindings RequiredBindings
+        => s_bindings.Value ?? throw new InvalidOperationException("N# completion command kernels are unavailable.");
 
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(

@@ -24,40 +24,15 @@ public static class CompletionCommand
     }
 
     internal static CompletionOptionSummary GetOptionSummary(string[] args)
-        => CompletionCommandKernels.TryGetOptionSummary(args, out var summary)
-            ? summary
-            : GetOptionSummaryWithCSharp(args);
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product completion option parsing routes through CompletionCommandKernels.
-    private static CompletionOptionSummary GetOptionSummaryWithCSharp(string[] args)
     {
-        var shell = GetShellForError(args);
-        var shellKind = shell switch
-        {
-            "bash" => CompletionShellKind.Bash,
-            "zsh" => CompletionShellKind.Zsh,
-            "fish" => CompletionShellKind.Fish,
-            _ => CompletionShellKind.Unknown
-        };
+        if (CompletionCommandKernels.TryGetOptionSummary(args, out var summary))
+            return summary;
 
-        return new CompletionOptionSummary(
-            shellKind,
-            args.Length == 0
-                || args[0] == "help"
-                || ContainsArgWithCSharp(args, "--help")
-                || ContainsArgWithCSharp(args, "-h"));
+        throw new InvalidOperationException("N# completion option parser kernel rejected the arguments.");
     }
 
     private static string GetShellForError(string[] args)
         => args.Length == 0 ? string.Empty : args[0].ToLowerInvariant();
-
-    private static bool ContainsArgWithCSharp(string[] args, string value)
-    {
-        for (var i = 0; i < args.Length; i++)
-            if (args[i] == value)
-                return true;
-        return false;
-    }
 
     private static int WriteScript(string script)
     {
