@@ -11,6 +11,19 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-22 — Query symbol text moves into product N#
+
+`OutputFormatter.SymbolsToText` no longer owns the visible `nlc query symbols --text` empty-result, symbol,
+modifier, indentation, and parameter lines in C#. The shipped `OutputFormatterText.nl` dogfood kernel now shapes
+those stable text lines through `OutputFormatterTextKernels`; C# keeps result traversal, CLR object access,
+StringBuilder assembly, and fallback/oracle rendering only. This is a Stage 6 `C#-surface-shrink` product-route
+slice.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CodeIntelligenceOutputTests.SymbolsToText_FormatsReadably|FullyQualifiedName~CodeIntelligenceOutputTests.SymbolsToText_EmptyReturnsNoSymbols|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_OutputFormatterText"`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`;
+`./scripts/dev.sh SymbolsToText`.
+
 ## 2026-06-22 — Diagnostic headers move into product N#
 
 `OutputFormatter.DiagnosticsToText` no longer owns Elm-style diagnostic header-line assembly in C#. The shipped

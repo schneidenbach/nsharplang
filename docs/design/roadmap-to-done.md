@@ -595,7 +595,9 @@ halves (oracle `7e151c7c`: t.x threw at emit despite analyzer acceptance — per
 ItemN rewriting; columnar: kernel kinds 7/43 name channels, name-erased canonicals, the same per-variable
 mapping; a pre-existing bare-tuple-typed-local over-accept fixed). The scalar, strings, nullability,
 collections, async, interfaces, Phase-P columnar ports, and route-all/default-on rungs have since landed
-in the progress log. The active path is Stage 6 surface shrink plus SoA/emitter-port proof work before
+in the progress log. Stage 6 also started moving query human-text surfaces: diagnostic text now routes through
+`OutputFormatterDiagnosticKernels`, and `nlc query symbols --text` empty/result/parameter line shaping routes
+through `OutputFormatterTextKernels`. The active path is Stage 6 surface shrink plus SoA/emitter-port proof work before
 `ILCompiler/` and `Analyzer.cs` can be retired.
 
 The `systems-language-perf` worktree (P-minmax(c) + P3/P-ctrans) has been merged into `systems-language`

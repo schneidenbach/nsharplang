@@ -7627,6 +7627,34 @@ func outer(x: int): int {
             ("DiagnosticDeduplicationMinInt", new object[] { 4, 9 }), ("DiagnosticDeduplicationMinInt", new object[] { 9, 4 }));
     }
 
+    // MILESTONE: OutputFormatterText.nl compiles end-to-end with no C# AST and owns the shipped
+    // `nlc query symbols --text` empty, symbol, modifier, indentation, and parameter line shaping.
+    [Fact]
+    public void ColumnarCodegen_CompilesRealDogfoodFile_OutputFormatterText()
+    {
+        var source = ReadDogfoodProductFile("OutputFormatterText.nl");
+        var (ok, _, _, methodNames) = RouteColumnarProgram(source);
+        Assert.True(ok, "Columnar backend declined the real OutputFormatterText.nl (expected full support).");
+        Assert.Contains("QueryNoSymbolsText", methodNames!);
+        Assert.Contains("QuerySymbolLineText", methodNames!);
+        Assert.Contains("QuerySymbolParametersLineText", methodNames!);
+
+        AssertColumnarProgramMatchesCSharp(source,
+            ("QueryNoSymbolsText", Array.Empty<object>()),
+            ("QuerySymbolLineText", new object[] { 0, "Function", "Main", "void", 1, "Program.nl", 1, new[] { "pub" }, 1 }),
+            ("QuerySymbolLineText", new object[] { 1, "Property", "Name", "string", 1, "Models.nl", 6, Array.Empty<string>(), 0 }),
+            ("QuerySymbolLineText", new object[] { 0, "Class", "Person", string.Empty, 0, "Models.nl", 5, new[] { "pub", "sealed" }, 2 }),
+            ("QuerySymbolParametersLineText", new object[]
+            {
+                0,
+                new[] { "name", "count" },
+                new[] { "string", "int" },
+                new[] { 0, 1 },
+                new[] { string.Empty, "42" },
+                2
+            }));
+    }
+
     // Lowercase `char` as a static-method receiver — the builtin alias (it lexes as an Identifier and binds to
     // System.Char like capital `Char`), e.g. `char.IsLetter(c)`. Adds IsLetter / IsDigit to the Char whitelist.
     [Fact]

@@ -1717,7 +1717,7 @@ public static class OutputFormatter
     public static string SymbolsToText(List<SymbolResult> results)
     {
         if (results.Count == 0)
-            return "No symbols found.";
+            return OutputFormatterTextKernels.GetNoSymbolsText();
 
         var sb = new StringBuilder();
         foreach (var sym in results)
@@ -1729,16 +1729,11 @@ public static class OutputFormatter
 
     private static void FormatSymbolText(StringBuilder sb, SymbolResult sym, int indent)
     {
-        var prefix = new string(' ', indent * 2);
-        var typeStr = sym.TypeName != null ? $": {sym.TypeName}" : "";
-        var modStr = sym.Modifiers is { Length: > 0 } ? $"[{string.Join(", ", sym.Modifiers)}] " : "";
-        sb.AppendLine($"{prefix}{modStr}{sym.Kind} {sym.Name}{typeStr}  ({sym.File}:{sym.Line})");
+        sb.AppendLine(OutputFormatterTextKernels.GetSymbolLineText(sym, indent));
 
         if (sym.Parameters is { Length: > 0 })
         {
-            var paramStr = string.Join(", ", sym.Parameters.Select(p =>
-                p.HasDefault ? $"{p.Name}: {p.Type} = {p.DefaultValue}" : $"{p.Name}: {p.Type}"));
-            sb.AppendLine($"{prefix}  ({paramStr})");
+            sb.AppendLine(OutputFormatterTextKernels.GetSymbolParametersLineText(sym.Parameters, indent));
         }
 
         if (sym.Members is { Length: > 0 })

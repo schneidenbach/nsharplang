@@ -775,7 +775,11 @@ public class CodeIntelligenceOutputTests
         {
             new("Main", SymbolKind.Function, "Program.nl", 1, 0, "void",
                 new[] { "pub" }, null,
-                new[] { new ParameterResult("name", "string", false, null) }),
+                new[]
+                {
+                    new ParameterResult("name", "string", false, null),
+                    new ParameterResult("count", "int", true, "42")
+                }),
             new("Person", SymbolKind.Class, "Models.nl", 5, 0, null,
                 new[] { "pub" },
                 new SymbolResult[]
@@ -786,17 +790,21 @@ public class CodeIntelligenceOutputTests
         };
 
         var text = OutputFormatter.SymbolsToText(symbols);
-        Assert.Contains("Function Main", text);
-        Assert.Contains("Class Person", text);
-        Assert.Contains("Property Name", text);
-        Assert.Contains("name: string", text);
+        Assert.Equal(
+            string.Join(Environment.NewLine,
+                "[pub] Function Main: void  (Program.nl:1)",
+                "  (name: string, count: int = 42)",
+                "[pub] Class Person  (Models.nl:5)",
+                "  Property Name: string  (Models.nl:6)",
+                string.Empty),
+            text);
     }
 
     [Fact]
     public void SymbolsToText_EmptyReturnsNoSymbols()
     {
         var text = OutputFormatter.SymbolsToText(new List<SymbolResult>());
-        Assert.Contains("No symbols found", text);
+        Assert.Equal("No symbols found.", text);
     }
 
     [Fact]
