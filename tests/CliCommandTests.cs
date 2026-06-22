@@ -3414,7 +3414,9 @@ func Main() {
         var (unknownExitCode, _, unknownStderr) = CaptureConsole(() =>
             ExportCommand.Execute(new[] { "python" }));
         Assert.Equal(1, unknownExitCode);
-        Assert.Contains("Unknown export target 'python'. Expected 'csharp'.", unknownStderr);
+        Assert.Equal(
+            ProgramCommandKernels.GetErrorLine(ExportCommandKernels.GetUnknownTargetMessage("python")) + Environment.NewLine,
+            unknownStderr);
     }
 
     [Fact]

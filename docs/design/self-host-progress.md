@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-22 — Export and tidy error wrappers reuse product N#
+
+`ExportCommand` and text-mode `TidyCommand` no longer construct shared `Error: ...` stderr lines in C#.
+Those product error lines now reuse the shipped `CliProgramErrorLine` dogfood kernel through
+`ProgramCommandKernels`; C# keeps command orchestration, JSON/text mode selection, and console writes only.
+This is a Stage 6 `C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.ExportCommandKernels_ShapesMessages|FullyQualifiedName~CliParityAuditTests.ExportCommand_ProjectAndSourceOperand_AreRejected|FullyQualifiedName~CliParityAuditTests.TidyCommand_NoProjectYml_Fails|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`;
+`./scripts/dev.sh ExportCommandKernels`;
+`./scripts/dev.sh TidyCommand_NoProjectYml_Fails`.
+
 ## 2026-06-22 — Top-level CLI error wrapper moves into product N#
 
 `Program.Error` no longer owns the shared `Error: ...` stderr line wrapper in C#. The shipped

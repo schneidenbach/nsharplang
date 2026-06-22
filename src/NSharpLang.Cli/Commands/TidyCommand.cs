@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using NSharpLang.Cli;
 using NSharpLang.Compiler;
 
 namespace NSharpLang.Cli.Commands;
@@ -41,7 +42,8 @@ public static class TidyCommand
             }
             else
             {
-                Console.Error.WriteLine($"Error: {TidyCommandKernels.GetMissingProjectFileTextMessage()}");
+                Console.Error.WriteLine(ProgramCommandKernels.GetErrorLine(
+                    TidyCommandKernels.GetMissingProjectFileTextMessage()));
             }
             return 1;
         }
@@ -65,7 +67,8 @@ public static class TidyCommand
             }
             else
             {
-                Console.Error.WriteLine($"Error: {TidyCommandKernels.GetParseFailedMessage(ex.Message)}");
+                Console.Error.WriteLine(ProgramCommandKernels.GetErrorLine(
+                    TidyCommandKernels.GetParseFailedMessage(ex.Message)));
             }
             return 1;
         }
