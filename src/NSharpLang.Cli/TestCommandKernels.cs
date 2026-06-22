@@ -197,235 +197,59 @@ internal static class TestCommandKernels
     }
 
     internal static string GetHelpText()
-    {
-        if (TryGetMessage(bindings => bindings.TestHelpText(), out var message))
-            return message;
-
-        return GetHelpTextWithCSharp();
-    }
+        => RequiredBindings.TestHelpText();
 
     internal static string GetMissingProjectFileMessage()
-    {
-        if (TryGetMessage(bindings => bindings.TestMissingProjectFileMessage(), out var message))
-            return message;
-
-        return GetMissingProjectFileMessageWithCSharp();
-    }
+        => RequiredBindings.TestMissingProjectFileMessage();
 
     internal static string GetCoverageUnsupportedMessage()
-    {
-        if (TryGetMessage(bindings => bindings.TestCoverageUnsupportedMessage(), out var message))
-            return message;
-
-        return GetCoverageUnsupportedMessageWithCSharp();
-    }
+        => RequiredBindings.TestCoverageUnsupportedMessage();
 
     internal static string GetBuildFailedMessage()
-    {
-        if (TryGetMessage(bindings => bindings.TestBuildFailedMessage(), out var message))
-            return message;
-
-        return GetBuildFailedMessageWithCSharp();
-    }
+        => RequiredBindings.TestBuildFailedMessage();
 
     internal static string GetInvalidTimeoutMessage(string timeout)
-    {
-        if (TryGetMessage(bindings => bindings.TestInvalidTimeoutMessage(timeout), out var message))
-            return message;
-
-        return GetInvalidTimeoutMessageWithCSharp(timeout);
-    }
+        => RequiredBindings.TestInvalidTimeoutMessage(timeout);
 
     internal static string GetProjectStartMessage(string projectRoot)
-    {
-        if (TryGetMessage(bindings => bindings.TestProjectStartMessage(projectRoot), out var message))
-            return message;
-
-        return GetProjectStartMessageWithCSharp(projectRoot);
-    }
+        => RequiredBindings.TestProjectStartMessage(projectRoot);
 
     internal static string GetNoTestFilesMessage()
-    {
-        if (TryGetMessage(bindings => bindings.TestNoTestFilesMessage(), out var message))
-            return message;
-
-        return GetNoTestFilesMessageWithCSharp();
-    }
+        => RequiredBindings.TestNoTestFilesMessage();
 
     internal static string GetFoundTestFilesMessage(int testFileCount)
     {
         var countText = testFileCount.ToString(CultureInfo.InvariantCulture);
-        if (TryGetMessage(bindings => bindings.TestFoundTestFilesMessage(countText, testFileCount), out var message))
-            return message;
-
-        return GetFoundTestFilesMessageWithCSharp(countText);
+        return RequiredBindings.TestFoundTestFilesMessage(countText, testFileCount);
     }
 
     internal static string GetSummaryMessage(int passed, int failed, int skipped, int total)
-    {
-        if (TryGetMessage(
-                bindings => bindings.TestSummaryMessage(
-                    passed.ToString(CultureInfo.InvariantCulture),
-                    failed.ToString(CultureInfo.InvariantCulture),
-                    skipped.ToString(CultureInfo.InvariantCulture),
-                    total.ToString(CultureInfo.InvariantCulture)),
-                out var message))
-        {
-            return message;
-        }
-
-        return GetSummaryMessageWithCSharp(passed, failed, skipped, total);
-    }
+        => RequiredBindings.TestSummaryMessage(
+            passed.ToString(CultureInfo.InvariantCulture),
+            failed.ToString(CultureInfo.InvariantCulture),
+            skipped.ToString(CultureInfo.InvariantCulture),
+            total.ToString(CultureInfo.InvariantCulture));
 
     internal static string GetCompletedElapsedMessage(string elapsedText)
-    {
-        if (TryGetMessage(bindings => bindings.TestCompletedElapsedMessage(elapsedText), out var message))
-            return message;
-
-        return GetCompletedElapsedMessageWithCSharp(elapsedText);
-    }
+        => RequiredBindings.TestCompletedElapsedMessage(elapsedText);
 
     internal static string GetFailedElapsedMessage(string elapsedText)
-    {
-        if (TryGetMessage(bindings => bindings.TestFailedElapsedMessage(elapsedText), out var message))
-            return message;
-
-        return GetFailedElapsedMessageWithCSharp(elapsedText);
-    }
+        => RequiredBindings.TestFailedElapsedMessage(elapsedText);
 
     internal static string GetFailedMessage(string message)
-    {
-        if (TryGetMessage(bindings => bindings.TestFailedMessage(message), out var result))
-            return result;
-
-        return GetFailedMessageWithCSharp(message);
-    }
+        => RequiredBindings.TestFailedMessage(message);
 
     internal static string GetVerbosePassedMessage(string displayName, string elapsedMillisecondsText)
-    {
-        if (TryGetMessage(bindings => bindings.TestVerbosePassedMessage(displayName, elapsedMillisecondsText), out var message))
-            return message;
-
-        return GetVerbosePassedMessageWithCSharp(displayName, elapsedMillisecondsText);
-    }
+        => RequiredBindings.TestVerbosePassedMessage(displayName, elapsedMillisecondsText);
 
     internal static string GetVerboseSkippedMessage(string displayName, string reason)
-    {
-        if (TryGetMessage(bindings => bindings.TestVerboseSkippedMessage(displayName, reason), out var message))
-            return message;
-
-        return GetVerboseSkippedMessageWithCSharp(displayName, reason);
-    }
+        => RequiredBindings.TestVerboseSkippedMessage(displayName, reason);
 
     internal static string GetVerboseFailedMessage(string displayName, string message)
-    {
-        if (TryGetMessage(bindings => bindings.TestVerboseFailedMessage(displayName, message), out var result))
-            return result;
+        => RequiredBindings.TestVerboseFailedMessage(displayName, message);
 
-        return GetVerboseFailedMessageWithCSharp(displayName, message);
-    }
-
-    private static bool TryGetMessage(Func<Bindings, string> getMessage, out string message)
-    {
-        message = string.Empty;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        try
-        {
-            message = getMessage(bindings);
-            return !string.IsNullOrEmpty(message);
-        }
-        catch
-        {
-            message = string.Empty;
-            return false;
-        }
-    }
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product nlc test messages route through CliTest* kernels.
-    private static string GetHelpTextWithCSharp()
-        => "N# Test\n"
-           + "\n"
-           + "Usage: nlc test [options]\n"
-           + "\n"
-           + "Run `.tests.nl` suites through the IL compilation backend.\n"
-           + "\n"
-           + "Options:\n"
-           + "  --project <dir>       Project root directory (default: current directory)\n"
-           + "  --backend <mode>      Compilation backend: il\n"
-           + "  --filter <name>       Run only tests whose display name or fully-qualified name matches\n"
-           + "  --verbose             Show individual test results\n"
-           + "  --json                Output results as structured JSON (schemaVersion 1 envelope)\n"
-           + "  --timeout <duration>  Test timeout per assembly (e.g., 30s, 5m, 1h). Default: no timeout\n"
-           + "  --no-cache            Force clean rebuild before running tests (bypass incremental build)\n"
-           + "  --coverage            Planned; currently exits with unsupported-feature guidance\n"
-           + "  --coverage-report     Planned; currently exits with unsupported-feature guidance\n"
-           + "  --help, -h            Show this help text\n"
-           + "\n"
-           + "The test framework is configured in project.yml via the `testFramework` field.\n"
-           + "Supported values: xunit (default), nunit\n"
-           + "\n"
-           + "Coverage collection is not available in the native nlc test runner yet.\n"
-           + "When --coverage or --coverage-report is requested, nlc exits 1 and emits\n"
-           + "a structured JSON error if --json was also requested.\n"
-           + "\n"
-           + "Examples:\n"
-           + "  nlc test\n"
-           + "  nlc test --backend il\n"
-           + "  nlc test --filter AddPerson\n"
-           + "  nlc test --project examples/16-task-cli --verbose\n"
-           + "  nlc test --json\n"
-           + "\n"
-           + "Exit codes:\n"
-           + "  0  Tests passed\n"
-           + "  1  Compilation or test execution failed";
-
-    private static string GetMissingProjectFileMessageWithCSharp()
-        => "IL-backed test runs require a project.yml file.";
-
-    private static string GetCoverageUnsupportedMessageWithCSharp()
-        => "Coverage collection is not available in nlc test yet. "
-           + "The current runner executes IL-backed xUnit/NUnit tests without instrumentation. "
-           + "Omit --coverage/--coverage-report until native coverage support lands.";
-
-    private static string GetBuildFailedMessageWithCSharp()
-        => "Test build failed.";
-
-    private static string GetInvalidTimeoutMessageWithCSharp(string timeout)
-        => $"Invalid timeout format '{timeout}'. Expected a duration like 30s, 5m, or 1h.";
-
-    private static string GetProjectStartMessageWithCSharp(string projectRoot)
-        => $"Testing project in {projectRoot}...";
-
-    private static string GetNoTestFilesMessageWithCSharp()
-        => "No test files (*.tests.nl) found.";
-
-    private static string GetFoundTestFilesMessageWithCSharp(string countText)
-        => $"Found {countText} test file(s)";
-
-    private static string GetSummaryMessageWithCSharp(int passed, int failed, int skipped, int total)
-        => $"Passed: {passed}, Failed: {failed}, Skipped: {skipped}, Total: {total}";
-
-    private static string GetCompletedElapsedMessageWithCSharp(string elapsedText)
-        => $"  Tests completed in {elapsedText}";
-
-    private static string GetFailedElapsedMessageWithCSharp(string elapsedText)
-        => $"  Tests failed in {elapsedText}";
-
-    private static string GetFailedMessageWithCSharp(string message)
-        => $"Test failed: {message}";
-
-    private static string GetVerbosePassedMessageWithCSharp(string displayName, string elapsedMillisecondsText)
-        => $"Passed {displayName} [{elapsedMillisecondsText} ms]";
-
-    private static string GetVerboseSkippedMessageWithCSharp(string displayName, string reason)
-        => $"Skipped {displayName}: {reason}";
-
-    private static string GetVerboseFailedMessageWithCSharp(string displayName, string message)
-        => $"Failed {displayName}: {message}";
+    private static Bindings RequiredBindings
+        => s_bindings.Value ?? throw new InvalidOperationException("N# test command kernels are unavailable.");
 
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
