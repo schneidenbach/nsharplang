@@ -1,5 +1,4 @@
 using System;
-using System.Text;
 
 namespace NSharpLang.Compiler.CodeIntelligence;
 
@@ -15,105 +14,21 @@ internal static class CodeIntelligenceSignatureKernels
         int parameterCount,
         string returnType,
         bool hasReturnType)
-    {
-        var bindings = s_bindings.Value;
-        if (bindings != null)
-        {
-            try
-            {
-                var text = bindings.FunctionSignatureText(
-                    name,
-                    parameterNames,
-                    parameterTypes,
-                    hasDefaults,
-                    parameterCount,
-                    returnType,
-                    hasReturnType ? 1 : 0);
-                if (!string.IsNullOrEmpty(text))
-                    return text;
-            }
-            catch
-            {
-            }
-        }
-
-        return GetFunctionSignatureTextWithCSharp(
+        => RequiredBindings.FunctionSignatureText(
             name,
             parameterNames,
             parameterTypes,
             hasDefaults,
             parameterCount,
             returnType,
-            hasReturnType);
-    }
+            hasReturnType ? 1 : 0);
 
     internal static string GetFallbackSignatureText(string kind, string name, string? typeName)
-    {
-        var bindings = s_bindings.Value;
-        if (bindings != null)
-        {
-            try
-            {
-                var text = bindings.FallbackSignatureText(
-                    kind,
-                    name,
-                    typeName ?? string.Empty,
-                    typeName != null ? 1 : 0);
-                if (!string.IsNullOrEmpty(text))
-                    return text;
-            }
-            catch
-            {
-            }
-        }
-
-        return GetFallbackSignatureTextWithCSharp(kind, name, typeName);
-    }
-
-    private static string GetFunctionSignatureTextWithCSharp(
-        string name,
-        string[] parameterNames,
-        string[] parameterTypes,
-        int[] hasDefaults,
-        int parameterCount,
-        string returnType,
-        bool hasReturnType)
-    {
-        var count = Math.Min(parameterCount, parameterNames.Length);
-        count = Math.Min(count, parameterTypes.Length);
-        count = Math.Min(count, hasDefaults.Length);
-
-        var builder = new StringBuilder();
-        builder.Append("func ");
-        builder.Append(name);
-        builder.Append('(');
-
-        for (var i = 0; i < count; i++)
-        {
-            if (i > 0)
-                builder.Append(", ");
-
-            builder.Append(parameterNames[i]);
-            builder.Append(": ");
-            builder.Append(parameterTypes[i]);
-
-            if (hasDefaults[i] != 0)
-                builder.Append(" = ...");
-        }
-
-        builder.Append(')');
-
-        if (hasReturnType)
-        {
-            builder.Append(": ");
-            builder.Append(returnType);
-        }
-
-        return builder.ToString();
-    }
-
-    private static string GetFallbackSignatureTextWithCSharp(string kind, string name, string? typeName)
-        => typeName != null ? $"{kind} {name}: {typeName}" : $"{kind} {name}";
+        => RequiredBindings.FallbackSignatureText(
+            kind,
+            name,
+            typeName ?? string.Empty,
+            typeName != null ? 1 : 0);
 
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
@@ -143,5 +58,6 @@ internal static class CodeIntelligenceSignatureKernels
         CodeIntelligenceFunctionSignatureText FunctionSignatureText,
         CodeIntelligenceFallbackSignatureText FallbackSignatureText);
 
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product hover signature text routes through CodeIntelligenceSignatures.nl.
+    private static Bindings RequiredBindings
+        => s_bindings.Value ?? throw new InvalidOperationException("N# code intelligence signature kernels are unavailable.");
 }
