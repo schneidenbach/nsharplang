@@ -165,6 +165,44 @@ internal static class OutputFormatterDiagnosticKernels
         return fallback;
     }
 
+    internal static string GetNoDiagnosticsText()
+    {
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return "No diagnostics found.";
+
+        try
+        {
+            var text = bindings.DiagnosticNoDiagnostics();
+            if (!string.IsNullOrEmpty(text))
+                return text;
+        }
+        catch
+        {
+        }
+
+        return "No diagnostics found.";
+    }
+
+    internal static string GetFoundSummaryText(DiagnosticSummary summary)
+    {
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return GetFoundSummaryTextWithCSharp(summary);
+
+        try
+        {
+            var text = bindings.DiagnosticFoundSummary(summary.Errors, summary.Warnings, summary.Info);
+            if (!string.IsNullOrEmpty(text))
+                return text;
+        }
+        catch
+        {
+        }
+
+        return GetFoundSummaryTextWithCSharp(summary);
+    }
+
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
             DogfoodKernelLoader.CreateDelegate<DiagnosticSeveritySummaryInto>(
@@ -178,7 +216,13 @@ internal static class OutputFormatterDiagnosticKernels
                 "DiagnosticTitleText"),
             DogfoodKernelLoader.CreateDelegate<DiagnosticDetailText>(
                 programType,
-                "DiagnosticDetailText")));
+                "DiagnosticDetailText"),
+            DogfoodKernelLoader.CreateDelegate<DiagnosticNoDiagnosticsText>(
+                programType,
+                "DiagnosticNoDiagnosticsText"),
+            DogfoodKernelLoader.CreateDelegate<DiagnosticFoundSummaryText>(
+                programType,
+                "DiagnosticFoundSummaryText")));
 
     private delegate int DiagnosticSeveritySummaryInto(
         string[] severities,
@@ -194,15 +238,30 @@ internal static class OutputFormatterDiagnosticKernels
 
     private delegate string DiagnosticDetailText(int kind, string value);
 
+    private delegate string DiagnosticNoDiagnosticsText();
+
+    private delegate string DiagnosticFoundSummaryText(int errors, int warnings, int info);
+
     private sealed record Bindings(
         DiagnosticSeveritySummaryInto DiagnosticSeveritySummary,
         DiagnosticSeverityFilterIndicesInto DiagnosticSeverityFilter,
         DiagnosticTitleText DiagnosticTitle,
-        DiagnosticDetailText DiagnosticDetail);
+        DiagnosticDetailText DiagnosticDetail,
+        DiagnosticNoDiagnosticsText DiagnosticNoDiagnostics,
+        DiagnosticFoundSummaryText DiagnosticFoundSummary);
 
     // Stage 6 C#-surface-shrink: fallback/oracle only; product diagnostic text routes through DiagnosticClusters.nl.
     private static string GetDiagnosticTitleWithCSharp(string code, string severity)
         => $"[{code}] {severity.ToUpperInvariant()}";
+
+    private static string GetFoundSummaryTextWithCSharp(DiagnosticSummary summary)
+    {
+        var parts = new List<string>();
+        if (summary.Errors > 0) parts.Add($"{summary.Errors} error{(summary.Errors == 1 ? "" : "s")}");
+        if (summary.Warnings > 0) parts.Add($"{summary.Warnings} warning{(summary.Warnings == 1 ? "" : "s")}");
+        if (summary.Info > 0) parts.Add($"{summary.Info} info");
+        return $"Found {string.Join(", ", parts)}.";
+    }
 
     private sealed class DiagnosticSummaryScratch
     {

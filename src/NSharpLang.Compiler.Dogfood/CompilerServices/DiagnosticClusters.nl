@@ -205,6 +205,45 @@ func DiagnosticDetailText(kind: int, value: string): string {
     return ""
 }
 
+func DiagnosticNoDiagnosticsText(): string {
+    return "No diagnostics found."
+}
+
+func DiagnosticFoundSummaryText(errors: int, warnings: int, info: int): string {
+    summary := ""
+    if errors > 0 {
+        summary = DiagnosticAppendSummaryCount(summary, errors, "error", "errors")
+    }
+
+    if warnings > 0 {
+        summary = DiagnosticAppendSummaryCount(summary, warnings, "warning", "warnings")
+    }
+
+    if info > 0 {
+        summary = DiagnosticAppendSummaryCount(summary, info, "info", "info")
+    }
+
+    if summary == "" {
+        return ""
+    }
+
+    return "Found " + summary + "."
+}
+
+func DiagnosticAppendSummaryCount(current: string, count: int, singular: string, plural: string): string {
+    label := singular
+    if count != 1 {
+        label = plural
+    }
+
+    part := count.ToString() + " " + label
+    if current == "" {
+        return part
+    }
+
+    return current + ", " + part
+}
+
 func DiagnosticSeverityFilterIndicesCore(
     severityRanks: &DiagnosticSeverityRankTable,
     targetRank: int,

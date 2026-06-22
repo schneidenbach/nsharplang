@@ -1626,7 +1626,7 @@ public static class OutputFormatter
     public static string DiagnosticsToText(List<DiagnosticResult> results)
     {
         if (results.Count == 0)
-            return "No diagnostics found.";
+            return OutputFormatterDiagnosticKernels.GetNoDiagnosticsText();
 
         var sb = new StringBuilder();
         var summary = SummarizeDiagnostics(results);
@@ -1640,11 +1640,7 @@ public static class OutputFormatter
 
         // Summary line
         sb.AppendLine();
-        var parts = new List<string>();
-        if (summary.Errors > 0) parts.Add($"{summary.Errors} error{(summary.Errors == 1 ? "" : "s")}");
-        if (summary.Warnings > 0) parts.Add($"{summary.Warnings} warning{(summary.Warnings == 1 ? "" : "s")}");
-        if (summary.Info > 0) parts.Add($"{summary.Info} info");
-        sb.AppendLine($"Found {string.Join(", ", parts)}.");
+        sb.AppendLine(OutputFormatterDiagnosticKernels.GetFoundSummaryText(summary));
 
         return sb.ToString();
     }

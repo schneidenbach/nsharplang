@@ -738,15 +738,14 @@ public class CodeIntelligenceOutputTests
         };
 
         var text = OutputFormatter.DiagnosticsToText(diagnostics);
-        Assert.Contains("2 errors", text);
-        Assert.Contains("1 warning", text);
+        Assert.Contains("Found 2 errors, 1 warning.", text);
     }
 
     [Fact]
     public void DiagnosticsToText_EmptyReturnsNoDiagnostics()
     {
         var text = OutputFormatter.DiagnosticsToText(new List<DiagnosticResult>());
-        Assert.Contains("No diagnostics found", text);
+        Assert.Equal("No diagnostics found.", text);
     }
 
     [Fact]

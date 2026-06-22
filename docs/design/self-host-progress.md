@@ -11,6 +11,19 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-22 — Diagnostic summary text moves into product N#
+
+`OutputFormatter.DiagnosticsToText` no longer owns the empty-result or counted summary lines in C#. The
+shipped `DiagnosticNoDiagnosticsText` and `DiagnosticFoundSummaryText` dogfood kernels now shape
+`No diagnostics found.` and `Found ...` text through `OutputFormatterDiagnosticKernels`; C# keeps diagnostic
+counting, cluster rendering, line assembly, and fallback/oracle summary text only. This is a Stage 6
+`C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CodeIntelligenceOutputTests.DiagnosticsToText_MultipleErrorsSummary|FullyQualifiedName~CodeIntelligenceOutputTests.DiagnosticsToText_EmptyReturnsNoDiagnostics|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_DiagnosticClusters"`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`;
+`./scripts/dev.sh DiagnosticsToText`.
+
 ## 2026-06-22 — Diagnostic detail lines move into product N#
 
 `OutputFormatter.DiagnosticsToText` no longer owns labeled diagnostic detail lines (`Expected`, `Actual`,
