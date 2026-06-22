@@ -2285,7 +2285,6 @@ func Main() {
         Assert.Equal(
             "Unknown query subcommand: nope. Run 'nlc query help' for usage.",
             QueryCommandKernels.GetUnknownSubcommandMessage("nope"));
-        Assert.Equal("Error: bad input", QueryCommandKernels.GetErrorLine("bad input"));
         Assert.Equal("No compilation unit found for --file Missing.nl", QueryCommandKernels.GetNoCompilationUnitForFileMessage("Missing.nl"));
         Assert.Equal("No compilation units in project.", QueryCommandKernels.GetNoCompilationUnitsMessage());
         Assert.Equal("Usage: nlc query hover --file <path> --pos <line>:<col>", QueryCommandKernels.GetPositionUsageMessage("hover"));
@@ -2323,7 +2322,9 @@ func Main() {
         var (unknownExitCode, unknownStdout, unknownStderr) = CaptureConsole(() => QueryCommand.Execute(new[] { "wat" }));
         Assert.Equal(1, unknownExitCode);
         Assert.True(string.IsNullOrWhiteSpace(unknownStdout));
-        Assert.Contains("Error: Unknown query subcommand: wat. Run 'nlc query help' for usage.", unknownStderr);
+        Assert.Equal(
+            ProgramCommandKernels.GetErrorLine(QueryCommandKernels.GetUnknownSubcommandMessage("wat")) + Environment.NewLine,
+            unknownStderr);
     }
 
     [Fact]

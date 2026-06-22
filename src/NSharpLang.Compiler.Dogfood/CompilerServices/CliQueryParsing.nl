@@ -414,10 +414,6 @@ func CliQueryUnknownSubcommandMessage(subcommand: string): string {
     return "Unknown query subcommand: " + subcommand + ". Run 'nlc query help' for usage."
 }
 
-func CliQueryErrorLine(message: string): string {
-    return "Error: " + message
-}
-
 func CliQueryNoCompilationUnitForFileMessage(fileFilter: string): string {
     return "No compilation unit found for --file " + fileFilter
 }

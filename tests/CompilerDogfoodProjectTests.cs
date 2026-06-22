@@ -12434,7 +12434,6 @@ func outer(x: int): int {
         Assert.Contains("CliQueryHelpText", methodNames!); // product query help text shaping.
         Assert.Contains("CliQueryDescriptionWithAliases", methodNames!); // product query help alias text shaping.
         Assert.Contains("CliQueryUnknownSubcommandMessage", methodNames!); // product query unknown-command message shaping.
-        Assert.Contains("CliQueryErrorLine", methodNames!); // product query error prefix shaping.
         Assert.Contains("CliQueryNoCompilationUnitForFileMessage", methodNames!); // product query AST no-file message shaping.
         Assert.Contains("CliQueryNoCompilationUnitsMessage", methodNames!); // product query AST empty-project message shaping.
         Assert.Contains("CliQueryPositionUsageMessage", methodNames!); // product position-query usage message shaping.
@@ -12512,7 +12511,6 @@ func outer(x: int): int {
             ("CliQueryShouldUseDaemon", new object[] { 0, 1 }),
             ("CliQueryShouldUseDaemon", new object[] { 1, 1 }),
             ("CliQueryUnknownSubcommandMessage", new object[] { "wat" }),
-            ("CliQueryErrorLine", new object[] { "bad input" }),
             ("CliQueryInvalidPositionMessage", new object[] { "bad" }),
             ("CliQueryNoSymbolAtPositionMessage", new object[] { "Program.nl", "5", "12" }),
             ("CliQueryReferencesUsageMessage", Array.Empty<object>()),
@@ -15838,10 +15836,6 @@ class OtherZetaType {
                     "CliQueryUnknownSubcommandMessage",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliQueryUnknownSubcommandMessage.");
-            var cliQueryErrorLine = programType.GetMethod(
-                    "CliQueryErrorLine",
-                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
-                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliQueryErrorLine.");
             var cliQueryNoCompilationUnitForFileMessage = programType.GetMethod(
                     "CliQueryNoCompilationUnitForFileMessage",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -18253,7 +18247,6 @@ func main(customer: Customer, résumé: Profile) {
                 cliQueryHelpText,
                 cliQueryDescriptionWithAliases,
                 cliQueryUnknownSubcommandMessage,
-                cliQueryErrorLine,
                 cliQueryNoCompilationUnitForFileMessage,
                 cliQueryNoCompilationUnitsMessage,
                 cliQueryPositionUsageMessage,
@@ -21293,7 +21286,6 @@ func main() {
         MethodInfo cliQueryHelpText,
         MethodInfo cliQueryDescriptionWithAliases,
         MethodInfo cliQueryUnknownSubcommandMessage,
-        MethodInfo cliQueryErrorLine,
         MethodInfo cliQueryNoCompilationUnitForFileMessage,
         MethodInfo cliQueryNoCompilationUnitsMessage,
         MethodInfo cliQueryPositionUsageMessage,
@@ -21332,9 +21324,6 @@ func main() {
         Assert.Equal(
             QueryCommandKernels.GetUnknownSubcommandMessage("wat"),
             (string)(cliQueryUnknownSubcommandMessage.Invoke(null, new object[] { "wat" }) ?? string.Empty));
-        Assert.Equal(
-            QueryCommandKernels.GetErrorLine("bad input"),
-            (string)(cliQueryErrorLine.Invoke(null, new object[] { "bad input" }) ?? string.Empty));
         Assert.Equal(
             QueryCommandKernels.GetNoCompilationUnitForFileMessage("Missing.nl"),
             (string)(cliQueryNoCompilationUnitForFileMessage.Invoke(null, new object[] { "Missing.nl" }) ?? string.Empty));

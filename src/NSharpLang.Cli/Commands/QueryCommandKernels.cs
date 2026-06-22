@@ -495,14 +495,6 @@ internal static class QueryCommandKernels
         return GetUnknownSubcommandMessageWithCSharp(subcommand);
     }
 
-    internal static string GetErrorLine(string message)
-    {
-        if (TryGetMessage(bindings => bindings.QueryErrorLine(message), out var result))
-            return result;
-
-        return GetErrorLineWithCSharp(message);
-    }
-
     internal static string GetNoCompilationUnitForFileMessage(string fileFilter)
     {
         if (TryGetMessage(bindings => bindings.QueryNoCompilationUnitForFileMessage(fileFilter), out var message))
@@ -788,9 +780,6 @@ internal static class QueryCommandKernels
     private static string GetUnknownSubcommandMessageWithCSharp(string subcommand)
         => $"Unknown query subcommand: {subcommand}. Run 'nlc query help' for usage.";
 
-    private static string GetErrorLineWithCSharp(string message)
-        => $"Error: {message}";
-
     private static string GetNoCompilationUnitForFileMessageWithCSharp(string fileFilter)
         => $"No compilation unit found for --file {fileFilter}";
 
@@ -914,9 +903,6 @@ internal static class QueryCommandKernels
             DogfoodKernelLoader.CreateDelegate<CliQueryUnknownSubcommandMessage>(
                 programType,
                 "CliQueryUnknownSubcommandMessage"),
-            DogfoodKernelLoader.CreateDelegate<CliQueryErrorLine>(
-                programType,
-                "CliQueryErrorLine"),
             DogfoodKernelLoader.CreateDelegate<CliQueryNoCompilationUnitForFileMessage>(
                 programType,
                 "CliQueryNoCompilationUnitForFileMessage"),
@@ -1031,7 +1017,6 @@ internal static class QueryCommandKernels
     private delegate string CliQueryHelpText(string commandLines);
     private delegate string CliQueryDescriptionWithAliases(string description, string aliasesText);
     private delegate string CliQueryUnknownSubcommandMessage(string subcommand);
-    private delegate string CliQueryErrorLine(string message);
     private delegate string CliQueryNoCompilationUnitForFileMessage(string fileFilter);
     private delegate string CliQueryNoCompilationUnitsMessage();
     private delegate string CliQueryPositionUsageMessage(string subcommand);
@@ -1072,7 +1057,6 @@ internal static class QueryCommandKernels
         CliQueryHelpText QueryHelpText,
         CliQueryDescriptionWithAliases QueryDescriptionWithAliases,
         CliQueryUnknownSubcommandMessage QueryUnknownSubcommandMessage,
-        CliQueryErrorLine QueryErrorLine,
         CliQueryNoCompilationUnitForFileMessage QueryNoCompilationUnitForFileMessage,
         CliQueryNoCompilationUnitsMessage QueryNoCompilationUnitsMessage,
         CliQueryPositionUsageMessage QueryPositionUsageMessage,

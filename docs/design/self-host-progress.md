@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-22 — Query error wrapper reuses product N#
+
+`QueryCommand` no longer routes shared `Error: ...` stderr line shaping through a query-specific dogfood
+kernel and C# fallback. Query text errors now reuse the shipped `CliProgramErrorLine` dogfood kernel through
+`ProgramCommandKernels`; `QueryCommandKernels` keeps query-specific help, diagnostics, usage, and JSON-mode
+message shaping only. This removes the duplicate `CliQueryErrorLine` transition surface.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.QueryCommandKernels_ShapesMessages|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliQueryParsing|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`;
+`./scripts/dev.sh QueryCommandKernels`.
+
 ## 2026-06-22 — Export and tidy error wrappers reuse product N#
 
 `ExportCommand` and text-mode `TidyCommand` no longer construct shared `Error: ...` stderr lines in C#.
@@ -93,8 +104,8 @@ Focused evidence:
 
 ## 2026-06-22 — Query command shared messages move into product N#
 
-`QueryCommand` no longer owns top-level help template text, alias description formatting, shared `Error:`
-wrappers, unknown-subcommand diagnostics, position-query usage/invalid-position diagnostics, no-symbol/no-type/
+`QueryCommand` no longer owns top-level help template text, alias description formatting,
+unknown-subcommand diagnostics, position-query usage/invalid-position diagnostics, no-symbol/no-type/
 no-definition/no-interface messages, JSON-only mode diagnostics, batch/outline/doc usage text, documentation-miss
 text, or project-load failure messages in C#. The shipped `CliQuery*` dogfood kernels in `CliQueryParsing.nl` now
 shape those strings through `QueryCommandKernels`; C# keeps command registry enumeration, daemon/client IO,

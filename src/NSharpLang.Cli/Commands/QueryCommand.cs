@@ -1387,7 +1387,7 @@ public static class QueryCommand
 
     private static int QueryError(string message)
     {
-        Console.Error.WriteLine(QueryCommandKernels.GetErrorLine(message));
+        Console.Error.WriteLine(ProgramCommandKernels.GetErrorLine(message));
         return 1;
     }
 
