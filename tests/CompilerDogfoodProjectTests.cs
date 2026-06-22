@@ -7126,6 +7126,13 @@ func outer(x: int): int {
         Assert.Contains("CliLintFailedMessage", methodNames!); // product lint failure message shaping.
         Assert.Contains("CliCheckArgumentSummaryInto", methodNames!); // product check argument parsing.
         Assert.Contains("CliCheckEffectiveOutputMode", methodNames!); // product check output mode selection.
+        Assert.Contains("CliCheckHelpText", methodNames!); // product check help text shaping.
+        Assert.Contains("CliCheckProjectDirectoryNotFoundMessage", methodNames!); // product check missing-project message shaping.
+        Assert.Contains("CliCheckSystemsReportTextUnavailableMessage", methodNames!); // product check systems-report validation message shaping.
+        Assert.Contains("CliCheckNoErrorsMessage", methodNames!); // product check success summary shaping.
+        Assert.Contains("CliCheckElapsedMessage", methodNames!); // product check elapsed message shaping.
+        Assert.Contains("CliCheckFailedElapsedMessage", methodNames!); // product check failed-elapsed message shaping.
+        Assert.Contains("CliCheckFailedMessage", methodNames!); // product check failure message shaping.
         Assert.Contains("CliFixArgumentSummaryInto", methodNames!); // product fix argument parsing.
         Assert.Contains("CliFixEffectiveOutputMode", methodNames!); // product fix output mode selection.
         Assert.Contains("CliNewArgumentSummaryInto", methodNames!); // product new argument parsing.
@@ -15811,6 +15818,34 @@ class OtherZetaType {
                     "CliCheckEffectiveOutputMode",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliCheckEffectiveOutputMode.");
+            var cliCheckHelpText = programType.GetMethod(
+                    "CliCheckHelpText",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliCheckHelpText.");
+            var cliCheckProjectDirectoryNotFoundMessage = programType.GetMethod(
+                    "CliCheckProjectDirectoryNotFoundMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliCheckProjectDirectoryNotFoundMessage.");
+            var cliCheckSystemsReportTextUnavailableMessage = programType.GetMethod(
+                    "CliCheckSystemsReportTextUnavailableMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliCheckSystemsReportTextUnavailableMessage.");
+            var cliCheckNoErrorsMessage = programType.GetMethod(
+                    "CliCheckNoErrorsMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliCheckNoErrorsMessage.");
+            var cliCheckElapsedMessage = programType.GetMethod(
+                    "CliCheckElapsedMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliCheckElapsedMessage.");
+            var cliCheckFailedElapsedMessage = programType.GetMethod(
+                    "CliCheckFailedElapsedMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliCheckFailedElapsedMessage.");
+            var cliCheckFailedMessage = programType.GetMethod(
+                    "CliCheckFailedMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliCheckFailedMessage.");
             var cliFixArgumentSummaryInto = programType.GetMethod(
                     "CliFixArgumentSummaryInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -17692,6 +17727,14 @@ func main(customer: Customer, résumé: Profile) {
                 cliRunFailedMessage);
             AssertCliCheckArgumentsLikeProduction(cliCheckArgumentSummaryInto);
             AssertCliCheckOutputModesLikeProduction(cliCheckEffectiveOutputMode);
+            AssertCliCheckMessagesLikeProduction(
+                cliCheckHelpText,
+                cliCheckProjectDirectoryNotFoundMessage,
+                cliCheckSystemsReportTextUnavailableMessage,
+                cliCheckNoErrorsMessage,
+                cliCheckElapsedMessage,
+                cliCheckFailedElapsedMessage,
+                cliCheckFailedMessage);
             AssertCliFixArgumentsLikeProduction(cliFixArgumentSummaryInto);
             AssertCliFixOutputModesLikeProduction(cliFixEffectiveOutputMode);
             AssertCliNewArgumentsLikeProduction(cliNewArgumentSummaryInto);
@@ -21323,6 +21366,49 @@ func main() {
 
             Assert.Equal(expected, actual);
         }
+    }
+
+    private static void AssertCliCheckMessagesLikeProduction(
+        MethodInfo cliCheckHelpText,
+        MethodInfo cliCheckProjectDirectoryNotFoundMessage,
+        MethodInfo cliCheckSystemsReportTextUnavailableMessage,
+        MethodInfo cliCheckNoErrorsMessage,
+        MethodInfo cliCheckElapsedMessage,
+        MethodInfo cliCheckFailedElapsedMessage,
+        MethodInfo cliCheckFailedMessage)
+    {
+        var helpText = (string)(cliCheckHelpText.Invoke(null, Array.Empty<object>()) ?? "<null>");
+        Assert.Contains("N# Type Check", helpText);
+        Assert.Contains("Usage: nlc check [options] [project-dir]", helpText);
+        Assert.Contains("One or more errors detected", helpText);
+
+        Assert.Equal(
+            "Directory not found: /tmp/missing-check-project",
+            (string)(cliCheckProjectDirectoryNotFoundMessage.Invoke(
+                null,
+                new object[] { "/tmp/missing-check-project" }) ?? "<null>"));
+        Assert.Equal(
+            "--systems-report is only available as JSON output.",
+            (string)(cliCheckSystemsReportTextUnavailableMessage.Invoke(null, Array.Empty<object>()) ?? "<null>"));
+        Assert.Equal(
+            "  Checked 1 file — no errors. [0.1s]",
+            (string)(cliCheckNoErrorsMessage.Invoke(
+                null,
+                new object[] { "1", 1, "0.1s" }) ?? "<null>"));
+        Assert.Equal(
+            "  Checked 2 files — no errors. [0.2s]",
+            (string)(cliCheckNoErrorsMessage.Invoke(
+                null,
+                new object[] { "2", 2, "0.2s" }) ?? "<null>"));
+        Assert.Equal(
+            "  Checked in 0.3s",
+            (string)(cliCheckElapsedMessage.Invoke(null, new object[] { "0.3s" }) ?? "<null>"));
+        Assert.Equal(
+            "  Check failed in 0.4s",
+            (string)(cliCheckFailedElapsedMessage.Invoke(null, new object[] { "0.4s" }) ?? "<null>"));
+        Assert.Equal(
+            "Check failed: backend exploded",
+            (string)(cliCheckFailedMessage.Invoke(null, new object[] { "backend exploded" }) ?? "<null>"));
     }
 
     private static void AssertCliFixOutputModesLikeProduction(MethodInfo cliFixEffectiveOutputMode)

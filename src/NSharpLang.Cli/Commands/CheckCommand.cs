@@ -24,7 +24,7 @@ public static class CheckCommand
 
         if (!Directory.Exists(projectDir))
         {
-            return EmitError(useText, $"Directory not found: {projectDir}", projectDir);
+            return EmitError(useText, CheckCommandKernels.GetProjectDirectoryNotFoundMessage(projectDir), projectDir);
         }
 
         var projectYmlPath = Path.Combine(projectDir, "project.yml");
@@ -77,7 +77,7 @@ public static class CheckCommand
 
             if (outputMode == CheckOutputModeKind.InvalidSystemsReportText)
             {
-                return EmitError(useText, "--systems-report is only available as JSON output.", projectDir);
+                return EmitError(useText, CheckCommandKernels.GetSystemsReportTextUnavailableMessage(), projectDir);
             }
 
             if (useText)
@@ -85,12 +85,14 @@ public static class CheckCommand
                 if (summary.Errors == 0 && summary.Warnings == 0)
                 {
                     var fileCount = snapshot.SourceFiles.Count;
-                    Console.Error.WriteLine($"  Checked {fileCount} file{(fileCount == 1 ? "" : "s")} — no errors. [{FormatElapsed(sw.Elapsed)}]");
+                    Console.Error.WriteLine(CheckCommandKernels.GetNoErrorsMessage(
+                        fileCount,
+                        FormatElapsed(sw.Elapsed)));
                 }
                 else
                 {
                     Console.Error.Write(OutputFormatter.DiagnosticsToText(diagnostics));
-                    Console.Error.WriteLine($"  Checked in {FormatElapsed(sw.Elapsed)}");
+                    Console.Error.WriteLine(CheckCommandKernels.GetCheckedInMessage(FormatElapsed(sw.Elapsed)));
                 }
             }
             else if (outputMode == CheckOutputModeKind.SystemsReportJson)
@@ -111,8 +113,8 @@ public static class CheckCommand
         catch (Exception ex)
         {
             if (useText)
-                Console.Error.WriteLine($"  Check failed in {FormatElapsed(sw.Elapsed)}");
-            return EmitError(useText, $"Check failed: {ex.Message}", projectDir);
+                Console.Error.WriteLine(CheckCommandKernels.GetFailedElapsedMessage(FormatElapsed(sw.Elapsed)));
+            return EmitError(useText, CheckCommandKernels.GetFailedMessage(ex.Message), projectDir);
         }
     }
 
@@ -188,33 +190,7 @@ public static class CheckCommand
 
     public static int ShowHelp()
     {
-        Console.WriteLine(@"N# Type Check
-
-Usage: nlc check [options] [project-dir]
-
-Verifies your N# project compiles without errors. Runs semantic analysis,
-linting, and IL backend verification.
-
-Options:
-  --backend <mode>  Compilation backend: il
-  --json        Output as JSON (default)
-  --text        Output as human-readable diagnostics
-  --aot         Report Native AOT blockers as errors
-  --systems-report
-                Output the versioned Systems N# effect/policy report as JSON
-  --project     Project root directory (default: current directory)
-  --help, -h    Show this help text
-
-Examples:
-  nlc check
-  nlc check --backend il
-  nlc check --text
-  nlc check --aot
-  nlc check --project examples/16-task-cli
-
-Exit codes:
-  0  No errors found
-  1  One or more errors detected");
+        Console.WriteLine(CheckCommandKernels.GetHelpText());
 
         return 0;
     }

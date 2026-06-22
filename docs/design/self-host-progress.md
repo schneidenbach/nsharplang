@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-22 — Check command messages move into product N#
+
+`CheckCommand` no longer owns help text, missing-project diagnostics, invalid systems-report text-mode
+diagnostics, clean-check summaries, elapsed diagnostics summaries, failed-elapsed text, or final failure wrapper
+text in C#. The shipped `CliCheck*` dogfood kernels now shape those strings through `CheckCommandKernels`; C#
+keeps project loading, semantic/lint/backend/AOT diagnostics, JSON envelope serialization, elapsed-time
+measurement, and fallback/oracle text only.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.CheckCommandKernels_SummarizesOptionsAndSkipsBackendValue|FullyQualifiedName~CliCommandTests.CheckCommandKernels_SelectsEffectiveOutputMode|FullyQualifiedName~CheckCommandTests.CheckCommand_MissingProject_JsonError|FullyQualifiedName~CheckCommandTests.CheckCommand_MissingProject_TextMode_PrintsToStderr|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`;
+`./scripts/dev.sh CheckCommandKernels`.
+
 ## 2026-06-22 — Lint command messages move into product N#
 
 `LintCommand` no longer owns help text, missing-project diagnostics, no-files status, missing-file text, parse-error

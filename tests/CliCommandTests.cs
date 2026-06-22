@@ -2206,6 +2206,39 @@ func Main() {
         Assert.Equal("il", permissiveValue.BackendOption);
 
         Assert.True(CheckCommand.GetArgumentSummary(new[] { "help" }).ShowHelp);
+
+        var helpText = CheckCommandKernels.GetHelpText();
+        Assert.Contains("N# Type Check", helpText);
+        Assert.Contains("Usage: nlc check [options] [project-dir]", helpText);
+        Assert.Contains("One or more errors detected", helpText);
+
+        Assert.Equal(
+            "Directory not found: /tmp/missing-check-project",
+            CheckCommandKernels.GetProjectDirectoryNotFoundMessage("/tmp/missing-check-project"));
+        Assert.Equal(
+            "--systems-report is only available as JSON output.",
+            CheckCommandKernels.GetSystemsReportTextUnavailableMessage());
+        Assert.Equal(
+            "  Checked 1 file — no errors. [0.1s]",
+            CheckCommandKernels.GetNoErrorsMessage(1, "0.1s"));
+        Assert.Equal(
+            "  Checked 2 files — no errors. [0.2s]",
+            CheckCommandKernels.GetNoErrorsMessage(2, "0.2s"));
+        Assert.Equal("  Checked in 0.3s", CheckCommandKernels.GetCheckedInMessage("0.3s"));
+        Assert.Equal("  Check failed in 0.4s", CheckCommandKernels.GetFailedElapsedMessage("0.4s"));
+        Assert.Equal("Check failed: backend exploded", CheckCommandKernels.GetFailedMessage("backend exploded"));
+
+        var (helpExitCode, helpStdout, helpStderr) = CaptureConsole(() => CheckCommand.Execute(new[] { "--help" }));
+        Assert.Equal(0, helpExitCode);
+        Assert.Contains("Usage: nlc check [options] [project-dir]", helpStdout);
+        Assert.True(string.IsNullOrWhiteSpace(helpStderr));
+
+        var missingProject = Path.Combine(Path.GetTempPath(), $"nsharp-check-missing-{Guid.NewGuid():N}");
+        var (missingExitCode, missingStdout, missingStderr) = CaptureConsole(() =>
+            CheckCommand.Execute(new[] { "--project", missingProject, "--text" }));
+        Assert.Equal(1, missingExitCode);
+        Assert.True(string.IsNullOrWhiteSpace(missingStdout));
+        Assert.Contains($"Directory not found: {Path.GetFullPath(missingProject)}", missingStderr);
     }
 
     [Fact]

@@ -1137,6 +1137,65 @@ func CliCheckEffectiveOutputMode(useText: int, systemsReport: int): int {
     return 1
 }
 
+func CliCheckHelpText(): string {
+    return "N# Type Check\n"
+        + "\n"
+        + "Usage: nlc check [options] [project-dir]\n"
+        + "\n"
+        + "Verifies your N# project compiles without errors. Runs semantic analysis,\n"
+        + "linting, and IL backend verification.\n"
+        + "\n"
+        + "Options:\n"
+        + "  --backend <mode>  Compilation backend: il\n"
+        + "  --json        Output as JSON (default)\n"
+        + "  --text        Output as human-readable diagnostics\n"
+        + "  --aot         Report Native AOT blockers as errors\n"
+        + "  --systems-report\n"
+        + "                Output the versioned Systems N# effect/policy report as JSON\n"
+        + "  --project     Project root directory (default: current directory)\n"
+        + "  --help, -h    Show this help text\n"
+        + "\n"
+        + "Examples:\n"
+        + "  nlc check\n"
+        + "  nlc check --backend il\n"
+        + "  nlc check --text\n"
+        + "  nlc check --aot\n"
+        + "  nlc check --project examples/16-task-cli\n"
+        + "\n"
+        + "Exit codes:\n"
+        + "  0  No errors found\n"
+        + "  1  One or more errors detected"
+}
+
+func CliCheckProjectDirectoryNotFoundMessage(projectDir: string): string {
+    return "Directory not found: " + projectDir
+}
+
+func CliCheckSystemsReportTextUnavailableMessage(): string {
+    return "--systems-report is only available as JSON output."
+}
+
+func CliCheckNoErrorsMessage(fileCountText: string, fileCount: int, elapsedText: string): string {
+    suffix := "s"
+    if fileCount == 1 {
+        suffix = ""
+    }
+
+    return "  Checked " + fileCountText + " file" + suffix + " — no errors. [" + elapsedText + "]"
+}
+
+func CliCheckElapsedMessage(elapsedText: string): string {
+    return "  Checked in " + elapsedText
+}
+
+func CliCheckFailedElapsedMessage(elapsedText: string): string {
+    return "  Check failed in " + elapsedText
+}
+
+func CliCheckFailedMessage(message: string): string {
+    return "Check failed: " + message
+}
+
 func CliFixArgumentSummaryInto(args: string[], resultIndices: int[]): int {
     arguments := new CliArgumentTable { Args: args }
     results := new CliIndexResultTable { Indices: resultIndices }
