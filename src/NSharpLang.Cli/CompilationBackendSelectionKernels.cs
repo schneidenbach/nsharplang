@@ -20,7 +20,7 @@ internal static class CompilationBackendSelectionKernels
             };
         }
 
-        return ResolveWithCSharp(backendOption, config);
+        throw new InvalidOperationException("N# compilation backend selection kernel rejected the backend configuration.");
     }
 
     internal static bool TryGetEffectiveBackendKind(
@@ -61,12 +61,6 @@ internal static class CompilationBackendSelectionKernels
             return false;
         }
     }
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product backend selection routes through CliEffectiveCompilationBackendKind.
-    private static CompilationBackend ResolveWithCSharp(string? backendOption, ProjectConfig? config)
-        => !string.IsNullOrWhiteSpace(backendOption)
-            ? CompilationBackendExtensions.Parse(backendOption)
-            : config?.EffectiveBackend ?? CompilationBackend.Il;
 
     private static string? GetSelectedBackendValue(string? backendOption, ProjectConfig? config)
         => !string.IsNullOrWhiteSpace(backendOption)
