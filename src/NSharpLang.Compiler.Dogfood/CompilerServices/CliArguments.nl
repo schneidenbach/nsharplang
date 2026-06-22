@@ -863,6 +863,26 @@ func CliRunSourceStartingMessage(sourceFile: string): string {
     return "Running " + sourceFile + "..."
 }
 
+func CliRunMissingProjectFileMessage(): string {
+    return "No project.yml found in current directory. Run 'nlc new <name>' to create a project."
+}
+
+func CliRunLibraryProjectMessage(): string {
+    return "Cannot run a library project."
+}
+
+func CliRunProjectStartingMessage(): string {
+    return "Running..."
+}
+
+func CliRunSingleFileBackendStartMessage(sourceFile: string): string {
+    return "Running " + sourceFile + " with the IL backend..."
+}
+
+func CliRunLibrarySourceFileMessage(): string {
+    return "Cannot run a library source file."
+}
+
 func CliRunFailedMessage(message: string): string {
     return "Run failed: " + message
 }

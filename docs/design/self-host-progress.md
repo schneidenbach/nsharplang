@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-22 — Run backend messages move into product N#
+
+`RunWithIlBackend` and `RunSingleFileWithIlBackend` no longer own missing-project diagnostics,
+library project/source diagnostics, project execution start text, single-file IL-backend start text, or exception
+failure wrappers in C#. The shipped `CliRun*` dogfood kernels now shape those strings through
+`RunCommandKernels`; C# keeps project.yml/file IO, output-type checks, backend compilation, process execution,
+temporary-directory cleanup, and fallback/oracle text only.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.RunCommandKernels_SummarizesOptions|FullyQualifiedName~CliCommandTests.RunCommandKernels_SelectsSourceOperandAfterBackendStripping|FullyQualifiedName~CompilationBackendTests.RunCommand_UsesConfiguredIlBackendAndExecutesProject|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`;
+`./scripts/dev.sh RunCommandKernels`.
+
 ## 2026-06-22 — Format command messages move into product N#
 
 `Program.FormatCommand` no longer owns format help text, stdin/file conflict diagnostics, no-files status,

@@ -118,13 +118,13 @@ Build timings:
             var projectYmlPath = Path.Combine(projectRoot, "project.yml");
             if (!File.Exists(projectYmlPath))
             {
-                return Error("No project.yml found in current directory. Run 'nlc new <name>' to create a project.");
+                return Error(RunCommandKernels.GetMissingProjectFileMessage());
             }
 
             var config = ProjectFileParser.Parse(projectYmlPath);
             if (!string.Equals(config.OutputType, "exe", StringComparison.OrdinalIgnoreCase))
             {
-                return Error("Cannot run a library project.");
+                return Error(RunCommandKernels.GetLibraryProjectMessage());
             }
 
             var configuration = "Debug";
@@ -141,13 +141,13 @@ Build timings:
             }
 
             Console.WriteLine();
-            Console.WriteLine("Running...");
+            Console.WriteLine(RunCommandKernels.GetProjectStartingMessage());
             Console.WriteLine();
             return DotnetRunner.RunPassthrough($"\"{outputPath}\"", workingDirectory: projectRoot);
         }
         catch (Exception ex)
         {
-            return Error($"Run failed: {ex.Message}");
+            return Error(RunCommandKernels.GetFailedMessage(ex.Message));
         }
     }
 
@@ -156,14 +156,14 @@ Build timings:
         var tempDir = CreateTempBuildDirectory();
         try
         {
-            Console.WriteLine($"Running {sourceFile} with the IL backend...");
+            Console.WriteLine(RunCommandKernels.GetSingleFileBackendStartMessage(sourceFile));
 
             var sourceDir = Path.GetDirectoryName(Path.GetFullPath(sourceFile)) ?? Directory.GetCurrentDirectory();
             var config = GetEffectiveCompilationConfig(projectConfig, Path.GetFileNameWithoutExtension(sourceFile));
             ApplyEffectiveDefines(config, debug: true, cliDefines);
             if (!string.Equals(config.OutputType, "exe", StringComparison.OrdinalIgnoreCase))
             {
-                return Error("Cannot run a library source file.");
+                return Error(RunCommandKernels.GetLibrarySourceFileMessage());
             }
 
             var references = CompilationReferenceResolver.AddResolvedDllReferences(
@@ -181,7 +181,7 @@ Build timings:
         }
         catch (Exception ex)
         {
-            return Error($"Run failed: {ex.Message}");
+            return Error(RunCommandKernels.GetFailedMessage(ex.Message));
         }
         finally
         {

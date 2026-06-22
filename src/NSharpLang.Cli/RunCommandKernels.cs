@@ -97,6 +97,46 @@ internal static class RunCommandKernels
         return GetSourceStartingMessageWithCSharp(sourceFile);
     }
 
+    internal static string GetMissingProjectFileMessage()
+    {
+        if (TryGetMessage(bindings => bindings.RunMissingProjectFileMessage(), out var message))
+            return message;
+
+        return GetMissingProjectFileMessageWithCSharp();
+    }
+
+    internal static string GetLibraryProjectMessage()
+    {
+        if (TryGetMessage(bindings => bindings.RunLibraryProjectMessage(), out var message))
+            return message;
+
+        return GetLibraryProjectMessageWithCSharp();
+    }
+
+    internal static string GetProjectStartingMessage()
+    {
+        if (TryGetMessage(bindings => bindings.RunProjectStartingMessage(), out var message))
+            return message;
+
+        return GetProjectStartingMessageWithCSharp();
+    }
+
+    internal static string GetSingleFileBackendStartMessage(string sourceFile)
+    {
+        if (TryGetMessage(bindings => bindings.RunSingleFileBackendStartMessage(sourceFile), out var message))
+            return message;
+
+        return GetSingleFileBackendStartMessageWithCSharp(sourceFile);
+    }
+
+    internal static string GetLibrarySourceFileMessage()
+    {
+        if (TryGetMessage(bindings => bindings.RunLibrarySourceFileMessage(), out var message))
+            return message;
+
+        return GetLibrarySourceFileMessageWithCSharp();
+    }
+
     internal static string GetFailedMessage(string message)
     {
         if (TryGetMessage(bindings => bindings.RunFailedMessage(message), out var result))
@@ -159,6 +199,21 @@ internal static class RunCommandKernels
     private static string GetSourceStartingMessageWithCSharp(string sourceFile)
         => $"Running {sourceFile}...";
 
+    private static string GetMissingProjectFileMessageWithCSharp()
+        => "No project.yml found in current directory. Run 'nlc new <name>' to create a project.";
+
+    private static string GetLibraryProjectMessageWithCSharp()
+        => "Cannot run a library project.";
+
+    private static string GetProjectStartingMessageWithCSharp()
+        => "Running...";
+
+    private static string GetSingleFileBackendStartMessageWithCSharp(string sourceFile)
+        => $"Running {sourceFile} with the IL backend...";
+
+    private static string GetLibrarySourceFileMessageWithCSharp()
+        => "Cannot run a library source file.";
+
     private static string GetFailedMessageWithCSharp(string message)
         => $"Run failed: {message}";
 
@@ -179,6 +234,21 @@ internal static class RunCommandKernels
             DogfoodKernelLoader.CreateDelegate<CliRunSourceStartingMessage>(
                 programType,
                 "CliRunSourceStartingMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliRunMissingProjectFileMessage>(
+                programType,
+                "CliRunMissingProjectFileMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliRunLibraryProjectMessage>(
+                programType,
+                "CliRunLibraryProjectMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliRunProjectStartingMessage>(
+                programType,
+                "CliRunProjectStartingMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliRunSingleFileBackendStartMessage>(
+                programType,
+                "CliRunSingleFileBackendStartMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliRunLibrarySourceFileMessage>(
+                programType,
+                "CliRunLibrarySourceFileMessage"),
             DogfoodKernelLoader.CreateDelegate<CliRunFailedMessage>(
                 programType,
                 "CliRunFailedMessage")));
@@ -190,6 +260,11 @@ internal static class RunCommandKernels
     private delegate string CliRunHelpText();
     private delegate string CliRunFileNotFoundMessage(string sourceFile);
     private delegate string CliRunSourceStartingMessage(string sourceFile);
+    private delegate string CliRunMissingProjectFileMessage();
+    private delegate string CliRunLibraryProjectMessage();
+    private delegate string CliRunProjectStartingMessage();
+    private delegate string CliRunSingleFileBackendStartMessage(string sourceFile);
+    private delegate string CliRunLibrarySourceFileMessage();
     private delegate string CliRunFailedMessage(string message);
 
     private sealed record Bindings(
@@ -198,6 +273,11 @@ internal static class RunCommandKernels
         CliRunHelpText RunHelpText,
         CliRunFileNotFoundMessage RunFileNotFoundMessage,
         CliRunSourceStartingMessage RunSourceStartingMessage,
+        CliRunMissingProjectFileMessage RunMissingProjectFileMessage,
+        CliRunLibraryProjectMessage RunLibraryProjectMessage,
+        CliRunProjectStartingMessage RunProjectStartingMessage,
+        CliRunSingleFileBackendStartMessage RunSingleFileBackendStartMessage,
+        CliRunLibrarySourceFileMessage RunLibrarySourceFileMessage,
         CliRunFailedMessage RunFailedMessage);
 
     private static bool TryGetOptionalArg(string[] args, int index, out string? value)

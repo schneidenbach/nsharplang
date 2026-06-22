@@ -3180,6 +3180,15 @@ func Main() {
         Assert.Contains("Build or execution failed", helpText);
         Assert.Equal("File not found: Missing.nl", RunCommandKernels.GetFileNotFoundMessage("Missing.nl"));
         Assert.Equal("Running Program.nl...", RunCommandKernels.GetSourceStartingMessage("Program.nl"));
+        Assert.Equal(
+            "No project.yml found in current directory. Run 'nlc new <name>' to create a project.",
+            RunCommandKernels.GetMissingProjectFileMessage());
+        Assert.Equal("Cannot run a library project.", RunCommandKernels.GetLibraryProjectMessage());
+        Assert.Equal("Running...", RunCommandKernels.GetProjectStartingMessage());
+        Assert.Equal(
+            "Running Program.nl with the IL backend...",
+            RunCommandKernels.GetSingleFileBackendStartMessage("Program.nl"));
+        Assert.Equal("Cannot run a library source file.", RunCommandKernels.GetLibrarySourceFileMessage());
         Assert.Equal("Run failed: backend exploded", RunCommandKernels.GetFailedMessage("backend exploded"));
 
         var (helpExitCode, helpStdout, helpStderr) = CaptureConsole(() => ExecuteProgram("run", "--help"));
@@ -3192,6 +3201,21 @@ func Main() {
         Assert.Equal(1, missingExitCode);
         Assert.True(string.IsNullOrWhiteSpace(missingStdout));
         Assert.Contains($"File not found: {missingPath}", missingStderr);
+
+        var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-run-no-project-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            var (noProjectExitCode, noProjectStdout, noProjectStderr) = CaptureConsole(() =>
+                ExecuteRunWithIlBackend(tempDir));
+            Assert.Equal(1, noProjectExitCode);
+            Assert.True(string.IsNullOrWhiteSpace(noProjectStdout));
+            Assert.Contains("No project.yml found in current directory.", noProjectStderr);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
     }
 
     [Fact]
@@ -5635,6 +5659,19 @@ func Main() {
         Assert.NotNull(method);
 
         return (int)(method!.Invoke(null, new object[] { args }) ?? -1);
+    }
+
+    private static int ExecuteRunWithIlBackend(string projectRoot)
+    {
+        var programType = typeof(CheckCommand).Assembly.GetType("NSharpLang.Cli.Program");
+        Assert.NotNull(programType);
+
+        var method = programType!.GetMethod(
+            "RunWithIlBackend",
+            System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
+        Assert.NotNull(method);
+
+        return (int)(method!.Invoke(null, new object?[] { projectRoot, null }) ?? -1);
     }
 
     private static (int ExitCode, string Stdout, string Stderr) CaptureConsole(Func<int> action, string? stdin = null)

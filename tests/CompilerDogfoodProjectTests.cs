@@ -7103,6 +7103,11 @@ func outer(x: int): int {
         Assert.Contains("CliRunHelpText", methodNames!); // product run help text shaping.
         Assert.Contains("CliRunFileNotFoundMessage", methodNames!); // product run missing-file message shaping.
         Assert.Contains("CliRunSourceStartingMessage", methodNames!); // product run source-start message shaping.
+        Assert.Contains("CliRunMissingProjectFileMessage", methodNames!); // product run missing-project message shaping.
+        Assert.Contains("CliRunLibraryProjectMessage", methodNames!); // product run library-project message shaping.
+        Assert.Contains("CliRunProjectStartingMessage", methodNames!); // product run project-start message shaping.
+        Assert.Contains("CliRunSingleFileBackendStartMessage", methodNames!); // product run single-file backend-start shaping.
+        Assert.Contains("CliRunLibrarySourceFileMessage", methodNames!); // product run library-source message shaping.
         Assert.Contains("CliRunFailedMessage", methodNames!); // product run failure message shaping.
         Assert.Contains("CliDefineExtractionInto", methodNames!); // product build/run define extraction.
         Assert.Contains("CliPositionalArgIndicesInto", methodNames!); // product positional collection.
@@ -15755,6 +15760,26 @@ class OtherZetaType {
                     "CliRunSourceStartingMessage",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliRunSourceStartingMessage.");
+            var cliRunMissingProjectFileMessage = programType.GetMethod(
+                    "CliRunMissingProjectFileMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliRunMissingProjectFileMessage.");
+            var cliRunLibraryProjectMessage = programType.GetMethod(
+                    "CliRunLibraryProjectMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliRunLibraryProjectMessage.");
+            var cliRunProjectStartingMessage = programType.GetMethod(
+                    "CliRunProjectStartingMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliRunProjectStartingMessage.");
+            var cliRunSingleFileBackendStartMessage = programType.GetMethod(
+                    "CliRunSingleFileBackendStartMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliRunSingleFileBackendStartMessage.");
+            var cliRunLibrarySourceFileMessage = programType.GetMethod(
+                    "CliRunLibrarySourceFileMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliRunLibrarySourceFileMessage.");
             var cliRunFailedMessage = programType.GetMethod(
                     "CliRunFailedMessage",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -17564,6 +17589,11 @@ func main(customer: Customer, résumé: Profile) {
                 cliRunHelpText,
                 cliRunFileNotFoundMessage,
                 cliRunSourceStartingMessage,
+                cliRunMissingProjectFileMessage,
+                cliRunLibraryProjectMessage,
+                cliRunProjectStartingMessage,
+                cliRunSingleFileBackendStartMessage,
+                cliRunLibrarySourceFileMessage,
                 cliRunFailedMessage);
             AssertCliCheckArgumentsLikeProduction(cliCheckArgumentSummaryInto);
             AssertCliCheckOutputModesLikeProduction(cliCheckEffectiveOutputMode);
@@ -21028,6 +21058,11 @@ func main() {
         MethodInfo cliRunHelpText,
         MethodInfo cliRunFileNotFoundMessage,
         MethodInfo cliRunSourceStartingMessage,
+        MethodInfo cliRunMissingProjectFileMessage,
+        MethodInfo cliRunLibraryProjectMessage,
+        MethodInfo cliRunProjectStartingMessage,
+        MethodInfo cliRunSingleFileBackendStartMessage,
+        MethodInfo cliRunLibrarySourceFileMessage,
         MethodInfo cliRunFailedMessage)
     {
         var help = (string)(cliRunHelpText.Invoke(null, Array.Empty<object>()) ?? string.Empty);
@@ -21041,6 +21076,23 @@ func main() {
         Assert.Equal(
             "Running Program.nl...",
             (string)(cliRunSourceStartingMessage.Invoke(null, new object[] { "Program.nl" }) ?? string.Empty));
+        Assert.Equal(
+            "No project.yml found in current directory. Run 'nlc new <name>' to create a project.",
+            (string)(cliRunMissingProjectFileMessage.Invoke(null, Array.Empty<object>()) ?? string.Empty));
+        Assert.Equal(
+            "Cannot run a library project.",
+            (string)(cliRunLibraryProjectMessage.Invoke(null, Array.Empty<object>()) ?? string.Empty));
+        Assert.Equal(
+            "Running...",
+            (string)(cliRunProjectStartingMessage.Invoke(null, Array.Empty<object>()) ?? string.Empty));
+        Assert.Equal(
+            "Running Program.nl with the IL backend...",
+            (string)(cliRunSingleFileBackendStartMessage.Invoke(
+                null,
+                new object[] { "Program.nl" }) ?? string.Empty));
+        Assert.Equal(
+            "Cannot run a library source file.",
+            (string)(cliRunLibrarySourceFileMessage.Invoke(null, Array.Empty<object>()) ?? string.Empty));
         Assert.Equal(
             "Run failed: backend exploded",
             (string)(cliRunFailedMessage.Invoke(null, new object[] { "backend exploded" }) ?? string.Empty));
