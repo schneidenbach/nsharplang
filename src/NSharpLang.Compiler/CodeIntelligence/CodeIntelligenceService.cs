@@ -759,39 +759,33 @@ public class CodeIntelligenceService
                 return FormatFunctionSignature(func);
         }
 
-        // Fall back to a simple kind + name + type representation
-        return typeName != null ? $"{kind} {name}: {typeName}" : $"{kind} {name}";
+        // Fall back to a simple kind + name + type representation.
+        return CodeIntelligenceSignatureKernels.GetFallbackSignatureText(kind, name, typeName);
     }
 
     private static string FormatFunctionSignature(FunctionDeclaration func)
     {
-        var sb = new System.Text.StringBuilder();
-        sb.Append("func ");
-        sb.Append(func.Name);
-        sb.Append('(');
+        var parameterCount = func.Parameters.Count;
+        var parameterNames = new string[parameterCount];
+        var parameterTypes = new string[parameterCount];
+        var hasDefaults = new int[parameterCount];
 
-        for (int i = 0; i < func.Parameters.Count; i++)
+        for (var i = 0; i < parameterCount; i++)
         {
-            if (i > 0) sb.Append(", ");
             var p = func.Parameters[i];
-            sb.Append(p.Name);
-            sb.Append(": ");
-            sb.Append(FormatTypeRef(p.Type));
-            if (p.DefaultValue != null)
-            {
-                sb.Append(" = ...");
-            }
+            parameterNames[i] = p.Name;
+            parameterTypes[i] = FormatTypeRef(p.Type);
+            hasDefaults[i] = p.DefaultValue != null ? 1 : 0;
         }
 
-        sb.Append(')');
-
-        if (func.ReturnType != null)
-        {
-            sb.Append(": ");
-            sb.Append(FormatTypeRef(func.ReturnType));
-        }
-
-        return sb.ToString();
+        return CodeIntelligenceSignatureKernels.GetFunctionSignatureText(
+            func.Name,
+            parameterNames,
+            parameterTypes,
+            hasDefaults,
+            parameterCount,
+            func.ReturnType != null ? FormatTypeRef(func.ReturnType) : string.Empty,
+            func.ReturnType != null);
     }
 
     private static string FormatTypeRef(TypeReference? typeRef) => typeRef switch

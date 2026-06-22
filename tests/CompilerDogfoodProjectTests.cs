@@ -7638,6 +7638,54 @@ func outer(x: int): int {
             ("DiagnosticDeduplicationMinInt", new object[] { 4, 9 }), ("DiagnosticDeduplicationMinInt", new object[] { 9, 4 }));
     }
 
+    // MILESTONE: CodeIntelligenceSignatures.nl compiles end-to-end with no C# AST and owns shipped
+    // compiler-service hover signature text shaping before JSON/text output formatting.
+    [Fact]
+    public void ColumnarCodegen_CompilesRealDogfoodFile_CodeIntelligenceSignatures()
+    {
+        var source = ReadDogfoodProductFile("CodeIntelligenceSignatures.nl");
+        var (ok, _, _, methodNames) = RouteColumnarProgram(source);
+        Assert.True(ok, "Columnar backend declined the real CodeIntelligenceSignatures.nl (expected full support).");
+        Assert.Contains("CodeIntelligenceFunctionSignatureText", methodNames!);
+        Assert.Contains("CodeIntelligenceFallbackSignatureText", methodNames!);
+
+        AssertColumnarProgramMatchesCSharp(source,
+            ("CodeIntelligenceFunctionSignatureText", new object[]
+            {
+                "Read",
+                new[] { "items", "mapper" },
+                new[] { "List<Widget>", "Func<Widget, string>" },
+                new[] { 0, 1 },
+                2,
+                "string",
+                1
+            }),
+            ("CodeIntelligenceFunctionSignatureText", new object[]
+            {
+                "Main",
+                Array.Empty<string>(),
+                Array.Empty<string>(),
+                Array.Empty<int>(),
+                0,
+                string.Empty,
+                0
+            }),
+            ("CodeIntelligenceFunctionSignatureText", new object[]
+            {
+                "Clamp",
+                new[] { "value", "min", "max" },
+                new[] { "int", "int", "int" },
+                new[] { 0, 0 },
+                3,
+                "int",
+                1
+            }),
+            ("CodeIntelligenceFallbackSignatureText", new object[] { "record", "Widget", "Widget", 1 }),
+            ("CodeIntelligenceFallbackSignatureText", new object[] { "function", "Hi", string.Empty, 0 }),
+            ("CodeIntelligenceSignatureMinInt", new object[] { 3, 7 }),
+            ("CodeIntelligenceSignatureMinInt", new object[] { 7, 3 }));
+    }
+
     // MILESTONE: OutputFormatterText.nl compiles end-to-end with no C# AST and owns shipped
     // `nlc query symbols --text`, `outline --text`, `type --text`, `completions --text`,
     // `inspect --text`, `hover --text`, `call-graph --text`, `implementors --text`, `doc --text`,
@@ -12997,16 +13045,16 @@ func outer(x: int): int {
         var productFiles = Directory.EnumerateFiles(dir, "*.nl")
             .OrderBy(p => p, StringComparer.Ordinal)
             .ToArray();
-        Assert.True(productFiles.Length >= 36,
-            $"Product dogfood corpus coverage regressed: expected at least 36 files, found {productFiles.Length}.");
+        Assert.True(productFiles.Length >= 37,
+            $"Product dogfood corpus coverage regressed: expected at least 37 files, found {productFiles.Length}.");
 
         var sources = productFiles.Select(File.ReadAllText).ToArray();
         var (ok, assembly, _, methodNames) = RouteColumnarMultiFile(sources);
         Assert.True(ok, $"Columnar backend declined the merged {productFiles.Length}-file product corpus.");
         using var loadScope = CollectibleAssemblyScope.Load(assembly!); // the merged IL is a valid, loadable assembly.
         Assert.NotNull(loadScope.Assembly);
-        Assert.True(methodNames!.Length >= 429,
-            $"Product dogfood corpus method coverage regressed: expected at least 429 emitted methods, found {methodNames.Length}.");
+        Assert.True(methodNames!.Length >= 432,
+            $"Product dogfood corpus method coverage regressed: expected at least 432 emitted methods, found {methodNames.Length}.");
         // Files eligible ONLY via cross-file resolution must contribute their public functions —
         // i.e. the merge actually emitted them (single-file each declines; see ColumnarCodegen_MultiFile_*).
         Assert.Contains("TokenizeColumnarSourceInto", methodNames!); // composed lexer metadata + parser-token compaction routing
@@ -13037,6 +13085,8 @@ func outer(x: int): int {
         Assert.Contains("DirectLocalFunctionTokenIndicesCore", methodNames!); // ParserLocalFunctions -> declarations/statements
         Assert.Contains("TypeReferenceCanonicalTextCore", methodNames!); // ParserTypeReferences -> signature text canonicalization
         Assert.Contains("TypeReferenceTupleElementNamesCore", methodNames!); // ParserTypeReferences -> tuple parameter names
+        Assert.Contains("CodeIntelligenceFunctionSignatureText", methodNames!); // product hover signature text shaping
+        Assert.Contains("CodeIntelligenceFallbackSignatureText", methodNames!); // product hover fallback signature text shaping
         Assert.Contains("ParsePrimaryExpressionNode", methodNames!); // ParserExpressions
         Assert.Contains("ParseStatementNodesCore", methodNames!);    // ParserStatements -> ParserExpressions
     }

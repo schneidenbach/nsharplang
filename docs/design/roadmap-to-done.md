@@ -232,10 +232,10 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       C# fallback on decline —
       flag-on emits an eligible program via the columnar pipeline (drop-in: assembly name + type `Program`),
       proven to differ from the C# IL yet run identically (`Stage5_ColumnarBackend_*`). Product corpus coverage
-      is now **36/36 shipped compiler-service files via MULTI-FILE merge**. The ratchet enumerates
-      `src/NSharpLang.Compiler.Dogfood/CompilerServices/*.nl` directly, requires at least 36 product files, emits
+      is now **37/37 shipped compiler-service files via MULTI-FILE merge**. The ratchet enumerates
+      `src/NSharpLang.Compiler.Dogfood/CompilerServices/*.nl` directly, requires at least 37 product files, emits
       all of them together through `ColumnarCompiler.TryEmitProgramMultiFile`, and pins a loadable assembly with
-      at least 429 methods. Single-file eligibility is no longer the product-routing metric: parser and semantic
+      at least 432 methods. Single-file eligibility is no longer the product-routing metric: parser and semantic
       kernels legitimately call sibling kernels, so the meaningful product proof is full-corpus merged emission.
       Rejected probes and flattened compatibility wrappers live only in
       `NSharpLang.Compiler.Dogfood.ParityCorpus` (37 files at this checkpoint) and do not inflate product routing
@@ -372,7 +372,9 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       receiver/grouping kernels now live beside `CompletionEngine` in `CompletionEngineKernels`;
       binding lookup kernels now live beside semantic lookup consumers in `BindingLookupKernels`;
       source/text extraction kernels now live beside code-intelligence text consumers in
-      `CodeIntelligenceSourceTextKernels`, deleting `NSharpCodeIntelligenceDogfoodAdapter`; DocQuery
+      `CodeIntelligenceSourceTextKernels`, deleting `NSharpCodeIntelligenceDogfoodAdapter`; hover
+      signature/fallback signature text shaping now lives beside `CodeIntelligenceService` in
+      `CodeIntelligenceSignatureKernels`; DocQuery
       type/reference-pack de-duplication, best-type selection, and member ordering now live beside
       `DocQuery` in `DocQueryKernels`. Product parser
       wrappers for function, constructor, property, body/local-function, enum, struct/class/record, union, and
@@ -600,7 +602,8 @@ in the progress log. Stage 6 also started moving query human-text surfaces: diag
 `OutputFormatterDiagnosticKernels`, and `nlc query symbols --text`, `outline --text`, `type --text`,
 `completions --text`, `inspect --text`, `hover --text`, `call-graph --text`, `implementors --text`,
 `doc --text`, `definition --text`, and `references --text` line shaping routes through
-`OutputFormatterTextKernels`. The active path is Stage 6 surface shrink plus SoA/emitter-port proof work before
+`OutputFormatterTextKernels`; reusable hover signature values now route through
+`CodeIntelligenceSignatureKernels`. The active path is Stage 6 surface shrink plus SoA/emitter-port proof work before
 `ILCompiler/` and `Analyzer.cs` can be retired.
 
 The `systems-language-perf` worktree (P-minmax(c) + P3/P-ctrans) has been merged into `systems-language`

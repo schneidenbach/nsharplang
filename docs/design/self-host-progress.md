@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-22 — Hover signatures move into product N#
+
+`CodeIntelligenceService.GetHoverInfo` no longer owns function signature or fallback `kind name[: type]`
+string assembly in C#. The shipped `CodeIntelligenceSignatures.nl` dogfood kernel now shapes those reusable
+hover signature values through `CodeIntelligenceSignatureKernels`; C# keeps AST lookup, TypeReference
+materialization, and fallback/oracle rendering only. This is a Stage 6 `C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CodeIntelligenceSignatures|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_EligibleClusterCompiles|FullyQualifiedName~QueryIntegrationTests.HoverCommand_FormatsFunctionSignatureExactly"`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`;
+`./scripts/dev.sh CodeIntelligenceSignatures`.
+
 ## 2026-06-22 — Unified diff text moves into product N#
 
 `UnifiedDiff.Create` no longer owns the visible `nlc format --diff` before/after headers, hunk headers, or line

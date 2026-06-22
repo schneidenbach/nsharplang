@@ -1306,6 +1306,29 @@ func Main() {
     }
 
     [Fact]
+    public void HoverCommand_FormatsFunctionSignatureExactly()
+    {
+        var snapshot = LoadTemporaryProject(("Program.nl", """
+func FormatName(name: string, count: int = 1): string {
+    return name
+}
+
+func Main(): void {
+    value := FormatName("Ada")
+}
+"""));
+        var programFile = Path.Combine(snapshot.ProjectRoot, "Program.nl");
+        var formatLine = FindLineInFile(programFile, "func FormatName");
+        var formatColumn = FindColumnInFile(programFile, formatLine, "FormatName");
+
+        var result = _service.GetHoverInfo(snapshot, "Program.nl", formatLine, formatColumn);
+
+        Assert.NotNull(result);
+        Assert.Equal("function", result!.Kind);
+        Assert.Equal("func FormatName(name: string, count: int = ...): string", result.Signature);
+    }
+
+    [Fact]
     public void HoverCommand_AtCallSite_ReturnsHoverInfo()
     {
         var programFile = Path.Combine(_examplesDir, "01-hello-world", "Program.nl");
