@@ -27,21 +27,11 @@ public static class ExportCommand
     }
 
     internal static ExportTargetSummary GetTargetSummary(string[] args)
-        => ExportCommandKernels.TryGetTargetSummary(args, out var summary)
-            ? summary
-            : GetTargetSummaryWithCSharp(args);
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product export target parsing routes through ExportCommandKernels.
-    private static ExportTargetSummary GetTargetSummaryWithCSharp(string[] args)
     {
-        if (args.Length == 0 || args[0] is "--help" or "-h" or "help")
-            return new ExportTargetSummary(ExportTargetKind.Unknown, ShowHelp: true);
+        if (ExportCommandKernels.TryGetTargetSummary(args, out var summary))
+            return summary;
 
-        return new ExportTargetSummary(
-            string.Equals(args[0], "csharp", StringComparison.OrdinalIgnoreCase)
-                ? ExportTargetKind.CSharp
-                : ExportTargetKind.Unknown,
-            ShowHelp: false);
+        throw new InvalidOperationException("N# export target parser kernel rejected the arguments.");
     }
 
     private static int ExportCSharp(string[] args)
@@ -219,84 +209,27 @@ public static class ExportCommand
     }
 
     internal static ExportCSharpOptionSummary GetExportCSharpOptionSummary(string[] args)
-        => ExportCommandKernels.TryGetCSharpOptionSummary(args, out var summary)
-            ? summary
-            : GetExportCSharpOptionSummaryWithCSharp(args);
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product export-csharp option parsing routes through ExportCommandKernels.
-    private static ExportCSharpOptionSummary GetExportCSharpOptionSummaryWithCSharp(string[] args)
-        => new(
-            GetOptionValueWithCSharp(args, "--project"),
-            GetOptionValueWithCSharp(args, "--output") ?? GetOptionValueWithCSharp(args, "-o"),
-            ContainsArgWithCSharp(args, "--help") || ContainsArgWithCSharp(args, "-h") || (args.Length > 0 && args[0] == "help"));
-
-    private static string? GetOptionValueWithCSharp(string[] args, string option)
     {
-        for (var i = 0; i < args.Length - 1; i++)
-        {
-            if (args[i] == option)
-            {
-                return args[i + 1];
-            }
-        }
+        if (ExportCommandKernels.TryGetCSharpOptionSummary(args, out var summary))
+            return summary;
 
-        return null;
-    }
-
-    private static bool ContainsArgWithCSharp(string[] args, string value)
-    {
-        for (var i = 0; i < args.Length; i++)
-            if (args[i] == value)
-                return true;
-        return false;
+        throw new InvalidOperationException("N# export csharp option parser kernel rejected the arguments.");
     }
 
     private static string? GetExportCSharpInputOperand(string[] args)
     {
-        return ExportCommandKernels.TryGetCSharpInputOperand(args, out var positional)
-            ? positional
-            : GetExportCSharpInputOperandWithCSharp(args);
-    }
+        if (ExportCommandKernels.TryGetCSharpInputOperand(args, out var positional))
+            return positional;
 
-    private static string? GetExportCSharpInputOperandWithCSharp(string[] args)
-    {
-        args = StripOptionWithValue(args, "--output");
-        args = StripOptionWithValue(args, "-o");
-        args = StripOptionWithValue(args, "--project");
-
-        for (var i = 0; i < args.Length; i++)
-        {
-            if (!args[i].StartsWith("-", StringComparison.Ordinal))
-                return args[i];
-        }
-
-        return null;
+        throw new InvalidOperationException("N# export csharp input parser kernel rejected the arguments.");
     }
 
     internal static bool IsTestSourceFile(string sourceFile)
-        => ExportCommandKernels.TryIsTestSourceFile(sourceFile, out var isTestSource)
-            ? isTestSource
-            : IsTestSourceFileWithCSharp(sourceFile);
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product export test-source classification routes through ExportCommandKernels.
-    private static bool IsTestSourceFileWithCSharp(string sourceFile)
-        => sourceFile.EndsWith(".tests.nl", StringComparison.OrdinalIgnoreCase);
-
-    private static string[] StripOptionWithValue(string[] args, string option)
     {
-        var result = new List<string>(args.Length);
-        for (var i = 0; i < args.Length; i++)
-        {
-            if (args[i] == option && i + 1 < args.Length)
-            {
-                i++;
-                continue;
-            }
+        if (ExportCommandKernels.TryIsTestSourceFile(sourceFile, out var isTestSource))
+            return isTestSource;
 
-            result.Add(args[i]);
-        }
-
-        return result.ToArray();
+        throw new InvalidOperationException("N# export test-source classifier kernel rejected the path.");
     }
 
     private static void EmitDiagnostics(IEnumerable<CompilerError> errors)
@@ -529,9 +462,10 @@ public static class ExportCommand
             ReferenceType referenceType)
         {
             var dependencyList = dependencies as IReadOnlyList<Reference> ?? dependencies.ToArray();
-            return ExportCommandKernels.TryFilterReferencesByType(dependencyList, referenceType, out var dogfoodReferences)
-                ? dogfoodReferences
-                : dependencyList.Where(reference => reference.Type == referenceType).ToList();
+            if (ExportCommandKernels.TryFilterReferencesByType(dependencyList, referenceType, out var dogfoodReferences))
+                return dogfoodReferences;
+
+            throw new InvalidOperationException("N# export reference filter kernel rejected the dependency table.");
         }
 
         private static string GenerateMainProjectFile(
@@ -605,9 +539,10 @@ public static class ExportCommand
             IEqualityComparer<T>? comparer = null)
             where T : notnull
         {
-            return ExportCommandKernels.TryDeduplicateReferences(references, comparer, out var dogfoodReferences)
-                ? dogfoodReferences
-                : references.Distinct(comparer).ToList();
+            if (ExportCommandKernels.TryDeduplicateReferences(references, comparer, out var dogfoodReferences))
+                return dogfoodReferences;
+
+            throw new InvalidOperationException("N# export reference deduplication kernel rejected the reference table.");
         }
 
         private static List<PackageReferenceInfo> GetTestFrameworkPackages(string testFramework)
