@@ -553,6 +553,62 @@ func CliDaemonSemanticReferencesUnavailableMessage(): string {
     return CliQuerySemanticReferencesUnavailableMessage()
 }
 
+func CliDaemonListeningMessage(socketPath: string, processIdText: string): string {
+    return "[daemon] Listening on " + socketPath + " (PID " + processIdText + ")"
+}
+
+func CliDaemonProjectMessage(projectRoot: string): string {
+    return "[daemon] Project: " + projectRoot
+}
+
+func CliDaemonIdleTimeoutMessage(durationText: string): string {
+    return "[daemon] Idle timeout: " + durationText
+}
+
+func CliDaemonIdleTimeoutShutdownMessage(durationText: string): string {
+    return "[daemon] Idle timeout (" + durationText + "). Shutting down."
+}
+
+func CliDaemonServerErrorMessage(messageText: string): string {
+    return "[daemon] Error: " + messageText
+}
+
+func CliDaemonClientErrorMessage(messageText: string): string {
+    return "[daemon] Client error: " + messageText
+}
+
+func CliDaemonLoadingProjectMessage(): string {
+    return "[daemon] Loading project..."
+}
+
+func CliDaemonProjectLoadedMessage(elapsedMillisecondsText: string, fileCountText: string): string {
+    return "[daemon] Project loaded in " + elapsedMillisecondsText + "ms (" + fileCountText + " files)"
+}
+
+func CliDaemonProjectLoadFailedTraceMessage(messageText: string): string {
+    return "[daemon] Failed to load project: " + messageText
+}
+
+func CliDaemonFileWatcherStartedMessage(): string {
+    return "[daemon] File watcher started for *.nl, project.yml, .editorconfig"
+}
+
+func CliDaemonFileWatcherFailedMessage(messageText: string): string {
+    return "[daemon] File watcher failed: " + messageText
+}
+
+func CliDaemonFileChangedMessage(fileName: string): string {
+    return "[daemon] File changed: " + fileName + " — cache invalidated"
+}
+
+func CliDaemonShutdownCompleteMessage(): string {
+    return "[daemon] Shutdown complete."
+}
+
+func CliDaemonMalformedRequestParamMessage(key: string, typeName: string, messageText: string): string {
+    return "[daemon] Ignoring malformed request param '" + key + "' (expected " + typeName + "): " + messageText
+}
+
 func CliQueryIsLongOption(arg: string): bool {
     return arg.Length >= 2 && arg[0] == '-' && arg[1] == '-'
 }

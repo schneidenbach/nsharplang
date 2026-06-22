@@ -506,6 +506,22 @@ func Main() {
         Assert.Equal(
             "Semantic references are unavailable because the selected position is not backed by a precise compiler binding. No name-based or text-based fallback was used.",
             DaemonServerKernels.GetSemanticReferencesUnavailableMessage());
+        Assert.Equal("[daemon] Listening on /tmp/daemon.sock (PID 1234)", DaemonServerKernels.GetListeningMessage("/tmp/daemon.sock", "1234"));
+        Assert.Equal("[daemon] Project: /tmp/project", DaemonServerKernels.GetProjectMessage("/tmp/project"));
+        Assert.Equal("[daemon] Idle timeout: 5m", DaemonServerKernels.GetIdleTimeoutMessage("5m"));
+        Assert.Equal("[daemon] Idle timeout (5m). Shutting down.", DaemonServerKernels.GetIdleTimeoutShutdownMessage("5m"));
+        Assert.Equal("[daemon] Error: boom", DaemonServerKernels.GetServerErrorMessage("boom"));
+        Assert.Equal("[daemon] Client error: bad client", DaemonServerKernels.GetClientErrorMessage("bad client"));
+        Assert.Equal("[daemon] Loading project...", DaemonServerKernels.GetLoadingProjectMessage());
+        Assert.Equal("[daemon] Project loaded in 42ms (3 files)", DaemonServerKernels.GetProjectLoadedMessage("42", "3"));
+        Assert.Equal("[daemon] Failed to load project: bad yaml", DaemonServerKernels.GetProjectLoadFailedTraceMessage("bad yaml"));
+        Assert.Equal("[daemon] File watcher started for *.nl, project.yml, .editorconfig", DaemonServerKernels.GetFileWatcherStartedMessage());
+        Assert.Equal("[daemon] File watcher failed: denied", DaemonServerKernels.GetFileWatcherFailedMessage("denied"));
+        Assert.Equal("[daemon] File changed: Program.nl — cache invalidated", DaemonServerKernels.GetFileChangedMessage("Program.nl"));
+        Assert.Equal("[daemon] Shutdown complete.", DaemonServerKernels.GetShutdownCompleteMessage());
+        Assert.Equal(
+            "[daemon] Ignoring malformed request param 'pos' (expected String): invalid token",
+            DaemonServerKernels.GetMalformedRequestParamMessage("pos", "String", "invalid token"));
     }
 
     [Fact]

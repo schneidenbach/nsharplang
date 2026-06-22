@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-22 — Daemon server lifecycle traces move into product N#
+
+`DaemonServer` no longer owns stderr lifecycle trace text such as listening/project/idle-timeout, project-load,
+file-watcher, cache-invalidated, shutdown, client-error, and malformed-parameter notices in C#. The shipped
+`CliDaemon*` dogfood kernels now shape those messages through `DaemonServerKernels`; C# keeps socket handling,
+file watching, project snapshot loading, JSON-RPC transport, and trace emission only. This is a Stage 6
+`C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~DaemonCommandTests.DaemonServerKernels_ShapesQueryMessages|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliQueryParsing|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`;
+`./scripts/dev.sh DaemonServerKernels`.
+
 ## 2026-06-22 — C# project-reference build notices move into product N#
 
 `CompilationReferenceResolver` no longer owns the `Building C# project reference ...` notice in C#. The

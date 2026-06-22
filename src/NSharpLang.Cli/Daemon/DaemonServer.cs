@@ -92,9 +92,9 @@ public class DaemonServer
             // Write PID file only after bind/listen succeeds.
             File.WriteAllText(pidPath, Environment.ProcessId.ToString());
 
-            Console.Error.WriteLine($"[daemon] Listening on {_socketPath} (PID {Environment.ProcessId})");
-            Console.Error.WriteLine($"[daemon] Project: {_projectRoot}");
-            Console.Error.WriteLine($"[daemon] Idle timeout: {FormatDuration(_idleTimeout)}");
+            Console.Error.WriteLine(DaemonServerKernels.GetListeningMessage(_socketPath, Environment.ProcessId));
+            Console.Error.WriteLine(DaemonServerKernels.GetProjectMessage(_projectRoot));
+            Console.Error.WriteLine(DaemonServerKernels.GetIdleTimeoutMessage(FormatDuration(_idleTimeout)));
 
             // Idle timeout thread
             var idleThread = new Thread(() =>
@@ -105,7 +105,8 @@ public class DaemonServer
                     var idle = DateTime.UtcNow - _lastActivity;
                     if (idle >= _idleTimeout)
                     {
-                        Console.Error.WriteLine($"[daemon] Idle timeout ({FormatDuration(_idleTimeout)}). Shutting down.");
+                        Console.Error.WriteLine(DaemonServerKernels.GetIdleTimeoutShutdownMessage(
+                            FormatDuration(_idleTimeout)));
                         _running = false;
                         // Connect to self to unblock Accept()
                         try
@@ -138,7 +139,7 @@ public class DaemonServer
                 }
                 catch (Exception ex)
                 {
-                    Console.Error.WriteLine($"[daemon] Error: {ex.Message}");
+                    Console.Error.WriteLine(DaemonServerKernels.GetServerErrorMessage(ex.Message));
                 }
             }
         }
@@ -210,7 +211,7 @@ public class DaemonServer
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"[daemon] Client error: {ex.Message}");
+            Console.Error.WriteLine(DaemonServerKernels.GetClientErrorMessage(ex.Message));
         }
     }
 
@@ -528,7 +529,7 @@ public class DaemonServer
     {
         if (_snapshot != null && !_cacheInvalid) return;
 
-        Console.Error.WriteLine("[daemon] Loading project...");
+        Console.Error.WriteLine(DaemonServerKernels.GetLoadingProjectMessage());
         var sw = Stopwatch.StartNew();
 
         try
@@ -536,11 +537,13 @@ public class DaemonServer
             _snapshot = _service.LoadProject(_projectRoot);
             _cacheInvalid = false;
             sw.Stop();
-            Console.Error.WriteLine($"[daemon] Project loaded in {sw.ElapsedMilliseconds}ms ({_snapshot.CompilationUnits.Count} files)");
+            Console.Error.WriteLine(DaemonServerKernels.GetProjectLoadedMessage(
+                sw.ElapsedMilliseconds,
+                _snapshot.CompilationUnits.Count));
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"[daemon] Failed to load project: {ex.Message}");
+            Console.Error.WriteLine(DaemonServerKernels.GetProjectLoadFailedTraceMessage(ex.Message));
             _snapshot = null;
         }
     }
@@ -563,11 +566,11 @@ public class DaemonServer
             _fileWatcher.Renamed += (_, e) => OnFileChanged(null, e);
 
             _fileWatcher.EnableRaisingEvents = true;
-            Console.Error.WriteLine("[daemon] File watcher started for *.nl, project.yml, .editorconfig");
+            Console.Error.WriteLine(DaemonServerKernels.GetFileWatcherStartedMessage());
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"[daemon] File watcher failed: {ex.Message}");
+            Console.Error.WriteLine(DaemonServerKernels.GetFileWatcherFailedMessage(ex.Message));
         }
     }
 
@@ -585,7 +588,7 @@ public class DaemonServer
             !fileName.Equals(".editorconfig", StringComparison.OrdinalIgnoreCase))
             return;
 
-        Console.Error.WriteLine($"[daemon] File changed: {fileName} — cache invalidated");
+        Console.Error.WriteLine(DaemonServerKernels.GetFileChangedMessage(fileName));
         _cacheInvalid = true;
     }
 
@@ -596,7 +599,7 @@ public class DaemonServer
         _fileWatcher?.Dispose();
         try { File.Delete(_socketPath); } catch { }
         try { File.Delete(pidPath); } catch { }
-        Console.Error.WriteLine("[daemon] Shutdown complete.");
+        Console.Error.WriteLine(DaemonServerKernels.GetShutdownCompleteMessage());
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────
@@ -662,7 +665,10 @@ public class DaemonServer
             {
                 // Tolerate the malformed param (caller treats it as absent) but leave a trace —
                 // a silently-dropped param turns protocol bugs into undebuggable client hangs.
-                Console.Error.WriteLine($"[daemon] Ignoring malformed request param '{key}' (expected {typeof(T).Name}): {ex.Message}");
+                Console.Error.WriteLine(DaemonServerKernels.GetMalformedRequestParamMessage(
+                    key,
+                    typeof(T).Name,
+                    ex.Message));
                 return default;
             }
         }

@@ -12473,6 +12473,20 @@ func outer(x: int): int {
         Assert.Contains("CliDaemonFileAndPosRequiredMessage", methodNames!); // product daemon position-required message shaping.
         Assert.Contains("CliDaemonNoSymbolAtPositionMessage", methodNames!); // product daemon no-symbol message shaping.
         Assert.Contains("CliDaemonSemanticReferencesUnavailableMessage", methodNames!); // product daemon reference miss message shaping.
+        Assert.Contains("CliDaemonListeningMessage", methodNames!); // product daemon listening trace shaping.
+        Assert.Contains("CliDaemonProjectMessage", methodNames!); // product daemon project trace shaping.
+        Assert.Contains("CliDaemonIdleTimeoutMessage", methodNames!); // product daemon idle-timeout trace shaping.
+        Assert.Contains("CliDaemonIdleTimeoutShutdownMessage", methodNames!); // product daemon idle-shutdown trace shaping.
+        Assert.Contains("CliDaemonServerErrorMessage", methodNames!); // product daemon server-error trace shaping.
+        Assert.Contains("CliDaemonClientErrorMessage", methodNames!); // product daemon client-error trace shaping.
+        Assert.Contains("CliDaemonLoadingProjectMessage", methodNames!); // product daemon project-load trace shaping.
+        Assert.Contains("CliDaemonProjectLoadedMessage", methodNames!); // product daemon project-loaded trace shaping.
+        Assert.Contains("CliDaemonProjectLoadFailedTraceMessage", methodNames!); // product daemon load-failed trace shaping.
+        Assert.Contains("CliDaemonFileWatcherStartedMessage", methodNames!); // product daemon watcher-start trace shaping.
+        Assert.Contains("CliDaemonFileWatcherFailedMessage", methodNames!); // product daemon watcher-failure trace shaping.
+        Assert.Contains("CliDaemonFileChangedMessage", methodNames!); // product daemon cache-invalidated trace shaping.
+        Assert.Contains("CliDaemonShutdownCompleteMessage", methodNames!); // product daemon shutdown trace shaping.
+        Assert.Contains("CliDaemonMalformedRequestParamMessage", methodNames!); // product daemon malformed-param trace shaping.
 
         var full = 0xFFFFFFFFFFFFFFFFUL;
         AssertColumnarProgramMatchesCSharp(source,
@@ -12533,6 +12547,20 @@ func outer(x: int): int {
             ("CliDaemonFileAndPosRequiredMessage", Array.Empty<object>()),
             ("CliDaemonNoSymbolAtPositionMessage", new object[] { "Program.nl", "5", "12" }),
             ("CliDaemonSemanticReferencesUnavailableMessage", Array.Empty<object>()),
+            ("CliDaemonListeningMessage", new object[] { "/tmp/daemon.sock", "1234" }),
+            ("CliDaemonProjectMessage", new object[] { "/tmp/project" }),
+            ("CliDaemonIdleTimeoutMessage", new object[] { "5m" }),
+            ("CliDaemonIdleTimeoutShutdownMessage", new object[] { "5m" }),
+            ("CliDaemonServerErrorMessage", new object[] { "boom" }),
+            ("CliDaemonClientErrorMessage", new object[] { "bad client" }),
+            ("CliDaemonLoadingProjectMessage", Array.Empty<object>()),
+            ("CliDaemonProjectLoadedMessage", new object[] { "42", "3" }),
+            ("CliDaemonProjectLoadFailedTraceMessage", new object[] { "bad yaml" }),
+            ("CliDaemonFileWatcherStartedMessage", Array.Empty<object>()),
+            ("CliDaemonFileWatcherFailedMessage", new object[] { "denied" }),
+            ("CliDaemonFileChangedMessage", new object[] { "Program.nl" }),
+            ("CliDaemonShutdownCompleteMessage", Array.Empty<object>()),
+            ("CliDaemonMalformedRequestParamMessage", new object[] { "pos", "String", "invalid token" }),
             ("CliDaemonPositionInto", new object[] { "bad:5", new int[2] }),
             ("CliDaemonPositionInto", new object[] { "5:bad", new int[2] }),
             ("CliDaemonPositionInto", new object[] { "12:34", new int[2] }),
@@ -15977,6 +16005,62 @@ class OtherZetaType {
                     "CliDaemonSemanticReferencesUnavailableMessage",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDaemonSemanticReferencesUnavailableMessage.");
+            var cliDaemonListeningMessage = programType.GetMethod(
+                    "CliDaemonListeningMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDaemonListeningMessage.");
+            var cliDaemonProjectMessage = programType.GetMethod(
+                    "CliDaemonProjectMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDaemonProjectMessage.");
+            var cliDaemonIdleTimeoutMessage = programType.GetMethod(
+                    "CliDaemonIdleTimeoutMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDaemonIdleTimeoutMessage.");
+            var cliDaemonIdleTimeoutShutdownMessage = programType.GetMethod(
+                    "CliDaemonIdleTimeoutShutdownMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDaemonIdleTimeoutShutdownMessage.");
+            var cliDaemonServerErrorMessage = programType.GetMethod(
+                    "CliDaemonServerErrorMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDaemonServerErrorMessage.");
+            var cliDaemonClientErrorMessage = programType.GetMethod(
+                    "CliDaemonClientErrorMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDaemonClientErrorMessage.");
+            var cliDaemonLoadingProjectMessage = programType.GetMethod(
+                    "CliDaemonLoadingProjectMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDaemonLoadingProjectMessage.");
+            var cliDaemonProjectLoadedMessage = programType.GetMethod(
+                    "CliDaemonProjectLoadedMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDaemonProjectLoadedMessage.");
+            var cliDaemonProjectLoadFailedTraceMessage = programType.GetMethod(
+                    "CliDaemonProjectLoadFailedTraceMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDaemonProjectLoadFailedTraceMessage.");
+            var cliDaemonFileWatcherStartedMessage = programType.GetMethod(
+                    "CliDaemonFileWatcherStartedMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDaemonFileWatcherStartedMessage.");
+            var cliDaemonFileWatcherFailedMessage = programType.GetMethod(
+                    "CliDaemonFileWatcherFailedMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDaemonFileWatcherFailedMessage.");
+            var cliDaemonFileChangedMessage = programType.GetMethod(
+                    "CliDaemonFileChangedMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDaemonFileChangedMessage.");
+            var cliDaemonShutdownCompleteMessage = programType.GetMethod(
+                    "CliDaemonShutdownCompleteMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDaemonShutdownCompleteMessage.");
+            var cliDaemonMalformedRequestParamMessage = programType.GetMethod(
+                    "CliDaemonMalformedRequestParamMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDaemonMalformedRequestParamMessage.");
             var cliPositionalArgIndicesInto = programType.GetMethod(
                     "CliPositionalArgIndicesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -18302,7 +18386,21 @@ func main(customer: Customer, résumé: Profile) {
                 cliDaemonDefinitionTargetRequiredMessage,
                 cliDaemonFileAndPosRequiredMessage,
                 cliDaemonNoSymbolAtPositionMessage,
-                cliDaemonSemanticReferencesUnavailableMessage);
+                cliDaemonSemanticReferencesUnavailableMessage,
+                cliDaemonListeningMessage,
+                cliDaemonProjectMessage,
+                cliDaemonIdleTimeoutMessage,
+                cliDaemonIdleTimeoutShutdownMessage,
+                cliDaemonServerErrorMessage,
+                cliDaemonClientErrorMessage,
+                cliDaemonLoadingProjectMessage,
+                cliDaemonProjectLoadedMessage,
+                cliDaemonProjectLoadFailedTraceMessage,
+                cliDaemonFileWatcherStartedMessage,
+                cliDaemonFileWatcherFailedMessage,
+                cliDaemonFileChangedMessage,
+                cliDaemonShutdownCompleteMessage,
+                cliDaemonMalformedRequestParamMessage);
             AssertCliBuildOperandsLikeProduction(
                 cliBuildOperandIndicesInto,
                 cliBuildOperandSummaryInto,
@@ -21471,7 +21569,21 @@ func main() {
         MethodInfo cliDaemonDefinitionTargetRequiredMessage,
         MethodInfo cliDaemonFileAndPosRequiredMessage,
         MethodInfo cliDaemonNoSymbolAtPositionMessage,
-        MethodInfo cliDaemonSemanticReferencesUnavailableMessage)
+        MethodInfo cliDaemonSemanticReferencesUnavailableMessage,
+        MethodInfo cliDaemonListeningMessage,
+        MethodInfo cliDaemonProjectMessage,
+        MethodInfo cliDaemonIdleTimeoutMessage,
+        MethodInfo cliDaemonIdleTimeoutShutdownMessage,
+        MethodInfo cliDaemonServerErrorMessage,
+        MethodInfo cliDaemonClientErrorMessage,
+        MethodInfo cliDaemonLoadingProjectMessage,
+        MethodInfo cliDaemonProjectLoadedMessage,
+        MethodInfo cliDaemonProjectLoadFailedTraceMessage,
+        MethodInfo cliDaemonFileWatcherStartedMessage,
+        MethodInfo cliDaemonFileWatcherFailedMessage,
+        MethodInfo cliDaemonFileChangedMessage,
+        MethodInfo cliDaemonShutdownCompleteMessage,
+        MethodInfo cliDaemonMalformedRequestParamMessage)
     {
         Assert.Equal(
             DaemonServerKernels.GetUnknownMethodMessage("query/nope"),
@@ -21500,6 +21612,50 @@ func main() {
         Assert.Equal(
             DaemonServerKernels.GetSemanticReferencesUnavailableMessage(),
             (string)(cliDaemonSemanticReferencesUnavailableMessage.Invoke(null, Array.Empty<object>()) ?? string.Empty));
+        Assert.Equal(
+            DaemonServerKernels.GetListeningMessage("/tmp/daemon.sock", "1234"),
+            (string)(cliDaemonListeningMessage.Invoke(null, new object[] { "/tmp/daemon.sock", "1234" }) ?? string.Empty));
+        Assert.Equal(
+            DaemonServerKernels.GetProjectMessage("/tmp/project"),
+            (string)(cliDaemonProjectMessage.Invoke(null, new object[] { "/tmp/project" }) ?? string.Empty));
+        Assert.Equal(
+            DaemonServerKernels.GetIdleTimeoutMessage("5m"),
+            (string)(cliDaemonIdleTimeoutMessage.Invoke(null, new object[] { "5m" }) ?? string.Empty));
+        Assert.Equal(
+            DaemonServerKernels.GetIdleTimeoutShutdownMessage("5m"),
+            (string)(cliDaemonIdleTimeoutShutdownMessage.Invoke(null, new object[] { "5m" }) ?? string.Empty));
+        Assert.Equal(
+            DaemonServerKernels.GetServerErrorMessage("boom"),
+            (string)(cliDaemonServerErrorMessage.Invoke(null, new object[] { "boom" }) ?? string.Empty));
+        Assert.Equal(
+            DaemonServerKernels.GetClientErrorMessage("bad client"),
+            (string)(cliDaemonClientErrorMessage.Invoke(null, new object[] { "bad client" }) ?? string.Empty));
+        Assert.Equal(
+            DaemonServerKernels.GetLoadingProjectMessage(),
+            (string)(cliDaemonLoadingProjectMessage.Invoke(null, Array.Empty<object>()) ?? string.Empty));
+        Assert.Equal(
+            DaemonServerKernels.GetProjectLoadedMessage("42", "3"),
+            (string)(cliDaemonProjectLoadedMessage.Invoke(null, new object[] { "42", "3" }) ?? string.Empty));
+        Assert.Equal(
+            DaemonServerKernels.GetProjectLoadFailedTraceMessage("bad yaml"),
+            (string)(cliDaemonProjectLoadFailedTraceMessage.Invoke(null, new object[] { "bad yaml" }) ?? string.Empty));
+        Assert.Equal(
+            DaemonServerKernels.GetFileWatcherStartedMessage(),
+            (string)(cliDaemonFileWatcherStartedMessage.Invoke(null, Array.Empty<object>()) ?? string.Empty));
+        Assert.Equal(
+            DaemonServerKernels.GetFileWatcherFailedMessage("denied"),
+            (string)(cliDaemonFileWatcherFailedMessage.Invoke(null, new object[] { "denied" }) ?? string.Empty));
+        Assert.Equal(
+            DaemonServerKernels.GetFileChangedMessage("Program.nl"),
+            (string)(cliDaemonFileChangedMessage.Invoke(null, new object[] { "Program.nl" }) ?? string.Empty));
+        Assert.Equal(
+            DaemonServerKernels.GetShutdownCompleteMessage(),
+            (string)(cliDaemonShutdownCompleteMessage.Invoke(null, Array.Empty<object>()) ?? string.Empty));
+        Assert.Equal(
+            DaemonServerKernels.GetMalformedRequestParamMessage("pos", "String", "invalid token"),
+            (string)(cliDaemonMalformedRequestParamMessage.Invoke(
+                null,
+                new object[] { "pos", "String", "invalid token" }) ?? string.Empty));
     }
 
     private static int[] ParseDaemonPositionWithCSharp(string position)

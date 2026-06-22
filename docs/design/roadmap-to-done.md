@@ -292,7 +292,8 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       `CompilerErrorSeverityFilter`; batch query duplicate-id validation and packed
       success counting plus batch request/validation/error message shaping now live beside `BatchQueryRunner` in
       `BatchQueryKernels`, and batch query position parsing plus shared no-symbol/reference/doc-miss message
-      shaping reuse `QueryCommandKernels`; daemon query position parsing and query error/parameter message shaping
+      shaping reuse `QueryCommandKernels`; daemon query position parsing, query error/parameter message shaping,
+      and server lifecycle trace text
       now live beside `DaemonServer` in `DaemonServerKernels`; unified-diff hunk range
       construction now lives beside `UnifiedDiff` in `UnifiedDiffHunkRangeBuilder`; fix safety/skipped/applied
       grouping routes now live beside `FixCommand` in `FixCommandKernels`; clean option summary and help/status/error messages now live beside

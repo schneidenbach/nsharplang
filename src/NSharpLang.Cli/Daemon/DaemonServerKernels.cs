@@ -113,6 +113,126 @@ internal static class DaemonServerKernels
         return GetSemanticReferencesUnavailableMessageWithCSharp();
     }
 
+    internal static string GetListeningMessage(string socketPath, int processId)
+        => GetListeningMessage(socketPath, ToInvariantText(processId));
+
+    internal static string GetListeningMessage(string socketPath, string processIdText)
+    {
+        if (TryGetMessage(bindings => bindings.ListeningMessage(socketPath, processIdText), out var message))
+            return message;
+
+        return GetListeningMessageWithCSharp(socketPath, processIdText);
+    }
+
+    internal static string GetProjectMessage(string projectRoot)
+    {
+        if (TryGetMessage(bindings => bindings.ProjectMessage(projectRoot), out var message))
+            return message;
+
+        return GetProjectMessageWithCSharp(projectRoot);
+    }
+
+    internal static string GetIdleTimeoutMessage(string durationText)
+    {
+        if (TryGetMessage(bindings => bindings.IdleTimeoutMessage(durationText), out var message))
+            return message;
+
+        return GetIdleTimeoutMessageWithCSharp(durationText);
+    }
+
+    internal static string GetIdleTimeoutShutdownMessage(string durationText)
+    {
+        if (TryGetMessage(bindings => bindings.IdleTimeoutShutdownMessage(durationText), out var message))
+            return message;
+
+        return GetIdleTimeoutShutdownMessageWithCSharp(durationText);
+    }
+
+    internal static string GetServerErrorMessage(string messageText)
+    {
+        if (TryGetMessage(bindings => bindings.ServerErrorMessage(messageText), out var message))
+            return message;
+
+        return GetServerErrorMessageWithCSharp(messageText);
+    }
+
+    internal static string GetClientErrorMessage(string messageText)
+    {
+        if (TryGetMessage(bindings => bindings.ClientErrorMessage(messageText), out var message))
+            return message;
+
+        return GetClientErrorMessageWithCSharp(messageText);
+    }
+
+    internal static string GetLoadingProjectMessage()
+    {
+        if (TryGetMessage(bindings => bindings.LoadingProjectMessage(), out var message))
+            return message;
+
+        return GetLoadingProjectMessageWithCSharp();
+    }
+
+    internal static string GetProjectLoadedMessage(long elapsedMilliseconds, int fileCount)
+        => GetProjectLoadedMessage(
+            elapsedMilliseconds.ToString(CultureInfo.InvariantCulture),
+            ToInvariantText(fileCount));
+
+    internal static string GetProjectLoadedMessage(string elapsedMillisecondsText, string fileCountText)
+    {
+        if (TryGetMessage(bindings => bindings.ProjectLoadedMessage(elapsedMillisecondsText, fileCountText), out var message))
+            return message;
+
+        return GetProjectLoadedMessageWithCSharp(elapsedMillisecondsText, fileCountText);
+    }
+
+    internal static string GetProjectLoadFailedTraceMessage(string messageText)
+    {
+        if (TryGetMessage(bindings => bindings.ProjectLoadFailedTraceMessage(messageText), out var message))
+            return message;
+
+        return GetProjectLoadFailedTraceMessageWithCSharp(messageText);
+    }
+
+    internal static string GetFileWatcherStartedMessage()
+    {
+        if (TryGetMessage(bindings => bindings.FileWatcherStartedMessage(), out var message))
+            return message;
+
+        return GetFileWatcherStartedMessageWithCSharp();
+    }
+
+    internal static string GetFileWatcherFailedMessage(string messageText)
+    {
+        if (TryGetMessage(bindings => bindings.FileWatcherFailedMessage(messageText), out var message))
+            return message;
+
+        return GetFileWatcherFailedMessageWithCSharp(messageText);
+    }
+
+    internal static string GetFileChangedMessage(string fileName)
+    {
+        if (TryGetMessage(bindings => bindings.FileChangedMessage(fileName), out var message))
+            return message;
+
+        return GetFileChangedMessageWithCSharp(fileName);
+    }
+
+    internal static string GetShutdownCompleteMessage()
+    {
+        if (TryGetMessage(bindings => bindings.ShutdownCompleteMessage(), out var message))
+            return message;
+
+        return GetShutdownCompleteMessageWithCSharp();
+    }
+
+    internal static string GetMalformedRequestParamMessage(string key, string typeName, string messageText)
+    {
+        if (TryGetMessage(bindings => bindings.MalformedRequestParamMessage(key, typeName, messageText), out var message))
+            return message;
+
+        return GetMalformedRequestParamMessageWithCSharp(key, typeName, messageText);
+    }
+
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
             DogfoodKernelLoader.CreateDelegate<CliDaemonPositionInto>(
@@ -144,7 +264,49 @@ internal static class DaemonServerKernels
                 "CliDaemonNoSymbolAtPositionMessage"),
             DogfoodKernelLoader.CreateDelegate<CliDaemonSemanticReferencesUnavailableMessage>(
                 programType,
-                "CliDaemonSemanticReferencesUnavailableMessage")));
+                "CliDaemonSemanticReferencesUnavailableMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliDaemonListeningMessage>(
+                programType,
+                "CliDaemonListeningMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliDaemonProjectMessage>(
+                programType,
+                "CliDaemonProjectMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliDaemonIdleTimeoutMessage>(
+                programType,
+                "CliDaemonIdleTimeoutMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliDaemonIdleTimeoutShutdownMessage>(
+                programType,
+                "CliDaemonIdleTimeoutShutdownMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliDaemonServerErrorMessage>(
+                programType,
+                "CliDaemonServerErrorMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliDaemonClientErrorMessage>(
+                programType,
+                "CliDaemonClientErrorMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliDaemonLoadingProjectMessage>(
+                programType,
+                "CliDaemonLoadingProjectMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliDaemonProjectLoadedMessage>(
+                programType,
+                "CliDaemonProjectLoadedMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliDaemonProjectLoadFailedTraceMessage>(
+                programType,
+                "CliDaemonProjectLoadFailedTraceMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliDaemonFileWatcherStartedMessage>(
+                programType,
+                "CliDaemonFileWatcherStartedMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliDaemonFileWatcherFailedMessage>(
+                programType,
+                "CliDaemonFileWatcherFailedMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliDaemonFileChangedMessage>(
+                programType,
+                "CliDaemonFileChangedMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliDaemonShutdownCompleteMessage>(
+                programType,
+                "CliDaemonShutdownCompleteMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliDaemonMalformedRequestParamMessage>(
+                programType,
+                "CliDaemonMalformedRequestParamMessage")));
 
     private static string ToInvariantText(int value)
         => value.ToString(CultureInfo.InvariantCulture);
@@ -169,7 +331,7 @@ internal static class DaemonServerKernels
         }
     }
 
-    // Stage 6 C#-surface-shrink: fallback/oracle only; daemon query messages route through DaemonServerKernels.
+    // Stage 6 C#-surface-shrink: fallback/oracle only; daemon query and lifecycle messages route through DaemonServerKernels.
     private static string GetUnknownMethodMessageWithCSharp(string method)
         => $"Unknown method: {method}";
 
@@ -198,6 +360,48 @@ internal static class DaemonServerKernels
         => "Semantic references are unavailable because the selected position is not backed by a precise compiler binding. "
            + "No name-based or text-based fallback was used.";
 
+    private static string GetListeningMessageWithCSharp(string socketPath, string processIdText)
+        => $"[daemon] Listening on {socketPath} (PID {processIdText})";
+
+    private static string GetProjectMessageWithCSharp(string projectRoot)
+        => $"[daemon] Project: {projectRoot}";
+
+    private static string GetIdleTimeoutMessageWithCSharp(string durationText)
+        => $"[daemon] Idle timeout: {durationText}";
+
+    private static string GetIdleTimeoutShutdownMessageWithCSharp(string durationText)
+        => $"[daemon] Idle timeout ({durationText}). Shutting down.";
+
+    private static string GetServerErrorMessageWithCSharp(string messageText)
+        => $"[daemon] Error: {messageText}";
+
+    private static string GetClientErrorMessageWithCSharp(string messageText)
+        => $"[daemon] Client error: {messageText}";
+
+    private static string GetLoadingProjectMessageWithCSharp()
+        => "[daemon] Loading project...";
+
+    private static string GetProjectLoadedMessageWithCSharp(string elapsedMillisecondsText, string fileCountText)
+        => $"[daemon] Project loaded in {elapsedMillisecondsText}ms ({fileCountText} files)";
+
+    private static string GetProjectLoadFailedTraceMessageWithCSharp(string messageText)
+        => $"[daemon] Failed to load project: {messageText}";
+
+    private static string GetFileWatcherStartedMessageWithCSharp()
+        => "[daemon] File watcher started for *.nl, project.yml, .editorconfig";
+
+    private static string GetFileWatcherFailedMessageWithCSharp(string messageText)
+        => $"[daemon] File watcher failed: {messageText}";
+
+    private static string GetFileChangedMessageWithCSharp(string fileName)
+        => $"[daemon] File changed: {fileName} — cache invalidated";
+
+    private static string GetShutdownCompleteMessageWithCSharp()
+        => "[daemon] Shutdown complete.";
+
+    private static string GetMalformedRequestParamMessageWithCSharp(string key, string typeName, string messageText)
+        => $"[daemon] Ignoring malformed request param '{key}' (expected {typeName}): {messageText}";
+
     private delegate int CliDaemonPositionInto(string position, int[] result);
 
     private delegate string CliDaemonUnknownMethodMessage(string method);
@@ -209,6 +413,20 @@ internal static class DaemonServerKernels
     private delegate string CliDaemonFileAndPosRequiredMessage();
     private delegate string CliDaemonNoSymbolAtPositionMessage(string file, string lineText, string columnText);
     private delegate string CliDaemonSemanticReferencesUnavailableMessage();
+    private delegate string CliDaemonListeningMessage(string socketPath, string processIdText);
+    private delegate string CliDaemonProjectMessage(string projectRoot);
+    private delegate string CliDaemonIdleTimeoutMessage(string durationText);
+    private delegate string CliDaemonIdleTimeoutShutdownMessage(string durationText);
+    private delegate string CliDaemonServerErrorMessage(string messageText);
+    private delegate string CliDaemonClientErrorMessage(string messageText);
+    private delegate string CliDaemonLoadingProjectMessage();
+    private delegate string CliDaemonProjectLoadedMessage(string elapsedMillisecondsText, string fileCountText);
+    private delegate string CliDaemonProjectLoadFailedTraceMessage(string messageText);
+    private delegate string CliDaemonFileWatcherStartedMessage();
+    private delegate string CliDaemonFileWatcherFailedMessage(string messageText);
+    private delegate string CliDaemonFileChangedMessage(string fileName);
+    private delegate string CliDaemonShutdownCompleteMessage();
+    private delegate string CliDaemonMalformedRequestParamMessage(string key, string typeName, string messageText);
 
     private sealed record Bindings(
         CliDaemonPositionInto ParsePosition,
@@ -220,5 +438,19 @@ internal static class DaemonServerKernels
         CliDaemonDefinitionTargetRequiredMessage DefinitionTargetRequiredMessage,
         CliDaemonFileAndPosRequiredMessage FileAndPosRequiredMessage,
         CliDaemonNoSymbolAtPositionMessage NoSymbolAtPositionMessage,
-        CliDaemonSemanticReferencesUnavailableMessage SemanticReferencesUnavailableMessage);
+        CliDaemonSemanticReferencesUnavailableMessage SemanticReferencesUnavailableMessage,
+        CliDaemonListeningMessage ListeningMessage,
+        CliDaemonProjectMessage ProjectMessage,
+        CliDaemonIdleTimeoutMessage IdleTimeoutMessage,
+        CliDaemonIdleTimeoutShutdownMessage IdleTimeoutShutdownMessage,
+        CliDaemonServerErrorMessage ServerErrorMessage,
+        CliDaemonClientErrorMessage ClientErrorMessage,
+        CliDaemonLoadingProjectMessage LoadingProjectMessage,
+        CliDaemonProjectLoadedMessage ProjectLoadedMessage,
+        CliDaemonProjectLoadFailedTraceMessage ProjectLoadFailedTraceMessage,
+        CliDaemonFileWatcherStartedMessage FileWatcherStartedMessage,
+        CliDaemonFileWatcherFailedMessage FileWatcherFailedMessage,
+        CliDaemonFileChangedMessage FileChangedMessage,
+        CliDaemonShutdownCompleteMessage ShutdownCompleteMessage,
+        CliDaemonMalformedRequestParamMessage MalformedRequestParamMessage);
 }
