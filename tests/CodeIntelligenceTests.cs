@@ -1024,12 +1024,62 @@ public class CodeIntelligenceOutputTests
                 }));
 
         var text = OutputFormatter.InspectToText(inspect, "Program.nl", 86, 39);
-        Assert.Contains("Inspect Program.nl:86:39", text);
-        Assert.Contains("Symbol: stats", text);
-        Assert.Contains("Type: TaskStats", text);
-        Assert.Contains("Definition: property Total", text);
-        Assert.Contains("References: 2 total", text);
-        Assert.Contains("Completions at Program.nl:86:39", text);
+        Assert.Equal(
+            string.Join(Environment.NewLine,
+                "Inspect Program.nl:86:39",
+                string.Empty,
+                "Symbol: stats (variable)",
+                "  Defined at: Program.nl:85:5",
+                string.Empty,
+                "Type: TaskStats (record)",
+                string.Empty,
+                "Definition: property Total at Services/TaskService.nl:106:5",
+                string.Empty,
+                "References: 2 total (1 definitions)",
+                "  Program.nl:85:5 [definition]  stats := service.GetStats()",
+                "  Program.nl:86:33  Console.WriteLine($\"Total: {stats.Total}\")",
+                string.Empty,
+                "Completions at Program.nl:86:39 (context: memberaccess)",
+                "Receiver: stats (TaskStats)",
+                string.Empty,
+                "  properties (1):",
+                "    Total: int",
+                string.Empty),
+            text);
+    }
+
+    [Fact]
+    public void InspectToText_FormatsMissingSections()
+    {
+        var inspect = new InspectResult(
+            null,
+            null,
+            null,
+            new InspectReferencesResult(0, 0, Array.Empty<ReferenceResult>()),
+            new CompletionResult(
+                CompletionContext.Unknown,
+                null,
+                null,
+                new Dictionary<string, List<CompletionItem>>()));
+
+        var text = OutputFormatter.InspectToText(inspect, "Program.nl", 1, 1);
+
+        Assert.Equal(
+            string.Join(Environment.NewLine,
+                "Inspect Program.nl:1:1",
+                string.Empty,
+                "Symbol: none",
+                string.Empty,
+                "Type: unknown",
+                string.Empty,
+                "Definition: none",
+                string.Empty,
+                "References: 0 total (0 definitions)",
+                string.Empty,
+                "Completions at Program.nl:1:1 (context: unknown)",
+                string.Empty,
+                string.Empty),
+            text);
     }
 
     // ── Model Record Tests ──────────────────────────────────────────────

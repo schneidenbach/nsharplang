@@ -7629,7 +7629,7 @@ func outer(x: int): int {
 
     // MILESTONE: OutputFormatterText.nl compiles end-to-end with no C# AST and owns shipped
     // `nlc query symbols --text`, `outline --text`, `type --text`, `completions --text`,
-    // `definition --text`, and `references --text` line shaping.
+    // `inspect --text`, `definition --text`, and `references --text` line shaping.
     [Fact]
     public void ColumnarCodegen_CompilesRealDogfoodFile_OutputFormatterText()
     {
@@ -7651,6 +7651,15 @@ func outer(x: int): int {
         Assert.Contains("QueryCompletionCategoryLineText", methodNames!);
         Assert.Contains("QueryCompletionItemLineText", methodNames!);
         Assert.Contains("QueryCompletionOverflowLineText", methodNames!);
+        Assert.Contains("QueryInspectHeaderText", methodNames!);
+        Assert.Contains("QueryInspectSymbolLineText", methodNames!);
+        Assert.Contains("QueryInspectNoSymbolText", methodNames!);
+        Assert.Contains("QueryInspectTypeLineText", methodNames!);
+        Assert.Contains("QueryInspectUnknownTypeText", methodNames!);
+        Assert.Contains("QueryInspectDefinitionLineText", methodNames!);
+        Assert.Contains("QueryInspectNoDefinitionText", methodNames!);
+        Assert.Contains("QueryInspectReferencesHeaderText", methodNames!);
+        Assert.Contains("QueryInspectReferencesOverflowLineText", methodNames!);
         Assert.Contains("QueryNoReferencesText", methodNames!);
         Assert.Contains("QueryReferencesHeaderText", methodNames!);
         Assert.Contains("QueryReferenceLineText", methodNames!);
@@ -7689,6 +7698,15 @@ func outer(x: int): int {
             ("QueryCompletionItemLineText", new object[] { "GetStats", "()", 1, "TaskStats", 1 }),
             ("QueryCompletionItemLineText", new object[] { "Total", string.Empty, 0, "int", 1 }),
             ("QueryCompletionOverflowLineText", new object[] { 1 }),
+            ("QueryInspectHeaderText", new object[] { "Program.nl", 86, 39 }),
+            ("QueryInspectSymbolLineText", new object[] { "stats", "variable" }),
+            ("QueryInspectNoSymbolText", Array.Empty<object>()),
+            ("QueryInspectTypeLineText", new object[] { "TaskStats", "record" }),
+            ("QueryInspectUnknownTypeText", Array.Empty<object>()),
+            ("QueryInspectDefinitionLineText", new object[] { "property", "Total", "Services/TaskService.nl", 106, 5 }),
+            ("QueryInspectNoDefinitionText", Array.Empty<object>()),
+            ("QueryInspectReferencesHeaderText", new object[] { 2, 1 }),
+            ("QueryInspectReferencesOverflowLineText", new object[] { 3 }),
             ("QueryNoReferencesText", new object[] { "Person" }),
             ("QueryReferencesHeaderText", new object[] { "Person", 3 }),
             ("QueryReferenceLineText", new object[] { "Models.nl", 5, 0, 1, "  class Person {  ", 1 }),

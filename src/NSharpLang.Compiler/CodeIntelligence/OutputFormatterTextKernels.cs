@@ -338,6 +338,182 @@ internal static class OutputFormatterTextKernels
         return GetCompletionOverflowLineTextWithCSharp(remaining);
     }
 
+    internal static string GetInspectHeaderText(string file, int line, int column)
+    {
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return GetInspectHeaderTextWithCSharp(file, line, column);
+
+        try
+        {
+            var text = bindings.QueryInspectHeaderText(file, line, column);
+            if (!string.IsNullOrEmpty(text))
+                return text;
+        }
+        catch
+        {
+        }
+
+        return GetInspectHeaderTextWithCSharp(file, line, column);
+    }
+
+    internal static string GetInspectSymbolLineText(InspectSymbolResult symbol)
+    {
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return GetInspectSymbolLineTextWithCSharp(symbol);
+
+        try
+        {
+            var text = bindings.QueryInspectSymbolLineText(symbol.Name, symbol.Kind);
+            if (!string.IsNullOrEmpty(text))
+                return text;
+        }
+        catch
+        {
+        }
+
+        return GetInspectSymbolLineTextWithCSharp(symbol);
+    }
+
+    internal static string GetInspectNoSymbolText()
+    {
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return GetInspectNoSymbolTextWithCSharp();
+
+        try
+        {
+            var text = bindings.QueryInspectNoSymbolText();
+            if (!string.IsNullOrEmpty(text))
+                return text;
+        }
+        catch
+        {
+        }
+
+        return GetInspectNoSymbolTextWithCSharp();
+    }
+
+    internal static string GetInspectTypeLineText(TypeResult type)
+    {
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return GetInspectTypeLineTextWithCSharp(type);
+
+        try
+        {
+            var text = bindings.QueryInspectTypeLineText(type.ResolvedType, type.Kind);
+            if (!string.IsNullOrEmpty(text))
+                return text;
+        }
+        catch
+        {
+        }
+
+        return GetInspectTypeLineTextWithCSharp(type);
+    }
+
+    internal static string GetInspectUnknownTypeText()
+    {
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return GetInspectUnknownTypeTextWithCSharp();
+
+        try
+        {
+            var text = bindings.QueryInspectUnknownTypeText();
+            if (!string.IsNullOrEmpty(text))
+                return text;
+        }
+        catch
+        {
+        }
+
+        return GetInspectUnknownTypeTextWithCSharp();
+    }
+
+    internal static string GetInspectDefinitionLineText(DefinitionResult definition)
+    {
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return GetInspectDefinitionLineTextWithCSharp(definition);
+
+        try
+        {
+            var text = bindings.QueryInspectDefinitionLineText(
+                definition.Kind,
+                definition.Name,
+                definition.File,
+                definition.Line,
+                definition.Column);
+            if (!string.IsNullOrEmpty(text))
+                return text;
+        }
+        catch
+        {
+        }
+
+        return GetInspectDefinitionLineTextWithCSharp(definition);
+    }
+
+    internal static string GetInspectNoDefinitionText()
+    {
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return GetInspectNoDefinitionTextWithCSharp();
+
+        try
+        {
+            var text = bindings.QueryInspectNoDefinitionText();
+            if (!string.IsNullOrEmpty(text))
+                return text;
+        }
+        catch
+        {
+        }
+
+        return GetInspectNoDefinitionTextWithCSharp();
+    }
+
+    internal static string GetInspectReferencesHeaderText(int count, int definitionCount)
+    {
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return GetInspectReferencesHeaderTextWithCSharp(count, definitionCount);
+
+        try
+        {
+            var text = bindings.QueryInspectReferencesHeaderText(count, definitionCount);
+            if (!string.IsNullOrEmpty(text))
+                return text;
+        }
+        catch
+        {
+        }
+
+        return GetInspectReferencesHeaderTextWithCSharp(count, definitionCount);
+    }
+
+    internal static string GetInspectReferencesOverflowLineText(int remaining)
+    {
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return GetInspectReferencesOverflowLineTextWithCSharp(remaining);
+
+        try
+        {
+            var text = bindings.QueryInspectReferencesOverflowLineText(remaining);
+            if (!string.IsNullOrEmpty(text))
+                return text;
+        }
+        catch
+        {
+        }
+
+        return GetInspectReferencesOverflowLineTextWithCSharp(remaining);
+    }
+
     internal static string GetNoReferencesText(string symbolName)
     {
         var bindings = s_bindings.Value;
@@ -534,6 +710,33 @@ internal static class OutputFormatterTextKernels
             DogfoodKernelLoader.CreateDelegate<QueryCompletionOverflowLineText>(
                 programType,
                 "QueryCompletionOverflowLineText"),
+            DogfoodKernelLoader.CreateDelegate<QueryInspectHeaderText>(
+                programType,
+                "QueryInspectHeaderText"),
+            DogfoodKernelLoader.CreateDelegate<QueryInspectSymbolLineText>(
+                programType,
+                "QueryInspectSymbolLineText"),
+            DogfoodKernelLoader.CreateDelegate<QueryInspectNoSymbolText>(
+                programType,
+                "QueryInspectNoSymbolText"),
+            DogfoodKernelLoader.CreateDelegate<QueryInspectTypeLineText>(
+                programType,
+                "QueryInspectTypeLineText"),
+            DogfoodKernelLoader.CreateDelegate<QueryInspectUnknownTypeText>(
+                programType,
+                "QueryInspectUnknownTypeText"),
+            DogfoodKernelLoader.CreateDelegate<QueryInspectDefinitionLineText>(
+                programType,
+                "QueryInspectDefinitionLineText"),
+            DogfoodKernelLoader.CreateDelegate<QueryInspectNoDefinitionText>(
+                programType,
+                "QueryInspectNoDefinitionText"),
+            DogfoodKernelLoader.CreateDelegate<QueryInspectReferencesHeaderText>(
+                programType,
+                "QueryInspectReferencesHeaderText"),
+            DogfoodKernelLoader.CreateDelegate<QueryInspectReferencesOverflowLineText>(
+                programType,
+                "QueryInspectReferencesOverflowLineText"),
             DogfoodKernelLoader.CreateDelegate<QueryNoReferencesText>(
                 programType,
                 "QueryNoReferencesText"),
@@ -613,6 +816,29 @@ internal static class OutputFormatterTextKernels
 
     private delegate string QueryCompletionOverflowLineText(int remaining);
 
+    private delegate string QueryInspectHeaderText(string fileName, int line, int column);
+
+    private delegate string QueryInspectSymbolLineText(string name, string kindText);
+
+    private delegate string QueryInspectNoSymbolText();
+
+    private delegate string QueryInspectTypeLineText(string resolvedType, string kindText);
+
+    private delegate string QueryInspectUnknownTypeText();
+
+    private delegate string QueryInspectDefinitionLineText(
+        string kindText,
+        string name,
+        string fileName,
+        int line,
+        int column);
+
+    private delegate string QueryInspectNoDefinitionText();
+
+    private delegate string QueryInspectReferencesHeaderText(int count, int definitionCount);
+
+    private delegate string QueryInspectReferencesOverflowLineText(int remaining);
+
     private delegate string QueryNoReferencesText(string symbolName);
 
     private delegate string QueryReferencesHeaderText(string symbolName, int count);
@@ -659,6 +885,15 @@ internal static class OutputFormatterTextKernels
         QueryCompletionCategoryLineText QueryCompletionCategoryLineText,
         QueryCompletionItemLineText QueryCompletionItemLineText,
         QueryCompletionOverflowLineText QueryCompletionOverflowLineText,
+        QueryInspectHeaderText QueryInspectHeaderText,
+        QueryInspectSymbolLineText QueryInspectSymbolLineText,
+        QueryInspectNoSymbolText QueryInspectNoSymbolText,
+        QueryInspectTypeLineText QueryInspectTypeLineText,
+        QueryInspectUnknownTypeText QueryInspectUnknownTypeText,
+        QueryInspectDefinitionLineText QueryInspectDefinitionLineText,
+        QueryInspectNoDefinitionText QueryInspectNoDefinitionText,
+        QueryInspectReferencesHeaderText QueryInspectReferencesHeaderText,
+        QueryInspectReferencesOverflowLineText QueryInspectReferencesOverflowLineText,
         QueryNoReferencesText QueryNoReferencesText,
         QueryReferencesHeaderText QueryReferencesHeaderText,
         QueryReferenceLineText QueryReferenceLineText,
@@ -746,6 +981,33 @@ internal static class OutputFormatterTextKernels
 
     private static string GetCompletionOverflowLineTextWithCSharp(int remaining)
         => $"    ... and {remaining} more";
+
+    private static string GetInspectHeaderTextWithCSharp(string file, int line, int column)
+        => $"Inspect {file}:{line}:{column}";
+
+    private static string GetInspectSymbolLineTextWithCSharp(InspectSymbolResult symbol)
+        => $"Symbol: {symbol.Name} ({symbol.Kind})";
+
+    private static string GetInspectNoSymbolTextWithCSharp()
+        => "Symbol: none";
+
+    private static string GetInspectTypeLineTextWithCSharp(TypeResult type)
+        => $"Type: {type.ResolvedType} ({type.Kind})";
+
+    private static string GetInspectUnknownTypeTextWithCSharp()
+        => "Type: unknown";
+
+    private static string GetInspectDefinitionLineTextWithCSharp(DefinitionResult definition)
+        => $"Definition: {definition.Kind} {definition.Name} at {definition.File}:{definition.Line}:{definition.Column}";
+
+    private static string GetInspectNoDefinitionTextWithCSharp()
+        => "Definition: none";
+
+    private static string GetInspectReferencesHeaderTextWithCSharp(int count, int definitionCount)
+        => $"References: {count} total ({definitionCount} definitions)";
+
+    private static string GetInspectReferencesOverflowLineTextWithCSharp(int remaining)
+        => $"  ... and {remaining} more";
 
     private static string GetNoReferencesTextWithCSharp(string symbolName)
         => $"No references found for '{symbolName}'.";

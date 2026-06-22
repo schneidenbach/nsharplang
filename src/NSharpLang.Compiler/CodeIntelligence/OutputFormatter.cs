@@ -711,57 +711,57 @@ public static class OutputFormatter
     public static string InspectToText(InspectResult result, string file, int line, int col)
     {
         var sb = new StringBuilder();
-        sb.AppendLine($"Inspect {file}:{line}:{col}");
+        sb.AppendLine(OutputFormatterTextKernels.GetInspectHeaderText(file, line, col));
         sb.AppendLine();
 
         if (result.Symbol != null)
         {
-            sb.AppendLine($"Symbol: {result.Symbol.Name} ({result.Symbol.Kind})");
+            sb.AppendLine(OutputFormatterTextKernels.GetInspectSymbolLineText(result.Symbol));
             if (result.Symbol.Definition != null)
             {
-                sb.AppendLine($"  Defined at: {result.Symbol.Definition.File}:{result.Symbol.Definition.Line}:{result.Symbol.Definition.Column}");
+                sb.AppendLine(OutputFormatterTextKernels.GetTypeDefinedAtLineText(result.Symbol.Definition));
             }
         }
         else
         {
-            sb.AppendLine("Symbol: none");
+            sb.AppendLine(OutputFormatterTextKernels.GetInspectNoSymbolText());
         }
 
         sb.AppendLine();
 
         if (result.Type != null)
         {
-            sb.AppendLine($"Type: {result.Type.ResolvedType} ({result.Type.Kind})");
+            sb.AppendLine(OutputFormatterTextKernels.GetInspectTypeLineText(result.Type));
             if (!string.IsNullOrWhiteSpace(result.Type.Nullability))
-                sb.AppendLine($"  Nullability: {result.Type.Nullability}");
+                sb.AppendLine(OutputFormatterTextKernels.GetTypeNullabilityLineText(result.Type.Nullability));
         }
         else
         {
-            sb.AppendLine("Type: unknown");
+            sb.AppendLine(OutputFormatterTextKernels.GetInspectUnknownTypeText());
         }
 
         sb.AppendLine();
 
         if (result.Definition != null)
         {
-            sb.AppendLine($"Definition: {result.Definition.Kind} {result.Definition.Name} at {result.Definition.File}:{result.Definition.Line}:{result.Definition.Column}");
+            sb.AppendLine(OutputFormatterTextKernels.GetInspectDefinitionLineText(result.Definition));
         }
         else
         {
-            sb.AppendLine("Definition: none");
+            sb.AppendLine(OutputFormatterTextKernels.GetInspectNoDefinitionText());
         }
 
         sb.AppendLine();
-        sb.AppendLine($"References: {result.References.Count} total ({result.References.DefinitionCount} definitions)");
+        sb.AppendLine(OutputFormatterTextKernels.GetInspectReferencesHeaderText(
+            result.References.Count,
+            result.References.DefinitionCount));
         foreach (var reference in result.References.Results.Take(10))
         {
-            var definitionMarker = reference.IsDefinition ? " [definition]" : "";
-            var context = reference.Context != null ? $"  {reference.Context.Trim()}" : "";
-            sb.AppendLine($"  {reference.File}:{reference.Line}:{reference.Column}{definitionMarker}{context}");
+            sb.AppendLine(OutputFormatterTextKernels.GetReferenceLineText(reference));
         }
         if (result.References.Count > 10)
         {
-            sb.AppendLine($"  ... and {result.References.Count - 10} more");
+            sb.AppendLine(OutputFormatterTextKernels.GetInspectReferencesOverflowLineText(result.References.Count - 10));
         }
 
         sb.AppendLine();

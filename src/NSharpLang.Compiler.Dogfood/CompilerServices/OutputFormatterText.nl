@@ -156,6 +156,42 @@ func QueryCompletionOverflowLineText(remaining: int): string {
     return "    ... and " + remaining.ToString() + " more"
 }
 
+func QueryInspectHeaderText(fileName: string, line: int, column: int): string {
+    return "Inspect " + fileName + ":" + line.ToString() + ":" + column.ToString()
+}
+
+func QueryInspectSymbolLineText(name: string, kindText: string): string {
+    return "Symbol: " + name + " (" + kindText + ")"
+}
+
+func QueryInspectNoSymbolText(): string {
+    return "Symbol: none"
+}
+
+func QueryInspectTypeLineText(resolvedType: string, kindText: string): string {
+    return "Type: " + resolvedType + " (" + kindText + ")"
+}
+
+func QueryInspectUnknownTypeText(): string {
+    return "Type: unknown"
+}
+
+func QueryInspectDefinitionLineText(kindText: string, name: string, fileName: string, line: int, column: int): string {
+    return "Definition: " + kindText + " " + name + " at " + fileName + ":" + line.ToString() + ":" + column.ToString()
+}
+
+func QueryInspectNoDefinitionText(): string {
+    return "Definition: none"
+}
+
+func QueryInspectReferencesHeaderText(count: int, definitionCount: int): string {
+    return "References: " + count.ToString() + " total (" + definitionCount.ToString() + " definitions)"
+}
+
+func QueryInspectReferencesOverflowLineText(remaining: int): string {
+    return "  ... and " + remaining.ToString() + " more"
+}
+
 func QueryNoReferencesText(symbolName: string): string {
     return "No references found for '" + symbolName + "'."
 }

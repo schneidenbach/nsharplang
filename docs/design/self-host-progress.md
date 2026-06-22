@@ -11,6 +11,21 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-22 — Query inspect text moves into product N#
+
+`OutputFormatter.InspectToText` no longer owns the visible `nlc query inspect --text` section header, symbol,
+type, definition, references-summary, reference-row, or overflow lines in C#. The shipped
+`OutputFormatterText.nl` dogfood kernel now shapes those inspect-query lines through
+`OutputFormatterTextKernels`, reusing the same N# reference and completion text shapers used by standalone
+query commands; C# keeps optional-section decisions, result traversal, the 10-reference text cap, CLR object
+access, StringBuilder assembly, and fallback/oracle rendering only. This is a Stage 6 `C#-surface-shrink`
+product-route slice.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CodeIntelligenceOutputTests.InspectToText_FormatsSections|FullyQualifiedName~CodeIntelligenceOutputTests.InspectToText_FormatsMissingSections|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_OutputFormatterText"`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`;
+`./scripts/dev.sh InspectToText`.
+
 ## 2026-06-22 — Query completion text moves into product N#
 
 `OutputFormatter.CompletionsToText` no longer owns the visible `nlc query completions --text` header,
