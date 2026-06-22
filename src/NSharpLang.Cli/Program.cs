@@ -576,76 +576,12 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
         }
     }
 
-    private static string? ValidatePublishArguments(string[] args)
-    {
-        var optionsWithValues = new HashSet<string>(StringComparer.Ordinal)
-        {
-            "--project",
-            "--backend",
-            "--configuration",
-            "-c",
-            "--output",
-            "-o",
-            "--runtime",
-            "-r"
-        };
-        var switchOptions = new HashSet<string>(StringComparer.Ordinal)
-        {
-            "--self-contained",
-            "--aot"
-        };
-
-        for (var i = 0; i < args.Length; i++)
-        {
-            var arg = args[i];
-            if (optionsWithValues.Contains(arg))
-            {
-                if (i + 1 >= args.Length || args[i + 1].StartsWith("-", StringComparison.Ordinal))
-                {
-                    return $"Option '{arg}' requires a value.";
-                }
-
-                i++;
-                continue;
-            }
-
-            if (switchOptions.Contains(arg))
-            {
-                continue;
-            }
-
-            if (arg is "--target" or "--target-platform")
-            {
-                return "Target-platform publishing is expressed as --runtime <rid>, and nlc publish does not support cross-runtime publishing yet.";
-            }
-
-            if (arg.StartsWith("-", StringComparison.Ordinal))
-            {
-                return $"Unknown publish option '{arg}'. Run 'nlc publish --help' for supported options.";
-            }
-
-            return $"Unexpected publish argument '{arg}'. Run 'nlc publish --help' for usage.";
-        }
-
-        return null;
-    }
-
     internal static PublishArgumentSummary GetPublishArgumentSummary(string[] args)
     {
         if (PublishCommandKernels.TryGetArgumentSummary(args, out var summary))
             return summary;
 
-        // Stage 6 C#-surface-shrink: fallback/oracle only; product publish option parsing routes through PublishCommandKernels.
-        return new PublishArgumentSummary(
-            ValidatePublishArguments(args),
-            GetOptionValue(args, "--project"),
-            GetOptionValue(args, "--backend"),
-            GetOptionValue(args, "--configuration") ?? GetOptionValue(args, "-c") ?? "Release",
-            GetOptionValue(args, "--output") ?? GetOptionValue(args, "-o"),
-            GetOptionValue(args, "--runtime") ?? GetOptionValue(args, "-r"),
-            args.Contains("--self-contained"),
-            args.Contains("--aot"),
-            args.Contains("--help") || args.Contains("-h") || (args.Length > 0 && args[0] == "help"));
+        throw new InvalidOperationException("N# publish argument summary kernel rejected the arguments.");
     }
 
     static int NewCommand(string[] args)
