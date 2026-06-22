@@ -597,7 +597,7 @@ mapping; a pre-existing bare-tuple-typed-local over-accept fixed). The scalar, s
 collections, async, interfaces, Phase-P columnar ports, and route-all/default-on rungs have since landed
 in the progress log. Stage 6 also started moving query human-text surfaces: diagnostic text now routes through
 `OutputFormatterDiagnosticKernels`, and `nlc query symbols --text`, `outline --text`, `type --text`,
-`completions --text`, `inspect --text`, `hover --text`, `definition --text`, and `references --text` line shaping routes through
+`completions --text`, `inspect --text`, `hover --text`, `call-graph --text`, `definition --text`, and `references --text` line shaping routes through
 `OutputFormatterTextKernels`. The active path is Stage 6 surface shrink plus SoA/emitter-port proof work before
 `ILCompiler/` and `Analyzer.cs` can be retired.
 

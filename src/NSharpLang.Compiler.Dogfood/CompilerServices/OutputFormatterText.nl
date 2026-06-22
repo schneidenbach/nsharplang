@@ -216,6 +216,26 @@ func QueryHoverDocumentationLineText(docLine: string): string {
     return "  " + docLine
 }
 
+func QueryCallGraphForHeaderText(functionName: string): string {
+    return "Call graph for: " + functionName
+}
+
+func QueryCallGraphFullHeaderText(): string {
+    return "Call graph (full project)"
+}
+
+func QueryCallGraphSectionHeaderText(label: string, count: int): string {
+    return label + " (" + count.ToString() + "):"
+}
+
+func QueryCallGraphEdgeLineText(name: string, fileName: string, line: int): string {
+    return "  " + name + "  (" + fileName + ":" + line.ToString() + ")"
+}
+
+func QueryCallGraphTruncatedLineText(separator: string): string {
+    return "(results truncated " + separator + " use --limit to increase)"
+}
+
 func QueryNoReferencesText(symbolName: string): string {
     return "No references found for '" + symbolName + "'."
 }

@@ -856,22 +856,22 @@ public static class OutputFormatter
     {
         var sb = new StringBuilder();
         if (result.Function != null)
-            sb.AppendLine($"Call graph for: {result.Function}");
+            sb.AppendLine(OutputFormatterTextKernels.GetCallGraphFunctionHeaderText(result.Function));
         else
-            sb.AppendLine("Call graph (full project)");
+            sb.AppendLine(OutputFormatterTextKernels.GetCallGraphFullHeaderText());
         sb.AppendLine();
 
-        sb.AppendLine($"Callers ({result.Callers.Count}):");
+        sb.AppendLine(OutputFormatterTextKernels.GetCallGraphSectionHeaderText("Callers", result.Callers.Count));
         foreach (var c in result.Callers)
-            sb.AppendLine($"  {c.Name}  ({c.File}:{c.Line})");
+            sb.AppendLine(OutputFormatterTextKernels.GetCallGraphEdgeLineText(c));
 
         sb.AppendLine();
-        sb.AppendLine($"Callees ({result.Callees.Count}):");
+        sb.AppendLine(OutputFormatterTextKernels.GetCallGraphSectionHeaderText("Callees", result.Callees.Count));
         foreach (var c in result.Callees)
-            sb.AppendLine($"  {c.Name}  ({c.File}:{c.Line})");
+            sb.AppendLine(OutputFormatterTextKernels.GetCallGraphEdgeLineText(c));
 
         if (result.Truncated)
-            sb.AppendLine("(results truncated — use --limit to increase)");
+            sb.AppendLine(OutputFormatterTextKernels.GetCallGraphTruncatedLineText());
 
         return sb.ToString();
     }

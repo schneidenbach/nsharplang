@@ -628,6 +628,104 @@ internal static class OutputFormatterTextKernels
         return GetHoverDocumentationLineTextWithCSharp(docLine);
     }
 
+    internal static string GetCallGraphFunctionHeaderText(string functionName)
+    {
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return GetCallGraphFunctionHeaderTextWithCSharp(functionName);
+
+        try
+        {
+            var text = bindings.QueryCallGraphForHeaderText(functionName);
+            if (!string.IsNullOrEmpty(text))
+                return text;
+        }
+        catch
+        {
+        }
+
+        return GetCallGraphFunctionHeaderTextWithCSharp(functionName);
+    }
+
+    internal static string GetCallGraphFullHeaderText()
+    {
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return GetCallGraphFullHeaderTextWithCSharp();
+
+        try
+        {
+            var text = bindings.QueryCallGraphFullHeaderText();
+            if (!string.IsNullOrEmpty(text))
+                return text;
+        }
+        catch
+        {
+        }
+
+        return GetCallGraphFullHeaderTextWithCSharp();
+    }
+
+    internal static string GetCallGraphSectionHeaderText(string label, int count)
+    {
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return GetCallGraphSectionHeaderTextWithCSharp(label, count);
+
+        try
+        {
+            var text = bindings.QueryCallGraphSectionHeaderText(label, count);
+            if (!string.IsNullOrEmpty(text))
+                return text;
+        }
+        catch
+        {
+        }
+
+        return GetCallGraphSectionHeaderTextWithCSharp(label, count);
+    }
+
+    internal static string GetCallGraphEdgeLineText(CallSiteResult callSite)
+    {
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return GetCallGraphEdgeLineTextWithCSharp(callSite);
+
+        try
+        {
+            var text = bindings.QueryCallGraphEdgeLineText(
+                callSite.Name,
+                callSite.File ?? string.Empty,
+                callSite.Line);
+            if (!string.IsNullOrEmpty(text))
+                return text;
+        }
+        catch
+        {
+        }
+
+        return GetCallGraphEdgeLineTextWithCSharp(callSite);
+    }
+
+    internal static string GetCallGraphTruncatedLineText()
+    {
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return GetCallGraphTruncatedLineTextWithCSharp();
+
+        try
+        {
+            var text = bindings.QueryCallGraphTruncatedLineText("\u2014");
+            if (!string.IsNullOrEmpty(text))
+                return text;
+        }
+        catch
+        {
+        }
+
+        return GetCallGraphTruncatedLineTextWithCSharp();
+    }
+
     internal static string GetNoReferencesText(string symbolName)
     {
         var bindings = s_bindings.Value;
@@ -869,6 +967,21 @@ internal static class OutputFormatterTextKernels
             DogfoodKernelLoader.CreateDelegate<QueryHoverDocumentationLineText>(
                 programType,
                 "QueryHoverDocumentationLineText"),
+            DogfoodKernelLoader.CreateDelegate<QueryCallGraphForHeaderText>(
+                programType,
+                "QueryCallGraphForHeaderText"),
+            DogfoodKernelLoader.CreateDelegate<QueryCallGraphFullHeaderText>(
+                programType,
+                "QueryCallGraphFullHeaderText"),
+            DogfoodKernelLoader.CreateDelegate<QueryCallGraphSectionHeaderText>(
+                programType,
+                "QueryCallGraphSectionHeaderText"),
+            DogfoodKernelLoader.CreateDelegate<QueryCallGraphEdgeLineText>(
+                programType,
+                "QueryCallGraphEdgeLineText"),
+            DogfoodKernelLoader.CreateDelegate<QueryCallGraphTruncatedLineText>(
+                programType,
+                "QueryCallGraphTruncatedLineText"),
             DogfoodKernelLoader.CreateDelegate<QueryNoReferencesText>(
                 programType,
                 "QueryNoReferencesText"),
@@ -983,6 +1096,16 @@ internal static class OutputFormatterTextKernels
 
     private delegate string QueryHoverDocumentationLineText(string docLine);
 
+    private delegate string QueryCallGraphForHeaderText(string functionName);
+
+    private delegate string QueryCallGraphFullHeaderText();
+
+    private delegate string QueryCallGraphSectionHeaderText(string label, int count);
+
+    private delegate string QueryCallGraphEdgeLineText(string name, string fileName, int line);
+
+    private delegate string QueryCallGraphTruncatedLineText(string separator);
+
     private delegate string QueryNoReferencesText(string symbolName);
 
     private delegate string QueryReferencesHeaderText(string symbolName, int count);
@@ -1044,6 +1167,11 @@ internal static class OutputFormatterTextKernels
         QueryHoverDefinedInLineText QueryHoverDefinedInLineText,
         QueryHoverDocumentationHeaderText QueryHoverDocumentationHeaderText,
         QueryHoverDocumentationLineText QueryHoverDocumentationLineText,
+        QueryCallGraphForHeaderText QueryCallGraphForHeaderText,
+        QueryCallGraphFullHeaderText QueryCallGraphFullHeaderText,
+        QueryCallGraphSectionHeaderText QueryCallGraphSectionHeaderText,
+        QueryCallGraphEdgeLineText QueryCallGraphEdgeLineText,
+        QueryCallGraphTruncatedLineText QueryCallGraphTruncatedLineText,
         QueryNoReferencesText QueryNoReferencesText,
         QueryReferencesHeaderText QueryReferencesHeaderText,
         QueryReferenceLineText QueryReferenceLineText,
@@ -1176,6 +1304,21 @@ internal static class OutputFormatterTextKernels
 
     private static string GetHoverDocumentationLineTextWithCSharp(string docLine)
         => $"  {docLine}";
+
+    private static string GetCallGraphFunctionHeaderTextWithCSharp(string functionName)
+        => $"Call graph for: {functionName}";
+
+    private static string GetCallGraphFullHeaderTextWithCSharp()
+        => "Call graph (full project)";
+
+    private static string GetCallGraphSectionHeaderTextWithCSharp(string label, int count)
+        => $"{label} ({count}):";
+
+    private static string GetCallGraphEdgeLineTextWithCSharp(CallSiteResult callSite)
+        => $"  {callSite.Name}  ({callSite.File}:{callSite.Line})";
+
+    private static string GetCallGraphTruncatedLineTextWithCSharp()
+        => "(results truncated \u2014 use --limit to increase)";
 
     private static string GetNoReferencesTextWithCSharp(string symbolName)
         => $"No references found for '{symbolName}'.";

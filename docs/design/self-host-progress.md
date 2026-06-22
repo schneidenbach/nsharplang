@@ -11,6 +11,19 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-22 — Query call graph text moves into product N#
+
+`OutputFormatter.CallGraphToText` no longer owns the visible `nlc query call-graph --text` function/full-project
+header, caller/callee section headers, edge rows, or truncation notice in C#. The shipped
+`OutputFormatterText.nl` dogfood kernel now shapes those call-graph lines through `OutputFormatterTextKernels`;
+C# keeps graph traversal, the existing truncation separator as data, CLR object access, StringBuilder assembly,
+and fallback/oracle rendering only. This is a Stage 6 `C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CodeIntelligenceOutputTests.CallGraphToText_FormatsFunctionGraph|FullyQualifiedName~CodeIntelligenceOutputTests.CallGraphToText_FormatsFullProjectGraph|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_OutputFormatterText"`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`;
+`./scripts/dev.sh CallGraphToText`.
+
 ## 2026-06-22 — Query hover text moves into product N#
 
 `OutputFormatter.HoverToText` no longer owns the visible `nlc query hover --text` header, signature, kind,

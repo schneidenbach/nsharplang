@@ -1125,6 +1125,59 @@ public class CodeIntelligenceOutputTests
             text);
     }
 
+    [Fact]
+    public void CallGraphToText_FormatsFunctionGraph()
+    {
+        var callGraph = new CallGraphResult(
+            "Main",
+            new List<CallSiteResult>
+            {
+                new("Run", "Program.nl", 10, 5)
+            },
+            new List<CallSiteResult>
+            {
+                new("Hi", "Program.nl", 18, 10)
+            },
+            Truncated: true);
+
+        var text = OutputFormatter.CallGraphToText(callGraph);
+
+        Assert.Equal(
+            string.Join(Environment.NewLine,
+                "Call graph for: Main",
+                string.Empty,
+                "Callers (1):",
+                "  Run  (Program.nl:10)",
+                string.Empty,
+                "Callees (1):",
+                "  Hi  (Program.nl:18)",
+                "(results truncated \u2014 use --limit to increase)",
+                string.Empty),
+            text);
+    }
+
+    [Fact]
+    public void CallGraphToText_FormatsFullProjectGraph()
+    {
+        var callGraph = new CallGraphResult(
+            null,
+            new List<CallSiteResult>(),
+            new List<CallSiteResult>(),
+            Truncated: false);
+
+        var text = OutputFormatter.CallGraphToText(callGraph);
+
+        Assert.Equal(
+            string.Join(Environment.NewLine,
+                "Call graph (full project)",
+                string.Empty,
+                "Callers (0):",
+                string.Empty,
+                "Callees (0):",
+                string.Empty),
+            text);
+    }
+
     // ── Model Record Tests ──────────────────────────────────────────────
 
     [Fact]

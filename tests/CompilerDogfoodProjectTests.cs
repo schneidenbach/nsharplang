@@ -7629,7 +7629,8 @@ func outer(x: int): int {
 
     // MILESTONE: OutputFormatterText.nl compiles end-to-end with no C# AST and owns shipped
     // `nlc query symbols --text`, `outline --text`, `type --text`, `completions --text`,
-    // `inspect --text`, `hover --text`, `definition --text`, and `references --text` line shaping.
+    // `inspect --text`, `hover --text`, `call-graph --text`, `definition --text`, and `references --text`
+    // line shaping.
     [Fact]
     public void ColumnarCodegen_CompilesRealDogfoodFile_OutputFormatterText()
     {
@@ -7666,6 +7667,11 @@ func outer(x: int): int {
         Assert.Contains("QueryHoverDefinedInLineText", methodNames!);
         Assert.Contains("QueryHoverDocumentationHeaderText", methodNames!);
         Assert.Contains("QueryHoverDocumentationLineText", methodNames!);
+        Assert.Contains("QueryCallGraphForHeaderText", methodNames!);
+        Assert.Contains("QueryCallGraphFullHeaderText", methodNames!);
+        Assert.Contains("QueryCallGraphSectionHeaderText", methodNames!);
+        Assert.Contains("QueryCallGraphEdgeLineText", methodNames!);
+        Assert.Contains("QueryCallGraphTruncatedLineText", methodNames!);
         Assert.Contains("QueryNoReferencesText", methodNames!);
         Assert.Contains("QueryReferencesHeaderText", methodNames!);
         Assert.Contains("QueryReferenceLineText", methodNames!);
@@ -7719,6 +7725,11 @@ func outer(x: int): int {
             ("QueryHoverDefinedInLineText", new object[] { "Program.nl" }),
             ("QueryHoverDocumentationHeaderText", Array.Empty<object>()),
             ("QueryHoverDocumentationLineText", new object[] { "Returns a value." }),
+            ("QueryCallGraphForHeaderText", new object[] { "Main" }),
+            ("QueryCallGraphFullHeaderText", Array.Empty<object>()),
+            ("QueryCallGraphSectionHeaderText", new object[] { "Callers", 2 }),
+            ("QueryCallGraphEdgeLineText", new object[] { "Run", "Program.nl", 10 }),
+            ("QueryCallGraphTruncatedLineText", new object[] { "\u2014" }),
             ("QueryNoReferencesText", new object[] { "Person" }),
             ("QueryReferencesHeaderText", new object[] { "Person", 3 }),
             ("QueryReferenceLineText", new object[] { "Models.nl", 5, 0, 1, "  class Person {  ", 1 }),
