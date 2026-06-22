@@ -4410,6 +4410,9 @@ Exit codes:
             "Error formatting Broken.nl: parse failed",
             FormatCommandKernels.GetErrorFormattingMessage("Broken.nl", "parse failed"));
         Assert.Equal(
+            "Warning [src/Program.nl]: Formatter safety check changed trivia.",
+            FormatCommandKernels.GetWarningLine("src/Program.nl", "Formatter safety check changed trivia."));
+        Assert.Equal(
             "Formatting check failed for 2 file(s):",
             FormatCommandKernels.GetCheckFailedHeader(2));
         Assert.Equal("  src/Program.nl", FormatCommandKernels.GetCheckFailedPathLine("src/Program.nl"));

@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-22 — Format warning lines move into product N#
+
+`Program.FormatSource` no longer owns formatter warning-line text such as `Warning [path]: ...` in C#.
+The shipped `CliFormatWarningLine` dogfood kernel now shapes that line through `FormatCommandKernels`; C#
+keeps path normalization, formatter invocation, and stderr writes only. This is a Stage 6
+`C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.FormatCommandKernels_SummarizesOptions|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`;
+`./scripts/dev.sh FormatCommandKernels`.
+
 ## 2026-06-22 — Pack error wrapper reuses product N#
 
 `PackCommand` no longer gets text-mode error messages from pack-specific kernels with the shared

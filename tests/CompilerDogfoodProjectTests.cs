@@ -7049,6 +7049,7 @@ func outer(x: int): int {
         Assert.Contains("CliFormatNoFilesFoundMessage", methodNames!); // product format empty-discovery message shaping.
         Assert.Contains("CliFormatFileNotFoundMessage", methodNames!); // product format missing-file message shaping.
         Assert.Contains("CliFormatErrorFormattingMessage", methodNames!); // product format per-file failure message shaping.
+        Assert.Contains("CliFormatWarningLine", methodNames!); // product format formatter-warning line shaping.
         Assert.Contains("CliFormatCheckFailedHeader", methodNames!); // product format check failure header shaping.
         Assert.Contains("CliFormatCheckFailedPathLine", methodNames!); // product format check failure path-line shaping.
         Assert.Contains("CliFormatAllFilesFormattedMessage", methodNames!); // product format all-good message shaping.
@@ -17416,6 +17417,10 @@ class OtherZetaType {
                     "CliFormatErrorFormattingMessage",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliFormatErrorFormattingMessage.");
+            var cliFormatWarningLine = programType.GetMethod(
+                    "CliFormatWarningLine",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliFormatWarningLine.");
             var cliFormatCheckFailedHeader = programType.GetMethod(
                     "CliFormatCheckFailedHeader",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -18693,6 +18698,7 @@ func main(customer: Customer, résumé: Profile) {
                 cliFormatNoFilesFoundMessage,
                 cliFormatFileNotFoundMessage,
                 cliFormatErrorFormattingMessage,
+                cliFormatWarningLine,
                 cliFormatCheckFailedHeader,
                 cliFormatCheckFailedPathLine,
                 cliFormatAllFilesFormattedMessage,
@@ -27612,6 +27618,7 @@ func main() {
         MethodInfo cliFormatNoFilesFoundMessage,
         MethodInfo cliFormatFileNotFoundMessage,
         MethodInfo cliFormatErrorFormattingMessage,
+        MethodInfo cliFormatWarningLine,
         MethodInfo cliFormatCheckFailedHeader,
         MethodInfo cliFormatCheckFailedPathLine,
         MethodInfo cliFormatAllFilesFormattedMessage,
@@ -27638,6 +27645,11 @@ func main() {
             (string)(cliFormatErrorFormattingMessage.Invoke(
                 null,
                 new object[] { "Broken.nl", "parse failed" }) ?? "<null>"));
+        Assert.Equal(
+            "Warning [src/Program.nl]: Formatter safety check changed trivia.",
+            (string)(cliFormatWarningLine.Invoke(
+                null,
+                new object[] { "src/Program.nl", "Formatter safety check changed trivia." }) ?? "<null>"));
         Assert.Equal(
             "Formatting check failed for 2 file(s):",
             (string)(cliFormatCheckFailedHeader.Invoke(null, new object[] { "2" }) ?? "<null>"));

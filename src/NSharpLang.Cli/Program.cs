@@ -1402,9 +1402,10 @@ public func Warmup(): void {
         var formatter = new Formatter(config);
         var result = formatter.FormatSafe(source, parseResult.CompilationUnit!, lexer.Comments, file);
 
+        var relativePath = NormalizePath(Path.GetRelativePath(projectRoot, file));
         foreach (var warning in result.Warnings)
         {
-            Console.Error.WriteLine($"Warning [{NormalizePath(Path.GetRelativePath(projectRoot, file))}]: {warning}");
+            Console.Error.WriteLine(FormatCommandKernels.GetWarningLine(relativePath, warning));
         }
 
         if (!result.Success)

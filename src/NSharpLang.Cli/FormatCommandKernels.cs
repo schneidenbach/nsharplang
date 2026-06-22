@@ -78,6 +78,11 @@ internal static class FormatCommandKernels
             ? message
             : FallbackErrorFormattingMessage(sourceFile, exceptionMessage);
 
+    internal static string GetWarningLine(string relativePath, string warning)
+        => TryGetMessage(bindings => bindings.WarningLine(relativePath, warning), out var message)
+            ? message
+            : FallbackWarningLine(relativePath, warning);
+
     internal static string GetCheckFailedHeader(int count)
     {
         var countText = count.ToString(CultureInfo.InvariantCulture);
@@ -182,6 +187,9 @@ internal static class FormatCommandKernels
             DogfoodKernelLoader.CreateDelegate<CliFormatErrorFormattingMessage>(
                 programType,
                 "CliFormatErrorFormattingMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliFormatWarningLine>(
+                programType,
+                "CliFormatWarningLine"),
             DogfoodKernelLoader.CreateDelegate<CliFormatCheckFailedHeader>(
                 programType,
                 "CliFormatCheckFailedHeader"),
@@ -219,6 +227,8 @@ internal static class FormatCommandKernels
 
     private delegate string CliFormatErrorFormattingMessage(string sourceFile, string message);
 
+    private delegate string CliFormatWarningLine(string relativePath, string warning);
+
     private delegate string CliFormatCheckFailedHeader(string countText);
 
     private delegate string CliFormatCheckFailedPathLine(string sourceFile);
@@ -242,6 +252,7 @@ internal static class FormatCommandKernels
         CliFormatNoFilesFoundMessage NoFilesFoundMessage,
         CliFormatFileNotFoundMessage FileNotFoundMessage,
         CliFormatErrorFormattingMessage ErrorFormattingMessage,
+        CliFormatWarningLine WarningLine,
         CliFormatCheckFailedHeader CheckFailedHeader,
         CliFormatCheckFailedPathLine CheckFailedPathLine,
         CliFormatAllFilesFormattedMessage AllFilesFormattedMessage,
@@ -308,6 +319,9 @@ Exit codes:
 
     private static string FallbackErrorFormattingMessage(string sourceFile, string message)
         => $"Error formatting {sourceFile}: {message}";
+
+    private static string FallbackWarningLine(string relativePath, string warning)
+        => $"Warning [{relativePath}]: {warning}";
 
     private static string FallbackCheckFailedHeader(string countText)
         => $"Formatting check failed for {countText} file(s):";
