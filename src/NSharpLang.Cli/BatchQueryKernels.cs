@@ -130,84 +130,34 @@ internal static class BatchQueryKernels
     }
 
     internal static string GetRequestsFileNotFoundMessage(string path)
-    {
-        if (TryGetMessage(bindings => bindings.RequestsFileNotFoundMessage(path), out var message))
-            return message;
-
-        return GetRequestsFileNotFoundMessageWithCSharp(path);
-    }
+        => RequiredBindings.RequestsFileNotFoundMessage(path);
 
     internal static string GetPayloadShapeMessage()
-    {
-        if (TryGetMessage(bindings => bindings.PayloadShapeMessage(), out var message))
-            return message;
-
-        return GetPayloadShapeMessageWithCSharp();
-    }
+        => RequiredBindings.PayloadShapeMessage();
 
     internal static string GetRequestObjectRequiredMessage()
-    {
-        if (TryGetMessage(bindings => bindings.RequestObjectRequiredMessage(), out var message))
-            return message;
-
-        return GetRequestObjectRequiredMessageWithCSharp();
-    }
+        => RequiredBindings.RequestObjectRequiredMessage();
 
     internal static string GetRequestDeserializeFailedMessage()
-    {
-        if (TryGetMessage(bindings => bindings.RequestDeserializeFailedMessage(), out var message))
-            return message;
-
-        return GetRequestDeserializeFailedMessageWithCSharp();
-    }
+        => RequiredBindings.RequestDeserializeFailedMessage();
 
     internal static string GetDuplicateRequestIdsMessage(string duplicateIdsText)
-    {
-        if (TryGetMessage(bindings => bindings.DuplicateRequestIdsMessage(duplicateIdsText), out var message))
-            return message;
-
-        return GetDuplicateRequestIdsMessageWithCSharp(duplicateIdsText);
-    }
+        => RequiredBindings.DuplicateRequestIdsMessage(duplicateIdsText);
 
     internal static string GetUnsupportedCommandMessage(string command)
-    {
-        if (TryGetMessage(bindings => bindings.UnsupportedCommandMessage(command), out var message))
-            return message;
-
-        return GetUnsupportedCommandMessageWithCSharp(command);
-    }
+        => RequiredBindings.UnsupportedCommandMessage(command);
 
     internal static string GetOutlineFileRequiredMessage()
-    {
-        if (TryGetMessage(bindings => bindings.OutlineFileRequiredMessage(), out var message))
-            return message;
-
-        return GetOutlineFileRequiredMessageWithCSharp();
-    }
+        => RequiredBindings.OutlineFileRequiredMessage();
 
     internal static string GetDocQueryRequiredMessage()
-    {
-        if (TryGetMessage(bindings => bindings.DocQueryRequiredMessage(), out var message))
-            return message;
-
-        return GetDocQueryRequiredMessageWithCSharp();
-    }
+        => RequiredBindings.DocQueryRequiredMessage();
 
     internal static string GetFileAndPosRequiredMessage()
-    {
-        if (TryGetMessage(bindings => bindings.FileAndPosRequiredMessage(), out var message))
-            return message;
-
-        return GetFileAndPosRequiredMessageWithCSharp();
-    }
+        => RequiredBindings.FileAndPosRequiredMessage();
 
     internal static string GetInvalidPositionMessage(string position)
-    {
-        if (TryGetMessage(bindings => bindings.InvalidPositionMessage(position), out var message))
-            return message;
-
-        return GetInvalidPositionMessageWithCSharp(position);
-    }
+        => RequiredBindings.InvalidPositionMessage(position);
 
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
@@ -248,56 +198,8 @@ internal static class BatchQueryKernels
                 programType,
                 "CliBatchInvalidPositionMessage")));
 
-    private static bool TryGetMessage(Func<Bindings, string> getMessage, out string message)
-    {
-        message = string.Empty;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        try
-        {
-            message = getMessage(bindings);
-            return !string.IsNullOrEmpty(message);
-        }
-        catch
-        {
-            message = string.Empty;
-            return false;
-        }
-    }
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product batch query messages route through BatchQueryKernels.
-    private static string GetRequestsFileNotFoundMessageWithCSharp(string path)
-        => $"Requests file not found: {path}";
-
-    private static string GetPayloadShapeMessageWithCSharp()
-        => "Batch requests must be a JSON array or an object with a 'requests' array.";
-
-    private static string GetRequestObjectRequiredMessageWithCSharp()
-        => "Each batch request must be a JSON object.";
-
-    private static string GetRequestDeserializeFailedMessageWithCSharp()
-        => "Failed to deserialize a batch request.";
-
-    private static string GetDuplicateRequestIdsMessageWithCSharp(string duplicateIdsText)
-        => $"Duplicate batch request ids are not allowed: {duplicateIdsText}";
-
-    private static string GetUnsupportedCommandMessageWithCSharp(string command)
-        => $"Unsupported batch query command '{command}'.";
-
-    private static string GetOutlineFileRequiredMessageWithCSharp()
-        => "file is required for outline requests.";
-
-    private static string GetDocQueryRequiredMessageWithCSharp()
-        => "query is required for doc requests.";
-
-    private static string GetFileAndPosRequiredMessageWithCSharp()
-        => "file and pos are required.";
-
-    private static string GetInvalidPositionMessageWithCSharp(string position)
-        => $"Invalid position format '{position}'. Expected <line>:<col>.";
+    private static Bindings RequiredBindings
+        => s_bindings.Value ?? throw new InvalidOperationException("N# batch query kernels are unavailable.");
 
     private delegate int CliBatchDuplicateIdRanksInto(
         int[] idRanks,
