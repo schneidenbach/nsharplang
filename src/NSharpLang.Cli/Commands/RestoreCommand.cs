@@ -64,18 +64,6 @@ public static class RestoreCommand
             var outputType = config.OutputType == "exe" ? "Exe" : "Library";
             var baseSdk = config.Sdk ?? "Microsoft.NET.Sdk";
 
-            var sb = new StringBuilder();
-            sb.AppendLine(@"<Project xmlns=""http://schemas.microsoft.com/developer/msbuild/2003"">");
-            sb.AppendLine(@"  <PropertyGroup>");
-            sb.AppendLine($"    <TargetFramework>{config.TargetFramework}</TargetFramework>");
-            sb.AppendLine($"    <OutputType>{outputType}</OutputType>");
-            sb.AppendLine($"    <_NSharpOriginalOutputType>{outputType}</_NSharpOriginalOutputType>");
-            sb.AppendLine($"    <AssemblyName>{projectName}</AssemblyName>");
-            sb.AppendLine($"    <NSharpCompilationBackend>{config.EffectiveBackend.ToConfigValue()}</NSharpCompilationBackend>");
-            sb.AppendLine($"    <NSharpTestFramework>{config.TestFramework}</NSharpTestFramework>");
-            sb.AppendLine($"    <_NSharpBaseSdk>{baseSdk}</_NSharpBaseSdk>");
-            sb.AppendLine(@"  </PropertyGroup>");
-
             var resolvedProjectReferences = FilterReferencesByType(config.Dependencies, ReferenceType.Project)
                 .Select(reference =>
                 {
@@ -87,20 +75,18 @@ public static class RestoreCommand
                 .ToArray();
             var projectReferences = DeduplicateProjectReferences(resolvedProjectReferences);
 
-            if (projectReferences.Length > 0)
-            {
-                sb.AppendLine(@"  <ItemGroup>");
-                foreach (var projectReference in projectReferences)
-                {
-                    sb.AppendLine($"    <ProjectReference Include=\"{EscapeXml(projectReference)}\" />");
-                }
-                sb.AppendLine(@"  </ItemGroup>");
-            }
-
-            sb.AppendLine(@"</Project>");
-
             var propsPath = Path.Combine(objDir, "project.g.props");
-            File.WriteAllText(propsPath, sb.ToString(), Encoding.UTF8);
+            File.WriteAllText(
+                propsPath,
+                RestoreCommandKernels.GetGeneratedPropsText(
+                    config.TargetFramework,
+                    outputType,
+                    projectName,
+                    config.EffectiveBackend.ToConfigValue(),
+                    config.TestFramework,
+                    baseSdk,
+                    projectReferences),
+                Encoding.UTF8);
 
             foreach (var dependency in FilterReferencesByType(config.Dependencies, ReferenceType.Project))
             {
@@ -177,14 +163,5 @@ public static class RestoreCommand
         return RestoreCommandKernels.TryFilterReferencesByType(references, referenceType, out var dogfoodReferences)
             ? dogfoodReferences
             : references.Where(reference => reference.Type == referenceType).ToList();
-    }
-
-    private static string EscapeXml(string value)
-    {
-        return value
-            .Replace("&", "&amp;", StringComparison.Ordinal)
-            .Replace("\"", "&quot;", StringComparison.Ordinal)
-            .Replace("<", "&lt;", StringComparison.Ordinal)
-            .Replace(">", "&gt;", StringComparison.Ordinal);
     }
 }

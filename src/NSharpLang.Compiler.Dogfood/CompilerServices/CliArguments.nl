@@ -3754,6 +3754,63 @@ func CliRestoreFailedMessage(message: string): string {
     return "Failed to restore project configuration: " + message
 }
 
+func CliRestoreGeneratedPropsText(
+    targetFramework: string,
+    outputType: string,
+    projectName: string,
+    backend: string,
+    testFramework: string,
+    baseSdk: string,
+    projectReferences: string[]): string {
+    text := "<Project xmlns=\"http://schemas.microsoft.com/developer/msbuild/2003\">\n"
+        + "  <PropertyGroup>\n"
+        + "    <TargetFramework>" + targetFramework + "</TargetFramework>\n"
+        + "    <OutputType>" + outputType + "</OutputType>\n"
+        + "    <_NSharpOriginalOutputType>" + outputType + "</_NSharpOriginalOutputType>\n"
+        + "    <AssemblyName>" + projectName + "</AssemblyName>\n"
+        + "    <NSharpCompilationBackend>" + backend + "</NSharpCompilationBackend>\n"
+        + "    <NSharpTestFramework>" + testFramework + "</NSharpTestFramework>\n"
+        + "    <_NSharpBaseSdk>" + baseSdk + "</_NSharpBaseSdk>\n"
+        + "  </PropertyGroup>\n"
+
+    if projectReferences.Length > 0 {
+        text = text + "  <ItemGroup>\n"
+
+        i := 0
+        while i < projectReferences.Length {
+            text = text + "    <ProjectReference Include=\"" + CliRestoreXmlAttributeEscape(projectReferences[i]) + "\" />\n"
+            i = i + 1
+        }
+
+        text = text + "  </ItemGroup>\n"
+    }
+
+    return text + "</Project>\n"
+}
+
+func CliRestoreXmlAttributeEscape(value: string): string {
+    result := ""
+    index := 0
+    while index < value.Length {
+        ch := value[index]
+        if ch == '&' {
+            result = result + "&amp;"
+        } else if ch == '"' {
+            result = result + "&quot;"
+        } else if ch == '<' {
+            result = result + "&lt;"
+        } else if ch == '>' {
+            result = result + "&gt;"
+        } else {
+            result = result + value.Substring(index, 1)
+        }
+
+        index = index + 1
+    }
+
+    return result
+}
+
 func CliPublishOptionsInto(args: string[], resultIndices: int[]): int {
     arguments := new CliArgumentTable { Args: args }
     results := new CliIndexResultTable { Indices: resultIndices }

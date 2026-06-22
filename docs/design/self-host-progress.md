@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-22 — `nlc restore` props projection moves into product N#
+
+`nlc restore` no longer owns generated `obj/project.g.props` text in C#. The shipped `CliArguments.nl`
+dogfood kernel now shapes the MSBuild projection through `RestoreCommandKernels`, including stable
+`ProjectReference` XML attribute escaping. C# keeps `project.yml` parsing, project-reference resolution,
+recursive restore traversal, directory creation, file IO, and fallback/oracle text only. This is a Stage 6
+`C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.RestoreCommandKernels_SummarizesOptions|FullyQualifiedName~CliCommandTests.RestoreCommand_DeduplicatesProjectReferencesInGeneratedProps|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_EligibleClusterCompiles"`;
+`./scripts/dev.sh CliArguments`.
+
 ## 2026-06-22 — `nlc init` file content moves into product N#
 
 `nlc init` no longer owns generated `project.yml`, minimal SDK `.csproj`, or starter `Program.nl` content in C#.

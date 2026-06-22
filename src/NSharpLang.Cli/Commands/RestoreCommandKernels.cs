@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text;
 using NSharpLang.Compiler;
 
 namespace NSharpLang.Cli.Commands;
@@ -209,6 +210,39 @@ internal static class RestoreCommandKernels
         return GetFailedMessageWithCSharp(message);
     }
 
+    internal static string GetGeneratedPropsText(
+        string targetFramework,
+        string outputType,
+        string projectName,
+        string backend,
+        string testFramework,
+        string baseSdk,
+        string[] projectReferences)
+    {
+        if (TryGetMessage(
+            bindings => bindings.RestoreGeneratedPropsText(
+                targetFramework,
+                outputType,
+                projectName,
+                backend,
+                testFramework,
+                baseSdk,
+                projectReferences),
+            out var text))
+        {
+            return text;
+        }
+
+        return GetGeneratedPropsTextWithCSharp(
+            targetFramework,
+            outputType,
+            projectName,
+            backend,
+            testFramework,
+            baseSdk,
+            projectReferences);
+    }
+
     private static bool TryGetMessage(Func<Bindings, string> getMessage, out string message)
     {
         message = string.Empty;
@@ -251,6 +285,49 @@ internal static class RestoreCommandKernels
     private static string GetFailedMessageWithCSharp(string message)
         => $"Failed to restore project configuration: {message}";
 
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product restore MSBuild projection text routes through CliRestore* kernels.
+    private static string GetGeneratedPropsTextWithCSharp(
+        string targetFramework,
+        string outputType,
+        string projectName,
+        string backend,
+        string testFramework,
+        string baseSdk,
+        string[] projectReferences)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine(@"<Project xmlns=""http://schemas.microsoft.com/developer/msbuild/2003"">");
+        sb.AppendLine(@"  <PropertyGroup>");
+        sb.AppendLine($"    <TargetFramework>{targetFramework}</TargetFramework>");
+        sb.AppendLine($"    <OutputType>{outputType}</OutputType>");
+        sb.AppendLine($"    <_NSharpOriginalOutputType>{outputType}</_NSharpOriginalOutputType>");
+        sb.AppendLine($"    <AssemblyName>{projectName}</AssemblyName>");
+        sb.AppendLine($"    <NSharpCompilationBackend>{backend}</NSharpCompilationBackend>");
+        sb.AppendLine($"    <NSharpTestFramework>{testFramework}</NSharpTestFramework>");
+        sb.AppendLine($"    <_NSharpBaseSdk>{baseSdk}</_NSharpBaseSdk>");
+        sb.AppendLine(@"  </PropertyGroup>");
+
+        if (projectReferences.Length > 0)
+        {
+            sb.AppendLine(@"  <ItemGroup>");
+            foreach (var projectReference in projectReferences)
+                sb.AppendLine($"    <ProjectReference Include=\"{EscapeXml(projectReference)}\" />");
+            sb.AppendLine(@"  </ItemGroup>");
+        }
+
+        sb.AppendLine(@"</Project>");
+        return sb.ToString();
+    }
+
+    private static string EscapeXml(string value)
+    {
+        return value
+            .Replace("&", "&amp;", StringComparison.Ordinal)
+            .Replace("\"", "&quot;", StringComparison.Ordinal)
+            .Replace("<", "&lt;", StringComparison.Ordinal)
+            .Replace(">", "&gt;", StringComparison.Ordinal);
+    }
+
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
             DogfoodKernelLoader.CreateDelegate<CliReferenceTypeFilterIndicesInto>(
@@ -273,7 +350,10 @@ internal static class RestoreCommandKernels
                 "CliRestoreGeneratedPropsMessage"),
             DogfoodKernelLoader.CreateDelegate<CliRestoreFailedMessage>(
                 programType,
-                "CliRestoreFailedMessage")));
+                "CliRestoreFailedMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliRestoreGeneratedPropsText>(
+                programType,
+                "CliRestoreGeneratedPropsText")));
 
     private delegate int CliRestoreOptionSummaryInto(
         string[] args,
@@ -294,6 +374,14 @@ internal static class RestoreCommandKernels
     private delegate string CliRestoreMissingProjectFileMessage();
     private delegate string CliRestoreGeneratedPropsMessage();
     private delegate string CliRestoreFailedMessage(string message);
+    private delegate string CliRestoreGeneratedPropsText(
+        string targetFramework,
+        string outputType,
+        string projectName,
+        string backend,
+        string testFramework,
+        string baseSdk,
+        string[] projectReferences);
 
     private sealed record Bindings(
         CliReferenceTypeFilterIndicesInto ReferenceTypeFilterIndices,
@@ -302,7 +390,8 @@ internal static class RestoreCommandKernels
         CliRestoreHelpText RestoreHelpText,
         CliRestoreMissingProjectFileMessage RestoreMissingProjectFileMessage,
         CliRestoreGeneratedPropsMessage RestoreGeneratedPropsMessage,
-        CliRestoreFailedMessage RestoreFailedMessage);
+        CliRestoreFailedMessage RestoreFailedMessage,
+        CliRestoreGeneratedPropsText RestoreGeneratedPropsText);
 
     private static int GetReferenceTypeRank(ReferenceType type) =>
         type switch

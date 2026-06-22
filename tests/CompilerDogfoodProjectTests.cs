@@ -7367,6 +7367,8 @@ func outer(x: int): int {
         Assert.Contains("CliRestoreMissingProjectFileMessage", methodNames!); // product restore missing-project message shaping.
         Assert.Contains("CliRestoreGeneratedPropsMessage", methodNames!); // product restore success message shaping.
         Assert.Contains("CliRestoreFailedMessage", methodNames!); // product restore failure message shaping.
+        Assert.Contains("CliRestoreGeneratedPropsText", methodNames!); // product restore MSBuild projection content shaping.
+        Assert.Contains("CliRestoreXmlAttributeEscape", methodNames!); // product restore ProjectReference XML attribute escaping.
 
         var sharedFrameworkMajors = new[] { 8, 10, 10, 9, 10 };
         var sharedFrameworkMinors = new[] { 0, 0, 0, 1, 0 };
@@ -7519,6 +7521,8 @@ func outer(x: int): int {
             ("CliInitProjectYamlText", new object[] { "DemoLib", "library" }),
             ("CliInitCsprojText", Array.Empty<object>()),
             ("CliInitProgramSourceText", Array.Empty<object>()),
+            ("CliRestoreGeneratedPropsText", new object[] { "net10.0", "Exe", "Demo", "il", "xunit", "Microsoft.NET.Sdk", new[] { "../Shared/Shared.csproj", "/tmp/a&b<c>d\"e.csproj" } }),
+            ("CliRestoreXmlAttributeEscape", new object[] { "a&b<c>d\"e" }),
             ("CliAddPackageSpecInto", new object[] { "Serilog@3.1.0", "ignored", 1, new int[4] }),
             ("CliAddPackageSpecInto", new object[] { "Serilog", "3.1.0", 1, new int[4] }),
             ("CliAddPackageSpecInto", new object[] { "@scope@1.0", "2.0.0", 1, new int[4] }),
@@ -13081,8 +13085,8 @@ func outer(x: int): int {
         Assert.True(ok, $"Columnar backend declined the merged {productFiles.Length}-file product corpus.");
         using var loadScope = CollectibleAssemblyScope.Load(assembly!); // the merged IL is a valid, loadable assembly.
         Assert.NotNull(loadScope.Assembly);
-        Assert.True(methodNames!.Length >= 440,
-            $"Product dogfood corpus method coverage regressed: expected at least 440 emitted methods, found {methodNames.Length}.");
+        Assert.True(methodNames!.Length >= 442,
+            $"Product dogfood corpus method coverage regressed: expected at least 442 emitted methods, found {methodNames.Length}.");
         // Files eligible ONLY via cross-file resolution must contribute their public functions —
         // i.e. the merge actually emitted them (single-file each declines; see ColumnarCodegen_MultiFile_*).
         Assert.Contains("TokenizeColumnarSourceInto", methodNames!); // composed lexer metadata + parser-token compaction routing
@@ -17666,6 +17670,14 @@ class OtherZetaType {
                     "CliRestoreFailedMessage",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliRestoreFailedMessage.");
+            var cliRestoreGeneratedPropsText = programType.GetMethod(
+                    "CliRestoreGeneratedPropsText",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliRestoreGeneratedPropsText.");
+            var cliRestoreXmlAttributeEscape = programType.GetMethod(
+                    "CliRestoreXmlAttributeEscape",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliRestoreXmlAttributeEscape.");
             var cliUpdateAllNuGetDependencyIndicesInto = programType.GetMethod(
                     "CliUpdateAllNuGetDependencyIndicesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -19111,7 +19123,9 @@ func main(customer: Customer, résumé: Profile) {
                 cliRestoreHelpText,
                 cliRestoreMissingProjectFileMessage,
                 cliRestoreGeneratedPropsMessage,
-                cliRestoreFailedMessage);
+                cliRestoreFailedMessage,
+                cliRestoreGeneratedPropsText,
+                cliRestoreXmlAttributeEscape);
             AssertCliUpdateAllNuGetDependencyFilteringLikeProduction(
                 cliUpdateAllNuGetDependencyIndicesInto,
                 cliUpdateAllNuGetDependencyChecksumInto);
@@ -25984,7 +25998,9 @@ func main() {
         MethodInfo cliRestoreHelpText,
         MethodInfo cliRestoreMissingProjectFileMessage,
         MethodInfo cliRestoreGeneratedPropsMessage,
-        MethodInfo cliRestoreFailedMessage)
+        MethodInfo cliRestoreFailedMessage,
+        MethodInfo cliRestoreGeneratedPropsText,
+        MethodInfo cliRestoreXmlAttributeEscape)
     {
         var help = (string)(cliRestoreHelpText.Invoke(null, Array.Empty<object>()) ?? "<null>");
         Assert.Contains("N# Restore", help);
@@ -25999,6 +26015,26 @@ func main() {
 
         var failed = (string)(cliRestoreFailedMessage.Invoke(null, new object[] { "bad YAML" }) ?? "<null>");
         Assert.Equal("Failed to restore project configuration: bad YAML", failed);
+
+        var propsText = (string)(cliRestoreGeneratedPropsText.Invoke(
+            null,
+            new object[]
+            {
+                "net10.0",
+                "Exe",
+                "Demo",
+                "il",
+                "xunit",
+                "Microsoft.NET.Sdk",
+                new[] { "../Shared/Shared.csproj", "/tmp/a&b<c>d\"e.csproj" }
+            }) ?? "<null>");
+        Assert.Contains("<TargetFramework>net10.0</TargetFramework>", propsText);
+        Assert.Contains("<OutputType>Exe</OutputType>", propsText);
+        Assert.Contains("<ProjectReference Include=\"../Shared/Shared.csproj\" />", propsText);
+        Assert.Contains("<ProjectReference Include=\"/tmp/a&amp;b&lt;c&gt;d&quot;e.csproj\" />", propsText);
+
+        var escaped = (string)(cliRestoreXmlAttributeEscape.Invoke(null, new object[] { "a&b<c>d\"e" }) ?? "<null>");
+        Assert.Equal("a&amp;b&lt;c&gt;d&quot;e", escaped);
     }
 
     private static int[] CreateExpectedCliRestoreOptions(string[] args)

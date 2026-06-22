@@ -235,7 +235,7 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       is now **37/37 shipped compiler-service files via MULTI-FILE merge**. The ratchet enumerates
       `src/NSharpLang.Compiler.Dogfood/CompilerServices/*.nl` directly, requires at least 37 product files, emits
       all of them together through `ColumnarCompiler.TryEmitProgramMultiFile`, and pins a loadable assembly with
-      at least 440 methods. Single-file eligibility is no longer the product-routing metric: parser and semantic
+      at least 442 methods. Single-file eligibility is no longer the product-routing metric: parser and semantic
       kernels legitimately call sibling kernels, so the meaningful product proof is full-corpus merged emission.
       Rejected probes and flattened compatibility wrappers live only in
       `NSharpLang.Compiler.Dogfood.ParityCorpus` (37 files at this checkpoint) and do not inflate product routing
@@ -605,7 +605,8 @@ in the progress log. Stage 6 also started moving query human-text surfaces: diag
 `OutputFormatterTextKernels`; reusable hover signature values now route through
 `CodeIntelligenceSignatureKernels`; `nlc new` project.yml content shaping now routes through
 `NewCommandKernels`, as do `nlc new` source-template and SDK support-file content shaping; `nlc init`
-project/starter file content now routes through `InitCommandKernels`. The active path is Stage 6 surface shrink plus SoA/emitter-port proof work before
+project/starter file content now routes through `InitCommandKernels`; `nlc restore` generated MSBuild props
+content now routes through `RestoreCommandKernels`. The active path is Stage 6 surface shrink plus SoA/emitter-port proof work before
 `ILCompiler/` and `Analyzer.cs` can be retired.
 
 The `systems-language-perf` worktree (P-minmax(c) + P3/P-ctrans) has been merged into `systems-language`

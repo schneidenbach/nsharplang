@@ -4200,6 +4200,40 @@ Exit codes:
         Assert.Equal(
             "Failed to restore project configuration: bad YAML",
             RestoreCommandKernels.GetFailedMessage("bad YAML"));
+
+        var propsWithoutReferences = RestoreCommandKernels.GetGeneratedPropsText(
+            "net10.0",
+            "Exe",
+            "Demo",
+            "il",
+            "xunit",
+            "Microsoft.NET.Sdk",
+            Array.Empty<string>());
+        Assert.Equal(
+            "<Project xmlns=\"http://schemas.microsoft.com/developer/msbuild/2003\">\n"
+            + "  <PropertyGroup>\n"
+            + "    <TargetFramework>net10.0</TargetFramework>\n"
+            + "    <OutputType>Exe</OutputType>\n"
+            + "    <_NSharpOriginalOutputType>Exe</_NSharpOriginalOutputType>\n"
+            + "    <AssemblyName>Demo</AssemblyName>\n"
+            + "    <NSharpCompilationBackend>il</NSharpCompilationBackend>\n"
+            + "    <NSharpTestFramework>xunit</NSharpTestFramework>\n"
+            + "    <_NSharpBaseSdk>Microsoft.NET.Sdk</_NSharpBaseSdk>\n"
+            + "  </PropertyGroup>\n"
+            + "</Project>\n",
+            propsWithoutReferences);
+        Assert.DoesNotContain("<ItemGroup>", propsWithoutReferences, StringComparison.Ordinal);
+
+        var propsWithReferences = RestoreCommandKernels.GetGeneratedPropsText(
+            "net10.0",
+            "Library",
+            "Shared",
+            "il",
+            "nunit",
+            "Microsoft.NET.Sdk.Web",
+            new[] { "../Shared/Shared.csproj", "/tmp/a&b<c>d\"e.csproj" });
+        Assert.Contains("    <ProjectReference Include=\"../Shared/Shared.csproj\" />\n", propsWithReferences);
+        Assert.Contains("    <ProjectReference Include=\"/tmp/a&amp;b&lt;c&gt;d&quot;e.csproj\" />\n", propsWithReferences);
     }
 
     [Fact]
