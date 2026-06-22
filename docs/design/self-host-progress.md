@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-22 — Daemon query messages move into product N#
+
+`DaemonServer` no longer owns daemon query unknown-method, project-load failure, empty batch payload,
+required-parameter, no-symbol, or semantic-reference-unavailable message text in C#. The shipped
+`CliDaemon*Message` dogfood kernels in `CliQueryParsing.nl` now shape those strings through
+`DaemonServerKernels`; C# keeps JSON-RPC transport, project snapshot loading, service execution, JSON envelope
+serialization, and fallback/oracle text only. This is a Stage 6 `C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~DaemonCommandTests.DaemonServerKernels_ShapesQueryMessages|FullyQualifiedName~DaemonCommandTests.DaemonServer_ReturnsStructuredErrors_ForUnknownMethodAndMalformedJson|FullyQualifiedName~DaemonCommandTests.DaemonServer_ReturnsMethodNotFoundBeforeProjectLoad|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliQueryParsing|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`;
+`./scripts/dev.sh DaemonServerKernels`.
+
 ## 2026-06-22 — Query command shared messages move into product N#
 
 `QueryCommand` no longer owns top-level help template text, alias description formatting, shared `Error:`

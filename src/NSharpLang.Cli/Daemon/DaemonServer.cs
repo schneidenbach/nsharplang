@@ -243,7 +243,7 @@ public class DaemonServer
 
             if (!IsQueryMethod(request.Method))
             {
-                return Error(request.Id, DaemonConstants.ErrorMethodNotFound, $"Unknown method: {request.Method}");
+                return Error(request.Id, DaemonConstants.ErrorMethodNotFound, DaemonServerKernels.GetUnknownMethodMessage(request.Method));
             }
 
             // Ensure snapshot is loaded
@@ -251,7 +251,7 @@ public class DaemonServer
 
             if (_snapshot == null)
             {
-                return Error(request.Id, DaemonConstants.ErrorInternal, "Failed to load project");
+                return Error(request.Id, DaemonConstants.ErrorInternal, DaemonServerKernels.GetFailedLoadProjectMessage());
             }
 
             if (request.Method == DaemonConstants.MethodBatch)
@@ -261,7 +261,7 @@ public class DaemonServer
                 {
                     return Ok(request.Id, OutputFormatter.ErrorToJson(
                         "batch",
-                        "Batch request payload did not contain any requests.",
+                        DaemonServerKernels.GetEmptyBatchPayloadMessage(),
                         _projectRoot,
                         "emptyBatch"));
                 }
@@ -301,7 +301,7 @@ public class DaemonServer
                 DaemonConstants.MethodReferences => HandleReferences(file, line, col),
                 DaemonConstants.MethodCompletions => HandleCompletions(file, line, col, includeKeywords),
                 DaemonConstants.MethodInspect => HandleInspect(file, line, col, includeKeywords, summary || compact),
-                _ => throw new DaemonProtocolException(DaemonConstants.ErrorMethodNotFound, $"Unknown method: {request.Method}")
+                _ => throw new DaemonProtocolException(DaemonConstants.ErrorMethodNotFound, DaemonServerKernels.GetUnknownMethodMessage(request.Method))
             };
 
             return Ok(request.Id, result);
@@ -357,7 +357,7 @@ public class DaemonServer
 
     private string HandleOutline(string? file)
     {
-        if (file == null) return OutputFormatter.ErrorToJson("outline", "file parameter required");
+        if (file == null) return OutputFormatter.ErrorToJson("outline", DaemonServerKernels.GetFileParameterRequiredMessage());
         var result = _service.GetOutline(_snapshot!, file);
         return OutputFormatter.OutlineToJson(result);
     }
@@ -374,13 +374,13 @@ public class DaemonServer
 
     private string HandleType(string? file, int line, int col)
     {
-        if (file == null) return OutputFormatter.ErrorToJson("type", "file and pos parameters required");
+        if (file == null) return OutputFormatter.ErrorToJson("type", DaemonServerKernels.GetFileAndPosParametersRequiredMessage());
         var result = _service.GetTypeAtPosition(_snapshot!, file, line, col);
         if (result == null)
         {
             return OutputFormatter.ErrorToJson(
                 "type",
-                $"No symbol found at {file}:{line}:{col}",
+                DaemonServerKernels.GetNoSymbolAtPositionMessage(file, line, col),
                 _snapshot!.ProjectRoot,
                 "noSymbol",
                 new
@@ -400,13 +400,13 @@ public class DaemonServer
             var results = _service.FindDefinitionByName(_snapshot!, name);
             return OutputFormatter.DefinitionSearchToJson(name, results);
         }
-        if (file == null) return OutputFormatter.ErrorToJson("definition", "file+pos or name required");
+        if (file == null) return OutputFormatter.ErrorToJson("definition", DaemonServerKernels.GetDefinitionTargetRequiredMessage());
         var result = _service.FindDefinition(_snapshot!, file, line, col);
         if (result == null)
         {
             return OutputFormatter.ErrorToJson(
                 "definition",
-                $"No symbol found at {file}:{line}:{col}",
+                DaemonServerKernels.GetNoSymbolAtPositionMessage(file, line, col),
                 _snapshot!.ProjectRoot,
                 "noSymbol",
                 new
@@ -421,7 +421,7 @@ public class DaemonServer
 
     private string HandleReferences(string? file, int line, int col)
     {
-        if (file == null) return OutputFormatter.ErrorToJson("references", "file and pos required");
+        if (file == null) return OutputFormatter.ErrorToJson("references", DaemonServerKernels.GetFileAndPosRequiredMessage());
 
         // Resolve symbol metadata (same as CLI path — don't hardcode placeholders)
         var definition = _service.FindDefinition(_snapshot!, file, line, col);
@@ -429,7 +429,7 @@ public class DaemonServer
         {
             return OutputFormatter.ErrorToJson(
                 "references",
-                $"No symbol found at {file}:{line}:{col}",
+                DaemonServerKernels.GetNoSymbolAtPositionMessage(file, line, col),
                 _snapshot!.ProjectRoot,
                 "noSymbol",
                 new
@@ -448,7 +448,7 @@ public class DaemonServer
         {
             return OutputFormatter.ErrorToJson(
                 "references",
-                "Semantic references are unavailable because the selected position is not backed by a precise compiler binding. No name-based or text-based fallback was used.",
+                DaemonServerKernels.GetSemanticReferencesUnavailableMessage(),
                 _snapshot!.ProjectRoot,
                 "semanticReferencesUnavailable",
                 new
@@ -464,14 +464,14 @@ public class DaemonServer
 
     private string HandleCompletions(string? file, int line, int col, bool includeKeywords)
     {
-        if (file == null) return OutputFormatter.ErrorToJson("completions", "file and pos required");
+        if (file == null) return OutputFormatter.ErrorToJson("completions", DaemonServerKernels.GetFileAndPosRequiredMessage());
         var result = _completionEngine.GetCompletions(_snapshot!, file, line, col, includeKeywords);
         return OutputFormatter.CompletionsToJson(result, file, line, col);
     }
 
     private string HandleInspect(string? file, int line, int col, bool includeKeywords, bool summary)
     {
-        if (file == null) return OutputFormatter.ErrorToJson("inspect", "file and pos required");
+        if (file == null) return OutputFormatter.ErrorToJson("inspect", DaemonServerKernels.GetFileAndPosRequiredMessage());
 
         var type = _service.GetTypeAtPosition(_snapshot!, file, line, col);
         var definition = _service.FindDefinition(_snapshot!, file, line, col);
@@ -484,7 +484,7 @@ public class DaemonServer
         {
             return OutputFormatter.ErrorToJson(
                 "inspect",
-                $"No symbol found at {file}:{line}:{col}",
+                DaemonServerKernels.GetNoSymbolAtPositionMessage(file, line, col),
                 _snapshot!.ProjectRoot,
                 "noSymbol",
                 new

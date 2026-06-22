@@ -414,7 +414,7 @@ public class DaemonCommandTests
             Assert.NotNull(unknown!.Error);
             Assert.Equal("2.0", unknown.JsonRpc);
             Assert.Equal(DaemonConstants.ErrorMethodNotFound, unknown.Error!.Code);
-            Assert.Contains("Unknown method", unknown.Error.Message);
+            Assert.Equal(DaemonServerKernels.GetUnknownMethodMessage("daemon/nope"), unknown.Error.Message);
 
             var malformedJson = SendRawDaemonRequest(projectDir, "{not json");
             var malformed = JsonSerializer.Deserialize<DaemonResponse>(malformedJson);
@@ -442,7 +442,7 @@ public class DaemonCommandTests
             Assert.NotNull(unknown);
             Assert.NotNull(unknown!.Error);
             Assert.Equal(DaemonConstants.ErrorMethodNotFound, unknown.Error!.Code);
-            Assert.Contains("Unknown method", unknown.Error.Message);
+            Assert.Equal(DaemonServerKernels.GetUnknownMethodMessage("query/not-real"), unknown.Error.Message);
         }
         finally
         {
@@ -490,6 +490,22 @@ func Main() {
         {
             Directory.Delete(projectDir, true);
         }
+    }
+
+    [Fact]
+    public void DaemonServerKernels_ShapesQueryMessages()
+    {
+        Assert.Equal("Unknown method: query/nope", DaemonServerKernels.GetUnknownMethodMessage("query/nope"));
+        Assert.Equal("Failed to load project", DaemonServerKernels.GetFailedLoadProjectMessage());
+        Assert.Equal("Batch request payload did not contain any requests.", DaemonServerKernels.GetEmptyBatchPayloadMessage());
+        Assert.Equal("file parameter required", DaemonServerKernels.GetFileParameterRequiredMessage());
+        Assert.Equal("file and pos parameters required", DaemonServerKernels.GetFileAndPosParametersRequiredMessage());
+        Assert.Equal("file+pos or name required", DaemonServerKernels.GetDefinitionTargetRequiredMessage());
+        Assert.Equal("file and pos required", DaemonServerKernels.GetFileAndPosRequiredMessage());
+        Assert.Equal("No symbol found at Program.nl:5:12", DaemonServerKernels.GetNoSymbolAtPositionMessage("Program.nl", 5, 12));
+        Assert.Equal(
+            "Semantic references are unavailable because the selected position is not backed by a precise compiler binding. No name-based or text-based fallback was used.",
+            DaemonServerKernels.GetSemanticReferencesUnavailableMessage());
     }
 
     [Fact]

@@ -8,6 +8,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using NSharpLang.Cli;
 using NSharpLang.Cli.Commands;
+using NSharpLang.Cli.Daemon;
 using NSharpLang.Compiler;
 using NSharpLang.Compiler.Ast;
 using NSharpLang.Compiler.CodeIntelligence;
@@ -12435,6 +12436,15 @@ func outer(x: int): int {
         Assert.Contains("CliQueryProjectDirectoryNotFoundMessage", methodNames!); // product query project-load message shaping.
         Assert.Contains("CliQueryFailedAnalyzeProjectMessage", methodNames!); // product query analysis-failure message shaping.
         Assert.Contains("CliDaemonPositionInto", methodNames!); // product daemon query position compatibility parsing.
+        Assert.Contains("CliDaemonUnknownMethodMessage", methodNames!); // product daemon unknown-method message shaping.
+        Assert.Contains("CliDaemonFailedLoadProjectMessage", methodNames!); // product daemon load-failure message shaping.
+        Assert.Contains("CliDaemonEmptyBatchPayloadMessage", methodNames!); // product daemon empty-batch message shaping.
+        Assert.Contains("CliDaemonFileParameterRequiredMessage", methodNames!); // product daemon file-required message shaping.
+        Assert.Contains("CliDaemonFileAndPosParametersRequiredMessage", methodNames!); // product daemon type-parameter message shaping.
+        Assert.Contains("CliDaemonDefinitionTargetRequiredMessage", methodNames!); // product daemon definition-target message shaping.
+        Assert.Contains("CliDaemonFileAndPosRequiredMessage", methodNames!); // product daemon position-required message shaping.
+        Assert.Contains("CliDaemonNoSymbolAtPositionMessage", methodNames!); // product daemon no-symbol message shaping.
+        Assert.Contains("CliDaemonSemanticReferencesUnavailableMessage", methodNames!); // product daemon reference miss message shaping.
 
         var full = 0xFFFFFFFFFFFFFFFFUL;
         AssertColumnarProgramMatchesCSharp(source,
@@ -12477,6 +12487,15 @@ func outer(x: int): int {
             ("CliQuerySymbolKindInto", new object[] { " TypeAlias ", new int[1] }),
             ("CliQuerySymbolKindInto", new object[] { "15", new int[1] }),
             ("CliQuerySymbolKindInto", new object[] { "not-a-kind", new int[1] }),
+            ("CliDaemonUnknownMethodMessage", new object[] { "query/nope" }),
+            ("CliDaemonFailedLoadProjectMessage", Array.Empty<object>()),
+            ("CliDaemonEmptyBatchPayloadMessage", Array.Empty<object>()),
+            ("CliDaemonFileParameterRequiredMessage", Array.Empty<object>()),
+            ("CliDaemonFileAndPosParametersRequiredMessage", Array.Empty<object>()),
+            ("CliDaemonDefinitionTargetRequiredMessage", Array.Empty<object>()),
+            ("CliDaemonFileAndPosRequiredMessage", Array.Empty<object>()),
+            ("CliDaemonNoSymbolAtPositionMessage", new object[] { "Program.nl", "5", "12" }),
+            ("CliDaemonSemanticReferencesUnavailableMessage", Array.Empty<object>()),
             ("CliDaemonPositionInto", new object[] { "bad:5", new int[2] }),
             ("CliDaemonPositionInto", new object[] { "5:bad", new int[2] }),
             ("CliDaemonPositionInto", new object[] { "12:34", new int[2] }),
@@ -15889,6 +15908,42 @@ class OtherZetaType {
                     "CliDaemonPositionInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDaemonPositionInto.");
+            var cliDaemonUnknownMethodMessage = programType.GetMethod(
+                    "CliDaemonUnknownMethodMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDaemonUnknownMethodMessage.");
+            var cliDaemonFailedLoadProjectMessage = programType.GetMethod(
+                    "CliDaemonFailedLoadProjectMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDaemonFailedLoadProjectMessage.");
+            var cliDaemonEmptyBatchPayloadMessage = programType.GetMethod(
+                    "CliDaemonEmptyBatchPayloadMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDaemonEmptyBatchPayloadMessage.");
+            var cliDaemonFileParameterRequiredMessage = programType.GetMethod(
+                    "CliDaemonFileParameterRequiredMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDaemonFileParameterRequiredMessage.");
+            var cliDaemonFileAndPosParametersRequiredMessage = programType.GetMethod(
+                    "CliDaemonFileAndPosParametersRequiredMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDaemonFileAndPosParametersRequiredMessage.");
+            var cliDaemonDefinitionTargetRequiredMessage = programType.GetMethod(
+                    "CliDaemonDefinitionTargetRequiredMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDaemonDefinitionTargetRequiredMessage.");
+            var cliDaemonFileAndPosRequiredMessage = programType.GetMethod(
+                    "CliDaemonFileAndPosRequiredMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDaemonFileAndPosRequiredMessage.");
+            var cliDaemonNoSymbolAtPositionMessage = programType.GetMethod(
+                    "CliDaemonNoSymbolAtPositionMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDaemonNoSymbolAtPositionMessage.");
+            var cliDaemonSemanticReferencesUnavailableMessage = programType.GetMethod(
+                    "CliDaemonSemanticReferencesUnavailableMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDaemonSemanticReferencesUnavailableMessage.");
             var cliPositionalArgIndicesInto = programType.GetMethod(
                     "CliPositionalArgIndicesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -18146,6 +18201,16 @@ func main(customer: Customer, résumé: Profile) {
                 cliQueryProjectDirectoryNotFoundMessage,
                 cliQueryFailedAnalyzeProjectMessage);
             AssertCliDaemonPositionsLikeProduction(cliDaemonPositionInto);
+            AssertCliDaemonQueryMessagesLikeProduction(
+                cliDaemonUnknownMethodMessage,
+                cliDaemonFailedLoadProjectMessage,
+                cliDaemonEmptyBatchPayloadMessage,
+                cliDaemonFileParameterRequiredMessage,
+                cliDaemonFileAndPosParametersRequiredMessage,
+                cliDaemonDefinitionTargetRequiredMessage,
+                cliDaemonFileAndPosRequiredMessage,
+                cliDaemonNoSymbolAtPositionMessage,
+                cliDaemonSemanticReferencesUnavailableMessage);
             AssertCliBuildOperandsLikeProduction(
                 cliBuildOperandIndicesInto,
                 cliBuildOperandSummaryInto,
@@ -21287,6 +21352,46 @@ func main() {
             (int)(cliDaemonPositionInto.Invoke(
                 null,
                 new object[] { "1:1", new int[1] }) ?? 0));
+    }
+
+    private static void AssertCliDaemonQueryMessagesLikeProduction(
+        MethodInfo cliDaemonUnknownMethodMessage,
+        MethodInfo cliDaemonFailedLoadProjectMessage,
+        MethodInfo cliDaemonEmptyBatchPayloadMessage,
+        MethodInfo cliDaemonFileParameterRequiredMessage,
+        MethodInfo cliDaemonFileAndPosParametersRequiredMessage,
+        MethodInfo cliDaemonDefinitionTargetRequiredMessage,
+        MethodInfo cliDaemonFileAndPosRequiredMessage,
+        MethodInfo cliDaemonNoSymbolAtPositionMessage,
+        MethodInfo cliDaemonSemanticReferencesUnavailableMessage)
+    {
+        Assert.Equal(
+            DaemonServerKernels.GetUnknownMethodMessage("query/nope"),
+            (string)(cliDaemonUnknownMethodMessage.Invoke(null, new object[] { "query/nope" }) ?? string.Empty));
+        Assert.Equal(
+            DaemonServerKernels.GetFailedLoadProjectMessage(),
+            (string)(cliDaemonFailedLoadProjectMessage.Invoke(null, Array.Empty<object>()) ?? string.Empty));
+        Assert.Equal(
+            DaemonServerKernels.GetEmptyBatchPayloadMessage(),
+            (string)(cliDaemonEmptyBatchPayloadMessage.Invoke(null, Array.Empty<object>()) ?? string.Empty));
+        Assert.Equal(
+            DaemonServerKernels.GetFileParameterRequiredMessage(),
+            (string)(cliDaemonFileParameterRequiredMessage.Invoke(null, Array.Empty<object>()) ?? string.Empty));
+        Assert.Equal(
+            DaemonServerKernels.GetFileAndPosParametersRequiredMessage(),
+            (string)(cliDaemonFileAndPosParametersRequiredMessage.Invoke(null, Array.Empty<object>()) ?? string.Empty));
+        Assert.Equal(
+            DaemonServerKernels.GetDefinitionTargetRequiredMessage(),
+            (string)(cliDaemonDefinitionTargetRequiredMessage.Invoke(null, Array.Empty<object>()) ?? string.Empty));
+        Assert.Equal(
+            DaemonServerKernels.GetFileAndPosRequiredMessage(),
+            (string)(cliDaemonFileAndPosRequiredMessage.Invoke(null, Array.Empty<object>()) ?? string.Empty));
+        Assert.Equal(
+            DaemonServerKernels.GetNoSymbolAtPositionMessage("Program.nl", 5, 12),
+            (string)(cliDaemonNoSymbolAtPositionMessage.Invoke(null, new object[] { "Program.nl", "5", "12" }) ?? string.Empty));
+        Assert.Equal(
+            DaemonServerKernels.GetSemanticReferencesUnavailableMessage(),
+            (string)(cliDaemonSemanticReferencesUnavailableMessage.Invoke(null, Array.Empty<object>()) ?? string.Empty));
     }
 
     private static int[] ParseDaemonPositionWithCSharp(string position)

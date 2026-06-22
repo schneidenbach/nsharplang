@@ -481,6 +481,42 @@ func CliQueryFailedAnalyzeProjectMessage(message: string): string {
     return "Failed to analyze project: " + message
 }
 
+func CliDaemonUnknownMethodMessage(method: string): string {
+    return "Unknown method: " + method
+}
+
+func CliDaemonFailedLoadProjectMessage(): string {
+    return "Failed to load project"
+}
+
+func CliDaemonEmptyBatchPayloadMessage(): string {
+    return "Batch request payload did not contain any requests."
+}
+
+func CliDaemonFileParameterRequiredMessage(): string {
+    return "file parameter required"
+}
+
+func CliDaemonFileAndPosParametersRequiredMessage(): string {
+    return "file and pos parameters required"
+}
+
+func CliDaemonDefinitionTargetRequiredMessage(): string {
+    return "file+pos or name required"
+}
+
+func CliDaemonFileAndPosRequiredMessage(): string {
+    return "file and pos required"
+}
+
+func CliDaemonNoSymbolAtPositionMessage(filePath: string, lineText: string, columnText: string): string {
+    return CliQueryNoSymbolAtPositionMessage(filePath, lineText, columnText)
+}
+
+func CliDaemonSemanticReferencesUnavailableMessage(): string {
+    return CliQuerySemanticReferencesUnavailableMessage()
+}
+
 func CliQueryIsLongOption(arg: string): bool {
     return arg.Length >= 2 && arg[0] == '-' && arg[1] == '-'
 }
