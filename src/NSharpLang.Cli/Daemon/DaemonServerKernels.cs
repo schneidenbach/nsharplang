@@ -39,138 +39,58 @@ internal static class DaemonServerKernels
     }
 
     internal static string GetUnknownMethodMessage(string method)
-    {
-        if (TryGetMessage(bindings => bindings.UnknownMethodMessage(method), out var message))
-            return message;
-
-        return GetUnknownMethodMessageWithCSharp(method);
-    }
+        => RequiredBindings.UnknownMethodMessage(method);
 
     internal static string GetFailedLoadProjectMessage()
-    {
-        if (TryGetMessage(bindings => bindings.FailedLoadProjectMessage(), out var message))
-            return message;
-
-        return GetFailedLoadProjectMessageWithCSharp();
-    }
+        => RequiredBindings.FailedLoadProjectMessage();
 
     internal static string GetEmptyBatchPayloadMessage()
-    {
-        if (TryGetMessage(bindings => bindings.EmptyBatchPayloadMessage(), out var message))
-            return message;
-
-        return GetEmptyBatchPayloadMessageWithCSharp();
-    }
+        => RequiredBindings.EmptyBatchPayloadMessage();
 
     internal static string GetFileParameterRequiredMessage()
-    {
-        if (TryGetMessage(bindings => bindings.FileParameterRequiredMessage(), out var message))
-            return message;
-
-        return GetFileParameterRequiredMessageWithCSharp();
-    }
+        => RequiredBindings.FileParameterRequiredMessage();
 
     internal static string GetFileAndPosParametersRequiredMessage()
-    {
-        if (TryGetMessage(bindings => bindings.FileAndPosParametersRequiredMessage(), out var message))
-            return message;
-
-        return GetFileAndPosParametersRequiredMessageWithCSharp();
-    }
+        => RequiredBindings.FileAndPosParametersRequiredMessage();
 
     internal static string GetDefinitionTargetRequiredMessage()
-    {
-        if (TryGetMessage(bindings => bindings.DefinitionTargetRequiredMessage(), out var message))
-            return message;
-
-        return GetDefinitionTargetRequiredMessageWithCSharp();
-    }
+        => RequiredBindings.DefinitionTargetRequiredMessage();
 
     internal static string GetFileAndPosRequiredMessage()
-    {
-        if (TryGetMessage(bindings => bindings.FileAndPosRequiredMessage(), out var message))
-            return message;
-
-        return GetFileAndPosRequiredMessageWithCSharp();
-    }
+        => RequiredBindings.FileAndPosRequiredMessage();
 
     internal static string GetNoSymbolAtPositionMessage(string file, int line, int column)
         => GetNoSymbolAtPositionMessage(file, ToInvariantText(line), ToInvariantText(column));
 
     internal static string GetNoSymbolAtPositionMessage(string file, string lineText, string columnText)
-    {
-        if (TryGetMessage(bindings => bindings.NoSymbolAtPositionMessage(file, lineText, columnText), out var message))
-            return message;
-
-        return GetNoSymbolAtPositionMessageWithCSharp(file, lineText, columnText);
-    }
+        => RequiredBindings.NoSymbolAtPositionMessage(file, lineText, columnText);
 
     internal static string GetSemanticReferencesUnavailableMessage()
-    {
-        if (TryGetMessage(bindings => bindings.SemanticReferencesUnavailableMessage(), out var message))
-            return message;
-
-        return GetSemanticReferencesUnavailableMessageWithCSharp();
-    }
+        => RequiredBindings.SemanticReferencesUnavailableMessage();
 
     internal static string GetListeningMessage(string socketPath, int processId)
         => GetListeningMessage(socketPath, ToInvariantText(processId));
 
     internal static string GetListeningMessage(string socketPath, string processIdText)
-    {
-        if (TryGetMessage(bindings => bindings.ListeningMessage(socketPath, processIdText), out var message))
-            return message;
-
-        return GetListeningMessageWithCSharp(socketPath, processIdText);
-    }
+        => RequiredBindings.ListeningMessage(socketPath, processIdText);
 
     internal static string GetProjectMessage(string projectRoot)
-    {
-        if (TryGetMessage(bindings => bindings.ProjectMessage(projectRoot), out var message))
-            return message;
-
-        return GetProjectMessageWithCSharp(projectRoot);
-    }
+        => RequiredBindings.ProjectMessage(projectRoot);
 
     internal static string GetIdleTimeoutMessage(string durationText)
-    {
-        if (TryGetMessage(bindings => bindings.IdleTimeoutMessage(durationText), out var message))
-            return message;
-
-        return GetIdleTimeoutMessageWithCSharp(durationText);
-    }
+        => RequiredBindings.IdleTimeoutMessage(durationText);
 
     internal static string GetIdleTimeoutShutdownMessage(string durationText)
-    {
-        if (TryGetMessage(bindings => bindings.IdleTimeoutShutdownMessage(durationText), out var message))
-            return message;
-
-        return GetIdleTimeoutShutdownMessageWithCSharp(durationText);
-    }
+        => RequiredBindings.IdleTimeoutShutdownMessage(durationText);
 
     internal static string GetServerErrorMessage(string messageText)
-    {
-        if (TryGetMessage(bindings => bindings.ServerErrorMessage(messageText), out var message))
-            return message;
-
-        return GetServerErrorMessageWithCSharp(messageText);
-    }
+        => RequiredBindings.ServerErrorMessage(messageText);
 
     internal static string GetClientErrorMessage(string messageText)
-    {
-        if (TryGetMessage(bindings => bindings.ClientErrorMessage(messageText), out var message))
-            return message;
-
-        return GetClientErrorMessageWithCSharp(messageText);
-    }
+        => RequiredBindings.ClientErrorMessage(messageText);
 
     internal static string GetLoadingProjectMessage()
-    {
-        if (TryGetMessage(bindings => bindings.LoadingProjectMessage(), out var message))
-            return message;
-
-        return GetLoadingProjectMessageWithCSharp();
-    }
+        => RequiredBindings.LoadingProjectMessage();
 
     internal static string GetProjectLoadedMessage(long elapsedMilliseconds, int fileCount)
         => GetProjectLoadedMessage(
@@ -178,60 +98,25 @@ internal static class DaemonServerKernels
             ToInvariantText(fileCount));
 
     internal static string GetProjectLoadedMessage(string elapsedMillisecondsText, string fileCountText)
-    {
-        if (TryGetMessage(bindings => bindings.ProjectLoadedMessage(elapsedMillisecondsText, fileCountText), out var message))
-            return message;
-
-        return GetProjectLoadedMessageWithCSharp(elapsedMillisecondsText, fileCountText);
-    }
+        => RequiredBindings.ProjectLoadedMessage(elapsedMillisecondsText, fileCountText);
 
     internal static string GetProjectLoadFailedTraceMessage(string messageText)
-    {
-        if (TryGetMessage(bindings => bindings.ProjectLoadFailedTraceMessage(messageText), out var message))
-            return message;
-
-        return GetProjectLoadFailedTraceMessageWithCSharp(messageText);
-    }
+        => RequiredBindings.ProjectLoadFailedTraceMessage(messageText);
 
     internal static string GetFileWatcherStartedMessage()
-    {
-        if (TryGetMessage(bindings => bindings.FileWatcherStartedMessage(), out var message))
-            return message;
-
-        return GetFileWatcherStartedMessageWithCSharp();
-    }
+        => RequiredBindings.FileWatcherStartedMessage();
 
     internal static string GetFileWatcherFailedMessage(string messageText)
-    {
-        if (TryGetMessage(bindings => bindings.FileWatcherFailedMessage(messageText), out var message))
-            return message;
-
-        return GetFileWatcherFailedMessageWithCSharp(messageText);
-    }
+        => RequiredBindings.FileWatcherFailedMessage(messageText);
 
     internal static string GetFileChangedMessage(string fileName)
-    {
-        if (TryGetMessage(bindings => bindings.FileChangedMessage(fileName), out var message))
-            return message;
-
-        return GetFileChangedMessageWithCSharp(fileName);
-    }
+        => RequiredBindings.FileChangedMessage(fileName);
 
     internal static string GetShutdownCompleteMessage()
-    {
-        if (TryGetMessage(bindings => bindings.ShutdownCompleteMessage(), out var message))
-            return message;
-
-        return GetShutdownCompleteMessageWithCSharp();
-    }
+        => RequiredBindings.ShutdownCompleteMessage();
 
     internal static string GetMalformedRequestParamMessage(string key, string typeName, string messageText)
-    {
-        if (TryGetMessage(bindings => bindings.MalformedRequestParamMessage(key, typeName, messageText), out var message))
-            return message;
-
-        return GetMalformedRequestParamMessageWithCSharp(key, typeName, messageText);
-    }
+        => RequiredBindings.MalformedRequestParamMessage(key, typeName, messageText);
 
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
@@ -311,96 +196,8 @@ internal static class DaemonServerKernels
     private static string ToInvariantText(int value)
         => value.ToString(CultureInfo.InvariantCulture);
 
-    private static bool TryGetMessage(Func<Bindings, string> getMessage, out string message)
-    {
-        message = string.Empty;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        try
-        {
-            message = getMessage(bindings);
-            return !string.IsNullOrEmpty(message);
-        }
-        catch
-        {
-            message = string.Empty;
-            return false;
-        }
-    }
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; daemon query and lifecycle messages route through DaemonServerKernels.
-    private static string GetUnknownMethodMessageWithCSharp(string method)
-        => $"Unknown method: {method}";
-
-    private static string GetFailedLoadProjectMessageWithCSharp()
-        => "Failed to load project";
-
-    private static string GetEmptyBatchPayloadMessageWithCSharp()
-        => "Batch request payload did not contain any requests.";
-
-    private static string GetFileParameterRequiredMessageWithCSharp()
-        => "file parameter required";
-
-    private static string GetFileAndPosParametersRequiredMessageWithCSharp()
-        => "file and pos parameters required";
-
-    private static string GetDefinitionTargetRequiredMessageWithCSharp()
-        => "file+pos or name required";
-
-    private static string GetFileAndPosRequiredMessageWithCSharp()
-        => "file and pos required";
-
-    private static string GetNoSymbolAtPositionMessageWithCSharp(string file, string lineText, string columnText)
-        => $"No symbol found at {file}:{lineText}:{columnText}";
-
-    private static string GetSemanticReferencesUnavailableMessageWithCSharp()
-        => "Semantic references are unavailable because the selected position is not backed by a precise compiler binding. "
-           + "No name-based or text-based fallback was used.";
-
-    private static string GetListeningMessageWithCSharp(string socketPath, string processIdText)
-        => $"[daemon] Listening on {socketPath} (PID {processIdText})";
-
-    private static string GetProjectMessageWithCSharp(string projectRoot)
-        => $"[daemon] Project: {projectRoot}";
-
-    private static string GetIdleTimeoutMessageWithCSharp(string durationText)
-        => $"[daemon] Idle timeout: {durationText}";
-
-    private static string GetIdleTimeoutShutdownMessageWithCSharp(string durationText)
-        => $"[daemon] Idle timeout ({durationText}). Shutting down.";
-
-    private static string GetServerErrorMessageWithCSharp(string messageText)
-        => $"[daemon] Error: {messageText}";
-
-    private static string GetClientErrorMessageWithCSharp(string messageText)
-        => $"[daemon] Client error: {messageText}";
-
-    private static string GetLoadingProjectMessageWithCSharp()
-        => "[daemon] Loading project...";
-
-    private static string GetProjectLoadedMessageWithCSharp(string elapsedMillisecondsText, string fileCountText)
-        => $"[daemon] Project loaded in {elapsedMillisecondsText}ms ({fileCountText} files)";
-
-    private static string GetProjectLoadFailedTraceMessageWithCSharp(string messageText)
-        => $"[daemon] Failed to load project: {messageText}";
-
-    private static string GetFileWatcherStartedMessageWithCSharp()
-        => "[daemon] File watcher started for *.nl, project.yml, .editorconfig";
-
-    private static string GetFileWatcherFailedMessageWithCSharp(string messageText)
-        => $"[daemon] File watcher failed: {messageText}";
-
-    private static string GetFileChangedMessageWithCSharp(string fileName)
-        => $"[daemon] File changed: {fileName} — cache invalidated";
-
-    private static string GetShutdownCompleteMessageWithCSharp()
-        => "[daemon] Shutdown complete.";
-
-    private static string GetMalformedRequestParamMessageWithCSharp(string key, string typeName, string messageText)
-        => $"[daemon] Ignoring malformed request param '{key}' (expected {typeName}): {messageText}";
+    private static Bindings RequiredBindings
+        => s_bindings.Value ?? throw new InvalidOperationException("N# daemon server kernels are unavailable.");
 
     private delegate int CliDaemonPositionInto(string position, int[] result);
 
