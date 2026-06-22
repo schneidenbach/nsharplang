@@ -677,27 +677,31 @@ public static class OutputFormatter
     public static string CompletionsToText(CompletionResult result, string file, int line, int col)
     {
         var sb = new StringBuilder();
-        sb.AppendLine($"Completions at {file}:{line}:{col} (context: {result.Context.ToString().ToLowerInvariant()})");
+        sb.AppendLine(OutputFormatterTextKernels.GetCompletionsHeaderText(
+            file,
+            line,
+            col,
+            result.Context.ToString().ToLowerInvariant()));
 
         if (result.Receiver != null)
         {
-            sb.AppendLine($"Receiver: {result.Receiver}" + (result.ReceiverType != null ? $" ({result.ReceiverType})" : ""));
+            sb.AppendLine(OutputFormatterTextKernels.GetCompletionReceiverLineText(
+                result.Receiver,
+                result.ReceiverType));
         }
 
         sb.AppendLine();
 
         foreach (var (category, items) in result.Completions)
         {
-            sb.AppendLine($"  {category} ({items.Count}):");
+            sb.AppendLine(OutputFormatterTextKernels.GetCompletionCategoryLineText(category, items.Count));
             foreach (var item in items.Take(50)) // Limit for text output
             {
-                var typeStr = item.Type != null ? $": {item.Type}" : "";
-                var paramStr = item.Parameters != null ? $" {item.Parameters}" : "";
-                sb.AppendLine($"    {item.Name}{paramStr}{typeStr}");
+                sb.AppendLine(OutputFormatterTextKernels.GetCompletionItemLineText(item));
             }
             if (items.Count > 50)
             {
-                sb.AppendLine($"    ... and {items.Count - 50} more");
+                sb.AppendLine(OutputFormatterTextKernels.GetCompletionOverflowLineText(items.Count - 50));
             }
         }
 

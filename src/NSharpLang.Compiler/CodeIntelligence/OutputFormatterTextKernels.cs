@@ -235,6 +235,109 @@ internal static class OutputFormatterTextKernels
         return GetTypeDefinedAtLineTextWithCSharp(definition);
     }
 
+    internal static string GetCompletionsHeaderText(string file, int line, int column, string contextText)
+    {
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return GetCompletionsHeaderTextWithCSharp(file, line, column, contextText);
+
+        try
+        {
+            var text = bindings.QueryCompletionsHeaderText(file, line, column, contextText);
+            if (!string.IsNullOrEmpty(text))
+                return text;
+        }
+        catch
+        {
+        }
+
+        return GetCompletionsHeaderTextWithCSharp(file, line, column, contextText);
+    }
+
+    internal static string GetCompletionReceiverLineText(string receiver, string? receiverType)
+    {
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return GetCompletionReceiverLineTextWithCSharp(receiver, receiverType);
+
+        try
+        {
+            var text = bindings.QueryCompletionReceiverLineText(
+                receiver,
+                receiverType ?? string.Empty,
+                receiverType != null ? 1 : 0);
+            if (!string.IsNullOrEmpty(text))
+                return text;
+        }
+        catch
+        {
+        }
+
+        return GetCompletionReceiverLineTextWithCSharp(receiver, receiverType);
+    }
+
+    internal static string GetCompletionCategoryLineText(string category, int count)
+    {
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return GetCompletionCategoryLineTextWithCSharp(category, count);
+
+        try
+        {
+            var text = bindings.QueryCompletionCategoryLineText(category, count);
+            if (!string.IsNullOrEmpty(text))
+                return text;
+        }
+        catch
+        {
+        }
+
+        return GetCompletionCategoryLineTextWithCSharp(category, count);
+    }
+
+    internal static string GetCompletionItemLineText(CompletionItem item)
+    {
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return GetCompletionItemLineTextWithCSharp(item);
+
+        try
+        {
+            var text = bindings.QueryCompletionItemLineText(
+                item.Name,
+                item.Parameters ?? string.Empty,
+                item.Parameters != null ? 1 : 0,
+                item.Type ?? string.Empty,
+                item.Type != null ? 1 : 0);
+            if (!string.IsNullOrEmpty(text))
+                return text;
+        }
+        catch
+        {
+        }
+
+        return GetCompletionItemLineTextWithCSharp(item);
+    }
+
+    internal static string GetCompletionOverflowLineText(int remaining)
+    {
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return GetCompletionOverflowLineTextWithCSharp(remaining);
+
+        try
+        {
+            var text = bindings.QueryCompletionOverflowLineText(remaining);
+            if (!string.IsNullOrEmpty(text))
+                return text;
+        }
+        catch
+        {
+        }
+
+        return GetCompletionOverflowLineTextWithCSharp(remaining);
+    }
+
     internal static string GetNoReferencesText(string symbolName)
     {
         var bindings = s_bindings.Value;
@@ -416,6 +519,21 @@ internal static class OutputFormatterTextKernels
             DogfoodKernelLoader.CreateDelegate<QueryTypeDefinedAtLineText>(
                 programType,
                 "QueryTypeDefinedAtLineText"),
+            DogfoodKernelLoader.CreateDelegate<QueryCompletionsHeaderText>(
+                programType,
+                "QueryCompletionsHeaderText"),
+            DogfoodKernelLoader.CreateDelegate<QueryCompletionReceiverLineText>(
+                programType,
+                "QueryCompletionReceiverLineText"),
+            DogfoodKernelLoader.CreateDelegate<QueryCompletionCategoryLineText>(
+                programType,
+                "QueryCompletionCategoryLineText"),
+            DogfoodKernelLoader.CreateDelegate<QueryCompletionItemLineText>(
+                programType,
+                "QueryCompletionItemLineText"),
+            DogfoodKernelLoader.CreateDelegate<QueryCompletionOverflowLineText>(
+                programType,
+                "QueryCompletionOverflowLineText"),
             DogfoodKernelLoader.CreateDelegate<QueryNoReferencesText>(
                 programType,
                 "QueryNoReferencesText"),
@@ -480,6 +598,21 @@ internal static class OutputFormatterTextKernels
 
     private delegate string QueryTypeDefinedAtLineText(string fileName, int line, int column);
 
+    private delegate string QueryCompletionsHeaderText(string fileName, int line, int column, string contextText);
+
+    private delegate string QueryCompletionReceiverLineText(string receiver, string receiverType, int hasReceiverType);
+
+    private delegate string QueryCompletionCategoryLineText(string category, int count);
+
+    private delegate string QueryCompletionItemLineText(
+        string name,
+        string parameters,
+        int hasParameters,
+        string typeName,
+        int hasType);
+
+    private delegate string QueryCompletionOverflowLineText(int remaining);
+
     private delegate string QueryNoReferencesText(string symbolName);
 
     private delegate string QueryReferencesHeaderText(string symbolName, int count);
@@ -521,6 +654,11 @@ internal static class OutputFormatterTextKernels
         QueryTypeResultLineText QueryTypeResultLineText,
         QueryTypeNullabilityLineText QueryTypeNullabilityLineText,
         QueryTypeDefinedAtLineText QueryTypeDefinedAtLineText,
+        QueryCompletionsHeaderText QueryCompletionsHeaderText,
+        QueryCompletionReceiverLineText QueryCompletionReceiverLineText,
+        QueryCompletionCategoryLineText QueryCompletionCategoryLineText,
+        QueryCompletionItemLineText QueryCompletionItemLineText,
+        QueryCompletionOverflowLineText QueryCompletionOverflowLineText,
         QueryNoReferencesText QueryNoReferencesText,
         QueryReferencesHeaderText QueryReferencesHeaderText,
         QueryReferenceLineText QueryReferenceLineText,
@@ -589,6 +727,25 @@ internal static class OutputFormatterTextKernels
 
     private static string GetTypeDefinedAtLineTextWithCSharp(LocationResult definition)
         => $"  Defined at: {definition.File}:{definition.Line}:{definition.Column}";
+
+    private static string GetCompletionsHeaderTextWithCSharp(string file, int line, int column, string contextText)
+        => $"Completions at {file}:{line}:{column} (context: {contextText})";
+
+    private static string GetCompletionReceiverLineTextWithCSharp(string receiver, string? receiverType)
+        => $"Receiver: {receiver}" + (receiverType != null ? $" ({receiverType})" : "");
+
+    private static string GetCompletionCategoryLineTextWithCSharp(string category, int count)
+        => $"  {category} ({count}):";
+
+    private static string GetCompletionItemLineTextWithCSharp(CompletionItem item)
+    {
+        var typeText = item.Type != null ? $": {item.Type}" : string.Empty;
+        var parameterText = item.Parameters != null ? $" {item.Parameters}" : string.Empty;
+        return $"    {item.Name}{parameterText}{typeText}";
+    }
+
+    private static string GetCompletionOverflowLineTextWithCSharp(int remaining)
+        => $"    ... and {remaining} more";
 
     private static string GetNoReferencesTextWithCSharp(string symbolName)
         => $"No references found for '{symbolName}'.";

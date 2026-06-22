@@ -7628,7 +7628,8 @@ func outer(x: int): int {
     }
 
     // MILESTONE: OutputFormatterText.nl compiles end-to-end with no C# AST and owns shipped
-    // `nlc query symbols --text`, `outline --text`, `type --text`, `definition --text`, and `references --text` line shaping.
+    // `nlc query symbols --text`, `outline --text`, `type --text`, `completions --text`,
+    // `definition --text`, and `references --text` line shaping.
     [Fact]
     public void ColumnarCodegen_CompilesRealDogfoodFile_OutputFormatterText()
     {
@@ -7645,6 +7646,11 @@ func outer(x: int): int {
         Assert.Contains("QueryTypeResultLineText", methodNames!);
         Assert.Contains("QueryTypeNullabilityLineText", methodNames!);
         Assert.Contains("QueryTypeDefinedAtLineText", methodNames!);
+        Assert.Contains("QueryCompletionsHeaderText", methodNames!);
+        Assert.Contains("QueryCompletionReceiverLineText", methodNames!);
+        Assert.Contains("QueryCompletionCategoryLineText", methodNames!);
+        Assert.Contains("QueryCompletionItemLineText", methodNames!);
+        Assert.Contains("QueryCompletionOverflowLineText", methodNames!);
         Assert.Contains("QueryNoReferencesText", methodNames!);
         Assert.Contains("QueryReferencesHeaderText", methodNames!);
         Assert.Contains("QueryReferenceLineText", methodNames!);
@@ -7676,6 +7682,13 @@ func outer(x: int): int {
             ("QueryTypeResultLineText", new object[] { "stats", "TaskStats", "record" }),
             ("QueryTypeNullabilityLineText", new object[] { "non-null" }),
             ("QueryTypeDefinedAtLineText", new object[] { "Services/TaskService.nl", 105, 1 }),
+            ("QueryCompletionsHeaderText", new object[] { "Program.nl", 85, 22, "memberaccess" }),
+            ("QueryCompletionReceiverLineText", new object[] { "service", "TaskService", 1 }),
+            ("QueryCompletionReceiverLineText", new object[] { "service", string.Empty, 0 }),
+            ("QueryCompletionCategoryLineText", new object[] { "functions", 2 }),
+            ("QueryCompletionItemLineText", new object[] { "GetStats", "()", 1, "TaskStats", 1 }),
+            ("QueryCompletionItemLineText", new object[] { "Total", string.Empty, 0, "int", 1 }),
+            ("QueryCompletionOverflowLineText", new object[] { 1 }),
             ("QueryNoReferencesText", new object[] { "Person" }),
             ("QueryReferencesHeaderText", new object[] { "Person", 3 }),
             ("QueryReferenceLineText", new object[] { "Models.nl", 5, 0, 1, "  class Person {  ", 1 }),

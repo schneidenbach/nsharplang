@@ -11,6 +11,19 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-22 — Query completion text moves into product N#
+
+`OutputFormatter.CompletionsToText` no longer owns the visible `nlc query completions --text` header,
+receiver, category, item, or overflow lines in C#. The shipped `OutputFormatterText.nl` dogfood kernel now
+shapes those completion-query lines through `OutputFormatterTextKernels`; C# keeps dictionary/list traversal,
+the 50-item text cap, CLR object access, StringBuilder assembly, and fallback/oracle rendering only. This is a
+Stage 6 `C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CodeIntelligenceOutputTests.CompletionsToText_FormatsGroupedItemsAndReceiver|FullyQualifiedName~CodeIntelligenceOutputTests.CompletionsToText_TruncatesLongCategories|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_OutputFormatterText"`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`;
+`./scripts/dev.sh CompletionsToText`.
+
 ## 2026-06-22 — Query type text moves into product N#
 
 `OutputFormatter.TypeToText` no longer owns the visible `nlc query type --text` location, type result,

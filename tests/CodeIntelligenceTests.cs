@@ -769,6 +769,69 @@ public class CodeIntelligenceOutputTests
     }
 
     [Fact]
+    public void CompletionsToText_FormatsGroupedItemsAndReceiver()
+    {
+        var completions = new CompletionResult(
+            CompletionContext.MemberAccess,
+            "service",
+            "TaskService",
+            new Dictionary<string, List<CompletionItem>>
+            {
+                ["functions"] = new()
+                {
+                    new CompletionItem("GetStats", "function", "TaskStats", "()", null, false)
+                },
+                ["properties"] = new()
+                {
+                    new CompletionItem("Total", "property", "int", null, null, false)
+                }
+            });
+
+        var text = OutputFormatter.CompletionsToText(completions, "Program.nl", 85, 22);
+
+        Assert.Equal(
+            string.Join(Environment.NewLine,
+                "Completions at Program.nl:85:22 (context: memberaccess)",
+                "Receiver: service (TaskService)",
+                string.Empty,
+                "  functions (1):",
+                "    GetStats (): TaskStats",
+                "  properties (1):",
+                "    Total: int",
+                string.Empty),
+            text);
+    }
+
+    [Fact]
+    public void CompletionsToText_TruncatesLongCategories()
+    {
+        var items = Enumerable.Range(1, 51)
+            .Select(i => new CompletionItem($"Item{i}", "method", null, null, null, false))
+            .ToList();
+        var completions = new CompletionResult(
+            CompletionContext.Identifier,
+            null,
+            null,
+            new Dictionary<string, List<CompletionItem>>
+            {
+                ["methods"] = items
+            });
+
+        var text = OutputFormatter.CompletionsToText(completions, "Program.nl", 3, 8);
+
+        var expectedLines = new List<string>
+        {
+            "Completions at Program.nl:3:8 (context: identifier)",
+            string.Empty,
+            "  methods (51):"
+        };
+        expectedLines.AddRange(Enumerable.Range(1, 50).Select(i => $"    Item{i}"));
+        expectedLines.Add("    ... and 1 more");
+        expectedLines.Add(string.Empty);
+        Assert.Equal(string.Join(Environment.NewLine, expectedLines), text);
+    }
+
+    [Fact]
     public void SymbolsToText_FormatsReadably()
     {
         var symbols = new List<SymbolResult>

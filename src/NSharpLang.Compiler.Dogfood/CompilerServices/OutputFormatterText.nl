@@ -121,6 +121,41 @@ func QueryTypeDefinedAtLineText(fileName: string, line: int, column: int): strin
     return "  Defined at: " + fileName + ":" + line.ToString() + ":" + column.ToString()
 }
 
+func QueryCompletionsHeaderText(fileName: string, line: int, column: int, contextText: string): string {
+    return "Completions at " + fileName + ":" + line.ToString() + ":" + column.ToString() + " (context: " + contextText + ")"
+}
+
+func QueryCompletionReceiverLineText(receiver: string, receiverType: string, hasReceiverType: int): string {
+    typeText := ""
+    if hasReceiverType != 0 {
+        typeText = " (" + receiverType + ")"
+    }
+
+    return "Receiver: " + receiver + typeText
+}
+
+func QueryCompletionCategoryLineText(category: string, count: int): string {
+    return "  " + category + " (" + count.ToString() + "):"
+}
+
+func QueryCompletionItemLineText(name: string, parameters: string, hasParameters: int, typeName: string, hasType: int): string {
+    parameterText := ""
+    if hasParameters != 0 {
+        parameterText = " " + parameters
+    }
+
+    typeText := ""
+    if hasType != 0 {
+        typeText = ": " + typeName
+    }
+
+    return "    " + name + parameterText + typeText
+}
+
+func QueryCompletionOverflowLineText(remaining: int): string {
+    return "    ... and " + remaining.ToString() + " more"
+}
+
 func QueryNoReferencesText(symbolName: string): string {
     return "No references found for '" + symbolName + "'."
 }
