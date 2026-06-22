@@ -192,33 +192,19 @@ public static class DoctorCommand
     }
 
     internal static DoctorOptionSummary GetOptionSummary(string[] args)
-        => DoctorCommandKernels.TryGetOptionSummary(args, out var summary)
-            ? summary
-            : GetOptionSummaryWithCSharp(args);
+    {
+        if (DoctorCommandKernels.TryGetOptionSummary(args, out var summary))
+            return summary;
+
+        throw new InvalidOperationException("N# doctor option parser kernel rejected the arguments.");
+    }
 
     internal static DoctorOutputModeKind GetOutputMode(bool json)
-        => DoctorCommandKernels.TryGetOutputMode(json, out var outputMode)
-            ? outputMode
-            : GetOutputModeWithCSharp(json);
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product doctor option parsing routes through DoctorCommandKernels.
-    private static DoctorOptionSummary GetOptionSummaryWithCSharp(string[] args)
-        => new(
-            ContainsArgWithCSharp(args, "--json"),
-            ContainsArgWithCSharp(args, "--require-vscode"),
-            ContainsArgWithCSharp(args, "--skip-vscode"),
-            ContainsArgWithCSharp(args, "--help") || ContainsArgWithCSharp(args, "-h") || (args.Length > 0 && args[0] == "help"));
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product doctor output mode selection routes through DoctorCommandKernels.
-    private static DoctorOutputModeKind GetOutputModeWithCSharp(bool json)
-        => json ? DoctorOutputModeKind.Json : DoctorOutputModeKind.Text;
-
-    private static bool ContainsArgWithCSharp(string[] args, string value)
     {
-        for (var i = 0; i < args.Length; i++)
-            if (args[i] == value)
-                return true;
-        return false;
+        if (DoctorCommandKernels.TryGetOutputMode(json, out var outputMode))
+            return outputMode;
+
+        throw new InvalidOperationException("N# doctor output-mode kernel rejected the options.");
     }
 
     private static int ShowHelp()

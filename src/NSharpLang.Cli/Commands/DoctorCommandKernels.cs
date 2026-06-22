@@ -75,221 +75,55 @@ internal static class DoctorCommandKernels
     }
 
     internal static string GetHelpText()
-    {
-        if (TryGetMessage(bindings => bindings.DoctorHelpText(), out var message))
-            return message;
-
-        return GetHelpTextWithCSharp();
-    }
+        => RequiredBindings.DoctorHelpText();
 
     internal static string GetDotnetNotFoundMessage()
-    {
-        if (TryGetMessage(bindings => bindings.DoctorDotnetNotFoundMessage(), out var message))
-            return message;
-
-        return GetDotnetNotFoundMessageWithCSharp();
-    }
+        => RequiredBindings.DoctorDotnetNotFoundMessage();
 
     internal static string GetDotnetVersionFailedMessage()
-    {
-        if (TryGetMessage(bindings => bindings.DoctorDotnetVersionFailedMessage(), out var message))
-            return message;
-
-        return GetDotnetVersionFailedMessageWithCSharp();
-    }
+        => RequiredBindings.DoctorDotnetVersionFailedMessage();
 
     internal static string GetNlcCommandMissingMessage()
-    {
-        if (TryGetMessage(bindings => bindings.DoctorNlcCommandMissingMessage(), out var message))
-            return message;
-
-        return GetNlcCommandMissingMessageWithCSharp();
-    }
+        => RequiredBindings.DoctorNlcCommandMissingMessage();
 
     internal static string GetPackageCacheMissingMessage(string packageCache)
-    {
-        if (TryGetMessage(bindings => bindings.DoctorPackageCacheMissingMessage(packageCache), out var message))
-            return message;
-
-        return GetPackageCacheMissingMessageWithCSharp(packageCache);
-    }
+        => RequiredBindings.DoctorPackageCacheMissingMessage(packageCache);
 
     internal static string GetTemplateInstalledMessage()
-    {
-        if (TryGetMessage(bindings => bindings.DoctorTemplateInstalledMessage(), out var message))
-            return message;
-
-        return GetTemplateInstalledMessageWithCSharp();
-    }
+        => RequiredBindings.DoctorTemplateInstalledMessage();
 
     internal static string GetTemplatesMissingMessage()
-    {
-        if (TryGetMessage(bindings => bindings.DoctorTemplatesMissingMessage(), out var message))
-            return message;
-
-        return GetTemplatesMissingMessageWithCSharp();
-    }
+        => RequiredBindings.DoctorTemplatesMissingMessage();
 
     internal static string GetLanguageServerMissingMessage()
-    {
-        if (TryGetMessage(bindings => bindings.DoctorLanguageServerMissingMessage(), out var message))
-            return message;
-
-        return GetLanguageServerMissingMessageWithCSharp();
-    }
+        => RequiredBindings.DoctorLanguageServerMissingMessage();
 
     internal static string GetVscodeSkippedMessage()
-    {
-        if (TryGetMessage(bindings => bindings.DoctorVscodeSkippedMessage(), out var message))
-            return message;
-
-        return GetVscodeSkippedMessageWithCSharp();
-    }
+        => RequiredBindings.DoctorVscodeSkippedMessage();
 
     internal static string GetVscodeRequiredMissingMessage()
-    {
-        if (TryGetMessage(bindings => bindings.DoctorVscodeRequiredMissingMessage(), out var message))
-            return message;
-
-        return GetVscodeRequiredMissingMessageWithCSharp();
-    }
+        => RequiredBindings.DoctorVscodeRequiredMissingMessage();
 
     internal static string GetVscodeOptionalMissingMessage()
-    {
-        if (TryGetMessage(bindings => bindings.DoctorVscodeOptionalMissingMessage(), out var message))
-            return message;
-
-        return GetVscodeOptionalMissingMessageWithCSharp();
-    }
+        => RequiredBindings.DoctorVscodeOptionalMissingMessage();
 
     internal static string GetVscodeExtensionMissingMessage(string extensionId)
-    {
-        if (TryGetMessage(bindings => bindings.DoctorVscodeExtensionMissingMessage(extensionId), out var message))
-            return message;
-
-        return GetVscodeExtensionMissingMessageWithCSharp(extensionId);
-    }
+        => RequiredBindings.DoctorVscodeExtensionMissingMessage(extensionId);
 
     internal static string GetTextHeader()
-    {
-        if (TryGetMessage(bindings => bindings.DoctorTextHeader(), out var message))
-            return message;
-
-        return GetTextHeaderWithCSharp();
-    }
+        => RequiredBindings.DoctorTextHeader();
 
     internal static string GetStatusLine(bool ok)
-    {
-        if (TryGetMessage(bindings => bindings.DoctorStatusLine(ok ? 1 : 0), out var message))
-            return message;
-
-        return GetStatusLineWithCSharp(ok);
-    }
+        => RequiredBindings.DoctorStatusLine(ok ? 1 : 0);
 
     internal static string GetCheckMarker(string status)
-    {
-        if (TryGetMessage(bindings => bindings.DoctorCheckMarker(status), out var message))
-            return message;
-
-        return GetCheckMarkerWithCSharp(status);
-    }
+        => RequiredBindings.DoctorCheckMarker(status);
 
     internal static string GetCheckLine(string marker, string name, string detail)
-    {
-        if (TryGetMessage(bindings => bindings.DoctorCheckLine(marker, name, detail), out var message))
-            return message;
+        => RequiredBindings.DoctorCheckLine(marker, name, detail);
 
-        return GetCheckLineWithCSharp(marker, name, detail);
-    }
-
-    private static bool TryGetMessage(Func<Bindings, string> getMessage, out string message)
-    {
-        message = string.Empty;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        try
-        {
-            message = getMessage(bindings);
-            return !string.IsNullOrEmpty(message);
-        }
-        catch
-        {
-            message = string.Empty;
-            return false;
-        }
-    }
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product doctor command messages route through CliDoctor* kernels.
-    private static string GetHelpTextWithCSharp()
-        => "N# Doctor\n"
-           + "\n"
-           + "Usage: nlc doctor [options]\n"
-           + "\n"
-           + "Verifies the public N# install path: dotnet, nlc, local N# packages, templates,\n"
-           + "language server, and the VS Code extension when the VS Code 'code' CLI is available.\n"
-           + "\n"
-           + "Options:\n"
-           + "  --json              Output as JSON envelope\n"
-           + "  --require-vscode    Treat missing VS Code or missing N# extension as a failure\n"
-           + "  --skip-vscode       Skip VS Code extension probing\n"
-           + "  --help, -h          Show this help text\n"
-           + "\n"
-           + "Examples:\n"
-           + "  nlc doctor\n"
-           + "  nlc doctor --require-vscode\n"
-           + "  nlc doctor --json --skip-vscode\n"
-           + "\n"
-           + "Exit codes:\n"
-           + "  0  Required checks passed\n"
-           + "  1  One or more required checks failed";
-
-    private static string GetDotnetNotFoundMessageWithCSharp()
-        => "dotnet CLI was not found on PATH";
-
-    private static string GetDotnetVersionFailedMessageWithCSharp()
-        => "dotnet --version failed";
-
-    private static string GetNlcCommandMissingMessageWithCSharp()
-        => "nlc is running, but no nlc command was found on PATH; source ~/.nsharp/env or use your package manager shell integration";
-
-    private static string GetPackageCacheMissingMessageWithCSharp(string packageCache)
-        => $"N# package cache was not found at {packageCache}; rerun the N# installer";
-
-    private static string GetTemplateInstalledMessageWithCSharp()
-        => "nsharp-console template is installed";
-
-    private static string GetTemplatesMissingMessageWithCSharp()
-        => "nsharp-console template was not found; run the N# installer or dotnet new install NSharpLang.Templates";
-
-    private static string GetLanguageServerMissingMessageWithCSharp()
-        => "nsharp-lsp was not found on PATH; source ~/.nsharp/env or reinstall N#";
-
-    private static string GetVscodeSkippedMessageWithCSharp()
-        => "skipped by --skip-vscode";
-
-    private static string GetVscodeRequiredMissingMessageWithCSharp()
-        => "VS Code 'code' CLI was not found on PATH";
-
-    private static string GetVscodeOptionalMissingMessageWithCSharp()
-        => "VS Code 'code' CLI was not found; install VS Code or rerun with --require-vscode on developer machines";
-
-    private static string GetVscodeExtensionMissingMessageWithCSharp(string extensionId)
-        => $"{extensionId} is not installed; run code --install-extension {extensionId}";
-
-    private static string GetTextHeaderWithCSharp()
-        => "N# doctor";
-
-    private static string GetStatusLineWithCSharp(bool ok)
-        => ok ? "status: ok" : "status: problems found";
-
-    private static string GetCheckMarkerWithCSharp(string status)
-        => status switch { "pass" => "✓", "warn" => "!", _ => "x" };
-
-    private static string GetCheckLineWithCSharp(string marker, string name, string detail)
-        => $"{marker} {name}: {detail}";
+    private static Bindings RequiredBindings
+        => s_bindings.Value ?? throw new InvalidOperationException("N# doctor command kernels are unavailable.");
 
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
