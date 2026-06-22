@@ -196,14 +196,20 @@ public static class CheckCommand
     }
 
     internal static CheckArgumentSummary GetArgumentSummary(string[] args)
-        => CheckCommandKernels.TryGetArgumentSummary(args, out var summary)
-            ? summary
-            : GetArgumentSummaryWithCSharp(args);
+    {
+        if (CheckCommandKernels.TryGetArgumentSummary(args, out var summary))
+            return summary;
+
+        throw new InvalidOperationException("N# check argument parser kernel rejected the arguments.");
+    }
 
     internal static CheckOutputModeKind GetEffectiveOutputMode(CheckArgumentSummary arguments)
-        => CheckCommandKernels.TryGetEffectiveOutputMode(arguments.UseText, arguments.SystemsReport, out var outputMode)
-            ? outputMode
-            : GetEffectiveOutputModeWithCSharp(arguments.UseText, arguments.SystemsReport);
+    {
+        if (CheckCommandKernels.TryGetEffectiveOutputMode(arguments.UseText, arguments.SystemsReport, out var outputMode))
+            return outputMode;
+
+        throw new InvalidOperationException("N# check output-mode kernel rejected the options.");
+    }
 
     private static string GetProjectDir(CheckArgumentSummary arguments)
     {
@@ -216,68 +222,6 @@ public static class CheckCommand
     private static CompilationBackend ResolveCompilationBackend(string? backendOption, ProjectConfig? config)
     {
         return CompilationBackendSelectionKernels.Resolve(backendOption, config);
-    }
-
-    // Stage 6 oracle-bug/C#-surface-shrink fallback: --backend values are not project operands; product parsing routes through CheckCommandKernels.
-    private static CheckArgumentSummary GetArgumentSummaryWithCSharp(string[] args)
-        => new(
-            GetOptionValueWithCSharp(args, "--project"),
-            GetOptionValueWithCSharp(args, "--backend"),
-            GetFirstPositionalArgWithCSharp(args, "--project", "--backend"),
-            ContainsArgWithCSharp(args, "--text"),
-            ContainsArgWithCSharp(args, "--aot"),
-            ContainsArgWithCSharp(args, "--systems-report"),
-            ContainsArgWithCSharp(args, "--help") || ContainsArgWithCSharp(args, "-h") || (args.Length > 0 && args[0] == "help"));
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product check output mode selection routes through CheckCommandKernels.
-    private static CheckOutputModeKind GetEffectiveOutputModeWithCSharp(bool useText, bool systemsReport)
-    {
-        if (useText && systemsReport)
-            return CheckOutputModeKind.InvalidSystemsReportText;
-
-        if (useText)
-            return CheckOutputModeKind.Text;
-
-        if (systemsReport)
-            return CheckOutputModeKind.SystemsReportJson;
-
-        return CheckOutputModeKind.Json;
-    }
-
-    private static string? GetOptionValueWithCSharp(string[] args, string flag)
-    {
-        for (int i = 0; i < args.Length - 1; i++)
-        {
-            if (args[i] == flag)
-                return args[i + 1];
-        }
-
-        return null;
-    }
-
-    private static string? GetFirstPositionalArgWithCSharp(string[] args, params string[] optionsWithValues)
-    {
-        for (int i = 0; i < args.Length; i++)
-        {
-            if (optionsWithValues.Contains(args[i], StringComparer.Ordinal))
-            {
-                i++;
-                continue;
-            }
-
-            if (!args[i].StartsWith("-", StringComparison.Ordinal))
-                return args[i];
-        }
-
-        return null;
-    }
-
-    private static bool ContainsArgWithCSharp(string[] args, string value)
-    {
-        for (var i = 0; i < args.Length; i++)
-            if (args[i] == value)
-                return true;
-        return false;
     }
 
     private static int EmitError(bool useText, string message, string? projectRoot = null)
