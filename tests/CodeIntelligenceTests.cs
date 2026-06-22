@@ -672,6 +672,8 @@ public class CodeIntelligenceOutputTests
         var text = OutputFormatter.DiagnosticsToText(diagnostics);
 
         // Header
+        var expectedHeader = "\u2500\u2500 [NL202] ERROR " + new string('\u2500', 29) + " Program.nl:5:4 \u2500\u2500";
+        Assert.Contains(expectedHeader, text);
         Assert.Contains("[NL202] ERROR", text);
         Assert.Contains("Program.nl:5:4", text);
 

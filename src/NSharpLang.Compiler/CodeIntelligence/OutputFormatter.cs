@@ -1649,15 +1649,13 @@ public static class OutputFormatter
     {
         var sb = new StringBuilder();
 
-        // Header line: ── ERROR TITLE ──────── file:line:col ──
         var title = FormatDiagnosticTitle(diag);
-        var location = $"{diag.File}:{diag.Line}:{diag.Column}";
-        var headerContent = $" {title} ";
-        var locationPart = $" {location} ";
-        var remainingWidth = Math.Max(0, 60 - headerContent.Length - locationPart.Length);
-        var dashes = new string('\u2500', Math.Max(2, remainingWidth));
 
-        sb.AppendLine($"\u2500\u2500{headerContent}{dashes}{locationPart}\u2500\u2500");
+        sb.AppendLine(OutputFormatterDiagnosticKernels.GetHeaderLineText(
+            title,
+            diag.File,
+            diag.Line,
+            diag.Column));
         sb.AppendLine();
 
         // Source snippet with line number and caret

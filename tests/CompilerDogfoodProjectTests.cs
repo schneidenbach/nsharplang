@@ -7693,6 +7693,7 @@ func outer(x: int): int {
         Assert.Contains("DiagnosticNoDiagnosticsText", methodNames!); // product diagnostics empty text.
         Assert.Contains("DiagnosticFoundSummaryText", methodNames!); // product diagnostics summary text.
         Assert.Contains("DiagnosticSourceLineText", methodNames!); // product diagnostics source line shaping.
+        Assert.Contains("DiagnosticHeaderLineText", methodNames!); // product diagnostics header line shaping.
         Assert.Contains("DiagnosticCaretLineText", methodNames!); // product diagnostics caret line shaping.
 
         AssertColumnarProgramMatchesCSharp(source,
@@ -7713,6 +7714,8 @@ func outer(x: int): int {
             ("DiagnosticFoundSummaryText", new object[] { 0, 0, 0 }),
             ("DiagnosticSourceLineText", new object[] { 5, "    x := \"hi\"" }),
             ("DiagnosticSourceLineText", new object[] { 12, "value := 1" }),
+            ("DiagnosticHeaderLineText", new object[] { "[NL202] ERROR", "Program.nl", 5, 4, "\u2500" }),
+            ("DiagnosticHeaderLineText", new object[] { "[NL202] ERROR", "A/Very/Long/File/Name/That/Forces/Minimum.nl", 123, 45, "\u2500" }),
             ("DiagnosticCaretLineText", new object[] { 5, 4, 3 }),
             ("DiagnosticCaretLineText", new object[] { 12, 0, 0 }),
             // Small buffer (< 13) -> "diag-" + Math.Abs(hash).ToString("x"); large buffer -> built into the buffer.
@@ -17724,6 +17727,10 @@ class OtherZetaType {
                     "DiagnosticSourceLineText",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit DiagnosticSourceLineText.");
+            var diagnosticHeaderLineText = programType.GetMethod(
+                    "DiagnosticHeaderLineText",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit DiagnosticHeaderLineText.");
             var diagnosticCaretLineText = programType.GetMethod(
                     "DiagnosticCaretLineText",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -19073,6 +19080,7 @@ func main() {
                 diagnosticFoundSummaryText);
             AssertDiagnosticSourceSnippetTextLikeProduction(
                 diagnosticSourceLineText,
+                diagnosticHeaderLineText,
                 diagnosticCaretLineText);
             AssertDiagnosticSeverityFilteringLikeProduction(
                 diagnosticSeverityFilterIndicesInto,
@@ -28509,6 +28517,7 @@ func main() {
 
     private static void AssertDiagnosticSourceSnippetTextLikeProduction(
         MethodInfo diagnosticSourceLineText,
+        MethodInfo diagnosticHeaderLineText,
         MethodInfo diagnosticCaretLineText)
     {
         Assert.Equal(
@@ -28517,6 +28526,16 @@ func main() {
         Assert.Equal(
             "    12 | value := 1",
             (string)(diagnosticSourceLineText.Invoke(null, new object[] { 12, "value := 1" }) ?? "<null>"));
+        Assert.Equal(
+            "\u2500\u2500 [NL202] ERROR " + new string('\u2500', 29) + " Program.nl:5:4 \u2500\u2500",
+            (string)(diagnosticHeaderLineText.Invoke(
+                null,
+                new object[] { "[NL202] ERROR", "Program.nl", 5, 4, "\u2500" }) ?? "<null>"));
+        Assert.Equal(
+            "\u2500\u2500 [NL202] ERROR \u2500\u2500 A/Very/Long/File/Name/That/Forces/Minimum.nl:123:45 \u2500\u2500",
+            (string)(diagnosticHeaderLineText.Invoke(
+                null,
+                new object[] { "[NL202] ERROR", "A/Very/Long/File/Name/That/Forces/Minimum.nl", 123, 45, "\u2500" }) ?? "<null>"));
         Assert.Equal(
             "      |    ^^^",
             (string)(diagnosticCaretLineText.Invoke(null, new object[] { 5, 4, 3 }) ?? "<null>"));

@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-22 — Diagnostic headers move into product N#
+
+`OutputFormatter.DiagnosticsToText` no longer owns Elm-style diagnostic header-line assembly in C#. The shipped
+`DiagnosticHeaderLineText` dogfood kernel now builds the location text, minimum-width ruler, and full header
+line through `OutputFormatterDiagnosticKernels`; C# keeps the box-drawing ruler glyph as data plus
+fallback/oracle rendering only. This is a Stage 6 `C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CodeIntelligenceOutputTests.DiagnosticsToText_ElmStyleFormatting|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_DiagnosticClusters"`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`;
+`./scripts/dev.sh DiagnosticsToText`.
+
 ## 2026-06-22 — Diagnostic source snippets move into product N#
 
 `OutputFormatter.DiagnosticsToText` no longer owns visible source-snippet and caret-line text in C#.

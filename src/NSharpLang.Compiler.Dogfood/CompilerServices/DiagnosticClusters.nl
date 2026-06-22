@@ -249,6 +249,24 @@ func DiagnosticSourceLineText(line: int, sourceSnippet: string): string {
     return "    " + line.ToString() + " | " + sourceSnippet
 }
 
+func DiagnosticHeaderLineText(title: string, fileName: string, line: int, column: int, ruler: string): string {
+    location := fileName + ":" + line.ToString() + ":" + column.ToString()
+    headerContent := " " + title + " "
+    locationPart := " " + location + " "
+    remainingWidth := 60 - headerContent.Length - locationPart.Length
+    if remainingWidth < 0 {
+        remainingWidth = 0
+    }
+
+    rulerWidth := remainingWidth
+    if rulerWidth < 2 {
+        rulerWidth = 2
+    }
+
+    return DiagnosticRepeatText(ruler, 2) + headerContent + DiagnosticRepeatText(ruler, rulerWidth) +
+        locationPart + DiagnosticRepeatText(ruler, 2)
+}
+
 func DiagnosticCaretLineText(line: int, column: int, length: int): string {
     lineDigits := line.ToString().Length
     caretOffset := column - 1
@@ -274,6 +292,25 @@ func DiagnosticRepeatChar(ch: char, count: int): string {
     i := 0
     while i < count {
         builder.Append(ch)
+        i = i + 1
+    }
+
+    return builder.ToString()
+}
+
+func DiagnosticRepeatText(text: string, count: int): string {
+    if count <= 0 {
+        return ""
+    }
+
+    if text == "" {
+        return ""
+    }
+
+    builder := new StringBuilder(text.Length * count)
+    i := 0
+    while i < count {
+        builder.Append(text)
         i = i + 1
     }
 

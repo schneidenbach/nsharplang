@@ -6,6 +6,8 @@ namespace NSharpLang.Compiler.CodeIntelligence;
 
 internal static class OutputFormatterDiagnosticKernels
 {
+    private const string DiagnosticHeaderRuler = "\u2500";
+
     private const int DiagnosticDetailExpectedType = 1;
     private const int DiagnosticDetailActualType = 2;
     private const int DiagnosticDetailHint = 3;
@@ -222,6 +224,25 @@ internal static class OutputFormatterDiagnosticKernels
         return GetSourceLineTextWithCSharp(line, sourceSnippet);
     }
 
+    internal static string GetHeaderLineText(string title, string file, int line, int column)
+    {
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return GetHeaderLineTextWithCSharp(title, file, line, column);
+
+        try
+        {
+            var text = bindings.DiagnosticHeaderLine(title, file, line, column, DiagnosticHeaderRuler);
+            if (!string.IsNullOrEmpty(text))
+                return text;
+        }
+        catch
+        {
+        }
+
+        return GetHeaderLineTextWithCSharp(title, file, line, column);
+    }
+
     internal static string GetCaretLineText(int line, int column, int length)
     {
         var bindings = s_bindings.Value;
@@ -264,6 +285,9 @@ internal static class OutputFormatterDiagnosticKernels
             DogfoodKernelLoader.CreateDelegate<DiagnosticSourceLineText>(
                 programType,
                 "DiagnosticSourceLineText"),
+            DogfoodKernelLoader.CreateDelegate<DiagnosticHeaderLineText>(
+                programType,
+                "DiagnosticHeaderLineText"),
             DogfoodKernelLoader.CreateDelegate<DiagnosticCaretLineText>(
                 programType,
                 "DiagnosticCaretLineText")));
@@ -288,6 +312,8 @@ internal static class OutputFormatterDiagnosticKernels
 
     private delegate string DiagnosticSourceLineText(int line, string sourceSnippet);
 
+    private delegate string DiagnosticHeaderLineText(string title, string file, int line, int column, string ruler);
+
     private delegate string DiagnosticCaretLineText(int line, int column, int length);
 
     private sealed record Bindings(
@@ -298,6 +324,7 @@ internal static class OutputFormatterDiagnosticKernels
         DiagnosticNoDiagnosticsText DiagnosticNoDiagnostics,
         DiagnosticFoundSummaryText DiagnosticFoundSummary,
         DiagnosticSourceLineText DiagnosticSourceLine,
+        DiagnosticHeaderLineText DiagnosticHeaderLine,
         DiagnosticCaretLineText DiagnosticCaretLine);
 
     // Stage 6 C#-surface-shrink: fallback/oracle only; product diagnostic text routes through DiagnosticClusters.nl.
@@ -315,6 +342,16 @@ internal static class OutputFormatterDiagnosticKernels
 
     private static string GetSourceLineTextWithCSharp(int line, string sourceSnippet)
         => $"    {line} | {sourceSnippet}";
+
+    private static string GetHeaderLineTextWithCSharp(string title, string file, int line, int column)
+    {
+        var location = $"{file}:{line}:{column}";
+        var headerContent = $" {title} ";
+        var locationPart = $" {location} ";
+        var remainingWidth = Math.Max(0, 60 - headerContent.Length - locationPart.Length);
+        var dashes = new string('\u2500', Math.Max(2, remainingWidth));
+        return $"\u2500\u2500{headerContent}{dashes}{locationPart}\u2500\u2500";
+    }
 
     private static string GetCaretLineTextWithCSharp(int line, int column, int length)
     {
