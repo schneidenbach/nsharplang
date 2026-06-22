@@ -1,4 +1,5 @@
 import System
+import System.Text
 
 struct DiagnosticSeverityTable {
     Severities: string[]
@@ -242,6 +243,41 @@ func DiagnosticAppendSummaryCount(current: string, count: int, singular: string,
     }
 
     return current + ", " + part
+}
+
+func DiagnosticSourceLineText(line: int, sourceSnippet: string): string {
+    return "    " + line.ToString() + " | " + sourceSnippet
+}
+
+func DiagnosticCaretLineText(line: int, column: int, length: int): string {
+    lineDigits := line.ToString().Length
+    caretOffset := column - 1
+    if caretOffset < 0 {
+        caretOffset = 0
+    }
+
+    caretLength := length
+    if caretLength < 1 {
+        caretLength = 1
+    }
+
+    return "    " + DiagnosticRepeatChar(' ', lineDigits) + " | " +
+        DiagnosticRepeatChar(' ', caretOffset) + DiagnosticRepeatChar('^', caretLength)
+}
+
+func DiagnosticRepeatChar(ch: char, count: int): string {
+    if count <= 0 {
+        return ""
+    }
+
+    builder := new StringBuilder(count)
+    i := 0
+    while i < count {
+        builder.Append(ch)
+        i = i + 1
+    }
+
+    return builder.ToString()
 }
 
 func DiagnosticSeverityFilterIndicesCore(

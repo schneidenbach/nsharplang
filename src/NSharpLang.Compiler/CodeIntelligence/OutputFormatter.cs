@@ -1663,14 +1663,8 @@ public static class OutputFormatter
         // Source snippet with line number and caret
         if (!string.IsNullOrWhiteSpace(diag.SourceSnippet))
         {
-            var lineNumStr = diag.Line.ToString();
-            var padding = new string(' ', lineNumStr.Length);
-            sb.AppendLine($"    {lineNumStr} | {diag.SourceSnippet.TrimEnd()}");
-
-            // Caret line
-            var caretOffset = Math.Max(0, diag.Column - 1);
-            var caretLine = new string(' ', caretOffset) + new string('^', Math.Max(1, diag.Length));
-            sb.AppendLine($"    {padding} | {caretLine}");
+            sb.AppendLine(OutputFormatterDiagnosticKernels.GetSourceLineText(diag.Line, diag.SourceSnippet.TrimEnd()));
+            sb.AppendLine(OutputFormatterDiagnosticKernels.GetCaretLineText(diag.Line, diag.Column, diag.Length));
         }
 
         sb.AppendLine();

@@ -11,6 +11,19 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-22 — Diagnostic source snippets move into product N#
+
+`OutputFormatter.DiagnosticsToText` no longer owns visible source-snippet and caret-line text in C#.
+The shipped `DiagnosticSourceLineText` and `DiagnosticCaretLineText` dogfood kernels now shape the rendered
+source line and caret underline through `OutputFormatterDiagnosticKernels`; C# keeps snippet presence checks,
+trailing-whitespace trimming, StringBuilder assembly, and fallback/oracle line rendering only. This is a Stage 6
+`C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CodeIntelligenceOutputTests.DiagnosticsToText_ElmStyleFormatting|FullyQualifiedName~CodeIntelligenceOutputTests.DiagnosticsToText_SourceSnippetTrimsAndPinsCaretWidth|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_DiagnosticClusters"`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`;
+`./scripts/dev.sh DiagnosticsToText`.
+
 ## 2026-06-22 — Diagnostic summary text moves into product N#
 
 `OutputFormatter.DiagnosticsToText` no longer owns the empty-result or counted summary lines in C#. The

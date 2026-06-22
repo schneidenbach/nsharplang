@@ -676,8 +676,8 @@ public class CodeIntelligenceOutputTests
         Assert.Contains("Program.nl:5:4", text);
 
         // Source snippet with caret
-        Assert.Contains("x := \"hi\"", text);
-        Assert.Contains("^^^", text);
+        Assert.Contains("    5 |     x := \"hi\"", text);
+        Assert.Contains("      |    ^^^", text);
 
         // Message
         Assert.Contains("Type mismatch", text);
@@ -700,6 +700,24 @@ public class CodeIntelligenceOutputTests
 
         // Summary
         Assert.Contains("1 error", text);
+    }
+
+    [Fact]
+    public void DiagnosticsToText_SourceSnippetTrimsAndPinsCaretWidth()
+    {
+        var diagnostics = new List<DiagnosticResult>
+        {
+            new("NL202", "error", "Type mismatch",
+                "Program.nl", 12, 0, 0,
+                "value := 1   ",
+                null, null, null, null, null, null)
+        };
+
+        var text = OutputFormatter.DiagnosticsToText(diagnostics);
+
+        Assert.Contains("    12 | value := 1", text);
+        Assert.DoesNotContain("    12 | value := 1   ", text);
+        Assert.Contains("       | ^", text);
     }
 
     [Fact]

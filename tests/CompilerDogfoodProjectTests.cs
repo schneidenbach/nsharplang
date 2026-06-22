@@ -7692,6 +7692,8 @@ func outer(x: int): int {
         Assert.Contains("DiagnosticDetailText", methodNames!); // product diagnostics detail line shaping.
         Assert.Contains("DiagnosticNoDiagnosticsText", methodNames!); // product diagnostics empty text.
         Assert.Contains("DiagnosticFoundSummaryText", methodNames!); // product diagnostics summary text.
+        Assert.Contains("DiagnosticSourceLineText", methodNames!); // product diagnostics source line shaping.
+        Assert.Contains("DiagnosticCaretLineText", methodNames!); // product diagnostics caret line shaping.
 
         AssertColumnarProgramMatchesCSharp(source,
             ("DiagnosticTitleText", new object[] { "NL202", "error" }),
@@ -7709,6 +7711,10 @@ func outer(x: int): int {
             ("DiagnosticFoundSummaryText", new object[] { 2, 1, 3 }),
             ("DiagnosticFoundSummaryText", new object[] { 0, 0, 2 }),
             ("DiagnosticFoundSummaryText", new object[] { 0, 0, 0 }),
+            ("DiagnosticSourceLineText", new object[] { 5, "    x := \"hi\"" }),
+            ("DiagnosticSourceLineText", new object[] { 12, "value := 1" }),
+            ("DiagnosticCaretLineText", new object[] { 5, 4, 3 }),
+            ("DiagnosticCaretLineText", new object[] { 12, 0, 0 }),
             // Small buffer (< 13) -> "diag-" + Math.Abs(hash).ToString("x"); large buffer -> built into the buffer.
             ("FormatDiagnosticClusterId", new object[] { 255, new char[4] }),
             ("FormatDiagnosticClusterId", new object[] { 0, new char[4] }),
@@ -17714,6 +17720,14 @@ class OtherZetaType {
                     "DiagnosticFoundSummaryText",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit DiagnosticFoundSummaryText.");
+            var diagnosticSourceLineText = programType.GetMethod(
+                    "DiagnosticSourceLineText",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit DiagnosticSourceLineText.");
+            var diagnosticCaretLineText = programType.GetMethod(
+                    "DiagnosticCaretLineText",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit DiagnosticCaretLineText.");
             var diagnosticSeverityFilterChecksumInto = programType.GetMethod(
                     "DiagnosticSeverityFilterChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -19057,6 +19071,9 @@ func main() {
             AssertDiagnosticSummaryTextLikeProduction(
                 diagnosticNoDiagnosticsText,
                 diagnosticFoundSummaryText);
+            AssertDiagnosticSourceSnippetTextLikeProduction(
+                diagnosticSourceLineText,
+                diagnosticCaretLineText);
             AssertDiagnosticSeverityFilteringLikeProduction(
                 diagnosticSeverityFilterIndicesInto,
                 diagnosticSeverityFilterChecksumInto);
@@ -28488,6 +28505,24 @@ func main() {
         Assert.Equal(
             "",
             (string)(diagnosticFoundSummaryText.Invoke(null, new object[] { 0, 0, 0 }) ?? "<null>"));
+    }
+
+    private static void AssertDiagnosticSourceSnippetTextLikeProduction(
+        MethodInfo diagnosticSourceLineText,
+        MethodInfo diagnosticCaretLineText)
+    {
+        Assert.Equal(
+            "    5 |     x := \"hi\"",
+            (string)(diagnosticSourceLineText.Invoke(null, new object[] { 5, "    x := \"hi\"" }) ?? "<null>"));
+        Assert.Equal(
+            "    12 | value := 1",
+            (string)(diagnosticSourceLineText.Invoke(null, new object[] { 12, "value := 1" }) ?? "<null>"));
+        Assert.Equal(
+            "      |    ^^^",
+            (string)(diagnosticCaretLineText.Invoke(null, new object[] { 5, 4, 3 }) ?? "<null>"));
+        Assert.Equal(
+            "       | ^",
+            (string)(diagnosticCaretLineText.Invoke(null, new object[] { 12, 0, 0 }) ?? "<null>"));
     }
 
     private static void AssertDiagnosticSeverityFilteringLikeProduction(

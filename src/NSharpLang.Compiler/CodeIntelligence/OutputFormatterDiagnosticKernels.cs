@@ -203,6 +203,44 @@ internal static class OutputFormatterDiagnosticKernels
         return GetFoundSummaryTextWithCSharp(summary);
     }
 
+    internal static string GetSourceLineText(int line, string sourceSnippet)
+    {
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return GetSourceLineTextWithCSharp(line, sourceSnippet);
+
+        try
+        {
+            var text = bindings.DiagnosticSourceLine(line, sourceSnippet);
+            if (!string.IsNullOrEmpty(text))
+                return text;
+        }
+        catch
+        {
+        }
+
+        return GetSourceLineTextWithCSharp(line, sourceSnippet);
+    }
+
+    internal static string GetCaretLineText(int line, int column, int length)
+    {
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return GetCaretLineTextWithCSharp(line, column, length);
+
+        try
+        {
+            var text = bindings.DiagnosticCaretLine(line, column, length);
+            if (!string.IsNullOrEmpty(text))
+                return text;
+        }
+        catch
+        {
+        }
+
+        return GetCaretLineTextWithCSharp(line, column, length);
+    }
+
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
             DogfoodKernelLoader.CreateDelegate<DiagnosticSeveritySummaryInto>(
@@ -222,7 +260,13 @@ internal static class OutputFormatterDiagnosticKernels
                 "DiagnosticNoDiagnosticsText"),
             DogfoodKernelLoader.CreateDelegate<DiagnosticFoundSummaryText>(
                 programType,
-                "DiagnosticFoundSummaryText")));
+                "DiagnosticFoundSummaryText"),
+            DogfoodKernelLoader.CreateDelegate<DiagnosticSourceLineText>(
+                programType,
+                "DiagnosticSourceLineText"),
+            DogfoodKernelLoader.CreateDelegate<DiagnosticCaretLineText>(
+                programType,
+                "DiagnosticCaretLineText")));
 
     private delegate int DiagnosticSeveritySummaryInto(
         string[] severities,
@@ -242,13 +286,19 @@ internal static class OutputFormatterDiagnosticKernels
 
     private delegate string DiagnosticFoundSummaryText(int errors, int warnings, int info);
 
+    private delegate string DiagnosticSourceLineText(int line, string sourceSnippet);
+
+    private delegate string DiagnosticCaretLineText(int line, int column, int length);
+
     private sealed record Bindings(
         DiagnosticSeveritySummaryInto DiagnosticSeveritySummary,
         DiagnosticSeverityFilterIndicesInto DiagnosticSeverityFilter,
         DiagnosticTitleText DiagnosticTitle,
         DiagnosticDetailText DiagnosticDetail,
         DiagnosticNoDiagnosticsText DiagnosticNoDiagnostics,
-        DiagnosticFoundSummaryText DiagnosticFoundSummary);
+        DiagnosticFoundSummaryText DiagnosticFoundSummary,
+        DiagnosticSourceLineText DiagnosticSourceLine,
+        DiagnosticCaretLineText DiagnosticCaretLine);
 
     // Stage 6 C#-surface-shrink: fallback/oracle only; product diagnostic text routes through DiagnosticClusters.nl.
     private static string GetDiagnosticTitleWithCSharp(string code, string severity)
@@ -261,6 +311,17 @@ internal static class OutputFormatterDiagnosticKernels
         if (summary.Warnings > 0) parts.Add($"{summary.Warnings} warning{(summary.Warnings == 1 ? "" : "s")}");
         if (summary.Info > 0) parts.Add($"{summary.Info} info");
         return $"Found {string.Join(", ", parts)}.";
+    }
+
+    private static string GetSourceLineTextWithCSharp(int line, string sourceSnippet)
+        => $"    {line} | {sourceSnippet}";
+
+    private static string GetCaretLineTextWithCSharp(int line, int column, int length)
+    {
+        var padding = new string(' ', line.ToString().Length);
+        var caretOffset = Math.Max(0, column - 1);
+        var caretLine = new string(' ', caretOffset) + new string('^', Math.Max(1, length));
+        return $"    {padding} | {caretLine}";
     }
 
     private sealed class DiagnosticSummaryScratch
