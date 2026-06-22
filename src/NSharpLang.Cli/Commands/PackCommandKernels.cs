@@ -1,5 +1,4 @@
 using System;
-using System.Text;
 
 namespace NSharpLang.Cli.Commands;
 
@@ -128,118 +127,46 @@ internal static class PackCommandKernels
     }
 
     internal static string GetHelpText()
-    {
-        if (TryGetMessage(bindings => bindings.PackHelpText(), out var message))
-            return message;
-
-        return GetHelpTextWithCSharp();
-    }
+        => GetMessage(bindings => bindings.PackHelpText());
 
     internal static string GetMissingProjectFileJsonMessage()
-    {
-        if (TryGetMessage(bindings => bindings.PackMissingProjectFileJsonMessage(), out var message))
-            return message;
-
-        return GetMissingProjectFileJsonMessageWithCSharp();
-    }
+        => GetMessage(bindings => bindings.PackMissingProjectFileJsonMessage());
 
     internal static string GetMissingProjectFileTextMessage()
-    {
-        if (TryGetMessage(bindings => bindings.PackMissingProjectFileTextMessage(), out var message))
-            return message;
-
-        return GetMissingProjectFileTextMessageWithCSharp();
-    }
+        => GetMessage(bindings => bindings.PackMissingProjectFileTextMessage());
 
     internal static string GetParseFailedJsonMessage(string message)
-    {
-        if (TryGetMessage(bindings => bindings.PackParseFailedJsonMessage(message), out var result))
-            return result;
-
-        return GetParseFailedJsonMessageWithCSharp(message);
-    }
+        => GetMessage(bindings => bindings.PackParseFailedJsonMessage(message));
 
     internal static string GetParseFailedTextMessage(string message)
-    {
-        if (TryGetMessage(bindings => bindings.PackParseFailedTextMessage(message), out var result))
-            return result;
-
-        return GetParseFailedTextMessageWithCSharp(message);
-    }
+        => GetMessage(bindings => bindings.PackParseFailedTextMessage(message));
 
     internal static string GetStartMessage(string name, string? version)
-    {
-        if (TryGetMessage(
-                bindings => bindings.PackStartMessage(name, version == null ? 0 : 1, version ?? string.Empty),
-                out var message))
-            return message;
-
-        return GetStartMessageWithCSharp(name, version);
-    }
+        => GetMessage(bindings => bindings.PackStartMessage(name, version == null ? 0 : 1, version ?? string.Empty));
 
     internal static string GetMissingVersionJsonMessage()
-    {
-        if (TryGetMessage(bindings => bindings.PackMissingVersionJsonMessage(), out var message))
-            return message;
-
-        return GetMissingVersionJsonMessageWithCSharp();
-    }
+        => GetMessage(bindings => bindings.PackMissingVersionJsonMessage());
 
     internal static string GetMissingVersionTextMessage()
-    {
-        if (TryGetMessage(bindings => bindings.PackMissingVersionTextMessage(), out var message))
-            return message;
-
-        return GetMissingVersionTextMessageWithCSharp();
-    }
+        => GetMessage(bindings => bindings.PackMissingVersionTextMessage());
 
     internal static string GetBuildFailedJsonMessage()
-    {
-        if (TryGetMessage(bindings => bindings.PackBuildFailedJsonMessage(), out var message))
-            return message;
-
-        return GetBuildFailedJsonMessageWithCSharp();
-    }
+        => GetMessage(bindings => bindings.PackBuildFailedJsonMessage());
 
     internal static string GetBuildFailedTextMessage()
-    {
-        if (TryGetMessage(bindings => bindings.PackBuildFailedTextMessage(), out var message))
-            return message;
-
-        return GetBuildFailedTextMessageWithCSharp();
-    }
+        => GetMessage(bindings => bindings.PackBuildFailedTextMessage());
 
     internal static string GetSuccessMessage()
-    {
-        if (TryGetMessage(bindings => bindings.PackSuccessMessage(), out var message))
-            return message;
-
-        return GetSuccessMessageWithCSharp();
-    }
+        => GetMessage(bindings => bindings.PackSuccessMessage());
 
     internal static string GetPackagePathLine(string packagePath)
-    {
-        if (TryGetMessage(bindings => bindings.PackPackagePathLine(packagePath), out var message))
-            return message;
-
-        return GetPackagePathLineWithCSharp(packagePath);
-    }
+        => GetMessage(bindings => bindings.PackPackagePathLine(packagePath));
 
     internal static string GetFailedJsonMessage(string message)
-    {
-        if (TryGetMessage(bindings => bindings.PackFailedJsonMessage(message), out var result))
-            return result;
-
-        return GetFailedJsonMessageWithCSharp(message);
-    }
+        => GetMessage(bindings => bindings.PackFailedJsonMessage(message));
 
     internal static string GetFailedTextMessage(string message)
-    {
-        if (TryGetMessage(bindings => bindings.PackFailedTextMessage(message), out var result))
-            return result;
-
-        return GetFailedTextMessageWithCSharp(message);
-    }
+        => GetMessage(bindings => bindings.PackFailedTextMessage(message));
 
     internal static string GetNuspecText(
         string projectName,
@@ -251,24 +178,7 @@ internal static class PackCommandKernels
         string packageLicense,
         string packageRepository,
         string packageIcon)
-    {
-        if (TryGetMessage(
-            bindings => bindings.PackNuspecText(
-                projectName,
-                version,
-                packageAuthor,
-                packageDescription,
-                packageTags,
-                packageTagsCount,
-                packageLicense,
-                packageRepository,
-                packageIcon),
-            out var text))
-        {
-            return text;
-        }
-
-        return GetNuspecTextWithCSharp(
+        => GetMessage(bindings => bindings.PackNuspecText(
             projectName,
             version,
             packageAuthor,
@@ -277,176 +187,22 @@ internal static class PackCommandKernels
             packageTagsCount,
             packageLicense,
             packageRepository,
-            packageIcon);
-    }
+            packageIcon));
 
     internal static string GetSymbolsNuspecText(string projectName, string version)
+        => GetMessage(bindings => bindings.PackSymbolsNuspecText(projectName, version));
+
+    private static string GetMessage(Func<Bindings, string> getMessage)
     {
-        if (TryGetMessage(bindings => bindings.PackSymbolsNuspecText(projectName, version), out var text))
-            return text;
-
-        return GetSymbolsNuspecTextWithCSharp(projectName, version);
-    }
-
-    private static bool TryGetMessage(Func<Bindings, string> getMessage, out string message)
-    {
-        message = string.Empty;
-
         var bindings = s_bindings.Value;
         if (bindings == null)
-            return false;
+            throw new InvalidOperationException("N# pack kernels are unavailable.");
 
-        try
-        {
-            message = getMessage(bindings);
-            return !string.IsNullOrEmpty(message);
-        }
-        catch
-        {
-            message = string.Empty;
-            return false;
-        }
+        var message = getMessage(bindings);
+        return !string.IsNullOrEmpty(message)
+            ? message
+            : throw new InvalidOperationException("N# pack kernel returned empty text.");
     }
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product pack messages route through CliPack* kernels.
-    private static string GetHelpTextWithCSharp()
-        => "N# Pack\n"
-           + "\n"
-           + "Usage: nlc pack [options]\n"
-           + "\n"
-           + "Generate a NuGet package from the current N# project.\n"
-           + "\n"
-           + "Reads package metadata from the 'package' section of project.yml and packs\n"
-           + "the native nlc IL build output. The package section is optional but\n"
-           + "recommended for library projects intended for distribution.\n"
-           + "\n"
-           + "project.yml example:\n"
-           + "  name: MyLibrary\n"
-           + "  version: 1.2.0\n"
-           + "  outputType: library\n"
-           + "  package:\n"
-           + "    author: Your Name\n"
-           + "    description: A concise description of your library\n"
-           + "    license: MIT\n"
-           + "    repository: https://github.com/you/MyLibrary\n"
-           + "    tags:\n"
-           + "      - dotnet\n"
-           + "      - nsharp\n"
-           + "\n"
-           + "Options:\n"
-           + "  --output <dir>          Output directory for the .nupkg file\n"
-           + "  --version <ver>         Override the version from project.yml\n"
-           + "  --configuration <cfg>   Build configuration (default: Release)\n"
-           + "  --include-symbols       Also produce a .snupkg symbols package\n"
-           + "  --project <dir>         Project root directory (default: current directory)\n"
-           + "  --json                  Output structured JSON (schemaVersion 1 envelope)\n"
-           + "  --help, -h              Show this help text\n"
-           + "\n"
-           + "Examples:\n"
-           + "  nlc pack\n"
-           + "  nlc pack --output ./artifacts\n"
-           + "  nlc pack --version 2.0.0-beta.1\n"
-           + "  nlc pack --include-symbols\n"
-           + "  nlc pack --json\n"
-           + "\n"
-           + "Exit codes:\n"
-           + "  0  Pack succeeded\n"
-           + "  1  Pack failed";
-
-    private static string GetMissingProjectFileJsonMessageWithCSharp()
-        => "No project.yml found. Run 'nlc new <name>' to create a project.";
-
-    private static string GetMissingProjectFileTextMessageWithCSharp()
-        => "No project.yml found in current directory.\nRun 'nlc new <name>' to create a project.";
-
-    private static string GetParseFailedJsonMessageWithCSharp(string message)
-        => $"Failed to parse project.yml: {message}";
-
-    private static string GetParseFailedTextMessageWithCSharp(string message)
-        => $"Failed to parse project.yml: {message}";
-
-    private static string GetStartMessageWithCSharp(string name, string? version)
-        => $"Packing {name} {version ?? "(no version)"}...";
-
-    private static string GetMissingVersionJsonMessageWithCSharp()
-        => "Package version is required. Set version in project.yml or pass --version.";
-
-    private static string GetMissingVersionTextMessageWithCSharp()
-        => "Package version is required. Set version in project.yml or pass --version.";
-
-    private static string GetBuildFailedJsonMessageWithCSharp()
-        => "Pack build failed.";
-
-    private static string GetBuildFailedTextMessageWithCSharp()
-        => "Pack build failed.";
-
-    private static string GetSuccessMessageWithCSharp()
-        => "Pack successful!";
-
-    private static string GetPackagePathLineWithCSharp(string packagePath)
-        => $"  Package: {packagePath}";
-
-    private static string GetFailedJsonMessageWithCSharp(string message)
-        => $"Pack failed: {message}";
-
-    private static string GetFailedTextMessageWithCSharp(string message)
-        => $"Pack failed: {message}";
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product pack nuspec XML routes through CliPack* kernels.
-    private static string GetNuspecTextWithCSharp(
-        string projectName,
-        string version,
-        string packageAuthor,
-        string packageDescription,
-        string packageTags,
-        int packageTagsCount,
-        string packageLicense,
-        string packageRepository,
-        string packageIcon)
-    {
-        var authors = string.IsNullOrWhiteSpace(packageAuthor) ? "NSharp" : packageAuthor;
-        var description = string.IsNullOrWhiteSpace(packageDescription)
-            ? $"{projectName} N# package"
-            : packageDescription;
-
-        var sb = new StringBuilder();
-        sb.AppendLine("""<?xml version="1.0" encoding="utf-8"?>""");
-        sb.AppendLine("""<package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">""");
-        sb.AppendLine("  <metadata>");
-        sb.AppendLine($"    <id>{EscapeXml(projectName)}</id>");
-        sb.AppendLine($"    <version>{EscapeXml(version)}</version>");
-        sb.AppendLine($"    <authors>{EscapeXml(authors)}</authors>");
-        sb.AppendLine($"    <description>{EscapeXml(description)}</description>");
-        if (packageTagsCount > 0)
-            sb.AppendLine($"    <tags>{EscapeXml(packageTags)}</tags>");
-        if (!string.IsNullOrWhiteSpace(packageLicense))
-            sb.AppendLine($"    <license type=\"expression\">{EscapeXml(packageLicense)}</license>");
-        if (!string.IsNullOrWhiteSpace(packageRepository))
-            sb.AppendLine($"    <repository type=\"git\" url=\"{EscapeXml(packageRepository)}\" />");
-        if (!string.IsNullOrWhiteSpace(packageIcon))
-            sb.AppendLine($"    <icon>{EscapeXml(packageIcon)}</icon>");
-        sb.AppendLine("  </metadata>");
-        sb.AppendLine("</package>");
-        return sb.ToString();
-    }
-
-    private static string GetSymbolsNuspecTextWithCSharp(string projectName, string version)
-        => "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
-           + "<package xmlns=\"http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd\">\n"
-           + "  <metadata>\n"
-           + $"    <id>{EscapeXml(projectName)}</id>\n"
-           + $"    <version>{EscapeXml(version)}</version>\n"
-           + "    <authors>NSharp</authors>\n"
-           + $"    <description>Symbols for {EscapeXml(projectName)}.</description>\n"
-           + "  </metadata>\n"
-           + "</package>\n";
-
-    private static string EscapeXml(string value)
-        => value
-            .Replace("&", "&amp;", StringComparison.Ordinal)
-            .Replace("\"", "&quot;", StringComparison.Ordinal)
-            .Replace("<", "&lt;", StringComparison.Ordinal)
-            .Replace(">", "&gt;", StringComparison.Ordinal);
 
     private static bool TryGetOptionalArg(string[] args, int index, out string? value)
     {

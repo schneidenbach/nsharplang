@@ -91,54 +91,11 @@ partial class Program
     }
 
     internal static ProgramCommandKind GetCommandKind(string[] args)
-        => ProgramCommandKernels.TryGetCommandKind(args, out var commandKind)
-            ? commandKind
-            : GetCommandKindWithCSharp(args);
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product top-level command parsing routes through ProgramCommandKernels.
-    private static ProgramCommandKind GetCommandKindWithCSharp(string[] args)
     {
-        if (args.Length == 0)
-            return ProgramCommandKind.Help;
+        if (ProgramCommandKernels.TryGetCommandKind(args, out var commandKind))
+            return commandKind;
 
-        var raw = args[0];
-        if (raw == "-V")
-            return ProgramCommandKind.Version;
-
-        return raw.ToLower() switch
-        {
-            "build" => ProgramCommandKind.Build,
-            "run" => ProgramCommandKind.Run,
-            "publish" => ProgramCommandKind.Publish,
-            "new" => ProgramCommandKind.New,
-            "test" => ProgramCommandKind.Test,
-            "format" => ProgramCommandKind.Format,
-            "lint" => ProgramCommandKind.Lint,
-            "restore" => ProgramCommandKind.Restore,
-            "clean" => ProgramCommandKind.Clean,
-            "watch" => ProgramCommandKind.Watch,
-            "doc" => ProgramCommandKind.Doc,
-            "completion" => ProgramCommandKind.Completion,
-            "check" => ProgramCommandKind.Check,
-            "fix" => ProgramCommandKind.Fix,
-            "query" => ProgramCommandKind.Query,
-            "daemon" => ProgramCommandKind.Daemon,
-            "add" => ProgramCommandKind.Add,
-            "tidy" => ProgramCommandKind.Tidy,
-            "remove" => ProgramCommandKind.Remove,
-            "update" => ProgramCommandKind.Update,
-            "init" => ProgramCommandKind.Init,
-            "env" => ProgramCommandKind.Env,
-            "doctor" => ProgramCommandKind.Doctor,
-            "tree" => ProgramCommandKind.Tree,
-            "audit" => ProgramCommandKind.Audit,
-            "pack" => ProgramCommandKind.Pack,
-            "export" => ProgramCommandKind.Export,
-            "help" or "--help" or "-h" => ProgramCommandKind.Help,
-            "--version" => ProgramCommandKind.Version,
-            "transpile" => ProgramCommandKind.Transpile,
-            _ => ProgramCommandKind.Unknown
-        };
+        throw new InvalidOperationException("N# dogfood compiler services are required for top-level CLI command routing.");
     }
 
     private static string GetCommandNameForError(string[] args)

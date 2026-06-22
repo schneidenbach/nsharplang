@@ -223,63 +223,17 @@ public static class PackCommand
     internal static PackOptionSummary GetOptionSummary(string[] args)
         => PackCommandKernels.TryGetOptionSummary(args, out var summary)
             ? summary
-            : GetOptionSummaryWithCSharp(args);
+            : throw new InvalidOperationException("N# pack option-summary kernel is unavailable.");
 
     internal static PackVersionSourceKind GetEffectiveVersionSource(string? versionOverride, string? projectVersion)
         => PackCommandKernels.TryGetEffectiveVersionSource(versionOverride, projectVersion, out var versionSource)
             ? versionSource
-            : GetEffectiveVersionSourceWithCSharp(versionOverride, projectVersion);
+            : throw new InvalidOperationException("N# pack version-source kernel is unavailable.");
 
     internal static PackOutputModeKind GetOutputMode(bool json)
         => PackCommandKernels.TryGetOutputMode(json, out var outputMode)
             ? outputMode
-            : GetOutputModeWithCSharp(json);
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product pack option parsing routes through PackCommandKernels.
-    private static PackOptionSummary GetOptionSummaryWithCSharp(string[] args)
-        => new(
-            GetOptionValueWithCSharp(args, "--project"),
-            GetOptionValueWithCSharp(args, "--output") ?? GetOptionValueWithCSharp(args, "-o"),
-            GetOptionValueWithCSharp(args, "--version"),
-            GetOptionValueWithCSharp(args, "--configuration") ?? GetOptionValueWithCSharp(args, "-c") ?? "Release",
-            ContainsArgWithCSharp(args, "--include-symbols"),
-            ContainsArgWithCSharp(args, "--json"),
-            ContainsArgWithCSharp(args, "--help") || ContainsArgWithCSharp(args, "-h") || (args.Length > 0 && args[0] == "help"));
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product pack output mode selection routes through PackCommandKernels.
-    private static PackOutputModeKind GetOutputModeWithCSharp(bool json)
-        => json ? PackOutputModeKind.Json : PackOutputModeKind.Text;
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product pack version source selection routes through PackCommandKernels.
-    private static PackVersionSourceKind GetEffectiveVersionSourceWithCSharp(
-        string? versionOverride,
-        string? projectVersion)
-    {
-        if (versionOverride != null)
-            return string.IsNullOrWhiteSpace(versionOverride)
-                ? PackVersionSourceKind.Missing
-                : PackVersionSourceKind.Override;
-
-        return string.IsNullOrWhiteSpace(projectVersion)
-            ? PackVersionSourceKind.Missing
-            : PackVersionSourceKind.Project;
-    }
-
-    private static string? GetOptionValueWithCSharp(string[] args, string flag)
-    {
-        for (var i = 0; i < args.Length - 1; i++)
-            if (args[i] == flag)
-                return args[i + 1];
-        return null;
-    }
-
-    private static bool ContainsArgWithCSharp(string[] args, string value)
-    {
-        for (var i = 0; i < args.Length; i++)
-            if (args[i] == value)
-                return true;
-        return false;
-    }
+            : throw new InvalidOperationException("N# pack output-mode kernel is unavailable.");
 
     static void WriteJson(Action<Utf8JsonWriter> write)
     {
