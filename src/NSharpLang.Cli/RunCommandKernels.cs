@@ -74,148 +74,34 @@ internal static class RunCommandKernels
     }
 
     internal static string GetHelpText()
-    {
-        if (TryGetMessage(bindings => bindings.RunHelpText(), out var message))
-            return message;
-
-        return GetHelpTextWithCSharp();
-    }
+        => RequiredBindings.RunHelpText();
 
     internal static string GetFileNotFoundMessage(string sourceFile)
-    {
-        if (TryGetMessage(bindings => bindings.RunFileNotFoundMessage(sourceFile), out var message))
-            return message;
-
-        return GetFileNotFoundMessageWithCSharp(sourceFile);
-    }
+        => RequiredBindings.RunFileNotFoundMessage(sourceFile);
 
     internal static string GetSourceStartingMessage(string sourceFile)
-    {
-        if (TryGetMessage(bindings => bindings.RunSourceStartingMessage(sourceFile), out var message))
-            return message;
-
-        return GetSourceStartingMessageWithCSharp(sourceFile);
-    }
+        => RequiredBindings.RunSourceStartingMessage(sourceFile);
 
     internal static string GetMissingProjectFileMessage()
-    {
-        if (TryGetMessage(bindings => bindings.RunMissingProjectFileMessage(), out var message))
-            return message;
-
-        return GetMissingProjectFileMessageWithCSharp();
-    }
+        => RequiredBindings.RunMissingProjectFileMessage();
 
     internal static string GetLibraryProjectMessage()
-    {
-        if (TryGetMessage(bindings => bindings.RunLibraryProjectMessage(), out var message))
-            return message;
-
-        return GetLibraryProjectMessageWithCSharp();
-    }
+        => RequiredBindings.RunLibraryProjectMessage();
 
     internal static string GetProjectStartingMessage()
-    {
-        if (TryGetMessage(bindings => bindings.RunProjectStartingMessage(), out var message))
-            return message;
-
-        return GetProjectStartingMessageWithCSharp();
-    }
+        => RequiredBindings.RunProjectStartingMessage();
 
     internal static string GetSingleFileBackendStartMessage(string sourceFile)
-    {
-        if (TryGetMessage(bindings => bindings.RunSingleFileBackendStartMessage(sourceFile), out var message))
-            return message;
-
-        return GetSingleFileBackendStartMessageWithCSharp(sourceFile);
-    }
+        => RequiredBindings.RunSingleFileBackendStartMessage(sourceFile);
 
     internal static string GetLibrarySourceFileMessage()
-    {
-        if (TryGetMessage(bindings => bindings.RunLibrarySourceFileMessage(), out var message))
-            return message;
-
-        return GetLibrarySourceFileMessageWithCSharp();
-    }
+        => RequiredBindings.RunLibrarySourceFileMessage();
 
     internal static string GetFailedMessage(string message)
-    {
-        if (TryGetMessage(bindings => bindings.RunFailedMessage(message), out var result))
-            return result;
+        => RequiredBindings.RunFailedMessage(message);
 
-        return GetFailedMessageWithCSharp(message);
-    }
-
-    private static bool TryGetMessage(Func<Bindings, string> getMessage, out string message)
-    {
-        message = string.Empty;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        try
-        {
-            message = getMessage(bindings);
-            return !string.IsNullOrEmpty(message);
-        }
-        catch
-        {
-            message = string.Empty;
-            return false;
-        }
-    }
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product run messages route through CliRun* kernels.
-    private static string GetHelpTextWithCSharp()
-        => "N# Run\n"
-           + "\n"
-           + "Usage: nlc run [file.nl]\n"
-           + "\n"
-           + "Build and run either the current project or a single N# source file.\n"
-           + "\n"
-           + "Options:\n"
-           + "  --backend <mode>   Compilation backend: il\n"
-           + "  --define <symbol>  Define a conditional-compilation symbol for #if (-d shorthand);\n"
-           + "                     repeatable, and accepts comma-separated lists\n"
-           + "  --help, -h         Show this help text\n"
-           + "\n"
-           + "Conditional compilation:\n"
-           + "  DEBUG is defined automatically when running (a debug build).\n"
-           + "  Project-wide symbols can also be set via 'defines:' in project.yml.\n"
-           + "\n"
-           + "Examples:\n"
-           + "  nlc run\n"
-           + "  nlc run --backend il\n"
-           + "  nlc run Program.nl\n"
-           + "  nlc run --define FEATURE_X\n"
-           + "\n"
-           + "Exit codes:\n"
-           + "  0  Program ran successfully\n"
-           + "  1  Build or execution failed";
-
-    private static string GetFileNotFoundMessageWithCSharp(string sourceFile)
-        => $"File not found: {sourceFile}";
-
-    private static string GetSourceStartingMessageWithCSharp(string sourceFile)
-        => $"Running {sourceFile}...";
-
-    private static string GetMissingProjectFileMessageWithCSharp()
-        => "No project.yml found in current directory. Run 'nlc new <name>' to create a project.";
-
-    private static string GetLibraryProjectMessageWithCSharp()
-        => "Cannot run a library project.";
-
-    private static string GetProjectStartingMessageWithCSharp()
-        => "Running...";
-
-    private static string GetSingleFileBackendStartMessageWithCSharp(string sourceFile)
-        => $"Running {sourceFile} with the IL backend...";
-
-    private static string GetLibrarySourceFileMessageWithCSharp()
-        => "Cannot run a library source file.";
-
-    private static string GetFailedMessageWithCSharp(string message)
-        => $"Run failed: {message}";
+    private static Bindings RequiredBindings
+        => s_bindings.Value ?? throw new InvalidOperationException("N# run command kernels are unavailable.");
 
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
