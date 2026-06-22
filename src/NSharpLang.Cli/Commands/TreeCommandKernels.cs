@@ -110,225 +110,58 @@ internal static class TreeCommandKernels
     }
 
     internal static string GetHelpText()
-    {
-        if (TryGetMessage(bindings => bindings.TreeHelpText(), out var message))
-            return message;
-
-        return GetHelpTextWithCSharp();
-    }
+        => RequiredBindings.TreeHelpText();
 
     internal static string GetProjectDirectoryNotFoundMessage(string projectRoot)
-    {
-        if (TryGetMessage(bindings => bindings.TreeProjectDirectoryNotFoundMessage(projectRoot), out var message))
-            return message;
-
-        return GetProjectDirectoryNotFoundMessageWithCSharp(projectRoot);
-    }
+        => RequiredBindings.TreeProjectDirectoryNotFoundMessage(projectRoot);
 
     internal static string GetTreeFailedMessage(string message)
-    {
-        if (TryGetMessage(bindings => bindings.TreeFailedMessage(message), out var result))
-            return result;
-
-        return GetTreeFailedMessageWithCSharp(message);
-    }
+        => RequiredBindings.TreeFailedMessage(message);
 
     internal static string GetNoProjectFileMessage()
-    {
-        if (TryGetMessage(bindings => bindings.TreeNoProjectFileMessage(), out var message))
-            return message;
-
-        return GetNoProjectFileMessageWithCSharp();
-    }
+        => RequiredBindings.TreeNoProjectFileMessage();
 
     internal static string GetProjectYmlLimitationMessage()
-    {
-        if (TryGetMessage(bindings => bindings.TreeProjectYmlLimitationMessage(), out var message))
-            return message;
-
-        return GetProjectYmlLimitationMessageWithCSharp();
-    }
+        => RequiredBindings.TreeProjectYmlLimitationMessage();
 
     internal static string GetTransitiveResolutionFailedLimitation(string detail)
-    {
-        if (TryGetMessage(bindings => bindings.TreeTransitiveResolutionFailedLimitation(detail), out var message))
-            return message;
-
-        return GetTransitiveResolutionFailedLimitationWithCSharp(detail);
-    }
+        => RequiredBindings.TreeTransitiveResolutionFailedLimitation(detail);
 
     internal static string GetDotnetRestoreRetryMessage(string detail)
-    {
-        if (TryGetMessage(bindings => bindings.TreeDotnetRestoreRetryMessage(detail), out var message))
-            return message;
-
-        return GetDotnetRestoreRetryMessageWithCSharp(detail);
-    }
+        => RequiredBindings.TreeDotnetRestoreRetryMessage(detail);
 
     internal static string GetDotnetListFailedMessage()
-    {
-        if (TryGetMessage(bindings => bindings.TreeDotnetListFailedMessage(), out var message))
-            return message;
-
-        return GetDotnetListFailedMessageWithCSharp();
-    }
+        => RequiredBindings.TreeDotnetListFailedMessage();
 
     internal static string GetProjectHeader(string name, string targetFramework)
-    {
-        if (TryGetMessage(bindings => bindings.TreeProjectHeader(name, targetFramework), out var message))
-            return message;
-
-        return GetProjectHeaderWithCSharp(name, targetFramework);
-    }
+        => RequiredBindings.TreeProjectHeader(name, targetFramework);
 
     internal static string GetNoDependenciesLine()
-    {
-        if (TryGetMessage(bindings => bindings.TreeNoDependenciesLine(), out var message))
-            return message;
-
-        return GetNoDependenciesLineWithCSharp();
-    }
+        => RequiredBindings.TreeNoDependenciesLine();
 
     internal static string GetDependencyText(string name, string? version, string kind)
     {
         var versionText = string.IsNullOrWhiteSpace(version) ? string.Empty : version!;
-        if (TryGetMessage(bindings => bindings.TreeDependencyText(name, versionText, kind), out var message))
-            return message;
-
-        return GetDependencyTextWithCSharp(name, versionText, kind);
+        return RequiredBindings.TreeDependencyText(name, versionText, kind);
     }
 
     internal static string GetDependencyLine(bool isLast, string dependencyText)
-    {
-        if (TryGetMessage(bindings => bindings.TreeDependencyLine(isLast ? 1 : 0, dependencyText), out var message))
-            return message;
-
-        return GetDependencyLineWithCSharp(isLast, dependencyText);
-    }
+        => RequiredBindings.TreeDependencyLine(isLast ? 1 : 0, dependencyText);
 
     internal static string GetTransitiveHeader(int count)
-    {
-        if (TryGetMessage(bindings => bindings.TreeTransitiveHeader(count.ToString()), out var message))
-            return message;
-
-        return GetTransitiveHeaderWithCSharp(count);
-    }
+        => RequiredBindings.TreeTransitiveHeader(count.ToString());
 
     internal static string GetTransitiveDependencyLine(string dependencyText)
-    {
-        if (TryGetMessage(bindings => bindings.TreeTransitiveDependencyLine(dependencyText), out var message))
-            return message;
-
-        return GetTransitiveDependencyLineWithCSharp(dependencyText);
-    }
+        => RequiredBindings.TreeTransitiveDependencyLine(dependencyText);
 
     internal static string GetLimitationsHeader()
-    {
-        if (TryGetMessage(bindings => bindings.TreeLimitationsHeader(), out var message))
-            return message;
-
-        return GetLimitationsHeaderWithCSharp();
-    }
+        => RequiredBindings.TreeLimitationsHeader();
 
     internal static string GetLimitationLine(string limitation)
-    {
-        if (TryGetMessage(bindings => bindings.TreeLimitationLine(limitation), out var message))
-            return message;
+        => RequiredBindings.TreeLimitationLine(limitation);
 
-        return GetLimitationLineWithCSharp(limitation);
-    }
-
-    private static bool TryGetMessage(Func<Bindings, string> getMessage, out string message)
-    {
-        message = string.Empty;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        try
-        {
-            message = getMessage(bindings);
-            return !string.IsNullOrEmpty(message);
-        }
-        catch
-        {
-            message = string.Empty;
-            return false;
-        }
-    }
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product tree command messages route through CliTree* kernels.
-    private static string GetHelpTextWithCSharp()
-        => "N# Dependency Tree\n"
-           + "\n"
-           + "Usage: nlc tree [options]\n"
-           + "\n"
-           + "Show the project's dependencies and transitive NuGet packages when available.\n"
-           + "\n"
-           + "Options:\n"
-           + "  --project <dir>   Project root directory (default: current directory)\n"
-           + "  --depth <n>       Maximum tree depth to display\n"
-           + "  --json            Output as JSON envelope\n"
-           + "  --help, -h        Show this help text\n"
-           + "\n"
-           + "Examples:\n"
-           + "  nlc tree\n"
-           + "  nlc tree --depth 1\n"
-           + "  nlc tree --json\n"
-           + "\n"
-           + "Behavior:\n"
-           + "  project.yml projects list direct runtime dependencies without requiring .csproj files.\n"
-           + "  Transitive NuGet dependencies are included when an MSBuild project file is present.\n"
-           + "\n"
-           + "Exit codes:\n"
-           + "  0  Tree displayed successfully\n"
-           + "  1  Failed to display tree";
-
-    private static string GetProjectDirectoryNotFoundMessageWithCSharp(string projectRoot)
-        => $"Project directory not found: {projectRoot}";
-
-    private static string GetTreeFailedMessageWithCSharp(string message)
-        => $"Tree failed: {message}";
-
-    private static string GetNoProjectFileMessageWithCSharp()
-        => "No project.yml or .csproj found. nlc tree reads direct dependencies from project.yml; transitive NuGet dependency output requires an MSBuild project file.";
-
-    private static string GetProjectYmlLimitationMessageWithCSharp()
-        => "project.yml output lists direct runtime dependencies only. Transitive NuGet dependencies require an MSBuild project file so dotnet can resolve the package graph.";
-
-    private static string GetTransitiveResolutionFailedLimitationWithCSharp(string detail)
-        => $"Transitive NuGet dependency resolution through MSBuild failed: {detail}";
-
-    private static string GetDotnetRestoreRetryMessageWithCSharp(string detail)
-        => $"{detail} Run 'dotnet restore' and retry.";
-
-    private static string GetDotnetListFailedMessageWithCSharp()
-        => "dotnet list package failed.";
-
-    private static string GetProjectHeaderWithCSharp(string name, string targetFramework)
-        => $"{name} ({targetFramework})";
-
-    private static string GetNoDependenciesLineWithCSharp()
-        => "  (no dependencies)";
-
-    private static string GetDependencyTextWithCSharp(string name, string version, string kind)
-        => $"{name}{(version.Length == 0 ? string.Empty : $"@{version}")} [{kind}]";
-
-    private static string GetDependencyLineWithCSharp(bool isLast, string dependencyText)
-        => $"{(isLast ? "└── " : "├── ")}{dependencyText}";
-
-    private static string GetTransitiveHeaderWithCSharp(int count)
-        => $"  transitive ({count} packages):";
-
-    private static string GetTransitiveDependencyLineWithCSharp(string dependencyText)
-        => $"    {dependencyText}";
-
-    private static string GetLimitationsHeaderWithCSharp()
-        => "Limitations:";
-
-    private static string GetLimitationLineWithCSharp(string limitation)
-        => $"  - {limitation}";
+    private static Bindings RequiredBindings
+        => s_bindings.Value ?? throw new InvalidOperationException("N# tree command kernels are unavailable.");
 
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(

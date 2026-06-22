@@ -300,69 +300,30 @@ public static class TreeCommand
         => TreeCommandKernels.GetDependencyText(dependency.Name, dependency.Version, dependency.Kind);
 
     internal static TreeOptionSummary GetOptionSummary(string[] args)
-        => TreeCommandKernels.TryGetOptionSummary(args, out var summary)
-            ? summary
-            : GetOptionSummaryWithCSharp(args);
+    {
+        if (TreeCommandKernels.TryGetOptionSummary(args, out var summary))
+            return summary;
+
+        throw new InvalidOperationException("N# tree option parser kernel rejected the arguments.");
+    }
 
     internal static TreeOutputModeKind GetOutputMode(bool json)
-        => TreeCommandKernels.TryGetOutputMode(json, out var outputMode)
-            ? outputMode
-            : GetOutputModeWithCSharp(json);
+    {
+        if (TreeCommandKernels.TryGetOutputMode(json, out var outputMode))
+            return outputMode;
 
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product tree option parsing routes through TreeCommandKernels.
-    private static TreeOptionSummary GetOptionSummaryWithCSharp(string[] args)
-        => new(
-            GetOptionWithCSharp(args, "--project"),
-            GetOptionWithCSharp(args, "--depth"),
-            ContainsArgWithCSharp(args, "--json"),
-            ContainsArgWithCSharp(args, "--help") || ContainsArgWithCSharp(args, "-h") || (args.Length > 0 && args[0] == "help"));
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product tree output mode selection routes through TreeCommandKernels.
-    private static TreeOutputModeKind GetOutputModeWithCSharp(bool json)
-        => json ? TreeOutputModeKind.Json : TreeOutputModeKind.Text;
+        throw new InvalidOperationException("N# tree output-mode kernel rejected the options.");
+    }
 
     private static string GetProjectRoot(TreeOptionSummary options)
         => Path.GetFullPath(options.ProjectOption ?? Directory.GetCurrentDirectory());
-
-    private static string? GetOptionWithCSharp(string[] args, string flag)
-    {
-        for (var i = 0; i < args.Length - 1; i++)
-            if (args[i] == flag)
-                return args[i + 1];
-        return null;
-    }
-
-    private static bool ContainsArgWithCSharp(string[] args, string value)
-    {
-        for (var i = 0; i < args.Length; i++)
-            if (args[i] == value)
-                return true;
-        return false;
-    }
 
     private static int GetMaxDepth(string[] args, TreeOptionSummary options)
     {
         if (TreeCommandKernels.TryGetMaxDepth(args, int.MaxValue, out var maxDepth))
             return maxDepth;
 
-        return GetMaxDepthWithCSharp(args, options);
-    }
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product tree depth parsing routes through TreeCommandKernels.
-    private static int GetMaxDepthWithCSharp(string[] args, TreeOptionSummary options)
-    {
-        if (options.DepthOption != null && int.TryParse(options.DepthOption, out var value))
-            return value;
-
-        return GetIntOptionWithCSharp(args, "--depth") ?? int.MaxValue;
-    }
-
-    static int? GetIntOptionWithCSharp(string[] args, string flag)
-    {
-        for (var i = 0; i < args.Length - 1; i++)
-            if (args[i] == flag && int.TryParse(args[i + 1], out var val))
-                return val;
-        return null;
+        throw new InvalidOperationException("N# tree depth parser kernel rejected the arguments.");
     }
 
     static int ShowHelp()
