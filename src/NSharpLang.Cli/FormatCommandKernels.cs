@@ -54,75 +54,49 @@ internal static class FormatCommandKernels
     }
 
     internal static string GetHelpText()
-        => TryGetMessage(bindings => bindings.HelpText(), out var message)
-            ? message
-            : FallbackHelpText();
+        => RequiredBindings.HelpText();
 
     internal static string GetStdinWithFilesMessage()
-        => TryGetMessage(bindings => bindings.StdinWithFilesMessage(), out var message)
-            ? message
-            : FallbackStdinWithFilesMessage();
+        => RequiredBindings.StdinWithFilesMessage();
 
     internal static string GetNoFilesFoundMessage()
-        => TryGetMessage(bindings => bindings.NoFilesFoundMessage(), out var message)
-            ? message
-            : FallbackNoFilesFoundMessage();
+        => RequiredBindings.NoFilesFoundMessage();
 
     internal static string GetFileNotFoundMessage(string sourceFile)
-        => TryGetMessage(bindings => bindings.FileNotFoundMessage(sourceFile), out var message)
-            ? message
-            : FallbackFileNotFoundMessage(sourceFile);
+        => RequiredBindings.FileNotFoundMessage(sourceFile);
 
     internal static string GetErrorFormattingMessage(string sourceFile, string exceptionMessage)
-        => TryGetMessage(bindings => bindings.ErrorFormattingMessage(sourceFile, exceptionMessage), out var message)
-            ? message
-            : FallbackErrorFormattingMessage(sourceFile, exceptionMessage);
+        => RequiredBindings.ErrorFormattingMessage(sourceFile, exceptionMessage);
 
     internal static string GetWarningLine(string relativePath, string warning)
-        => TryGetMessage(bindings => bindings.WarningLine(relativePath, warning), out var message)
-            ? message
-            : FallbackWarningLine(relativePath, warning);
+        => RequiredBindings.WarningLine(relativePath, warning);
 
     internal static string GetSafetyCheckFailedMessage(string warnings)
-        => TryGetMessage(bindings => bindings.SafetyCheckFailedMessage(warnings), out var message)
-            ? message
-            : FallbackSafetyCheckFailedMessage(warnings);
+        => RequiredBindings.SafetyCheckFailedMessage(warnings);
 
     internal static string GetCheckFailedHeader(int count)
     {
         var countText = count.ToString(CultureInfo.InvariantCulture);
-        return TryGetMessage(bindings => bindings.CheckFailedHeader(countText), out var message)
-            ? message
-            : FallbackCheckFailedHeader(countText);
+        return RequiredBindings.CheckFailedHeader(countText);
     }
 
     internal static string GetCheckFailedPathLine(string sourceFile)
-        => TryGetMessage(bindings => bindings.CheckFailedPathLine(sourceFile), out var message)
-            ? message
-            : FallbackCheckFailedPathLine(sourceFile);
+        => RequiredBindings.CheckFailedPathLine(sourceFile);
 
     internal static string GetAllFilesFormattedMessage()
-        => TryGetMessage(bindings => bindings.AllFilesFormattedMessage(), out var message)
-            ? message
-            : FallbackAllFilesFormattedMessage();
+        => RequiredBindings.AllFilesFormattedMessage();
 
     internal static string GetFormattedCountMessage(int count)
     {
         var countText = count.ToString(CultureInfo.InvariantCulture);
-        return TryGetMessage(bindings => bindings.FormattedCountMessage(countText), out var message)
-            ? message
-            : FallbackFormattedCountMessage(countText);
+        return RequiredBindings.FormattedCountMessage(countText);
     }
 
     internal static string GetFailedMessage(string exceptionMessage)
-        => TryGetMessage(bindings => bindings.FailedMessage(exceptionMessage), out var message)
-            ? message
-            : FallbackFailedMessage(exceptionMessage);
+        => RequiredBindings.FailedMessage(exceptionMessage);
 
     internal static string GetParseErrorsMessage(string relativePath, string messages)
-        => TryGetMessage(bindings => bindings.ParseErrorsMessage(relativePath, messages), out var message)
-            ? message
-            : FallbackParseErrorsMessage(relativePath, messages);
+        => RequiredBindings.ParseErrorsMessage(relativePath, messages);
 
     internal static bool TryShouldFormatDiscoveredPath(string relativePath, out bool shouldFormat)
     {
@@ -273,87 +247,8 @@ internal static class FormatCommandKernels
         CliShouldFormatDiscoveredPath ShouldFormatDiscoveredPath,
         CliShouldSkipFormatDirectoryName ShouldSkipDiscoveredDirectoryName);
 
-    private static bool TryGetMessage(Func<Bindings, string> getMessage, out string message)
-    {
-        message = string.Empty;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        try
-        {
-            message = getMessage(bindings);
-            return message.Length > 0;
-        }
-        catch
-        {
-            message = string.Empty;
-            return false;
-        }
-    }
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product format messages route through CliFormat* kernels.
-    private static string FallbackHelpText()
-        => @"N# Format
-
-Usage: nlc format [options] [files...]
-
-Format N# source files with the canonical formatter.
-
-Options:
-  --project <dir>         Project root directory (default: current directory)
-  --check                 Exit with code 1 if any file needs formatting
-  --verify-no-changes     Back-compat alias for --check
-  --diff                  Print unified diffs instead of writing files
-  --stdin                 Read source from stdin and write the formatted result to stdout
-  --help, -h              Show this help text
-
-Examples:
-  nlc format
-  nlc format --check
-  nlc format --diff Program.nl
-  nlc format --stdin < Program.nl
-
-Exit codes:
-  0  Formatting succeeded
-  1  Formatting failed or --check found unformatted files";
-
-    private static string FallbackStdinWithFilesMessage()
-        => "Cannot combine --stdin with file arguments.";
-
-    private static string FallbackNoFilesFoundMessage()
-        => "No .nl files found to format.";
-
-    private static string FallbackFileNotFoundMessage(string sourceFile)
-        => $"File not found: {sourceFile}";
-
-    private static string FallbackErrorFormattingMessage(string sourceFile, string message)
-        => $"Error formatting {sourceFile}: {message}";
-
-    private static string FallbackWarningLine(string relativePath, string warning)
-        => $"Warning [{relativePath}]: {warning}";
-
-    private static string FallbackSafetyCheckFailedMessage(string warnings)
-        => $"Formatter safety check failed: {warnings}";
-
-    private static string FallbackCheckFailedHeader(string countText)
-        => $"Formatting check failed for {countText} file(s):";
-
-    private static string FallbackCheckFailedPathLine(string sourceFile)
-        => $"  {sourceFile}";
-
-    private static string FallbackAllFilesFormattedMessage()
-        => "All files are properly formatted.";
-
-    private static string FallbackFormattedCountMessage(string countText)
-        => $"Formatted {countText} file(s).";
-
-    private static string FallbackFailedMessage(string message)
-        => $"Format failed: {message}";
-
-    private static string FallbackParseErrorsMessage(string relativePath, string messages)
-        => $"Parse errors in {relativePath}: {messages}";
+    private static Bindings RequiredBindings
+        => s_bindings.Value ?? throw new InvalidOperationException("N# format command kernels are unavailable.");
 
     private static bool TryGetOptionalArg(string[] args, int index, out string? value)
     {
