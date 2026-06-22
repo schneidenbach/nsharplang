@@ -3549,6 +3549,9 @@ func Main() {
         Assert.Equal("Build successful! (il, debug)", BuildCommandKernels.GetSuccessMessage(release: false));
         Assert.Equal("Build successful! (il, release)", BuildCommandKernels.GetSuccessMessage(release: true));
         Assert.Equal("Output: /tmp/demo/bin/App.dll", BuildCommandKernels.GetOutputPathMessage("/tmp/demo/bin/App.dll"));
+        Assert.Equal(
+            "Build timings:\n  Resolve:    1 ms\n  Emit IL:    2 ms\n  Total:      3 ms",
+            BuildCommandKernels.GetTimingsMessage("1 ms", "2 ms", "3 ms"));
 
         var (helpExitCode, helpStdout, helpStderr) = CaptureConsole(() => ExecuteProgram("build", "--help"));
         Assert.Equal(0, helpExitCode);

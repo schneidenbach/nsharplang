@@ -7069,6 +7069,7 @@ func outer(x: int): int {
         Assert.Contains("CliBuildSuccessElapsedMessage", methodNames!); // product build success-elapsed text shaping.
         Assert.Contains("CliBuildSuccessMessage", methodNames!); // product build success text shaping.
         Assert.Contains("CliBuildOutputPathMessage", methodNames!); // product build output-path text shaping.
+        Assert.Contains("CliBuildTimingsMessage", methodNames!); // product build timing-breakdown text shaping.
         Assert.Contains("CliTestOptionSummaryInto", methodNames!); // product test option parsing.
         Assert.Contains("CliTestOutputMode", methodNames!); // product test output mode selection.
         Assert.Contains("CliTestFilterMatches", methodNames!); // product test filter matching.
@@ -16038,6 +16039,10 @@ class OtherZetaType {
                     "CliBuildOutputPathMessage",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliBuildOutputPathMessage.");
+            var cliBuildTimingsMessage = programType.GetMethod(
+                    "CliBuildTimingsMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliBuildTimingsMessage.");
             var cliEffectiveCompilationBackendKind = programType.GetMethod(
                     "CliEffectiveCompilationBackendKind",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -18309,7 +18314,8 @@ func main(customer: Customer, résumé: Profile) {
                 cliBuildFailedElapsedMessage,
                 cliBuildSuccessElapsedMessage,
                 cliBuildSuccessMessage,
-                cliBuildOutputPathMessage);
+                cliBuildOutputPathMessage,
+                cliBuildTimingsMessage);
             AssertCliEffectiveBackendsLikeProduction(cliEffectiveCompilationBackendKind);
             AssertCliExportCSharpInputOperandLikeProduction(
                 cliExportCSharpFirstOperandIndexInto,
@@ -21725,7 +21731,8 @@ func main() {
         MethodInfo cliBuildFailedElapsedMessage,
         MethodInfo cliBuildSuccessElapsedMessage,
         MethodInfo cliBuildSuccessMessage,
-        MethodInfo cliBuildOutputPathMessage)
+        MethodInfo cliBuildOutputPathMessage,
+        MethodInfo cliBuildTimingsMessage)
     {
         var help = (string)(cliBuildHelpText.Invoke(null, Array.Empty<object>()) ?? string.Empty);
         Assert.Contains("N# Build", help);
@@ -21765,6 +21772,9 @@ func main() {
         Assert.Equal(
             "Output: /tmp/demo/bin/App.dll",
             (string)(cliBuildOutputPathMessage.Invoke(null, new object[] { "/tmp/demo/bin/App.dll" }) ?? string.Empty));
+        Assert.Equal(
+            "Build timings:\n  Resolve:    1 ms\n  Emit IL:    2 ms\n  Total:      3 ms",
+            (string)(cliBuildTimingsMessage.Invoke(null, new object[] { "1 ms", "2 ms", "3 ms" }) ?? string.Empty));
     }
 
     private static void AssertCliEffectiveBackendsLikeProduction(MethodInfo cliEffectiveCompilationBackendKind)

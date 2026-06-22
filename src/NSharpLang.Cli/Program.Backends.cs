@@ -61,12 +61,10 @@ partial class Program
 
             if (timings)
             {
-                Console.Error.WriteLine($"""
-Build timings:
-  Resolve:    {FormatElapsed(resolveSw.Elapsed)}
-  Emit IL:    {FormatElapsed(compileSw.Elapsed)}
-  Total:      {FormatElapsed(totalSw.Elapsed)}
-""");
+                Console.Error.WriteLine(BuildCommandKernels.GetTimingsMessage(
+                    FormatElapsed(resolveSw.Elapsed),
+                    FormatElapsed(compileSw.Elapsed),
+                    FormatElapsed(totalSw.Elapsed)));
             }
 
             return new BuildCommandResult(0, perfFacts);

@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-22 — Build timing breakdown moves into product N#
+
+`Program.Backends` no longer owns the `nlc build --timings` text banner in C#. The shipped
+`CliBuildTimingsMessage` dogfood kernel now shapes the timing breakdown through `BuildCommandKernels`; C#
+keeps stopwatch collection and stderr writing only. This is a Stage 6 `C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.BuildCommandKernels_SummarizesOptions|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`;
+`./scripts/dev.sh BuildCommandKernels`.
+
 ## 2026-06-22 — Format safety-check failures move into product N#
 
 `Program.FormatSource` no longer owns formatter safety-check failure text in C#. The shipped
@@ -260,7 +270,7 @@ Focused evidence:
 diagnostic, failure wrapper text, project/single-file start text, missing-project guidance, success/output lines,
 or project build-failed elapsed text in C#. The shipped `CliBuild*` dogfood kernels now shape those strings
 through `BuildCommandKernels`; C# keeps filesystem/project config work, backend selection, IL build execution,
-performance-report JSON serialization, stopwatch collection, timing-breakdown emission, and fallback/oracle text
+performance-report JSON serialization, stopwatch collection, and fallback/oracle text
 only.
 
 Focused evidence:

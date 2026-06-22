@@ -183,6 +183,14 @@ internal static class BuildCommandKernels
         return GetOutputPathMessageWithCSharp(outputPath);
     }
 
+    internal static string GetTimingsMessage(string resolveElapsed, string compileElapsed, string totalElapsed)
+    {
+        if (TryGetMessage(bindings => bindings.BuildTimingsMessage(resolveElapsed, compileElapsed, totalElapsed), out var message))
+            return message;
+
+        return GetTimingsMessageWithCSharp(resolveElapsed, compileElapsed, totalElapsed);
+    }
+
     private static bool TryGetMessage(Func<Bindings, string> getMessage, out string message)
     {
         message = string.Empty;
@@ -274,6 +282,12 @@ internal static class BuildCommandKernels
     private static string GetOutputPathMessageWithCSharp(string outputPath)
         => $"Output: {outputPath}";
 
+    private static string GetTimingsMessageWithCSharp(string resolveElapsed, string compileElapsed, string totalElapsed)
+        => "Build timings:\n"
+           + $"  Resolve:    {resolveElapsed}\n"
+           + $"  Emit IL:    {compileElapsed}\n"
+           + $"  Total:      {totalElapsed}";
+
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
             DogfoodKernelLoader.CreateDelegate<CliBuildOperandSummaryInto>(
@@ -311,7 +325,10 @@ internal static class BuildCommandKernels
                 "CliBuildSuccessMessage"),
             DogfoodKernelLoader.CreateDelegate<CliBuildOutputPathMessage>(
                 programType,
-                "CliBuildOutputPathMessage")));
+                "CliBuildOutputPathMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliBuildTimingsMessage>(
+                programType,
+                "CliBuildTimingsMessage")));
 
     private delegate int CliBuildOperandSummaryInto(
         string[] args,
@@ -333,6 +350,7 @@ internal static class BuildCommandKernels
     private delegate string CliBuildSuccessElapsedMessage(int release, string elapsedText);
     private delegate string CliBuildSuccessMessage(int release);
     private delegate string CliBuildOutputPathMessage(string outputPath);
+    private delegate string CliBuildTimingsMessage(string resolveElapsed, string compileElapsed, string totalElapsed);
 
     private sealed record Bindings(
         CliBuildOperandSummaryInto BuildOperandSummary,
@@ -346,7 +364,8 @@ internal static class BuildCommandKernels
         CliBuildFailedElapsedMessage BuildFailedElapsedMessage,
         CliBuildSuccessElapsedMessage BuildSuccessElapsedMessage,
         CliBuildSuccessMessage BuildSuccessMessage,
-        CliBuildOutputPathMessage BuildOutputPathMessage);
+        CliBuildOutputPathMessage BuildOutputPathMessage,
+        CliBuildTimingsMessage BuildTimingsMessage);
 
     private static bool TryGetOptionalArg(string[] args, int index, out string? value)
     {

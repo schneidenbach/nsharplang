@@ -5753,6 +5753,13 @@ func CliBuildOutputPathMessage(outputPath: string): string {
     return "Output: " + outputPath
 }
 
+func CliBuildTimingsMessage(resolveElapsed: string, compileElapsed: string, totalElapsed: string): string {
+    return "Build timings:\n"
+        + "  Resolve:    " + resolveElapsed + "\n"
+        + "  Emit IL:    " + compileElapsed + "\n"
+        + "  Total:      " + totalElapsed
+}
+
 func CliBuildOperandSummaryCore(
     args: &CliArgumentTable,
     kindIds: &CliBuildArgumentKindTable,
