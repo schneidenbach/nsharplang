@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-22 — Batch query shared messages reuse product N#
+
+`BatchQueryRunner` no longer owns no-symbol, semantic-reference-unavailable, or documentation-miss
+message text in C#. Those batch query JSON responses now reuse the shipped `CliQuery*` dogfood kernels
+through `QueryCommandKernels`; C# keeps batch request dispatch, service execution, and JSON envelope
+materialization. This is a Stage 6 `C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.BatchCommand_UsesStableEnvelopeAndPerItemResponses|FullyQualifiedName~CliCommandTests.BatchCommand_DocMissUsesQueryMessageKernel|FullyQualifiedName~CliCommandTests.BatchCommand_PositionParsingUsesQueryKernelSemantics|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliQueryParsing|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`;
+`./scripts/dev.sh BatchCommand_DocMissUsesQueryMessageKernel`.
+
 ## 2026-06-22 — Daemon query messages move into product N#
 
 `DaemonServer` no longer owns daemon query unknown-method, project-load failure, empty batch payload,

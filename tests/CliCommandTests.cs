@@ -1553,6 +1553,55 @@ func Main() {
             Assert.Equal("type", results[3].GetProperty("request").GetProperty("command").GetString());
             Assert.False(results[3].GetProperty("ok").GetBoolean());
             Assert.Equal("noSymbol", results[3].GetProperty("response").GetProperty("error").GetProperty("code").GetString());
+            Assert.Equal(
+                QueryCommandKernels.GetNoSymbolAtPositionMessage("Program.nl", 1, 1),
+                results[3].GetProperty("response").GetProperty("error").GetProperty("message").GetString());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void BatchCommand_DocMissUsesQueryMessageKernel()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-batch-doc-miss-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            var requestsPath = Path.Combine(tempDir, "requests.json");
+            File.WriteAllText(requestsPath, """
+[
+  {
+    "command": "doc",
+    "query": "__DefinitelyMissingBatchDocType__"
+  }
+]
+""");
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() => QueryCommand.Execute(new[]
+            {
+                "batch",
+                "--project", IssueTrackerFixture,
+                "--requests", requestsPath
+            }));
+
+            Assert.Equal(1, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stderr));
+
+            using var doc = JsonDocument.Parse(stdout);
+            Assert.Equal("batch", doc.RootElement.GetProperty("command").GetString());
+            Assert.False(doc.RootElement.GetProperty("ok").GetBoolean());
+            Assert.Equal(1, doc.RootElement.GetProperty("failureCount").GetInt32());
+
+            var result = Assert.Single(doc.RootElement.GetProperty("results").EnumerateArray());
+            Assert.Equal("doc", result.GetProperty("request").GetProperty("command").GetString());
+            Assert.False(result.GetProperty("ok").GetBoolean());
+            Assert.Equal(
+                QueryCommandKernels.GetNoDocumentationMessage("__DefinitelyMissingBatchDocType__"),
+                result.GetProperty("response").GetProperty("error").GetProperty("message").GetString());
         }
         finally
         {
@@ -1654,7 +1703,11 @@ func Main() {
             Assert.Equal(3, doc.RootElement.GetProperty("failureCount").GetInt32());
 
             var results = doc.RootElement.GetProperty("results").EnumerateArray().ToArray();
-            Assert.Equal("noSymbol", results[0].GetProperty("response").GetProperty("error").GetProperty("code").GetString());
+            var firstError = results[0].GetProperty("response").GetProperty("error");
+            Assert.Equal("noSymbol", firstError.GetProperty("code").GetString());
+            Assert.Equal(
+                QueryCommandKernels.GetNoSymbolAtPositionMessage("Program.nl", 1, 1),
+                firstError.GetProperty("message").GetString());
             Assert.Equal("invalidRequest", results[1].GetProperty("response").GetProperty("error").GetProperty("code").GetString());
             Assert.Equal("invalidRequest", results[2].GetProperty("response").GetProperty("error").GetProperty("code").GetString());
         }

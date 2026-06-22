@@ -295,7 +295,7 @@ internal static class BatchQueryRunner
         {
             return OutputFormatter.ErrorToJson(
                 "type",
-                $"No symbol found at {resolvedFile}:{line}:{column}",
+                QueryCommandKernels.GetNoSymbolAtPositionMessage(resolvedFile, line, column),
                 snapshot.ProjectRoot,
                 "noSymbol",
                 new
@@ -333,7 +333,7 @@ internal static class BatchQueryRunner
         {
             return OutputFormatter.ErrorToJson(
                 "inspect",
-                $"No symbol found at {resolvedFile}:{line}:{column}",
+                QueryCommandKernels.GetNoSymbolAtPositionMessage(resolvedFile, line, column),
                 snapshot.ProjectRoot,
                 "noSymbol",
                 new
@@ -395,7 +395,7 @@ internal static class BatchQueryRunner
         {
             return OutputFormatter.ErrorToJson(
                 "definition",
-                $"No symbol found at {resolvedFile}:{line}:{column}",
+                QueryCommandKernels.GetNoSymbolAtPositionMessage(resolvedFile, line, column),
                 snapshot.ProjectRoot,
                 "noSymbol",
                 new
@@ -426,7 +426,7 @@ internal static class BatchQueryRunner
         {
             return OutputFormatter.ErrorToJson(
                 "references",
-                $"No symbol found at {resolvedFile}:{line}:{column}",
+                QueryCommandKernels.GetNoSymbolAtPositionMessage(resolvedFile, line, column),
                 snapshot.ProjectRoot,
                 "noSymbol",
                 new
@@ -442,7 +442,7 @@ internal static class BatchQueryRunner
         {
             return OutputFormatter.ErrorToJson(
                 "references",
-                "Semantic references are unavailable because the selected position is not backed by a precise compiler binding. No name-based or text-based fallback was used.",
+                QueryCommandKernels.GetSemanticReferencesUnavailableMessage(),
                 snapshot.ProjectRoot,
                 "semanticReferencesUnavailable",
                 new
@@ -483,7 +483,7 @@ internal static class BatchQueryRunner
         var result = DocQuery.Value.Lookup(request.Query);
         if (result == null)
         {
-            return OutputFormatter.ErrorToJson("doc", $"No documentation found for '{request.Query}'.");
+            return OutputFormatter.ErrorToJson("doc", QueryCommandKernels.GetNoDocumentationMessage(request.Query));
         }
 
         return OutputFormatter.DocToJson(result, request.Query);
