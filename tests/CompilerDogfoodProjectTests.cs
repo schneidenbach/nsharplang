@@ -7258,6 +7258,7 @@ func outer(x: int): int {
         Assert.Contains("CliTidyNoNuGetDependenciesMessage", methodNames!); // product tidy no-dependencies message shaping.
         Assert.Contains("CliTidyTableHeader", methodNames!); // product tidy text table header shaping.
         Assert.Contains("CliTidyTableSeparator", methodNames!); // product tidy text table separator shaping.
+        Assert.Contains("CliTidyTableRow", methodNames!); // product tidy text table row shaping.
         Assert.Contains("CliTidyPossiblyUnusedFoundMessage", methodNames!); // product tidy possibly-unused summary shaping.
         Assert.Contains("CliTidyAllDependenciesAccountedForMessage", methodNames!); // product tidy unknown summary shaping.
         Assert.Contains("CliTidyAllDependenciesInUseMessage", methodNames!); // product tidy clean summary shaping.
@@ -7496,6 +7497,7 @@ func outer(x: int): int {
             ("CliRemoveShouldStopDependencyContinuationLine", new object[] { "    version: 13.0.3" }),
             ("CliRemoveShouldStopDependencyContinuationLine", new object[] { "- nuget: Other" }),
             ("CliRemoveShouldStopDependencyContinuationLine", new object[] { "dependencies:" }),
+            ("CliTidyTableRow", new object[] { "Newtonsoft.Json", "possibly-unused", "No import found." }),
             ("CliTidyImportNamespaceSpanInto", new object[] { "  import  Newtonsoft.Json.Linq // comment", new int[3] }),
             ("CliTidyImportNamespaceSpanInto", new object[] { "import\tSystem.Text", new int[3] }),
             ("CliTidyImportNamespaceSpanInto", new object[] { "print \"import System.Text\"", new int[3] }),
@@ -16931,6 +16933,10 @@ class OtherZetaType {
                     "CliTidyTableSeparator",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTidyTableSeparator.");
+            var cliTidyTableRow = programType.GetMethod(
+                    "CliTidyTableRow",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTidyTableRow.");
             var cliTidyPossiblyUnusedFoundMessage = programType.GetMethod(
                     "CliTidyPossiblyUnusedFoundMessage",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -18674,6 +18680,7 @@ func main(customer: Customer, résumé: Profile) {
                 cliTidyNoNuGetDependenciesMessage,
                 cliTidyTableHeader,
                 cliTidyTableSeparator,
+                cliTidyTableRow,
                 cliTidyPossiblyUnusedFoundMessage,
                 cliTidyAllDependenciesAccountedForMessage,
                 cliTidyAllDependenciesInUseMessage,
@@ -24667,6 +24674,7 @@ func main() {
         MethodInfo cliTidyNoNuGetDependenciesMessage,
         MethodInfo cliTidyTableHeader,
         MethodInfo cliTidyTableSeparator,
+        MethodInfo cliTidyTableRow,
         MethodInfo cliTidyPossiblyUnusedFoundMessage,
         MethodInfo cliTidyAllDependenciesAccountedForMessage,
         MethodInfo cliTidyAllDependenciesInUseMessage,
@@ -24708,6 +24716,11 @@ func main() {
         Assert.Equal(
             "  -------  ------  ------",
             (string)(cliTidyTableSeparator.Invoke(null, new object[] { "-------", "------" }) ?? "<null>"));
+        Assert.Equal(
+            "  Newtonsoft.Json  possibly-unused  No import found.",
+            (string)(cliTidyTableRow.Invoke(
+                null,
+                new object[] { "Newtonsoft.Json", "possibly-unused", "No import found." }) ?? "<null>"));
         Assert.Equal(
             "1 possibly-unused dependency found. Run 'nlc tidy --fix' to remove them.",
             (string)(cliTidyPossiblyUnusedFoundMessage.Invoke(null, new object[] { "1", 1 }) ?? "<null>"));

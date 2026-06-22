@@ -4781,6 +4781,9 @@ dependencies:
             "  -------  ------  ------",
             TidyCommandKernels.GetTableSeparator("-------", "------"));
         Assert.Equal(
+            "  Newtonsoft.Json  possibly-unused  No import found.",
+            TidyCommandKernels.GetTableRow("Newtonsoft.Json", "possibly-unused", "No import found."));
+        Assert.Equal(
             "1 possibly-unused dependency found. Run 'nlc tidy --fix' to remove them.",
             TidyCommandKernels.GetPossiblyUnusedFoundMessage(1));
         Assert.Equal(

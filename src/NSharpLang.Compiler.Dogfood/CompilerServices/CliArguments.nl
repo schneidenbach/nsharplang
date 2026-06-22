@@ -4472,6 +4472,10 @@ func CliTidyTableSeparator(packageSeparator: string, statusSeparator: string): s
     return "  " + packageSeparator + "  " + statusSeparator + "  ------"
 }
 
+func CliTidyTableRow(packageLabel: string, statusLabel: string, reason: string): string {
+    return "  " + packageLabel + "  " + statusLabel + "  " + reason
+}
+
 func CliTidyPossiblyUnusedFoundMessage(countText: string, count: int): string {
     dependencyWord := "dependencies"
     if count == 1 {

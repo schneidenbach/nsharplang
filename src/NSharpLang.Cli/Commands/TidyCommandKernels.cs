@@ -445,6 +445,11 @@ internal static class TidyCommandKernels
             ? message
             : FallbackTableSeparator(packageSeparator, statusSeparator);
 
+    internal static string GetTableRow(string packageLabel, string statusLabel, string reason)
+        => TryGetMessage(bindings => bindings.TableRow(packageLabel, statusLabel, reason), out var message)
+            ? message
+            : FallbackTableRow(packageLabel, statusLabel, reason);
+
     internal static string GetPossiblyUnusedFoundMessage(int count)
     {
         var countText = count.ToString(CultureInfo.InvariantCulture);
@@ -551,6 +556,9 @@ internal static class TidyCommandKernels
             DogfoodKernelLoader.CreateDelegate<CliTidyTableSeparator>(
                 programType,
                 "CliTidyTableSeparator"),
+            DogfoodKernelLoader.CreateDelegate<CliTidyTableRow>(
+                programType,
+                "CliTidyTableRow"),
             DogfoodKernelLoader.CreateDelegate<CliTidyPossiblyUnusedFoundMessage>(
                 programType,
                 "CliTidyPossiblyUnusedFoundMessage"),
@@ -637,6 +645,8 @@ internal static class TidyCommandKernels
 
     private delegate string CliTidyTableSeparator(string packageSeparator, string statusSeparator);
 
+    private delegate string CliTidyTableRow(string packageLabel, string statusLabel, string reason);
+
     private delegate string CliTidyPossiblyUnusedFoundMessage(string countText, int count);
 
     private delegate string CliTidyAllDependenciesAccountedForMessage(string unknownCountText);
@@ -666,6 +676,7 @@ internal static class TidyCommandKernels
         CliTidyNoNuGetDependenciesMessage NoNuGetDependenciesMessage,
         CliTidyTableHeader TableHeader,
         CliTidyTableSeparator TableSeparator,
+        CliTidyTableRow TableRow,
         CliTidyPossiblyUnusedFoundMessage PossiblyUnusedFoundMessage,
         CliTidyAllDependenciesAccountedForMessage AllDependenciesAccountedForMessage,
         CliTidyAllDependenciesInUseMessage AllDependenciesInUseMessage,
@@ -673,7 +684,7 @@ internal static class TidyCommandKernels
         CliTidyUsedReasonMessage UsedReasonMessage,
         CliTidyPossiblyUnusedReasonMessage PossiblyUnusedReasonMessage);
 
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product tidy messages route through CliTidy* kernels.
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product tidy messages and table rendering route through CliTidy* kernels.
     private static string FallbackHelpText()
         => "N# Tidy\n"
            + "\n"
@@ -732,6 +743,9 @@ internal static class TidyCommandKernels
 
     private static string FallbackTableSeparator(string packageSeparator, string statusSeparator)
         => $"  {packageSeparator}  {statusSeparator}  ------";
+
+    private static string FallbackTableRow(string packageLabel, string statusLabel, string reason)
+        => $"  {packageLabel}  {statusLabel}  {reason}";
 
     private static string FallbackPossiblyUnusedFoundMessage(string countText, int count)
         => $"{countText} possibly-unused {(count == 1 ? "dependency" : "dependencies")} found. Run 'nlc tidy --fix' to remove them.";

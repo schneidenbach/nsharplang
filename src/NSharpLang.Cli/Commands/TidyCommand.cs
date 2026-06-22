@@ -359,7 +359,10 @@ public static class TidyCommand
 
         foreach (var r in results)
         {
-            Console.WriteLine($"  {r.Name.PadRight(nameWidth)}  {r.Status.PadRight(statusWidth)}  {r.Reason}");
+            Console.WriteLine(TidyCommandKernels.GetTableRow(
+                r.Name.PadRight(nameWidth),
+                r.Status.PadRight(statusWidth),
+                r.Reason));
         }
 
         var possiblyUnused = summary.PossiblyUnusedCount;

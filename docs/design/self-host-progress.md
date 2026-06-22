@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-22 — Tidy table rows move into product N#
+
+`TidyCommand` no longer owns text table row rendering for dependency status output in C#. The shipped
+`CliTidyTableRow` dogfood kernel now shapes the row text through `TidyCommandKernels`; C# keeps dependency
+classification, column-width calculation, label padding, and console emission only. This is a Stage 6
+`C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.TidyCommandKernels_ShapesMessages|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`;
+`./scripts/dev.sh TidyCommandKernels`.
+
 ## 2026-06-22 — Lint diagnostic severity text moves into product N#
 
 `LintCommand` no longer owns diagnostic severity string rendering (`error`, `warning`, `info`) in C#. The shipped
