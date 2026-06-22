@@ -1305,6 +1305,106 @@ func CliFixEffectiveOutputMode(useText: int): int {
     return 1
 }
 
+func CliFixHelpText(): string {
+    return "N# Auto-Fix\n"
+        + "\n"
+        + "Usage: nlc fix [options] [project-dir]\n"
+        + "\n"
+        + "Options:\n"
+        + "  --json                    Output as JSON (default)\n"
+        + "  --text                    Output as human-readable summary\n"
+        + "  --project                 Project root directory (default: current directory)\n"
+        + "  --file                    Fix a single file\n"
+        + "  --dry-run                 Preview fixes without writing files\n"
+        + "  --include-review-needed   Also apply fixes that may need review (e.g. unused import removal)\n"
+        + "  --help, -h                Show this help text\n"
+        + "\n"
+        + "Safety levels:\n"
+        + "  Safe              Always applied by default\n"
+        + "  ReviewNeeded      Only applied with --include-review-needed flag\n"
+        + "  SuggestionOnly    Never applied automatically — reported in results only\n"
+        + "\n"
+        + "Examples:\n"
+        + "  nlc fix\n"
+        + "  nlc fix --dry-run --text\n"
+        + "  nlc fix --include-review-needed\n"
+        + "  nlc fix --file Program.nl\n"
+        + "  nlc fix --project examples/16-task-cli"
+}
+
+func CliFixProjectDirectoryNotFoundMessage(projectDir: string): string {
+    return "Directory not found: " + projectDir
+}
+
+func CliFixFileNotFoundMessage(filePath: string): string {
+    return "File not found: " + filePath
+}
+
+func CliFixNoFilesFoundMessage(): string {
+    return "No .nl files found."
+}
+
+func CliFixFailedMessage(message: string): string {
+    return "Fix failed: " + message
+}
+
+func CliFixNothingToFixMessage(): string {
+    return "Nothing to fix."
+}
+
+func CliFixAppliedHeader(
+    appliedCountText: string,
+    appliedCount: int,
+    filesModifiedText: string,
+    filesModified: int,
+    dryRun: int): string {
+    verb := "Fixed"
+    if dryRun != 0 {
+        verb = "Would fix"
+    }
+
+    issueSuffix := "s"
+    if appliedCount == 1 {
+        issueSuffix = ""
+    }
+
+    fileWord := "files"
+    if filesModified == 1 {
+        fileWord = "file"
+    }
+
+    return verb + " " + appliedCountText + " issue" + issueSuffix + " in " + filesModifiedText + " " + fileWord + ":"
+}
+
+func CliFixAppliedFileHeader(filePath: string): string {
+    return "  " + filePath + ":"
+}
+
+func CliFixEntryLine(diagnosticCode: string, title: string): string {
+    return "    [" + diagnosticCode + "] " + title
+}
+
+func CliFixSkippedHeader(skippedCountText: string, skippedCount: int): string {
+    suffix := "es"
+    if skippedCount == 1 {
+        suffix = ""
+    }
+
+    return "Skipped " + skippedCountText + " fix" + suffix + ":"
+}
+
+func CliFixSkippedReason(safety: string): string {
+    if safety == "suggestionOnly" {
+        return "suggestion only — manual review required"
+    }
+
+    return "requires --include-review-needed flag"
+}
+
+func CliFixSkippedLine(diagnosticCode: string, title: string, reason: string): string {
+    return "  [" + diagnosticCode + "] " + title + " (" + reason + ")"
+}
+
 func CliAddArgumentSummaryInto(args: string[], resultIndices: int[]): int {
     arguments := new CliArgumentTable { Args: args }
     results := new CliIndexResultTable { Indices: resultIndices }

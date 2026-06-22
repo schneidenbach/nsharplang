@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using NSharpLang.Compiler;
 
 namespace NSharpLang.Cli.Commands;
@@ -222,6 +223,100 @@ internal static class FixCommandKernels
         }
     }
 
+    internal static string GetHelpText()
+        => TryGetMessage(bindings => bindings.HelpText(), out var message)
+            ? message
+            : FallbackHelpText();
+
+    internal static string GetProjectDirectoryNotFoundMessage(string projectDir)
+        => TryGetMessage(bindings => bindings.ProjectDirectoryNotFoundMessage(projectDir), out var message)
+            ? message
+            : FallbackProjectDirectoryNotFoundMessage(projectDir);
+
+    internal static string GetFileNotFoundMessage(string filePath)
+        => TryGetMessage(bindings => bindings.FileNotFoundMessage(filePath), out var message)
+            ? message
+            : FallbackFileNotFoundMessage(filePath);
+
+    internal static string GetNoFilesFoundMessage()
+        => TryGetMessage(bindings => bindings.NoFilesFoundMessage(), out var message)
+            ? message
+            : FallbackNoFilesFoundMessage();
+
+    internal static string GetFailedMessage(string message)
+        => TryGetMessage(bindings => bindings.FailedMessage(message), out var result)
+            ? result
+            : FallbackFailedMessage(message);
+
+    internal static string GetNothingToFixMessage()
+        => TryGetMessage(bindings => bindings.NothingToFixMessage(), out var message)
+            ? message
+            : FallbackNothingToFixMessage();
+
+    internal static string GetAppliedHeader(int appliedCount, int filesModified, bool dryRun)
+    {
+        var appliedCountText = appliedCount.ToString(CultureInfo.InvariantCulture);
+        var filesModifiedText = filesModified.ToString(CultureInfo.InvariantCulture);
+        return TryGetMessage(
+            bindings => bindings.AppliedHeader(
+                appliedCountText,
+                appliedCount,
+                filesModifiedText,
+                filesModified,
+                dryRun ? 1 : 0),
+            out var message)
+            ? message
+            : FallbackAppliedHeader(appliedCountText, appliedCount, filesModifiedText, filesModified, dryRun);
+    }
+
+    internal static string GetAppliedFileHeader(string filePath)
+        => TryGetMessage(bindings => bindings.AppliedFileHeader(filePath), out var message)
+            ? message
+            : FallbackAppliedFileHeader(filePath);
+
+    internal static string GetEntryLine(string diagnosticCode, string title)
+        => TryGetMessage(bindings => bindings.EntryLine(diagnosticCode, title), out var message)
+            ? message
+            : FallbackEntryLine(diagnosticCode, title);
+
+    internal static string GetSkippedHeader(int skippedCount)
+    {
+        var skippedCountText = skippedCount.ToString(CultureInfo.InvariantCulture);
+        return TryGetMessage(bindings => bindings.SkippedHeader(skippedCountText, skippedCount), out var message)
+            ? message
+            : FallbackSkippedHeader(skippedCountText, skippedCount);
+    }
+
+    internal static string GetSkippedReason(string safety)
+        => TryGetMessage(bindings => bindings.SkippedReason(safety), out var message)
+            ? message
+            : FallbackSkippedReason(safety);
+
+    internal static string GetSkippedLine(string diagnosticCode, string title, string reason)
+        => TryGetMessage(bindings => bindings.SkippedLine(diagnosticCode, title, reason), out var message)
+            ? message
+            : FallbackSkippedLine(diagnosticCode, title, reason);
+
+    private static bool TryGetMessage(Func<Bindings, string> getMessage, out string message)
+    {
+        message = string.Empty;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        try
+        {
+            message = getMessage(bindings);
+            return !string.IsNullOrEmpty(message);
+        }
+        catch
+        {
+            message = string.Empty;
+            return false;
+        }
+    }
+
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
             DogfoodKernelLoader.CreateDelegate<CliFixSafetyFilterIndicesInto>(
@@ -232,7 +327,43 @@ internal static class FixCommandKernels
                 "CliFixSkippedIndicesInto"),
             DogfoodKernelLoader.CreateDelegate<CliFixAppliedFileGroupsInto>(
                 programType,
-                "CliFixAppliedFileGroupsInto")));
+                "CliFixAppliedFileGroupsInto"),
+            DogfoodKernelLoader.CreateDelegate<CliFixHelpText>(
+                programType,
+                "CliFixHelpText"),
+            DogfoodKernelLoader.CreateDelegate<CliFixProjectDirectoryNotFoundMessage>(
+                programType,
+                "CliFixProjectDirectoryNotFoundMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliFixFileNotFoundMessage>(
+                programType,
+                "CliFixFileNotFoundMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliFixNoFilesFoundMessage>(
+                programType,
+                "CliFixNoFilesFoundMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliFixFailedMessage>(
+                programType,
+                "CliFixFailedMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliFixNothingToFixMessage>(
+                programType,
+                "CliFixNothingToFixMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliFixAppliedHeader>(
+                programType,
+                "CliFixAppliedHeader"),
+            DogfoodKernelLoader.CreateDelegate<CliFixAppliedFileHeader>(
+                programType,
+                "CliFixAppliedFileHeader"),
+            DogfoodKernelLoader.CreateDelegate<CliFixEntryLine>(
+                programType,
+                "CliFixEntryLine"),
+            DogfoodKernelLoader.CreateDelegate<CliFixSkippedHeader>(
+                programType,
+                "CliFixSkippedHeader"),
+            DogfoodKernelLoader.CreateDelegate<CliFixSkippedReason>(
+                programType,
+                "CliFixSkippedReason"),
+            DogfoodKernelLoader.CreateDelegate<CliFixSkippedLine>(
+                programType,
+                "CliFixSkippedLine")));
 
     private static int GetFixSafetyRank(FixSafety safety) =>
         safety switch
@@ -273,10 +404,126 @@ internal static class FixCommandKernels
         int[] resultCounts,
         int[] resultIndices);
 
+    private delegate string CliFixHelpText();
+
+    private delegate string CliFixProjectDirectoryNotFoundMessage(string projectDir);
+
+    private delegate string CliFixFileNotFoundMessage(string filePath);
+
+    private delegate string CliFixNoFilesFoundMessage();
+
+    private delegate string CliFixFailedMessage(string message);
+
+    private delegate string CliFixNothingToFixMessage();
+
+    private delegate string CliFixAppliedHeader(
+        string appliedCountText,
+        int appliedCount,
+        string filesModifiedText,
+        int filesModified,
+        int dryRun);
+
+    private delegate string CliFixAppliedFileHeader(string filePath);
+
+    private delegate string CliFixEntryLine(string diagnosticCode, string title);
+
+    private delegate string CliFixSkippedHeader(string skippedCountText, int skippedCount);
+
+    private delegate string CliFixSkippedReason(string safety);
+
+    private delegate string CliFixSkippedLine(string diagnosticCode, string title, string reason);
+
     private sealed record Bindings(
         CliFixSafetyFilterIndicesInto SafetyFilter,
         CliFixSkippedIndicesInto SkippedIndices,
-        CliFixAppliedFileGroupsInto AppliedFileGroups);
+        CliFixAppliedFileGroupsInto AppliedFileGroups,
+        CliFixHelpText HelpText,
+        CliFixProjectDirectoryNotFoundMessage ProjectDirectoryNotFoundMessage,
+        CliFixFileNotFoundMessage FileNotFoundMessage,
+        CliFixNoFilesFoundMessage NoFilesFoundMessage,
+        CliFixFailedMessage FailedMessage,
+        CliFixNothingToFixMessage NothingToFixMessage,
+        CliFixAppliedHeader AppliedHeader,
+        CliFixAppliedFileHeader AppliedFileHeader,
+        CliFixEntryLine EntryLine,
+        CliFixSkippedHeader SkippedHeader,
+        CliFixSkippedReason SkippedReason,
+        CliFixSkippedLine SkippedLine);
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product fix messages route through CliFix* kernels.
+    private static string FallbackHelpText()
+        => "N# Auto-Fix\n"
+           + "\n"
+           + "Usage: nlc fix [options] [project-dir]\n"
+           + "\n"
+           + "Options:\n"
+           + "  --json                    Output as JSON (default)\n"
+           + "  --text                    Output as human-readable summary\n"
+           + "  --project                 Project root directory (default: current directory)\n"
+           + "  --file                    Fix a single file\n"
+           + "  --dry-run                 Preview fixes without writing files\n"
+           + "  --include-review-needed   Also apply fixes that may need review (e.g. unused import removal)\n"
+           + "  --help, -h                Show this help text\n"
+           + "\n"
+           + "Safety levels:\n"
+           + "  Safe              Always applied by default\n"
+           + "  ReviewNeeded      Only applied with --include-review-needed flag\n"
+           + "  SuggestionOnly    Never applied automatically — reported in results only\n"
+           + "\n"
+           + "Examples:\n"
+           + "  nlc fix\n"
+           + "  nlc fix --dry-run --text\n"
+           + "  nlc fix --include-review-needed\n"
+           + "  nlc fix --file Program.nl\n"
+           + "  nlc fix --project examples/16-task-cli";
+
+    private static string FallbackProjectDirectoryNotFoundMessage(string projectDir)
+        => $"Directory not found: {projectDir}";
+
+    private static string FallbackFileNotFoundMessage(string filePath)
+        => $"File not found: {filePath}";
+
+    private static string FallbackNoFilesFoundMessage()
+        => "No .nl files found.";
+
+    private static string FallbackFailedMessage(string message)
+        => $"Fix failed: {message}";
+
+    private static string FallbackNothingToFixMessage()
+        => "Nothing to fix.";
+
+    private static string FallbackAppliedHeader(
+        string appliedCountText,
+        int appliedCount,
+        string filesModifiedText,
+        int filesModified,
+        bool dryRun)
+    {
+        var verb = dryRun ? "Would fix" : "Fixed";
+        var issueSuffix = appliedCount == 1 ? string.Empty : "s";
+        var fileWord = filesModified == 1 ? "file" : "files";
+        return $"{verb} {appliedCountText} issue{issueSuffix} in {filesModifiedText} {fileWord}:";
+    }
+
+    private static string FallbackAppliedFileHeader(string filePath)
+        => $"  {filePath}:";
+
+    private static string FallbackEntryLine(string diagnosticCode, string title)
+        => $"    [{diagnosticCode}] {title}";
+
+    private static string FallbackSkippedHeader(string skippedCountText, int skippedCount)
+    {
+        var suffix = skippedCount == 1 ? string.Empty : "es";
+        return $"Skipped {skippedCountText} fix{suffix}:";
+    }
+
+    private static string FallbackSkippedReason(string safety)
+        => safety == "suggestionOnly"
+            ? "suggestion only — manual review required"
+            : "requires --include-review-needed flag";
+
+    private static string FallbackSkippedLine(string diagnosticCode, string title, string reason)
+        => $"  [{diagnosticCode}] {title} ({reason})";
 
     private sealed class SafetyFilterScratch
     {

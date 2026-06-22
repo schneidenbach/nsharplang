@@ -44,7 +44,7 @@ public static class FixCommand
 
         if (!Directory.Exists(projectDir))
         {
-            return EmitError(useText, $"Directory not found: {projectDir}", projectDir);
+            return EmitError(useText, FixCommandKernels.GetProjectDirectoryNotFoundMessage(projectDir), projectDir);
         }
 
         try
@@ -56,7 +56,7 @@ public static class FixCommand
                 var fullPath = Path.GetFullPath(Path.IsPathRooted(fileArg) ? fileArg : Path.Combine(projectDir, fileArg));
                 if (!File.Exists(fullPath))
                 {
-                    return EmitError(useText, $"File not found: {fullPath}", projectDir);
+                    return EmitError(useText, FixCommandKernels.GetFileNotFoundMessage(fullPath), projectDir);
                 }
                 files = new List<string> { fullPath };
             }
@@ -71,7 +71,7 @@ public static class FixCommand
             if (files.Count == 0)
             {
                 if (useText)
-                    Console.Error.WriteLine("No .nl files found.");
+                    Console.Error.WriteLine(FixCommandKernels.GetNoFilesFoundMessage());
                 else
                     Console.Write(ResultJson(projectDir, dryRun, includeReviewNeeded,
                         Array.Empty<FixEntry>(), Array.Empty<FixEntry>(), 0));
@@ -160,7 +160,7 @@ public static class FixCommand
         }
         catch (Exception ex)
         {
-            return EmitError(useText, $"Fix failed: {ex.Message}", projectDir);
+            return EmitError(useText, FixCommandKernels.GetFailedMessage(ex.Message), projectDir);
         }
     }
 
@@ -180,30 +180,7 @@ public static class FixCommand
 
     public static int ShowHelp()
     {
-        Console.WriteLine(@"N# Auto-Fix
-
-Usage: nlc fix [options] [project-dir]
-
-Options:
-  --json                    Output as JSON (default)
-  --text                    Output as human-readable summary
-  --project                 Project root directory (default: current directory)
-  --file                    Fix a single file
-  --dry-run                 Preview fixes without writing files
-  --include-review-needed   Also apply fixes that may need review (e.g. unused import removal)
-  --help, -h                Show this help text
-
-Safety levels:
-  Safe              Always applied by default
-  ReviewNeeded      Only applied with --include-review-needed flag
-  SuggestionOnly    Never applied automatically — reported in results only
-
-Examples:
-  nlc fix
-  nlc fix --dry-run --text
-  nlc fix --include-review-needed
-  nlc fix --file Program.nl
-  nlc fix --project examples/16-task-cli");
+        Console.WriteLine(FixCommandKernels.GetHelpText());
 
         return 0;
     }
@@ -217,29 +194,27 @@ Examples:
     {
         if (results.Count == 0)
         {
-            Console.Error.WriteLine("Nothing to fix.");
+            Console.Error.WriteLine(FixCommandKernels.GetNothingToFixMessage());
             return;
         }
 
         // Report applied fixes
         if (applied.Count > 0)
         {
-            var verb = dryRun ? "Would fix" : "Fixed";
-            var fileWord = filesModified == 1 ? "file" : "files";
-            Console.Error.WriteLine($"{verb} {applied.Count} issue{(applied.Count == 1 ? "" : "s")} in {filesModified} {fileWord}:");
+            Console.Error.WriteLine(FixCommandKernels.GetAppliedHeader(applied.Count, filesModified, dryRun));
 
             if (FixCommandKernels.TryGroupAppliedEntriesByFile(applied, out var groupedApplied))
             {
                 for (var groupIndex = 0; groupIndex < groupedApplied.GroupCount; groupIndex++)
                 {
-                    Console.Error.WriteLine($"  {groupedApplied.Files[groupIndex]}:");
+                    Console.Error.WriteLine(FixCommandKernels.GetAppliedFileHeader(groupedApplied.Files[groupIndex]));
                     var start = groupedApplied.Starts[groupIndex];
                     var count = groupedApplied.Counts[groupIndex];
                     for (var i = 0; i < count; i++)
                     {
                         var sourceIndex = groupedApplied.Indices[start + i];
                         var fix = applied[sourceIndex];
-                        Console.Error.WriteLine($"    [{fix.DiagnosticCode}] {fix.Title}");
+                        Console.Error.WriteLine(FixCommandKernels.GetEntryLine(fix.DiagnosticCode, fix.Title));
                     }
                 }
             }
@@ -248,10 +223,10 @@ Examples:
                 var byFile = applied.GroupBy(f => f.File);
                 foreach (var group in byFile)
                 {
-                    Console.Error.WriteLine($"  {group.Key}:");
+                    Console.Error.WriteLine(FixCommandKernels.GetAppliedFileHeader(group.Key));
                     foreach (var fix in group)
                     {
-                        Console.Error.WriteLine($"    [{fix.DiagnosticCode}] {fix.Title}");
+                        Console.Error.WriteLine(FixCommandKernels.GetEntryLine(fix.DiagnosticCode, fix.Title));
                     }
                 }
             }
@@ -267,13 +242,11 @@ Examples:
         if (skipped.Count > 0)
         {
             Console.Error.WriteLine();
-            Console.Error.WriteLine($"Skipped {skipped.Count} fix{(skipped.Count == 1 ? "" : "es")}:");
+            Console.Error.WriteLine(FixCommandKernels.GetSkippedHeader(skipped.Count));
             foreach (var fix in skipped)
             {
-                var reason = fix.Safety == "suggestionOnly"
-                    ? "suggestion only — manual review required"
-                    : "requires --include-review-needed flag";
-                Console.Error.WriteLine($"  [{fix.DiagnosticCode}] {fix.Title} ({reason})");
+                var reason = FixCommandKernels.GetSkippedReason(fix.Safety);
+                Console.Error.WriteLine(FixCommandKernels.GetSkippedLine(fix.DiagnosticCode, fix.Title, reason));
             }
         }
     }

@@ -2363,6 +2363,50 @@ func Main() {
     }
 
     [Fact]
+    public void FixCommandKernels_ShapesMessages()
+    {
+        var helpText = FixCommandKernels.GetHelpText();
+        Assert.Contains("N# Auto-Fix", helpText);
+        Assert.Contains("Usage: nlc fix [options] [project-dir]", helpText);
+        Assert.Contains("--include-review-needed", helpText);
+
+        Assert.Equal(
+            "Directory not found: /tmp/missing-fix-project",
+            FixCommandKernels.GetProjectDirectoryNotFoundMessage("/tmp/missing-fix-project"));
+        Assert.Equal("File not found: Missing.nl", FixCommandKernels.GetFileNotFoundMessage("Missing.nl"));
+        Assert.Equal("No .nl files found.", FixCommandKernels.GetNoFilesFoundMessage());
+        Assert.Equal("Fix failed: disk full", FixCommandKernels.GetFailedMessage("disk full"));
+        Assert.Equal("Nothing to fix.", FixCommandKernels.GetNothingToFixMessage());
+        Assert.Equal("Would fix 1 issue in 1 file:", FixCommandKernels.GetAppliedHeader(1, 1, dryRun: true));
+        Assert.Equal("Fixed 2 issues in 3 files:", FixCommandKernels.GetAppliedHeader(2, 3, dryRun: false));
+        Assert.Equal("  src/Program.nl:", FixCommandKernels.GetAppliedFileHeader("src/Program.nl"));
+        Assert.Equal("    [NL001] Remove unused variable", FixCommandKernels.GetEntryLine("NL001", "Remove unused variable"));
+        Assert.Equal("Skipped 1 fix:", FixCommandKernels.GetSkippedHeader(1));
+        Assert.Equal("Skipped 2 fixes:", FixCommandKernels.GetSkippedHeader(2));
+        Assert.Equal(
+            "suggestion only — manual review required",
+            FixCommandKernels.GetSkippedReason("suggestionOnly"));
+        Assert.Equal(
+            "requires --include-review-needed flag",
+            FixCommandKernels.GetSkippedReason("reviewNeeded"));
+        Assert.Equal(
+            "  [NL010] Remove unused import (requires --include-review-needed flag)",
+            FixCommandKernels.GetSkippedLine("NL010", "Remove unused import", "requires --include-review-needed flag"));
+
+        var (helpExitCode, helpStdout, helpStderr) = CaptureConsole(() => FixCommand.Execute(new[] { "--help" }));
+        Assert.Equal(0, helpExitCode);
+        Assert.Contains("Usage: nlc fix [options] [project-dir]", helpStdout);
+        Assert.True(string.IsNullOrWhiteSpace(helpStderr));
+
+        var missingProject = Path.Combine(Path.GetTempPath(), $"nsharp-fix-missing-{Guid.NewGuid():N}");
+        var (missingExitCode, missingStdout, missingStderr) = CaptureConsole(() =>
+            FixCommand.Execute(new[] { "--project", missingProject, "--text" }));
+        Assert.Equal(1, missingExitCode);
+        Assert.True(string.IsNullOrWhiteSpace(missingStdout));
+        Assert.Contains($"Directory not found: {Path.GetFullPath(missingProject)}", missingStderr);
+    }
+
+    [Fact]
     public void UpdateCommandKernels_SummarizesArguments()
     {
         var args = new[] { "--dry-run", "-v", "Newtonsoft.Json", "-h" };

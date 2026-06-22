@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-22 — Fix command messages move into product N#
+
+`FixCommand` no longer owns help text, missing-project/file diagnostics, no-files and nothing-to-fix status,
+final failure wrappers, applied-fix headers, per-file/per-fix lines, skipped-fix headers, or skipped-fix reason
+selection in C#. The shipped `CliFix*` dogfood kernels now shape those strings through `FixCommandKernels`; C#
+keeps file discovery, code-action collection, edit validation/application, atomic writes, JSON envelope
+serialization, and fallback/oracle text only.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.FixCommandArgumentKernels_SummarizesOptionsAndProject|FullyQualifiedName~CliCommandTests.FixCommandArgumentKernels_SelectsEffectiveOutputMode|FullyQualifiedName~CliCommandTests.FixCommandKernels_ShapesMessages|FullyQualifiedName~CliCommandTests.FixCommandKernels_FiltersFixesBySafety|FullyQualifiedName~CliCommandTests.FixCommandKernels_SelectsSkippedFixEntries|FullyQualifiedName~CliCommandTests.FixCommandKernels_GroupsAppliedFixEntriesByFile|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`;
+`./scripts/dev.sh FixCommand`.
+
 ## 2026-06-22 — Check command messages move into product N#
 
 `CheckCommand` no longer owns help text, missing-project diagnostics, invalid systems-report text-mode

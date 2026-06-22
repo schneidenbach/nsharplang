@@ -7135,6 +7135,18 @@ func outer(x: int): int {
         Assert.Contains("CliCheckFailedMessage", methodNames!); // product check failure message shaping.
         Assert.Contains("CliFixArgumentSummaryInto", methodNames!); // product fix argument parsing.
         Assert.Contains("CliFixEffectiveOutputMode", methodNames!); // product fix output mode selection.
+        Assert.Contains("CliFixHelpText", methodNames!); // product fix help text shaping.
+        Assert.Contains("CliFixProjectDirectoryNotFoundMessage", methodNames!); // product fix missing-project message shaping.
+        Assert.Contains("CliFixFileNotFoundMessage", methodNames!); // product fix missing-file message shaping.
+        Assert.Contains("CliFixNoFilesFoundMessage", methodNames!); // product fix no-files message shaping.
+        Assert.Contains("CliFixFailedMessage", methodNames!); // product fix failure message shaping.
+        Assert.Contains("CliFixNothingToFixMessage", methodNames!); // product fix nothing-to-fix message shaping.
+        Assert.Contains("CliFixAppliedHeader", methodNames!); // product fix applied summary shaping.
+        Assert.Contains("CliFixAppliedFileHeader", methodNames!); // product fix per-file header shaping.
+        Assert.Contains("CliFixEntryLine", methodNames!); // product fix entry line shaping.
+        Assert.Contains("CliFixSkippedHeader", methodNames!); // product fix skipped summary shaping.
+        Assert.Contains("CliFixSkippedReason", methodNames!); // product fix skipped reason selection.
+        Assert.Contains("CliFixSkippedLine", methodNames!); // product fix skipped line shaping.
         Assert.Contains("CliNewArgumentSummaryInto", methodNames!); // product new argument parsing.
         Assert.Contains("CliNewHelpText", methodNames!); // product new help text shaping.
         Assert.Contains("CliNewUsageMessage", methodNames!); // product new usage message shaping.
@@ -15854,6 +15866,54 @@ class OtherZetaType {
                     "CliFixEffectiveOutputMode",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliFixEffectiveOutputMode.");
+            var cliFixHelpText = programType.GetMethod(
+                    "CliFixHelpText",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliFixHelpText.");
+            var cliFixProjectDirectoryNotFoundMessage = programType.GetMethod(
+                    "CliFixProjectDirectoryNotFoundMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliFixProjectDirectoryNotFoundMessage.");
+            var cliFixFileNotFoundMessage = programType.GetMethod(
+                    "CliFixFileNotFoundMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliFixFileNotFoundMessage.");
+            var cliFixNoFilesFoundMessage = programType.GetMethod(
+                    "CliFixNoFilesFoundMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliFixNoFilesFoundMessage.");
+            var cliFixFailedMessage = programType.GetMethod(
+                    "CliFixFailedMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliFixFailedMessage.");
+            var cliFixNothingToFixMessage = programType.GetMethod(
+                    "CliFixNothingToFixMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliFixNothingToFixMessage.");
+            var cliFixAppliedHeader = programType.GetMethod(
+                    "CliFixAppliedHeader",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliFixAppliedHeader.");
+            var cliFixAppliedFileHeader = programType.GetMethod(
+                    "CliFixAppliedFileHeader",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliFixAppliedFileHeader.");
+            var cliFixEntryLine = programType.GetMethod(
+                    "CliFixEntryLine",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliFixEntryLine.");
+            var cliFixSkippedHeader = programType.GetMethod(
+                    "CliFixSkippedHeader",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliFixSkippedHeader.");
+            var cliFixSkippedReason = programType.GetMethod(
+                    "CliFixSkippedReason",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliFixSkippedReason.");
+            var cliFixSkippedLine = programType.GetMethod(
+                    "CliFixSkippedLine",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliFixSkippedLine.");
             var cliNewArgumentSummaryInto = programType.GetMethod(
                     "CliNewArgumentSummaryInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -17737,6 +17797,19 @@ func main(customer: Customer, résumé: Profile) {
                 cliCheckFailedMessage);
             AssertCliFixArgumentsLikeProduction(cliFixArgumentSummaryInto);
             AssertCliFixOutputModesLikeProduction(cliFixEffectiveOutputMode);
+            AssertCliFixMessagesLikeProduction(
+                cliFixHelpText,
+                cliFixProjectDirectoryNotFoundMessage,
+                cliFixFileNotFoundMessage,
+                cliFixNoFilesFoundMessage,
+                cliFixFailedMessage,
+                cliFixNothingToFixMessage,
+                cliFixAppliedHeader,
+                cliFixAppliedFileHeader,
+                cliFixEntryLine,
+                cliFixSkippedHeader,
+                cliFixSkippedReason,
+                cliFixSkippedLine);
             AssertCliNewArgumentsLikeProduction(cliNewArgumentSummaryInto);
             AssertCliNewMessagesLikeProduction(
                 cliNewHelpText,
@@ -21922,6 +21995,79 @@ func main() {
         }
 
         return indices;
+    }
+
+    private static void AssertCliFixMessagesLikeProduction(
+        MethodInfo cliFixHelpText,
+        MethodInfo cliFixProjectDirectoryNotFoundMessage,
+        MethodInfo cliFixFileNotFoundMessage,
+        MethodInfo cliFixNoFilesFoundMessage,
+        MethodInfo cliFixFailedMessage,
+        MethodInfo cliFixNothingToFixMessage,
+        MethodInfo cliFixAppliedHeader,
+        MethodInfo cliFixAppliedFileHeader,
+        MethodInfo cliFixEntryLine,
+        MethodInfo cliFixSkippedHeader,
+        MethodInfo cliFixSkippedReason,
+        MethodInfo cliFixSkippedLine)
+    {
+        var helpText = (string)(cliFixHelpText.Invoke(null, Array.Empty<object>()) ?? "<null>");
+        Assert.Contains("N# Auto-Fix", helpText);
+        Assert.Contains("Usage: nlc fix [options] [project-dir]", helpText);
+        Assert.Contains("--include-review-needed", helpText);
+
+        Assert.Equal(
+            "Directory not found: /tmp/missing-fix-project",
+            (string)(cliFixProjectDirectoryNotFoundMessage.Invoke(
+                null,
+                new object[] { "/tmp/missing-fix-project" }) ?? "<null>"));
+        Assert.Equal(
+            "File not found: Missing.nl",
+            (string)(cliFixFileNotFoundMessage.Invoke(null, new object[] { "Missing.nl" }) ?? "<null>"));
+        Assert.Equal(
+            "No .nl files found.",
+            (string)(cliFixNoFilesFoundMessage.Invoke(null, Array.Empty<object>()) ?? "<null>"));
+        Assert.Equal(
+            "Fix failed: disk full",
+            (string)(cliFixFailedMessage.Invoke(null, new object[] { "disk full" }) ?? "<null>"));
+        Assert.Equal(
+            "Nothing to fix.",
+            (string)(cliFixNothingToFixMessage.Invoke(null, Array.Empty<object>()) ?? "<null>"));
+        Assert.Equal(
+            "Would fix 1 issue in 1 file:",
+            (string)(cliFixAppliedHeader.Invoke(
+                null,
+                new object[] { "1", 1, "1", 1, 1 }) ?? "<null>"));
+        Assert.Equal(
+            "Fixed 2 issues in 3 files:",
+            (string)(cliFixAppliedHeader.Invoke(
+                null,
+                new object[] { "2", 2, "3", 3, 0 }) ?? "<null>"));
+        Assert.Equal(
+            "  src/Program.nl:",
+            (string)(cliFixAppliedFileHeader.Invoke(null, new object[] { "src/Program.nl" }) ?? "<null>"));
+        Assert.Equal(
+            "    [NL001] Remove unused variable",
+            (string)(cliFixEntryLine.Invoke(
+                null,
+                new object[] { "NL001", "Remove unused variable" }) ?? "<null>"));
+        Assert.Equal(
+            "Skipped 1 fix:",
+            (string)(cliFixSkippedHeader.Invoke(null, new object[] { "1", 1 }) ?? "<null>"));
+        Assert.Equal(
+            "Skipped 2 fixes:",
+            (string)(cliFixSkippedHeader.Invoke(null, new object[] { "2", 2 }) ?? "<null>"));
+        Assert.Equal(
+            "suggestion only — manual review required",
+            (string)(cliFixSkippedReason.Invoke(null, new object[] { "suggestionOnly" }) ?? "<null>"));
+        Assert.Equal(
+            "requires --include-review-needed flag",
+            (string)(cliFixSkippedReason.Invoke(null, new object[] { "reviewNeeded" }) ?? "<null>"));
+        Assert.Equal(
+            "  [NL010] Remove unused import (requires --include-review-needed flag)",
+            (string)(cliFixSkippedLine.Invoke(
+                null,
+                new object[] { "NL010", "Remove unused import", "requires --include-review-needed flag" }) ?? "<null>"));
     }
 
     private static void AssertCliUpdateArgumentsLikeProduction(MethodInfo cliUpdateArgumentSummaryInto)
