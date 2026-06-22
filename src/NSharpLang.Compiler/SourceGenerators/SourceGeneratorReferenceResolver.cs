@@ -792,32 +792,7 @@ public static class SourceGeneratorReferenceResolver
             return parsed ? (major, minor) : null;
         }
 
-        return ParseTargetFrameworkVersionWithCSharp(targetFramework);
-    }
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product source-generator target-framework parsing routes through SourceGeneratorReferenceResolverKernels.
-    private static (int Major, int Minor)? ParseTargetFrameworkVersionWithCSharp(string targetFramework)
-    {
-        var digits = new string(targetFramework
-            .SkipWhile(character => !char.IsDigit(character))
-            .TakeWhile(character => char.IsDigit(character) || character == '.')
-            .ToArray());
-
-        if (string.IsNullOrWhiteSpace(digits))
-        {
-            return null;
-        }
-
-        var parts = digits.Split('.', StringSplitOptions.RemoveEmptyEntries);
-        if (!int.TryParse(parts[0], out var major))
-        {
-            return null;
-        }
-
-        var minor = parts.Length > 1 && int.TryParse(parts[1], out var parsedMinor)
-            ? parsedMinor
-            : 0;
-        return (major, minor);
+        throw new InvalidOperationException("N# source-generator reference resolver kernel rejected target-framework version parsing.");
     }
 
     private static Version? TryParseVersion(string? value)
