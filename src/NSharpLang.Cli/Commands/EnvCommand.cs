@@ -116,31 +116,19 @@ public static class EnvCommand
     }
 
     internal static EnvOptionSummary GetOptionSummary(string[] args)
-        => EnvCommandKernels.TryGetOptionSummary(args, out var summary)
-            ? summary
-            : GetOptionSummaryWithCSharp(args);
+    {
+        if (EnvCommandKernels.TryGetOptionSummary(args, out var summary))
+            return summary;
+
+        throw new InvalidOperationException("N# env option parser kernel rejected the arguments.");
+    }
 
     internal static EnvOutputModeKind GetOutputMode(bool json)
-        => EnvCommandKernels.TryGetOutputMode(json, out var outputMode)
-            ? outputMode
-            : GetOutputModeWithCSharp(json);
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product env option parsing routes through EnvCommandKernels.
-    private static EnvOptionSummary GetOptionSummaryWithCSharp(string[] args)
-        => new(
-            ContainsArgWithCSharp(args, "--json"),
-            ContainsArgWithCSharp(args, "--help") || ContainsArgWithCSharp(args, "-h") || (args.Length > 0 && args[0] == "help"));
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product env output mode selection routes through EnvCommandKernels.
-    private static EnvOutputModeKind GetOutputModeWithCSharp(bool json)
-        => json ? EnvOutputModeKind.Json : EnvOutputModeKind.Text;
-
-    private static bool ContainsArgWithCSharp(string[] args, string value)
     {
-        for (var i = 0; i < args.Length; i++)
-            if (args[i] == value)
-                return true;
-        return false;
+        if (EnvCommandKernels.TryGetOutputMode(json, out var outputMode))
+            return outputMode;
+
+        throw new InvalidOperationException("N# env output-mode kernel rejected the options.");
     }
 
     static int ShowHelp()

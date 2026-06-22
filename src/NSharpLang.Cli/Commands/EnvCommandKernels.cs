@@ -87,77 +87,13 @@ internal static class EnvCommandKernels
     }
 
     internal static string GetHelpText()
-    {
-        if (TryGetMessage(bindings => bindings.EnvHelpText(), out var message))
-            return message;
-
-        return GetHelpTextWithCSharp();
-    }
+        => RequiredBindings.EnvHelpText();
 
     internal static string GetTextLine(EnvTextLineKind kind, string value)
-    {
-        if (TryGetMessage(bindings => bindings.EnvTextLine((int)kind, value), out var message))
-            return message;
+        => RequiredBindings.EnvTextLine((int)kind, value);
 
-        return GetTextLineWithCSharp(kind, value);
-    }
-
-    private static bool TryGetMessage(Func<Bindings, string> getMessage, out string message)
-    {
-        message = string.Empty;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        try
-        {
-            message = getMessage(bindings);
-            return !string.IsNullOrEmpty(message);
-        }
-        catch
-        {
-            message = string.Empty;
-            return false;
-        }
-    }
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product env help and text labels route through CliEnv* kernels.
-    private static string GetHelpTextWithCSharp()
-        => "N# Environment Info\n"
-           + "\n"
-           + "Usage: nlc env [options]\n"
-           + "\n"
-           + "Show toolchain and environment information.\n"
-           + "\n"
-           + "Options:\n"
-           + "  --json          Output as JSON envelope\n"
-           + "  --help, -h      Show this help text\n"
-           + "\n"
-           + "Examples:\n"
-           + "  nlc env\n"
-           + "  nlc env --json\n"
-           + "\n"
-           + "Exit codes:\n"
-           + "  0  Always succeeds";
-
-    private static string GetTextLineWithCSharp(EnvTextLineKind kind, string value)
-        => kind switch
-        {
-            EnvTextLineKind.NlcVersion => $"nlc version:    {value}",
-            EnvTextLineKind.DotnetVersion => $"dotnet version: {value}",
-            EnvTextLineKind.Runtime => $"runtime:        {value}",
-            EnvTextLineKind.Os => $"os:             {value}",
-            EnvTextLineKind.Arch => $"arch:           {value}",
-            EnvTextLineKind.NugetCache => $"nuget cache:    {value}",
-            EnvTextLineKind.NsharpBin => $"nsharp bin:     {value}",
-            EnvTextLineKind.NsharpPackages => $"nsharp packages: {value}",
-            EnvTextLineKind.Project => $"project:        {value}",
-            EnvTextLineKind.Target => $"target:         {value}",
-            EnvTextLineKind.OutputType => $"output type:    {value}",
-            EnvTextLineKind.Sdk => $"sdk:            {value}",
-            _ => string.Empty
-        };
+    private static Bindings RequiredBindings
+        => s_bindings.Value ?? throw new InvalidOperationException("N# env command kernels are unavailable.");
 
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
