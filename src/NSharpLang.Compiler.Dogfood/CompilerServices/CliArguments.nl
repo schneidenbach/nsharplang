@@ -8487,6 +8487,10 @@ func CliFormatWarningLine(relativePath: string, warning: string): string {
     return "Warning [" + relativePath + "]: " + warning
 }
 
+func CliFormatSafetyCheckFailedMessage(warnings: string): string {
+    return "Formatter safety check failed: " + warnings
+}
+
 func CliFormatCheckFailedHeader(countText: string): string {
     return "Formatting check failed for " + countText + " file(s):"
 }

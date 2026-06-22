@@ -4413,6 +4413,9 @@ Exit codes:
             "Warning [src/Program.nl]: Formatter safety check changed trivia.",
             FormatCommandKernels.GetWarningLine("src/Program.nl", "Formatter safety check changed trivia."));
         Assert.Equal(
+            "Formatter safety check failed: changed trivia; moved comment",
+            FormatCommandKernels.GetSafetyCheckFailedMessage("changed trivia; moved comment"));
+        Assert.Equal(
             "Formatting check failed for 2 file(s):",
             FormatCommandKernels.GetCheckFailedHeader(2));
         Assert.Equal("  src/Program.nl", FormatCommandKernels.GetCheckFailedPathLine("src/Program.nl"));

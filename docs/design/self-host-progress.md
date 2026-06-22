@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-22 — Format safety-check failures move into product N#
+
+`Program.FormatSource` no longer owns formatter safety-check failure text in C#. The shipped
+`CliFormatSafetyCheckFailedMessage` dogfood kernel now shapes the failure body through
+`FormatCommandKernels`; C# keeps warning collection, formatter invocation, and exception propagation only.
+This is a Stage 6 `C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.FormatCommandKernels_SummarizesOptions|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`;
+`./scripts/dev.sh FormatCommandKernels`.
+
 ## 2026-06-22 — Format warning lines move into product N#
 
 `Program.FormatSource` no longer owns formatter warning-line text such as `Warning [path]: ...` in C#.

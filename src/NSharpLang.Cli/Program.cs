@@ -1410,7 +1410,8 @@ public func Warmup(): void {
 
         if (!result.Success)
         {
-            throw new Exception($"Formatter safety check failed: {string.Join("; ", result.Warnings)}");
+            throw new Exception(FormatCommandKernels.GetSafetyCheckFailedMessage(
+                string.Join("; ", result.Warnings)));
         }
 
         return result.Text;
