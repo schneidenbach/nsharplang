@@ -7751,6 +7751,102 @@ func CliTestOutputMode(useJson: int): int {
     return 2
 }
 
+func CliTestHelpText(): string {
+    return "N# Test\n"
+        + "\n"
+        + "Usage: nlc test [options]\n"
+        + "\n"
+        + "Run `.tests.nl` suites through the IL compilation backend.\n"
+        + "\n"
+        + "Options:\n"
+        + "  --project <dir>       Project root directory (default: current directory)\n"
+        + "  --backend <mode>      Compilation backend: il\n"
+        + "  --filter <name>       Run only tests whose display name or fully-qualified name matches\n"
+        + "  --verbose             Show individual test results\n"
+        + "  --json                Output results as structured JSON (schemaVersion 1 envelope)\n"
+        + "  --timeout <duration>  Test timeout per assembly (e.g., 30s, 5m, 1h). Default: no timeout\n"
+        + "  --no-cache            Force clean rebuild before running tests (bypass incremental build)\n"
+        + "  --coverage            Planned; currently exits with unsupported-feature guidance\n"
+        + "  --coverage-report     Planned; currently exits with unsupported-feature guidance\n"
+        + "  --help, -h            Show this help text\n"
+        + "\n"
+        + "The test framework is configured in project.yml via the `testFramework` field.\n"
+        + "Supported values: xunit (default), nunit\n"
+        + "\n"
+        + "Coverage collection is not available in the native nlc test runner yet.\n"
+        + "When --coverage or --coverage-report is requested, nlc exits 1 and emits\n"
+        + "a structured JSON error if --json was also requested.\n"
+        + "\n"
+        + "Examples:\n"
+        + "  nlc test\n"
+        + "  nlc test --backend il\n"
+        + "  nlc test --filter AddPerson\n"
+        + "  nlc test --project examples/16-task-cli --verbose\n"
+        + "  nlc test --json\n"
+        + "\n"
+        + "Exit codes:\n"
+        + "  0  Tests passed\n"
+        + "  1  Compilation or test execution failed"
+}
+
+func CliTestMissingProjectFileMessage(): string {
+    return "IL-backed test runs require a project.yml file."
+}
+
+func CliTestCoverageUnsupportedMessage(): string {
+    return "Coverage collection is not available in nlc test yet. "
+        + "The current runner executes IL-backed xUnit/NUnit tests without instrumentation. "
+        + "Omit --coverage/--coverage-report until native coverage support lands."
+}
+
+func CliTestBuildFailedMessage(): string {
+    return "Test build failed."
+}
+
+func CliTestInvalidTimeoutMessage(timeout: string): string {
+    return "Invalid timeout format '" + timeout + "'. Expected a duration like 30s, 5m, or 1h."
+}
+
+func CliTestProjectStartMessage(projectRoot: string): string {
+    return "Testing project in " + projectRoot + "..."
+}
+
+func CliTestNoTestFilesMessage(): string {
+    return "No test files (*.tests.nl) found."
+}
+
+func CliTestFoundTestFilesMessage(countText: string, _testFileCount: int): string {
+    return "Found " + countText + " test file(s)"
+}
+
+func CliTestSummaryMessage(passedText: string, failedText: string, skippedText: string, totalText: string): string {
+    return "Passed: " + passedText + ", Failed: " + failedText + ", Skipped: " + skippedText + ", Total: " + totalText
+}
+
+func CliTestCompletedElapsedMessage(elapsedText: string): string {
+    return "  Tests completed in " + elapsedText
+}
+
+func CliTestFailedElapsedMessage(elapsedText: string): string {
+    return "  Tests failed in " + elapsedText
+}
+
+func CliTestFailedMessage(message: string): string {
+    return "Test failed: " + message
+}
+
+func CliTestVerbosePassedMessage(displayName: string, elapsedMillisecondsText: string): string {
+    return "Passed " + displayName + " [" + elapsedMillisecondsText + " ms]"
+}
+
+func CliTestVerboseSkippedMessage(displayName: string, reason: string): string {
+    return "Skipped " + displayName + ": " + reason
+}
+
+func CliTestVerboseFailedMessage(displayName: string, message: string): string {
+    return "Failed " + displayName + ": " + message
+}
+
 func CliTestDurationMilliseconds(duration: string): int {
     start := 0
     end := duration.Length - 1

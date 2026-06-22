@@ -4624,6 +4624,36 @@ dependencies:
     }
 
     [Fact]
+    public void TestCommandKernels_ShapesMessages()
+    {
+        var helpText = TestCommandKernels.GetHelpText();
+        Assert.StartsWith("N# Test", helpText);
+        Assert.Contains("Usage: nlc test [options]", helpText);
+        Assert.Contains("--coverage-report", helpText);
+
+        Assert.Equal(
+            "IL-backed test runs require a project.yml file.",
+            TestCommandKernels.GetMissingProjectFileMessage());
+        Assert.Equal(
+            "Coverage collection is not available in nlc test yet. The current runner executes IL-backed xUnit/NUnit tests without instrumentation. Omit --coverage/--coverage-report until native coverage support lands.",
+            TestCommandKernels.GetCoverageUnsupportedMessage());
+        Assert.Equal("Test build failed.", TestCommandKernels.GetBuildFailedMessage());
+        Assert.Equal(
+            "Invalid timeout format '7w'. Expected a duration like 30s, 5m, or 1h.",
+            TestCommandKernels.GetInvalidTimeoutMessage("7w"));
+        Assert.Equal("Testing project in /tmp/demo...", TestCommandKernels.GetProjectStartMessage("/tmp/demo"));
+        Assert.Equal("No test files (*.tests.nl) found.", TestCommandKernels.GetNoTestFilesMessage());
+        Assert.Equal("Found 3 test file(s)", TestCommandKernels.GetFoundTestFilesMessage(3));
+        Assert.Equal("Passed: 2, Failed: 1, Skipped: 4, Total: 7", TestCommandKernels.GetSummaryMessage(2, 1, 4, 7));
+        Assert.Equal("  Tests completed in 42ms", TestCommandKernels.GetCompletedElapsedMessage("42ms"));
+        Assert.Equal("  Tests failed in 42ms", TestCommandKernels.GetFailedElapsedMessage("42ms"));
+        Assert.Equal("Test failed: boom", TestCommandKernels.GetFailedMessage("boom"));
+        Assert.Equal("Passed adds person [12 ms]", TestCommandKernels.GetVerbosePassedMessage("adds person", "12"));
+        Assert.Equal("Skipped adds person: not today", TestCommandKernels.GetVerboseSkippedMessage("adds person", "not today"));
+        Assert.Equal("Failed adds person: nope", TestCommandKernels.GetVerboseFailedMessage("adds person", "nope"));
+    }
+
+    [Fact]
     public void TestCommandKernels_MatchFilters()
     {
         AssertFilter("addperson", "Add Person", string.Empty, "Tests.AddPerson", expected: true);

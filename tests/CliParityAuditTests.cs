@@ -1771,10 +1771,12 @@ func Main() {
 }
 """);
 
-            var (exitCode, _, _) = CaptureConsole(() =>
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
                 ExecuteProgram("test", "--project", tempDir));
 
             Assert.Equal(0, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stderr));
+            Assert.Contains("No test files (*.tests.nl) found.", stdout);
         }
         finally
         {

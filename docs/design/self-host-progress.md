@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-22 — Test command messages move into product N#
+
+`Program.TestCommand` and `Program.Testing` no longer own test help text, timeout validation errors,
+coverage/build/missing-project diagnostics, discovery status, summary/elapsed lines, final failure wrappers, or
+verbose pass/skip/fail lines in C#. The shipped `CliTest*` dogfood kernels now shape those strings through
+`TestCommandKernels`; C# keeps project/test discovery, IL-backed build/run orchestration, JSON envelope
+serialization, elapsed-time measurement, and fallback/oracle text only.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.TestCommandKernels_SummarizesOptions|FullyQualifiedName~CliCommandTests.TestCommandKernels_ParsesTimeoutDurations|FullyQualifiedName~CliCommandTests.TestCommandKernels_ShapesMessages|FullyQualifiedName~CliParityAuditTests.TestCommand_Help_DocumentsFilterAndVerbose|FullyQualifiedName~CliParityAuditTests.TestCommand_HelpWinsBeforeProjectResolution|FullyQualifiedName~CliParityAuditTests.TestCommand_NoTestFiles_ReturnsZero|FullyQualifiedName~CompilationBackendTests.TestCommand_CoverageJson_ReturnsUnsupportedErrorBeforeDiscovery|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`;
+`./scripts/dev.sh TestCommandKernels`.
+
 ## 2026-06-22 — Tidy command messages move into product N#
 
 `TidyCommand` no longer owns help text, missing-project diagnostics, parse-failure wrappers, fix-result status

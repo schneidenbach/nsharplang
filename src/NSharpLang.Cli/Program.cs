@@ -1213,41 +1213,7 @@ public func Warmup(): void {
         var testOptions = GetTestOptionSummary(args);
         if (testOptions.ShowHelp)
         {
-            Console.WriteLine(@"N# Test
-
-Usage: nlc test [options]
-
-Run `.tests.nl` suites through the IL compilation backend.
-
-Options:
-  --project <dir>       Project root directory (default: current directory)
-  --backend <mode>      Compilation backend: il
-  --filter <name>       Run only tests whose display name or fully-qualified name matches
-  --verbose             Show individual test results
-  --json                Output results as structured JSON (schemaVersion 1 envelope)
-  --timeout <duration>  Test timeout per assembly (e.g., 30s, 5m, 1h). Default: no timeout
-  --no-cache            Force clean rebuild before running tests (bypass incremental build)
-  --coverage            Planned; currently exits with unsupported-feature guidance
-  --coverage-report     Planned; currently exits with unsupported-feature guidance
-  --help, -h            Show this help text
-
-The test framework is configured in project.yml via the `testFramework` field.
-Supported values: xunit (default), nunit
-
-Coverage collection is not available in the native nlc test runner yet.
-When --coverage or --coverage-report is requested, nlc exits 1 and emits
-a structured JSON error if --json was also requested.
-
-Examples:
-  nlc test
-  nlc test --backend il
-  nlc test --filter AddPerson
-  nlc test --project examples/16-task-cli --verbose
-  nlc test --json
-
-Exit codes:
-  0  Tests passed
-  1  Compilation or test execution failed");
+            Console.WriteLine(TestCommandKernels.GetHelpText());
             return 0;
         }
 
@@ -1262,7 +1228,7 @@ Exit codes:
             timeoutMs = ParseDurationToMs(testOptions.Timeout);
             if (timeoutMs == null)
             {
-                var message = $"Invalid timeout format '{testOptions.Timeout}'. Expected a duration like 30s, 5m, or 1h.";
+                var message = TestCommandKernels.GetInvalidTimeoutMessage(testOptions.Timeout);
                 if (outputMode == TestOutputModeKind.Json)
                 {
                     OutputNativeTestJson(projectRoot, false, Array.Empty<NativeTestResult>(), message);
@@ -1276,17 +1242,18 @@ Exit codes:
         var sw = System.Diagnostics.Stopwatch.StartNew();
         try
         {
-            if (outputMode == TestOutputModeKind.Text) Console.WriteLine($"Testing project in {projectRoot}...");
+            if (outputMode == TestOutputModeKind.Text) Console.WriteLine(TestCommandKernels.GetProjectStartMessage(projectRoot));
 
             if (testOptions.CollectCoverage || testOptions.CoverageReport)
             {
+                var message = TestCommandKernels.GetCoverageUnsupportedMessage();
                 if (outputMode == TestOutputModeKind.Json)
                 {
-                    OutputNativeTestJson(projectRoot, false, Array.Empty<NativeTestResult>(), CoverageUnsupportedMessage);
+                    OutputNativeTestJson(projectRoot, false, Array.Empty<NativeTestResult>(), message);
                     return 1;
                 }
 
-                return Error(CoverageUnsupportedMessage);
+                return Error(message);
             }
 
             // Find all .tests.nl files
@@ -1299,11 +1266,11 @@ Exit codes:
                     OutputNativeTestJson(projectRoot, true, Array.Empty<NativeTestResult>());
                     return 0;
                 }
-                Console.WriteLine("No test files (*.tests.nl) found.");
+                Console.WriteLine(TestCommandKernels.GetNoTestFilesMessage());
                 return 0;
             }
 
-            if (outputMode == TestOutputModeKind.Text) Console.WriteLine($"Found {testFiles.Length} test file(s)");
+            if (outputMode == TestOutputModeKind.Text) Console.WriteLine(TestCommandKernels.GetFoundTestFilesMessage(testFiles.Length));
 
             var projectConfig = ProjectFileParser.ParseFromDirectory(projectRoot);
             _ = ResolveCompilationBackend(testOptions.BackendOption, projectConfig);
@@ -1322,9 +1289,10 @@ Exit codes:
         }
         catch (Exception ex)
         {
-            if (outputMode == TestOutputModeKind.Text) Console.WriteLine($"  Tests failed in {FormatElapsed(sw.Elapsed)}");
+            if (outputMode == TestOutputModeKind.Text)
+                Console.WriteLine(TestCommandKernels.GetFailedElapsedMessage(FormatElapsed(sw.Elapsed)));
             if (outputMode == TestOutputModeKind.Json) { OutputNativeTestJson(projectRoot, false, Array.Empty<NativeTestResult>(), ex.Message); return 1; }
-            return Error($"Test failed: {ex.Message}");
+            return Error(TestCommandKernels.GetFailedMessage(ex.Message));
         }
     }
 

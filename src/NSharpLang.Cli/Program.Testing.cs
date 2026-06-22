@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -16,11 +17,6 @@ namespace NSharpLang.Cli;
 
 partial class Program
 {
-    private const string CoverageUnsupportedMessage =
-        "Coverage collection is not available in nlc test yet. " +
-        "The current runner executes IL-backed xUnit/NUnit tests without instrumentation. " +
-        "Omit --coverage/--coverage-report until native coverage support lands.";
-
     private sealed record NativeTestCase(
         string DisplayName,
         string FullyQualifiedName,
@@ -80,24 +76,26 @@ partial class Program
         var projectYmlPath = Path.Combine(projectRoot, "project.yml");
         if (!File.Exists(projectYmlPath))
         {
+            var message = TestCommandKernels.GetMissingProjectFileMessage();
             if (outputMode == TestOutputModeKind.Json)
             {
-                OutputNativeTestJson(projectRoot, false, Array.Empty<NativeTestResult>(), "IL-backed test runs require a project.yml file.");
+                OutputNativeTestJson(projectRoot, false, Array.Empty<NativeTestResult>(), message);
                 return 1;
             }
 
-            return Error("IL-backed test runs require a project.yml file.");
+            return Error(message);
         }
 
         if (collectCoverage || coverageReport)
         {
+            var message = TestCommandKernels.GetCoverageUnsupportedMessage();
             if (outputMode == TestOutputModeKind.Json)
             {
-                OutputNativeTestJson(projectRoot, false, Array.Empty<NativeTestResult>(), CoverageUnsupportedMessage);
+                OutputNativeTestJson(projectRoot, false, Array.Empty<NativeTestResult>(), message);
                 return 1;
             }
 
-            return Error(CoverageUnsupportedMessage);
+            return Error(message);
         }
 
         projectConfig ??= ProjectFileParser.Parse(projectYmlPath);
@@ -119,13 +117,14 @@ partial class Program
 
             if (outputPath == null)
             {
+                var message = TestCommandKernels.GetBuildFailedMessage();
                 if (outputMode == TestOutputModeKind.Json)
                 {
-                    OutputNativeTestJson(projectRoot, false, Array.Empty<NativeTestResult>(), "Test build failed.");
+                    OutputNativeTestJson(projectRoot, false, Array.Empty<NativeTestResult>(), message);
                     return 1;
                 }
 
-                return Error("Test build failed.");
+                return Error(message);
             }
 
             var testRun = string.Equals(projectConfig.TestFramework, "nunit", StringComparison.OrdinalIgnoreCase)
@@ -140,9 +139,12 @@ partial class Program
             }
             else
             {
-                Console.WriteLine(
-                    $"Passed: {summary.Passed}, Failed: {summary.Failed}, Skipped: {summary.Skipped}, Total: {summary.Total}");
-                Console.WriteLine($"  Tests completed in {FormatElapsed(stopwatch.Elapsed)}");
+                Console.WriteLine(TestCommandKernels.GetSummaryMessage(
+                    summary.Passed,
+                    summary.Failed,
+                    summary.Skipped,
+                    summary.Total));
+                Console.WriteLine(TestCommandKernels.GetCompletedElapsedMessage(FormatElapsed(stopwatch.Elapsed)));
             }
 
             return summary.Ok ? 0 : 1;
@@ -151,7 +153,7 @@ partial class Program
         {
             if (outputMode == TestOutputModeKind.Text)
             {
-                Console.WriteLine($"  Tests failed in {FormatElapsed(stopwatch.Elapsed)}");
+                Console.WriteLine(TestCommandKernels.GetFailedElapsedMessage(FormatElapsed(stopwatch.Elapsed)));
             }
 
             if (outputMode == TestOutputModeKind.Json)
@@ -160,7 +162,7 @@ partial class Program
                 return 1;
             }
 
-            return Error($"Test failed: {ex.Message}");
+            return Error(TestCommandKernels.GetFailedMessage(ex.Message));
         }
     }
 
@@ -318,15 +320,13 @@ partial class Program
                 return;
             }
 
-            var prefix = outcome switch
-            {
-                "passed" => "Passed",
-                "skipped" => "Skipped",
-                _ => "Failed"
-            };
             Console.WriteLine(errorMessage == null
-                ? $"{prefix} {displayName} [{message.ExecutionTime * 1000:F0} ms]"
-                : $"{prefix} {displayName}: {errorMessage}");
+                ? TestCommandKernels.GetVerbosePassedMessage(
+                    displayName,
+                    (message.ExecutionTime * 1000).ToString("F0", CultureInfo.InvariantCulture))
+                : outcome == "skipped"
+                    ? TestCommandKernels.GetVerboseSkippedMessage(displayName, errorMessage)
+                    : TestCommandKernels.GetVerboseFailedMessage(displayName, errorMessage));
         }
 
         private void AddOutcomeRank(int rank)
@@ -474,7 +474,7 @@ partial class Program
         {
             if (verbose)
             {
-                Console.WriteLine($"Skipped {testCase.DisplayName}: {testCase.SkipReason}");
+                Console.WriteLine(TestCommandKernels.GetVerboseSkippedMessage(testCase.DisplayName, testCase.SkipReason));
             }
 
             return new NativeTestResult(
@@ -505,7 +505,9 @@ partial class Program
             stopwatch.Stop();
             if (verbose)
             {
-                Console.WriteLine($"Passed {testCase.DisplayName} [{stopwatch.Elapsed.TotalMilliseconds:F0} ms]");
+                Console.WriteLine(TestCommandKernels.GetVerbosePassedMessage(
+                    testCase.DisplayName,
+                    stopwatch.Elapsed.TotalMilliseconds.ToString("F0", CultureInfo.InvariantCulture)));
             }
 
             return new NativeTestResult(
@@ -522,7 +524,7 @@ partial class Program
             var failure = UnwrapInvocationException(ex);
             if (verbose)
             {
-                Console.WriteLine($"Failed {testCase.DisplayName}: {failure.Message}");
+                Console.WriteLine(TestCommandKernels.GetVerboseFailedMessage(testCase.DisplayName, failure.Message));
             }
 
             return new NativeTestResult(

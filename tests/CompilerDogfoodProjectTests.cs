@@ -7063,6 +7063,21 @@ func outer(x: int): int {
         Assert.Contains("CliTestOptionSummaryInto", methodNames!); // product test option parsing.
         Assert.Contains("CliTestOutputMode", methodNames!); // product test output mode selection.
         Assert.Contains("CliTestFilterMatches", methodNames!); // product test filter matching.
+        Assert.Contains("CliTestHelpText", methodNames!); // product test help text shaping.
+        Assert.Contains("CliTestMissingProjectFileMessage", methodNames!); // product test missing-project message shaping.
+        Assert.Contains("CliTestCoverageUnsupportedMessage", methodNames!); // product test coverage message shaping.
+        Assert.Contains("CliTestBuildFailedMessage", methodNames!); // product test build-failure message shaping.
+        Assert.Contains("CliTestInvalidTimeoutMessage", methodNames!); // product test timeout-error message shaping.
+        Assert.Contains("CliTestProjectStartMessage", methodNames!); // product test start message shaping.
+        Assert.Contains("CliTestNoTestFilesMessage", methodNames!); // product test empty-discovery message shaping.
+        Assert.Contains("CliTestFoundTestFilesMessage", methodNames!); // product test discovery-count message shaping.
+        Assert.Contains("CliTestSummaryMessage", methodNames!); // product test summary message shaping.
+        Assert.Contains("CliTestCompletedElapsedMessage", methodNames!); // product test completion-elapsed message shaping.
+        Assert.Contains("CliTestFailedElapsedMessage", methodNames!); // product test failure-elapsed message shaping.
+        Assert.Contains("CliTestFailedMessage", methodNames!); // product test failure wrapper shaping.
+        Assert.Contains("CliTestVerbosePassedMessage", methodNames!); // product test verbose passed line shaping.
+        Assert.Contains("CliTestVerboseSkippedMessage", methodNames!); // product test verbose skipped line shaping.
+        Assert.Contains("CliTestVerboseFailedMessage", methodNames!); // product test verbose failed line shaping.
         Assert.Contains("CliPublishValidationErrorMessage", methodNames!); // product publish validation message shaping.
         Assert.Contains("CliPublishAotAnalysisOnlyNotice", methodNames!); // product publish AOT notice shaping.
         Assert.Contains("CliPublishSelfContainedUnsupportedMessage", methodNames!); // product publish unsupported-shape message shaping.
@@ -16327,6 +16342,66 @@ class OtherZetaType {
                     "CliTestOutputMode",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTestOutputMode.");
+            var cliTestHelpText = programType.GetMethod(
+                    "CliTestHelpText",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTestHelpText.");
+            var cliTestMissingProjectFileMessage = programType.GetMethod(
+                    "CliTestMissingProjectFileMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTestMissingProjectFileMessage.");
+            var cliTestCoverageUnsupportedMessage = programType.GetMethod(
+                    "CliTestCoverageUnsupportedMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTestCoverageUnsupportedMessage.");
+            var cliTestBuildFailedMessage = programType.GetMethod(
+                    "CliTestBuildFailedMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTestBuildFailedMessage.");
+            var cliTestInvalidTimeoutMessage = programType.GetMethod(
+                    "CliTestInvalidTimeoutMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTestInvalidTimeoutMessage.");
+            var cliTestProjectStartMessage = programType.GetMethod(
+                    "CliTestProjectStartMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTestProjectStartMessage.");
+            var cliTestNoTestFilesMessage = programType.GetMethod(
+                    "CliTestNoTestFilesMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTestNoTestFilesMessage.");
+            var cliTestFoundTestFilesMessage = programType.GetMethod(
+                    "CliTestFoundTestFilesMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTestFoundTestFilesMessage.");
+            var cliTestSummaryMessage = programType.GetMethod(
+                    "CliTestSummaryMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTestSummaryMessage.");
+            var cliTestCompletedElapsedMessage = programType.GetMethod(
+                    "CliTestCompletedElapsedMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTestCompletedElapsedMessage.");
+            var cliTestFailedElapsedMessage = programType.GetMethod(
+                    "CliTestFailedElapsedMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTestFailedElapsedMessage.");
+            var cliTestFailedMessage = programType.GetMethod(
+                    "CliTestFailedMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTestFailedMessage.");
+            var cliTestVerbosePassedMessage = programType.GetMethod(
+                    "CliTestVerbosePassedMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTestVerbosePassedMessage.");
+            var cliTestVerboseSkippedMessage = programType.GetMethod(
+                    "CliTestVerboseSkippedMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTestVerboseSkippedMessage.");
+            var cliTestVerboseFailedMessage = programType.GetMethod(
+                    "CliTestVerboseFailedMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTestVerboseFailedMessage.");
             var cliPackOutputMode = programType.GetMethod(
                     "CliPackOutputMode",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -18271,6 +18346,22 @@ func main(customer: Customer, résumé: Profile) {
                 cliBatchDuplicateIdRankChecksumInto);
             AssertCliBatchResultCountsLikeProduction(cliBatchResultPackedCountChecksum);
             AssertCliTestOutcomeSummaryLikeProduction(cliTestOutcomeSummaryChecksumInto);
+            AssertCliTestMessagesLikeProduction(
+                cliTestHelpText,
+                cliTestMissingProjectFileMessage,
+                cliTestCoverageUnsupportedMessage,
+                cliTestBuildFailedMessage,
+                cliTestInvalidTimeoutMessage,
+                cliTestProjectStartMessage,
+                cliTestNoTestFilesMessage,
+                cliTestFoundTestFilesMessage,
+                cliTestSummaryMessage,
+                cliTestCompletedElapsedMessage,
+                cliTestFailedElapsedMessage,
+                cliTestFailedMessage,
+                cliTestVerbosePassedMessage,
+                cliTestVerboseSkippedMessage,
+                cliTestVerboseFailedMessage);
             AssertCliFormatOptionsLikeProduction(cliFormatOptionSummaryInto);
             AssertCliFormatMessagesLikeProduction(
                 cliFormatHelpText,
@@ -26919,6 +27010,70 @@ func main() {
             Assert.Equal(expectedChecksum, actualChecksum);
             Assert.Equal(new[] { passed, failed, skipped, nonOk }, counts);
         }
+    }
+
+    private static void AssertCliTestMessagesLikeProduction(
+        MethodInfo cliTestHelpText,
+        MethodInfo cliTestMissingProjectFileMessage,
+        MethodInfo cliTestCoverageUnsupportedMessage,
+        MethodInfo cliTestBuildFailedMessage,
+        MethodInfo cliTestInvalidTimeoutMessage,
+        MethodInfo cliTestProjectStartMessage,
+        MethodInfo cliTestNoTestFilesMessage,
+        MethodInfo cliTestFoundTestFilesMessage,
+        MethodInfo cliTestSummaryMessage,
+        MethodInfo cliTestCompletedElapsedMessage,
+        MethodInfo cliTestFailedElapsedMessage,
+        MethodInfo cliTestFailedMessage,
+        MethodInfo cliTestVerbosePassedMessage,
+        MethodInfo cliTestVerboseSkippedMessage,
+        MethodInfo cliTestVerboseFailedMessage)
+    {
+        Assert.Equal(
+            TestCommandKernels.GetHelpText(),
+            (string)(cliTestHelpText.Invoke(null, Array.Empty<object>()) ?? string.Empty));
+        Assert.Equal(
+            TestCommandKernels.GetMissingProjectFileMessage(),
+            (string)(cliTestMissingProjectFileMessage.Invoke(null, Array.Empty<object>()) ?? string.Empty));
+        Assert.Equal(
+            TestCommandKernels.GetCoverageUnsupportedMessage(),
+            (string)(cliTestCoverageUnsupportedMessage.Invoke(null, Array.Empty<object>()) ?? string.Empty));
+        Assert.Equal(
+            TestCommandKernels.GetBuildFailedMessage(),
+            (string)(cliTestBuildFailedMessage.Invoke(null, Array.Empty<object>()) ?? string.Empty));
+        Assert.Equal(
+            TestCommandKernels.GetInvalidTimeoutMessage("7w"),
+            (string)(cliTestInvalidTimeoutMessage.Invoke(null, new object[] { "7w" }) ?? string.Empty));
+        Assert.Equal(
+            TestCommandKernels.GetProjectStartMessage("/tmp/demo"),
+            (string)(cliTestProjectStartMessage.Invoke(null, new object[] { "/tmp/demo" }) ?? string.Empty));
+        Assert.Equal(
+            TestCommandKernels.GetNoTestFilesMessage(),
+            (string)(cliTestNoTestFilesMessage.Invoke(null, Array.Empty<object>()) ?? string.Empty));
+        Assert.Equal(
+            TestCommandKernels.GetFoundTestFilesMessage(3),
+            (string)(cliTestFoundTestFilesMessage.Invoke(null, new object[] { "3", 3 }) ?? string.Empty));
+        Assert.Equal(
+            TestCommandKernels.GetSummaryMessage(2, 1, 4, 7),
+            (string)(cliTestSummaryMessage.Invoke(null, new object[] { "2", "1", "4", "7" }) ?? string.Empty));
+        Assert.Equal(
+            TestCommandKernels.GetCompletedElapsedMessage("42ms"),
+            (string)(cliTestCompletedElapsedMessage.Invoke(null, new object[] { "42ms" }) ?? string.Empty));
+        Assert.Equal(
+            TestCommandKernels.GetFailedElapsedMessage("42ms"),
+            (string)(cliTestFailedElapsedMessage.Invoke(null, new object[] { "42ms" }) ?? string.Empty));
+        Assert.Equal(
+            TestCommandKernels.GetFailedMessage("boom"),
+            (string)(cliTestFailedMessage.Invoke(null, new object[] { "boom" }) ?? string.Empty));
+        Assert.Equal(
+            TestCommandKernels.GetVerbosePassedMessage("adds person", "12"),
+            (string)(cliTestVerbosePassedMessage.Invoke(null, new object[] { "adds person", "12" }) ?? string.Empty));
+        Assert.Equal(
+            TestCommandKernels.GetVerboseSkippedMessage("adds person", "not today"),
+            (string)(cliTestVerboseSkippedMessage.Invoke(null, new object[] { "adds person", "not today" }) ?? string.Empty));
+        Assert.Equal(
+            TestCommandKernels.GetVerboseFailedMessage("adds person", "nope"),
+            (string)(cliTestVerboseFailedMessage.Invoke(null, new object[] { "adds person", "nope" }) ?? string.Empty));
     }
 
     private static void AssertCliFormatMessagesLikeProduction(
