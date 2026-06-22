@@ -7,69 +7,19 @@ internal static class DaemonClientKernels
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
 
     internal static string GetConnectionErrorMessage(string messageText)
-    {
-        if (TryGetMessage(bindings => bindings.ConnectionErrorMessage(messageText), out var message))
-            return message;
-
-        return GetConnectionErrorMessageWithCSharp(messageText);
-    }
+        => RequiredBindings.ConnectionErrorMessage(messageText);
 
     internal static string GetExecutablePathMissingMessage()
-    {
-        if (TryGetMessage(bindings => bindings.ExecutablePathMissingMessage(), out var message))
-            return message;
-
-        return GetExecutablePathMissingMessageWithCSharp();
-    }
+        => RequiredBindings.ExecutablePathMissingMessage();
 
     internal static string GetStartTimeoutMessage()
-    {
-        if (TryGetMessage(bindings => bindings.StartTimeoutMessage(), out var message))
-            return message;
-
-        return GetStartTimeoutMessageWithCSharp();
-    }
+        => RequiredBindings.StartTimeoutMessage();
 
     internal static string GetStartFailedWithReasonMessage(string messageText)
-    {
-        if (TryGetMessage(bindings => bindings.StartFailedWithReasonMessage(messageText), out var message))
-            return message;
+        => RequiredBindings.StartFailedWithReasonMessage(messageText);
 
-        return GetStartFailedWithReasonMessageWithCSharp(messageText);
-    }
-
-    private static bool TryGetMessage(Func<Bindings, string> getMessage, out string message)
-    {
-        message = string.Empty;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        try
-        {
-            message = getMessage(bindings);
-            return !string.IsNullOrEmpty(message);
-        }
-        catch
-        {
-            message = string.Empty;
-            return false;
-        }
-    }
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product daemon client messages route through CliDaemonClient* kernels.
-    private static string GetConnectionErrorMessageWithCSharp(string messageText)
-        => $"[daemon] Connection error: {messageText}";
-
-    private static string GetExecutablePathMissingMessageWithCSharp()
-        => "Cannot determine executable path for daemon";
-
-    private static string GetStartTimeoutMessageWithCSharp()
-        => "Daemon started but not responding within 5 seconds";
-
-    private static string GetStartFailedWithReasonMessageWithCSharp(string messageText)
-        => $"Failed to start daemon: {messageText}";
+    private static Bindings RequiredBindings
+        => s_bindings.Value ?? throw new InvalidOperationException("N# daemon client kernels are unavailable.");
 
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
