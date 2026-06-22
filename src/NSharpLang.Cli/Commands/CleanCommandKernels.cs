@@ -49,134 +49,31 @@ internal static class CleanCommandKernels
     }
 
     internal static string GetHelpText()
-    {
-        if (TryGetMessage(bindings => bindings.CleanHelpText(), out var message))
-            return message;
-
-        return GetHelpTextWithCSharp();
-    }
+        => RequiredBindings.CleanHelpText();
 
     internal static string GetProjectDirectoryNotFoundMessage(string projectRoot)
-    {
-        if (TryGetMessage(bindings => bindings.CleanProjectDirectoryNotFoundMessage(projectRoot), out var message))
-            return message;
-
-        return GetProjectDirectoryNotFoundMessageWithCSharp(projectRoot);
-    }
+        => RequiredBindings.CleanProjectDirectoryNotFoundMessage(projectRoot);
 
     internal static string GetNoArtifactsFoundMessage(string projectRoot)
-    {
-        if (TryGetMessage(bindings => bindings.CleanNoArtifactsFoundMessage(projectRoot), out var message))
-            return message;
-
-        return GetNoArtifactsFoundMessageWithCSharp(projectRoot);
-    }
+        => RequiredBindings.CleanNoArtifactsFoundMessage(projectRoot);
 
     internal static string GetRemovedArtifactsHeader(int count)
-    {
-        if (TryGetMessage(bindings => bindings.CleanRemovedArtifactsHeader(count, count.ToString()), out var message))
-            return message;
-
-        return GetRemovedArtifactsHeaderWithCSharp(count);
-    }
+        => RequiredBindings.CleanRemovedArtifactsHeader(count, count.ToString());
 
     internal static string GetRemovedArtifactLine(string path)
-    {
-        if (TryGetMessage(bindings => bindings.CleanRemovedArtifactLine(path), out var message))
-            return message;
-
-        return GetRemovedArtifactLineWithCSharp(path);
-    }
+        => RequiredBindings.CleanRemovedArtifactLine(path);
 
     internal static string GetClearedNuGetCachesMessage()
-    {
-        if (TryGetMessage(bindings => bindings.CleanClearedNuGetCachesMessage(), out var message))
-            return message;
-
-        return GetClearedNuGetCachesMessageWithCSharp();
-    }
+        => RequiredBindings.CleanClearedNuGetCachesMessage();
 
     internal static string GetClearNuGetCachesFailedMessage(string detail)
-    {
-        if (TryGetMessage(bindings => bindings.CleanClearNuGetCachesFailedMessage(detail), out var message))
-            return message;
-
-        return GetClearNuGetCachesFailedMessageWithCSharp(detail);
-    }
+        => RequiredBindings.CleanClearNuGetCachesFailedMessage(detail);
 
     internal static string GetCleanFailedMessage(string message)
-    {
-        if (TryGetMessage(bindings => bindings.CleanFailedMessage(message), out var result))
-            return result;
+        => RequiredBindings.CleanFailedMessage(message);
 
-        return GetCleanFailedMessageWithCSharp(message);
-    }
-
-    private static bool TryGetMessage(Func<Bindings, string> getMessage, out string message)
-    {
-        message = string.Empty;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        try
-        {
-            message = getMessage(bindings);
-            return !string.IsNullOrEmpty(message);
-        }
-        catch
-        {
-            message = string.Empty;
-            return false;
-        }
-    }
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product clean command messages and artifact lines route through CliClean* kernels.
-    private static string GetHelpTextWithCSharp()
-        => "N# Clean\n"
-           + "\n"
-           + "Usage: nlc clean [options]\n"
-           + "\n"
-           + "Remove local build artifacts for the current project. Equivalent to `cargo clean`\n"
-           + "or `go clean`.\n"
-           + "\n"
-           + "Options:\n"
-           + "  --project <dir>   Project root directory (default: current directory)\n"
-           + "  --all             Also clear NuGet caches\n"
-           + "  --help, -h        Show this help text\n"
-           + "\n"
-           + "Examples:\n"
-           + "  nlc clean\n"
-           + "  nlc clean --all\n"
-           + "  nlc clean --project examples/16-task-cli\n"
-           + "\n"
-           + "Exit codes:\n"
-           + "  0  Clean completed successfully\n"
-           + "  1  Clean failed";
-
-    private static string GetProjectDirectoryNotFoundMessageWithCSharp(string projectRoot)
-        => $"Project directory not found: {projectRoot}";
-
-    private static string GetNoArtifactsFoundMessageWithCSharp(string projectRoot)
-        => $"No build artifacts found under {projectRoot}.";
-
-    private static string GetRemovedArtifactsHeaderWithCSharp(int count)
-        => $"Removed {count} build artifact director{(count == 1 ? "y" : "ies")}:";
-
-    private static string GetRemovedArtifactLineWithCSharp(string path)
-        => $"  {path}";
-
-    private static string GetClearedNuGetCachesMessageWithCSharp()
-        => "Cleared NuGet caches.";
-
-    private static string GetClearNuGetCachesFailedMessageWithCSharp(string detail)
-        => string.IsNullOrEmpty(detail)
-            ? "Failed to clear NuGet caches."
-            : $"Failed to clear NuGet caches.\n{detail}";
-
-    private static string GetCleanFailedMessageWithCSharp(string message)
-        => $"Clean failed: {message}";
+    private static Bindings RequiredBindings
+        => s_bindings.Value ?? throw new InvalidOperationException("N# clean command kernels are unavailable.");
 
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
