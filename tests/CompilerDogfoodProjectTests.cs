@@ -7058,6 +7058,10 @@ func outer(x: int): int {
         Assert.Contains("CliFormatFormattedCountMessage", methodNames!); // product format formatted-count message shaping.
         Assert.Contains("CliFormatFailedMessage", methodNames!); // product format failure wrapper shaping.
         Assert.Contains("CliFormatParseErrorsMessage", methodNames!); // product format parse-error wrapper shaping.
+        Assert.Contains("CliUnifiedDiffBeforeHeaderText", methodNames!); // product format --diff before-header shaping.
+        Assert.Contains("CliUnifiedDiffAfterHeaderText", methodNames!); // product format --diff after-header shaping.
+        Assert.Contains("CliUnifiedDiffHunkHeaderText", methodNames!); // product format --diff hunk-header shaping.
+        Assert.Contains("CliUnifiedDiffLinePrefixText", methodNames!); // product format --diff line-prefix shaping.
         Assert.Contains("CliBuildOperandSummaryInto", methodNames!); // product build operand summary.
         Assert.Contains("CliBuildOptionSummaryInto", methodNames!); // product build option parsing.
         Assert.Contains("CliBuildHelpText", methodNames!); // product build help text shaping.
@@ -7452,6 +7456,13 @@ func outer(x: int): int {
             ("CliShouldSkipFormatDirectoryName", new object[] { ".git" }),
             ("CliShouldSkipFormatDirectoryName", new object[] { "NODE_MODULES" }),
             ("CliShouldSkipFormatDirectoryName", new object[] { "src" }),
+            ("CliUnifiedDiffBeforeHeaderText", new object[] { "a/Program.nl" }),
+            ("CliUnifiedDiffAfterHeaderText", new object[] { "b/Program.nl" }),
+            ("CliUnifiedDiffHunkHeaderText", new object[] { 2, 3, 2, 4 }),
+            ("CliUnifiedDiffLinePrefixText", new object[] { 0 }),
+            ("CliUnifiedDiffLinePrefixText", new object[] { 1 }),
+            ("CliUnifiedDiffLinePrefixText", new object[] { 2 }),
+            ("CliUnifiedDiffLinePrefixText", new object[] { 99 }),
             ("CliBuildOptionSummaryChecksumInto", new object[] { new[] { "--release", "-o", "short", "--output", "dist", "--backend", "il", "--project", "demo", "--verbose", "--timings", "--perf-report", "--aot" }, new int[9] }),
             ("CliTestOptionSummaryChecksumInto", new object[] { new[] { "--project", "demo", "--backend", "il", "--filter", "Adds", "--timeout", "30s", "--verbose", "--json", "--coverage-report", "--no-cache" }, new int[10] }),
             ("CliTestFilterMatches", new object[] { "addperson", "Add Person", "", "Tests.AddPerson" }),

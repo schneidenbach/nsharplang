@@ -38,8 +38,8 @@ internal static class UnifiedDiff
         var diffLines = Diff(before, after);
 
         var sb = new StringBuilder();
-        sb.AppendLine($"--- {beforeLabel}");
-        sb.AppendLine($"+++ {afterLabel}");
+        sb.AppendLine(UnifiedDiffTextKernels.GetBeforeHeaderText(beforeLabel));
+        sb.AppendLine(UnifiedDiffTextKernels.GetAfterHeaderText(afterLabel));
 
         if (UnifiedDiffHunkRangeBuilder.TryBuild(diffLines, contextLines, out var ranges))
         {
@@ -168,8 +168,11 @@ internal static class UnifiedDiff
     {
         for (var hunkIndex = 0; hunkIndex < ranges.Count; hunkIndex++)
         {
-            sb.AppendLine(
-                $"@@ -{ranges.OldStarts[hunkIndex]},{ranges.OldCounts[hunkIndex]} +{ranges.NewStarts[hunkIndex]},{ranges.NewCounts[hunkIndex]} @@");
+            sb.AppendLine(UnifiedDiffTextKernels.GetHunkHeaderText(
+                ranges.OldStarts[hunkIndex],
+                ranges.OldCounts[hunkIndex],
+                ranges.NewStarts[hunkIndex],
+                ranges.NewCounts[hunkIndex]));
 
             var start = ranges.Starts[hunkIndex];
             var end = start + ranges.Lengths[hunkIndex];
@@ -182,7 +185,11 @@ internal static class UnifiedDiff
 
     private static void AppendHunk(StringBuilder sb, Hunk hunk)
     {
-        sb.AppendLine($"@@ -{hunk.OldStart},{hunk.OldCount} +{hunk.NewStart},{hunk.NewCount} @@");
+        sb.AppendLine(UnifiedDiffTextKernels.GetHunkHeaderText(
+            hunk.OldStart,
+            hunk.OldCount,
+            hunk.NewStart,
+            hunk.NewCount));
         foreach (var line in hunk.Lines)
         {
             AppendLine(sb, line);
@@ -191,14 +198,7 @@ internal static class UnifiedDiff
 
     private static void AppendLine(StringBuilder sb, DiffLine line)
     {
-        var prefix = line.Kind switch
-        {
-            DiffKind.Added => '+',
-            DiffKind.Removed => '-',
-            _ => ' '
-        };
-
-        sb.Append(prefix);
+        sb.Append(UnifiedDiffTextKernels.GetLinePrefixText(line.Kind));
         sb.AppendLine(line.Text);
     }
 

@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-22 — Unified diff text moves into product N#
+
+`UnifiedDiff.Create` no longer owns the visible `nlc format --diff` before/after headers, hunk headers, or line
+prefix strings in C#. The shipped `CliArguments.nl` dogfood kernel now shapes those diff lines through
+`UnifiedDiffTextKernels`; C# keeps LCS diffing, hunk traversal, StringBuilder assembly, and fallback/oracle
+rendering only. This is a Stage 6 `C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliParityAuditTests.UnifiedDiff_Create_EmitsStableMultiHunkDiff|FullyQualifiedName~CliParityAuditTests.FormatCommand_Diff_EmitsUnifiedDiff|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments"`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`;
+`./scripts/dev.sh UnifiedDiff`.
+
 ## 2026-06-22 — Query doc text moves into product N#
 
 `OutputFormatter.DocToText` no longer owns the visible `nlc query doc --text` header, namespace, summary,

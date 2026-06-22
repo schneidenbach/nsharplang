@@ -6270,6 +6270,34 @@ func CliUnifiedDiffHunkRangesInto(
     return CliUnifiedDiffHunkRangesCore(ref lines, contextLines, ref results)
 }
 
+func CliUnifiedDiffBeforeHeaderText(label: string): string {
+    return "--- " + label
+}
+
+func CliUnifiedDiffAfterHeaderText(label: string): string {
+    return "+++ " + label
+}
+
+func CliUnifiedDiffHunkHeaderText(oldStart: int, oldCount: int, newStart: int, newCount: int): string {
+    return "@@ -" + oldStart.ToString()
+        + "," + oldCount.ToString()
+        + " +" + newStart.ToString()
+        + "," + newCount.ToString()
+        + " @@"
+}
+
+func CliUnifiedDiffLinePrefixText(kindId: int): string {
+    if kindId == 1 {
+        return "+"
+    }
+
+    if kindId == 2 {
+        return "-"
+    }
+
+    return " "
+}
+
 func CliUnifiedDiffHunkRangesCore(
     lines: &CliUnifiedDiffLineTable,
     contextLines: int,
