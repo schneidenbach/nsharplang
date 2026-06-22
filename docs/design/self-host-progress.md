@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-22 — `nlc export csharp` project files move into product N#
+
+`nlc export csharp` no longer owns generated C# `.csproj` XML text in `ExportCommand`. The shipped
+`CliArguments.nl` dogfood kernel now shapes main and test project files through `ExportCommandKernels`,
+including package metadata, package/framework/project/DLL reference item groups, and XML escaping. C# keeps
+project parsing, export traversal, reference resolution/dedup, path normalization, file IO, and fallback/oracle
+text only. This is a Stage 6 `C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.ExportCommandKernels_ShapesCSharpProjectFiles|FullyQualifiedName~CliCommandTests.ExportCommandKernels_ShapesMessages|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_EligibleClusterCompiles"`;
+`./scripts/dev.sh CliArguments`.
+
 ## 2026-06-22 — `nlc restore` props projection moves into product N#
 
 `nlc restore` no longer owns generated `obj/project.g.props` text in C#. The shipped `CliArguments.nl`

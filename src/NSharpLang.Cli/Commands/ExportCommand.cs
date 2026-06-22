@@ -541,26 +541,36 @@ public static class ExportCommand
             List<string> projectReferences,
             List<DllReferenceInfo> dllReferences)
         {
-            var sb = new StringBuilder();
-            sb.AppendLine($"<Project Sdk=\"{EscapeXml(config.Sdk)}\">");
-            sb.AppendLine("  <PropertyGroup>");
-            sb.AppendLine($"    <TargetFramework>{EscapeXml(config.TargetFramework)}</TargetFramework>");
-            sb.AppendLine($"    <OutputType>{(string.Equals(config.OutputType, "library", StringComparison.OrdinalIgnoreCase) ? "Library" : "Exe")}</OutputType>");
-            sb.AppendLine($"    <AssemblyName>{EscapeXml(config.EffectiveName)}</AssemblyName>");
-            sb.AppendLine("    <LangVersion>latest</LangVersion>");
-            sb.AppendLine("    <Nullable>enable</Nullable>");
-            sb.AppendLine("    <ImplicitUsings>disable</ImplicitUsings>");
-            if (!string.IsNullOrWhiteSpace(config.Version))
-            {
-                sb.AppendLine($"    <Version>{EscapeXml(config.Version)}</Version>");
-            }
+            var distinctPackageReferences = DeduplicateExportReferences(packageReferences);
+            var distinctFrameworkReferences = DeduplicateExportReferences(frameworkReferences, StringComparer.OrdinalIgnoreCase);
+            var distinctProjectReferences = DeduplicateExportReferences(projectReferences, StringComparer.OrdinalIgnoreCase);
+            var distinctDllReferences = DeduplicateExportReferences(dllReferences);
+            var package = config.Package;
+            var packageTags = package?.Tags is { Count: > 0 } tags ? string.Join(" ", tags) : string.Empty;
+            var packageIcon = package?.Icon;
 
-            AppendPackageMetadata(sb, config.Package);
-            sb.AppendLine("  </PropertyGroup>");
-
-            AppendReferenceItemGroups(sb, packageReferences, frameworkReferences, projectReferences, dllReferences);
-            sb.AppendLine("</Project>");
-            return sb.ToString();
+            return ExportCommandKernels.GetCSharpMainProjectFileText(
+                config.Sdk,
+                config.TargetFramework,
+                string.Equals(config.OutputType, "library", StringComparison.OrdinalIgnoreCase) ? "Library" : "Exe",
+                config.EffectiveName,
+                config.Version ?? string.Empty,
+                package?.Author ?? string.Empty,
+                package?.Description ?? string.Empty,
+                packageTags,
+                package?.Tags?.Count ?? 0,
+                package?.License ?? string.Empty,
+                package?.Repository ?? string.Empty,
+                packageIcon == null ? string.Empty : Path.GetFileName(packageIcon),
+                string.IsNullOrWhiteSpace(packageIcon) ? 0 : 1,
+                distinctPackageReferences.Select(reference => reference.Name).ToArray(),
+                distinctPackageReferences.Select(reference => reference.Version ?? string.Empty).ToArray(),
+                distinctPackageReferences.Select(reference => reference.PrivateAssetsAll ? 1 : 0).ToArray(),
+                distinctPackageReferences.Select(reference => reference.IncludeAssets ?? string.Empty).ToArray(),
+                distinctFrameworkReferences.ToArray(),
+                distinctProjectReferences.ToArray(),
+                distinctDllReferences.Select(reference => reference.Name).ToArray(),
+                distinctDllReferences.Select(reference => reference.HintPath).ToArray());
         }
 
         private static string GenerateTestProjectFile(
@@ -570,94 +580,24 @@ public static class ExportCommand
             List<string> testProjectReferences,
             List<DllReferenceInfo> testDllReferences)
         {
-            var sb = new StringBuilder();
-            sb.AppendLine("<Project Sdk=\"Microsoft.NET.Sdk\">");
-            sb.AppendLine("  <PropertyGroup>");
-            sb.AppendLine($"    <TargetFramework>{EscapeXml(config.TargetFramework)}</TargetFramework>");
-            sb.AppendLine("    <LangVersion>latest</LangVersion>");
-            sb.AppendLine("    <Nullable>enable</Nullable>");
-            sb.AppendLine("    <ImplicitUsings>disable</ImplicitUsings>");
-            sb.AppendLine("    <IsPackable>false</IsPackable>");
-            sb.AppendLine("    <IsTestProject>true</IsTestProject>");
-            sb.AppendLine("  </PropertyGroup>");
-
             var frameworkPackages = GetTestFrameworkPackages(config.TestFramework);
             testPackageReferences.InsertRange(0, frameworkPackages);
 
-            AppendReferenceItemGroups(sb, testPackageReferences, testFrameworkReferences, testProjectReferences, testDllReferences);
-            sb.AppendLine("</Project>");
-            return sb.ToString();
-        }
+            var distinctPackageReferences = DeduplicateExportReferences(testPackageReferences);
+            var distinctFrameworkReferences = DeduplicateExportReferences(testFrameworkReferences, StringComparer.OrdinalIgnoreCase);
+            var distinctProjectReferences = DeduplicateExportReferences(testProjectReferences, StringComparer.OrdinalIgnoreCase);
+            var distinctDllReferences = DeduplicateExportReferences(testDllReferences);
 
-        private static void AppendReferenceItemGroups(
-            StringBuilder sb,
-            List<PackageReferenceInfo> packageReferences,
-            List<string> frameworkReferences,
-            List<string> projectReferences,
-            List<DllReferenceInfo> dllReferences)
-        {
-            var distinctPackageReferences = DeduplicateExportReferences(packageReferences);
-            if (distinctPackageReferences.Count > 0)
-            {
-                sb.AppendLine("  <ItemGroup>");
-                foreach (var packageReference in distinctPackageReferences)
-                {
-                    if (string.IsNullOrWhiteSpace(packageReference.Version))
-                    {
-                        sb.AppendLine($"    <PackageReference Include=\"{EscapeXml(packageReference.Name)}\" />");
-                    }
-                    else if (packageReference.PrivateAssetsAll)
-                    {
-                        sb.AppendLine($"    <PackageReference Include=\"{EscapeXml(packageReference.Name)}\" Version=\"{EscapeXml(packageReference.Version)}\">");
-                        sb.AppendLine("      <PrivateAssets>all</PrivateAssets>");
-                        if (!string.IsNullOrWhiteSpace(packageReference.IncludeAssets))
-                        {
-                            sb.AppendLine($"      <IncludeAssets>{EscapeXml(packageReference.IncludeAssets)}</IncludeAssets>");
-                        }
-                        sb.AppendLine("    </PackageReference>");
-                    }
-                    else
-                    {
-                        sb.AppendLine($"    <PackageReference Include=\"{EscapeXml(packageReference.Name)}\" Version=\"{EscapeXml(packageReference.Version)}\" />");
-                    }
-                }
-                sb.AppendLine("  </ItemGroup>");
-            }
-
-            var distinctFrameworkReferences = DeduplicateExportReferences(frameworkReferences, StringComparer.OrdinalIgnoreCase);
-            if (distinctFrameworkReferences.Count > 0)
-            {
-                sb.AppendLine("  <ItemGroup>");
-                foreach (var frameworkReference in distinctFrameworkReferences)
-                {
-                    sb.AppendLine($"    <FrameworkReference Include=\"{EscapeXml(frameworkReference)}\" />");
-                }
-                sb.AppendLine("  </ItemGroup>");
-            }
-
-            var distinctProjectReferences = DeduplicateExportReferences(projectReferences, StringComparer.OrdinalIgnoreCase);
-            if (distinctProjectReferences.Count > 0)
-            {
-                sb.AppendLine("  <ItemGroup>");
-                foreach (var projectReference in distinctProjectReferences)
-                {
-                    sb.AppendLine($"    <ProjectReference Include=\"{EscapeXml(projectReference)}\" />");
-                }
-                sb.AppendLine("  </ItemGroup>");
-            }
-
-            var distinctDllReferences = DeduplicateExportReferences(dllReferences);
-            if (distinctDllReferences.Count > 0)
-            {
-                sb.AppendLine("  <ItemGroup>");
-                foreach (var dllReference in distinctDllReferences)
-                {
-                    sb.AppendLine($"    <Reference Include=\"{EscapeXml(dllReference.Name)}\">");
-                    sb.AppendLine($"      <HintPath>{EscapeXml(dllReference.HintPath)}</HintPath>");
-                    sb.AppendLine("    </Reference>");
-                }
-                sb.AppendLine("  </ItemGroup>");
-            }
+            return ExportCommandKernels.GetCSharpTestProjectFileText(
+                config.TargetFramework,
+                distinctPackageReferences.Select(reference => reference.Name).ToArray(),
+                distinctPackageReferences.Select(reference => reference.Version ?? string.Empty).ToArray(),
+                distinctPackageReferences.Select(reference => reference.PrivateAssetsAll ? 1 : 0).ToArray(),
+                distinctPackageReferences.Select(reference => reference.IncludeAssets ?? string.Empty).ToArray(),
+                distinctFrameworkReferences.ToArray(),
+                distinctProjectReferences.ToArray(),
+                distinctDllReferences.Select(reference => reference.Name).ToArray(),
+                distinctDllReferences.Select(reference => reference.HintPath).ToArray());
         }
 
         private static List<T> DeduplicateExportReferences<T>(
@@ -687,44 +627,6 @@ public static class ExportCommand
                     new("Microsoft.NET.Test.Sdk", "17.11.1"),
                     new("coverlet.msbuild", "6.0.2", PrivateAssetsAll: true, IncludeAssets: "runtime; build; native; contentfiles; analyzers"),
                 };
-        }
-
-        private static void AppendPackageMetadata(StringBuilder sb, PackageConfig? package)
-        {
-            if (package == null)
-            {
-                return;
-            }
-
-            if (!string.IsNullOrWhiteSpace(package.Author))
-            {
-                sb.AppendLine($"    <Authors>{EscapeXml(package.Author)}</Authors>");
-            }
-
-            if (!string.IsNullOrWhiteSpace(package.Description))
-            {
-                sb.AppendLine($"    <Description>{EscapeXml(package.Description)}</Description>");
-            }
-
-            if (package.Tags is { Count: > 0 })
-            {
-                sb.AppendLine($"    <PackageTags>{EscapeXml(string.Join(" ", package.Tags))}</PackageTags>");
-            }
-
-            if (!string.IsNullOrWhiteSpace(package.License))
-            {
-                sb.AppendLine($"    <PackageLicenseExpression>{EscapeXml(package.License)}</PackageLicenseExpression>");
-            }
-
-            if (!string.IsNullOrWhiteSpace(package.Repository))
-            {
-                sb.AppendLine($"    <RepositoryUrl>{EscapeXml(package.Repository)}</RepositoryUrl>");
-            }
-
-            if (!string.IsNullOrWhiteSpace(package.Icon))
-            {
-                sb.AppendLine($"    <PackageIcon>{EscapeXml(Path.GetFileName(package.Icon))}</PackageIcon>");
-            }
         }
 
         private static void RecreateDirectory(string path)
@@ -779,15 +681,6 @@ public static class ExportCommand
         {
             var invalidChars = Path.GetInvalidFileNameChars();
             return string.Concat(value.Select(ch => invalidChars.Contains(ch) ? '_' : ch));
-        }
-
-        private static string EscapeXml(string value)
-        {
-            return value
-                .Replace("&", "&amp;", StringComparison.Ordinal)
-                .Replace("\"", "&quot;", StringComparison.Ordinal)
-                .Replace("<", "&lt;", StringComparison.Ordinal)
-                .Replace(">", "&gt;", StringComparison.Ordinal);
         }
 
         private static string NormalizePath(string path) => path.Replace('\\', '/');

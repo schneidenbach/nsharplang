@@ -3521,6 +3521,68 @@ func Main() {
     }
 
     [Fact]
+    public void ExportCommandKernels_ShapesCSharpProjectFiles()
+    {
+        var mainProject = ExportCommandKernels.GetCSharpMainProjectFileText(
+            "Microsoft.NET.Sdk.Web",
+            "net10.0",
+            "Library",
+            "Demo&Lib",
+            "1.2.3",
+            "A&B",
+            "D<C>",
+            "alpha beta",
+            2,
+            "MIT",
+            "https://example.invalid/repo?a=1&b=2",
+            "icon&<.png",
+            1,
+            new[] { "Serilog", "Analyzer", "Loose" },
+            new[] { "3.1.0", "1.0.0", "" },
+            new[] { 0, 1, 0 },
+            new[] { "", "runtime; build", "" },
+            new[] { "Microsoft.AspNetCore.App" },
+            new[] { "../Shared/Shared.csproj" },
+            new[] { "Custom&Ref" },
+            new[] { "lib/custom&ref.dll" });
+
+        Assert.StartsWith("<Project Sdk=\"Microsoft.NET.Sdk.Web\">\n", mainProject, StringComparison.Ordinal);
+        Assert.Contains("<AssemblyName>Demo&amp;Lib</AssemblyName>", mainProject);
+        Assert.Contains("<Authors>A&amp;B</Authors>", mainProject);
+        Assert.Contains("<Description>D&lt;C&gt;</Description>", mainProject);
+        Assert.Contains("<RepositoryUrl>https://example.invalid/repo?a=1&amp;b=2</RepositoryUrl>", mainProject);
+        Assert.Contains("<PackageIcon>icon&amp;&lt;.png</PackageIcon>", mainProject);
+        Assert.Contains("    <PackageReference Include=\"Serilog\" Version=\"3.1.0\" />\n", mainProject);
+        Assert.Contains(
+            "    <PackageReference Include=\"Analyzer\" Version=\"1.0.0\">\n"
+            + "      <PrivateAssets>all</PrivateAssets>\n"
+            + "      <IncludeAssets>runtime; build</IncludeAssets>\n"
+            + "    </PackageReference>\n",
+            mainProject);
+        Assert.Contains("    <PackageReference Include=\"Loose\" />\n", mainProject);
+        Assert.Contains("    <FrameworkReference Include=\"Microsoft.AspNetCore.App\" />\n", mainProject);
+        Assert.Contains("    <ProjectReference Include=\"../Shared/Shared.csproj\" />\n", mainProject);
+        Assert.Contains("    <Reference Include=\"Custom&amp;Ref\">\n      <HintPath>lib/custom&amp;ref.dll</HintPath>\n", mainProject);
+        Assert.EndsWith("</Project>\n", mainProject, StringComparison.Ordinal);
+
+        var testProject = ExportCommandKernels.GetCSharpTestProjectFileText(
+            "net10.0",
+            new[] { "xunit.runner.visualstudio" },
+            new[] { "2.8.2" },
+            new[] { 1 },
+            new[] { "runtime; build; native; contentfiles; analyzers; buildtransitive" },
+            Array.Empty<string>(),
+            new[] { "../Demo/Demo.csproj" },
+            Array.Empty<string>(),
+            Array.Empty<string>());
+
+        Assert.StartsWith("<Project Sdk=\"Microsoft.NET.Sdk\">\n", testProject, StringComparison.Ordinal);
+        Assert.Contains("<IsTestProject>true</IsTestProject>", testProject);
+        Assert.Contains("<ProjectReference Include=\"../Demo/Demo.csproj\" />", testProject);
+        Assert.DoesNotContain("<AssemblyName>", testProject, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void BuildCommandKernels_SelectsFirstOperandAfterOptionStripping()
     {
         Assert.True(BuildCommandKernels.TryGetOperandSummary(

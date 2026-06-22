@@ -7028,6 +7028,9 @@ func outer(x: int): int {
         Assert.Contains("CliExportNoProjectFileMessage", methodNames!); // product export missing-project message shaping.
         Assert.Contains("CliExportProjectSuccessMessage", methodNames!); // product export project success message shaping.
         Assert.Contains("CliExportTestsSuccessMessage", methodNames!); // product export test-project success message shaping.
+        Assert.Contains("CliExportCSharpMainProjectFileText", methodNames!); // product export main .csproj content shaping.
+        Assert.Contains("CliExportCSharpTestProjectFileText", methodNames!); // product export test .csproj content shaping.
+        Assert.Contains("CliExportXmlEscape", methodNames!); // product export .csproj XML escaping.
         Assert.Contains("CliEffectiveCompilationBackendKind", methodNames!); // product backend selection for build/run/check/test/publish.
         Assert.Contains("CliReferenceResolutionBestScoreIndex", methodNames!); // product resolver best-score selection.
         Assert.Contains("CliSharedFrameworkCandidateIndex", methodNames!); // product resolver shared-framework candidate selection.
@@ -7462,6 +7465,15 @@ func outer(x: int): int {
             ("CliExportIsTestSourceFile", new object[] { "src/Program.tests.nl" }),
             ("CliExportIsTestSourceFile", new object[] { "src/Program.TESTS.NL" }),
             ("CliExportIsTestSourceFile", new object[] { "src/Contest.nl" }),
+            ("CliExportCSharpMainProjectFileText", new object[] { "Microsoft.NET.Sdk.Web", "net10.0", "Library", "Demo&Lib", "1.2.3", "A&B", "D<C>", "alpha beta", 2, "MIT", "https://example.invalid/repo?a=1&b=2", "icon&<.png", 1, new[] { "Serilog", "Analyzer", "Loose" }, new[] { "3.1.0", "1.0.0", "" }, new[] { 0, 1, 0 }, new[] { "", "runtime; build", "" }, new[] { "Microsoft.AspNetCore.App" }, new[] { "../Shared/Shared.csproj" }, new[] { "Custom&Ref" }, new[] { "lib/custom&ref.dll" } }),
+            ("CliExportCSharpTestProjectFileText", new object[] { "net10.0", new[] { "xunit.runner.visualstudio" }, new[] { "2.8.2" }, new[] { 1 }, new[] { "runtime; build; native; contentfiles; analyzers; buildtransitive" }, Array.Empty<string>(), new[] { "../Demo/Demo.csproj" }, Array.Empty<string>(), Array.Empty<string>() }),
+            ("CliExportPackageMetadataText", new object[] { "A&B", "D<C>", "alpha beta", 2, "MIT", "https://example.invalid/repo?a=1&b=2", "icon&<.png", 1 }),
+            ("CliExportCSharpReferenceItemGroupsText", new object[] { new[] { "Serilog", "Analyzer", "Loose" }, new[] { "3.1.0", "1.0.0", "" }, new[] { 0, 1, 0 }, new[] { "", "runtime; build", "" }, new[] { "Microsoft.AspNetCore.App" }, new[] { "../Shared/Shared.csproj" }, new[] { "Custom&Ref" }, new[] { "lib/custom&ref.dll" } }),
+            ("CliExportXmlEscape", new object[] { "a&b<c>d\"e" }),
+            ("CliExportHasText", new object[] { "  value  " }),
+            ("CliExportHasText", new object[] { "   " }),
+            ("CliExportStringAtOrEmpty", new object[] { new[] { "first" }, 1 }),
+            ("CliExportIntAtOrZero", new object[] { new[] { 7 }, 0 }),
             ("CliShouldSkipFormatDirectoryName", new object[] { ".git" }),
             ("CliShouldSkipFormatDirectoryName", new object[] { "NODE_MODULES" }),
             ("CliShouldSkipFormatDirectoryName", new object[] { "src" }),
@@ -13085,8 +13097,8 @@ func outer(x: int): int {
         Assert.True(ok, $"Columnar backend declined the merged {productFiles.Length}-file product corpus.");
         using var loadScope = CollectibleAssemblyScope.Load(assembly!); // the merged IL is a valid, loadable assembly.
         Assert.NotNull(loadScope.Assembly);
-        Assert.True(methodNames!.Length >= 442,
-            $"Product dogfood corpus method coverage regressed: expected at least 442 emitted methods, found {methodNames.Length}.");
+        Assert.True(methodNames!.Length >= 450,
+            $"Product dogfood corpus method coverage regressed: expected at least 450 emitted methods, found {methodNames.Length}.");
         // Files eligible ONLY via cross-file resolution must contribute their public functions —
         // i.e. the merge actually emitted them (single-file each declines; see ColumnarCodegen_MultiFile_*).
         Assert.Contains("TokenizeColumnarSourceInto", methodNames!); // composed lexer metadata + parser-token compaction routing
@@ -16486,6 +16498,18 @@ class OtherZetaType {
                     "CliExportTestsSuccessMessage",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliExportTestsSuccessMessage.");
+            var cliExportCSharpMainProjectFileText = programType.GetMethod(
+                    "CliExportCSharpMainProjectFileText",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliExportCSharpMainProjectFileText.");
+            var cliExportCSharpTestProjectFileText = programType.GetMethod(
+                    "CliExportCSharpTestProjectFileText",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliExportCSharpTestProjectFileText.");
+            var cliExportXmlEscape = programType.GetMethod(
+                    "CliExportXmlEscape",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliExportXmlEscape.");
             var cliRunFirstOperandIndex = programType.GetMethod(
                     "CliRunFirstOperandIndex",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -18812,7 +18836,10 @@ func main(customer: Customer, résumé: Profile) {
                 cliExportSingleFileSuccessMessage,
                 cliExportNoProjectFileMessage,
                 cliExportProjectSuccessMessage,
-                cliExportTestsSuccessMessage);
+                cliExportTestsSuccessMessage,
+                cliExportCSharpMainProjectFileText,
+                cliExportCSharpTestProjectFileText,
+                cliExportXmlEscape);
             AssertCliRunSourceOperandLikeProduction(cliRunFirstOperandIndex);
             AssertCliRunOptionsLikeProduction(cliRunOptionSummaryInto);
             AssertCliRunMessagesLikeProduction(
@@ -22535,7 +22562,10 @@ func main() {
         MethodInfo cliExportSingleFileSuccessMessage,
         MethodInfo cliExportNoProjectFileMessage,
         MethodInfo cliExportProjectSuccessMessage,
-        MethodInfo cliExportTestsSuccessMessage)
+        MethodInfo cliExportTestsSuccessMessage,
+        MethodInfo cliExportCSharpMainProjectFileText,
+        MethodInfo cliExportCSharpTestProjectFileText,
+        MethodInfo cliExportXmlEscape)
     {
         var helpText = (string)(cliExportHelpText.Invoke(null, Array.Empty<object>()) ?? "<null>");
         Assert.Contains("N# Export", helpText);
@@ -22585,6 +22615,59 @@ func main() {
         Assert.Equal(
             "Exported tests to /tmp/Demo.Tests.csproj",
             (string)(cliExportTestsSuccessMessage.Invoke(null, new object[] { "/tmp/Demo.Tests.csproj" }) ?? "<null>"));
+
+        var mainProject = (string)(cliExportCSharpMainProjectFileText.Invoke(
+            null,
+            new object[]
+            {
+                "Microsoft.NET.Sdk.Web",
+                "net10.0",
+                "Library",
+                "Demo&Lib",
+                "1.2.3",
+                "A&B",
+                "D<C>",
+                "alpha beta",
+                2,
+                "MIT",
+                "https://example.invalid/repo?a=1&b=2",
+                "icon&<.png",
+                1,
+                new[] { "Serilog", "Analyzer", "Loose" },
+                new[] { "3.1.0", "1.0.0", "" },
+                new[] { 0, 1, 0 },
+                new[] { "", "runtime; build", "" },
+                new[] { "Microsoft.AspNetCore.App" },
+                new[] { "../Shared/Shared.csproj" },
+                new[] { "Custom&Ref" },
+                new[] { "lib/custom&ref.dll" }
+            }) ?? "<null>");
+        Assert.Contains("<AssemblyName>Demo&amp;Lib</AssemblyName>", mainProject);
+        Assert.Contains("<PackageReference Include=\"Analyzer\" Version=\"1.0.0\">", mainProject);
+        Assert.Contains("<RepositoryUrl>https://example.invalid/repo?a=1&amp;b=2</RepositoryUrl>", mainProject);
+        Assert.Contains("<Reference Include=\"Custom&amp;Ref\">", mainProject);
+
+        var testProject = (string)(cliExportCSharpTestProjectFileText.Invoke(
+            null,
+            new object[]
+            {
+                "net10.0",
+                new[] { "xunit.runner.visualstudio" },
+                new[] { "2.8.2" },
+                new[] { 1 },
+                new[] { "runtime; build; native; contentfiles; analyzers; buildtransitive" },
+                Array.Empty<string>(),
+                new[] { "../Demo/Demo.csproj" },
+                Array.Empty<string>(),
+                Array.Empty<string>()
+            }) ?? "<null>");
+        Assert.Contains("<IsTestProject>true</IsTestProject>", testProject);
+        Assert.Contains("<ProjectReference Include=\"../Demo/Demo.csproj\" />", testProject);
+        Assert.DoesNotContain("<AssemblyName>", testProject, StringComparison.Ordinal);
+
+        Assert.Equal(
+            "a&amp;b&lt;c&gt;d&quot;e",
+            (string)(cliExportXmlEscape.Invoke(null, new object[] { "a&b<c>d\"e" }) ?? "<null>"));
     }
 
     private static void AssertCliRunSourceOperandLikeProduction(MethodInfo cliRunFirstOperandIndex)

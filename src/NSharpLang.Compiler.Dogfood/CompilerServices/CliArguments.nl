@@ -5905,6 +5905,260 @@ func CliExportTestsSuccessMessage(testProjectFilePath: string): string {
     return "Exported tests to " + testProjectFilePath
 }
 
+func CliExportCSharpMainProjectFileText(
+    sdk: string,
+    targetFramework: string,
+    outputType: string,
+    assemblyName: string,
+    version: string,
+    packageAuthor: string,
+    packageDescription: string,
+    packageTags: string,
+    packageTagsCount: int,
+    packageLicense: string,
+    packageRepository: string,
+    packageIconFileName: string,
+    includePackageIcon: int,
+    packageNames: string[],
+    packageVersions: string[],
+    packagePrivateAssetsAll: int[],
+    packageIncludeAssets: string[],
+    frameworkReferences: string[],
+    projectReferences: string[],
+    dllReferenceNames: string[],
+    dllReferenceHintPaths: string[]): string {
+    text := "<Project Sdk=\"" + CliExportXmlEscape(sdk) + "\">\n"
+        + "  <PropertyGroup>\n"
+        + "    <TargetFramework>" + CliExportXmlEscape(targetFramework) + "</TargetFramework>\n"
+        + "    <OutputType>" + outputType + "</OutputType>\n"
+        + "    <AssemblyName>" + CliExportXmlEscape(assemblyName) + "</AssemblyName>\n"
+        + "    <LangVersion>latest</LangVersion>\n"
+        + "    <Nullable>enable</Nullable>\n"
+        + "    <ImplicitUsings>disable</ImplicitUsings>\n"
+
+    if CliExportHasText(version) {
+        text = text + "    <Version>" + CliExportXmlEscape(version) + "</Version>\n"
+    }
+
+    text = text + CliExportPackageMetadataText(
+        packageAuthor,
+        packageDescription,
+        packageTags,
+        packageTagsCount,
+        packageLicense,
+        packageRepository,
+        packageIconFileName,
+        includePackageIcon)
+    text = text + "  </PropertyGroup>\n"
+
+    text = text + CliExportCSharpReferenceItemGroupsText(
+        packageNames,
+        packageVersions,
+        packagePrivateAssetsAll,
+        packageIncludeAssets,
+        frameworkReferences,
+        projectReferences,
+        dllReferenceNames,
+        dllReferenceHintPaths)
+
+    return text + "</Project>\n"
+}
+
+func CliExportCSharpTestProjectFileText(
+    targetFramework: string,
+    packageNames: string[],
+    packageVersions: string[],
+    packagePrivateAssetsAll: int[],
+    packageIncludeAssets: string[],
+    frameworkReferences: string[],
+    projectReferences: string[],
+    dllReferenceNames: string[],
+    dllReferenceHintPaths: string[]): string {
+    text := "<Project Sdk=\"Microsoft.NET.Sdk\">\n"
+        + "  <PropertyGroup>\n"
+        + "    <TargetFramework>" + CliExportXmlEscape(targetFramework) + "</TargetFramework>\n"
+        + "    <LangVersion>latest</LangVersion>\n"
+        + "    <Nullable>enable</Nullable>\n"
+        + "    <ImplicitUsings>disable</ImplicitUsings>\n"
+        + "    <IsPackable>false</IsPackable>\n"
+        + "    <IsTestProject>true</IsTestProject>\n"
+        + "  </PropertyGroup>\n"
+
+    text = text + CliExportCSharpReferenceItemGroupsText(
+        packageNames,
+        packageVersions,
+        packagePrivateAssetsAll,
+        packageIncludeAssets,
+        frameworkReferences,
+        projectReferences,
+        dllReferenceNames,
+        dllReferenceHintPaths)
+
+    return text + "</Project>\n"
+}
+
+func CliExportPackageMetadataText(
+    packageAuthor: string,
+    packageDescription: string,
+    packageTags: string,
+    packageTagsCount: int,
+    packageLicense: string,
+    packageRepository: string,
+    packageIconFileName: string,
+    includePackageIcon: int): string {
+    text := ""
+
+    if CliExportHasText(packageAuthor) {
+        text = text + "    <Authors>" + CliExportXmlEscape(packageAuthor) + "</Authors>\n"
+    }
+
+    if CliExportHasText(packageDescription) {
+        text = text + "    <Description>" + CliExportXmlEscape(packageDescription) + "</Description>\n"
+    }
+
+    if packageTagsCount > 0 {
+        text = text + "    <PackageTags>" + CliExportXmlEscape(packageTags) + "</PackageTags>\n"
+    }
+
+    if CliExportHasText(packageLicense) {
+        text = text + "    <PackageLicenseExpression>" + CliExportXmlEscape(packageLicense) + "</PackageLicenseExpression>\n"
+    }
+
+    if CliExportHasText(packageRepository) {
+        text = text + "    <RepositoryUrl>" + CliExportXmlEscape(packageRepository) + "</RepositoryUrl>\n"
+    }
+
+    if includePackageIcon != 0 {
+        text = text + "    <PackageIcon>" + CliExportXmlEscape(packageIconFileName) + "</PackageIcon>\n"
+    }
+
+    return text
+}
+
+func CliExportCSharpReferenceItemGroupsText(
+    packageNames: string[],
+    packageVersions: string[],
+    packagePrivateAssetsAll: int[],
+    packageIncludeAssets: string[],
+    frameworkReferences: string[],
+    projectReferences: string[],
+    dllReferenceNames: string[],
+    dllReferenceHintPaths: string[]): string {
+    text := ""
+
+    if packageNames.Length > 0 {
+        text = text + "  <ItemGroup>\n"
+
+        i := 0
+        while i < packageNames.Length {
+            packageName := CliExportStringAtOrEmpty(packageNames, i)
+            packageVersion := CliExportStringAtOrEmpty(packageVersions, i)
+            privateAssetsAll := CliExportIntAtOrZero(packagePrivateAssetsAll, i)
+            includeAssets := CliExportStringAtOrEmpty(packageIncludeAssets, i)
+
+            if !CliExportHasText(packageVersion) {
+                text = text + "    <PackageReference Include=\"" + CliExportXmlEscape(packageName) + "\" />\n"
+            } else if privateAssetsAll != 0 {
+                text = text + "    <PackageReference Include=\"" + CliExportXmlEscape(packageName) + "\" Version=\"" + CliExportXmlEscape(packageVersion) + "\">\n"
+                text = text + "      <PrivateAssets>all</PrivateAssets>\n"
+                if CliExportHasText(includeAssets) {
+                    text = text + "      <IncludeAssets>" + CliExportXmlEscape(includeAssets) + "</IncludeAssets>\n"
+                }
+                text = text + "    </PackageReference>\n"
+            } else {
+                text = text + "    <PackageReference Include=\"" + CliExportXmlEscape(packageName) + "\" Version=\"" + CliExportXmlEscape(packageVersion) + "\" />\n"
+            }
+
+            i = i + 1
+        }
+
+        text = text + "  </ItemGroup>\n"
+    }
+
+    if frameworkReferences.Length > 0 {
+        text = text + "  <ItemGroup>\n"
+
+        i := 0
+        while i < frameworkReferences.Length {
+            text = text + "    <FrameworkReference Include=\"" + CliExportXmlEscape(frameworkReferences[i]) + "\" />\n"
+            i = i + 1
+        }
+
+        text = text + "  </ItemGroup>\n"
+    }
+
+    if projectReferences.Length > 0 {
+        text = text + "  <ItemGroup>\n"
+
+        i := 0
+        while i < projectReferences.Length {
+            text = text + "    <ProjectReference Include=\"" + CliExportXmlEscape(projectReferences[i]) + "\" />\n"
+            i = i + 1
+        }
+
+        text = text + "  </ItemGroup>\n"
+    }
+
+    if dllReferenceNames.Length > 0 {
+        text = text + "  <ItemGroup>\n"
+
+        i := 0
+        while i < dllReferenceNames.Length {
+            text = text + "    <Reference Include=\"" + CliExportXmlEscape(dllReferenceNames[i]) + "\">\n"
+            text = text + "      <HintPath>" + CliExportXmlEscape(CliExportStringAtOrEmpty(dllReferenceHintPaths, i)) + "</HintPath>\n"
+            text = text + "    </Reference>\n"
+            i = i + 1
+        }
+
+        text = text + "  </ItemGroup>\n"
+    }
+
+    return text
+}
+
+func CliExportXmlEscape(value: string): string {
+    result := ""
+    index := 0
+    while index < value.Length {
+        ch := value[index]
+        if ch == '&' {
+            result = result + "&amp;"
+        } else if ch == '"' {
+            result = result + "&quot;"
+        } else if ch == '<' {
+            result = result + "&lt;"
+        } else if ch == '>' {
+            result = result + "&gt;"
+        } else {
+            result = result + value.Substring(index, 1)
+        }
+
+        index = index + 1
+    }
+
+    return result
+}
+
+func CliExportHasText(value: string): bool {
+    return value.Trim().Length > 0
+}
+
+func CliExportStringAtOrEmpty(values: string[], index: int): string {
+    if index >= 0 && index < values.Length {
+        return values[index]
+    }
+
+    return ""
+}
+
+func CliExportIntAtOrZero(values: int[], index: int): int {
+    if index >= 0 && index < values.Length {
+        return values[index]
+    }
+
+    return 0
+}
+
 func CliGeneratedSourceBasePathLength(relativeSourcePath: string): int {
     testsSuffix := ".tests.nl"
     if CliPathEndsWithTestsNl(relativeSourcePath) {

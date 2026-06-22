@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text;
 using NSharpLang.Compiler;
 
 namespace NSharpLang.Cli.Commands;
@@ -371,6 +372,120 @@ internal static class ExportCommandKernels
             ? message
             : FallbackTestsSuccessMessage(testProjectFilePath);
 
+    internal static string GetCSharpMainProjectFileText(
+        string sdk,
+        string targetFramework,
+        string outputType,
+        string assemblyName,
+        string version,
+        string packageAuthor,
+        string packageDescription,
+        string packageTags,
+        int packageTagsCount,
+        string packageLicense,
+        string packageRepository,
+        string packageIconFileName,
+        int includePackageIcon,
+        string[] packageNames,
+        string[] packageVersions,
+        int[] packagePrivateAssetsAll,
+        string[] packageIncludeAssets,
+        string[] frameworkReferences,
+        string[] projectReferences,
+        string[] dllReferenceNames,
+        string[] dllReferenceHintPaths)
+    {
+        if (TryGetMessage(
+            bindings => bindings.CSharpMainProjectFileText(
+                sdk,
+                targetFramework,
+                outputType,
+                assemblyName,
+                version,
+                packageAuthor,
+                packageDescription,
+                packageTags,
+                packageTagsCount,
+                packageLicense,
+                packageRepository,
+                packageIconFileName,
+                includePackageIcon,
+                packageNames,
+                packageVersions,
+                packagePrivateAssetsAll,
+                packageIncludeAssets,
+                frameworkReferences,
+                projectReferences,
+                dllReferenceNames,
+                dllReferenceHintPaths),
+            out var text))
+        {
+            return text;
+        }
+
+        return GetCSharpMainProjectFileTextWithCSharp(
+            sdk,
+            targetFramework,
+            outputType,
+            assemblyName,
+            version,
+            packageAuthor,
+            packageDescription,
+            packageTags,
+            packageTagsCount,
+            packageLicense,
+            packageRepository,
+            packageIconFileName,
+            includePackageIcon,
+            packageNames,
+            packageVersions,
+            packagePrivateAssetsAll,
+            packageIncludeAssets,
+            frameworkReferences,
+            projectReferences,
+            dllReferenceNames,
+            dllReferenceHintPaths);
+    }
+
+    internal static string GetCSharpTestProjectFileText(
+        string targetFramework,
+        string[] packageNames,
+        string[] packageVersions,
+        int[] packagePrivateAssetsAll,
+        string[] packageIncludeAssets,
+        string[] frameworkReferences,
+        string[] projectReferences,
+        string[] dllReferenceNames,
+        string[] dllReferenceHintPaths)
+    {
+        if (TryGetMessage(
+            bindings => bindings.CSharpTestProjectFileText(
+                targetFramework,
+                packageNames,
+                packageVersions,
+                packagePrivateAssetsAll,
+                packageIncludeAssets,
+                frameworkReferences,
+                projectReferences,
+                dllReferenceNames,
+                dllReferenceHintPaths),
+            out var text))
+        {
+            return text;
+        }
+
+        return GetCSharpTestProjectFileTextWithCSharp(
+            targetFramework,
+            packageNames,
+            packageVersions,
+            packagePrivateAssetsAll,
+            packageIncludeAssets,
+            frameworkReferences,
+            projectReferences,
+            dllReferenceNames,
+            dllReferenceHintPaths);
+    }
+
     private static bool TryGetMessage(Func<Bindings, string> getMessage, out string message)
     {
         message = string.Empty;
@@ -452,7 +567,13 @@ internal static class ExportCommandKernels
                 "CliExportProjectSuccessMessage"),
             DogfoodKernelLoader.CreateDelegate<CliExportTestsSuccessMessage>(
                 programType,
-                "CliExportTestsSuccessMessage")));
+                "CliExportTestsSuccessMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliExportCSharpMainProjectFileText>(
+                programType,
+                "CliExportCSharpMainProjectFileText"),
+            DogfoodKernelLoader.CreateDelegate<CliExportCSharpTestProjectFileText>(
+                programType,
+                "CliExportCSharpTestProjectFileText")));
 
     private delegate int CliExportCSharpFirstOperandIndexInto(
         string[] args,
@@ -512,6 +633,40 @@ internal static class ExportCommandKernels
 
     private delegate string CliExportTestsSuccessMessage(string testProjectFilePath);
 
+    private delegate string CliExportCSharpMainProjectFileText(
+        string sdk,
+        string targetFramework,
+        string outputType,
+        string assemblyName,
+        string version,
+        string packageAuthor,
+        string packageDescription,
+        string packageTags,
+        int packageTagsCount,
+        string packageLicense,
+        string packageRepository,
+        string packageIconFileName,
+        int includePackageIcon,
+        string[] packageNames,
+        string[] packageVersions,
+        int[] packagePrivateAssetsAll,
+        string[] packageIncludeAssets,
+        string[] frameworkReferences,
+        string[] projectReferences,
+        string[] dllReferenceNames,
+        string[] dllReferenceHintPaths);
+
+    private delegate string CliExportCSharpTestProjectFileText(
+        string targetFramework,
+        string[] packageNames,
+        string[] packageVersions,
+        int[] packagePrivateAssetsAll,
+        string[] packageIncludeAssets,
+        string[] frameworkReferences,
+        string[] projectReferences,
+        string[] dllReferenceNames,
+        string[] dllReferenceHintPaths);
+
     private sealed record Bindings(
         CliExportCSharpFirstOperandIndexInto CSharpFirstOperandIndex,
         CliReferenceTypeFilterIndicesInto ReferenceTypeFilterIndices,
@@ -532,7 +687,9 @@ internal static class ExportCommandKernels
         CliExportSingleFileSuccessMessage SingleFileSuccessMessage,
         CliExportNoProjectFileMessage NoProjectFileMessage,
         CliExportProjectSuccessMessage ProjectSuccessMessage,
-        CliExportTestsSuccessMessage TestsSuccessMessage);
+        CliExportTestsSuccessMessage TestsSuccessMessage,
+        CliExportCSharpMainProjectFileText CSharpMainProjectFileText,
+        CliExportCSharpTestProjectFileText CSharpTestProjectFileText);
 
     // Stage 6 C#-surface-shrink: fallback/oracle only; product export messages route through CliExport* kernels.
     private static string FallbackHelpText()
@@ -616,6 +773,222 @@ internal static class ExportCommandKernels
 
     private static string FallbackTestsSuccessMessage(string testProjectFilePath)
         => $"Exported tests to {testProjectFilePath}";
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product export .csproj XML routes through CliExport* kernels.
+    private static string GetCSharpMainProjectFileTextWithCSharp(
+        string sdk,
+        string targetFramework,
+        string outputType,
+        string assemblyName,
+        string version,
+        string packageAuthor,
+        string packageDescription,
+        string packageTags,
+        int packageTagsCount,
+        string packageLicense,
+        string packageRepository,
+        string packageIconFileName,
+        int includePackageIcon,
+        string[] packageNames,
+        string[] packageVersions,
+        int[] packagePrivateAssetsAll,
+        string[] packageIncludeAssets,
+        string[] frameworkReferences,
+        string[] projectReferences,
+        string[] dllReferenceNames,
+        string[] dllReferenceHintPaths)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine($"<Project Sdk=\"{EscapeXml(sdk)}\">");
+        sb.AppendLine("  <PropertyGroup>");
+        sb.AppendLine($"    <TargetFramework>{EscapeXml(targetFramework)}</TargetFramework>");
+        sb.AppendLine($"    <OutputType>{outputType}</OutputType>");
+        sb.AppendLine($"    <AssemblyName>{EscapeXml(assemblyName)}</AssemblyName>");
+        sb.AppendLine("    <LangVersion>latest</LangVersion>");
+        sb.AppendLine("    <Nullable>enable</Nullable>");
+        sb.AppendLine("    <ImplicitUsings>disable</ImplicitUsings>");
+        if (HasText(version))
+            sb.AppendLine($"    <Version>{EscapeXml(version)}</Version>");
+
+        AppendPackageMetadata(
+            sb,
+            packageAuthor,
+            packageDescription,
+            packageTags,
+            packageTagsCount,
+            packageLicense,
+            packageRepository,
+            packageIconFileName,
+            includePackageIcon);
+        sb.AppendLine("  </PropertyGroup>");
+
+        AppendReferenceItemGroups(
+            sb,
+            packageNames,
+            packageVersions,
+            packagePrivateAssetsAll,
+            packageIncludeAssets,
+            frameworkReferences,
+            projectReferences,
+            dllReferenceNames,
+            dllReferenceHintPaths);
+        sb.AppendLine("</Project>");
+        return sb.ToString();
+    }
+
+    private static string GetCSharpTestProjectFileTextWithCSharp(
+        string targetFramework,
+        string[] packageNames,
+        string[] packageVersions,
+        int[] packagePrivateAssetsAll,
+        string[] packageIncludeAssets,
+        string[] frameworkReferences,
+        string[] projectReferences,
+        string[] dllReferenceNames,
+        string[] dllReferenceHintPaths)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("<Project Sdk=\"Microsoft.NET.Sdk\">");
+        sb.AppendLine("  <PropertyGroup>");
+        sb.AppendLine($"    <TargetFramework>{EscapeXml(targetFramework)}</TargetFramework>");
+        sb.AppendLine("    <LangVersion>latest</LangVersion>");
+        sb.AppendLine("    <Nullable>enable</Nullable>");
+        sb.AppendLine("    <ImplicitUsings>disable</ImplicitUsings>");
+        sb.AppendLine("    <IsPackable>false</IsPackable>");
+        sb.AppendLine("    <IsTestProject>true</IsTestProject>");
+        sb.AppendLine("  </PropertyGroup>");
+
+        AppendReferenceItemGroups(
+            sb,
+            packageNames,
+            packageVersions,
+            packagePrivateAssetsAll,
+            packageIncludeAssets,
+            frameworkReferences,
+            projectReferences,
+            dllReferenceNames,
+            dllReferenceHintPaths);
+        sb.AppendLine("</Project>");
+        return sb.ToString();
+    }
+
+    private static void AppendPackageMetadata(
+        StringBuilder sb,
+        string packageAuthor,
+        string packageDescription,
+        string packageTags,
+        int packageTagsCount,
+        string packageLicense,
+        string packageRepository,
+        string packageIconFileName,
+        int includePackageIcon)
+    {
+        if (HasText(packageAuthor))
+            sb.AppendLine($"    <Authors>{EscapeXml(packageAuthor)}</Authors>");
+
+        if (HasText(packageDescription))
+            sb.AppendLine($"    <Description>{EscapeXml(packageDescription)}</Description>");
+
+        if (packageTagsCount > 0)
+            sb.AppendLine($"    <PackageTags>{EscapeXml(packageTags)}</PackageTags>");
+
+        if (HasText(packageLicense))
+            sb.AppendLine($"    <PackageLicenseExpression>{EscapeXml(packageLicense)}</PackageLicenseExpression>");
+
+        if (HasText(packageRepository))
+            sb.AppendLine($"    <RepositoryUrl>{EscapeXml(packageRepository)}</RepositoryUrl>");
+
+        if (includePackageIcon != 0)
+            sb.AppendLine($"    <PackageIcon>{EscapeXml(packageIconFileName)}</PackageIcon>");
+    }
+
+    private static void AppendReferenceItemGroups(
+        StringBuilder sb,
+        string[] packageNames,
+        string[] packageVersions,
+        int[] packagePrivateAssetsAll,
+        string[] packageIncludeAssets,
+        string[] frameworkReferences,
+        string[] projectReferences,
+        string[] dllReferenceNames,
+        string[] dllReferenceHintPaths)
+    {
+        if (packageNames.Length > 0)
+        {
+            sb.AppendLine("  <ItemGroup>");
+            for (var i = 0; i < packageNames.Length; i++)
+            {
+                var packageName = StringAtOrEmpty(packageNames, i);
+                var packageVersion = StringAtOrEmpty(packageVersions, i);
+                var privateAssetsAll = IntAtOrZero(packagePrivateAssetsAll, i);
+                var includeAssets = StringAtOrEmpty(packageIncludeAssets, i);
+
+                if (!HasText(packageVersion))
+                {
+                    sb.AppendLine($"    <PackageReference Include=\"{EscapeXml(packageName)}\" />");
+                }
+                else if (privateAssetsAll != 0)
+                {
+                    sb.AppendLine($"    <PackageReference Include=\"{EscapeXml(packageName)}\" Version=\"{EscapeXml(packageVersion)}\">");
+                    sb.AppendLine("      <PrivateAssets>all</PrivateAssets>");
+                    if (HasText(includeAssets))
+                        sb.AppendLine($"      <IncludeAssets>{EscapeXml(includeAssets)}</IncludeAssets>");
+                    sb.AppendLine("    </PackageReference>");
+                }
+                else
+                {
+                    sb.AppendLine($"    <PackageReference Include=\"{EscapeXml(packageName)}\" Version=\"{EscapeXml(packageVersion)}\" />");
+                }
+            }
+            sb.AppendLine("  </ItemGroup>");
+        }
+
+        if (frameworkReferences.Length > 0)
+        {
+            sb.AppendLine("  <ItemGroup>");
+            foreach (var frameworkReference in frameworkReferences)
+                sb.AppendLine($"    <FrameworkReference Include=\"{EscapeXml(frameworkReference)}\" />");
+            sb.AppendLine("  </ItemGroup>");
+        }
+
+        if (projectReferences.Length > 0)
+        {
+            sb.AppendLine("  <ItemGroup>");
+            foreach (var projectReference in projectReferences)
+                sb.AppendLine($"    <ProjectReference Include=\"{EscapeXml(projectReference)}\" />");
+            sb.AppendLine("  </ItemGroup>");
+        }
+
+        if (dllReferenceNames.Length > 0)
+        {
+            sb.AppendLine("  <ItemGroup>");
+            for (var i = 0; i < dllReferenceNames.Length; i++)
+            {
+                sb.AppendLine($"    <Reference Include=\"{EscapeXml(dllReferenceNames[i])}\">");
+                sb.AppendLine($"      <HintPath>{EscapeXml(StringAtOrEmpty(dllReferenceHintPaths, i))}</HintPath>");
+                sb.AppendLine("    </Reference>");
+            }
+            sb.AppendLine("  </ItemGroup>");
+        }
+    }
+
+    private static string EscapeXml(string value)
+    {
+        return value
+            .Replace("&", "&amp;", StringComparison.Ordinal)
+            .Replace("\"", "&quot;", StringComparison.Ordinal)
+            .Replace("<", "&lt;", StringComparison.Ordinal)
+            .Replace(">", "&gt;", StringComparison.Ordinal);
+    }
+
+    private static bool HasText(string value)
+        => !string.IsNullOrWhiteSpace(value);
+
+    private static string StringAtOrEmpty(string[] values, int index)
+        => index >= 0 && index < values.Length ? values[index] : string.Empty;
+
+    private static int IntAtOrZero(int[] values, int index)
+        => index >= 0 && index < values.Length ? values[index] : 0;
 
     private static bool TryGetOptionalArg(string[] args, int index, out string? value)
     {
