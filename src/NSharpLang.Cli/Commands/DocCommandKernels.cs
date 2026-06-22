@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using NSharpLang.Compiler.CodeIntelligence;
 
 namespace NSharpLang.Cli.Commands;
@@ -122,6 +123,54 @@ internal static class DocCommandKernels
         }
     }
 
+    internal static string GetHelpText()
+        => TryGetMessage(bindings => bindings.HelpText(), out var message)
+            ? message
+            : FallbackHelpText();
+
+    internal static string GetProjectDirectoryNotFoundMessage(string projectRoot)
+        => TryGetMessage(bindings => bindings.ProjectDirectoryNotFoundMessage(projectRoot), out var message)
+            ? message
+            : FallbackProjectDirectoryNotFoundMessage(projectRoot);
+
+    internal static string GetGeneratedSummaryMessage(int pageCount)
+    {
+        var pageCountText = pageCount.ToString(CultureInfo.InvariantCulture);
+        return TryGetMessage(bindings => bindings.GeneratedSummaryMessage(pageCountText), out var message)
+            ? message
+            : FallbackGeneratedSummaryMessage(pageCountText);
+    }
+
+    internal static string GetOutputPathMessage(string outputDir)
+        => TryGetMessage(bindings => bindings.OutputPathMessage(outputDir), out var message)
+            ? message
+            : FallbackOutputPathMessage(outputDir);
+
+    internal static string GetIndexPathMessage(string indexPath)
+        => TryGetMessage(bindings => bindings.IndexPathMessage(indexPath), out var message)
+            ? message
+            : FallbackIndexPathMessage(indexPath);
+
+    internal static string GetOpenedMessage()
+        => TryGetMessage(bindings => bindings.OpenedMessage(), out var message)
+            ? message
+            : FallbackOpenedMessage();
+
+    internal static string GetGenerationFailedMessage(string exceptionMessage)
+        => TryGetMessage(bindings => bindings.GenerationFailedMessage(exceptionMessage), out var message)
+            ? message
+            : FallbackGenerationFailedMessage(exceptionMessage);
+
+    internal static string GetOpenFailedMessage(string indexPath)
+        => TryGetMessage(bindings => bindings.OpenFailedMessage(indexPath), out var message)
+            ? message
+            : FallbackOpenFailedMessage(indexPath);
+
+    internal static string GetOpenFailedWithDetailMessage(string indexPath, string exceptionMessage)
+        => TryGetMessage(bindings => bindings.OpenFailedWithDetailMessage(indexPath, exceptionMessage), out var message)
+            ? message
+            : FallbackOpenFailedWithDetailMessage(indexPath, exceptionMessage);
+
     private static bool TryOrderEntriesForGeneration(
         IReadOnlyList<SymbolResult> symbols,
         bool includeAllKinds,
@@ -210,7 +259,34 @@ internal static class DocCommandKernels
                 "CliDocOptionSummaryInto"),
             DogfoodKernelLoader.CreateDelegate<CliDocOutputMode>(
                 programType,
-                "CliDocOutputMode")));
+                "CliDocOutputMode"),
+            DogfoodKernelLoader.CreateDelegate<CliDocHelpText>(
+                programType,
+                "CliDocHelpText"),
+            DogfoodKernelLoader.CreateDelegate<CliDocProjectDirectoryNotFoundMessage>(
+                programType,
+                "CliDocProjectDirectoryNotFoundMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliDocGeneratedSummaryMessage>(
+                programType,
+                "CliDocGeneratedSummaryMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliDocOutputPathMessage>(
+                programType,
+                "CliDocOutputPathMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliDocIndexPathMessage>(
+                programType,
+                "CliDocIndexPathMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliDocOpenedMessage>(
+                programType,
+                "CliDocOpenedMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliDocGenerationFailedMessage>(
+                programType,
+                "CliDocGenerationFailedMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliDocOpenFailedMessage>(
+                programType,
+                "CliDocOpenFailedMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliDocOpenFailedWithDetailMessage>(
+                programType,
+                "CliDocOpenFailedWithDetailMessage")));
 
     private static bool IsDocumentedSymbolKind(SymbolKind kind) =>
         kind is not SymbolKind.Variable and not SymbolKind.Parameter;
@@ -256,11 +332,107 @@ internal static class DocCommandKernels
 
     private delegate int CliDocOutputMode(int json);
 
+    private delegate string CliDocHelpText();
+
+    private delegate string CliDocProjectDirectoryNotFoundMessage(string projectRoot);
+
+    private delegate string CliDocGeneratedSummaryMessage(string pageCountText);
+
+    private delegate string CliDocOutputPathMessage(string outputDir);
+
+    private delegate string CliDocIndexPathMessage(string indexPath);
+
+    private delegate string CliDocOpenedMessage();
+
+    private delegate string CliDocGenerationFailedMessage(string message);
+
+    private delegate string CliDocOpenFailedMessage(string indexPath);
+
+    private delegate string CliDocOpenFailedWithDetailMessage(string indexPath, string message);
+
     private sealed record Bindings(
         CliDocSymbolOrderCountingIndicesInto SymbolOrderCountingIndices,
         CliDocSlugsInto DocSlugs,
         CliDocOptionSummaryInto OptionSummary,
-        CliDocOutputMode OutputMode);
+        CliDocOutputMode OutputMode,
+        CliDocHelpText HelpText,
+        CliDocProjectDirectoryNotFoundMessage ProjectDirectoryNotFoundMessage,
+        CliDocGeneratedSummaryMessage GeneratedSummaryMessage,
+        CliDocOutputPathMessage OutputPathMessage,
+        CliDocIndexPathMessage IndexPathMessage,
+        CliDocOpenedMessage OpenedMessage,
+        CliDocGenerationFailedMessage GenerationFailedMessage,
+        CliDocOpenFailedMessage OpenFailedMessage,
+        CliDocOpenFailedWithDetailMessage OpenFailedWithDetailMessage);
+
+    private static bool TryGetMessage(Func<Bindings, string> getMessage, out string message)
+    {
+        message = string.Empty;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        try
+        {
+            message = getMessage(bindings);
+            return message.Length > 0;
+        }
+        catch
+        {
+            message = string.Empty;
+            return false;
+        }
+    }
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product doc messages route through CliDoc* kernels.
+    private static string FallbackHelpText()
+        => @"N# API Documentation
+
+Usage: nlc doc [options]
+
+Generate HTML API documentation for the current project. Similar to `cargo doc`.
+
+Options:
+  --project <dir>   Project root directory (default: current directory)
+  --output <dir>    Output directory (default: ./nsharp/docs)
+  --json            Emit a structured JSON result envelope
+  --open            Open the generated index in the default browser
+  --help, -h        Show this help text
+
+Examples:
+  nlc doc
+  nlc doc --open
+  nlc doc --json
+  nlc doc --project examples/16-task-cli --output /tmp/nsharp-docs
+
+Exit codes:
+  0  Documentation generated successfully
+  1  Documentation generation failed";
+
+    private static string FallbackProjectDirectoryNotFoundMessage(string projectRoot)
+        => $"Project directory not found: {projectRoot}";
+
+    private static string FallbackGeneratedSummaryMessage(string pageCountText)
+        => $"Generated API docs for {pageCountText} symbols.";
+
+    private static string FallbackOutputPathMessage(string outputDir)
+        => $"Output: {outputDir}";
+
+    private static string FallbackIndexPathMessage(string indexPath)
+        => $"Index: {indexPath}";
+
+    private static string FallbackOpenedMessage()
+        => "Opened generated documentation in the default browser.";
+
+    private static string FallbackGenerationFailedMessage(string message)
+        => $"Doc generation failed: {message}";
+
+    private static string FallbackOpenFailedMessage(string indexPath)
+        => $"Generated docs, but failed to open {indexPath}.";
+
+    private static string FallbackOpenFailedWithDetailMessage(string indexPath, string message)
+        => $"Generated docs, but failed to open {indexPath}: {message}";
 
     private static bool TryGetOptionalArg(string[] args, int index, out string? value)
     {

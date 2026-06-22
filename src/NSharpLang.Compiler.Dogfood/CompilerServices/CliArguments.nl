@@ -4141,6 +4141,63 @@ func CliDocOutputMode(useJson: int): int {
     return 2
 }
 
+func CliDocHelpText(): string {
+    return "N# API Documentation\n"
+        + "\n"
+        + "Usage: nlc doc [options]\n"
+        + "\n"
+        + "Generate HTML API documentation for the current project. Similar to `cargo doc`.\n"
+        + "\n"
+        + "Options:\n"
+        + "  --project <dir>   Project root directory (default: current directory)\n"
+        + "  --output <dir>    Output directory (default: ./nsharp/docs)\n"
+        + "  --json            Emit a structured JSON result envelope\n"
+        + "  --open            Open the generated index in the default browser\n"
+        + "  --help, -h        Show this help text\n"
+        + "\n"
+        + "Examples:\n"
+        + "  nlc doc\n"
+        + "  nlc doc --open\n"
+        + "  nlc doc --json\n"
+        + "  nlc doc --project examples/16-task-cli --output /tmp/nsharp-docs\n"
+        + "\n"
+        + "Exit codes:\n"
+        + "  0  Documentation generated successfully\n"
+        + "  1  Documentation generation failed"
+}
+
+func CliDocProjectDirectoryNotFoundMessage(projectRoot: string): string {
+    return "Project directory not found: " + projectRoot
+}
+
+func CliDocGeneratedSummaryMessage(pageCountText: string): string {
+    return "Generated API docs for " + pageCountText + " symbols."
+}
+
+func CliDocOutputPathMessage(outputDir: string): string {
+    return "Output: " + outputDir
+}
+
+func CliDocIndexPathMessage(indexPath: string): string {
+    return "Index: " + indexPath
+}
+
+func CliDocOpenedMessage(): string {
+    return "Opened generated documentation in the default browser."
+}
+
+func CliDocGenerationFailedMessage(message: string): string {
+    return "Doc generation failed: " + message
+}
+
+func CliDocOpenFailedMessage(indexPath: string): string {
+    return "Generated docs, but failed to open " + indexPath + "."
+}
+
+func CliDocOpenFailedWithDetailMessage(indexPath: string, message: string): string {
+    return "Generated docs, but failed to open " + indexPath + ": " + message
+}
+
 func CliTidyDependencyStatusRanksInto(
     packageNames: string[],
     importNamespaces: string[],

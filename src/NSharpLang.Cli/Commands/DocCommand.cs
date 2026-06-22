@@ -34,7 +34,7 @@ public static class DocCommand
         outputDir = Path.GetFullPath(outputDir);
 
         if (!Directory.Exists(projectRoot))
-            return EmitError(outputMode, projectRoot, $"Project directory not found: {projectRoot}");
+            return EmitError(outputMode, projectRoot, DocCommandKernels.GetProjectDirectoryNotFoundMessage(projectRoot));
 
         try
         {
@@ -61,45 +61,24 @@ public static class DocCommand
             }
             else
             {
-                Console.WriteLine($"Generated API docs for {manifest.PageCount} symbols.");
-                Console.WriteLine($"Output: {outputDir}");
-                Console.WriteLine($"Index: {manifest.IndexPath}");
+                Console.WriteLine(DocCommandKernels.GetGeneratedSummaryMessage(manifest.PageCount));
+                Console.WriteLine(DocCommandKernels.GetOutputPathMessage(outputDir));
+                Console.WriteLine(DocCommandKernels.GetIndexPathMessage(manifest.IndexPath));
                 if (openAfterGenerate)
-                    Console.WriteLine("Opened generated documentation in the default browser.");
+                    Console.WriteLine(DocCommandKernels.GetOpenedMessage());
             }
 
             return 0;
         }
         catch (Exception ex)
         {
-            return EmitError(outputMode, projectRoot, $"Doc generation failed: {ex.Message}");
+            return EmitError(outputMode, projectRoot, DocCommandKernels.GetGenerationFailedMessage(ex.Message));
         }
     }
 
     private static int ShowHelp()
     {
-        Console.WriteLine(@"N# API Documentation
-
-Usage: nlc doc [options]
-
-Generate HTML API documentation for the current project. Similar to `cargo doc`.
-
-Options:
-  --project <dir>   Project root directory (default: current directory)
-  --output <dir>    Output directory (default: ./nsharp/docs)
-  --json            Emit a structured JSON result envelope
-  --open            Open the generated index in the default browser
-  --help, -h        Show this help text
-
-Examples:
-  nlc doc
-  nlc doc --open
-  nlc doc --json
-  nlc doc --project examples/16-task-cli --output /tmp/nsharp-docs
-
-Exit codes:
-  0  Documentation generated successfully
-  1  Documentation generation failed");
+        Console.WriteLine(DocCommandKernels.GetHelpText());
 
         return 0;
     }
@@ -199,12 +178,12 @@ Exit codes:
             if (result.ExitCode == 0)
                 return true;
 
-            error = $"Generated docs, but failed to open {path}.";
+            error = DocCommandKernels.GetOpenFailedMessage(path);
             return false;
         }
         catch (Exception ex)
         {
-            error = $"Generated docs, but failed to open {path}: {ex.Message}";
+            error = DocCommandKernels.GetOpenFailedWithDetailMessage(path, ex.Message);
             return false;
         }
     }

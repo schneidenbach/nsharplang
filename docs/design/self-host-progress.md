@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-22 — Doc command messages move into product N#
+
+`DocCommand` no longer owns help text, missing-project diagnostics, generated-doc status lines, opened-browser
+notice, doc-generation failure wrappers, or generated-but-open-failed diagnostics in C#. The shipped `CliDoc*`
+dogfood kernels now shape those strings through `DocCommandKernels`; C# keeps project loading, documentation
+generation, JSON envelope serialization, browser process execution, path normalization, and fallback/oracle text
+only.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.DocCommandKernels_SummarizesOptions|FullyQualifiedName~CliCommandTests.DocCommandKernels_OrdersSymbolsForGeneration|FullyQualifiedName~CliCommandTests.DocCommandKernels_OrdersMembersForGeneration|FullyQualifiedName~CliCommandTests.DocCommandKernels_CreatesSlugs|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`;
+`./scripts/dev.sh DocCommandKernels`.
+
 ## 2026-06-22 — Run backend messages move into product N#
 
 `RunWithIlBackend` and `RunSingleFileWithIlBackend` no longer own missing-project diagnostics,

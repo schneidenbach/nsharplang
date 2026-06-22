@@ -4496,6 +4496,37 @@ dependencies:
         Assert.True(DocCommandKernels.TryGetOutputMode(json: true, out var jsonMode));
         Assert.Equal(DocOutputModeKind.Json, jsonMode);
         Assert.Equal(DocOutputModeKind.Json, DocCommand.GetOutputMode(json: true));
+
+        var helpText = DocCommandKernels.GetHelpText();
+        Assert.Contains("N# API Documentation", helpText);
+        Assert.Contains("Usage: nlc doc [options]", helpText);
+        Assert.Contains("Documentation generation failed", helpText);
+        Assert.Equal(
+            "Project directory not found: /tmp/missing-doc-project",
+            DocCommandKernels.GetProjectDirectoryNotFoundMessage("/tmp/missing-doc-project"));
+        Assert.Equal("Generated API docs for 7 symbols.", DocCommandKernels.GetGeneratedSummaryMessage(7));
+        Assert.Equal("Output: /tmp/api", DocCommandKernels.GetOutputPathMessage("/tmp/api"));
+        Assert.Equal("Index: /tmp/api/index.html", DocCommandKernels.GetIndexPathMessage("/tmp/api/index.html"));
+        Assert.Equal("Opened generated documentation in the default browser.", DocCommandKernels.GetOpenedMessage());
+        Assert.Equal("Doc generation failed: no symbols", DocCommandKernels.GetGenerationFailedMessage("no symbols"));
+        Assert.Equal(
+            "Generated docs, but failed to open /tmp/api/index.html.",
+            DocCommandKernels.GetOpenFailedMessage("/tmp/api/index.html"));
+        Assert.Equal(
+            "Generated docs, but failed to open /tmp/api/index.html: denied",
+            DocCommandKernels.GetOpenFailedWithDetailMessage("/tmp/api/index.html", "denied"));
+
+        var (helpExitCode, helpStdout, helpStderr) = CaptureConsole(() => DocCommand.Execute(new[] { "--help" }));
+        Assert.Equal(0, helpExitCode);
+        Assert.Contains("Usage: nlc doc [options]", helpStdout);
+        Assert.True(string.IsNullOrWhiteSpace(helpStderr));
+
+        var missingProject = Path.Combine(Path.GetTempPath(), $"nsharp-doc-missing-{Guid.NewGuid():N}");
+        var (missingExitCode, missingStdout, missingStderr) = CaptureConsole(() =>
+            DocCommand.Execute(new[] { "--project", missingProject }));
+        Assert.Equal(1, missingExitCode);
+        Assert.True(string.IsNullOrWhiteSpace(missingStdout));
+        Assert.Contains($"Project directory not found: {missingProject}", missingStderr);
     }
 
     [Fact]

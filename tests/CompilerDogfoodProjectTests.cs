@@ -7177,6 +7177,15 @@ func outer(x: int): int {
         Assert.Contains("CliTidyImportNamespaceSpanInto", methodNames!); // product tidy import extraction.
         Assert.Contains("CliDocOptionSummaryInto", methodNames!); // product doc option parsing.
         Assert.Contains("CliDocOutputMode", methodNames!); // product doc output mode selection.
+        Assert.Contains("CliDocHelpText", methodNames!); // product doc help text shaping.
+        Assert.Contains("CliDocProjectDirectoryNotFoundMessage", methodNames!); // product doc missing-project message shaping.
+        Assert.Contains("CliDocGeneratedSummaryMessage", methodNames!); // product doc generated-summary text shaping.
+        Assert.Contains("CliDocOutputPathMessage", methodNames!); // product doc output-path text shaping.
+        Assert.Contains("CliDocIndexPathMessage", methodNames!); // product doc index-path text shaping.
+        Assert.Contains("CliDocOpenedMessage", methodNames!); // product doc opened message shaping.
+        Assert.Contains("CliDocGenerationFailedMessage", methodNames!); // product doc failure wrapper shaping.
+        Assert.Contains("CliDocOpenFailedMessage", methodNames!); // product doc open-failure message shaping.
+        Assert.Contains("CliDocOpenFailedWithDetailMessage", methodNames!); // product doc open-failure detail shaping.
         Assert.Contains("CliTreeOptionSummaryInto", methodNames!); // product tree option parsing.
         Assert.Contains("CliTreeMaxDepthInto", methodNames!); // product tree depth parsing.
         Assert.Contains("CliTreeOutputMode", methodNames!); // product tree output mode selection.
@@ -16220,6 +16229,42 @@ class OtherZetaType {
                     "CliDocOutputMode",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDocOutputMode.");
+            var cliDocHelpText = programType.GetMethod(
+                    "CliDocHelpText",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDocHelpText.");
+            var cliDocProjectDirectoryNotFoundMessage = programType.GetMethod(
+                    "CliDocProjectDirectoryNotFoundMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDocProjectDirectoryNotFoundMessage.");
+            var cliDocGeneratedSummaryMessage = programType.GetMethod(
+                    "CliDocGeneratedSummaryMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDocGeneratedSummaryMessage.");
+            var cliDocOutputPathMessage = programType.GetMethod(
+                    "CliDocOutputPathMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDocOutputPathMessage.");
+            var cliDocIndexPathMessage = programType.GetMethod(
+                    "CliDocIndexPathMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDocIndexPathMessage.");
+            var cliDocOpenedMessage = programType.GetMethod(
+                    "CliDocOpenedMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDocOpenedMessage.");
+            var cliDocGenerationFailedMessage = programType.GetMethod(
+                    "CliDocGenerationFailedMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDocGenerationFailedMessage.");
+            var cliDocOpenFailedMessage = programType.GetMethod(
+                    "CliDocOpenFailedMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDocOpenFailedMessage.");
+            var cliDocOpenFailedWithDetailMessage = programType.GetMethod(
+                    "CliDocOpenFailedWithDetailMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDocOpenFailedWithDetailMessage.");
             var cliTreeOptionSummaryInto = programType.GetMethod(
                     "CliTreeOptionSummaryInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -17717,6 +17762,16 @@ func main(customer: Customer, résumé: Profile) {
             AssertCliJsonFlagOutputModesLikeProduction(cliTidyOutputMode);
             AssertCliDocOptionsLikeProduction(cliDocOptionSummaryInto);
             AssertCliJsonFlagOutputModesLikeProduction(cliDocOutputMode);
+            AssertCliDocMessagesLikeProduction(
+                cliDocHelpText,
+                cliDocProjectDirectoryNotFoundMessage,
+                cliDocGeneratedSummaryMessage,
+                cliDocOutputPathMessage,
+                cliDocIndexPathMessage,
+                cliDocOpenedMessage,
+                cliDocGenerationFailedMessage,
+                cliDocOpenFailedMessage,
+                cliDocOpenFailedWithDetailMessage);
             AssertCliTreeOptionsLikeProduction(cliTreeOptionSummaryInto, cliTreeMaxDepthInto);
             AssertCliTreeMessagesLikeProduction(
                 cliTreeHelpText,
@@ -23730,6 +23785,52 @@ func main() {
         }
 
         return indices;
+    }
+
+    private static void AssertCliDocMessagesLikeProduction(
+        MethodInfo cliDocHelpText,
+        MethodInfo cliDocProjectDirectoryNotFoundMessage,
+        MethodInfo cliDocGeneratedSummaryMessage,
+        MethodInfo cliDocOutputPathMessage,
+        MethodInfo cliDocIndexPathMessage,
+        MethodInfo cliDocOpenedMessage,
+        MethodInfo cliDocGenerationFailedMessage,
+        MethodInfo cliDocOpenFailedMessage,
+        MethodInfo cliDocOpenFailedWithDetailMessage)
+    {
+        var helpText = (string)(cliDocHelpText.Invoke(null, Array.Empty<object>()) ?? "<null>");
+        Assert.Contains("N# API Documentation", helpText);
+        Assert.Contains("Usage: nlc doc [options]", helpText);
+        Assert.Contains("Documentation generation failed", helpText);
+
+        Assert.Equal(
+            "Project directory not found: /tmp/missing-doc-project",
+            (string)(cliDocProjectDirectoryNotFoundMessage.Invoke(
+                null,
+                new object[] { "/tmp/missing-doc-project" }) ?? "<null>"));
+        Assert.Equal(
+            "Generated API docs for 7 symbols.",
+            (string)(cliDocGeneratedSummaryMessage.Invoke(null, new object[] { "7" }) ?? "<null>"));
+        Assert.Equal(
+            "Output: /tmp/api",
+            (string)(cliDocOutputPathMessage.Invoke(null, new object[] { "/tmp/api" }) ?? "<null>"));
+        Assert.Equal(
+            "Index: /tmp/api/index.html",
+            (string)(cliDocIndexPathMessage.Invoke(null, new object[] { "/tmp/api/index.html" }) ?? "<null>"));
+        Assert.Equal(
+            "Opened generated documentation in the default browser.",
+            (string)(cliDocOpenedMessage.Invoke(null, Array.Empty<object>()) ?? "<null>"));
+        Assert.Equal(
+            "Doc generation failed: no symbols",
+            (string)(cliDocGenerationFailedMessage.Invoke(null, new object[] { "no symbols" }) ?? "<null>"));
+        Assert.Equal(
+            "Generated docs, but failed to open /tmp/api/index.html.",
+            (string)(cliDocOpenFailedMessage.Invoke(null, new object[] { "/tmp/api/index.html" }) ?? "<null>"));
+        Assert.Equal(
+            "Generated docs, but failed to open /tmp/api/index.html: denied",
+            (string)(cliDocOpenFailedWithDetailMessage.Invoke(
+                null,
+                new object[] { "/tmp/api/index.html", "denied" }) ?? "<null>"));
     }
 
     private static void AssertCliAuditOptionsLikeProduction(MethodInfo cliAuditOptionSummaryInto)
