@@ -374,14 +374,8 @@ internal static class CompilationReferenceResolver
             return hasRefSegment;
         }
 
-        return IsReferenceAssemblyOutputPathWithCSharp(path);
+        throw new InvalidOperationException("N# reference resolver kernel rejected project-reference output filtering.");
     }
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product C# project-reference
-    // output filtering routes through CompilationReferenceResolverKernels.
-    private static bool IsReferenceAssemblyOutputPathWithCSharp(string path)
-        => path.Split(Path.DirectorySeparatorChar)
-            .Any(part => string.Equals(part, "ref", StringComparison.OrdinalIgnoreCase));
 
     private static string? ReadCSharpProjectAssemblyName(string projectPath)
     {
@@ -585,15 +579,13 @@ internal static class CompilationReferenceResolver
             return versions[dogfoodIndex];
         }
 
-        return SelectBestInstalledNuGetVersionWithCSharp(versions);
-    }
+        if (versions.Length == 0)
+        {
+            return null;
+        }
 
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product installed NuGet version
-    // selection routes through CompilationReferenceResolverKernels.
-    private static string? SelectBestInstalledNuGetVersionWithCSharp(string[] versions)
-        => versions
-            .OrderByDescending(name => name, NuGetVersionComparer.Instance)
-            .FirstOrDefault();
+        throw new InvalidOperationException("N# reference resolver kernel rejected installed NuGet version selection.");
+    }
 
     private static string GetLatestPackageVersion(string packageName)
     {
@@ -619,16 +611,13 @@ internal static class CompilationReferenceResolver
             return versions[dogfoodIndex];
         }
 
-        return SelectLatestNuGetVersionWithCSharp(versions);
-    }
+        if (versions.Length == 0)
+        {
+            return null;
+        }
 
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product latest-version selection routes
-    // through CompilationReferenceResolverKernels.
-    private static string? SelectLatestNuGetVersionWithCSharp(string[] versions)
-        => versions
-            .Where(candidate => !candidate.Contains('-', StringComparison.Ordinal))
-            .DefaultIfEmpty(versions.LastOrDefault())
-            .Last();
+        throw new InvalidOperationException("N# reference resolver kernel rejected latest NuGet version selection.");
+    }
 
     private static void DownloadPackage(string packageName, string version, string versionDirectory)
     {
@@ -758,25 +747,12 @@ internal static class CompilationReferenceResolver
                 .ToArray();
     }
 
-    // Stage 6 C#-surface-shrink: keep filesystem/XML materialization here, route score selection through N#.
     private static int SelectBestFrameworkScoreIndex(int[] scores)
     {
         if (CompilationReferenceResolverKernels.TrySelectBestScoreIndex(scores, scores.Length, out var dogfoodBestIndex))
             return dogfoodBestIndex;
 
-        var bestIndex = -1;
-        var bestScore = -1;
-        for (var i = 0; i < scores.Length; i++)
-        {
-            var score = scores[i];
-            if (score >= 0 && score > bestScore)
-            {
-                bestScore = score;
-                bestIndex = i;
-            }
-        }
-
-        return bestIndex;
+        throw new InvalidOperationException("N# reference resolver kernel rejected framework score selection.");
     }
 
     private static string? NormalizeNuGetDependencyVersion(string? version)
@@ -784,21 +760,7 @@ internal static class CompilationReferenceResolver
         if (CompilationReferenceResolverKernels.TryNormalizeNuGetDependencyVersion(version, out var dogfoodVersion))
             return dogfoodVersion;
 
-        return NormalizeNuGetDependencyVersionWithCSharp(version);
-    }
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product NuGet dependency-version
-    // range normalization routes through CompilationReferenceResolverKernels.
-    private static string? NormalizeNuGetDependencyVersionWithCSharp(string? version)
-    {
-        if (string.IsNullOrWhiteSpace(version))
-        {
-            return null;
-        }
-
-        return version.Trim().Trim('[', ']', '(', ')')
-            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .FirstOrDefault();
+        throw new InvalidOperationException("N# reference resolver kernel rejected NuGet dependency-version normalization.");
     }
 
     private static void AddDllReference(ProjectConfig config, string assemblyPath)
@@ -823,9 +785,10 @@ internal static class CompilationReferenceResolver
         IReadOnlyList<Reference> references,
         ReferenceType referenceType)
     {
-        return CompilationReferenceResolverKernels.TryFilterReferencesByType(references, referenceType, out var dogfoodReferences)
-            ? dogfoodReferences
-            : references.Where(reference => reference.Type == referenceType).ToList();
+        if (CompilationReferenceResolverKernels.TryFilterReferencesByType(references, referenceType, out var dogfoodReferences))
+            return dogfoodReferences;
+
+        throw new InvalidOperationException("N# reference resolver kernel rejected dependency type filtering.");
     }
 
     private static string GetGlobalPackagesFolder()
@@ -892,21 +855,7 @@ internal static class CompilationReferenceResolver
             return candidates[dogfoodIndex].Directory;
         }
 
-        return SelectSharedFrameworkDirectoryWithCSharp(candidates, targetVersion);
-    }
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product shared-framework candidate
-    // selection routes through CompilationReferenceResolverKernels.
-    private static string SelectSharedFrameworkDirectoryWithCSharp(
-        FrameworkCandidate[] candidates,
-        (int Major, int Minor)? targetVersion)
-    {
-        var matchingMajor = candidates
-            .Where(candidate => targetVersion == null || candidate.Version.Major == targetVersion.Value.Major)
-            .OrderByDescending(candidate => candidate.Version)
-            .FirstOrDefault();
-
-        return (matchingMajor ?? candidates.OrderByDescending(candidate => candidate.Version).First()).Directory;
+        throw new InvalidOperationException("N# reference resolver kernel rejected shared-framework directory selection.");
     }
 
     private static IEnumerable<string> EnumerateDotnetSharedRoots()
@@ -945,90 +894,7 @@ internal static class CompilationReferenceResolver
         if (CompilationReferenceResolverKernels.TryGetFrameworkCompatibilityScore(assetFramework, targetFramework, out var dogfoodScore))
             return dogfoodScore;
 
-        return GetFrameworkCompatibilityScoreWithCSharp(assetFramework, targetFramework);
-    }
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product framework compatibility scoring
-    // routes through CompilationReferenceResolverKernels.
-    private static int GetFrameworkCompatibilityScoreWithCSharp(string? assetFramework, string targetFramework)
-    {
-        if (string.IsNullOrWhiteSpace(assetFramework))
-        {
-            return 1;
-        }
-
-        var normalizedAsset = NormalizeFrameworkName(assetFramework);
-        var normalizedTarget = NormalizeFrameworkName(targetFramework);
-        if (string.Equals(normalizedAsset, normalizedTarget, StringComparison.OrdinalIgnoreCase))
-        {
-            return 10_000;
-        }
-
-        var target = ParseTargetFrameworkVersion(normalizedTarget);
-        var asset = ParseTargetFrameworkVersion(normalizedAsset);
-        if (target == null || asset == null)
-        {
-            return -1;
-        }
-
-        if (normalizedAsset.StartsWith("netstandard", StringComparison.OrdinalIgnoreCase))
-        {
-            return 4_000 + (asset.Value.Major * 100) + asset.Value.Minor;
-        }
-
-        if (normalizedAsset.StartsWith("netcoreapp", StringComparison.OrdinalIgnoreCase))
-        {
-            return asset.Value.Major <= target.Value.Major
-                ? 7_000 + (asset.Value.Major * 100) + asset.Value.Minor
-                : -1;
-        }
-
-        if (normalizedAsset.StartsWith("net", StringComparison.OrdinalIgnoreCase)
-            && asset.Value.Major >= 5
-            && target.Value.Major >= 5)
-        {
-            return asset.Value.Major <= target.Value.Major
-                ? 8_000 + (asset.Value.Major * 100) + asset.Value.Minor
-                : -1;
-        }
-
-        return -1;
-    }
-
-    private static string NormalizeFrameworkName(string frameworkName)
-    {
-        var value = frameworkName.Trim();
-        if (value.StartsWith(".NETCoreApp,Version=v", StringComparison.OrdinalIgnoreCase))
-        {
-            return "netcoreapp" + value[".NETCoreApp,Version=v".Length..];
-        }
-
-        if (value.StartsWith(".NETCoreApp", StringComparison.OrdinalIgnoreCase))
-        {
-            return "netcoreapp" + value[".NETCoreApp".Length..];
-        }
-
-        if (value.StartsWith(".NETStandard,Version=v", StringComparison.OrdinalIgnoreCase))
-        {
-            return "netstandard" + value[".NETStandard,Version=v".Length..];
-        }
-
-        if (value.StartsWith(".NETStandard", StringComparison.OrdinalIgnoreCase))
-        {
-            return "netstandard" + value[".NETStandard".Length..];
-        }
-
-        if (value.StartsWith(".NETFramework,Version=v", StringComparison.OrdinalIgnoreCase))
-        {
-            return "net" + value[".NETFramework,Version=v".Length..].Replace(".", "", StringComparison.Ordinal);
-        }
-
-        if (value.StartsWith(".NETFramework", StringComparison.OrdinalIgnoreCase))
-        {
-            return "net" + value[".NETFramework".Length..].Replace(".", "", StringComparison.Ordinal);
-        }
-
-        return value.ToLowerInvariant();
+        throw new InvalidOperationException("N# reference resolver kernel rejected framework compatibility scoring.");
     }
 
     private static (int Major, int Minor)? ParseTargetFrameworkVersion(string targetFramework)
@@ -1042,32 +908,7 @@ internal static class CompilationReferenceResolver
             return parsed ? (major, minor) : null;
         }
 
-        return ParseTargetFrameworkVersionWithCSharp(targetFramework);
-    }
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product target-framework version parsing routes through CompilationReferenceResolverKernels.
-    private static (int Major, int Minor)? ParseTargetFrameworkVersionWithCSharp(string targetFramework)
-    {
-        var digits = new string(targetFramework
-            .SkipWhile(character => !char.IsDigit(character))
-            .TakeWhile(character => char.IsDigit(character) || character == '.')
-            .ToArray());
-
-        if (string.IsNullOrWhiteSpace(digits))
-        {
-            return null;
-        }
-
-        var parts = digits.Split('.', StringSplitOptions.RemoveEmptyEntries);
-        if (!int.TryParse(parts[0], out var major))
-        {
-            return null;
-        }
-
-        var minor = parts.Length > 1 && int.TryParse(parts[1], out var parsedMinor)
-            ? parsedMinor
-            : 0;
-        return (major, minor);
+        throw new InvalidOperationException("N# reference resolver kernel rejected target-framework version parsing.");
     }
 
     private static Version? TryParseVersion(string? value)
@@ -1110,56 +951,4 @@ internal static class CompilationReferenceResolver
     private sealed record ResolvedProjectReference(string OutputAssemblyPath, ReferenceResolutionResult References);
     private sealed record FrameworkCandidate(string Directory, Version Version);
 
-    private sealed class NuGetVersionComparer : IComparer<string>
-    {
-        public static NuGetVersionComparer Instance { get; } = new();
-
-        public int Compare(string? x, string? y)
-        {
-            if (x == null && y == null) return 0;
-            if (x == null) return -1;
-            if (y == null) return 1;
-
-            if (CompilationReferenceResolverKernels.TryCompareNuGetVersions(x, y, out var dogfoodCompare))
-            {
-                if (dogfoodCompare != 0)
-                {
-                    return dogfoodCompare;
-                }
-
-                return string.Compare(x, y, StringComparison.OrdinalIgnoreCase);
-            }
-
-            return CompareWithCSharp(x, y);
-        }
-
-        // Stage 6 C#-surface-shrink: fallback/oracle only; product NuGet version comparison routes through CompilationReferenceResolverKernels.
-        private static int CompareWithCSharp(string x, string y)
-        {
-            var xCore = x.Split('-', 2)[0];
-            var yCore = y.Split('-', 2)[0];
-            if (Version.TryParse(NormalizeVersionForParse(xCore), out var xv)
-                && Version.TryParse(NormalizeVersionForParse(yCore), out var yv))
-            {
-                var versionCompare = xv.CompareTo(yv);
-                if (versionCompare != 0)
-                {
-                    return versionCompare;
-                }
-            }
-
-            return string.Compare(x, y, StringComparison.OrdinalIgnoreCase);
-        }
-
-        private static string NormalizeVersionForParse(string value)
-        {
-            var parts = value.Split('.');
-            return parts.Length switch
-            {
-                1 => $"{value}.0.0",
-                2 => $"{value}.0",
-                _ => value
-            };
-        }
-    }
 }

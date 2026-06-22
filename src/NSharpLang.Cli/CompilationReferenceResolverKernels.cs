@@ -376,35 +376,12 @@ internal static class CompilationReferenceResolverKernels
 
     internal static string GetCSharpProjectReferenceBuildMessage(string projectPath)
     {
-        if (TryGetMessage(bindings => bindings.CSharpProjectReferenceBuildMessage(projectPath), out var message))
-            return message;
-
-        return GetCSharpProjectReferenceBuildMessageWithCSharp(projectPath);
-    }
-
-    private static bool TryGetMessage(Func<Bindings, string> getMessage, out string message)
-    {
-        message = string.Empty;
-
         var bindings = s_bindings.Value;
         if (bindings == null)
-            return false;
+            throw new InvalidOperationException("N# reference resolver kernels are unavailable.");
 
-        try
-        {
-            message = getMessage(bindings);
-            return !string.IsNullOrEmpty(message);
-        }
-        catch
-        {
-            message = string.Empty;
-            return false;
-        }
+        return bindings.CSharpProjectReferenceBuildMessage(projectPath);
     }
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product resolver notices route through N#.
-    private static string GetCSharpProjectReferenceBuildMessageWithCSharp(string projectPath)
-        => $"Building C# project reference {projectPath}";
 
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
