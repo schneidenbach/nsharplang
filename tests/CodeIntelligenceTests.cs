@@ -863,6 +863,43 @@ public class CodeIntelligenceOutputTests
     }
 
     [Fact]
+    public void TypeToText_FormatsLocationAndDefinition()
+    {
+        var result = new TypeResult(
+            "stats",
+            "TaskStats",
+            "record",
+            new LocationResult("Services/TaskService.nl", 105, 1),
+            "non-null");
+
+        var text = OutputFormatter.TypeToText(result, "Program.nl", 85, 22);
+
+        Assert.Equal(
+            string.Join(Environment.NewLine,
+                "At Program.nl:85:22:",
+                "  stats: TaskStats (record)",
+                "  Nullability: non-null",
+                "  Defined at: Services/TaskService.nl:105:1",
+                string.Empty),
+            text);
+    }
+
+    [Fact]
+    public void TypeToText_OmitsOptionalLines()
+    {
+        var result = new TypeResult("count", "int", "local", null);
+
+        var text = OutputFormatter.TypeToText(result, "Program.nl", 3, 8);
+
+        Assert.Equal(
+            string.Join(Environment.NewLine,
+                "At Program.nl:3:8:",
+                "  count: int (local)",
+                string.Empty),
+            text);
+    }
+
+    [Fact]
     public void DefinitionToText_FormatsSingleResult()
     {
         var result = new DefinitionResult("Hi", "function", "Program.nl", 2, 6, 2);

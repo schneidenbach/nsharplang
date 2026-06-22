@@ -1781,13 +1781,13 @@ public static class OutputFormatter
     public static string TypeToText(TypeResult result, string file, int line, int col)
     {
         var sb = new StringBuilder();
-        sb.AppendLine($"At {file}:{line}:{col}:");
-        sb.AppendLine($"  {result.Name}: {result.ResolvedType} ({result.Kind})");
+        sb.AppendLine(OutputFormatterTextKernels.GetTypeLocationHeaderText(file, line, col));
+        sb.AppendLine(OutputFormatterTextKernels.GetTypeResultLineText(result));
         if (!string.IsNullOrWhiteSpace(result.Nullability))
-            sb.AppendLine($"  Nullability: {result.Nullability}");
+            sb.AppendLine(OutputFormatterTextKernels.GetTypeNullabilityLineText(result.Nullability));
         if (result.Definition != null)
         {
-            sb.AppendLine($"  Defined at: {result.Definition.File}:{result.Definition.Line}:{result.Definition.Column}");
+            sb.AppendLine(OutputFormatterTextKernels.GetTypeDefinedAtLineText(result.Definition));
         }
         return sb.ToString();
     }

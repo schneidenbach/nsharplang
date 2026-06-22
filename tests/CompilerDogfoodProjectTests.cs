@@ -7628,7 +7628,7 @@ func outer(x: int): int {
     }
 
     // MILESTONE: OutputFormatterText.nl compiles end-to-end with no C# AST and owns shipped
-    // `nlc query symbols --text`, `outline --text`, `definition --text`, and `references --text` line shaping.
+    // `nlc query symbols --text`, `outline --text`, `type --text`, `definition --text`, and `references --text` line shaping.
     [Fact]
     public void ColumnarCodegen_CompilesRealDogfoodFile_OutputFormatterText()
     {
@@ -7641,6 +7641,10 @@ func outer(x: int): int {
         Assert.Contains("QueryOutlineFileLineText", methodNames!);
         Assert.Contains("QueryOutlineImportsLineText", methodNames!);
         Assert.Contains("QueryOutlineEntryLineText", methodNames!);
+        Assert.Contains("QueryTypeLocationHeaderText", methodNames!);
+        Assert.Contains("QueryTypeResultLineText", methodNames!);
+        Assert.Contains("QueryTypeNullabilityLineText", methodNames!);
+        Assert.Contains("QueryTypeDefinedAtLineText", methodNames!);
         Assert.Contains("QueryNoReferencesText", methodNames!);
         Assert.Contains("QueryReferencesHeaderText", methodNames!);
         Assert.Contains("QueryReferenceLineText", methodNames!);
@@ -7668,6 +7672,10 @@ func outer(x: int): int {
             ("QueryOutlineEntryLineText", new object[] { 0, "Class", "Person", string.Empty, 0, 5, 15 }),
             ("QueryOutlineEntryLineText", new object[] { 1, "Property", "Name", string.Empty, 0, 6, 6 }),
             ("QueryOutlineEntryLineText", new object[] { 1, "Function", "Greet", "string", 1, 8, 12 }),
+            ("QueryTypeLocationHeaderText", new object[] { "Program.nl", 85, 22 }),
+            ("QueryTypeResultLineText", new object[] { "stats", "TaskStats", "record" }),
+            ("QueryTypeNullabilityLineText", new object[] { "non-null" }),
+            ("QueryTypeDefinedAtLineText", new object[] { "Services/TaskService.nl", 105, 1 }),
             ("QueryNoReferencesText", new object[] { "Person" }),
             ("QueryReferencesHeaderText", new object[] { "Person", 3 }),
             ("QueryReferenceLineText", new object[] { "Models.nl", 5, 0, 1, "  class Person {  ", 1 }),

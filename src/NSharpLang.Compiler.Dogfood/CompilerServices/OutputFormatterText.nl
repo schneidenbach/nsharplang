@@ -105,6 +105,22 @@ func QueryOutlineEntryLineText(
     return prefix + kindText + " " + name + typeText + rangeText
 }
 
+func QueryTypeLocationHeaderText(fileName: string, line: int, column: int): string {
+    return "At " + fileName + ":" + line.ToString() + ":" + column.ToString() + ":"
+}
+
+func QueryTypeResultLineText(name: string, resolvedType: string, kindText: string): string {
+    return "  " + name + ": " + resolvedType + " (" + kindText + ")"
+}
+
+func QueryTypeNullabilityLineText(nullability: string): string {
+    return "  Nullability: " + nullability
+}
+
+func QueryTypeDefinedAtLineText(fileName: string, line: int, column: int): string {
+    return "  Defined at: " + fileName + ":" + line.ToString() + ":" + column.ToString()
+}
+
 func QueryNoReferencesText(symbolName: string): string {
     return "No references found for '" + symbolName + "'."
 }

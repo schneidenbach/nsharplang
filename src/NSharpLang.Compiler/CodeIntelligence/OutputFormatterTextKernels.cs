@@ -159,6 +159,82 @@ internal static class OutputFormatterTextKernels
         return GetOutlineEntryLineTextWithCSharp(entry, indent);
     }
 
+    internal static string GetTypeLocationHeaderText(string file, int line, int column)
+    {
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return GetTypeLocationHeaderTextWithCSharp(file, line, column);
+
+        try
+        {
+            var text = bindings.QueryTypeLocationHeaderText(file, line, column);
+            if (!string.IsNullOrEmpty(text))
+                return text;
+        }
+        catch
+        {
+        }
+
+        return GetTypeLocationHeaderTextWithCSharp(file, line, column);
+    }
+
+    internal static string GetTypeResultLineText(TypeResult result)
+    {
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return GetTypeResultLineTextWithCSharp(result);
+
+        try
+        {
+            var text = bindings.QueryTypeResultLineText(result.Name, result.ResolvedType, result.Kind);
+            if (!string.IsNullOrEmpty(text))
+                return text;
+        }
+        catch
+        {
+        }
+
+        return GetTypeResultLineTextWithCSharp(result);
+    }
+
+    internal static string GetTypeNullabilityLineText(string nullability)
+    {
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return GetTypeNullabilityLineTextWithCSharp(nullability);
+
+        try
+        {
+            var text = bindings.QueryTypeNullabilityLineText(nullability);
+            if (!string.IsNullOrEmpty(text))
+                return text;
+        }
+        catch
+        {
+        }
+
+        return GetTypeNullabilityLineTextWithCSharp(nullability);
+    }
+
+    internal static string GetTypeDefinedAtLineText(LocationResult definition)
+    {
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return GetTypeDefinedAtLineTextWithCSharp(definition);
+
+        try
+        {
+            var text = bindings.QueryTypeDefinedAtLineText(definition.File, definition.Line, definition.Column);
+            if (!string.IsNullOrEmpty(text))
+                return text;
+        }
+        catch
+        {
+        }
+
+        return GetTypeDefinedAtLineTextWithCSharp(definition);
+    }
+
     internal static string GetNoReferencesText(string symbolName)
     {
         var bindings = s_bindings.Value;
@@ -328,6 +404,18 @@ internal static class OutputFormatterTextKernels
             DogfoodKernelLoader.CreateDelegate<QueryOutlineEntryLineText>(
                 programType,
                 "QueryOutlineEntryLineText"),
+            DogfoodKernelLoader.CreateDelegate<QueryTypeLocationHeaderText>(
+                programType,
+                "QueryTypeLocationHeaderText"),
+            DogfoodKernelLoader.CreateDelegate<QueryTypeResultLineText>(
+                programType,
+                "QueryTypeResultLineText"),
+            DogfoodKernelLoader.CreateDelegate<QueryTypeNullabilityLineText>(
+                programType,
+                "QueryTypeNullabilityLineText"),
+            DogfoodKernelLoader.CreateDelegate<QueryTypeDefinedAtLineText>(
+                programType,
+                "QueryTypeDefinedAtLineText"),
             DogfoodKernelLoader.CreateDelegate<QueryNoReferencesText>(
                 programType,
                 "QueryNoReferencesText"),
@@ -384,6 +472,14 @@ internal static class OutputFormatterTextKernels
         int line,
         int endLine);
 
+    private delegate string QueryTypeLocationHeaderText(string fileName, int line, int column);
+
+    private delegate string QueryTypeResultLineText(string name, string resolvedType, string kindText);
+
+    private delegate string QueryTypeNullabilityLineText(string nullability);
+
+    private delegate string QueryTypeDefinedAtLineText(string fileName, int line, int column);
+
     private delegate string QueryNoReferencesText(string symbolName);
 
     private delegate string QueryReferencesHeaderText(string symbolName, int count);
@@ -421,6 +517,10 @@ internal static class OutputFormatterTextKernels
         QueryOutlineFileLineText QueryOutlineFileLineText,
         QueryOutlineImportsLineText QueryOutlineImportsLineText,
         QueryOutlineEntryLineText QueryOutlineEntryLineText,
+        QueryTypeLocationHeaderText QueryTypeLocationHeaderText,
+        QueryTypeResultLineText QueryTypeResultLineText,
+        QueryTypeNullabilityLineText QueryTypeNullabilityLineText,
+        QueryTypeDefinedAtLineText QueryTypeDefinedAtLineText,
         QueryNoReferencesText QueryNoReferencesText,
         QueryReferencesHeaderText QueryReferencesHeaderText,
         QueryReferenceLineText QueryReferenceLineText,
@@ -477,6 +577,18 @@ internal static class OutputFormatterTextKernels
         var rangeText = entry.EndLine > entry.Line ? $" (lines {entry.Line}-{entry.EndLine})" : $" (line {entry.Line})";
         return $"{prefix}{entry.Kind} {entry.Name}{typeText}{rangeText}";
     }
+
+    private static string GetTypeLocationHeaderTextWithCSharp(string file, int line, int column)
+        => $"At {file}:{line}:{column}:";
+
+    private static string GetTypeResultLineTextWithCSharp(TypeResult result)
+        => $"  {result.Name}: {result.ResolvedType} ({result.Kind})";
+
+    private static string GetTypeNullabilityLineTextWithCSharp(string nullability)
+        => $"  Nullability: {nullability}";
+
+    private static string GetTypeDefinedAtLineTextWithCSharp(LocationResult definition)
+        => $"  Defined at: {definition.File}:{definition.Line}:{definition.Column}";
 
     private static string GetNoReferencesTextWithCSharp(string symbolName)
         => $"No references found for '{symbolName}'.";

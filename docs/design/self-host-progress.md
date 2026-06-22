@@ -11,6 +11,19 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-22 — Query type text moves into product N#
+
+`OutputFormatter.TypeToText` no longer owns the visible `nlc query type --text` location, type result,
+nullability, or definition-location lines in C#. The shipped `OutputFormatterText.nl` dogfood kernel now shapes
+those type-query lines through `OutputFormatterTextKernels`; C# keeps optional-line decisions, CLR object access,
+StringBuilder assembly, and fallback/oracle rendering only. This is a Stage 6 `C#-surface-shrink` product-route
+slice.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CodeIntelligenceOutputTests.TypeToText_FormatsLocationAndDefinition|FullyQualifiedName~CodeIntelligenceOutputTests.TypeToText_OmitsOptionalLines|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_OutputFormatterText"`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`;
+`./scripts/dev.sh TypeToText`.
+
 ## 2026-06-22 — Query definition text moves into product N#
 
 `OutputFormatter.DefinitionToText` and `DefinitionSearchToText` no longer own the visible
