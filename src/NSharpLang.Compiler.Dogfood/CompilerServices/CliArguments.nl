@@ -3857,6 +3857,89 @@ func CliLintEffectiveOutputMode(useText: int, useJson: int): int {
     return 1
 }
 
+func CliLintHelpText(): string {
+    return "N# Lint\n"
+        + "\n"
+        + "Usage: nlc lint [options] [files...]\n"
+        + "\n"
+        + "Run static analysis rules on N# source files. Error-severity lints are\n"
+        + "also included in 'nlc check' and block project builds.\n"
+        + "\n"
+        + "Options:\n"
+        + "  --project <dir>   Project root directory (default: current directory)\n"
+        + "  --json            Output as JSON (default)\n"
+        + "  --text            Output as human-readable diagnostics\n"
+        + "  --help, -h        Show this help text\n"
+        + "\n"
+        + "Lint Rules:\n"
+        + "  NL001  error     Unused variable\n"
+        + "  NL002  error     Missing import\n"
+        + "  NL003  error     Unnecessary null check on value type\n"
+        + "  NL004  error     Async function without await\n"
+        + "  NL006  error     Unreachable code\n"
+        + "  NL010  error     Unused import\n"
+        + "  NL011  error     Empty catch block\n"
+        + "  NL012  error     Unused parameter\n"
+        + "  NL016  error     Redundant null check\n"
+        + "  NL020  error     Shadowed variable\n"
+        + "\n"
+        + "Inline Suppression:\n"
+        + "  // nlc:ignore NL001\n"
+        + "  unusedVar := 42\n"
+        + "\n"
+        + "Examples:\n"
+        + "  nlc lint\n"
+        + "  nlc lint --json\n"
+        + "  nlc lint --text\n"
+        + "  nlc lint Program.nl\n"
+        + "  nlc lint --project examples/16-task-cli\n"
+        + "\n"
+        + "Exit codes:\n"
+        + "  0  No errors found\n"
+        + "  1  One or more errors were reported"
+}
+
+func CliLintProjectDirectoryNotFoundMessage(projectRoot: string): string {
+    return "Directory not found: " + projectRoot
+}
+
+func CliLintNoFilesFoundMessage(): string {
+    return "No .nl files found. Ensure you are in a project directory or specify files explicitly."
+}
+
+func CliLintFileNotFoundMessage(sourceFile: string): string {
+    return "File not found: " + sourceFile
+}
+
+func CliLintParseErrorsMessage(sourceFile: string, messages: string): string {
+    return "Parse errors in " + sourceFile + ": " + messages
+}
+
+func CliLintErrorLintingDiagnosticMessage(message: string): string {
+    return "Error linting: " + message
+}
+
+func CliLintErrorLintingFileMessage(sourceFile: string, message: string): string {
+    return "Error linting " + sourceFile + ": " + message
+}
+
+func CliLintNoIssuesMessage(fileCountText: string, fileCount: int, elapsedText: string): string {
+    suffix := "s"
+    if fileCount == 1 {
+        suffix = ""
+    }
+
+    return "  Linted " + fileCountText + " file" + suffix + " — no issues. [" + elapsedText + "]"
+}
+
+func CliLintElapsedMessage(elapsedText: string): string {
+    return "  Linted in " + elapsedText
+}
+
+func CliLintFailedMessage(message: string): string {
+    return "Lint failed: " + message
+}
+
 func CliLintFileArgIndicesInto(
     args: string[],
     projectValueIndices: int[],

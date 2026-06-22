@@ -21,7 +21,7 @@ public static class LintCommand
         var positionalFiles = GetPositionalFiles(args);
 
         if (!Directory.Exists(projectRoot))
-            return EmitError(useJson, $"Directory not found: {projectRoot}", projectRoot);
+            return EmitError(useJson, LintCommandKernels.GetProjectDirectoryNotFoundMessage(projectRoot), projectRoot);
 
         var sw = System.Diagnostics.Stopwatch.StartNew();
         try
@@ -50,7 +50,7 @@ public static class LintCommand
                     Console.Write(OutputFormatter.LintToJson(new List<DiagnosticResult>(), projectRoot, 0));
                     return 0;
                 }
-                Console.WriteLine("No .nl files found. Ensure you are in a project directory or specify files explicitly.");
+                Console.WriteLine(LintCommandKernels.GetNoFilesFoundMessage());
                 return 0;
             }
 
@@ -68,12 +68,12 @@ public static class LintCommand
                     {
                         // Surface as an error diagnostic so JSON consumers see it
                         allDiagnostics.Add(new DiagnosticResult(
-                            "LINT", "error", $"File not found: {relativePath}",
+                            "LINT", "error", LintCommandKernels.GetFileNotFoundMessage(relativePath),
                             relativePath, 0, 0, 0, null, null, null, null, null, null, null));
                     }
                     else
                     {
-                        Console.Error.WriteLine($"File not found: {file}");
+                        Console.Error.WriteLine(LintCommandKernels.GetFileNotFoundMessage(file));
                     }
                     continue;
                 }
@@ -104,7 +104,9 @@ public static class LintCommand
                         }
                         else
                         {
-                            Console.Error.WriteLine($"Parse errors in {file}: {string.Join(", ", parseResult.Errors.Select(e => e.Message))}");
+                            Console.Error.WriteLine(LintCommandKernels.GetParseErrorsMessage(
+                                file,
+                                string.Join(", ", parseResult.Errors.Select(e => e.Message))));
                         }
                         continue;
                     }
@@ -147,12 +149,12 @@ public static class LintCommand
                     if (useJson)
                     {
                         allDiagnostics.Add(new DiagnosticResult(
-                            "LINT", "error", $"Error linting: {ex.Message}",
+                            "LINT", "error", LintCommandKernels.GetErrorLintingDiagnosticMessage(ex.Message),
                             relativePath, 0, 0, 0, null, null, null, null, null, null, null));
                     }
                     else
                     {
-                        Console.Error.WriteLine($"Error linting {file}: {ex.Message}");
+                        Console.Error.WriteLine(LintCommandKernels.GetErrorLintingFileMessage(file, ex.Message));
                     }
                 }
             }
@@ -166,12 +168,14 @@ public static class LintCommand
             {
                 if (allDiagnostics.Count == 0)
                 {
-                    Console.Error.WriteLine($"  Linted {lintedFileCount} file{(lintedFileCount == 1 ? "" : "s")} — no issues. [{FormatElapsed(sw.Elapsed)}]");
+                    Console.Error.WriteLine(LintCommandKernels.GetNoIssuesMessage(
+                        lintedFileCount,
+                        FormatElapsed(sw.Elapsed)));
                 }
                 else
                 {
                     Console.Error.Write(OutputFormatter.DiagnosticsToText(allDiagnostics));
-                    Console.Error.WriteLine($"  Linted in {FormatElapsed(sw.Elapsed)}");
+                    Console.Error.WriteLine(LintCommandKernels.GetLintedInMessage(FormatElapsed(sw.Elapsed)));
                 }
             }
 
@@ -179,51 +183,13 @@ public static class LintCommand
         }
         catch (Exception ex)
         {
-            return EmitError(useJson, $"Lint failed: {ex.Message}", projectRoot);
+            return EmitError(useJson, LintCommandKernels.GetFailedMessage(ex.Message), projectRoot);
         }
     }
 
     public static int ShowHelp()
     {
-        Console.WriteLine(@"N# Lint
-
-Usage: nlc lint [options] [files...]
-
-Run static analysis rules on N# source files. Error-severity lints are
-also included in 'nlc check' and block project builds.
-
-Options:
-  --project <dir>   Project root directory (default: current directory)
-  --json            Output as JSON (default)
-  --text            Output as human-readable diagnostics
-  --help, -h        Show this help text
-
-Lint Rules:
-  NL001  error     Unused variable
-  NL002  error     Missing import
-  NL003  error     Unnecessary null check on value type
-  NL004  error     Async function without await
-  NL006  error     Unreachable code
-  NL010  error     Unused import
-  NL011  error     Empty catch block
-  NL012  error     Unused parameter
-  NL016  error     Redundant null check
-  NL020  error     Shadowed variable
-
-Inline Suppression:
-  // nlc:ignore NL001
-  unusedVar := 42
-
-Examples:
-  nlc lint
-  nlc lint --json
-  nlc lint --text
-  nlc lint Program.nl
-  nlc lint --project examples/16-task-cli
-
-Exit codes:
-  0  No errors found
-  1  One or more errors were reported");
+        Console.WriteLine(LintCommandKernels.GetHelpText());
 
         return 0;
     }

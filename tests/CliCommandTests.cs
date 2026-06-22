@@ -2577,6 +2577,48 @@ func Main() {
         Assert.True(permissiveValue.UseJson);
 
         Assert.True(LintCommand.GetOptionSummary(new[] { "help" }).ShowHelp);
+
+        var helpText = LintCommandKernels.GetHelpText();
+        Assert.Contains("N# Lint", helpText);
+        Assert.Contains("Usage: nlc lint [options] [files...]", helpText);
+        Assert.Contains("One or more errors were reported", helpText);
+
+        Assert.Equal(
+            "Directory not found: /tmp/missing-lint-project",
+            LintCommandKernels.GetProjectDirectoryNotFoundMessage("/tmp/missing-lint-project"));
+        Assert.Equal(
+            "No .nl files found. Ensure you are in a project directory or specify files explicitly.",
+            LintCommandKernels.GetNoFilesFoundMessage());
+        Assert.Equal("File not found: Missing.nl", LintCommandKernels.GetFileNotFoundMessage("Missing.nl"));
+        Assert.Equal(
+            "Parse errors in Broken.nl: expected expression",
+            LintCommandKernels.GetParseErrorsMessage("Broken.nl", "expected expression"));
+        Assert.Equal(
+            "Error linting: disk full",
+            LintCommandKernels.GetErrorLintingDiagnosticMessage("disk full"));
+        Assert.Equal(
+            "Error linting Broken.nl: disk full",
+            LintCommandKernels.GetErrorLintingFileMessage("Broken.nl", "disk full"));
+        Assert.Equal(
+            "  Linted 1 file — no issues. [0.1s]",
+            LintCommandKernels.GetNoIssuesMessage(1, "0.1s"));
+        Assert.Equal(
+            "  Linted 2 files — no issues. [0.2s]",
+            LintCommandKernels.GetNoIssuesMessage(2, "0.2s"));
+        Assert.Equal("  Linted in 0.3s", LintCommandKernels.GetLintedInMessage("0.3s"));
+        Assert.Equal("Lint failed: backend exploded", LintCommandKernels.GetFailedMessage("backend exploded"));
+
+        var (helpExitCode, helpStdout, helpStderr) = CaptureConsole(() => LintCommand.Execute(new[] { "--help" }));
+        Assert.Equal(0, helpExitCode);
+        Assert.Contains("Usage: nlc lint [options] [files...]", helpStdout);
+        Assert.True(string.IsNullOrWhiteSpace(helpStderr));
+
+        var missingProject = Path.Combine(Path.GetTempPath(), $"nsharp-lint-missing-{Guid.NewGuid():N}");
+        var (missingExitCode, missingStdout, missingStderr) = CaptureConsole(() =>
+            LintCommand.Execute(new[] { "--project", missingProject, "--text" }));
+        Assert.Equal(1, missingExitCode);
+        Assert.True(string.IsNullOrWhiteSpace(missingStdout));
+        Assert.Contains($"Directory not found: {Path.GetFullPath(missingProject)}", missingStderr);
     }
 
     [Fact]

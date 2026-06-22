@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-22 — Lint command messages move into product N#
+
+`LintCommand` no longer owns help text, missing-project diagnostics, no-files status, missing-file text, parse-error
+wrappers, linting-exception wrappers, elapsed status text, or final failure text in C#. The shipped `CliLint*`
+dogfood kernels now shape those strings through `LintCommandKernels`; C# keeps project/file discovery, parser and
+linter execution, diagnostic construction, JSON envelope serialization, elapsed-time measurement, and
+fallback/oracle text only.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.LintCommandKernels_SelectsFileArgsAfterProjectValueExclusion|FullyQualifiedName~CliCommandTests.LintCommandKernels_SummarizesOptions|FullyQualifiedName~CliCommandTests.LintCommandKernels_SelectsEffectiveOutputMode|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`;
+`./scripts/dev.sh LintCommandKernels`.
+
 ## 2026-06-22 — Doc command messages move into product N#
 
 `DocCommand` no longer owns help text, missing-project diagnostics, generated-doc status lines, opened-browser

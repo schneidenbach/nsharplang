@@ -7114,6 +7114,16 @@ func outer(x: int): int {
         Assert.Contains("CliPackEffectiveVersionSource", methodNames!); // product pack version source selection.
         Assert.Contains("CliLintOptionSummaryInto", methodNames!); // product lint option parsing.
         Assert.Contains("CliLintEffectiveOutputMode", methodNames!); // product lint output mode selection.
+        Assert.Contains("CliLintHelpText", methodNames!); // product lint help text shaping.
+        Assert.Contains("CliLintProjectDirectoryNotFoundMessage", methodNames!); // product lint missing-project message shaping.
+        Assert.Contains("CliLintNoFilesFoundMessage", methodNames!); // product lint no-files message shaping.
+        Assert.Contains("CliLintFileNotFoundMessage", methodNames!); // product lint missing-file message shaping.
+        Assert.Contains("CliLintParseErrorsMessage", methodNames!); // product lint parse-error wrapper shaping.
+        Assert.Contains("CliLintErrorLintingDiagnosticMessage", methodNames!); // product lint diagnostic wrapper shaping.
+        Assert.Contains("CliLintErrorLintingFileMessage", methodNames!); // product lint file-error message shaping.
+        Assert.Contains("CliLintNoIssuesMessage", methodNames!); // product lint success summary shaping.
+        Assert.Contains("CliLintElapsedMessage", methodNames!); // product lint elapsed message shaping.
+        Assert.Contains("CliLintFailedMessage", methodNames!); // product lint failure message shaping.
         Assert.Contains("CliCheckArgumentSummaryInto", methodNames!); // product check argument parsing.
         Assert.Contains("CliCheckEffectiveOutputMode", methodNames!); // product check output mode selection.
         Assert.Contains("CliFixArgumentSummaryInto", methodNames!); // product fix argument parsing.
@@ -16213,6 +16223,46 @@ class OtherZetaType {
                     "CliLintEffectiveOutputMode",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliLintEffectiveOutputMode.");
+            var cliLintHelpText = programType.GetMethod(
+                    "CliLintHelpText",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliLintHelpText.");
+            var cliLintProjectDirectoryNotFoundMessage = programType.GetMethod(
+                    "CliLintProjectDirectoryNotFoundMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliLintProjectDirectoryNotFoundMessage.");
+            var cliLintNoFilesFoundMessage = programType.GetMethod(
+                    "CliLintNoFilesFoundMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliLintNoFilesFoundMessage.");
+            var cliLintFileNotFoundMessage = programType.GetMethod(
+                    "CliLintFileNotFoundMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliLintFileNotFoundMessage.");
+            var cliLintParseErrorsMessage = programType.GetMethod(
+                    "CliLintParseErrorsMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliLintParseErrorsMessage.");
+            var cliLintErrorLintingDiagnosticMessage = programType.GetMethod(
+                    "CliLintErrorLintingDiagnosticMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliLintErrorLintingDiagnosticMessage.");
+            var cliLintErrorLintingFileMessage = programType.GetMethod(
+                    "CliLintErrorLintingFileMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliLintErrorLintingFileMessage.");
+            var cliLintNoIssuesMessage = programType.GetMethod(
+                    "CliLintNoIssuesMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliLintNoIssuesMessage.");
+            var cliLintElapsedMessage = programType.GetMethod(
+                    "CliLintElapsedMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliLintElapsedMessage.");
+            var cliLintFailedMessage = programType.GetMethod(
+                    "CliLintFailedMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliLintFailedMessage.");
             var cliTidyOptionSummaryInto = programType.GetMethod(
                     "CliTidyOptionSummaryInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -17758,6 +17808,17 @@ func main(customer: Customer, résumé: Profile) {
                 cliPositionalArgChecksumInto);
             AssertCliLintOptionsLikeProduction(cliLintOptionSummaryInto);
             AssertCliLintEffectiveOutputModesLikeProduction(cliLintEffectiveOutputMode);
+            AssertCliLintMessagesLikeProduction(
+                cliLintHelpText,
+                cliLintProjectDirectoryNotFoundMessage,
+                cliLintNoFilesFoundMessage,
+                cliLintFileNotFoundMessage,
+                cliLintParseErrorsMessage,
+                cliLintErrorLintingDiagnosticMessage,
+                cliLintErrorLintingFileMessage,
+                cliLintNoIssuesMessage,
+                cliLintElapsedMessage,
+                cliLintFailedMessage);
             AssertCliTidyOptionsLikeProduction(cliTidyOptionSummaryInto);
             AssertCliJsonFlagOutputModesLikeProduction(cliTidyOutputMode);
             AssertCliDocOptionsLikeProduction(cliDocOptionSummaryInto);
@@ -23051,6 +23112,67 @@ func main() {
         }
 
         return checksum;
+    }
+
+    private static void AssertCliLintMessagesLikeProduction(
+        MethodInfo cliLintHelpText,
+        MethodInfo cliLintProjectDirectoryNotFoundMessage,
+        MethodInfo cliLintNoFilesFoundMessage,
+        MethodInfo cliLintFileNotFoundMessage,
+        MethodInfo cliLintParseErrorsMessage,
+        MethodInfo cliLintErrorLintingDiagnosticMessage,
+        MethodInfo cliLintErrorLintingFileMessage,
+        MethodInfo cliLintNoIssuesMessage,
+        MethodInfo cliLintElapsedMessage,
+        MethodInfo cliLintFailedMessage)
+    {
+        var helpText = (string)(cliLintHelpText.Invoke(null, Array.Empty<object>()) ?? "<null>");
+        Assert.Contains("N# Lint", helpText);
+        Assert.Contains("Usage: nlc lint [options] [files...]", helpText);
+        Assert.Contains("One or more errors were reported", helpText);
+
+        Assert.Equal(
+            "Directory not found: /tmp/missing-lint-project",
+            (string)(cliLintProjectDirectoryNotFoundMessage.Invoke(
+                null,
+                new object[] { "/tmp/missing-lint-project" }) ?? "<null>"));
+        Assert.Equal(
+            "No .nl files found. Ensure you are in a project directory or specify files explicitly.",
+            (string)(cliLintNoFilesFoundMessage.Invoke(null, Array.Empty<object>()) ?? "<null>"));
+        Assert.Equal(
+            "File not found: Missing.nl",
+            (string)(cliLintFileNotFoundMessage.Invoke(null, new object[] { "Missing.nl" }) ?? "<null>"));
+        Assert.Equal(
+            "Parse errors in Broken.nl: expected expression",
+            (string)(cliLintParseErrorsMessage.Invoke(
+                null,
+                new object[] { "Broken.nl", "expected expression" }) ?? "<null>"));
+        Assert.Equal(
+            "Error linting: disk full",
+            (string)(cliLintErrorLintingDiagnosticMessage.Invoke(
+                null,
+                new object[] { "disk full" }) ?? "<null>"));
+        Assert.Equal(
+            "Error linting Broken.nl: disk full",
+            (string)(cliLintErrorLintingFileMessage.Invoke(
+                null,
+                new object[] { "Broken.nl", "disk full" }) ?? "<null>"));
+        Assert.Equal(
+            "  Linted 1 file — no issues. [0.1s]",
+            (string)(cliLintNoIssuesMessage.Invoke(
+                null,
+                new object[] { "1", 1, "0.1s" }) ?? "<null>"));
+        Assert.Equal(
+            "  Linted 2 files — no issues. [0.2s]",
+            (string)(cliLintNoIssuesMessage.Invoke(
+                null,
+                new object[] { "2", 2, "0.2s" }) ?? "<null>"));
+        Assert.Equal(
+            "  Linted in 0.3s",
+            (string)(cliLintElapsedMessage.Invoke(null, new object[] { "0.3s" }) ?? "<null>"));
+        Assert.Equal(
+            "Lint failed: backend exploded",
+            (string)(cliLintFailedMessage.Invoke(null, new object[] { "backend exploded" }) ?? "<null>"));
     }
 
     private static void AssertCliLintEffectiveOutputModesLikeProduction(MethodInfo cliLintEffectiveOutputMode)
