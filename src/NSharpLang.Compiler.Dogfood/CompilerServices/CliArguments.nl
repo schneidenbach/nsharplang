@@ -2887,6 +2887,10 @@ func CliCleanRemovedArtifactsHeader(count: int, countText: string): string {
     return "Removed " + countText + " build artifact directories:"
 }
 
+func CliCleanRemovedArtifactLine(path: string): string {
+    return "  " + path
+}
+
 func CliCleanClearedNuGetCachesMessage(): string {
     return "Cleared NuGet caches."
 }

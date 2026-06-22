@@ -7304,6 +7304,7 @@ func outer(x: int): int {
         Assert.Contains("CliCleanProjectDirectoryNotFoundMessage", methodNames!); // product clean missing-project message shaping.
         Assert.Contains("CliCleanNoArtifactsFoundMessage", methodNames!); // product clean no-artifacts message shaping.
         Assert.Contains("CliCleanRemovedArtifactsHeader", methodNames!); // product clean removed-artifacts message shaping.
+        Assert.Contains("CliCleanRemovedArtifactLine", methodNames!); // product clean removed-artifact line shaping.
         Assert.Contains("CliCleanClearedNuGetCachesMessage", methodNames!); // product clean NuGet-cache message shaping.
         Assert.Contains("CliCleanClearNuGetCachesFailedMessage", methodNames!); // product clean NuGet-cache failure shaping.
         Assert.Contains("CliCleanFailedMessage", methodNames!); // product clean failure message shaping.
@@ -7498,6 +7499,7 @@ func outer(x: int): int {
             ("CliRemoveShouldStopDependencyContinuationLine", new object[] { "- nuget: Other" }),
             ("CliRemoveShouldStopDependencyContinuationLine", new object[] { "dependencies:" }),
             ("CliTidyTableRow", new object[] { "Newtonsoft.Json", "possibly-unused", "No import found." }),
+            ("CliCleanRemovedArtifactLine", new object[] { "bin/Debug" }),
             ("CliTidyImportNamespaceSpanInto", new object[] { "  import  Newtonsoft.Json.Linq // comment", new int[3] }),
             ("CliTidyImportNamespaceSpanInto", new object[] { "import\tSystem.Text", new int[3] }),
             ("CliTidyImportNamespaceSpanInto", new object[] { "print \"import System.Text\"", new int[3] }),
@@ -17197,6 +17199,10 @@ class OtherZetaType {
                     "CliCleanRemovedArtifactsHeader",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliCleanRemovedArtifactsHeader.");
+            var cliCleanRemovedArtifactLine = programType.GetMethod(
+                    "CliCleanRemovedArtifactLine",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliCleanRemovedArtifactLine.");
             var cliCleanClearedNuGetCachesMessage = programType.GetMethod(
                     "CliCleanClearedNuGetCachesMessage",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -18754,6 +18760,7 @@ func main(customer: Customer, résumé: Profile) {
                 cliCleanProjectDirectoryNotFoundMessage,
                 cliCleanNoArtifactsFoundMessage,
                 cliCleanRemovedArtifactsHeader,
+                cliCleanRemovedArtifactLine,
                 cliCleanClearedNuGetCachesMessage,
                 cliCleanClearNuGetCachesFailedMessage,
                 cliCleanFailedMessage);
@@ -25025,6 +25032,7 @@ func main() {
         MethodInfo cliCleanProjectDirectoryNotFoundMessage,
         MethodInfo cliCleanNoArtifactsFoundMessage,
         MethodInfo cliCleanRemovedArtifactsHeader,
+        MethodInfo cliCleanRemovedArtifactLine,
         MethodInfo cliCleanClearedNuGetCachesMessage,
         MethodInfo cliCleanClearNuGetCachesFailedMessage,
         MethodInfo cliCleanFailedMessage)
@@ -25045,6 +25053,9 @@ func main() {
         Assert.Equal(
             "Removed 2 build artifact directories:",
             (string)(cliCleanRemovedArtifactsHeader.Invoke(null, new object[] { 2, "2" }) ?? "<null>"));
+        Assert.Equal(
+            "  bin/Debug",
+            (string)(cliCleanRemovedArtifactLine.Invoke(null, new object[] { "bin/Debug" }) ?? "<null>"));
         Assert.Equal(
             "Cleared NuGet caches.",
             (string)(cliCleanClearedNuGetCachesMessage.Invoke(null, Array.Empty<object>()) ?? "<null>"));

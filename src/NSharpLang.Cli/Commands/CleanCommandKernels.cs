@@ -80,6 +80,14 @@ internal static class CleanCommandKernels
         return GetRemovedArtifactsHeaderWithCSharp(count);
     }
 
+    internal static string GetRemovedArtifactLine(string path)
+    {
+        if (TryGetMessage(bindings => bindings.CleanRemovedArtifactLine(path), out var message))
+            return message;
+
+        return GetRemovedArtifactLineWithCSharp(path);
+    }
+
     internal static string GetClearedNuGetCachesMessage()
     {
         if (TryGetMessage(bindings => bindings.CleanClearedNuGetCachesMessage(), out var message))
@@ -124,7 +132,7 @@ internal static class CleanCommandKernels
         }
     }
 
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product clean command messages route through CliClean* kernels.
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product clean command messages and artifact lines route through CliClean* kernels.
     private static string GetHelpTextWithCSharp()
         => "N# Clean\n"
            + "\n"
@@ -156,6 +164,9 @@ internal static class CleanCommandKernels
     private static string GetRemovedArtifactsHeaderWithCSharp(int count)
         => $"Removed {count} build artifact director{(count == 1 ? "y" : "ies")}:";
 
+    private static string GetRemovedArtifactLineWithCSharp(string path)
+        => $"  {path}";
+
     private static string GetClearedNuGetCachesMessageWithCSharp()
         => "Cleared NuGet caches.";
 
@@ -184,6 +195,9 @@ internal static class CleanCommandKernels
             DogfoodKernelLoader.CreateDelegate<CliCleanRemovedArtifactsHeader>(
                 programType,
                 "CliCleanRemovedArtifactsHeader"),
+            DogfoodKernelLoader.CreateDelegate<CliCleanRemovedArtifactLine>(
+                programType,
+                "CliCleanRemovedArtifactLine"),
             DogfoodKernelLoader.CreateDelegate<CliCleanClearedNuGetCachesMessage>(
                 programType,
                 "CliCleanClearedNuGetCachesMessage"),
@@ -202,6 +216,7 @@ internal static class CleanCommandKernels
     private delegate string CliCleanProjectDirectoryNotFoundMessage(string projectRoot);
     private delegate string CliCleanNoArtifactsFoundMessage(string projectRoot);
     private delegate string CliCleanRemovedArtifactsHeader(int count, string countText);
+    private delegate string CliCleanRemovedArtifactLine(string path);
     private delegate string CliCleanClearedNuGetCachesMessage();
     private delegate string CliCleanClearNuGetCachesFailedMessage(string detail);
     private delegate string CliCleanFailedMessage(string message);
@@ -212,6 +227,7 @@ internal static class CleanCommandKernels
         CliCleanProjectDirectoryNotFoundMessage CleanProjectDirectoryNotFoundMessage,
         CliCleanNoArtifactsFoundMessage CleanNoArtifactsFoundMessage,
         CliCleanRemovedArtifactsHeader CleanRemovedArtifactsHeader,
+        CliCleanRemovedArtifactLine CleanRemovedArtifactLine,
         CliCleanClearedNuGetCachesMessage CleanClearedNuGetCachesMessage,
         CliCleanClearNuGetCachesFailedMessage CleanClearNuGetCachesFailedMessage,
         CliCleanFailedMessage CleanFailedMessage);

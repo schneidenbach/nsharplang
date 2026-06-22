@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-22 — Clean artifact lines move into product N#
+
+`CleanCommand` no longer owns removed-artifact line rendering in C#. The shipped
+`CliCleanRemovedArtifactLine` dogfood kernel now shapes each removed artifact line through
+`CleanCommandKernels`; C# keeps directory discovery, deletion, relative-path normalization, and console emission
+only. This is a Stage 6 `C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.CleanCommandKernels_SummarizesOptions|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`;
+`./scripts/dev.sh CleanCommandKernels`.
+
 ## 2026-06-22 — Tidy table rows move into product N#
 
 `TidyCommand` no longer owns text table row rendering for dependency status output in C#. The shipped

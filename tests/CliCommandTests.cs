@@ -606,6 +606,7 @@ func Main() {
             CleanCommandKernels.GetNoArtifactsFoundMessage("/tmp/nsharp"));
         Assert.Equal("Removed 1 build artifact directory:", CleanCommandKernels.GetRemovedArtifactsHeader(1));
         Assert.Equal("Removed 2 build artifact directories:", CleanCommandKernels.GetRemovedArtifactsHeader(2));
+        Assert.Equal("  bin/Debug", CleanCommandKernels.GetRemovedArtifactLine("bin/Debug"));
         Assert.Equal("Cleared NuGet caches.", CleanCommandKernels.GetClearedNuGetCachesMessage());
         Assert.Equal(
             "Failed to clear NuGet caches.",

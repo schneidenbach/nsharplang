@@ -45,7 +45,7 @@ public static class CleanCommand
             {
                 Console.WriteLine(CleanCommandKernels.GetRemovedArtifactsHeader(removed.Count));
                 foreach (var path in removed)
-                    Console.WriteLine($"  {path}");
+                    Console.WriteLine(CleanCommandKernels.GetRemovedArtifactLine(path));
             }
 
             if (cleanAll)
