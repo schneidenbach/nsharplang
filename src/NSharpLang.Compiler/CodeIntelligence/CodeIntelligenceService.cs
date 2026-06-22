@@ -320,7 +320,7 @@ public class CodeIntelligenceService
             {
                 var diagnosticIndex = resultIndices[i];
                 if (diagnosticIndex < 0 || diagnosticIndex >= lintDiagnostics.Count)
-                    return SuppressLintShadowingDiagnosticsWithLinq(lintDiagnostics, filesWithCompilerShadowingErrors);
+                    throw new InvalidOperationException("N# lint shadow suppression kernel returned an invalid index.");
 
                 filtered.Add(lintDiagnostics[diagnosticIndex]);
             }
@@ -328,17 +328,7 @@ public class CodeIntelligenceService
             return filtered;
         }
 
-        return SuppressLintShadowingDiagnosticsWithLinq(lintDiagnostics, filesWithCompilerShadowingErrors);
-    }
-
-    private static List<DiagnosticResult> SuppressLintShadowingDiagnosticsWithLinq(
-        List<DiagnosticResult> lintDiagnostics,
-        IReadOnlyList<string> filesWithCompilerShadowingErrors)
-    {
-        var shadowedFiles = filesWithCompilerShadowingErrors.ToHashSet(StringComparer.OrdinalIgnoreCase);
-        return lintDiagnostics
-            .Where(diagnostic => diagnostic.Code != "NL020" || !shadowedFiles.Contains(diagnostic.File))
-            .ToList();
+        throw new InvalidOperationException("N# lint shadow suppression kernel rejected the diagnostics.");
     }
 
     public static DiagnosticResult ToDiagnosticResult(
@@ -457,7 +447,7 @@ public class CodeIntelligenceService
             {
                 var diagnosticIndex = resultIndices[i];
                 if (diagnosticIndex < 0 || diagnosticIndex >= diagnostics.Count)
-                    return DeduplicateDiagnosticsWithLinq(diagnostics);
+                    throw new InvalidOperationException("N# diagnostic deduplication kernel returned an invalid index.");
 
                 deduplicated.Add(diagnostics[diagnosticIndex]);
             }
@@ -465,22 +455,7 @@ public class CodeIntelligenceService
             return deduplicated;
         }
 
-        return DeduplicateDiagnosticsWithLinq(diagnostics);
-    }
-
-    private static List<DiagnosticResult> DeduplicateDiagnosticsWithLinq(List<DiagnosticResult> diagnostics)
-    {
-        return diagnostics
-            .GroupBy(diagnostic => new
-            {
-                diagnostic.Code,
-                diagnostic.File,
-                diagnostic.Line,
-                diagnostic.Column,
-                diagnostic.Message
-            })
-            .Select(group => group.First())
-            .ToList();
+        throw new InvalidOperationException("N# diagnostic deduplication kernel rejected the diagnostics.");
     }
 
     // ── Navigation Queries ──────────────────────────────────────────────
@@ -695,7 +670,7 @@ public class CodeIntelligenceService
             {
                 var referenceIndex = resultIndices[i];
                 if (referenceIndex < 0 || referenceIndex >= results.Count)
-                    return DeduplicateAndSortReferenceResultsWithLinq(results);
+                    throw new InvalidOperationException("N# reference deduplication kernel returned an invalid index.");
 
                 deduplicated.Add(results[referenceIndex]);
             }
@@ -703,19 +678,7 @@ public class CodeIntelligenceService
             return deduplicated;
         }
 
-        return DeduplicateAndSortReferenceResultsWithLinq(results);
-    }
-
-    private static List<ReferenceResult> DeduplicateAndSortReferenceResultsWithLinq(
-        IReadOnlyList<ReferenceResult> results)
-    {
-        return results
-            .GroupBy(r => (r.File, r.Line, r.Column))
-            .Select(g => g.First())
-            .OrderBy(r => r.File)
-            .ThenBy(r => r.Line)
-            .ThenBy(r => r.Column)
-            .ToList();
+        throw new InvalidOperationException("N# reference deduplication kernel rejected the references.");
     }
 
     // ── Hover Query ─────────────────────────────────────────────────────

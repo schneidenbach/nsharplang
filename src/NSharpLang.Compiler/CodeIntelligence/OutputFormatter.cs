@@ -174,7 +174,7 @@ public static class OutputFormatter
             {
                 var diagnosticIndex = resultIndices[i];
                 if (diagnosticIndex < 0 || diagnosticIndex >= diagnostics.Count)
-                    return DeduplicateAndSortDiagnosticsWithLinq(diagnostics);
+                    throw new InvalidOperationException("N# diagnostic deduplication kernel returned an invalid index.");
 
                 results.Add(diagnostics[diagnosticIndex]);
             }
@@ -182,19 +182,7 @@ public static class OutputFormatter
             return results;
         }
 
-        return DeduplicateAndSortDiagnosticsWithLinq(diagnostics);
-    }
-
-    private static List<DiagnosticResult> DeduplicateAndSortDiagnosticsWithLinq(
-        IReadOnlyList<DiagnosticResult> diagnostics)
-    {
-        return diagnostics
-            .GroupBy(diagnostic => (diagnostic.Code, diagnostic.File, diagnostic.Line, diagnostic.Column, diagnostic.Message))
-            .Select(group => group.First())
-            .OrderBy(diagnostic => diagnostic.File)
-            .ThenBy(diagnostic => diagnostic.Line)
-            .ThenBy(diagnostic => diagnostic.Column)
-            .ToList();
+        throw new InvalidOperationException("N# diagnostic deduplication kernel rejected the diagnostics.");
     }
 
     // ── JSON Output ────────────────────────────────────────────────────
