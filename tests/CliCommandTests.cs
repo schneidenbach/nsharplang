@@ -2057,6 +2057,63 @@ func Main() {
     }
 
     [Fact]
+    public void QueryCommandKernels_ShapesMessages()
+    {
+        var help = QueryCommandKernels.GetHelpText("  symbols       List symbols");
+        Assert.Contains("N# Code Intelligence CLI", help);
+        Assert.Contains("Usage: nlc query <command> [options]", help);
+        Assert.Contains("  symbols       List symbols", help);
+        Assert.Contains("JSON queries reuse `nlc daemon` automatically", help);
+
+        Assert.Equal(
+            "List symbols (aliases: ls, names)",
+            QueryCommandKernels.GetDescriptionWithAliases("List symbols", "ls, names"));
+        Assert.Equal("List symbols", QueryCommandKernels.GetDescriptionWithAliases("List symbols", string.Empty));
+        Assert.Equal(
+            "Unknown query subcommand: nope. Run 'nlc query help' for usage.",
+            QueryCommandKernels.GetUnknownSubcommandMessage("nope"));
+        Assert.Equal("Error: bad input", QueryCommandKernels.GetErrorLine("bad input"));
+        Assert.Equal("No compilation unit found for --file Missing.nl", QueryCommandKernels.GetNoCompilationUnitForFileMessage("Missing.nl"));
+        Assert.Equal("No compilation units in project.", QueryCommandKernels.GetNoCompilationUnitsMessage());
+        Assert.Equal("Usage: nlc query hover --file <path> --pos <line>:<col>", QueryCommandKernels.GetPositionUsageMessage("hover"));
+        Assert.Equal(
+            "Invalid position format: bad. Expected <line>:<col> (e.g. 5:12)",
+            QueryCommandKernels.GetInvalidPositionMessage("bad"));
+        Assert.Equal("No symbol found at Program.nl:5:12", QueryCommandKernels.GetNoSymbolAtPositionMessage("Program.nl", 5, 12));
+        Assert.Equal("No type information found at Program.nl:5:12", QueryCommandKernels.GetNoTypeInformationAtPositionMessage("Program.nl", 5, 12));
+        Assert.Equal("No definition found at Program.nl:5:12", QueryCommandKernels.GetNoDefinitionAtPositionMessage("Program.nl", 5, 12));
+        Assert.Equal("No interface found at Program.nl:5:12", QueryCommandKernels.GetNoInterfaceAtPositionMessage("Program.nl", 5, 12));
+        Assert.Equal("Performance facts are only available as JSON output.", QueryCommandKernels.GetPerformanceJsonOnlyMessage());
+        Assert.Equal("Trusted-site reports are only available as JSON output.", QueryCommandKernels.GetTrustedJsonOnlyMessage());
+        Assert.Contains("nlc query implementors --name <interface>", QueryCommandKernels.GetImplementorsUsageMessage());
+        Assert.Equal("Batch queries only support JSON output.", QueryCommandKernels.GetBatchJsonOnlyMessage());
+        Assert.Equal("Usage: nlc query batch --requests <path-to-json>", QueryCommandKernels.GetBatchUsageMessage());
+        Assert.Equal("Batch request file did not contain any requests.", QueryCommandKernels.GetEmptyBatchMessage());
+        Assert.Equal("Usage: nlc query outline <file>", QueryCommandKernels.GetOutlineUsageMessage());
+        Assert.Equal("File not found: Missing.nl", QueryCommandKernels.GetFileNotFoundMessage("Missing.nl"));
+        Assert.Contains("nlc query definition --file", QueryCommandKernels.GetDefinitionUsageMessage());
+        Assert.Equal("--compact/--summary is only supported with JSON output.", QueryCommandKernels.GetInspectCompactTextUnsupportedMessage());
+        Assert.Contains("Position-based only", QueryCommandKernels.GetReferencesUsageMessage());
+        Assert.Equal(
+            "Semantic references are unavailable because the selected position is not backed by a precise compiler binding. No name-based or text-based fallback was used.",
+            QueryCommandKernels.GetSemanticReferencesUnavailableMessage());
+        Assert.Contains("nlc query doc Console.WriteLine", QueryCommandKernels.GetDocUsageMessage());
+        Assert.Equal("No documentation found for 'Missing.Type'.", QueryCommandKernels.GetNoDocumentationMessage("Missing.Type"));
+        Assert.Equal("Project directory not found: /tmp/missing", QueryCommandKernels.GetProjectDirectoryNotFoundMessage("/tmp/missing"));
+        Assert.Equal("Failed to analyze project: bad parse", QueryCommandKernels.GetFailedAnalyzeProjectMessage("bad parse"));
+
+        var (helpExitCode, helpStdout, helpStderr) = CaptureConsole(() => QueryCommand.Execute(new[] { "help" }));
+        Assert.Equal(0, helpExitCode);
+        Assert.Contains("Usage: nlc query <command> [options]", helpStdout);
+        Assert.True(string.IsNullOrWhiteSpace(helpStderr));
+
+        var (unknownExitCode, unknownStdout, unknownStderr) = CaptureConsole(() => QueryCommand.Execute(new[] { "wat" }));
+        Assert.Equal(1, unknownExitCode);
+        Assert.True(string.IsNullOrWhiteSpace(unknownStdout));
+        Assert.Contains("Error: Unknown query subcommand: wat. Run 'nlc query help' for usage.", unknownStderr);
+    }
+
+    [Fact]
     public void NewCommandKernels_SummarizesArguments()
     {
         var args = new[] { "--template", "library", "--systems", "PacketCore", "-h" };

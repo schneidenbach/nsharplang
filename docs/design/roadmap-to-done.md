@@ -286,7 +286,7 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       adapter, query symbol-kind parsing now lives beside `QueryCommand` in `QueryCommandKernels`, and product
       `QueryCommand` top-level/global, command-specific argument, `line:column` position,
       limit parsing, inspect/diagnostics/JSON-only output-mode selection, all text-capable query command text-JSON
-      output-mode selection, and daemon-routing policy now lives beside `QueryCommand` in
+      output-mode selection, daemon-routing policy, and shared help/error/usage message shaping now lives beside `QueryCommand` in
       `QueryCommandKernels`;
       `nlc check`/`nlc lint` compiler-error severity filtering now lives beside the command implementations in
       `CompilerErrorSeverityFilter`; batch query duplicate-id validation and packed

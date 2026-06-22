@@ -7,6 +7,7 @@ using System.Reflection.Emit;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using NSharpLang.Cli;
+using NSharpLang.Cli.Commands;
 using NSharpLang.Compiler;
 using NSharpLang.Compiler.Ast;
 using NSharpLang.Compiler.CodeIntelligence;
@@ -12405,6 +12406,34 @@ func outer(x: int): int {
         Assert.Contains("CliQueryTextJsonOutputMode", methodNames!); // product query text/json output-mode selection.
         Assert.Contains("CliQueryShouldUseDaemon", methodNames!); // product query daemon routing policy.
         Assert.Contains("CliQuerySymbolKindInto", methodNames!); // product query symbol-kind parsing.
+        Assert.Contains("CliQueryHelpText", methodNames!); // product query help text shaping.
+        Assert.Contains("CliQueryDescriptionWithAliases", methodNames!); // product query help alias text shaping.
+        Assert.Contains("CliQueryUnknownSubcommandMessage", methodNames!); // product query unknown-command message shaping.
+        Assert.Contains("CliQueryErrorLine", methodNames!); // product query error prefix shaping.
+        Assert.Contains("CliQueryNoCompilationUnitForFileMessage", methodNames!); // product query AST no-file message shaping.
+        Assert.Contains("CliQueryNoCompilationUnitsMessage", methodNames!); // product query AST empty-project message shaping.
+        Assert.Contains("CliQueryPositionUsageMessage", methodNames!); // product position-query usage message shaping.
+        Assert.Contains("CliQueryInvalidPositionMessage", methodNames!); // product query invalid-position message shaping.
+        Assert.Contains("CliQueryNoSymbolAtPositionMessage", methodNames!); // product query no-symbol message shaping.
+        Assert.Contains("CliQueryNoTypeInformationAtPositionMessage", methodNames!); // product query no-type message shaping.
+        Assert.Contains("CliQueryNoDefinitionAtPositionMessage", methodNames!); // product query no-definition message shaping.
+        Assert.Contains("CliQueryNoInterfaceAtPositionMessage", methodNames!); // product query no-interface message shaping.
+        Assert.Contains("CliQueryPerformanceJsonOnlyMessage", methodNames!); // product query perf mode message shaping.
+        Assert.Contains("CliQueryTrustedJsonOnlyMessage", methodNames!); // product query trusted mode message shaping.
+        Assert.Contains("CliQueryImplementorsUsageMessage", methodNames!); // product query implementors usage shaping.
+        Assert.Contains("CliQueryBatchJsonOnlyMessage", methodNames!); // product query batch mode message shaping.
+        Assert.Contains("CliQueryBatchUsageMessage", methodNames!); // product query batch usage shaping.
+        Assert.Contains("CliQueryEmptyBatchMessage", methodNames!); // product query empty-batch message shaping.
+        Assert.Contains("CliQueryOutlineUsageMessage", methodNames!); // product query outline usage shaping.
+        Assert.Contains("CliQueryFileNotFoundMessage", methodNames!); // product query file-not-found shaping.
+        Assert.Contains("CliQueryDefinitionUsageMessage", methodNames!); // product query definition usage shaping.
+        Assert.Contains("CliQueryInspectCompactTextUnsupportedMessage", methodNames!); // product query inspect mode message shaping.
+        Assert.Contains("CliQueryReferencesUsageMessage", methodNames!); // product query references usage shaping.
+        Assert.Contains("CliQuerySemanticReferencesUnavailableMessage", methodNames!); // product query semantic-reference message shaping.
+        Assert.Contains("CliQueryDocUsageMessage", methodNames!); // product query doc usage shaping.
+        Assert.Contains("CliQueryNoDocumentationMessage", methodNames!); // product query doc miss shaping.
+        Assert.Contains("CliQueryProjectDirectoryNotFoundMessage", methodNames!); // product query project-load message shaping.
+        Assert.Contains("CliQueryFailedAnalyzeProjectMessage", methodNames!); // product query analysis-failure message shaping.
         Assert.Contains("CliDaemonPositionInto", methodNames!); // product daemon query position compatibility parsing.
 
         var full = 0xFFFFFFFFFFFFFFFFUL;
@@ -12438,6 +12467,12 @@ func outer(x: int): int {
             ("CliQueryShouldUseDaemon", new object[] { 1, 0 }),
             ("CliQueryShouldUseDaemon", new object[] { 0, 1 }),
             ("CliQueryShouldUseDaemon", new object[] { 1, 1 }),
+            ("CliQueryUnknownSubcommandMessage", new object[] { "wat" }),
+            ("CliQueryErrorLine", new object[] { "bad input" }),
+            ("CliQueryInvalidPositionMessage", new object[] { "bad" }),
+            ("CliQueryNoSymbolAtPositionMessage", new object[] { "Program.nl", "5", "12" }),
+            ("CliQueryReferencesUsageMessage", Array.Empty<object>()),
+            ("CliQueryNoDocumentationMessage", new object[] { "Missing.Type" }),
             ("CliQuerySymbolKindInto", new object[] { "function", new int[1] }),
             ("CliQuerySymbolKindInto", new object[] { " TypeAlias ", new int[1] }),
             ("CliQuerySymbolKindInto", new object[] { "15", new int[1] }),
@@ -15738,6 +15773,118 @@ class OtherZetaType {
                     "CliQuerySymbolKindInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliQuerySymbolKindInto.");
+            var cliQueryHelpText = programType.GetMethod(
+                    "CliQueryHelpText",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliQueryHelpText.");
+            var cliQueryDescriptionWithAliases = programType.GetMethod(
+                    "CliQueryDescriptionWithAliases",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliQueryDescriptionWithAliases.");
+            var cliQueryUnknownSubcommandMessage = programType.GetMethod(
+                    "CliQueryUnknownSubcommandMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliQueryUnknownSubcommandMessage.");
+            var cliQueryErrorLine = programType.GetMethod(
+                    "CliQueryErrorLine",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliQueryErrorLine.");
+            var cliQueryNoCompilationUnitForFileMessage = programType.GetMethod(
+                    "CliQueryNoCompilationUnitForFileMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliQueryNoCompilationUnitForFileMessage.");
+            var cliQueryNoCompilationUnitsMessage = programType.GetMethod(
+                    "CliQueryNoCompilationUnitsMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliQueryNoCompilationUnitsMessage.");
+            var cliQueryPositionUsageMessage = programType.GetMethod(
+                    "CliQueryPositionUsageMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliQueryPositionUsageMessage.");
+            var cliQueryInvalidPositionMessage = programType.GetMethod(
+                    "CliQueryInvalidPositionMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliQueryInvalidPositionMessage.");
+            var cliQueryNoSymbolAtPositionMessage = programType.GetMethod(
+                    "CliQueryNoSymbolAtPositionMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliQueryNoSymbolAtPositionMessage.");
+            var cliQueryNoTypeInformationAtPositionMessage = programType.GetMethod(
+                    "CliQueryNoTypeInformationAtPositionMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliQueryNoTypeInformationAtPositionMessage.");
+            var cliQueryNoDefinitionAtPositionMessage = programType.GetMethod(
+                    "CliQueryNoDefinitionAtPositionMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliQueryNoDefinitionAtPositionMessage.");
+            var cliQueryNoInterfaceAtPositionMessage = programType.GetMethod(
+                    "CliQueryNoInterfaceAtPositionMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliQueryNoInterfaceAtPositionMessage.");
+            var cliQueryPerformanceJsonOnlyMessage = programType.GetMethod(
+                    "CliQueryPerformanceJsonOnlyMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliQueryPerformanceJsonOnlyMessage.");
+            var cliQueryTrustedJsonOnlyMessage = programType.GetMethod(
+                    "CliQueryTrustedJsonOnlyMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliQueryTrustedJsonOnlyMessage.");
+            var cliQueryImplementorsUsageMessage = programType.GetMethod(
+                    "CliQueryImplementorsUsageMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliQueryImplementorsUsageMessage.");
+            var cliQueryBatchJsonOnlyMessage = programType.GetMethod(
+                    "CliQueryBatchJsonOnlyMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliQueryBatchJsonOnlyMessage.");
+            var cliQueryBatchUsageMessage = programType.GetMethod(
+                    "CliQueryBatchUsageMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliQueryBatchUsageMessage.");
+            var cliQueryEmptyBatchMessage = programType.GetMethod(
+                    "CliQueryEmptyBatchMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliQueryEmptyBatchMessage.");
+            var cliQueryOutlineUsageMessage = programType.GetMethod(
+                    "CliQueryOutlineUsageMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliQueryOutlineUsageMessage.");
+            var cliQueryFileNotFoundMessage = programType.GetMethod(
+                    "CliQueryFileNotFoundMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliQueryFileNotFoundMessage.");
+            var cliQueryDefinitionUsageMessage = programType.GetMethod(
+                    "CliQueryDefinitionUsageMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliQueryDefinitionUsageMessage.");
+            var cliQueryInspectCompactTextUnsupportedMessage = programType.GetMethod(
+                    "CliQueryInspectCompactTextUnsupportedMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliQueryInspectCompactTextUnsupportedMessage.");
+            var cliQueryReferencesUsageMessage = programType.GetMethod(
+                    "CliQueryReferencesUsageMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliQueryReferencesUsageMessage.");
+            var cliQuerySemanticReferencesUnavailableMessage = programType.GetMethod(
+                    "CliQuerySemanticReferencesUnavailableMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliQuerySemanticReferencesUnavailableMessage.");
+            var cliQueryDocUsageMessage = programType.GetMethod(
+                    "CliQueryDocUsageMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliQueryDocUsageMessage.");
+            var cliQueryNoDocumentationMessage = programType.GetMethod(
+                    "CliQueryNoDocumentationMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliQueryNoDocumentationMessage.");
+            var cliQueryProjectDirectoryNotFoundMessage = programType.GetMethod(
+                    "CliQueryProjectDirectoryNotFoundMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliQueryProjectDirectoryNotFoundMessage.");
+            var cliQueryFailedAnalyzeProjectMessage = programType.GetMethod(
+                    "CliQueryFailedAnalyzeProjectMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliQueryFailedAnalyzeProjectMessage.");
             var cliDaemonPositionInto = programType.GetMethod(
                     "CliDaemonPositionInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -17969,6 +18116,35 @@ func main(customer: Customer, résumé: Profile) {
             AssertCliQueryTextJsonOutputModesLikeProduction(cliQueryTextJsonOutputMode);
             AssertCliQueryDaemonRoutingLikeProduction(cliQueryShouldUseDaemon);
             AssertCliQuerySymbolKindsLikeProduction(cliQuerySymbolKindInto);
+            AssertCliQueryMessagesLikeProduction(
+                cliQueryHelpText,
+                cliQueryDescriptionWithAliases,
+                cliQueryUnknownSubcommandMessage,
+                cliQueryErrorLine,
+                cliQueryNoCompilationUnitForFileMessage,
+                cliQueryNoCompilationUnitsMessage,
+                cliQueryPositionUsageMessage,
+                cliQueryInvalidPositionMessage,
+                cliQueryNoSymbolAtPositionMessage,
+                cliQueryNoTypeInformationAtPositionMessage,
+                cliQueryNoDefinitionAtPositionMessage,
+                cliQueryNoInterfaceAtPositionMessage,
+                cliQueryPerformanceJsonOnlyMessage,
+                cliQueryTrustedJsonOnlyMessage,
+                cliQueryImplementorsUsageMessage,
+                cliQueryBatchJsonOnlyMessage,
+                cliQueryBatchUsageMessage,
+                cliQueryEmptyBatchMessage,
+                cliQueryOutlineUsageMessage,
+                cliQueryFileNotFoundMessage,
+                cliQueryDefinitionUsageMessage,
+                cliQueryInspectCompactTextUnsupportedMessage,
+                cliQueryReferencesUsageMessage,
+                cliQuerySemanticReferencesUnavailableMessage,
+                cliQueryDocUsageMessage,
+                cliQueryNoDocumentationMessage,
+                cliQueryProjectDirectoryNotFoundMessage,
+                cliQueryFailedAnalyzeProjectMessage);
             AssertCliDaemonPositionsLikeProduction(cliDaemonPositionInto);
             AssertCliBuildOperandsLikeProduction(
                 cliBuildOperandIndicesInto,
@@ -20956,6 +21132,126 @@ func main() {
             (int)(cliQuerySymbolKindInto.Invoke(
                 null,
                 new object[] { "Function", Array.Empty<int>() }) ?? 0));
+    }
+
+    private static void AssertCliQueryMessagesLikeProduction(
+        MethodInfo cliQueryHelpText,
+        MethodInfo cliQueryDescriptionWithAliases,
+        MethodInfo cliQueryUnknownSubcommandMessage,
+        MethodInfo cliQueryErrorLine,
+        MethodInfo cliQueryNoCompilationUnitForFileMessage,
+        MethodInfo cliQueryNoCompilationUnitsMessage,
+        MethodInfo cliQueryPositionUsageMessage,
+        MethodInfo cliQueryInvalidPositionMessage,
+        MethodInfo cliQueryNoSymbolAtPositionMessage,
+        MethodInfo cliQueryNoTypeInformationAtPositionMessage,
+        MethodInfo cliQueryNoDefinitionAtPositionMessage,
+        MethodInfo cliQueryNoInterfaceAtPositionMessage,
+        MethodInfo cliQueryPerformanceJsonOnlyMessage,
+        MethodInfo cliQueryTrustedJsonOnlyMessage,
+        MethodInfo cliQueryImplementorsUsageMessage,
+        MethodInfo cliQueryBatchJsonOnlyMessage,
+        MethodInfo cliQueryBatchUsageMessage,
+        MethodInfo cliQueryEmptyBatchMessage,
+        MethodInfo cliQueryOutlineUsageMessage,
+        MethodInfo cliQueryFileNotFoundMessage,
+        MethodInfo cliQueryDefinitionUsageMessage,
+        MethodInfo cliQueryInspectCompactTextUnsupportedMessage,
+        MethodInfo cliQueryReferencesUsageMessage,
+        MethodInfo cliQuerySemanticReferencesUnavailableMessage,
+        MethodInfo cliQueryDocUsageMessage,
+        MethodInfo cliQueryNoDocumentationMessage,
+        MethodInfo cliQueryProjectDirectoryNotFoundMessage,
+        MethodInfo cliQueryFailedAnalyzeProjectMessage)
+    {
+        var commandLines = "  symbols       List symbols";
+        Assert.Equal(
+            QueryCommandKernels.GetHelpText(commandLines),
+            (string)(cliQueryHelpText.Invoke(null, new object[] { commandLines }) ?? string.Empty));
+        Assert.Equal(
+            QueryCommandKernels.GetDescriptionWithAliases("List symbols", "ls, names"),
+            (string)(cliQueryDescriptionWithAliases.Invoke(null, new object[] { "List symbols", "ls, names" }) ?? string.Empty));
+        Assert.Equal(
+            QueryCommandKernels.GetDescriptionWithAliases("List symbols", string.Empty),
+            (string)(cliQueryDescriptionWithAliases.Invoke(null, new object[] { "List symbols", string.Empty }) ?? string.Empty));
+        Assert.Equal(
+            QueryCommandKernels.GetUnknownSubcommandMessage("wat"),
+            (string)(cliQueryUnknownSubcommandMessage.Invoke(null, new object[] { "wat" }) ?? string.Empty));
+        Assert.Equal(
+            QueryCommandKernels.GetErrorLine("bad input"),
+            (string)(cliQueryErrorLine.Invoke(null, new object[] { "bad input" }) ?? string.Empty));
+        Assert.Equal(
+            QueryCommandKernels.GetNoCompilationUnitForFileMessage("Missing.nl"),
+            (string)(cliQueryNoCompilationUnitForFileMessage.Invoke(null, new object[] { "Missing.nl" }) ?? string.Empty));
+        Assert.Equal(
+            QueryCommandKernels.GetNoCompilationUnitsMessage(),
+            (string)(cliQueryNoCompilationUnitsMessage.Invoke(null, Array.Empty<object>()) ?? string.Empty));
+        Assert.Equal(
+            QueryCommandKernels.GetPositionUsageMessage("hover"),
+            (string)(cliQueryPositionUsageMessage.Invoke(null, new object[] { "hover" }) ?? string.Empty));
+        Assert.Equal(
+            QueryCommandKernels.GetInvalidPositionMessage("bad"),
+            (string)(cliQueryInvalidPositionMessage.Invoke(null, new object[] { "bad" }) ?? string.Empty));
+        Assert.Equal(
+            QueryCommandKernels.GetNoSymbolAtPositionMessage("Program.nl", 5, 12),
+            (string)(cliQueryNoSymbolAtPositionMessage.Invoke(null, new object[] { "Program.nl", "5", "12" }) ?? string.Empty));
+        Assert.Equal(
+            QueryCommandKernels.GetNoTypeInformationAtPositionMessage("Program.nl", 5, 12),
+            (string)(cliQueryNoTypeInformationAtPositionMessage.Invoke(null, new object[] { "Program.nl", "5", "12" }) ?? string.Empty));
+        Assert.Equal(
+            QueryCommandKernels.GetNoDefinitionAtPositionMessage("Program.nl", 5, 12),
+            (string)(cliQueryNoDefinitionAtPositionMessage.Invoke(null, new object[] { "Program.nl", "5", "12" }) ?? string.Empty));
+        Assert.Equal(
+            QueryCommandKernels.GetNoInterfaceAtPositionMessage("Program.nl", 5, 12),
+            (string)(cliQueryNoInterfaceAtPositionMessage.Invoke(null, new object[] { "Program.nl", "5", "12" }) ?? string.Empty));
+        Assert.Equal(
+            QueryCommandKernels.GetPerformanceJsonOnlyMessage(),
+            (string)(cliQueryPerformanceJsonOnlyMessage.Invoke(null, Array.Empty<object>()) ?? string.Empty));
+        Assert.Equal(
+            QueryCommandKernels.GetTrustedJsonOnlyMessage(),
+            (string)(cliQueryTrustedJsonOnlyMessage.Invoke(null, Array.Empty<object>()) ?? string.Empty));
+        Assert.Equal(
+            QueryCommandKernels.GetImplementorsUsageMessage(),
+            (string)(cliQueryImplementorsUsageMessage.Invoke(null, Array.Empty<object>()) ?? string.Empty));
+        Assert.Equal(
+            QueryCommandKernels.GetBatchJsonOnlyMessage(),
+            (string)(cliQueryBatchJsonOnlyMessage.Invoke(null, Array.Empty<object>()) ?? string.Empty));
+        Assert.Equal(
+            QueryCommandKernels.GetBatchUsageMessage(),
+            (string)(cliQueryBatchUsageMessage.Invoke(null, Array.Empty<object>()) ?? string.Empty));
+        Assert.Equal(
+            QueryCommandKernels.GetEmptyBatchMessage(),
+            (string)(cliQueryEmptyBatchMessage.Invoke(null, Array.Empty<object>()) ?? string.Empty));
+        Assert.Equal(
+            QueryCommandKernels.GetOutlineUsageMessage(),
+            (string)(cliQueryOutlineUsageMessage.Invoke(null, Array.Empty<object>()) ?? string.Empty));
+        Assert.Equal(
+            QueryCommandKernels.GetFileNotFoundMessage("Missing.nl"),
+            (string)(cliQueryFileNotFoundMessage.Invoke(null, new object[] { "Missing.nl" }) ?? string.Empty));
+        Assert.Equal(
+            QueryCommandKernels.GetDefinitionUsageMessage(),
+            (string)(cliQueryDefinitionUsageMessage.Invoke(null, Array.Empty<object>()) ?? string.Empty));
+        Assert.Equal(
+            QueryCommandKernels.GetInspectCompactTextUnsupportedMessage(),
+            (string)(cliQueryInspectCompactTextUnsupportedMessage.Invoke(null, Array.Empty<object>()) ?? string.Empty));
+        Assert.Equal(
+            QueryCommandKernels.GetReferencesUsageMessage(),
+            (string)(cliQueryReferencesUsageMessage.Invoke(null, Array.Empty<object>()) ?? string.Empty));
+        Assert.Equal(
+            QueryCommandKernels.GetSemanticReferencesUnavailableMessage(),
+            (string)(cliQuerySemanticReferencesUnavailableMessage.Invoke(null, Array.Empty<object>()) ?? string.Empty));
+        Assert.Equal(
+            QueryCommandKernels.GetDocUsageMessage(),
+            (string)(cliQueryDocUsageMessage.Invoke(null, Array.Empty<object>()) ?? string.Empty));
+        Assert.Equal(
+            QueryCommandKernels.GetNoDocumentationMessage("Missing.Type"),
+            (string)(cliQueryNoDocumentationMessage.Invoke(null, new object[] { "Missing.Type" }) ?? string.Empty));
+        Assert.Equal(
+            QueryCommandKernels.GetProjectDirectoryNotFoundMessage("/tmp/missing"),
+            (string)(cliQueryProjectDirectoryNotFoundMessage.Invoke(null, new object[] { "/tmp/missing" }) ?? string.Empty));
+        Assert.Equal(
+            QueryCommandKernels.GetFailedAnalyzeProjectMessage("bad parse"),
+            (string)(cliQueryFailedAnalyzeProjectMessage.Invoke(null, new object[] { "bad parse" }) ?? string.Empty));
     }
 
     private static void AssertCliDaemonPositionsLikeProduction(MethodInfo cliDaemonPositionInto)

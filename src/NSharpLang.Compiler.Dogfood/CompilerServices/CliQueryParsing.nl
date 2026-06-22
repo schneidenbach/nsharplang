@@ -312,6 +312,175 @@ func CliQueryShouldUseDaemon(useText: int, noDaemon: int): int {
     return 1
 }
 
+func CliQueryHelpText(commandLines: string): string {
+    return "N# Code Intelligence CLI\n"
+        + "\n"
+        + "Usage: nlc query <command> [options]\n"
+        + "\n"
+        + "Commands:\n"
+        + commandLines + "\n"
+        + "\n"
+        + "Global Options:\n"
+        + "  --json        Output as JSON (default)\n"
+        + "  --text        Output as human-readable text (Elm-style)\n"
+        + "  --no-daemon   Force in-process analysis even if a daemon is running\n"
+        + "  --project     Project root directory (default: current directory)\n"
+        + "  --file        Target file for file-scoped operations\n"
+        + "  --pos         Position as line:col (e.g. 5:12)\n"
+        + "  --compact     For inspect, emit the compact token-efficient envelope (alias: --summary)\n"
+        + "  --clusters    For diagnostics, emit the stable diagnostic-cluster JSON envelope\n"
+        + "\n"
+        + "Examples:\n"
+        + "  nlc query symbols                              # All symbols in project\n"
+        + "  nlc query symbols --filter '*Person*'          # Symbols matching glob\n"
+        + "  nlc query symbols --filter Person              # Symbols matching substring\n"
+        + "  nlc query batch --requests requests.json       # Mixed semantic queries in one call\n"
+        + "  nlc query symbols --file Program.nl            # Symbols in one file\n"
+        + "  nlc query symbols --kind function              # Only functions\n"
+        + "  nlc query outline Program.nl                   # File structure\n"
+        + "  nlc query diagnostics                          # All errors/warnings\n"
+        + "  nlc query diagnostics --clusters               # Diagnostic clusters\n"
+        + "  nlc query diagnostics --text                   # Elm-style error output\n"
+        + "  nlc query type --file Program.nl --pos 5:4     # Type at position\n"
+        + "  nlc query inspect --file Program.nl --pos 5:4\n"
+        + "  nlc query inspect --file Program.nl --pos 5:4 --compact\n"
+        + "  nlc query def --file Program.nl --pos 5:4      # Definition at position\n"
+        + "  nlc query def --name Person                    # Search by name\n"
+        + "  nlc query refs --file Program.nl --pos 5:4     # All references\n"
+        + "  nlc query hover --file Program.nl --pos 5:4    # Signature + docs at position\n"
+        + "  nlc query call-graph --function Main           # Callers/callees of Main\n"
+        + "  nlc query call-graph --function Main --limit 50\n"
+        + "  nlc query implementors --name IShape           # Types implementing IShape\n"
+        + "  nlc query implementors --file Program.nl --pos 10:11\n"
+        + "  nlc query perf --file Program.nl --pos 5:4     # Allocation/dispatch/ABI facts\n"
+        + "  nlc query trusted                              # Governed [trusted] wrappers\n"
+        + "  nlc query doc Console                          # Type documentation\n"
+        + "  nlc query doc Console.WriteLine                # Method documentation\n"
+        + "  nlc query doc List                             # Generic type docs\n"
+        + "\n"
+        + "JSON queries reuse `nlc daemon` automatically when a daemon is already running.\n"
+        + "Use `--no-daemon` to bypass the daemon for debugging."
+}
+
+func CliQueryDescriptionWithAliases(description: string, aliasesText: string): string {
+    if aliasesText.Length == 0 {
+        return description
+    }
+
+    return description + " (aliases: " + aliasesText + ")"
+}
+
+func CliQueryUnknownSubcommandMessage(subcommand: string): string {
+    return "Unknown query subcommand: " + subcommand + ". Run 'nlc query help' for usage."
+}
+
+func CliQueryErrorLine(message: string): string {
+    return "Error: " + message
+}
+
+func CliQueryNoCompilationUnitForFileMessage(fileFilter: string): string {
+    return "No compilation unit found for --file " + fileFilter
+}
+
+func CliQueryNoCompilationUnitsMessage(): string {
+    return "No compilation units in project."
+}
+
+func CliQueryPositionUsageMessage(subcommand: string): string {
+    return "Usage: nlc query " + subcommand + " --file <path> --pos <line>:<col>"
+}
+
+func CliQueryInvalidPositionMessage(position: string): string {
+    return "Invalid position format: " + position + ". Expected <line>:<col> (e.g. 5:12)"
+}
+
+func CliQueryNoSymbolAtPositionMessage(filePath: string, lineText: string, columnText: string): string {
+    return "No symbol found at " + filePath + ":" + lineText + ":" + columnText
+}
+
+func CliQueryNoTypeInformationAtPositionMessage(filePath: string, lineText: string, columnText: string): string {
+    return "No type information found at " + filePath + ":" + lineText + ":" + columnText
+}
+
+func CliQueryNoDefinitionAtPositionMessage(filePath: string, lineText: string, columnText: string): string {
+    return "No definition found at " + filePath + ":" + lineText + ":" + columnText
+}
+
+func CliQueryNoInterfaceAtPositionMessage(filePath: string, lineText: string, columnText: string): string {
+    return "No interface found at " + filePath + ":" + lineText + ":" + columnText
+}
+
+func CliQueryPerformanceJsonOnlyMessage(): string {
+    return "Performance facts are only available as JSON output."
+}
+
+func CliQueryTrustedJsonOnlyMessage(): string {
+    return "Trusted-site reports are only available as JSON output."
+}
+
+func CliQueryImplementorsUsageMessage(): string {
+    return "Usage: nlc query implementors --name <interface>\n       nlc query implementors --file <path> --pos <line>:<col>"
+}
+
+func CliQueryBatchJsonOnlyMessage(): string {
+    return "Batch queries only support JSON output."
+}
+
+func CliQueryBatchUsageMessage(): string {
+    return "Usage: nlc query batch --requests <path-to-json>"
+}
+
+func CliQueryEmptyBatchMessage(): string {
+    return "Batch request file did not contain any requests."
+}
+
+func CliQueryOutlineUsageMessage(): string {
+    return "Usage: nlc query outline <file>"
+}
+
+func CliQueryFileNotFoundMessage(filePath: string): string {
+    return "File not found: " + filePath
+}
+
+func CliQueryDefinitionUsageMessage(): string {
+    return "Usage: nlc query definition --file <path> --pos <line>:<col>\n       nlc query definition --name <name>"
+}
+
+func CliQueryInspectCompactTextUnsupportedMessage(): string {
+    return "--compact/--summary is only supported with JSON output."
+}
+
+func CliQueryReferencesUsageMessage(): string {
+    return "Usage: nlc query references --file <path> --pos <line>:<col>\n\nThis is a semantic operation. Position-based only — no name-based shortcut."
+}
+
+func CliQuerySemanticReferencesUnavailableMessage(): string {
+    return "Semantic references are unavailable because the selected position is not backed by a precise compiler binding. "
+        + "No name-based or text-based fallback was used."
+}
+
+func CliQueryDocUsageMessage(): string {
+    return "Usage: nlc query doc <type-or-member>\n"
+        + "\n"
+        + "Examples:\n"
+        + "  nlc query doc Console\n"
+        + "  nlc query doc Console.WriteLine\n"
+        + "  nlc query doc List\n"
+        + "  nlc query doc System.IO.File"
+}
+
+func CliQueryNoDocumentationMessage(query: string): string {
+    return "No documentation found for '" + query + "'."
+}
+
+func CliQueryProjectDirectoryNotFoundMessage(projectDir: string): string {
+    return "Project directory not found: " + projectDir
+}
+
+func CliQueryFailedAnalyzeProjectMessage(message: string): string {
+    return "Failed to analyze project: " + message
+}
+
 func CliQueryIsLongOption(arg: string): bool {
     return arg.Length >= 2 && arg[0] == '-' && arg[1] == '-'
 }

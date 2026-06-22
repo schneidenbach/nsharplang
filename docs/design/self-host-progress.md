@@ -11,6 +11,19 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-22 — Query command shared messages move into product N#
+
+`QueryCommand` no longer owns top-level help template text, alias description formatting, shared `Error:`
+wrappers, unknown-subcommand diagnostics, position-query usage/invalid-position diagnostics, no-symbol/no-type/
+no-definition/no-interface messages, JSON-only mode diagnostics, batch/outline/doc usage text, documentation-miss
+text, or project-load failure messages in C#. The shipped `CliQuery*` dogfood kernels in `CliQueryParsing.nl` now
+shape those strings through `QueryCommandKernels`; C# keeps command registry enumeration, daemon/client IO,
+project loading, service execution, and JSON envelope serialization only.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.QueryCommandKernels_SummarizesDaemonParameters|FullyQualifiedName~CliCommandTests.QueryCommandKernels_SummarizesCommandOptions|FullyQualifiedName~CliCommandTests.QueryCommandKernels_SummarizesTopLevelOptions|FullyQualifiedName~CliCommandTests.QueryCommandKernels_ShapesMessages|FullyQualifiedName~CliCommandTests.QueryInspect_RejectsCompactTextOutputMode|FullyQualifiedName~CliCommandTests.CliCommandRegistry_StaysInSyncWithHelpCompletionsAndDocs|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliQueryParsing|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`;
+`./scripts/dev.sh QueryCommandKernels`.
+
 ## 2026-06-22 — Test command messages move into product N#
 
 `Program.TestCommand` and `Program.Testing` no longer own test help text, timeout validation errors,

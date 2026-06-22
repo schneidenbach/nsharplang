@@ -49,7 +49,7 @@ public static class QueryCommand
             "trusted" => TrustedCommand(positionalArgs, options),
             "implementors" => ImplementorsCommand(positionalArgs, options),
             "help" or "--help" or "-h" => ShowQueryHelp(),
-            _ => QueryError($"Unknown query subcommand: {subcommand}. Run 'nlc query help' for usage.")
+            _ => QueryError(QueryCommandKernels.GetUnknownSubcommandMessage(subcommand))
         };
     }
 
@@ -130,8 +130,8 @@ public static class QueryCommand
         if (units.Count == 0)
         {
             return fileFilter != null
-                ? QueryError($"No compilation unit found for --file {fileFilter}")
-                : QueryError("No compilation units in project.");
+                ? QueryError(QueryCommandKernels.GetNoCompilationUnitForFileMessage(fileFilter))
+                : QueryError(QueryCommandKernels.GetNoCompilationUnitsMessage());
         }
 
         // The AST is structured data; `ast` always emits the stable JSON envelope (LLM-first).
@@ -168,12 +168,12 @@ public static class QueryCommand
 
         if (file == null || posStr == null)
         {
-            return QueryError("Usage: nlc query hover --file <path> --pos <line>:<col>");
+            return QueryError(QueryCommandKernels.GetPositionUsageMessage("hover"));
         }
 
         if (!TryParsePosition(posStr, out var line, out var col))
         {
-            return QueryError($"Invalid position format: {posStr}. Expected <line>:<col> (e.g. 5:12)");
+            return QueryError(QueryCommandKernels.GetInvalidPositionMessage(posStr));
         }
 
         var snapshot = LoadProjectOrFail(options);
@@ -184,13 +184,13 @@ public static class QueryCommand
         {
             if (outputMode == QueryTextJsonOutputModeKind.Text)
             {
-                Console.Error.WriteLine($"No symbol found at {file}:{line}:{col}");
+                Console.Error.WriteLine(QueryCommandKernels.GetNoSymbolAtPositionMessage(file, line, col));
             }
             else
             {
                 Console.Write(OutputFormatter.ErrorToJson(
                     "hover",
-                    $"No symbol found at {file}:{line}:{col}",
+                    QueryCommandKernels.GetNoSymbolAtPositionMessage(file, line, col),
                     GetProjectRoot(options),
                     "noSymbol",
                     new
@@ -255,17 +255,17 @@ public static class QueryCommand
 
         if (file == null || posStr == null)
         {
-            return QueryError("Usage: nlc query perf --file <path> --pos <line>:<col>");
+            return QueryError(QueryCommandKernels.GetPositionUsageMessage("perf"));
         }
 
         if (!TryParsePosition(posStr, out var line, out var col))
         {
-            return QueryError($"Invalid position format: {posStr}. Expected <line>:<col> (e.g. 5:12)");
+            return QueryError(QueryCommandKernels.GetInvalidPositionMessage(posStr));
         }
 
         if (GetJsonOnlyOutputMode(options.UseText) == QueryJsonOnlyOutputModeKind.TextUnsupported)
         {
-            return QueryError("Performance facts are only available as JSON output.");
+            return QueryError(QueryCommandKernels.GetPerformanceJsonOnlyMessage());
         }
 
         var snapshot = LoadProjectOrFail(options);
@@ -339,7 +339,7 @@ public static class QueryCommand
     {
         if (GetJsonOnlyOutputMode(options.UseText) == QueryJsonOnlyOutputModeKind.TextUnsupported)
         {
-            return QueryError("Trusted-site reports are only available as JSON output.");
+            return QueryError(QueryCommandKernels.GetTrustedJsonOnlyMessage());
         }
 
         var snapshot = LoadProjectOrFail(options);
@@ -394,7 +394,7 @@ public static class QueryCommand
         {
             if (!TryParsePosition(posStr, out var line, out var col))
             {
-                return QueryError($"Invalid position format: {posStr}. Expected <line>:<col> (e.g. 5:12)");
+                return QueryError(QueryCommandKernels.GetInvalidPositionMessage(posStr));
             }
 
             var snapshot = LoadProjectOrFail(options);
@@ -405,13 +405,13 @@ public static class QueryCommand
             {
                 if (outputMode == QueryTextJsonOutputModeKind.Text)
                 {
-                    Console.Error.WriteLine($"No interface found at {file}:{line}:{col}");
+                    Console.Error.WriteLine(QueryCommandKernels.GetNoInterfaceAtPositionMessage(file, line, col));
                 }
                 else
                 {
                     Console.Write(OutputFormatter.ErrorToJson(
                         "implementors",
-                        $"No interface found at {file}:{line}:{col}",
+                        QueryCommandKernels.GetNoInterfaceAtPositionMessage(file, line, col),
                         GetProjectRoot(options),
                         "noInterface",
                         new
@@ -437,14 +437,14 @@ public static class QueryCommand
             return result.Results.Count > 0 ? 0 : 1;
         }
 
-        return QueryError("Usage: nlc query implementors --name <interface>\n       nlc query implementors --file <path> --pos <line>:<col>");
+        return QueryError(QueryCommandKernels.GetImplementorsUsageMessage());
     }
 
     private static int BatchCommand(string[] args, QueryOptions options)
     {
         if (GetJsonOnlyOutputMode(options.UseText) == QueryJsonOnlyOutputModeKind.TextUnsupported)
         {
-            return QueryError("Batch queries only support JSON output.");
+            return QueryError(QueryCommandKernels.GetBatchJsonOnlyMessage());
         }
 
         var commandSummary = GetCommandOptionSummary(args);
@@ -452,7 +452,7 @@ public static class QueryCommand
 
         if (string.IsNullOrWhiteSpace(requestsPath))
         {
-            return QueryError("Usage: nlc query batch --requests <path-to-json>");
+            return QueryError(QueryCommandKernels.GetBatchUsageMessage());
         }
 
         List<BatchQueryRequest> requests;
@@ -475,7 +475,7 @@ public static class QueryCommand
         {
             Console.Write(OutputFormatter.ErrorToJson(
                 "batch",
-                "Batch request file did not contain any requests.",
+                QueryCommandKernels.GetEmptyBatchMessage(),
                 GetProjectRoot(options),
                 "emptyBatch",
                 new { requests = NormalizePath(requestsPath) }));
@@ -512,7 +512,7 @@ public static class QueryCommand
 
         if (file == null)
         {
-            return QueryError("Usage: nlc query outline <file>");
+            return QueryError(QueryCommandKernels.GetOutlineUsageMessage());
         }
 
         var projectRoot = options.ProjectDir ?? Directory.GetCurrentDirectory();
@@ -520,7 +520,7 @@ public static class QueryCommand
 
         if (!File.Exists(filePath))
         {
-            return QueryError($"File not found: {filePath}");
+            return QueryError(QueryCommandKernels.GetFileNotFoundMessage(filePath));
         }
 
         // Use single-file fast path
@@ -588,12 +588,12 @@ public static class QueryCommand
 
         if (file == null || posStr == null)
         {
-            return QueryError("Usage: nlc query type --file <path> --pos <line>:<col>");
+            return QueryError(QueryCommandKernels.GetPositionUsageMessage("type"));
         }
 
         if (!TryParsePosition(posStr, out var line, out var col))
         {
-            return QueryError($"Invalid position format: {posStr}. Expected <line>:<col> (e.g. 5:12)");
+            return QueryError(QueryCommandKernels.GetInvalidPositionMessage(posStr));
         }
 
         if (TryExecuteViaDaemon(options, DaemonConstants.MethodType, BuildDaemonParameters(args, options), out var daemonExitCode))
@@ -607,13 +607,13 @@ public static class QueryCommand
         {
             if (outputMode == QueryTextJsonOutputModeKind.Text)
             {
-                Console.Error.WriteLine($"No type information found at {file}:{line}:{col}");
+                Console.Error.WriteLine(QueryCommandKernels.GetNoTypeInformationAtPositionMessage(file, line, col));
             }
             else
             {
                 Console.Write(OutputFormatter.ErrorToJson(
                     "type",
-                    $"No symbol found at {file}:{line}:{col}",
+                    QueryCommandKernels.GetNoSymbolAtPositionMessage(file, line, col),
                     GetProjectRoot(options),
                     "noSymbol",
                     new
@@ -651,7 +651,7 @@ public static class QueryCommand
         {
             if (!TryParsePosition(posStr, out var line, out var col))
             {
-                return QueryError($"Invalid position format: {posStr}. Expected <line>:<col> (e.g. 5:12)");
+                return QueryError(QueryCommandKernels.GetInvalidPositionMessage(posStr));
             }
 
             if (TryExecuteViaDaemon(options, DaemonConstants.MethodDefinition, BuildDaemonParameters(args, options), out var daemonExitCode))
@@ -665,13 +665,13 @@ public static class QueryCommand
             {
                 if (outputMode == QueryTextJsonOutputModeKind.Text)
                 {
-                    Console.Error.WriteLine($"No definition found at {file}:{line}:{col}");
+                    Console.Error.WriteLine(QueryCommandKernels.GetNoDefinitionAtPositionMessage(file, line, col));
                 }
                 else
                 {
                     Console.Write(OutputFormatter.ErrorToJson(
                         "definition",
-                        $"No symbol found at {file}:{line}:{col}",
+                        QueryCommandKernels.GetNoSymbolAtPositionMessage(file, line, col),
                         GetProjectRoot(options),
                         "noSymbol",
                         new
@@ -721,7 +721,7 @@ public static class QueryCommand
             return results.Count > 0 ? 0 : 1;
         }
 
-        return QueryError("Usage: nlc query definition --file <path> --pos <line>:<col>\n       nlc query definition --name <name>");
+        return QueryError(QueryCommandKernels.GetDefinitionUsageMessage());
     }
 
     private static int InspectCommand(string[] args, QueryOptions options)
@@ -734,17 +734,17 @@ public static class QueryCommand
 
         if (file == null || posStr == null)
         {
-            return QueryError("Usage: nlc query inspect --file <path> --pos <line>:<col>");
+            return QueryError(QueryCommandKernels.GetPositionUsageMessage("inspect"));
         }
 
         if (outputMode == QueryInspectOutputModeKind.InvalidCompactText)
         {
-            return QueryError("--compact/--summary is only supported with JSON output.");
+            return QueryError(QueryCommandKernels.GetInspectCompactTextUnsupportedMessage());
         }
 
         if (!TryParsePosition(posStr, out var line, out var col))
         {
-            return QueryError($"Invalid position format: {posStr}. Expected <line>:<col> (e.g. 5:12)");
+            return QueryError(QueryCommandKernels.GetInvalidPositionMessage(posStr));
         }
 
         if (TryExecuteViaDaemon(options, DaemonConstants.MethodInspect, BuildDaemonParameters(args, options), out var daemonExitCode))
@@ -788,13 +788,13 @@ public static class QueryCommand
         {
             if (outputMode == QueryInspectOutputModeKind.Text)
             {
-                Console.Error.WriteLine($"No symbol found at {file}:{line}:{col}");
+                Console.Error.WriteLine(QueryCommandKernels.GetNoSymbolAtPositionMessage(file, line, col));
             }
             else
             {
                 Console.Write(OutputFormatter.ErrorToJson(
                     "inspect",
-                    $"No symbol found at {file}:{line}:{col}",
+                    QueryCommandKernels.GetNoSymbolAtPositionMessage(file, line, col),
                     GetProjectRoot(options),
                     "noSymbol",
                     new
@@ -830,12 +830,12 @@ public static class QueryCommand
 
         if (file == null || posStr == null)
         {
-            return QueryError("Usage: nlc query references --file <path> --pos <line>:<col>\n\nThis is a semantic operation. Position-based only — no name-based shortcut.");
+            return QueryError(QueryCommandKernels.GetReferencesUsageMessage());
         }
 
         if (!TryParsePosition(posStr, out var line, out var col))
         {
-            return QueryError($"Invalid position format: {posStr}. Expected <line>:<col> (e.g. 5:12)");
+            return QueryError(QueryCommandKernels.GetInvalidPositionMessage(posStr));
         }
 
         if (TryExecuteViaDaemon(options, DaemonConstants.MethodReferences, BuildDaemonParameters(args, options), out var daemonExitCode))
@@ -850,13 +850,13 @@ public static class QueryCommand
         {
             if (outputMode == QueryTextJsonOutputModeKind.Text)
             {
-                Console.Error.WriteLine($"No symbol found at {file}:{line}:{col}");
+                Console.Error.WriteLine(QueryCommandKernels.GetNoSymbolAtPositionMessage(file, line, col));
             }
             else
             {
                 Console.Write(OutputFormatter.ErrorToJson(
                     "references",
-                    $"No symbol found at {file}:{line}:{col}",
+                    QueryCommandKernels.GetNoSymbolAtPositionMessage(file, line, col),
                     GetProjectRoot(options),
                     "noSymbol",
                     new
@@ -876,9 +876,7 @@ public static class QueryCommand
         var results = Service.FindReferences(snapshot, file, line, col);
         if (results.Count == 0)
         {
-            const string message =
-                "Semantic references are unavailable because the selected position is not backed by a precise compiler binding. " +
-                "No name-based or text-based fallback was used.";
+            var message = QueryCommandKernels.GetSemanticReferencesUnavailableMessage();
 
             if (outputMode == QueryTextJsonOutputModeKind.Text)
             {
@@ -923,12 +921,12 @@ public static class QueryCommand
 
         if (file == null || posStr == null)
         {
-            return QueryError("Usage: nlc query completions --file <path> --pos <line>:<col>");
+            return QueryError(QueryCommandKernels.GetPositionUsageMessage("completions"));
         }
 
         if (!TryParsePosition(posStr, out var line, out var col))
         {
-            return QueryError($"Invalid position format: {posStr}. Expected <line>:<col> (e.g. 5:12)");
+            return QueryError(QueryCommandKernels.GetInvalidPositionMessage(posStr));
         }
 
         if (TryExecuteViaDaemon(options, DaemonConstants.MethodCompletions, BuildDaemonParameters(args, options), out var daemonExitCode))
@@ -968,7 +966,7 @@ public static class QueryCommand
 
         if (query == null)
         {
-            return QueryError("Usage: nlc query doc <type-or-member>\n\nExamples:\n  nlc query doc Console\n  nlc query doc Console.WriteLine\n  nlc query doc List\n  nlc query doc System.IO.File");
+            return QueryError(QueryCommandKernels.GetDocUsageMessage());
         }
 
         var result = _docQuery.Value.Lookup(query);
@@ -976,11 +974,11 @@ public static class QueryCommand
         {
             if (outputMode == QueryTextJsonOutputModeKind.Text)
             {
-                Console.Error.WriteLine($"No documentation found for '{query}'.");
+                Console.Error.WriteLine(QueryCommandKernels.GetNoDocumentationMessage(query));
             }
             else
             {
-                Console.Write(OutputFormatter.ErrorToJson("doc", $"No documentation found for '{query}'."));
+                Console.Write(OutputFormatter.ErrorToJson("doc", QueryCommandKernels.GetNoDocumentationMessage(query)));
             }
             return 1;
         }
@@ -1204,7 +1202,7 @@ public static class QueryCommand
 
         if (!Directory.Exists(projectDir))
         {
-            Console.Error.WriteLine($"Project directory not found: {projectDir}");
+            Console.Error.WriteLine(QueryCommandKernels.GetProjectDirectoryNotFoundMessage(projectDir));
             return null;
         }
 
@@ -1222,7 +1220,7 @@ public static class QueryCommand
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"Failed to analyze project: {ex.Message}");
+            Console.Error.WriteLine(QueryCommandKernels.GetFailedAnalyzeProjectMessage(ex.Message));
             return null;
         }
     }
@@ -1233,7 +1231,7 @@ public static class QueryCommand
 
         if (!Directory.Exists(projectDir))
         {
-            throw new DirectoryNotFoundException($"Project directory not found: {projectDir}");
+            throw new DirectoryNotFoundException(QueryCommandKernels.GetProjectDirectoryNotFoundMessage(projectDir));
         }
 
         var config = ProjectFileParser.ParseFromDirectory(projectDir) ?? ProjectFileParser.CreateDefault(Path.GetFileName(projectDir));
@@ -1389,7 +1387,7 @@ public static class QueryCommand
 
     private static int QueryError(string message)
     {
-        Console.Error.WriteLine($"Error: {message}");
+        Console.Error.WriteLine(QueryCommandKernels.GetErrorLine(message));
         return 1;
     }
 
@@ -1400,9 +1398,9 @@ public static class QueryCommand
             .Select(candidate => candidate.Name)
             .ToArray();
 
-        return aliases.Length == 0
-            ? command.Description
-            : $"{command.Description} (aliases: {string.Join(", ", aliases)})";
+        return QueryCommandKernels.GetDescriptionWithAliases(
+            command.Description,
+            string.Join(", ", aliases));
     }
 
     private static int ShowQueryHelp()
@@ -1411,53 +1409,7 @@ public static class QueryCommand
             .Where(command => !command.IsAlias)
             .Select(command => $"  {command.Name,-13} {FormatQueryDescription(command)}"));
 
-        Console.WriteLine($@"N# Code Intelligence CLI
-
-Usage: nlc query <command> [options]
-
-Commands:
-{commandLines}
-
-Global Options:
-  --json        Output as JSON (default)
-  --text        Output as human-readable text (Elm-style)
-  --no-daemon   Force in-process analysis even if a daemon is running
-  --project     Project root directory (default: current directory)
-  --file        Target file for file-scoped operations
-  --pos         Position as line:col (e.g. 5:12)
-  --compact     For inspect, emit the compact token-efficient envelope (alias: --summary)
-  --clusters    For diagnostics, emit the stable diagnostic-cluster JSON envelope
-
-Examples:
-  nlc query symbols                              # All symbols in project
-  nlc query symbols --filter '*Person*'          # Symbols matching glob
-  nlc query symbols --filter Person              # Symbols matching substring
-  nlc query batch --requests requests.json       # Mixed semantic queries in one call
-  nlc query symbols --file Program.nl            # Symbols in one file
-  nlc query symbols --kind function              # Only functions
-  nlc query outline Program.nl                   # File structure
-  nlc query diagnostics                          # All errors/warnings
-  nlc query diagnostics --clusters               # Diagnostic clusters
-  nlc query diagnostics --text                   # Elm-style error output
-  nlc query type --file Program.nl --pos 5:4     # Type at position
-  nlc query inspect --file Program.nl --pos 5:4
-  nlc query inspect --file Program.nl --pos 5:4 --compact
-  nlc query def --file Program.nl --pos 5:4      # Definition at position
-  nlc query def --name Person                    # Search by name
-  nlc query refs --file Program.nl --pos 5:4     # All references
-  nlc query hover --file Program.nl --pos 5:4    # Signature + docs at position
-  nlc query call-graph --function Main           # Callers/callees of Main
-  nlc query call-graph --function Main --limit 50
-  nlc query implementors --name IShape           # Types implementing IShape
-  nlc query implementors --file Program.nl --pos 10:11
-  nlc query perf --file Program.nl --pos 5:4     # Allocation/dispatch/ABI facts
-  nlc query trusted                              # Governed [trusted] wrappers
-  nlc query doc Console                          # Type documentation
-  nlc query doc Console.WriteLine                # Method documentation
-  nlc query doc List                             # Generic type docs
-
-JSON queries reuse `nlc daemon` automatically when a daemon is already running.
-Use `--no-daemon` to bypass the daemon for debugging.");
+        Console.WriteLine(QueryCommandKernels.GetHelpText(commandLines));
 
         return 0;
     }
