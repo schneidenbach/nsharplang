@@ -1,5 +1,4 @@
 using System;
-using System.Text;
 
 namespace NSharpLang.Compiler.CodeIntelligence;
 
@@ -8,1122 +7,262 @@ internal static class OutputFormatterTextKernels
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
 
     internal static string GetNoSymbolsText()
-    {
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return "No symbols found.";
-
-        try
-        {
-            var text = bindings.QueryNoSymbolsText();
-            if (!string.IsNullOrEmpty(text))
-                return text;
-        }
-        catch
-        {
-        }
-
-        return "No symbols found.";
-    }
+        => RequiredBindings.QueryNoSymbolsText();
 
     internal static string GetSymbolLineText(SymbolResult symbol, int indent)
     {
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return GetSymbolLineTextWithCSharp(symbol, indent);
-
-        try
-        {
-            var modifiers = symbol.Modifiers ?? Array.Empty<string>();
-            var text = bindings.QuerySymbolLineText(
-                indent,
-                symbol.Kind.ToString(),
-                symbol.Name,
-                symbol.TypeName ?? string.Empty,
-                symbol.TypeName != null ? 1 : 0,
-                symbol.File,
-                symbol.Line,
-                modifiers,
-                modifiers.Length);
-            if (!string.IsNullOrEmpty(text))
-                return text;
-        }
-        catch
-        {
-        }
-
-        return GetSymbolLineTextWithCSharp(symbol, indent);
+        var modifiers = symbol.Modifiers ?? Array.Empty<string>();
+        return RequiredBindings.QuerySymbolLineText(
+            indent,
+            symbol.Kind.ToString(),
+            symbol.Name,
+            symbol.TypeName ?? string.Empty,
+            symbol.TypeName != null ? 1 : 0,
+            symbol.File,
+            symbol.Line,
+            modifiers,
+            modifiers.Length);
     }
 
     internal static string GetSymbolParametersLineText(ParameterResult[] parameters, int indent)
     {
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return GetSymbolParametersLineTextWithCSharp(parameters, indent);
+        var count = parameters.Length;
+        var names = new string[count];
+        var types = new string[count];
+        var hasDefaults = new int[count];
+        var defaultValues = new string[count];
 
-        try
+        for (var i = 0; i < count; i++)
         {
-            var count = parameters.Length;
-            var names = new string[count];
-            var types = new string[count];
-            var hasDefaults = new int[count];
-            var defaultValues = new string[count];
-
-            for (var i = 0; i < count; i++)
-            {
-                var parameter = parameters[i];
-                names[i] = parameter.Name;
-                types[i] = parameter.Type;
-                hasDefaults[i] = parameter.HasDefault ? 1 : 0;
-                defaultValues[i] = parameter.DefaultValue ?? string.Empty;
-            }
-
-            var text = bindings.QuerySymbolParametersLineText(
-                indent,
-                names,
-                types,
-                hasDefaults,
-                defaultValues,
-                count);
-            if (!string.IsNullOrEmpty(text))
-                return text;
-        }
-        catch
-        {
+            var parameter = parameters[i];
+            names[i] = parameter.Name;
+            types[i] = parameter.Type;
+            hasDefaults[i] = parameter.HasDefault ? 1 : 0;
+            defaultValues[i] = parameter.DefaultValue ?? string.Empty;
         }
 
-        return GetSymbolParametersLineTextWithCSharp(parameters, indent);
+        return RequiredBindings.QuerySymbolParametersLineText(
+            indent,
+            names,
+            types,
+            hasDefaults,
+            defaultValues,
+            count);
     }
 
     internal static string GetOutlineFileLineText(string file)
-    {
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return GetOutlineFileLineTextWithCSharp(file);
-
-        try
-        {
-            var text = bindings.QueryOutlineFileLineText(file);
-            if (!string.IsNullOrEmpty(text))
-                return text;
-        }
-        catch
-        {
-        }
-
-        return GetOutlineFileLineTextWithCSharp(file);
-    }
+        => RequiredBindings.QueryOutlineFileLineText(file);
 
     internal static string GetOutlineImportsLineText(string[] imports)
-    {
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return GetOutlineImportsLineTextWithCSharp(imports);
-
-        try
-        {
-            var text = bindings.QueryOutlineImportsLineText(imports, imports.Length);
-            if (!string.IsNullOrEmpty(text))
-                return text;
-        }
-        catch
-        {
-        }
-
-        return GetOutlineImportsLineTextWithCSharp(imports);
-    }
+        => RequiredBindings.QueryOutlineImportsLineText(imports, imports.Length);
 
     internal static string GetOutlineEntryLineText(OutlineEntry entry, int indent)
-    {
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return GetOutlineEntryLineTextWithCSharp(entry, indent);
-
-        try
-        {
-            var text = bindings.QueryOutlineEntryLineText(
-                indent,
-                entry.Kind.ToString(),
-                entry.Name,
-                entry.ReturnType ?? string.Empty,
-                entry.ReturnType != null ? 1 : 0,
-                entry.Line,
-                entry.EndLine);
-            if (!string.IsNullOrEmpty(text))
-                return text;
-        }
-        catch
-        {
-        }
-
-        return GetOutlineEntryLineTextWithCSharp(entry, indent);
-    }
+        => RequiredBindings.QueryOutlineEntryLineText(
+            indent,
+            entry.Kind.ToString(),
+            entry.Name,
+            entry.ReturnType ?? string.Empty,
+            entry.ReturnType != null ? 1 : 0,
+            entry.Line,
+            entry.EndLine);
 
     internal static string GetTypeLocationHeaderText(string file, int line, int column)
-    {
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return GetTypeLocationHeaderTextWithCSharp(file, line, column);
-
-        try
-        {
-            var text = bindings.QueryTypeLocationHeaderText(file, line, column);
-            if (!string.IsNullOrEmpty(text))
-                return text;
-        }
-        catch
-        {
-        }
-
-        return GetTypeLocationHeaderTextWithCSharp(file, line, column);
-    }
+        => RequiredBindings.QueryTypeLocationHeaderText(file, line, column);
 
     internal static string GetTypeResultLineText(TypeResult result)
-    {
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return GetTypeResultLineTextWithCSharp(result);
-
-        try
-        {
-            var text = bindings.QueryTypeResultLineText(result.Name, result.ResolvedType, result.Kind);
-            if (!string.IsNullOrEmpty(text))
-                return text;
-        }
-        catch
-        {
-        }
-
-        return GetTypeResultLineTextWithCSharp(result);
-    }
+        => RequiredBindings.QueryTypeResultLineText(result.Name, result.ResolvedType, result.Kind);
 
     internal static string GetTypeNullabilityLineText(string nullability)
-    {
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return GetTypeNullabilityLineTextWithCSharp(nullability);
-
-        try
-        {
-            var text = bindings.QueryTypeNullabilityLineText(nullability);
-            if (!string.IsNullOrEmpty(text))
-                return text;
-        }
-        catch
-        {
-        }
-
-        return GetTypeNullabilityLineTextWithCSharp(nullability);
-    }
+        => RequiredBindings.QueryTypeNullabilityLineText(nullability);
 
     internal static string GetTypeDefinedAtLineText(LocationResult definition)
-    {
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return GetTypeDefinedAtLineTextWithCSharp(definition);
-
-        try
-        {
-            var text = bindings.QueryTypeDefinedAtLineText(definition.File, definition.Line, definition.Column);
-            if (!string.IsNullOrEmpty(text))
-                return text;
-        }
-        catch
-        {
-        }
-
-        return GetTypeDefinedAtLineTextWithCSharp(definition);
-    }
+        => RequiredBindings.QueryTypeDefinedAtLineText(definition.File, definition.Line, definition.Column);
 
     internal static string GetCompletionsHeaderText(string file, int line, int column, string contextText)
-    {
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return GetCompletionsHeaderTextWithCSharp(file, line, column, contextText);
-
-        try
-        {
-            var text = bindings.QueryCompletionsHeaderText(file, line, column, contextText);
-            if (!string.IsNullOrEmpty(text))
-                return text;
-        }
-        catch
-        {
-        }
-
-        return GetCompletionsHeaderTextWithCSharp(file, line, column, contextText);
-    }
+        => RequiredBindings.QueryCompletionsHeaderText(file, line, column, contextText);
 
     internal static string GetCompletionReceiverLineText(string receiver, string? receiverType)
-    {
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return GetCompletionReceiverLineTextWithCSharp(receiver, receiverType);
-
-        try
-        {
-            var text = bindings.QueryCompletionReceiverLineText(
-                receiver,
-                receiverType ?? string.Empty,
-                receiverType != null ? 1 : 0);
-            if (!string.IsNullOrEmpty(text))
-                return text;
-        }
-        catch
-        {
-        }
-
-        return GetCompletionReceiverLineTextWithCSharp(receiver, receiverType);
-    }
+        => RequiredBindings.QueryCompletionReceiverLineText(
+            receiver,
+            receiverType ?? string.Empty,
+            receiverType != null ? 1 : 0);
 
     internal static string GetCompletionCategoryLineText(string category, int count)
-    {
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return GetCompletionCategoryLineTextWithCSharp(category, count);
-
-        try
-        {
-            var text = bindings.QueryCompletionCategoryLineText(category, count);
-            if (!string.IsNullOrEmpty(text))
-                return text;
-        }
-        catch
-        {
-        }
-
-        return GetCompletionCategoryLineTextWithCSharp(category, count);
-    }
+        => RequiredBindings.QueryCompletionCategoryLineText(category, count);
 
     internal static string GetCompletionItemLineText(CompletionItem item)
-    {
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return GetCompletionItemLineTextWithCSharp(item);
-
-        try
-        {
-            var text = bindings.QueryCompletionItemLineText(
-                item.Name,
-                item.Parameters ?? string.Empty,
-                item.Parameters != null ? 1 : 0,
-                item.Type ?? string.Empty,
-                item.Type != null ? 1 : 0);
-            if (!string.IsNullOrEmpty(text))
-                return text;
-        }
-        catch
-        {
-        }
-
-        return GetCompletionItemLineTextWithCSharp(item);
-    }
+        => RequiredBindings.QueryCompletionItemLineText(
+            item.Name,
+            item.Parameters ?? string.Empty,
+            item.Parameters != null ? 1 : 0,
+            item.Type ?? string.Empty,
+            item.Type != null ? 1 : 0);
 
     internal static string GetCompletionOverflowLineText(int remaining)
-    {
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return GetCompletionOverflowLineTextWithCSharp(remaining);
-
-        try
-        {
-            var text = bindings.QueryCompletionOverflowLineText(remaining);
-            if (!string.IsNullOrEmpty(text))
-                return text;
-        }
-        catch
-        {
-        }
-
-        return GetCompletionOverflowLineTextWithCSharp(remaining);
-    }
+        => RequiredBindings.QueryCompletionOverflowLineText(remaining);
 
     internal static string GetInspectHeaderText(string file, int line, int column)
-    {
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return GetInspectHeaderTextWithCSharp(file, line, column);
-
-        try
-        {
-            var text = bindings.QueryInspectHeaderText(file, line, column);
-            if (!string.IsNullOrEmpty(text))
-                return text;
-        }
-        catch
-        {
-        }
-
-        return GetInspectHeaderTextWithCSharp(file, line, column);
-    }
+        => RequiredBindings.QueryInspectHeaderText(file, line, column);
 
     internal static string GetInspectSymbolLineText(InspectSymbolResult symbol)
-    {
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return GetInspectSymbolLineTextWithCSharp(symbol);
-
-        try
-        {
-            var text = bindings.QueryInspectSymbolLineText(symbol.Name, symbol.Kind);
-            if (!string.IsNullOrEmpty(text))
-                return text;
-        }
-        catch
-        {
-        }
-
-        return GetInspectSymbolLineTextWithCSharp(symbol);
-    }
+        => RequiredBindings.QueryInspectSymbolLineText(symbol.Name, symbol.Kind);
 
     internal static string GetInspectNoSymbolText()
-    {
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return GetInspectNoSymbolTextWithCSharp();
-
-        try
-        {
-            var text = bindings.QueryInspectNoSymbolText();
-            if (!string.IsNullOrEmpty(text))
-                return text;
-        }
-        catch
-        {
-        }
-
-        return GetInspectNoSymbolTextWithCSharp();
-    }
+        => RequiredBindings.QueryInspectNoSymbolText();
 
     internal static string GetInspectTypeLineText(TypeResult type)
-    {
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return GetInspectTypeLineTextWithCSharp(type);
-
-        try
-        {
-            var text = bindings.QueryInspectTypeLineText(type.ResolvedType, type.Kind);
-            if (!string.IsNullOrEmpty(text))
-                return text;
-        }
-        catch
-        {
-        }
-
-        return GetInspectTypeLineTextWithCSharp(type);
-    }
+        => RequiredBindings.QueryInspectTypeLineText(type.ResolvedType, type.Kind);
 
     internal static string GetInspectUnknownTypeText()
-    {
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return GetInspectUnknownTypeTextWithCSharp();
-
-        try
-        {
-            var text = bindings.QueryInspectUnknownTypeText();
-            if (!string.IsNullOrEmpty(text))
-                return text;
-        }
-        catch
-        {
-        }
-
-        return GetInspectUnknownTypeTextWithCSharp();
-    }
+        => RequiredBindings.QueryInspectUnknownTypeText();
 
     internal static string GetInspectDefinitionLineText(DefinitionResult definition)
-    {
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return GetInspectDefinitionLineTextWithCSharp(definition);
-
-        try
-        {
-            var text = bindings.QueryInspectDefinitionLineText(
-                definition.Kind,
-                definition.Name,
-                definition.File,
-                definition.Line,
-                definition.Column);
-            if (!string.IsNullOrEmpty(text))
-                return text;
-        }
-        catch
-        {
-        }
-
-        return GetInspectDefinitionLineTextWithCSharp(definition);
-    }
+        => RequiredBindings.QueryInspectDefinitionLineText(
+            definition.Kind,
+            definition.Name,
+            definition.File,
+            definition.Line,
+            definition.Column);
 
     internal static string GetInspectNoDefinitionText()
-    {
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return GetInspectNoDefinitionTextWithCSharp();
-
-        try
-        {
-            var text = bindings.QueryInspectNoDefinitionText();
-            if (!string.IsNullOrEmpty(text))
-                return text;
-        }
-        catch
-        {
-        }
-
-        return GetInspectNoDefinitionTextWithCSharp();
-    }
+        => RequiredBindings.QueryInspectNoDefinitionText();
 
     internal static string GetInspectReferencesHeaderText(int count, int definitionCount)
-    {
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return GetInspectReferencesHeaderTextWithCSharp(count, definitionCount);
-
-        try
-        {
-            var text = bindings.QueryInspectReferencesHeaderText(count, definitionCount);
-            if (!string.IsNullOrEmpty(text))
-                return text;
-        }
-        catch
-        {
-        }
-
-        return GetInspectReferencesHeaderTextWithCSharp(count, definitionCount);
-    }
+        => RequiredBindings.QueryInspectReferencesHeaderText(count, definitionCount);
 
     internal static string GetInspectReferencesOverflowLineText(int remaining)
-    {
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return GetInspectReferencesOverflowLineTextWithCSharp(remaining);
-
-        try
-        {
-            var text = bindings.QueryInspectReferencesOverflowLineText(remaining);
-            if (!string.IsNullOrEmpty(text))
-                return text;
-        }
-        catch
-        {
-        }
-
-        return GetInspectReferencesOverflowLineTextWithCSharp(remaining);
-    }
+        => RequiredBindings.QueryInspectReferencesOverflowLineText(remaining);
 
     internal static string GetHoverHeaderText(string file, int line, int column)
-    {
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return GetHoverHeaderTextWithCSharp(file, line, column);
-
-        try
-        {
-            var text = bindings.QueryHoverHeaderText(file, line, column);
-            if (!string.IsNullOrEmpty(text))
-                return text;
-        }
-        catch
-        {
-        }
-
-        return GetHoverHeaderTextWithCSharp(file, line, column);
-    }
+        => RequiredBindings.QueryHoverHeaderText(file, line, column);
 
     internal static string GetHoverSignatureLineText(string signature)
-    {
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return GetHoverSignatureLineTextWithCSharp(signature);
-
-        try
-        {
-            var text = bindings.QueryHoverSignatureLineText(signature);
-            if (!string.IsNullOrEmpty(text))
-                return text;
-        }
-        catch
-        {
-        }
-
-        return GetHoverSignatureLineTextWithCSharp(signature);
-    }
+        => RequiredBindings.QueryHoverSignatureLineText(signature);
 
     internal static string GetHoverKindLineText(string kind)
-    {
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return GetHoverKindLineTextWithCSharp(kind);
-
-        try
-        {
-            var text = bindings.QueryHoverKindLineText(kind);
-            if (!string.IsNullOrEmpty(text))
-                return text;
-        }
-        catch
-        {
-        }
-
-        return GetHoverKindLineTextWithCSharp(kind);
-    }
+        => RequiredBindings.QueryHoverKindLineText(kind);
 
     internal static string GetHoverDefinedInLineText(string definedIn)
-    {
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return GetHoverDefinedInLineTextWithCSharp(definedIn);
-
-        try
-        {
-            var text = bindings.QueryHoverDefinedInLineText(definedIn);
-            if (!string.IsNullOrEmpty(text))
-                return text;
-        }
-        catch
-        {
-        }
-
-        return GetHoverDefinedInLineTextWithCSharp(definedIn);
-    }
+        => RequiredBindings.QueryHoverDefinedInLineText(definedIn);
 
     internal static string GetHoverDocumentationHeaderText()
-    {
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return GetHoverDocumentationHeaderTextWithCSharp();
-
-        try
-        {
-            var text = bindings.QueryHoverDocumentationHeaderText();
-            if (!string.IsNullOrEmpty(text))
-                return text;
-        }
-        catch
-        {
-        }
-
-        return GetHoverDocumentationHeaderTextWithCSharp();
-    }
+        => RequiredBindings.QueryHoverDocumentationHeaderText();
 
     internal static string GetHoverDocumentationLineText(string docLine)
-    {
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return GetHoverDocumentationLineTextWithCSharp(docLine);
-
-        try
-        {
-            var text = bindings.QueryHoverDocumentationLineText(docLine);
-            if (!string.IsNullOrEmpty(text))
-                return text;
-        }
-        catch
-        {
-        }
-
-        return GetHoverDocumentationLineTextWithCSharp(docLine);
-    }
+        => RequiredBindings.QueryHoverDocumentationLineText(docLine);
 
     internal static string GetCallGraphFunctionHeaderText(string functionName)
-    {
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return GetCallGraphFunctionHeaderTextWithCSharp(functionName);
-
-        try
-        {
-            var text = bindings.QueryCallGraphForHeaderText(functionName);
-            if (!string.IsNullOrEmpty(text))
-                return text;
-        }
-        catch
-        {
-        }
-
-        return GetCallGraphFunctionHeaderTextWithCSharp(functionName);
-    }
+        => RequiredBindings.QueryCallGraphForHeaderText(functionName);
 
     internal static string GetCallGraphFullHeaderText()
-    {
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return GetCallGraphFullHeaderTextWithCSharp();
-
-        try
-        {
-            var text = bindings.QueryCallGraphFullHeaderText();
-            if (!string.IsNullOrEmpty(text))
-                return text;
-        }
-        catch
-        {
-        }
-
-        return GetCallGraphFullHeaderTextWithCSharp();
-    }
+        => RequiredBindings.QueryCallGraphFullHeaderText();
 
     internal static string GetCallGraphSectionHeaderText(string label, int count)
-    {
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return GetCallGraphSectionHeaderTextWithCSharp(label, count);
-
-        try
-        {
-            var text = bindings.QueryCallGraphSectionHeaderText(label, count);
-            if (!string.IsNullOrEmpty(text))
-                return text;
-        }
-        catch
-        {
-        }
-
-        return GetCallGraphSectionHeaderTextWithCSharp(label, count);
-    }
+        => RequiredBindings.QueryCallGraphSectionHeaderText(label, count);
 
     internal static string GetCallGraphEdgeLineText(CallSiteResult callSite)
-    {
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return GetCallGraphEdgeLineTextWithCSharp(callSite);
-
-        try
-        {
-            var text = bindings.QueryCallGraphEdgeLineText(
-                callSite.Name,
-                callSite.File ?? string.Empty,
-                callSite.Line);
-            if (!string.IsNullOrEmpty(text))
-                return text;
-        }
-        catch
-        {
-        }
-
-        return GetCallGraphEdgeLineTextWithCSharp(callSite);
-    }
+        => RequiredBindings.QueryCallGraphEdgeLineText(
+            callSite.Name,
+            callSite.File ?? string.Empty,
+            callSite.Line);
 
     internal static string GetCallGraphTruncatedLineText()
-    {
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return GetCallGraphTruncatedLineTextWithCSharp();
-
-        try
-        {
-            var text = bindings.QueryCallGraphTruncatedLineText("\u2014");
-            if (!string.IsNullOrEmpty(text))
-                return text;
-        }
-        catch
-        {
-        }
-
-        return GetCallGraphTruncatedLineTextWithCSharp();
-    }
+        => RequiredBindings.QueryCallGraphTruncatedLineText("\u2014");
 
     internal static string GetImplementorsHeaderText(string interfaceName, int count)
-    {
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return GetImplementorsHeaderTextWithCSharp(interfaceName, count);
-
-        try
-        {
-            var text = bindings.QueryImplementorsHeaderText(interfaceName, count);
-            if (!string.IsNullOrEmpty(text))
-                return text;
-        }
-        catch
-        {
-        }
-
-        return GetImplementorsHeaderTextWithCSharp(interfaceName, count);
-    }
+        => RequiredBindings.QueryImplementorsHeaderText(interfaceName, count);
 
     internal static string GetImplementorLineText(ImplementorResult result)
-    {
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return GetImplementorLineTextWithCSharp(result);
-
-        try
-        {
-            var text = bindings.QueryImplementorLineText(
-                result.Kind,
-                result.TypeName,
-                result.File ?? string.Empty,
-                result.Line);
-            if (!string.IsNullOrEmpty(text))
-                return text;
-        }
-        catch
-        {
-        }
-
-        return GetImplementorLineTextWithCSharp(result);
-    }
+        => RequiredBindings.QueryImplementorLineText(
+            result.Kind,
+            result.TypeName,
+            result.File ?? string.Empty,
+            result.Line);
 
     internal static string GetDocHeaderText(DocResult result)
-    {
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return GetDocHeaderTextWithCSharp(result);
-
-        try
-        {
-            var text = bindings.QueryDocHeaderText(result.Kind, result.FullName);
-            if (!string.IsNullOrEmpty(text))
-                return text;
-        }
-        catch
-        {
-        }
-
-        return GetDocHeaderTextWithCSharp(result);
-    }
+        => RequiredBindings.QueryDocHeaderText(result.Kind, result.FullName);
 
     internal static string GetDocNamespaceLineText(string namespaceName)
-    {
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return GetDocNamespaceLineTextWithCSharp(namespaceName);
-
-        try
-        {
-            var text = bindings.QueryDocNamespaceLineText(namespaceName);
-            if (!string.IsNullOrEmpty(text))
-                return text;
-        }
-        catch
-        {
-        }
-
-        return GetDocNamespaceLineTextWithCSharp(namespaceName);
-    }
+        => RequiredBindings.QueryDocNamespaceLineText(namespaceName);
 
     internal static string GetDocSummaryLineText(string summary)
-    {
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return GetDocSummaryLineTextWithCSharp(summary);
-
-        try
-        {
-            var text = bindings.QueryDocSummaryLineText(summary);
-            if (!string.IsNullOrEmpty(text))
-                return text;
-        }
-        catch
-        {
-        }
-
-        return GetDocSummaryLineTextWithCSharp(summary);
-    }
+        => RequiredBindings.QueryDocSummaryLineText(summary);
 
     internal static string GetDocImplementsLineText(string[] baseTypes)
-    {
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return GetDocImplementsLineTextWithCSharp(baseTypes);
-
-        try
-        {
-            var text = bindings.QueryDocImplementsLineText(baseTypes, baseTypes.Length);
-            if (!string.IsNullOrEmpty(text))
-                return text;
-        }
-        catch
-        {
-        }
-
-        return GetDocImplementsLineTextWithCSharp(baseTypes);
-    }
+        => RequiredBindings.QueryDocImplementsLineText(baseTypes, baseTypes.Length);
 
     internal static string GetDocParametersHeaderText()
-    {
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return GetDocParametersHeaderTextWithCSharp();
-
-        try
-        {
-            var text = bindings.QueryDocParametersHeaderText();
-            if (!string.IsNullOrEmpty(text))
-                return text;
-        }
-        catch
-        {
-        }
-
-        return GetDocParametersHeaderTextWithCSharp();
-    }
+        => RequiredBindings.QueryDocParametersHeaderText();
 
     internal static string GetDocParameterLineText(DocParameterResult parameter)
-    {
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return GetDocParameterLineTextWithCSharp(parameter);
-
-        try
-        {
-            var text = bindings.QueryDocParameterLineText(
-                parameter.Name,
-                parameter.Type,
-                parameter.Summary ?? string.Empty,
-                parameter.Summary != null ? 1 : 0,
-                "\u2014");
-            if (!string.IsNullOrEmpty(text))
-                return text;
-        }
-        catch
-        {
-        }
-
-        return GetDocParameterLineTextWithCSharp(parameter);
-    }
+        => RequiredBindings.QueryDocParameterLineText(
+            parameter.Name,
+            parameter.Type,
+            parameter.Summary ?? string.Empty,
+            parameter.Summary != null ? 1 : 0,
+            "\u2014");
 
     internal static string GetDocReturnsLineText(string returnType, string? returnDoc)
-    {
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return GetDocReturnsLineTextWithCSharp(returnType, returnDoc);
-
-        try
-        {
-            var text = bindings.QueryDocReturnsLineText(
-                returnType,
-                returnDoc ?? string.Empty,
-                returnDoc != null ? 1 : 0,
-                "\u2014");
-            if (!string.IsNullOrEmpty(text))
-                return text;
-        }
-        catch
-        {
-        }
-
-        return GetDocReturnsLineTextWithCSharp(returnType, returnDoc);
-    }
+        => RequiredBindings.QueryDocReturnsLineText(
+            returnType,
+            returnDoc ?? string.Empty,
+            returnDoc != null ? 1 : 0,
+            "\u2014");
 
     internal static string GetDocMembersHeaderText(string kind)
-    {
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return GetDocMembersHeaderTextWithCSharp(kind);
-
-        try
-        {
-            var text = bindings.QueryDocMembersHeaderText(kind);
-            if (!string.IsNullOrEmpty(text))
-                return text;
-        }
-        catch
-        {
-        }
-
-        return GetDocMembersHeaderTextWithCSharp(kind);
-    }
+        => RequiredBindings.QueryDocMembersHeaderText(kind);
 
     internal static string GetDocMemberLineText(DocMemberResult member)
-    {
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return GetDocMemberLineTextWithCSharp(member);
-
-        try
-        {
-            var text = bindings.QueryDocMemberLineText(
-                member.Kind,
-                member.Name,
-                member.Parameters ?? string.Empty,
-                member.Parameters != null ? 1 : 0,
-                member.Type ?? string.Empty,
-                member.Type != null ? 1 : 0,
-                member.Summary ?? string.Empty,
-                member.Summary != null ? 1 : 0,
-                "\u2014");
-            if (!string.IsNullOrEmpty(text))
-                return text;
-        }
-        catch
-        {
-        }
-
-        return GetDocMemberLineTextWithCSharp(member);
-    }
+        => RequiredBindings.QueryDocMemberLineText(
+            member.Kind,
+            member.Name,
+            member.Parameters ?? string.Empty,
+            member.Parameters != null ? 1 : 0,
+            member.Type ?? string.Empty,
+            member.Type != null ? 1 : 0,
+            member.Summary ?? string.Empty,
+            member.Summary != null ? 1 : 0,
+            "\u2014");
 
     internal static string GetDocOverflowLineText(int remaining)
-    {
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return GetDocOverflowLineTextWithCSharp(remaining);
-
-        try
-        {
-            var text = bindings.QueryDocOverflowLineText(remaining);
-            if (!string.IsNullOrEmpty(text))
-                return text;
-        }
-        catch
-        {
-        }
-
-        return GetDocOverflowLineTextWithCSharp(remaining);
-    }
+        => RequiredBindings.QueryDocOverflowLineText(remaining);
 
     internal static string GetNoReferencesText(string symbolName)
-    {
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return GetNoReferencesTextWithCSharp(symbolName);
-
-        try
-        {
-            var text = bindings.QueryNoReferencesText(symbolName);
-            if (!string.IsNullOrEmpty(text))
-                return text;
-        }
-        catch
-        {
-        }
-
-        return GetNoReferencesTextWithCSharp(symbolName);
-    }
+        => RequiredBindings.QueryNoReferencesText(symbolName);
 
     internal static string GetReferencesHeaderText(string symbolName, int count)
-    {
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return GetReferencesHeaderTextWithCSharp(symbolName, count);
-
-        try
-        {
-            var text = bindings.QueryReferencesHeaderText(symbolName, count);
-            if (!string.IsNullOrEmpty(text))
-                return text;
-        }
-        catch
-        {
-        }
-
-        return GetReferencesHeaderTextWithCSharp(symbolName, count);
-    }
+        => RequiredBindings.QueryReferencesHeaderText(symbolName, count);
 
     internal static string GetReferenceLineText(ReferenceResult reference)
-    {
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return GetReferenceLineTextWithCSharp(reference);
-
-        try
-        {
-            var text = bindings.QueryReferenceLineText(
-                reference.File,
-                reference.Line,
-                reference.Column,
-                reference.IsDefinition ? 1 : 0,
-                reference.Context ?? string.Empty,
-                reference.Context != null ? 1 : 0);
-            if (!string.IsNullOrEmpty(text))
-                return text;
-        }
-        catch
-        {
-        }
-
-        return GetReferenceLineTextWithCSharp(reference);
-    }
+        => RequiredBindings.QueryReferenceLineText(
+            reference.File,
+            reference.Line,
+            reference.Column,
+            reference.IsDefinition ? 1 : 0,
+            reference.Context ?? string.Empty,
+            reference.Context != null ? 1 : 0);
 
     internal static string GetDefinitionLineText(DefinitionResult definition)
-    {
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return GetDefinitionLineTextWithCSharp(definition);
-
-        try
-        {
-            var text = bindings.QueryDefinitionLineText(
-                definition.Kind,
-                definition.Name,
-                definition.File,
-                definition.Line,
-                definition.Column);
-            if (!string.IsNullOrEmpty(text))
-                return text;
-        }
-        catch
-        {
-        }
-
-        return GetDefinitionLineTextWithCSharp(definition);
-    }
+        => RequiredBindings.QueryDefinitionLineText(
+            definition.Kind,
+            definition.Name,
+            definition.File,
+            definition.Line,
+            definition.Column);
 
     internal static string GetNoDefinitionsText(string name)
-    {
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return GetNoDefinitionsTextWithCSharp(name);
-
-        try
-        {
-            var text = bindings.QueryNoDefinitionsText(name);
-            if (!string.IsNullOrEmpty(text))
-                return text;
-        }
-        catch
-        {
-        }
-
-        return GetNoDefinitionsTextWithCSharp(name);
-    }
+        => RequiredBindings.QueryNoDefinitionsText(name);
 
     internal static string GetDefinitionsHeaderText(string name)
-    {
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return GetDefinitionsHeaderTextWithCSharp(name);
-
-        try
-        {
-            var text = bindings.QueryDefinitionsHeaderText(name);
-            if (!string.IsNullOrEmpty(text))
-                return text;
-        }
-        catch
-        {
-        }
-
-        return GetDefinitionsHeaderTextWithCSharp(name);
-    }
+        => RequiredBindings.QueryDefinitionsHeaderText(name);
 
     internal static string GetDefinitionSearchResultLineText(DefinitionResult definition)
-    {
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return GetDefinitionSearchResultLineTextWithCSharp(definition);
-
-        try
-        {
-            var text = bindings.QueryDefinitionSearchResultLineText(
-                definition.Kind,
-                definition.Name,
-                definition.File,
-                definition.Line,
-                definition.Column);
-            if (!string.IsNullOrEmpty(text))
-                return text;
-        }
-        catch
-        {
-        }
-
-        return GetDefinitionSearchResultLineTextWithCSharp(definition);
-    }
+        => RequiredBindings.QueryDefinitionSearchResultLineText(
+            definition.Kind,
+            definition.Name,
+            definition.File,
+            definition.Line,
+            definition.Column);
 
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
@@ -1520,215 +659,6 @@ internal static class OutputFormatterTextKernels
         QueryDefinitionsHeaderText QueryDefinitionsHeaderText,
         QueryDefinitionSearchResultLineText QueryDefinitionSearchResultLineText);
 
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product query text routes through OutputFormatterText.nl.
-    private static string GetSymbolLineTextWithCSharp(SymbolResult symbol, int indent)
-    {
-        var prefix = new string(' ', indent * 2);
-        var typeText = symbol.TypeName != null ? $": {symbol.TypeName}" : string.Empty;
-        var modifierText = symbol.Modifiers is { Length: > 0 } ? $"[{string.Join(", ", symbol.Modifiers)}] " : string.Empty;
-        return $"{prefix}{modifierText}{symbol.Kind} {symbol.Name}{typeText}  ({symbol.File}:{symbol.Line})";
-    }
-
-    private static string GetSymbolParametersLineTextWithCSharp(ParameterResult[] parameters, int indent)
-    {
-        var builder = new StringBuilder();
-        builder.Append(new string(' ', indent * 2));
-        builder.Append("  (");
-
-        for (var i = 0; i < parameters.Length; i++)
-        {
-            if (i > 0)
-                builder.Append(", ");
-
-            var parameter = parameters[i];
-            builder.Append(parameter.Name);
-            builder.Append(": ");
-            builder.Append(parameter.Type);
-            if (parameter.HasDefault)
-            {
-                builder.Append(" = ");
-                builder.Append(parameter.DefaultValue);
-            }
-        }
-
-        builder.Append(')');
-        return builder.ToString();
-    }
-
-    private static string GetOutlineFileLineTextWithCSharp(string file)
-        => $"File: {file}";
-
-    private static string GetOutlineImportsLineTextWithCSharp(string[] imports)
-        => $"Imports: {string.Join(", ", imports)}";
-
-    private static string GetOutlineEntryLineTextWithCSharp(OutlineEntry entry, int indent)
-    {
-        var prefix = new string(' ', indent * 2);
-        var typeText = entry.ReturnType != null ? $" -> {entry.ReturnType}" : string.Empty;
-        var rangeText = entry.EndLine > entry.Line ? $" (lines {entry.Line}-{entry.EndLine})" : $" (line {entry.Line})";
-        return $"{prefix}{entry.Kind} {entry.Name}{typeText}{rangeText}";
-    }
-
-    private static string GetTypeLocationHeaderTextWithCSharp(string file, int line, int column)
-        => $"At {file}:{line}:{column}:";
-
-    private static string GetTypeResultLineTextWithCSharp(TypeResult result)
-        => $"  {result.Name}: {result.ResolvedType} ({result.Kind})";
-
-    private static string GetTypeNullabilityLineTextWithCSharp(string nullability)
-        => $"  Nullability: {nullability}";
-
-    private static string GetTypeDefinedAtLineTextWithCSharp(LocationResult definition)
-        => $"  Defined at: {definition.File}:{definition.Line}:{definition.Column}";
-
-    private static string GetCompletionsHeaderTextWithCSharp(string file, int line, int column, string contextText)
-        => $"Completions at {file}:{line}:{column} (context: {contextText})";
-
-    private static string GetCompletionReceiverLineTextWithCSharp(string receiver, string? receiverType)
-        => $"Receiver: {receiver}" + (receiverType != null ? $" ({receiverType})" : "");
-
-    private static string GetCompletionCategoryLineTextWithCSharp(string category, int count)
-        => $"  {category} ({count}):";
-
-    private static string GetCompletionItemLineTextWithCSharp(CompletionItem item)
-    {
-        var typeText = item.Type != null ? $": {item.Type}" : string.Empty;
-        var parameterText = item.Parameters != null ? $" {item.Parameters}" : string.Empty;
-        return $"    {item.Name}{parameterText}{typeText}";
-    }
-
-    private static string GetCompletionOverflowLineTextWithCSharp(int remaining)
-        => $"    ... and {remaining} more";
-
-    private static string GetInspectHeaderTextWithCSharp(string file, int line, int column)
-        => $"Inspect {file}:{line}:{column}";
-
-    private static string GetInspectSymbolLineTextWithCSharp(InspectSymbolResult symbol)
-        => $"Symbol: {symbol.Name} ({symbol.Kind})";
-
-    private static string GetInspectNoSymbolTextWithCSharp()
-        => "Symbol: none";
-
-    private static string GetInspectTypeLineTextWithCSharp(TypeResult type)
-        => $"Type: {type.ResolvedType} ({type.Kind})";
-
-    private static string GetInspectUnknownTypeTextWithCSharp()
-        => "Type: unknown";
-
-    private static string GetInspectDefinitionLineTextWithCSharp(DefinitionResult definition)
-        => $"Definition: {definition.Kind} {definition.Name} at {definition.File}:{definition.Line}:{definition.Column}";
-
-    private static string GetInspectNoDefinitionTextWithCSharp()
-        => "Definition: none";
-
-    private static string GetInspectReferencesHeaderTextWithCSharp(int count, int definitionCount)
-        => $"References: {count} total ({definitionCount} definitions)";
-
-    private static string GetInspectReferencesOverflowLineTextWithCSharp(int remaining)
-        => $"  ... and {remaining} more";
-
-    private static string GetHoverHeaderTextWithCSharp(string file, int line, int column)
-        => $"Hover {file}:{line}:{column}";
-
-    private static string GetHoverSignatureLineTextWithCSharp(string signature)
-        => $"Signature:  {signature}";
-
-    private static string GetHoverKindLineTextWithCSharp(string kind)
-        => $"Kind:       {kind}";
-
-    private static string GetHoverDefinedInLineTextWithCSharp(string definedIn)
-        => $"Defined in: {definedIn}";
-
-    private static string GetHoverDocumentationHeaderTextWithCSharp()
-        => "Documentation:";
-
-    private static string GetHoverDocumentationLineTextWithCSharp(string docLine)
-        => $"  {docLine}";
-
-    private static string GetCallGraphFunctionHeaderTextWithCSharp(string functionName)
-        => $"Call graph for: {functionName}";
-
-    private static string GetCallGraphFullHeaderTextWithCSharp()
-        => "Call graph (full project)";
-
-    private static string GetCallGraphSectionHeaderTextWithCSharp(string label, int count)
-        => $"{label} ({count}):";
-
-    private static string GetCallGraphEdgeLineTextWithCSharp(CallSiteResult callSite)
-        => $"  {callSite.Name}  ({callSite.File}:{callSite.Line})";
-
-    private static string GetCallGraphTruncatedLineTextWithCSharp()
-        => "(results truncated \u2014 use --limit to increase)";
-
-    private static string GetImplementorsHeaderTextWithCSharp(string interfaceName, int count)
-        => $"Implementors of {interfaceName} ({count}):";
-
-    private static string GetImplementorLineTextWithCSharp(ImplementorResult result)
-        => $"  {result.Kind} {result.TypeName}  ({result.File}:{result.Line})";
-
-    private static string GetDocHeaderTextWithCSharp(DocResult result)
-        => $"{result.Kind} {result.FullName}";
-
-    private static string GetDocNamespaceLineTextWithCSharp(string namespaceName)
-        => $"  Namespace: {namespaceName}";
-
-    private static string GetDocSummaryLineTextWithCSharp(string summary)
-        => $"  {summary}";
-
-    private static string GetDocImplementsLineTextWithCSharp(string[] baseTypes)
-        => $"  Implements: {string.Join(", ", baseTypes)}";
-
-    private static string GetDocParametersHeaderTextWithCSharp()
-        => "  Parameters:";
-
-    private static string GetDocParameterLineTextWithCSharp(DocParameterResult parameter)
-    {
-        var doc = parameter.Summary != null ? $" \u2014 {parameter.Summary}" : string.Empty;
-        return $"    {parameter.Name}: {parameter.Type}{doc}";
-    }
-
-    private static string GetDocReturnsLineTextWithCSharp(string returnType, string? returnDoc)
-    {
-        var doc = returnDoc != null ? $" \u2014 {returnDoc}" : string.Empty;
-        return $"  Returns: {returnType}{doc}";
-    }
-
-    private static string GetDocMembersHeaderTextWithCSharp(string kind)
-        => $"  {(kind.Contains("overload") ? "Overloads:" : "Members:")}";
-
-    private static string GetDocMemberLineTextWithCSharp(DocMemberResult member)
-    {
-        var typeStr = member.Type != null ? $": {member.Type}" : string.Empty;
-        var docStr = member.Summary != null ? $" \u2014 {member.Summary}" : string.Empty;
-        var paramStr = member.Parameters != null ? $" {member.Parameters}" : string.Empty;
-        return $"    {member.Kind} {member.Name}{paramStr}{typeStr}{docStr}";
-    }
-
-    private static string GetDocOverflowLineTextWithCSharp(int remaining)
-        => $"    ... and {remaining} more";
-
-    private static string GetNoReferencesTextWithCSharp(string symbolName)
-        => $"No references found for '{symbolName}'.";
-
-    private static string GetReferencesHeaderTextWithCSharp(string symbolName, int count)
-        => $"References to '{symbolName}' ({count} found):";
-
-    private static string GetReferenceLineTextWithCSharp(ReferenceResult reference)
-    {
-        var definitionMarker = reference.IsDefinition ? " [definition]" : string.Empty;
-        var contextText = reference.Context != null ? $"  {reference.Context.Trim()}" : string.Empty;
-        return $"  {reference.File}:{reference.Line}:{reference.Column}{definitionMarker}{contextText}";
-    }
-
-    private static string GetDefinitionLineTextWithCSharp(DefinitionResult definition)
-        => $"{definition.Kind} {definition.Name} at {definition.File}:{definition.Line}:{definition.Column}";
-
-    private static string GetNoDefinitionsTextWithCSharp(string name)
-        => $"No definitions found for '{name}'.";
-
-    private static string GetDefinitionsHeaderTextWithCSharp(string name)
-        => $"Definitions of '{name}':";
-
-    private static string GetDefinitionSearchResultLineTextWithCSharp(DefinitionResult definition)
-        => $"  {GetDefinitionLineTextWithCSharp(definition)}";
+    private static Bindings RequiredBindings
+        => s_bindings.Value ?? throw new InvalidOperationException("N# query text kernels are unavailable.");
 }
