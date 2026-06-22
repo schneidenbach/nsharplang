@@ -7128,6 +7128,10 @@ func outer(x: int): int {
         Assert.Contains("CliDaemonStoppedMessage", methodNames!); // product daemon stopped message shaping.
         Assert.Contains("CliDaemonStopFailedMessage", methodNames!); // product daemon stop-failed message shaping.
         Assert.Contains("CliDaemonStatusNotRespondingMessage", methodNames!); // product daemon status message shaping.
+        Assert.Contains("CliDaemonClientConnectionErrorMessage", methodNames!); // product daemon client connection-error message shaping.
+        Assert.Contains("CliDaemonClientExecutablePathMissingMessage", methodNames!); // product daemon executable-path message shaping.
+        Assert.Contains("CliDaemonClientStartTimeoutMessage", methodNames!); // product daemon client start-timeout message shaping.
+        Assert.Contains("CliDaemonClientStartFailedWithReasonMessage", methodNames!); // product daemon client start-failure detail shaping.
         Assert.Contains("CliWatchTargetSummaryInto", methodNames!); // product watch target parsing.
         Assert.Contains("CliWatchForwardedArgIndicesInto", methodNames!); // product watch forwarding.
         Assert.Contains("CliWatchShouldTriggerForChangedPath", methodNames!); // product watch change filtering.
@@ -12561,6 +12565,10 @@ func outer(x: int): int {
             ("CliDaemonFileChangedMessage", new object[] { "Program.nl" }),
             ("CliDaemonShutdownCompleteMessage", Array.Empty<object>()),
             ("CliDaemonMalformedRequestParamMessage", new object[] { "pos", "String", "invalid token" }),
+            ("CliDaemonClientConnectionErrorMessage", new object[] { "socket refused" }),
+            ("CliDaemonClientExecutablePathMissingMessage", Array.Empty<object>()),
+            ("CliDaemonClientStartTimeoutMessage", Array.Empty<object>()),
+            ("CliDaemonClientStartFailedWithReasonMessage", new object[] { "denied" }),
             ("CliDaemonPositionInto", new object[] { "bad:5", new int[2] }),
             ("CliDaemonPositionInto", new object[] { "5:bad", new int[2] }),
             ("CliDaemonPositionInto", new object[] { "12:34", new int[2] }),
@@ -16569,6 +16577,22 @@ class OtherZetaType {
                     "CliDaemonStatusNotRespondingMessage",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDaemonStatusNotRespondingMessage.");
+            var cliDaemonClientConnectionErrorMessage = programType.GetMethod(
+                    "CliDaemonClientConnectionErrorMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDaemonClientConnectionErrorMessage.");
+            var cliDaemonClientExecutablePathMissingMessage = programType.GetMethod(
+                    "CliDaemonClientExecutablePathMissingMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDaemonClientExecutablePathMissingMessage.");
+            var cliDaemonClientStartTimeoutMessage = programType.GetMethod(
+                    "CliDaemonClientStartTimeoutMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDaemonClientStartTimeoutMessage.");
+            var cliDaemonClientStartFailedWithReasonMessage = programType.GetMethod(
+                    "CliDaemonClientStartFailedWithReasonMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDaemonClientStartFailedWithReasonMessage.");
             var cliWatchForwardedArgIndicesInto = programType.GetMethod(
                     "CliWatchForwardedArgIndicesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -18538,7 +18562,11 @@ func main(customer: Customer, résumé: Profile) {
                 cliDaemonNoDaemonRunningMessage,
                 cliDaemonStoppedMessage,
                 cliDaemonStopFailedMessage,
-                cliDaemonStatusNotRespondingMessage);
+                cliDaemonStatusNotRespondingMessage,
+                cliDaemonClientConnectionErrorMessage,
+                cliDaemonClientExecutablePathMissingMessage,
+                cliDaemonClientStartTimeoutMessage,
+                cliDaemonClientStartFailedWithReasonMessage);
             AssertCliWatchForwardedArgsLikeProduction(
                 cliWatchForwardedArgIndicesInto,
                 cliWatchForwardedArgChecksumInto);
@@ -23311,7 +23339,11 @@ func main() {
         MethodInfo cliDaemonNoDaemonRunningMessage,
         MethodInfo cliDaemonStoppedMessage,
         MethodInfo cliDaemonStopFailedMessage,
-        MethodInfo cliDaemonStatusNotRespondingMessage)
+        MethodInfo cliDaemonStatusNotRespondingMessage,
+        MethodInfo cliDaemonClientConnectionErrorMessage,
+        MethodInfo cliDaemonClientExecutablePathMissingMessage,
+        MethodInfo cliDaemonClientStartTimeoutMessage,
+        MethodInfo cliDaemonClientStartFailedWithReasonMessage)
     {
         var help = (string)(cliDaemonHelpText.Invoke(null, Array.Empty<object>()) ?? "<null>");
         Assert.Contains("N# Analysis Daemon", help);
@@ -23341,6 +23373,18 @@ func main() {
         Assert.Equal(
             "Daemon is running but not responding to status queries.",
             (string)(cliDaemonStatusNotRespondingMessage.Invoke(null, Array.Empty<object>()) ?? "<null>"));
+        Assert.Equal(
+            "[daemon] Connection error: socket refused",
+            (string)(cliDaemonClientConnectionErrorMessage.Invoke(null, new object[] { "socket refused" }) ?? "<null>"));
+        Assert.Equal(
+            "Cannot determine executable path for daemon",
+            (string)(cliDaemonClientExecutablePathMissingMessage.Invoke(null, Array.Empty<object>()) ?? "<null>"));
+        Assert.Equal(
+            "Daemon started but not responding within 5 seconds",
+            (string)(cliDaemonClientStartTimeoutMessage.Invoke(null, Array.Empty<object>()) ?? "<null>"));
+        Assert.Equal(
+            "Failed to start daemon: denied",
+            (string)(cliDaemonClientStartFailedWithReasonMessage.Invoke(null, new object[] { "denied" }) ?? "<null>"));
     }
 
     private static int[] CreateExpectedCliDaemonOptions(string[] args)

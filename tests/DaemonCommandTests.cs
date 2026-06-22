@@ -158,6 +158,23 @@ public class DaemonCommandTests
         Assert.True(DaemonConstants.PingTimeoutMs > 0);
     }
 
+    [Fact]
+    public void DaemonClientKernels_ShapesClientMessages()
+    {
+        Assert.Equal(
+            "[daemon] Connection error: socket refused",
+            DaemonClientKernels.GetConnectionErrorMessage("socket refused"));
+        Assert.Equal(
+            "Cannot determine executable path for daemon",
+            DaemonClientKernels.GetExecutablePathMissingMessage());
+        Assert.Equal(
+            "Daemon started but not responding within 5 seconds",
+            DaemonClientKernels.GetStartTimeoutMessage());
+        Assert.Equal(
+            "Failed to start daemon: denied",
+            DaemonClientKernels.GetStartFailedWithReasonMessage("denied"));
+    }
+
     // ── DaemonClient — no socket ───────────────────────────────────────
 
     [Fact]

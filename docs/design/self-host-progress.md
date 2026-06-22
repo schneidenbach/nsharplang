@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-22 — Daemon client errors move into product N#
+
+`DaemonClient` no longer owns connection/startup error text such as connection failures, missing executable paths,
+startup timeout, and start-failure details in C#. The shipped `CliDaemonClient*` dogfood kernels now shape those
+messages through `DaemonClientKernels`; C# keeps socket probing, process startup, stale-socket cleanup, and
+JSON-RPC transport only. This is a Stage 6 `C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~DaemonCommandTests.DaemonClientKernels_ShapesClientMessages|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`;
+`./scripts/dev.sh DaemonClientKernels`.
+
 ## 2026-06-22 — Daemon server lifecycle traces move into product N#
 
 `DaemonServer` no longer owns stderr lifecycle trace text such as listening/project/idle-timeout, project-load,

@@ -529,6 +529,22 @@ func CliDaemonStatusNotRespondingMessage(): string {
     return "Daemon is running but not responding to status queries."
 }
 
+func CliDaemonClientConnectionErrorMessage(messageText: string): string {
+    return "[daemon] Connection error: " + messageText
+}
+
+func CliDaemonClientExecutablePathMissingMessage(): string {
+    return "Cannot determine executable path for daemon"
+}
+
+func CliDaemonClientStartTimeoutMessage(): string {
+    return "Daemon started but not responding within 5 seconds"
+}
+
+func CliDaemonClientStartFailedWithReasonMessage(messageText: string): string {
+    return "Failed to start daemon: " + messageText
+}
+
 func CliCompletionOptionSummaryCore(args: &CliArgumentTable, resultIndices: &CliIndexResultTable): int {
     if resultIndices.Indices.Length < 2 {
         return -1

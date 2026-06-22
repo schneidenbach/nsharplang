@@ -91,7 +91,7 @@ public static class DaemonClient
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"[daemon] Connection error: {ex.Message}");
+            Console.Error.WriteLine(DaemonClientKernels.GetConnectionErrorMessage(ex.Message));
             return null;
         }
     }
@@ -149,7 +149,7 @@ public static class DaemonClient
         var exePath = Process.GetCurrentProcess().MainModule?.FileName;
         if (exePath == null)
         {
-            Console.Error.WriteLine("Cannot determine executable path for daemon");
+            Console.Error.WriteLine(DaemonClientKernels.GetExecutablePathMissingMessage());
             return false;
         }
 
@@ -191,12 +191,12 @@ public static class DaemonClient
                     return true;
             }
 
-            Console.Error.WriteLine("Daemon started but not responding within 5 seconds");
+            Console.Error.WriteLine(DaemonClientKernels.GetStartTimeoutMessage());
             return false;
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"Failed to start daemon: {ex.Message}");
+            Console.Error.WriteLine(DaemonClientKernels.GetStartFailedWithReasonMessage(ex.Message));
             return false;
         }
     }

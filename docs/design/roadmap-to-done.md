@@ -356,7 +356,7 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       status/error/verbose message shaping, and `nlc test --filter` matching now live beside
       `Program.TestCommand` in `TestCommandKernels`; watch target routing, option summary, numeric option parsing,
       forwarded-argument selection, changed-file trigger filtering, command-name selection, and help/validation/runtime notices now live beside `WatchCommand` in `WatchCommandKernels`; daemon option/subcommand summary plus help/lifecycle/status messages now live beside
-      `DaemonCommand` in `DaemonCommandKernels`; shared positional-argument collection now lives beside `Program` in
+      `DaemonCommand` in `DaemonCommandKernels`, and daemon client startup/connection error messages now live beside `DaemonClient` in `DaemonClientKernels`; shared positional-argument collection now lives beside `Program` in
       `PositionalArgumentKernels`; fix-applicator text-edit ordering now lives beside `FixApplicator` in
       `FixApplicatorTextEditOrderer`; output-format diagnostic severity summary/filtering now lives
       beside `OutputFormatter` in `OutputFormatterDiagnosticKernels`; output-format diagnostic-cluster
