@@ -4078,6 +4078,41 @@ Exit codes:
         Assert.Equal("Pack failed: zip exploded", PackCommandKernels.GetFailedJsonMessage("zip exploded"));
         Assert.Equal("Pack failed: zip exploded", PackCommandKernels.GetFailedTextMessage("zip exploded"));
 
+        var nuspec = PackCommandKernels.GetNuspecText(
+            "Demo&Lib",
+            "1.2.3",
+            "A&B",
+            "D<C>",
+            "alpha beta",
+            2,
+            "MIT",
+            "https://example.invalid/repo?a=1&b=2",
+            "icon&<.png");
+        Assert.Contains("<id>Demo&amp;Lib</id>", nuspec);
+        Assert.Contains("<authors>A&amp;B</authors>", nuspec);
+        Assert.Contains("<description>D&lt;C&gt;</description>", nuspec);
+        Assert.Contains("<tags>alpha beta</tags>", nuspec);
+        Assert.Contains("<repository type=\"git\" url=\"https://example.invalid/repo?a=1&amp;b=2\" />", nuspec);
+        Assert.Contains("<icon>icon&amp;&lt;.png</icon>", nuspec);
+
+        var defaultedNuspec = PackCommandKernels.GetNuspecText(
+            "Demo",
+            "1.2.3",
+            "",
+            "",
+            "",
+            0,
+            "",
+            "",
+            "");
+        Assert.Contains("<authors>NSharp</authors>", defaultedNuspec);
+        Assert.Contains("<description>Demo N# package</description>", defaultedNuspec);
+        Assert.DoesNotContain("<tags>", defaultedNuspec, StringComparison.Ordinal);
+
+        var symbolsNuspec = PackCommandKernels.GetSymbolsNuspecText("Demo&Lib", "1.2.3");
+        Assert.Contains("<id>Demo&amp;Lib</id>", symbolsNuspec);
+        Assert.Contains("<description>Symbols for Demo&amp;Lib.</description>", symbolsNuspec);
+
         var (helpExitCode, helpStdout, helpStderr) = CaptureConsole(() => PackCommand.Execute(new[] { "--help" }));
         Assert.Equal(0, helpExitCode);
         Assert.Contains("Usage: nlc pack [options]", helpStdout);

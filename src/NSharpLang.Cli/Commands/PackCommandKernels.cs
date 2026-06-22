@@ -1,4 +1,5 @@
 using System;
+using System.Text;
 
 namespace NSharpLang.Cli.Commands;
 
@@ -240,6 +241,53 @@ internal static class PackCommandKernels
         return GetFailedTextMessageWithCSharp(message);
     }
 
+    internal static string GetNuspecText(
+        string projectName,
+        string version,
+        string packageAuthor,
+        string packageDescription,
+        string packageTags,
+        int packageTagsCount,
+        string packageLicense,
+        string packageRepository,
+        string packageIcon)
+    {
+        if (TryGetMessage(
+            bindings => bindings.PackNuspecText(
+                projectName,
+                version,
+                packageAuthor,
+                packageDescription,
+                packageTags,
+                packageTagsCount,
+                packageLicense,
+                packageRepository,
+                packageIcon),
+            out var text))
+        {
+            return text;
+        }
+
+        return GetNuspecTextWithCSharp(
+            projectName,
+            version,
+            packageAuthor,
+            packageDescription,
+            packageTags,
+            packageTagsCount,
+            packageLicense,
+            packageRepository,
+            packageIcon);
+    }
+
+    internal static string GetSymbolsNuspecText(string projectName, string version)
+    {
+        if (TryGetMessage(bindings => bindings.PackSymbolsNuspecText(projectName, version), out var text))
+            return text;
+
+        return GetSymbolsNuspecTextWithCSharp(projectName, version);
+    }
+
     private static bool TryGetMessage(Func<Bindings, string> getMessage, out string message)
     {
         message = string.Empty;
@@ -344,6 +392,62 @@ internal static class PackCommandKernels
     private static string GetFailedTextMessageWithCSharp(string message)
         => $"Pack failed: {message}";
 
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product pack nuspec XML routes through CliPack* kernels.
+    private static string GetNuspecTextWithCSharp(
+        string projectName,
+        string version,
+        string packageAuthor,
+        string packageDescription,
+        string packageTags,
+        int packageTagsCount,
+        string packageLicense,
+        string packageRepository,
+        string packageIcon)
+    {
+        var authors = string.IsNullOrWhiteSpace(packageAuthor) ? "NSharp" : packageAuthor;
+        var description = string.IsNullOrWhiteSpace(packageDescription)
+            ? $"{projectName} N# package"
+            : packageDescription;
+
+        var sb = new StringBuilder();
+        sb.AppendLine("""<?xml version="1.0" encoding="utf-8"?>""");
+        sb.AppendLine("""<package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">""");
+        sb.AppendLine("  <metadata>");
+        sb.AppendLine($"    <id>{EscapeXml(projectName)}</id>");
+        sb.AppendLine($"    <version>{EscapeXml(version)}</version>");
+        sb.AppendLine($"    <authors>{EscapeXml(authors)}</authors>");
+        sb.AppendLine($"    <description>{EscapeXml(description)}</description>");
+        if (packageTagsCount > 0)
+            sb.AppendLine($"    <tags>{EscapeXml(packageTags)}</tags>");
+        if (!string.IsNullOrWhiteSpace(packageLicense))
+            sb.AppendLine($"    <license type=\"expression\">{EscapeXml(packageLicense)}</license>");
+        if (!string.IsNullOrWhiteSpace(packageRepository))
+            sb.AppendLine($"    <repository type=\"git\" url=\"{EscapeXml(packageRepository)}\" />");
+        if (!string.IsNullOrWhiteSpace(packageIcon))
+            sb.AppendLine($"    <icon>{EscapeXml(packageIcon)}</icon>");
+        sb.AppendLine("  </metadata>");
+        sb.AppendLine("</package>");
+        return sb.ToString();
+    }
+
+    private static string GetSymbolsNuspecTextWithCSharp(string projectName, string version)
+        => "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+           + "<package xmlns=\"http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd\">\n"
+           + "  <metadata>\n"
+           + $"    <id>{EscapeXml(projectName)}</id>\n"
+           + $"    <version>{EscapeXml(version)}</version>\n"
+           + "    <authors>NSharp</authors>\n"
+           + $"    <description>Symbols for {EscapeXml(projectName)}.</description>\n"
+           + "  </metadata>\n"
+           + "</package>\n";
+
+    private static string EscapeXml(string value)
+        => value
+            .Replace("&", "&amp;", StringComparison.Ordinal)
+            .Replace("\"", "&quot;", StringComparison.Ordinal)
+            .Replace("<", "&lt;", StringComparison.Ordinal)
+            .Replace(">", "&gt;", StringComparison.Ordinal);
+
     private static bool TryGetOptionalArg(string[] args, int index, out string? value)
     {
         value = null;
@@ -409,7 +513,13 @@ internal static class PackCommandKernels
                 "CliPackFailedJsonMessage"),
             DogfoodKernelLoader.CreateDelegate<CliPackFailedTextMessage>(
                 programType,
-                "CliPackFailedTextMessage")));
+                "CliPackFailedTextMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliPackNuspecText>(
+                programType,
+                "CliPackNuspecText"),
+            DogfoodKernelLoader.CreateDelegate<CliPackSymbolsNuspecText>(
+                programType,
+                "CliPackSymbolsNuspecText")));
 
     private delegate int CliPackOptionSummaryInto(string[] args, int[] resultIndices);
 
@@ -434,6 +544,17 @@ internal static class PackCommandKernels
     private delegate string CliPackPackagePathLine(string packagePath);
     private delegate string CliPackFailedJsonMessage(string message);
     private delegate string CliPackFailedTextMessage(string message);
+    private delegate string CliPackNuspecText(
+        string projectName,
+        string version,
+        string packageAuthor,
+        string packageDescription,
+        string packageTags,
+        int packageTagsCount,
+        string packageLicense,
+        string packageRepository,
+        string packageIcon);
+    private delegate string CliPackSymbolsNuspecText(string projectName, string version);
 
     private sealed record Bindings(
         CliPackOptionSummaryInto PackOptionSummary,
@@ -452,5 +573,7 @@ internal static class PackCommandKernels
         CliPackSuccessMessage PackSuccessMessage,
         CliPackPackagePathLine PackPackagePathLine,
         CliPackFailedJsonMessage PackFailedJsonMessage,
-        CliPackFailedTextMessage PackFailedTextMessage);
+        CliPackFailedTextMessage PackFailedTextMessage,
+        CliPackNuspecText PackNuspecText,
+        CliPackSymbolsNuspecText PackSymbolsNuspecText);
 }

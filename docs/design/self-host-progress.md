@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-22 — `nlc pack` nuspec XML moves into product N#
+
+`nlc pack` no longer owns generated `.nuspec` XML text in `PackCommand`. The shipped `CliArguments.nl`
+dogfood kernel now shapes package and symbols nuspec files through `PackCommandKernels`, including metadata
+defaults and XML escaping. C# keeps build invocation, NuGet archive creation, runtimeconfig/PDB/icon file
+copying, JSON writing, project parsing, and fallback/oracle text only. This is a Stage 6
+`C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.PackCommandKernels_SummarizesOptions|FullyQualifiedName~CliCommandTests.PackCommandKernels_SelectsEffectiveVersionSource|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_EligibleClusterCompiles"`;
+`./scripts/dev.sh CliArguments`.
+
 ## 2026-06-22 — `nlc export csharp` project files move into product N#
 
 `nlc export csharp` no longer owns generated C# `.csproj` XML text in `ExportCommand`. The shipped

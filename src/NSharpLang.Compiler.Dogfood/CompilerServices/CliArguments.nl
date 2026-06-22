@@ -4490,6 +4490,92 @@ func CliPackFailedTextMessage(message: string): string {
     return "Pack failed: " + message
 }
 
+func CliPackNuspecText(
+    projectName: string,
+    version: string,
+    packageAuthor: string,
+    packageDescription: string,
+    packageTags: string,
+    packageTagsCount: int,
+    packageLicense: string,
+    packageRepository: string,
+    packageIcon: string): string {
+    authors := "NSharp"
+    if CliPackHasText(packageAuthor) {
+        authors = packageAuthor
+    }
+
+    description := projectName + " N# package"
+    if CliPackHasText(packageDescription) {
+        description = packageDescription
+    }
+
+    text := "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+        + "<package xmlns=\"http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd\">\n"
+        + "  <metadata>\n"
+        + "    <id>" + CliPackXmlEscape(projectName) + "</id>\n"
+        + "    <version>" + CliPackXmlEscape(version) + "</version>\n"
+        + "    <authors>" + CliPackXmlEscape(authors) + "</authors>\n"
+        + "    <description>" + CliPackXmlEscape(description) + "</description>\n"
+
+    if packageTagsCount > 0 {
+        text = text + "    <tags>" + CliPackXmlEscape(packageTags) + "</tags>\n"
+    }
+
+    if CliPackHasText(packageLicense) {
+        text = text + "    <license type=\"expression\">" + CliPackXmlEscape(packageLicense) + "</license>\n"
+    }
+
+    if CliPackHasText(packageRepository) {
+        text = text + "    <repository type=\"git\" url=\"" + CliPackXmlEscape(packageRepository) + "\" />\n"
+    }
+
+    if CliPackHasText(packageIcon) {
+        text = text + "    <icon>" + CliPackXmlEscape(packageIcon) + "</icon>\n"
+    }
+
+    return text + "  </metadata>\n</package>\n"
+}
+
+func CliPackSymbolsNuspecText(projectName: string, version: string): string {
+    return "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+        + "<package xmlns=\"http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd\">\n"
+        + "  <metadata>\n"
+        + "    <id>" + CliPackXmlEscape(projectName) + "</id>\n"
+        + "    <version>" + CliPackXmlEscape(version) + "</version>\n"
+        + "    <authors>NSharp</authors>\n"
+        + "    <description>Symbols for " + CliPackXmlEscape(projectName) + ".</description>\n"
+        + "  </metadata>\n"
+        + "</package>\n"
+}
+
+func CliPackXmlEscape(value: string): string {
+    result := ""
+    index := 0
+    while index < value.Length {
+        ch := value[index]
+        if ch == '&' {
+            result = result + "&amp;"
+        } else if ch == '"' {
+            result = result + "&quot;"
+        } else if ch == '<' {
+            result = result + "&lt;"
+        } else if ch == '>' {
+            result = result + "&gt;"
+        } else {
+            result = result + value.Substring(index, 1)
+        }
+
+        index = index + 1
+    }
+
+    return result
+}
+
+func CliPackHasText(value: string): bool {
+    return value.Trim().Length > 0
+}
+
 func CliLintOptionSummaryInto(args: string[], resultIndices: int[]): int {
     arguments := new CliArgumentTable { Args: args }
     results := new CliIndexResultTable { Indices: resultIndices }

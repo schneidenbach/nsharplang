@@ -188,17 +188,7 @@ public static class PackCommand
         }
 
         using var archive = ZipFile.Open(symbolsPath, ZipArchiveMode.Create);
-        AddTextEntry(archive, $"{projectName}.nuspec", $$"""
-<?xml version="1.0" encoding="utf-8"?>
-<package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
-  <metadata>
-    <id>{{EscapeXml(projectName)}}</id>
-    <version>{{EscapeXml(version)}}</version>
-    <authors>NSharp</authors>
-    <description>Symbols for {{EscapeXml(projectName)}}.</description>
-  </metadata>
-</package>
-""");
+        AddTextEntry(archive, $"{projectName}.nuspec", PackCommandKernels.GetSymbolsNuspecText(projectName, version));
 
         var pdbPath = Path.ChangeExtension(assemblyPath, ".pdb");
         if (File.Exists(pdbPath))
@@ -210,30 +200,17 @@ public static class PackCommand
     static string GenerateNuspec(ProjectConfig config, string projectName, string version)
     {
         var pkg = config.Package;
-        var authors = string.IsNullOrWhiteSpace(pkg?.Author) ? "NSharp" : pkg!.Author;
-        var description = string.IsNullOrWhiteSpace(pkg?.Description)
-            ? $"{projectName} N# package"
-            : pkg!.Description;
-
-        var sb = new StringBuilder();
-        sb.AppendLine("""<?xml version="1.0" encoding="utf-8"?>""");
-        sb.AppendLine("""<package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">""");
-        sb.AppendLine("  <metadata>");
-        sb.AppendLine($"    <id>{EscapeXml(projectName)}</id>");
-        sb.AppendLine($"    <version>{EscapeXml(version)}</version>");
-        sb.AppendLine($"    <authors>{EscapeXml(authors!)}</authors>");
-        sb.AppendLine($"    <description>{EscapeXml(description!)}</description>");
-        if (pkg?.Tags is { Count: > 0 })
-            sb.AppendLine($"    <tags>{EscapeXml(string.Join(" ", pkg.Tags))}</tags>");
-        if (!string.IsNullOrWhiteSpace(pkg?.License))
-            sb.AppendLine($"    <license type=\"expression\">{EscapeXml(pkg.License!)}</license>");
-        if (!string.IsNullOrWhiteSpace(pkg?.Repository))
-            sb.AppendLine($"    <repository type=\"git\" url=\"{EscapeXml(pkg.Repository!)}\" />");
-        if (!string.IsNullOrWhiteSpace(pkg?.Icon))
-            sb.AppendLine($"    <icon>{EscapeXml(pkg.Icon!)}</icon>");
-        sb.AppendLine("  </metadata>");
-        sb.AppendLine("</package>");
-        return sb.ToString();
+        var packageTags = pkg?.Tags is { Count: > 0 } tags ? string.Join(" ", tags) : string.Empty;
+        return PackCommandKernels.GetNuspecText(
+            projectName,
+            version,
+            pkg?.Author ?? string.Empty,
+            pkg?.Description ?? string.Empty,
+            packageTags,
+            pkg?.Tags?.Count ?? 0,
+            pkg?.License ?? string.Empty,
+            pkg?.Repository ?? string.Empty,
+            pkg?.Icon ?? string.Empty);
     }
 
     static void AddTextEntry(ZipArchive archive, string entryName, string contents)
@@ -242,13 +219,6 @@ public static class PackCommand
         using var writer = new StreamWriter(entry.Open(), Encoding.UTF8);
         writer.Write(contents);
     }
-
-    static string EscapeXml(string value)
-        => value
-            .Replace("&", "&amp;", StringComparison.Ordinal)
-            .Replace("\"", "&quot;", StringComparison.Ordinal)
-            .Replace("<", "&lt;", StringComparison.Ordinal)
-            .Replace(">", "&gt;", StringComparison.Ordinal);
 
     internal static PackOptionSummary GetOptionSummary(string[] args)
         => PackCommandKernels.TryGetOptionSummary(args, out var summary)

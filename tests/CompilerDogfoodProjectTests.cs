@@ -7122,6 +7122,9 @@ func outer(x: int): int {
         Assert.Contains("CliPackPackagePathLine", methodNames!); // product pack package-path text rendering.
         Assert.Contains("CliPackFailedJsonMessage", methodNames!); // product pack failure JSON message shaping.
         Assert.Contains("CliPackFailedTextMessage", methodNames!); // product pack failure text message shaping.
+        Assert.Contains("CliPackNuspecText", methodNames!); // product pack nuspec content shaping.
+        Assert.Contains("CliPackSymbolsNuspecText", methodNames!); // product pack symbols nuspec content shaping.
+        Assert.Contains("CliPackXmlEscape", methodNames!); // product pack nuspec XML escaping.
         Assert.Contains("CliCompletionOptionSummaryInto", methodNames!); // product completion option parsing.
         Assert.Contains("CliCompletionHelpText", methodNames!); // product completion help text shaping.
         Assert.Contains("CliCompletionUnknownShellMessage", methodNames!); // product completion error message shaping.
@@ -7500,6 +7503,12 @@ func outer(x: int): int {
             ("CliWatchPositiveIntInto", new object[] { "2147483648", new int[1] }),
             ("CliWatchPositiveIntInto", new object[] { "7", new int[0] }),
             ("CliWatchForwardedArgChecksumInto", new object[] { new[] { "test", "--project", "demo", "--filter", "Adds", "--debounce-ms", "25", "--json", "--max-runs", "2", "--coverage" }, new int[11] }),
+            ("CliPackNuspecText", new object[] { "Demo&Lib", "1.2.3", "A&B", "D<C>", "alpha beta", 2, "MIT", "https://example.invalid/repo?a=1&b=2", "icon&<.png" }),
+            ("CliPackNuspecText", new object[] { "Demo", "1.2.3", "", "", "", 0, "", "", "" }),
+            ("CliPackSymbolsNuspecText", new object[] { "Demo&Lib", "1.2.3" }),
+            ("CliPackXmlEscape", new object[] { "a&b<c>d\"e" }),
+            ("CliPackHasText", new object[] { "  value  " }),
+            ("CliPackHasText", new object[] { "   " }),
             ("CliNewTemplateKind", new object[] { " LIB " }),
             ("CliNewTemplateKind", new object[] { "web-api" }),
             ("CliNewTemplateKind", new object[] { "systems" }),
@@ -13097,8 +13106,8 @@ func outer(x: int): int {
         Assert.True(ok, $"Columnar backend declined the merged {productFiles.Length}-file product corpus.");
         using var loadScope = CollectibleAssemblyScope.Load(assembly!); // the merged IL is a valid, loadable assembly.
         Assert.NotNull(loadScope.Assembly);
-        Assert.True(methodNames!.Length >= 450,
-            $"Product dogfood corpus method coverage regressed: expected at least 450 emitted methods, found {methodNames.Length}.");
+        Assert.True(methodNames!.Length >= 454,
+            $"Product dogfood corpus method coverage regressed: expected at least 454 emitted methods, found {methodNames.Length}.");
         // Files eligible ONLY via cross-file resolution must contribute their public functions —
         // i.e. the merge actually emitted them (single-file each declines; see ColumnarCodegen_MultiFile_*).
         Assert.Contains("TokenizeColumnarSourceInto", methodNames!); // composed lexer metadata + parser-token compaction routing
@@ -17118,6 +17127,18 @@ class OtherZetaType {
                     "CliPackFailedTextMessage",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliPackFailedTextMessage.");
+            var cliPackNuspecText = programType.GetMethod(
+                    "CliPackNuspecText",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliPackNuspecText.");
+            var cliPackSymbolsNuspecText = programType.GetMethod(
+                    "CliPackSymbolsNuspecText",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliPackSymbolsNuspecText.");
+            var cliPackXmlEscape = programType.GetMethod(
+                    "CliPackXmlEscape",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliPackXmlEscape.");
             var cliFirstPositionalArgIndex = programType.GetMethod(
                     "CliFirstPositionalArgIndex",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -18989,7 +19010,10 @@ func main(customer: Customer, résumé: Profile) {
                 cliPackSuccessMessage,
                 cliPackPackagePathLine,
                 cliPackFailedJsonMessage,
-                cliPackFailedTextMessage);
+                cliPackFailedTextMessage,
+                cliPackNuspecText,
+                cliPackSymbolsNuspecText,
+                cliPackXmlEscape);
             AssertCliPositionalArgsLikeProduction(
                 cliPositionalArgIndicesInto,
                 cliFirstPositionalArgIndex,
@@ -24530,7 +24554,10 @@ func main() {
         MethodInfo cliPackSuccessMessage,
         MethodInfo cliPackPackagePathLine,
         MethodInfo cliPackFailedJsonMessage,
-        MethodInfo cliPackFailedTextMessage)
+        MethodInfo cliPackFailedTextMessage,
+        MethodInfo cliPackNuspecText,
+        MethodInfo cliPackSymbolsNuspecText,
+        MethodInfo cliPackXmlEscape)
     {
         var help = (string)(cliPackHelpText.Invoke(null, Array.Empty<object>()) ?? string.Empty);
         Assert.Contains("N# Pack", help);
@@ -24582,6 +24609,43 @@ func main() {
         Assert.Equal(
             "Pack failed: zip exploded",
             (string)(cliPackFailedTextMessage.Invoke(null, new object[] { "zip exploded" }) ?? string.Empty));
+
+        var nuspec = (string)(cliPackNuspecText.Invoke(
+            null,
+            new object[]
+            {
+                "Demo&Lib",
+                "1.2.3",
+                "A&B",
+                "D<C>",
+                "alpha beta",
+                2,
+                "MIT",
+                "https://example.invalid/repo?a=1&b=2",
+                "icon&<.png"
+            }) ?? string.Empty);
+        Assert.Contains("<id>Demo&amp;Lib</id>", nuspec);
+        Assert.Contains("<authors>A&amp;B</authors>", nuspec);
+        Assert.Contains("<description>D&lt;C&gt;</description>", nuspec);
+        Assert.Contains("<repository type=\"git\" url=\"https://example.invalid/repo?a=1&amp;b=2\" />", nuspec);
+        Assert.Contains("<icon>icon&amp;&lt;.png</icon>", nuspec);
+
+        var defaultedNuspec = (string)(cliPackNuspecText.Invoke(
+            null,
+            new object[] { "Demo", "1.2.3", "", "", "", 0, "", "", "" }) ?? string.Empty);
+        Assert.Contains("<authors>NSharp</authors>", defaultedNuspec);
+        Assert.Contains("<description>Demo N# package</description>", defaultedNuspec);
+        Assert.DoesNotContain("<tags>", defaultedNuspec, StringComparison.Ordinal);
+
+        var symbolsNuspec = (string)(cliPackSymbolsNuspecText.Invoke(
+            null,
+            new object[] { "Demo&Lib", "1.2.3" }) ?? string.Empty);
+        Assert.Contains("<id>Demo&amp;Lib</id>", symbolsNuspec);
+        Assert.Contains("<description>Symbols for Demo&amp;Lib.</description>", symbolsNuspec);
+
+        Assert.Equal(
+            "a&amp;b&lt;c&gt;d&quot;e",
+            (string)(cliPackXmlEscape.Invoke(null, new object[] { "a&b<c>d\"e" }) ?? string.Empty));
     }
 
     private static int[] CreateExpectedCliPackOptions(string[] args)
