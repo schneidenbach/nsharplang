@@ -340,7 +340,8 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       option summary, validation/unsupported/failure/status message shaping, and help routing now live beside `Program.PublishCommand` in
       `PublishCommandKernels`; shared build/run/check/test/publish backend selection now lives beside the CLI backend
       call sites in `CompilationBackendSelectionKernels`; pack option summary, output-mode selection, package-version source selection,
-      help/error/status messages, and text package-path rendering now live beside `PackCommand` in `PackCommandKernels`; build option/help and operand summaries now live beside `Program.BuildCommand`
+      help/error/status messages, and text package-path rendering now live beside `PackCommand` in `PackCommandKernels`; build option/operand summaries, help text, file/missing-project errors,
+      project/single-file start text, success/output text, and failed-elapsed text now live beside `Program.BuildCommand`
       in `BuildCommandKernels`; build/run define extraction now lives beside `Program` in
       `DefineArgumentKernels`; top-level command routing now lives beside `Program` in
       `ProgramCommandKernels`; test option/help, output-mode selection, timeout parsing, outcome summaries, and

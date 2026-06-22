@@ -3079,6 +3079,39 @@ func Main() {
             out var helpAsMissingValue));
         Assert.Equal("--help", helpAsMissingValue.OutputDir);
         Assert.True(helpAsMissingValue.ShowHelp);
+
+        var helpText = BuildCommandKernels.GetHelpText();
+        Assert.Contains("N# Build", helpText);
+        Assert.Contains("Usage: nlc build [file.nl] [options]", helpText);
+        Assert.Contains("Build failed", helpText);
+        Assert.Equal("File not found: Missing.nl", BuildCommandKernels.GetFileNotFoundMessage("Missing.nl"));
+        Assert.Equal("Build failed: backend exploded", BuildCommandKernels.GetFailedMessage("backend exploded"));
+        Assert.Equal(
+            "Building project in /tmp/demo with the IL backend...",
+            BuildCommandKernels.GetProjectStartMessage("/tmp/demo"));
+        Assert.Equal(
+            "Building Program.nl with the IL backend...",
+            BuildCommandKernels.GetSingleFileStartMessage("Program.nl"));
+        Assert.Equal(
+            "No project.yml found in current directory. Run 'nlc new <name>' to create a project, or use 'nlc build <file.nl>' for a single file.",
+            BuildCommandKernels.GetMissingProjectFileMessage());
+        Assert.Equal("  Build failed in 12 ms", BuildCommandKernels.GetFailedElapsedMessage("12 ms"));
+        Assert.Equal("Build successful! (il, debug) [12 ms]", BuildCommandKernels.GetSuccessElapsedMessage(release: false, "12 ms"));
+        Assert.Equal("Build successful! (il, release) [12 ms]", BuildCommandKernels.GetSuccessElapsedMessage(release: true, "12 ms"));
+        Assert.Equal("Build successful! (il, debug)", BuildCommandKernels.GetSuccessMessage(release: false));
+        Assert.Equal("Build successful! (il, release)", BuildCommandKernels.GetSuccessMessage(release: true));
+        Assert.Equal("Output: /tmp/demo/bin/App.dll", BuildCommandKernels.GetOutputPathMessage("/tmp/demo/bin/App.dll"));
+
+        var (helpExitCode, helpStdout, helpStderr) = CaptureConsole(() => ExecuteProgram("build", "--help"));
+        Assert.Equal(0, helpExitCode);
+        Assert.Contains("Usage: nlc build [file.nl] [options]", helpStdout);
+        Assert.True(string.IsNullOrWhiteSpace(helpStderr));
+
+        var missingPath = Path.Combine(Path.GetTempPath(), $"missing-{Guid.NewGuid():N}.nl");
+        var (missingExitCode, missingStdout, missingStderr) = CaptureConsole(() => ExecuteProgram("build", missingPath));
+        Assert.Equal(1, missingExitCode);
+        Assert.True(string.IsNullOrWhiteSpace(missingStdout));
+        Assert.Contains($"File not found: {missingPath}", missingStderr);
     }
 
     [Fact]

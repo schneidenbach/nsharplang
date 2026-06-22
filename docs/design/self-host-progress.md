@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-20 — Build command messages move into product N#
+
+`Program.BuildCommand` and the IL build backend no longer own the build help text, missing source-file
+diagnostic, failure wrapper text, project/single-file start text, missing-project guidance, success/output lines,
+or project build-failed elapsed text in C#. The shipped `CliBuild*` dogfood kernels now shape those strings
+through `BuildCommandKernels`; C# keeps filesystem/project config work, backend selection, IL build execution,
+performance-report JSON serialization, stopwatch collection, timing-breakdown emission, and fallback/oracle text
+only.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.BuildCommandKernels_SummarizesOptions|FullyQualifiedName~CliCommandTests.BuildCommandKernels_SelectsFirstOperandAfterOptionStripping|FullyQualifiedName~CliParityAuditTests.BuildCommand_HelpWinsBeforeDefineExtraction|FullyQualifiedName~CliParityAuditTests.BuildCommand_Timings_ShowsPhaseBreakdown|FullyQualifiedName~CompilationBackendTests.BuildCommand_UsesConfiguredIlBackendAndProducesRunnableArtifacts|FullyQualifiedName~CompilationBackendTests.BuildCommand_SingleFileSourceAfterOptions_BuildsWithIlBackend|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`.
+
 ## 2026-06-20 — Run command messages move into product N#
 
 `Program.RunCommand` no longer owns help text, missing-source-file diagnostics, single-file start text, or

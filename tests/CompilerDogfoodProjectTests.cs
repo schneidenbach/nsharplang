@@ -7025,6 +7025,16 @@ func outer(x: int): int {
         Assert.Contains("CliFormatOptionSummaryInto", methodNames!); // product format option parsing.
         Assert.Contains("CliBuildOperandSummaryInto", methodNames!); // product build operand summary.
         Assert.Contains("CliBuildOptionSummaryInto", methodNames!); // product build option parsing.
+        Assert.Contains("CliBuildHelpText", methodNames!); // product build help text shaping.
+        Assert.Contains("CliBuildFileNotFoundMessage", methodNames!); // product build missing-file message shaping.
+        Assert.Contains("CliBuildFailedMessage", methodNames!); // product build failure message shaping.
+        Assert.Contains("CliBuildProjectStartMessage", methodNames!); // product build project-start text shaping.
+        Assert.Contains("CliBuildSingleFileStartMessage", methodNames!); // product build single-file-start text shaping.
+        Assert.Contains("CliBuildMissingProjectFileMessage", methodNames!); // product build missing-project message shaping.
+        Assert.Contains("CliBuildFailedElapsedMessage", methodNames!); // product build failed-elapsed text shaping.
+        Assert.Contains("CliBuildSuccessElapsedMessage", methodNames!); // product build success-elapsed text shaping.
+        Assert.Contains("CliBuildSuccessMessage", methodNames!); // product build success text shaping.
+        Assert.Contains("CliBuildOutputPathMessage", methodNames!); // product build output-path text shaping.
         Assert.Contains("CliTestOptionSummaryInto", methodNames!); // product test option parsing.
         Assert.Contains("CliTestOutputMode", methodNames!); // product test output mode selection.
         Assert.Contains("CliTestFilterMatches", methodNames!); // product test filter matching.
@@ -15658,6 +15668,46 @@ class OtherZetaType {
                     "CliBuildOptionSummaryChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliBuildOptionSummaryChecksumInto.");
+            var cliBuildHelpText = programType.GetMethod(
+                    "CliBuildHelpText",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliBuildHelpText.");
+            var cliBuildFileNotFoundMessage = programType.GetMethod(
+                    "CliBuildFileNotFoundMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliBuildFileNotFoundMessage.");
+            var cliBuildFailedMessage = programType.GetMethod(
+                    "CliBuildFailedMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliBuildFailedMessage.");
+            var cliBuildProjectStartMessage = programType.GetMethod(
+                    "CliBuildProjectStartMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliBuildProjectStartMessage.");
+            var cliBuildSingleFileStartMessage = programType.GetMethod(
+                    "CliBuildSingleFileStartMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliBuildSingleFileStartMessage.");
+            var cliBuildMissingProjectFileMessage = programType.GetMethod(
+                    "CliBuildMissingProjectFileMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliBuildMissingProjectFileMessage.");
+            var cliBuildFailedElapsedMessage = programType.GetMethod(
+                    "CliBuildFailedElapsedMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliBuildFailedElapsedMessage.");
+            var cliBuildSuccessElapsedMessage = programType.GetMethod(
+                    "CliBuildSuccessElapsedMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliBuildSuccessElapsedMessage.");
+            var cliBuildSuccessMessage = programType.GetMethod(
+                    "CliBuildSuccessMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliBuildSuccessMessage.");
+            var cliBuildOutputPathMessage = programType.GetMethod(
+                    "CliBuildOutputPathMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliBuildOutputPathMessage.");
             var cliEffectiveCompilationBackendKind = programType.GetMethod(
                     "CliEffectiveCompilationBackendKind",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -17437,6 +17487,17 @@ func main(customer: Customer, résumé: Profile) {
             AssertCliBuildOptionsLikeProduction(
                 cliBuildOptionSummaryInto,
                 cliBuildOptionSummaryChecksumInto);
+            AssertCliBuildMessagesLikeProduction(
+                cliBuildHelpText,
+                cliBuildFileNotFoundMessage,
+                cliBuildFailedMessage,
+                cliBuildProjectStartMessage,
+                cliBuildSingleFileStartMessage,
+                cliBuildMissingProjectFileMessage,
+                cliBuildFailedElapsedMessage,
+                cliBuildSuccessElapsedMessage,
+                cliBuildSuccessMessage,
+                cliBuildOutputPathMessage);
             AssertCliEffectiveBackendsLikeProduction(cliEffectiveCompilationBackendKind);
             AssertCliExportCSharpInputOperandLikeProduction(
                 cliExportCSharpFirstOperandIndexInto,
@@ -20564,6 +20625,58 @@ func main() {
         }
 
         return checksum;
+    }
+
+    private static void AssertCliBuildMessagesLikeProduction(
+        MethodInfo cliBuildHelpText,
+        MethodInfo cliBuildFileNotFoundMessage,
+        MethodInfo cliBuildFailedMessage,
+        MethodInfo cliBuildProjectStartMessage,
+        MethodInfo cliBuildSingleFileStartMessage,
+        MethodInfo cliBuildMissingProjectFileMessage,
+        MethodInfo cliBuildFailedElapsedMessage,
+        MethodInfo cliBuildSuccessElapsedMessage,
+        MethodInfo cliBuildSuccessMessage,
+        MethodInfo cliBuildOutputPathMessage)
+    {
+        var help = (string)(cliBuildHelpText.Invoke(null, Array.Empty<object>()) ?? string.Empty);
+        Assert.Contains("N# Build", help);
+        Assert.Contains("Usage: nlc build [file.nl] [options]", help);
+        Assert.Contains("Build failed", help);
+
+        Assert.Equal(
+            "File not found: Missing.nl",
+            (string)(cliBuildFileNotFoundMessage.Invoke(null, new object[] { "Missing.nl" }) ?? string.Empty));
+        Assert.Equal(
+            "Build failed: backend exploded",
+            (string)(cliBuildFailedMessage.Invoke(null, new object[] { "backend exploded" }) ?? string.Empty));
+        Assert.Equal(
+            "Building project in /tmp/demo with the IL backend...",
+            (string)(cliBuildProjectStartMessage.Invoke(null, new object[] { "/tmp/demo" }) ?? string.Empty));
+        Assert.Equal(
+            "Building Program.nl with the IL backend...",
+            (string)(cliBuildSingleFileStartMessage.Invoke(null, new object[] { "Program.nl" }) ?? string.Empty));
+        Assert.Equal(
+            "No project.yml found in current directory. Run 'nlc new <name>' to create a project, or use 'nlc build <file.nl>' for a single file.",
+            (string)(cliBuildMissingProjectFileMessage.Invoke(null, Array.Empty<object>()) ?? string.Empty));
+        Assert.Equal(
+            "  Build failed in 12 ms",
+            (string)(cliBuildFailedElapsedMessage.Invoke(null, new object[] { "12 ms" }) ?? string.Empty));
+        Assert.Equal(
+            "Build successful! (il, debug) [12 ms]",
+            (string)(cliBuildSuccessElapsedMessage.Invoke(null, new object[] { 0, "12 ms" }) ?? string.Empty));
+        Assert.Equal(
+            "Build successful! (il, release) [12 ms]",
+            (string)(cliBuildSuccessElapsedMessage.Invoke(null, new object[] { 1, "12 ms" }) ?? string.Empty));
+        Assert.Equal(
+            "Build successful! (il, debug)",
+            (string)(cliBuildSuccessMessage.Invoke(null, new object[] { 0 }) ?? string.Empty));
+        Assert.Equal(
+            "Build successful! (il, release)",
+            (string)(cliBuildSuccessMessage.Invoke(null, new object[] { 1 }) ?? string.Empty));
+        Assert.Equal(
+            "Output: /tmp/demo/bin/App.dll",
+            (string)(cliBuildOutputPathMessage.Invoke(null, new object[] { "/tmp/demo/bin/App.dll" }) ?? string.Empty));
     }
 
     private static void AssertCliEffectiveBackendsLikeProduction(MethodInfo cliEffectiveCompilationBackendKind)

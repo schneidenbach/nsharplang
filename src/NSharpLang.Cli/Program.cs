@@ -153,47 +153,7 @@ partial class Program
         var helpOptions = GetBuildOptionSummary(args);
         if (helpOptions.ShowHelp)
         {
-            Console.WriteLine(@"N# Build
-
-Usage: nlc build [file.nl] [options]
-
-Build a project or a single N# source file.
-
-When run in a directory with project.yml, compiles directly from project.yml
-through the native IL backend. No user-authored .csproj is needed.
-
-Options:
-  --backend <mode>   Compilation backend: il
-  --project <dir>    Project root directory (default: current directory)
-  --release          Build with Release configuration/output layout (default: Debug)
-  --verbose          Show detailed build output
-  --timings          Emit per-phase timing breakdown after build
-  --perf-report      Emit a versioned JSON performance report after build
-  --aot              Analyze for Native AOT safety; AOT blockers become build errors
-  --output <path>    Output directory for build artifacts (-o shorthand)
-  --define <symbol>  Define a conditional-compilation symbol for #if (-d shorthand);
-                     repeatable, and accepts comma-separated lists
-  --help, -h         Show this help text
-
-Conditional compilation:
-  DEBUG is defined automatically for debug builds (omitted with --release).
-  Project-wide symbols can also be set via 'defines:' in project.yml.
-
-Examples:
-  nlc build              Build the current project
-  nlc build --backend il Build the current project with the IL backend
-  nlc build --release    Release configuration/output layout
-  nlc build --verbose    Show detailed build output
-  nlc build --timings    Show phase-level timing breakdown
-  nlc build --perf-report Emit a JSON performance report
-  nlc build --aot        Fail the build on Native AOT blockers
-  nlc build -o ./dist    Build to a specific output directory
-  nlc build --define FEATURE_X  Build with FEATURE_X defined
-  nlc build Program.nl   Build a single file
-
-Exit codes:
-  0  Build succeeded
-  1  Build failed");
+            Console.WriteLine(BuildCommandKernels.GetHelpText());
             return 0;
         }
 
@@ -236,7 +196,7 @@ Exit codes:
             var sourceFile = buildOperands.FirstOperand!;
             if (!File.Exists(sourceFile))
             {
-                return Error($"File not found: {sourceFile}");
+                return Error(BuildCommandKernels.GetFileNotFoundMessage(sourceFile));
             }
 
             var sourceDir = Path.GetDirectoryName(Path.GetFullPath(sourceFile)) ?? Directory.GetCurrentDirectory();
@@ -256,7 +216,7 @@ Exit codes:
         }
         catch (Exception ex)
         {
-            return Error($"Build failed: {ex.Message}");
+            return Error(BuildCommandKernels.GetFailedMessage(ex.Message));
         }
     }
 

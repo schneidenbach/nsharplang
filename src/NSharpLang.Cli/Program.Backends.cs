@@ -24,13 +24,13 @@ partial class Program
 
         try
         {
-            Console.WriteLine($"Building project in {projectRoot} with the IL backend...");
+            Console.WriteLine(BuildCommandKernels.GetProjectStartMessage(projectRoot));
 
             var projectYmlPath = Path.Combine(projectRoot, "project.yml");
             if (!File.Exists(projectYmlPath))
             {
                 return BuildCommandResult.Failure(
-                    Error("No project.yml found in current directory. Run 'nlc new <name>' to create a project, or use 'nlc build <file.nl>' for a single file."));
+                    Error(BuildCommandKernels.GetMissingProjectFileMessage()));
             }
 
             var config = ProjectFileParser.Parse(projectYmlPath);
@@ -52,12 +52,12 @@ partial class Program
             compileSw.Stop();
             if (outputPath == null)
             {
-                Console.WriteLine($"  Build failed in {FormatElapsed(totalSw.Elapsed)}");
+                Console.WriteLine(BuildCommandKernels.GetFailedElapsedMessage(FormatElapsed(totalSw.Elapsed)));
                 return BuildCommandResult.Failure(perfFacts: perfFacts);
             }
 
-            Console.WriteLine($"Build successful! (il, {(release ? "release" : "debug")}) [{FormatElapsed(totalSw.Elapsed)}]");
-            Console.WriteLine($"Output: {outputPath}");
+            Console.WriteLine(BuildCommandKernels.GetSuccessElapsedMessage(release, FormatElapsed(totalSw.Elapsed)));
+            Console.WriteLine(BuildCommandKernels.GetOutputPathMessage(outputPath));
 
             if (timings)
             {
@@ -73,7 +73,7 @@ Build timings:
         }
         catch (Exception ex)
         {
-            return BuildCommandResult.Failure(Error($"Build failed: {ex.Message}"));
+            return BuildCommandResult.Failure(Error(BuildCommandKernels.GetFailedMessage(ex.Message)));
         }
     }
 
@@ -81,7 +81,7 @@ Build timings:
     {
         try
         {
-            Console.WriteLine($"Building {sourceFile} with the IL backend...");
+            Console.WriteLine(BuildCommandKernels.GetSingleFileStartMessage(sourceFile));
 
             var sourceDir = Path.GetDirectoryName(Path.GetFullPath(sourceFile)) ?? Directory.GetCurrentDirectory();
             var config = GetEffectiveCompilationConfig(projectConfig, Path.GetFileNameWithoutExtension(sourceFile));
@@ -100,13 +100,13 @@ Build timings:
                 return BuildCommandResult.Failure(perfFacts: perfFacts);
             }
 
-            Console.WriteLine($"Build successful! (il, {(release ? "release" : "debug")})");
-            Console.WriteLine($"Output: {outputPath}");
+            Console.WriteLine(BuildCommandKernels.GetSuccessMessage(release));
+            Console.WriteLine(BuildCommandKernels.GetOutputPathMessage(outputPath));
             return new BuildCommandResult(0, perfFacts);
         }
         catch (Exception ex)
         {
-            return BuildCommandResult.Failure(Error($"Build failed: {ex.Message}"));
+            return BuildCommandResult.Failure(Error(BuildCommandKernels.GetFailedMessage(ex.Message)));
         }
     }
 
