@@ -7215,6 +7215,8 @@ func outer(x: int): int {
         Assert.Contains("CliNewFailedMessage", methodNames!); // product new failure message shaping.
         Assert.Contains("CliNewProjectYamlText", methodNames!); // product new project.yml content shaping.
         Assert.Contains("CliNewTemplateSourceText", methodNames!); // product new source-template content shaping.
+        Assert.Contains("CliNewGlobalJsonText", methodNames!); // product new global.json content shaping.
+        Assert.Contains("CliNewNuGetConfigText", methodNames!); // product new NuGet.config content shaping.
         Assert.Contains("CliNewTemplateKind", methodNames!); // product new template normalization.
         Assert.Contains("CliNewEffectiveTemplateKind", methodNames!); // product new --systems template selection.
         Assert.Contains("CliNewTemplateSourceFileKindsInto", methodNames!); // product new template source manifest.
@@ -7498,6 +7500,10 @@ func outer(x: int): int {
             ("CliNewProjectYamlText", new object[] { "MyApi", "webapi" }),
             ("CliNewProjectYamlText", new object[] { "PacketTool", "systems-cli" }),
             ("CliNewProjectYamlText", new object[] { "PacketCore", "systems-lib" }),
+            ("CliNewGlobalJsonText", Array.Empty<object>()),
+            ("CliNewNuGetConfigText", new object[] { "%HOME%/.nsharp/packages" }),
+            ("CliNewNuGetConfigText", new object[] { "/tmp/a&b<c>d\"e'f/packages" }),
+            ("CliNewXmlAttributeEscape", new object[] { "a&b<c>d\"e'f" }),
             ("CliNewTemplateSourceText", new object[] { "console", (int)NewTemplateSourceFileKind.Program }),
             ("CliNewTemplateSourceText", new object[] { "library", (int)NewTemplateSourceFileKind.Calculator }),
             ("CliNewTemplateSourceText", new object[] { "test", (int)NewTemplateSourceFileKind.CalculatorTests }),
@@ -13068,8 +13074,8 @@ func outer(x: int): int {
         Assert.True(ok, $"Columnar backend declined the merged {productFiles.Length}-file product corpus.");
         using var loadScope = CollectibleAssemblyScope.Load(assembly!); // the merged IL is a valid, loadable assembly.
         Assert.NotNull(loadScope.Assembly);
-        Assert.True(methodNames!.Length >= 434,
-            $"Product dogfood corpus method coverage regressed: expected at least 434 emitted methods, found {methodNames.Length}.");
+        Assert.True(methodNames!.Length >= 437,
+            $"Product dogfood corpus method coverage regressed: expected at least 437 emitted methods, found {methodNames.Length}.");
         // Files eligible ONLY via cross-file resolution must contribute their public functions —
         // i.e. the merge actually emitted them (single-file each declines; see ColumnarCodegen_MultiFile_*).
         Assert.Contains("TokenizeColumnarSourceInto", methodNames!); // composed lexer metadata + parser-token compaction routing

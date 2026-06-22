@@ -4,7 +4,6 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
-using System.Security;
 using NSharpLang.Compiler;
 using NSharpLang.Cli.Commands;
 
@@ -909,8 +908,10 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
 
     static void WriteSdkSupportFiles(string projectDir)
     {
-        File.WriteAllText(Path.Combine(projectDir, "global.json"), GlobalJsonContent);
-        File.WriteAllText(Path.Combine(projectDir, "NuGet.config"), BuildNuGetConfigContent());
+        File.WriteAllText(Path.Combine(projectDir, "global.json"), NewCommandKernels.GetGlobalJsonText());
+        File.WriteAllText(
+            Path.Combine(projectDir, "NuGet.config"),
+            NewCommandKernels.GetNuGetConfigText(NSharpInstallRoot.ProjectFeedValue()));
     }
 
     static string GenerateProjectYaml(string projectName, string template)
@@ -1010,30 +1011,6 @@ language:
             NewTemplateSourceFileKind.PacketCoreTests => SystemsTestsSource,
             _ => throw new ArgumentOutOfRangeException(nameof(sourceFileKind), sourceFileKind, "Unknown template source file kind."),
         };
-
-    const string GlobalJsonContent = @"{
-  ""sdk"": {
-    ""version"": ""10.0.100"",
-    ""rollForward"": ""latestFeature""
-  },
-  ""msbuild-sdks"": {
-    ""NSharpLang.Sdk"": ""0.1.0""
-  }
-}
-";
-
-    // The nsharp-local feed is resolved from the running CLI's install root so
-    // projects created from a custom NSHARP_INSTALL_DIR install restore without
-    // manual edits; default development builds keep the portable %HOME% literal.
-    static string BuildNuGetConfigContent() => $@"<?xml version=""1.0"" encoding=""utf-8""?>
-<configuration>
-  <packageSources>
-    <clear />
-    <add key=""nuget.org"" value=""https://api.nuget.org/v3/index.json"" />
-    <add key=""nsharp-local"" value=""{SecurityElement.Escape(NSharpInstallRoot.ProjectFeedValue())}"" />
-  </packageSources>
-</configuration>
-";
 
     const string ConsoleProgramSource = @"func main() {
     print ""Hello, N#!""

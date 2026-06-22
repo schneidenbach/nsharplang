@@ -2374,6 +2374,54 @@ func CliNewProjectYamlText(projectName: string, template: string): string {
         + "#   license: MIT\n"
 }
 
+func CliNewGlobalJsonText(): string {
+    return "{\n"
+        + "  \"sdk\": {\n"
+        + "    \"version\": \"10.0.100\",\n"
+        + "    \"rollForward\": \"latestFeature\"\n"
+        + "  },\n"
+        + "  \"msbuild-sdks\": {\n"
+        + "    \"NSharpLang.Sdk\": \"0.1.0\"\n"
+        + "  }\n"
+        + "}\n"
+}
+
+func CliNewNuGetConfigText(feedValue: string): string {
+    return "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+        + "<configuration>\n"
+        + "  <packageSources>\n"
+        + "    <clear />\n"
+        + "    <add key=\"nuget.org\" value=\"https://api.nuget.org/v3/index.json\" />\n"
+        + "    <add key=\"nsharp-local\" value=\"" + CliNewXmlAttributeEscape(feedValue) + "\" />\n"
+        + "  </packageSources>\n"
+        + "</configuration>\n"
+}
+
+func CliNewXmlAttributeEscape(value: string): string {
+    result := ""
+    index := 0
+    while index < value.Length {
+        ch := value[index]
+        if ch == '&' {
+            result = result + "&amp;"
+        } else if ch == '<' {
+            result = result + "&lt;"
+        } else if ch == '>' {
+            result = result + "&gt;"
+        } else if ch == '"' {
+            result = result + "&quot;"
+        } else if ch == '\'' {
+            result = result + "&apos;"
+        } else {
+            result = result + value.Substring(index, 1)
+        }
+
+        index = index + 1
+    }
+
+    return result
+}
+
 func CliNewTemplateSourceText(template: string, sourceFileKind: int): string {
     if sourceFileKind == 1 {
         if template == "webapi" {

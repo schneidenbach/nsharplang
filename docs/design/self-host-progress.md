@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-22 — `nlc new` SDK support files move into product N#
+
+`nlc new` no longer owns generated `global.json` or `NuGet.config` text in C#. The shipped `CliArguments.nl`
+dogfood kernel now shapes both support files through `NewCommandKernels`, including the XML attribute escaping for
+the local N# package feed. C# keeps install-root/feed discovery, directory/file IO, and fallback/oracle text only.
+This is a Stage 6 `C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.NewCommandKernels_SummarizesArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_EligibleClusterCompiles"`;
+`./scripts/dev.sh CliArguments`.
+
 ## 2026-06-22 — `nlc new` source templates move into product N#
 
 `nlc new` no longer owns the generated `.nl` template source bodies in C#. The shipped `CliArguments.nl`

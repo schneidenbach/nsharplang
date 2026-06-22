@@ -315,6 +315,22 @@ internal static class NewCommandKernels
     internal static bool TryGetProjectYamlText(string projectName, string template, out string yaml)
         => TryGetMessage(bindings => bindings.NewProjectYamlText(projectName, template), out yaml);
 
+    internal static string GetGlobalJsonText()
+    {
+        if (TryGetMessage(bindings => bindings.NewGlobalJsonText(), out var text))
+            return text;
+
+        return GetGlobalJsonTextWithCSharp();
+    }
+
+    internal static string GetNuGetConfigText(string feedValue)
+    {
+        if (TryGetMessage(bindings => bindings.NewNuGetConfigText(feedValue), out var text))
+            return text;
+
+        return GetNuGetConfigTextWithCSharp(feedValue);
+    }
+
     internal static bool TryGetTemplateSourceText(
         string template,
         NewTemplateSourceFileKind sourceFileKind,
@@ -420,6 +436,28 @@ internal static class NewCommandKernels
     private static string GetFailedMessageWithCSharp(string message)
         => $"Failed to create project: {message}";
 
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product new SDK support-file content routes through CliNew* kernels.
+    private static string GetGlobalJsonTextWithCSharp()
+        => "{\n"
+           + "  \"sdk\": {\n"
+           + "    \"version\": \"10.0.100\",\n"
+           + "    \"rollForward\": \"latestFeature\"\n"
+           + "  },\n"
+           + "  \"msbuild-sdks\": {\n"
+           + "    \"NSharpLang.Sdk\": \"0.1.0\"\n"
+           + "  }\n"
+           + "}\n";
+
+    private static string GetNuGetConfigTextWithCSharp(string feedValue)
+        => "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+           + "<configuration>\n"
+           + "  <packageSources>\n"
+           + "    <clear />\n"
+           + "    <add key=\"nuget.org\" value=\"https://api.nuget.org/v3/index.json\" />\n"
+           + $"    <add key=\"nsharp-local\" value=\"{System.Security.SecurityElement.Escape(feedValue)}\" />\n"
+           + "  </packageSources>\n"
+           + "</configuration>\n";
+
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
             DogfoodKernelLoader.CreateDelegate<CliFirstPositionalArgIndex>(
@@ -485,6 +523,12 @@ internal static class NewCommandKernels
             DogfoodKernelLoader.CreateDelegate<CliNewProjectYamlText>(
                 programType,
                 "CliNewProjectYamlText"),
+            DogfoodKernelLoader.CreateDelegate<CliNewGlobalJsonText>(
+                programType,
+                "CliNewGlobalJsonText"),
+            DogfoodKernelLoader.CreateDelegate<CliNewNuGetConfigText>(
+                programType,
+                "CliNewNuGetConfigText"),
             DogfoodKernelLoader.CreateDelegate<CliNewTemplateSourceText>(
                 programType,
                 "CliNewTemplateSourceText")));
@@ -524,6 +568,8 @@ internal static class NewCommandKernels
     private delegate string CliNewRunCommandMessage();
     private delegate string CliNewFailedMessage(string message);
     private delegate string CliNewProjectYamlText(string projectName, string template);
+    private delegate string CliNewGlobalJsonText();
+    private delegate string CliNewNuGetConfigText(string feedValue);
     private delegate string CliNewTemplateSourceText(string template, int sourceFileKind);
 
     private sealed record Bindings(
@@ -548,6 +594,8 @@ internal static class NewCommandKernels
         CliNewRunCommandMessage NewRunCommandMessage,
         CliNewFailedMessage NewFailedMessage,
         CliNewProjectYamlText NewProjectYamlText,
+        CliNewGlobalJsonText NewGlobalJsonText,
+        CliNewNuGetConfigText NewNuGetConfigText,
         CliNewTemplateSourceText NewTemplateSourceText);
 
     private static bool TryGetOptionalArg(string[] args, int index, out string? value)

@@ -2450,6 +2450,33 @@ func Main() {
         Assert.Contains("  profile: systems\n", systemsLibYaml);
         Assert.DoesNotContain("entry: Program.nl", systemsLibYaml, StringComparison.Ordinal);
 
+        Assert.Equal(
+            "{\n"
+            + "  \"sdk\": {\n"
+            + "    \"version\": \"10.0.100\",\n"
+            + "    \"rollForward\": \"latestFeature\"\n"
+            + "  },\n"
+            + "  \"msbuild-sdks\": {\n"
+            + "    \"NSharpLang.Sdk\": \"0.1.0\"\n"
+            + "  }\n"
+            + "}\n",
+            NewCommandKernels.GetGlobalJsonText());
+        var defaultNuGetConfig = NewCommandKernels.GetNuGetConfigText("%HOME%/.nsharp/packages");
+        Assert.Equal(
+            "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+            + "<configuration>\n"
+            + "  <packageSources>\n"
+            + "    <clear />\n"
+            + "    <add key=\"nuget.org\" value=\"https://api.nuget.org/v3/index.json\" />\n"
+            + "    <add key=\"nsharp-local\" value=\"%HOME%/.nsharp/packages\" />\n"
+            + "  </packageSources>\n"
+            + "</configuration>\n",
+            defaultNuGetConfig);
+        Assert.Contains("value=\"%HOME%/.nsharp/packages\"", defaultNuGetConfig);
+
+        var escapedNuGetConfig = NewCommandKernels.GetNuGetConfigText("/tmp/a&b<c>d\"e'f/packages");
+        Assert.Contains("/tmp/a&amp;b&lt;c&gt;d&quot;e&apos;f/packages", escapedNuGetConfig);
+
         Assert.True(NewCommandKernels.TryGetTemplateSourceText("console", NewTemplateSourceFileKind.Program, out var consoleSource));
         Assert.Equal("func main() {\n    print \"Hello, N#!\"\n}\n", consoleSource);
 
