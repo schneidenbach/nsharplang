@@ -108,45 +108,19 @@ public static class DocCommand
     }
 
     internal static DocOptionSummary GetOptionSummary(string[] args)
-        => DocCommandKernels.TryGetOptionSummary(args, out var summary)
-            ? summary
-            : GetOptionSummaryWithCSharp(args);
-
-    internal static DocOutputModeKind GetOutputMode(bool json)
-        => DocCommandKernels.TryGetOutputMode(json, out var outputMode)
-            ? outputMode
-            : GetOutputModeWithCSharp(json);
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product doc option parsing routes through DocCommandKernels.
-    private static DocOptionSummary GetOptionSummaryWithCSharp(string[] args)
-        => new(
-            GetOptionValueWithCSharp(args, "--project"),
-            GetOptionValueWithCSharp(args, "--output"),
-            ContainsArgWithCSharp(args, "--json"),
-            ContainsArgWithCSharp(args, "--open"),
-            ContainsArgWithCSharp(args, "--help") || ContainsArgWithCSharp(args, "-h") || (args.Length > 0 && args[0] == "help"));
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product doc output mode selection routes through DocCommandKernels.
-    private static DocOutputModeKind GetOutputModeWithCSharp(bool json)
-        => json ? DocOutputModeKind.Json : DocOutputModeKind.Text;
-
-    private static string? GetOptionValueWithCSharp(string[] args, string flag)
     {
-        for (var i = 0; i < args.Length - 1; i++)
-        {
-            if (args[i] == flag)
-                return args[i + 1];
-        }
+        if (DocCommandKernels.TryGetOptionSummary(args, out var summary))
+            return summary;
 
-        return null;
+        throw new InvalidOperationException("N# doc option parser kernel rejected the arguments.");
     }
 
-    private static bool ContainsArgWithCSharp(string[] args, string value)
+    internal static DocOutputModeKind GetOutputMode(bool json)
     {
-        for (var i = 0; i < args.Length; i++)
-            if (args[i] == value)
-                return true;
-        return false;
+        if (DocCommandKernels.TryGetOutputMode(json, out var outputMode))
+            return outputMode;
+
+        throw new InvalidOperationException("N# doc output-mode kernel rejected the options.");
     }
 
     private static bool TryOpen(string path, out string? error)
@@ -233,11 +207,7 @@ internal static class ProjectDocGenerator
         if (DocCommandKernels.TryOrderSymbolsForGeneration(symbols, out var orderedSymbols))
             return orderedSymbols;
 
-        return symbols
-            .Where(symbol => symbol.Kind is not SymbolKind.Variable and not SymbolKind.Parameter)
-            .OrderBy(symbol => symbol.Kind.ToString(), StringComparer.Ordinal)
-            .ThenBy(symbol => symbol.Name, StringComparer.Ordinal)
-            .ToList();
+        throw new InvalidOperationException("N# doc symbol ordering kernel rejected the symbol table.");
     }
 
     private static string RenderIndexPage(IReadOnlyList<SymbolResult> symbols, IReadOnlyList<DocPage> pages, string projectRoot)
@@ -322,10 +292,7 @@ internal static class ProjectDocGenerator
         if (DocCommandKernels.TryOrderMembersForGeneration(members, out var orderedMembers))
             return orderedMembers;
 
-        return members
-            .OrderBy(member => member.Kind.ToString(), StringComparer.Ordinal)
-            .ThenBy(member => member.Name, StringComparer.Ordinal)
-            .ToList();
+        throw new InvalidOperationException("N# doc member ordering kernel rejected the member table.");
     }
 
     private static string WrapHtml(string title, string body) => $$$"""
@@ -439,24 +406,11 @@ internal static class ProjectDocGenerator
         if (DocCommandKernels.TryCreateSlugs(rawSlugs, out var dogfoodSlugs))
             return dogfoodSlugs;
 
-        var slugs = new string[rawSlugs.Length];
-        for (var i = 0; i < rawSlugs.Length; i++)
-            slugs[i] = ToSlugWithLinq(rawSlugs[i]);
-
-        return slugs;
+        throw new InvalidOperationException("N# doc slug kernel rejected the symbol table.");
     }
 
     private static string CreateRawSlug(SymbolResult symbol)
         => $"{symbol.Kind}-{symbol.Name}-{Path.GetFileNameWithoutExtension(symbol.File)}";
-
-    private static string ToSlugWithLinq(string raw)
-    {
-        var chars = raw
-            .ToLowerInvariant()
-            .Select(ch => char.IsLetterOrDigit(ch) ? ch : '-')
-            .ToArray();
-        return string.Join(string.Empty, new string(chars).Split('-', StringSplitOptions.RemoveEmptyEntries));
-    }
 
     private static string NormalizePath(string path) => path.Replace('\\', '/');
 }

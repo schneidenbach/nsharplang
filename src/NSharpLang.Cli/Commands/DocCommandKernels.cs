@@ -124,52 +124,34 @@ internal static class DocCommandKernels
     }
 
     internal static string GetHelpText()
-        => TryGetMessage(bindings => bindings.HelpText(), out var message)
-            ? message
-            : FallbackHelpText();
+        => RequiredBindings.HelpText();
 
     internal static string GetProjectDirectoryNotFoundMessage(string projectRoot)
-        => TryGetMessage(bindings => bindings.ProjectDirectoryNotFoundMessage(projectRoot), out var message)
-            ? message
-            : FallbackProjectDirectoryNotFoundMessage(projectRoot);
+        => RequiredBindings.ProjectDirectoryNotFoundMessage(projectRoot);
 
     internal static string GetGeneratedSummaryMessage(int pageCount)
     {
         var pageCountText = pageCount.ToString(CultureInfo.InvariantCulture);
-        return TryGetMessage(bindings => bindings.GeneratedSummaryMessage(pageCountText), out var message)
-            ? message
-            : FallbackGeneratedSummaryMessage(pageCountText);
+        return RequiredBindings.GeneratedSummaryMessage(pageCountText);
     }
 
     internal static string GetOutputPathMessage(string outputDir)
-        => TryGetMessage(bindings => bindings.OutputPathMessage(outputDir), out var message)
-            ? message
-            : FallbackOutputPathMessage(outputDir);
+        => RequiredBindings.OutputPathMessage(outputDir);
 
     internal static string GetIndexPathMessage(string indexPath)
-        => TryGetMessage(bindings => bindings.IndexPathMessage(indexPath), out var message)
-            ? message
-            : FallbackIndexPathMessage(indexPath);
+        => RequiredBindings.IndexPathMessage(indexPath);
 
     internal static string GetOpenedMessage()
-        => TryGetMessage(bindings => bindings.OpenedMessage(), out var message)
-            ? message
-            : FallbackOpenedMessage();
+        => RequiredBindings.OpenedMessage();
 
     internal static string GetGenerationFailedMessage(string exceptionMessage)
-        => TryGetMessage(bindings => bindings.GenerationFailedMessage(exceptionMessage), out var message)
-            ? message
-            : FallbackGenerationFailedMessage(exceptionMessage);
+        => RequiredBindings.GenerationFailedMessage(exceptionMessage);
 
     internal static string GetOpenFailedMessage(string indexPath)
-        => TryGetMessage(bindings => bindings.OpenFailedMessage(indexPath), out var message)
-            ? message
-            : FallbackOpenFailedMessage(indexPath);
+        => RequiredBindings.OpenFailedMessage(indexPath);
 
     internal static string GetOpenFailedWithDetailMessage(string indexPath, string exceptionMessage)
-        => TryGetMessage(bindings => bindings.OpenFailedWithDetailMessage(indexPath, exceptionMessage), out var message)
-            ? message
-            : FallbackOpenFailedWithDetailMessage(indexPath, exceptionMessage);
+        => RequiredBindings.OpenFailedWithDetailMessage(indexPath, exceptionMessage);
 
     internal static string GetLocationText(string relativePath, int line, int column)
         => GetLocationText(
@@ -178,14 +160,10 @@ internal static class DocCommandKernels
             column.ToString(CultureInfo.InvariantCulture));
 
     internal static string GetLocationText(string relativePath, string lineText, string columnText)
-        => TryGetMessage(bindings => bindings.LocationText(relativePath, lineText, columnText), out var message)
-            ? message
-            : FallbackLocationText(relativePath, lineText, columnText);
+        => RequiredBindings.LocationText(relativePath, lineText, columnText);
 
     internal static string GetParameterText(string name, string typeName, bool hasDefault, string defaultValue)
-        => TryGetMessage(bindings => bindings.ParameterText(name, typeName, hasDefault ? 1 : 0, defaultValue), out var message)
-            ? message
-            : FallbackParameterText(name, typeName, hasDefault, defaultValue);
+        => RequiredBindings.ParameterText(name, typeName, hasDefault ? 1 : 0, defaultValue);
 
     internal static string GetSignatureText(
         SymbolKind kind,
@@ -193,11 +171,7 @@ internal static class DocCommandKernels
         bool hasParameterList,
         string parametersText,
         string typeName)
-        => TryGetMessage(
-            bindings => bindings.SignatureText((int)kind, name, hasParameterList ? 1 : 0, parametersText, typeName),
-            out var message)
-            ? message
-            : FallbackSignatureText(kind, name, hasParameterList, parametersText, typeName);
+        => RequiredBindings.SignatureText((int)kind, name, hasParameterList ? 1 : 0, parametersText, typeName);
 
     private static bool TryOrderEntriesForGeneration(
         IReadOnlyList<SymbolResult> symbols,
@@ -416,113 +390,8 @@ internal static class DocCommandKernels
         CliDocParameterText ParameterText,
         CliDocSignatureText SignatureText);
 
-    private static bool TryGetMessage(Func<Bindings, string> getMessage, out string message)
-    {
-        message = string.Empty;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        try
-        {
-            message = getMessage(bindings);
-            return message.Length > 0;
-        }
-        catch
-        {
-            message = string.Empty;
-            return false;
-        }
-    }
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product doc messages route through CliDoc* kernels.
-    private static string FallbackLocationText(string relativePath, string lineText, string columnText)
-        => $"{relativePath}:{lineText}:{columnText}";
-
-    private static string FallbackParameterText(string name, string typeName, bool hasDefault, string defaultValue)
-        => hasDefault
-            ? $"{name}: {typeName} = {defaultValue}"
-            : $"{name}: {typeName}";
-
-    private static string FallbackSignatureText(
-        SymbolKind kind,
-        string name,
-        bool hasParameterList,
-        string parametersText,
-        string typeName)
-    {
-        var parameters = hasParameterList ? $"({parametersText})" : string.Empty;
-        var suffix = string.IsNullOrEmpty(typeName) ? string.Empty : $": {typeName}";
-        return $"{FallbackSignaturePrefix(kind)}{name}{parameters}{suffix}";
-    }
-
-    private static string FallbackSignaturePrefix(SymbolKind kind)
-        => kind switch
-        {
-            SymbolKind.Function => "func ",
-            SymbolKind.Method => "func ",
-            SymbolKind.Constructor => "ctor ",
-            SymbolKind.Class => "class ",
-            SymbolKind.Struct => "struct ",
-            SymbolKind.Record => "record ",
-            SymbolKind.Interface => "interface ",
-            SymbolKind.Enum => "enum ",
-            SymbolKind.Union => "union ",
-            SymbolKind.Property => "prop ",
-            SymbolKind.Field => "field ",
-            SymbolKind.TypeAlias => "type ",
-            SymbolKind.Test => "test ",
-            _ => string.Empty
-        };
-
-    private static string FallbackHelpText()
-        => @"N# API Documentation
-
-Usage: nlc doc [options]
-
-Generate HTML API documentation for the current project. Similar to `cargo doc`.
-
-Options:
-  --project <dir>   Project root directory (default: current directory)
-  --output <dir>    Output directory (default: ./nsharp/docs)
-  --json            Emit a structured JSON result envelope
-  --open            Open the generated index in the default browser
-  --help, -h        Show this help text
-
-Examples:
-  nlc doc
-  nlc doc --open
-  nlc doc --json
-  nlc doc --project examples/16-task-cli --output /tmp/nsharp-docs
-
-Exit codes:
-  0  Documentation generated successfully
-  1  Documentation generation failed";
-
-    private static string FallbackProjectDirectoryNotFoundMessage(string projectRoot)
-        => $"Project directory not found: {projectRoot}";
-
-    private static string FallbackGeneratedSummaryMessage(string pageCountText)
-        => $"Generated API docs for {pageCountText} symbols.";
-
-    private static string FallbackOutputPathMessage(string outputDir)
-        => $"Output: {outputDir}";
-
-    private static string FallbackIndexPathMessage(string indexPath)
-        => $"Index: {indexPath}";
-
-    private static string FallbackOpenedMessage()
-        => "Opened generated documentation in the default browser.";
-
-    private static string FallbackGenerationFailedMessage(string message)
-        => $"Doc generation failed: {message}";
-
-    private static string FallbackOpenFailedMessage(string indexPath)
-        => $"Generated docs, but failed to open {indexPath}.";
-
-    private static string FallbackOpenFailedWithDetailMessage(string indexPath, string message)
-        => $"Generated docs, but failed to open {indexPath}: {message}";
+    private static Bindings RequiredBindings
+        => s_bindings.Value ?? throw new InvalidOperationException("N# doc command kernels are unavailable.");
 
     private static bool TryGetOptionalArg(string[] args, int index, out string? value)
     {
