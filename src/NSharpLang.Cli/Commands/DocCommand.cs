@@ -408,7 +408,10 @@ internal static class ProjectDocGenerator
 """;
 
     private static string DescribeLocation(string projectRoot, SymbolResult symbol)
-        => $"{NormalizePath(Path.GetRelativePath(projectRoot, symbol.File))}:{symbol.Line}:{symbol.Column}";
+    {
+        var relativePath = NormalizePath(Path.GetRelativePath(projectRoot, symbol.File));
+        return DocCommandKernels.GetLocationText(relativePath, symbol.Line, symbol.Column);
+    }
 
     private static string FormatSignature(SymbolResult symbol)
     {

@@ -4684,6 +4684,10 @@ func CliDocOpenFailedWithDetailMessage(indexPath: string, message: string): stri
     return "Generated docs, but failed to open " + indexPath + ": " + message
 }
 
+func CliDocLocationText(relativePath: string, lineText: string, columnText: string): string {
+    return relativePath + ":" + lineText + ":" + columnText
+}
+
 func CliDocParameterText(name: string, typeName: string, hasDefault: int, defaultValue: string): string {
     if hasDefault != 0 {
         return name + ": " + typeName + " = " + defaultValue

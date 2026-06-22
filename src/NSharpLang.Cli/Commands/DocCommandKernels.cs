@@ -171,6 +171,17 @@ internal static class DocCommandKernels
             ? message
             : FallbackOpenFailedWithDetailMessage(indexPath, exceptionMessage);
 
+    internal static string GetLocationText(string relativePath, int line, int column)
+        => GetLocationText(
+            relativePath,
+            line.ToString(CultureInfo.InvariantCulture),
+            column.ToString(CultureInfo.InvariantCulture));
+
+    internal static string GetLocationText(string relativePath, string lineText, string columnText)
+        => TryGetMessage(bindings => bindings.LocationText(relativePath, lineText, columnText), out var message)
+            ? message
+            : FallbackLocationText(relativePath, lineText, columnText);
+
     internal static string GetParameterText(string name, string typeName, bool hasDefault, string defaultValue)
         => TryGetMessage(bindings => bindings.ParameterText(name, typeName, hasDefault ? 1 : 0, defaultValue), out var message)
             ? message
@@ -304,6 +315,9 @@ internal static class DocCommandKernels
             DogfoodKernelLoader.CreateDelegate<CliDocOpenFailedWithDetailMessage>(
                 programType,
                 "CliDocOpenFailedWithDetailMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliDocLocationText>(
+                programType,
+                "CliDocLocationText"),
             DogfoodKernelLoader.CreateDelegate<CliDocParameterText>(
                 programType,
                 "CliDocParameterText"),
@@ -373,6 +387,8 @@ internal static class DocCommandKernels
 
     private delegate string CliDocOpenFailedWithDetailMessage(string indexPath, string message);
 
+    private delegate string CliDocLocationText(string relativePath, string lineText, string columnText);
+
     private delegate string CliDocParameterText(string name, string typeName, int hasDefault, string defaultValue);
 
     private delegate string CliDocSignatureText(
@@ -396,6 +412,7 @@ internal static class DocCommandKernels
         CliDocGenerationFailedMessage GenerationFailedMessage,
         CliDocOpenFailedMessage OpenFailedMessage,
         CliDocOpenFailedWithDetailMessage OpenFailedWithDetailMessage,
+        CliDocLocationText LocationText,
         CliDocParameterText ParameterText,
         CliDocSignatureText SignatureText);
 
@@ -420,6 +437,9 @@ internal static class DocCommandKernels
     }
 
     // Stage 6 C#-surface-shrink: fallback/oracle only; product doc messages route through CliDoc* kernels.
+    private static string FallbackLocationText(string relativePath, string lineText, string columnText)
+        => $"{relativePath}:{lineText}:{columnText}";
+
     private static string FallbackParameterText(string name, string typeName, bool hasDefault, string defaultValue)
         => hasDefault
             ? $"{name}: {typeName} = {defaultValue}"

@@ -7275,6 +7275,7 @@ func outer(x: int): int {
         Assert.Contains("CliDocGenerationFailedMessage", methodNames!); // product doc failure wrapper shaping.
         Assert.Contains("CliDocOpenFailedMessage", methodNames!); // product doc open-failure message shaping.
         Assert.Contains("CliDocOpenFailedWithDetailMessage", methodNames!); // product doc open-failure detail shaping.
+        Assert.Contains("CliDocLocationText", methodNames!); // product doc location text shaping.
         Assert.Contains("CliDocParameterText", methodNames!); // product doc parameter text shaping.
         Assert.Contains("CliDocSignatureText", methodNames!); // product doc symbol signature shaping.
         Assert.Contains("CliTreeOptionSummaryInto", methodNames!); // product tree option parsing.
@@ -7394,6 +7395,7 @@ func outer(x: int): int {
             ("CliDaemonClientExecutablePathMissingMessage", Array.Empty<object>()),
             ("CliDaemonClientStartTimeoutMessage", Array.Empty<object>()),
             ("CliDaemonClientStartFailedWithReasonMessage", new object[] { "denied" }),
+            ("CliDocLocationText", new object[] { "src/Program.nl", "12", "4" }),
             ("CliDocParameterText", new object[] { "value", "int", 0, "" }),
             ("CliDocParameterText", new object[] { "value", "int", 1, "42" }),
             ("CliDocSignatureText", new object[] { (int)SymbolKind.Function, "Compute", 1, "value: int = 42", "string" }),
@@ -16988,6 +16990,10 @@ class OtherZetaType {
                     "CliDocOpenFailedWithDetailMessage",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDocOpenFailedWithDetailMessage.");
+            var cliDocLocationText = programType.GetMethod(
+                    "CliDocLocationText",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDocLocationText.");
             var cliDocParameterText = programType.GetMethod(
                     "CliDocParameterText",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -18676,6 +18682,7 @@ func main(customer: Customer, résumé: Profile) {
                 cliDocGenerationFailedMessage,
                 cliDocOpenFailedMessage,
                 cliDocOpenFailedWithDetailMessage,
+                cliDocLocationText,
                 cliDocParameterText,
                 cliDocSignatureText);
             AssertCliTreeOptionsLikeProduction(cliTreeOptionSummaryInto, cliTreeMaxDepthInto);
@@ -25296,6 +25303,7 @@ func main() {
         MethodInfo cliDocGenerationFailedMessage,
         MethodInfo cliDocOpenFailedMessage,
         MethodInfo cliDocOpenFailedWithDetailMessage,
+        MethodInfo cliDocLocationText,
         MethodInfo cliDocParameterText,
         MethodInfo cliDocSignatureText)
     {
@@ -25332,6 +25340,9 @@ func main() {
             (string)(cliDocOpenFailedWithDetailMessage.Invoke(
                 null,
                 new object[] { "/tmp/api/index.html", "denied" }) ?? "<null>"));
+        Assert.Equal(
+            "src/Program.nl:12:4",
+            (string)(cliDocLocationText.Invoke(null, new object[] { "src/Program.nl", "12", "4" }) ?? "<null>"));
         Assert.Equal(
             "value: int",
             (string)(cliDocParameterText.Invoke(null, new object[] { "value", "int", 0, string.Empty }) ?? "<null>"));

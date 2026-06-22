@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-22 — Doc generated locations move into product N#
+
+`DocCommand` no longer owns generated API location text (`relative/path:line:column`) in C#. The shipped
+`CliDocLocationText` dogfood kernel now shapes that string through `DocCommandKernels`; C# keeps relative-path
+calculation, path separator normalization, HTML escaping, and file emission only. This is a Stage 6
+`C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.DocCommandKernels_SummarizesOptions|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`;
+`./scripts/dev.sh DocCommandKernels`.
+
 ## 2026-06-22 — Doc generated signatures move into product N#
 
 `DocCommand` no longer owns generated API signature prefixes, parameter text, default-value text, or return-type

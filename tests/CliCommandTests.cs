@@ -5122,6 +5122,7 @@ dependencies:
         Assert.Equal(
             "Generated docs, but failed to open /tmp/api/index.html: denied",
             DocCommandKernels.GetOpenFailedWithDetailMessage("/tmp/api/index.html", "denied"));
+        Assert.Equal("src/Program.nl:12:4", DocCommandKernels.GetLocationText("src/Program.nl", 12, 4));
         Assert.Equal(
             "value: int",
             DocCommandKernels.GetParameterText("value", "int", hasDefault: false, defaultValue: string.Empty));
