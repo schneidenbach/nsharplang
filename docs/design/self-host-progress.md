@@ -11,6 +11,19 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-22 — Query references text moves into product N#
+
+`OutputFormatter.ReferencesToText` no longer owns the visible `nlc query references --text` empty-result,
+header, definition marker, source-context trimming, or reference row text in C#. The shipped
+`OutputFormatterText.nl` dogfood kernel now shapes those reference lines through `OutputFormatterTextKernels`;
+C# keeps result traversal, CLR object access, StringBuilder assembly, and fallback/oracle rendering only. This is
+a Stage 6 `C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CodeIntelligenceOutputTests.ReferencesToText_FormatsWithCounts|FullyQualifiedName~CodeIntelligenceOutputTests.ReferencesToText_EmptyReturnsNoReferences|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_OutputFormatterText"`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`;
+`./scripts/dev.sh ReferencesToText`.
+
 ## 2026-06-22 — Query outline text moves into product N#
 
 `OutputFormatter.OutlineToText` no longer owns the visible `nlc query outline --text` file, imports, indentation,

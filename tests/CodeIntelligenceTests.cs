@@ -839,21 +839,27 @@ public class CodeIntelligenceOutputTests
     {
         var results = new List<ReferenceResult>
         {
-            new("Models.nl", 5, 0, 6, "class Person {", true),
-            new("Program.nl", 3, 8, 6, "p := Person{}", false)
+            new("Models.nl", 5, 0, 6, "  class Person {  ", true),
+            new("Program.nl", 3, 8, 6, "p := Person{}", false),
+            new("Generated.nl", 9, 2, 6, null, false)
         };
 
         var text = OutputFormatter.ReferencesToText("Person", results);
-        Assert.Contains("2 found", text);
-        Assert.Contains("[definition]", text);
-        Assert.Contains("Models.nl:5:0", text);
+        Assert.Equal(
+            string.Join(Environment.NewLine,
+                "References to 'Person' (3 found):",
+                "  Models.nl:5:0 [definition]  class Person {",
+                "  Program.nl:3:8  p := Person{}",
+                "  Generated.nl:9:2",
+                string.Empty),
+            text);
     }
 
     [Fact]
     public void ReferencesToText_EmptyReturnsNoReferences()
     {
         var text = OutputFormatter.ReferencesToText("Foo", new List<ReferenceResult>());
-        Assert.Contains("No references found", text);
+        Assert.Equal("No references found for 'Foo'.", text);
     }
 
     [Fact]

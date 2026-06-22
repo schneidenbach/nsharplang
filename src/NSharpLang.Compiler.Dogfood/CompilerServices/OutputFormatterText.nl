@@ -105,6 +105,34 @@ func QueryOutlineEntryLineText(
     return prefix + kindText + " " + name + typeText + rangeText
 }
 
+func QueryNoReferencesText(symbolName: string): string {
+    return "No references found for '" + symbolName + "'."
+}
+
+func QueryReferencesHeaderText(symbolName: string, count: int): string {
+    return "References to '" + symbolName + "' (" + count.ToString() + " found):"
+}
+
+func QueryReferenceLineText(
+    fileName: string,
+    line: int,
+    column: int,
+    isDefinition: int,
+    context: string,
+    hasContext: int): string {
+    definitionMarker := ""
+    if isDefinition != 0 {
+        definitionMarker = " [definition]"
+    }
+
+    contextText := ""
+    if hasContext != 0 {
+        contextText = "  " + context.Trim()
+    }
+
+    return "  " + fileName + ":" + line.ToString() + ":" + column.ToString() + definitionMarker + contextText
+}
+
 func QuerySymbolModifierText(modifiers: string[], requestedCount: int): string {
     count := QuerySymbolMinInt(requestedCount, modifiers.Length)
     if count <= 0 {

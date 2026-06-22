@@ -159,6 +159,69 @@ internal static class OutputFormatterTextKernels
         return GetOutlineEntryLineTextWithCSharp(entry, indent);
     }
 
+    internal static string GetNoReferencesText(string symbolName)
+    {
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return GetNoReferencesTextWithCSharp(symbolName);
+
+        try
+        {
+            var text = bindings.QueryNoReferencesText(symbolName);
+            if (!string.IsNullOrEmpty(text))
+                return text;
+        }
+        catch
+        {
+        }
+
+        return GetNoReferencesTextWithCSharp(symbolName);
+    }
+
+    internal static string GetReferencesHeaderText(string symbolName, int count)
+    {
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return GetReferencesHeaderTextWithCSharp(symbolName, count);
+
+        try
+        {
+            var text = bindings.QueryReferencesHeaderText(symbolName, count);
+            if (!string.IsNullOrEmpty(text))
+                return text;
+        }
+        catch
+        {
+        }
+
+        return GetReferencesHeaderTextWithCSharp(symbolName, count);
+    }
+
+    internal static string GetReferenceLineText(ReferenceResult reference)
+    {
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return GetReferenceLineTextWithCSharp(reference);
+
+        try
+        {
+            var text = bindings.QueryReferenceLineText(
+                reference.File,
+                reference.Line,
+                reference.Column,
+                reference.IsDefinition ? 1 : 0,
+                reference.Context ?? string.Empty,
+                reference.Context != null ? 1 : 0);
+            if (!string.IsNullOrEmpty(text))
+                return text;
+        }
+        catch
+        {
+        }
+
+        return GetReferenceLineTextWithCSharp(reference);
+    }
+
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
             DogfoodKernelLoader.CreateDelegate<QueryNoSymbolsText>(
@@ -178,7 +241,16 @@ internal static class OutputFormatterTextKernels
                 "QueryOutlineImportsLineText"),
             DogfoodKernelLoader.CreateDelegate<QueryOutlineEntryLineText>(
                 programType,
-                "QueryOutlineEntryLineText")));
+                "QueryOutlineEntryLineText"),
+            DogfoodKernelLoader.CreateDelegate<QueryNoReferencesText>(
+                programType,
+                "QueryNoReferencesText"),
+            DogfoodKernelLoader.CreateDelegate<QueryReferencesHeaderText>(
+                programType,
+                "QueryReferencesHeaderText"),
+            DogfoodKernelLoader.CreateDelegate<QueryReferenceLineText>(
+                programType,
+                "QueryReferenceLineText")));
 
     private delegate string QueryNoSymbolsText();
 
@@ -214,13 +286,28 @@ internal static class OutputFormatterTextKernels
         int line,
         int endLine);
 
+    private delegate string QueryNoReferencesText(string symbolName);
+
+    private delegate string QueryReferencesHeaderText(string symbolName, int count);
+
+    private delegate string QueryReferenceLineText(
+        string fileName,
+        int line,
+        int column,
+        int isDefinition,
+        string context,
+        int hasContext);
+
     private sealed record Bindings(
         QueryNoSymbolsText QueryNoSymbolsText,
         QuerySymbolLineText QuerySymbolLineText,
         QuerySymbolParametersLineText QuerySymbolParametersLineText,
         QueryOutlineFileLineText QueryOutlineFileLineText,
         QueryOutlineImportsLineText QueryOutlineImportsLineText,
-        QueryOutlineEntryLineText QueryOutlineEntryLineText);
+        QueryOutlineEntryLineText QueryOutlineEntryLineText,
+        QueryNoReferencesText QueryNoReferencesText,
+        QueryReferencesHeaderText QueryReferencesHeaderText,
+        QueryReferenceLineText QueryReferenceLineText);
 
     // Stage 6 C#-surface-shrink: fallback/oracle only; product query text routes through OutputFormatterText.nl.
     private static string GetSymbolLineTextWithCSharp(SymbolResult symbol, int indent)
@@ -269,5 +356,18 @@ internal static class OutputFormatterTextKernels
         var typeText = entry.ReturnType != null ? $" -> {entry.ReturnType}" : string.Empty;
         var rangeText = entry.EndLine > entry.Line ? $" (lines {entry.Line}-{entry.EndLine})" : $" (line {entry.Line})";
         return $"{prefix}{entry.Kind} {entry.Name}{typeText}{rangeText}";
+    }
+
+    private static string GetNoReferencesTextWithCSharp(string symbolName)
+        => $"No references found for '{symbolName}'.";
+
+    private static string GetReferencesHeaderTextWithCSharp(string symbolName, int count)
+        => $"References to '{symbolName}' ({count} found):";
+
+    private static string GetReferenceLineTextWithCSharp(ReferenceResult reference)
+    {
+        var definitionMarker = reference.IsDefinition ? " [definition]" : string.Empty;
+        var contextText = reference.Context != null ? $"  {reference.Context.Trim()}" : string.Empty;
+        return $"  {reference.File}:{reference.Line}:{reference.Column}{definitionMarker}{contextText}";
     }
 }

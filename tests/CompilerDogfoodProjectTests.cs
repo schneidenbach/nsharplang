@@ -7628,7 +7628,7 @@ func outer(x: int): int {
     }
 
     // MILESTONE: OutputFormatterText.nl compiles end-to-end with no C# AST and owns shipped
-    // `nlc query symbols --text` and `nlc query outline --text` line shaping.
+    // `nlc query symbols --text`, `nlc query outline --text`, and `nlc query references --text` line shaping.
     [Fact]
     public void ColumnarCodegen_CompilesRealDogfoodFile_OutputFormatterText()
     {
@@ -7641,6 +7641,9 @@ func outer(x: int): int {
         Assert.Contains("QueryOutlineFileLineText", methodNames!);
         Assert.Contains("QueryOutlineImportsLineText", methodNames!);
         Assert.Contains("QueryOutlineEntryLineText", methodNames!);
+        Assert.Contains("QueryNoReferencesText", methodNames!);
+        Assert.Contains("QueryReferencesHeaderText", methodNames!);
+        Assert.Contains("QueryReferenceLineText", methodNames!);
 
         AssertColumnarProgramMatchesCSharp(source,
             ("QueryNoSymbolsText", Array.Empty<object>()),
@@ -7660,7 +7663,12 @@ func outer(x: int): int {
             ("QueryOutlineImportsLineText", new object[] { new[] { "System", "System.Text" }, 2 }),
             ("QueryOutlineEntryLineText", new object[] { 0, "Class", "Person", string.Empty, 0, 5, 15 }),
             ("QueryOutlineEntryLineText", new object[] { 1, "Property", "Name", string.Empty, 0, 6, 6 }),
-            ("QueryOutlineEntryLineText", new object[] { 1, "Function", "Greet", "string", 1, 8, 12 }));
+            ("QueryOutlineEntryLineText", new object[] { 1, "Function", "Greet", "string", 1, 8, 12 }),
+            ("QueryNoReferencesText", new object[] { "Person" }),
+            ("QueryReferencesHeaderText", new object[] { "Person", 3 }),
+            ("QueryReferenceLineText", new object[] { "Models.nl", 5, 0, 1, "  class Person {  ", 1 }),
+            ("QueryReferenceLineText", new object[] { "Program.nl", 3, 8, 0, "p := Person{}", 1 }),
+            ("QueryReferenceLineText", new object[] { "Generated.nl", 9, 2, 0, string.Empty, 0 }));
     }
 
     // Lowercase `char` as a static-method receiver — the builtin alias (it lexes as an Identifier and binds to

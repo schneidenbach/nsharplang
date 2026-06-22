@@ -1814,15 +1814,13 @@ public static class OutputFormatter
     public static string ReferencesToText(string symbolName, List<ReferenceResult> results)
     {
         if (results.Count == 0)
-            return $"No references found for '{symbolName}'.";
+            return OutputFormatterTextKernels.GetNoReferencesText(symbolName);
 
         var sb = new StringBuilder();
-        sb.AppendLine($"References to '{symbolName}' ({results.Count} found):");
+        sb.AppendLine(OutputFormatterTextKernels.GetReferencesHeaderText(symbolName, results.Count));
         foreach (var r in results)
         {
-            var defMarker = r.IsDefinition ? " [definition]" : "";
-            var contextStr = r.Context != null ? $"  {r.Context.Trim()}" : "";
-            sb.AppendLine($"  {r.File}:{r.Line}:{r.Column}{defMarker}{contextStr}");
+            sb.AppendLine(OutputFormatterTextKernels.GetReferenceLineText(r));
         }
         return sb.ToString();
     }
