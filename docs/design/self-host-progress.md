@@ -11,6 +11,19 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-22 — Query definition text moves into product N#
+
+`OutputFormatter.DefinitionToText` and `DefinitionSearchToText` no longer own the visible
+`nlc query definition --text` direct-result, search header, search result, or empty-result lines in C#.
+The shipped `OutputFormatterText.nl` dogfood kernel now shapes those definition lines through
+`OutputFormatterTextKernels`; C# keeps result traversal, CLR object access, StringBuilder assembly, and
+fallback/oracle rendering only. This is a Stage 6 `C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CodeIntelligenceOutputTests.DefinitionToText_FormatsSingleResult|FullyQualifiedName~CodeIntelligenceOutputTests.DefinitionSearchToText_FormatsResults|FullyQualifiedName~CodeIntelligenceOutputTests.DefinitionSearchToText_EmptyReturnsNoDefinitions|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_OutputFormatterText"`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`;
+`./scripts/dev.sh DefinitionToText`.
+
 ## 2026-06-22 — Query references text moves into product N#
 
 `OutputFormatter.ReferencesToText` no longer owns the visible `nlc query references --text` empty-result,

@@ -863,6 +863,16 @@ public class CodeIntelligenceOutputTests
     }
 
     [Fact]
+    public void DefinitionToText_FormatsSingleResult()
+    {
+        var result = new DefinitionResult("Hi", "function", "Program.nl", 2, 6, 2);
+
+        var text = OutputFormatter.DefinitionToText(result);
+
+        Assert.Equal("function Hi at Program.nl:2:6", text);
+    }
+
+    [Fact]
     public void DefinitionSearchToText_FormatsResults()
     {
         var results = new List<DefinitionResult>
@@ -872,9 +882,21 @@ public class CodeIntelligenceOutputTests
         };
 
         var text = OutputFormatter.DefinitionSearchToText("Point", results);
-        Assert.Contains("Definitions of 'Point'", text);
-        Assert.Contains("record Point", text);
-        Assert.Contains("struct Point", text);
+        Assert.Equal(
+            string.Join(Environment.NewLine,
+                "Definitions of 'Point':",
+                "  record Point at Models.nl:5:0",
+                "  struct Point at Other.nl:10:0",
+                string.Empty),
+            text);
+    }
+
+    [Fact]
+    public void DefinitionSearchToText_EmptyReturnsNoDefinitions()
+    {
+        var text = OutputFormatter.DefinitionSearchToText("Missing", new List<DefinitionResult>());
+
+        Assert.Equal("No definitions found for 'Missing'.", text);
     }
 
     [Fact]

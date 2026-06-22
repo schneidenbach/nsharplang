@@ -222,6 +222,92 @@ internal static class OutputFormatterTextKernels
         return GetReferenceLineTextWithCSharp(reference);
     }
 
+    internal static string GetDefinitionLineText(DefinitionResult definition)
+    {
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return GetDefinitionLineTextWithCSharp(definition);
+
+        try
+        {
+            var text = bindings.QueryDefinitionLineText(
+                definition.Kind,
+                definition.Name,
+                definition.File,
+                definition.Line,
+                definition.Column);
+            if (!string.IsNullOrEmpty(text))
+                return text;
+        }
+        catch
+        {
+        }
+
+        return GetDefinitionLineTextWithCSharp(definition);
+    }
+
+    internal static string GetNoDefinitionsText(string name)
+    {
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return GetNoDefinitionsTextWithCSharp(name);
+
+        try
+        {
+            var text = bindings.QueryNoDefinitionsText(name);
+            if (!string.IsNullOrEmpty(text))
+                return text;
+        }
+        catch
+        {
+        }
+
+        return GetNoDefinitionsTextWithCSharp(name);
+    }
+
+    internal static string GetDefinitionsHeaderText(string name)
+    {
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return GetDefinitionsHeaderTextWithCSharp(name);
+
+        try
+        {
+            var text = bindings.QueryDefinitionsHeaderText(name);
+            if (!string.IsNullOrEmpty(text))
+                return text;
+        }
+        catch
+        {
+        }
+
+        return GetDefinitionsHeaderTextWithCSharp(name);
+    }
+
+    internal static string GetDefinitionSearchResultLineText(DefinitionResult definition)
+    {
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return GetDefinitionSearchResultLineTextWithCSharp(definition);
+
+        try
+        {
+            var text = bindings.QueryDefinitionSearchResultLineText(
+                definition.Kind,
+                definition.Name,
+                definition.File,
+                definition.Line,
+                definition.Column);
+            if (!string.IsNullOrEmpty(text))
+                return text;
+        }
+        catch
+        {
+        }
+
+        return GetDefinitionSearchResultLineTextWithCSharp(definition);
+    }
+
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
             DogfoodKernelLoader.CreateDelegate<QueryNoSymbolsText>(
@@ -250,7 +336,19 @@ internal static class OutputFormatterTextKernels
                 "QueryReferencesHeaderText"),
             DogfoodKernelLoader.CreateDelegate<QueryReferenceLineText>(
                 programType,
-                "QueryReferenceLineText")));
+                "QueryReferenceLineText"),
+            DogfoodKernelLoader.CreateDelegate<QueryDefinitionLineText>(
+                programType,
+                "QueryDefinitionLineText"),
+            DogfoodKernelLoader.CreateDelegate<QueryNoDefinitionsText>(
+                programType,
+                "QueryNoDefinitionsText"),
+            DogfoodKernelLoader.CreateDelegate<QueryDefinitionsHeaderText>(
+                programType,
+                "QueryDefinitionsHeaderText"),
+            DogfoodKernelLoader.CreateDelegate<QueryDefinitionSearchResultLineText>(
+                programType,
+                "QueryDefinitionSearchResultLineText")));
 
     private delegate string QueryNoSymbolsText();
 
@@ -298,6 +396,24 @@ internal static class OutputFormatterTextKernels
         string context,
         int hasContext);
 
+    private delegate string QueryDefinitionLineText(
+        string kindText,
+        string name,
+        string fileName,
+        int line,
+        int column);
+
+    private delegate string QueryNoDefinitionsText(string name);
+
+    private delegate string QueryDefinitionsHeaderText(string name);
+
+    private delegate string QueryDefinitionSearchResultLineText(
+        string kindText,
+        string name,
+        string fileName,
+        int line,
+        int column);
+
     private sealed record Bindings(
         QueryNoSymbolsText QueryNoSymbolsText,
         QuerySymbolLineText QuerySymbolLineText,
@@ -307,7 +423,11 @@ internal static class OutputFormatterTextKernels
         QueryOutlineEntryLineText QueryOutlineEntryLineText,
         QueryNoReferencesText QueryNoReferencesText,
         QueryReferencesHeaderText QueryReferencesHeaderText,
-        QueryReferenceLineText QueryReferenceLineText);
+        QueryReferenceLineText QueryReferenceLineText,
+        QueryDefinitionLineText QueryDefinitionLineText,
+        QueryNoDefinitionsText QueryNoDefinitionsText,
+        QueryDefinitionsHeaderText QueryDefinitionsHeaderText,
+        QueryDefinitionSearchResultLineText QueryDefinitionSearchResultLineText);
 
     // Stage 6 C#-surface-shrink: fallback/oracle only; product query text routes through OutputFormatterText.nl.
     private static string GetSymbolLineTextWithCSharp(SymbolResult symbol, int indent)
@@ -370,4 +490,16 @@ internal static class OutputFormatterTextKernels
         var contextText = reference.Context != null ? $"  {reference.Context.Trim()}" : string.Empty;
         return $"  {reference.File}:{reference.Line}:{reference.Column}{definitionMarker}{contextText}";
     }
+
+    private static string GetDefinitionLineTextWithCSharp(DefinitionResult definition)
+        => $"{definition.Kind} {definition.Name} at {definition.File}:{definition.Line}:{definition.Column}";
+
+    private static string GetNoDefinitionsTextWithCSharp(string name)
+        => $"No definitions found for '{name}'.";
+
+    private static string GetDefinitionsHeaderTextWithCSharp(string name)
+        => $"Definitions of '{name}':";
+
+    private static string GetDefinitionSearchResultLineTextWithCSharp(DefinitionResult definition)
+        => $"  {GetDefinitionLineTextWithCSharp(definition)}";
 }

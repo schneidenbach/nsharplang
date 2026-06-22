@@ -7628,7 +7628,7 @@ func outer(x: int): int {
     }
 
     // MILESTONE: OutputFormatterText.nl compiles end-to-end with no C# AST and owns shipped
-    // `nlc query symbols --text`, `nlc query outline --text`, and `nlc query references --text` line shaping.
+    // `nlc query symbols --text`, `outline --text`, `definition --text`, and `references --text` line shaping.
     [Fact]
     public void ColumnarCodegen_CompilesRealDogfoodFile_OutputFormatterText()
     {
@@ -7644,6 +7644,10 @@ func outer(x: int): int {
         Assert.Contains("QueryNoReferencesText", methodNames!);
         Assert.Contains("QueryReferencesHeaderText", methodNames!);
         Assert.Contains("QueryReferenceLineText", methodNames!);
+        Assert.Contains("QueryDefinitionLineText", methodNames!);
+        Assert.Contains("QueryNoDefinitionsText", methodNames!);
+        Assert.Contains("QueryDefinitionsHeaderText", methodNames!);
+        Assert.Contains("QueryDefinitionSearchResultLineText", methodNames!);
 
         AssertColumnarProgramMatchesCSharp(source,
             ("QueryNoSymbolsText", Array.Empty<object>()),
@@ -7668,7 +7672,11 @@ func outer(x: int): int {
             ("QueryReferencesHeaderText", new object[] { "Person", 3 }),
             ("QueryReferenceLineText", new object[] { "Models.nl", 5, 0, 1, "  class Person {  ", 1 }),
             ("QueryReferenceLineText", new object[] { "Program.nl", 3, 8, 0, "p := Person{}", 1 }),
-            ("QueryReferenceLineText", new object[] { "Generated.nl", 9, 2, 0, string.Empty, 0 }));
+            ("QueryReferenceLineText", new object[] { "Generated.nl", 9, 2, 0, string.Empty, 0 }),
+            ("QueryDefinitionLineText", new object[] { "function", "Hi", "Program.nl", 2, 6 }),
+            ("QueryNoDefinitionsText", new object[] { "Missing" }),
+            ("QueryDefinitionsHeaderText", new object[] { "Point" }),
+            ("QueryDefinitionSearchResultLineText", new object[] { "record", "Point", "Models.nl", 5, 0 }));
     }
 
     // Lowercase `char` as a static-method receiver — the builtin alias (it lexes as an Identifier and binds to

@@ -133,6 +133,22 @@ func QueryReferenceLineText(
     return "  " + fileName + ":" + line.ToString() + ":" + column.ToString() + definitionMarker + contextText
 }
 
+func QueryDefinitionLineText(kindText: string, name: string, fileName: string, line: int, column: int): string {
+    return kindText + " " + name + " at " + fileName + ":" + line.ToString() + ":" + column.ToString()
+}
+
+func QueryNoDefinitionsText(name: string): string {
+    return "No definitions found for '" + name + "'."
+}
+
+func QueryDefinitionsHeaderText(name: string): string {
+    return "Definitions of '" + name + "':"
+}
+
+func QueryDefinitionSearchResultLineText(kindText: string, name: string, fileName: string, line: int, column: int): string {
+    return "  " + QueryDefinitionLineText(kindText, name, fileName, line, column)
+}
+
 func QuerySymbolModifierText(modifiers: string[], requestedCount: int): string {
     count := QuerySymbolMinInt(requestedCount, modifiers.Length)
     if count <= 0 {

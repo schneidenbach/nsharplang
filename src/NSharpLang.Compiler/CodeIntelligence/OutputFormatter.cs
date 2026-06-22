@@ -1794,19 +1794,19 @@ public static class OutputFormatter
 
     public static string DefinitionToText(DefinitionResult result)
     {
-        return $"{result.Kind} {result.Name} at {result.File}:{result.Line}:{result.Column}";
+        return OutputFormatterTextKernels.GetDefinitionLineText(result);
     }
 
     public static string DefinitionSearchToText(string name, List<DefinitionResult> results)
     {
         if (results.Count == 0)
-            return $"No definitions found for '{name}'.";
+            return OutputFormatterTextKernels.GetNoDefinitionsText(name);
 
         var sb = new StringBuilder();
-        sb.AppendLine($"Definitions of '{name}':");
+        sb.AppendLine(OutputFormatterTextKernels.GetDefinitionsHeaderText(name));
         foreach (var r in results)
         {
-            sb.AppendLine($"  {r.Kind} {r.Name} at {r.File}:{r.Line}:{r.Column}");
+            sb.AppendLine(OutputFormatterTextKernels.GetDefinitionSearchResultLineText(r));
         }
         return sb.ToString();
     }
