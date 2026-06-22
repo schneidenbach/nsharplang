@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using NSharpLang.Compiler;
 
 namespace NSharpLang.Cli.Commands;
@@ -138,31 +137,11 @@ public static class UpdateCommand
         => GetArgumentSummary(args).TargetPackage;
 
     internal static UpdateArgumentSummary GetArgumentSummary(string[] args)
-        => UpdateCommandKernels.TryGetArgumentSummary(args, out var summary)
-            ? summary
-            : GetArgumentSummaryWithCSharp(args);
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product update argument parsing routes through UpdateCommandKernels.
-    private static UpdateArgumentSummary GetArgumentSummaryWithCSharp(string[] args)
-        => new(
-            GetTargetPackageWithCSharp(args),
-            ContainsArgWithCSharp(args, "--dry-run"),
-            ContainsArgWithCSharp(args, "--help") || ContainsArgWithCSharp(args, "-h") || (args.Length > 0 && args[0] == "help"));
-
-    private static string? GetTargetPackageWithCSharp(string[] args)
     {
-        for (var i = 0; i < args.Length; i++)
-            if (!args[i].StartsWith("-", StringComparison.Ordinal))
-                return args[i];
-        return null;
-    }
+        if (UpdateCommandKernels.TryGetArgumentSummary(args, out var summary))
+            return summary;
 
-    private static bool ContainsArgWithCSharp(string[] args, string value)
-    {
-        for (var i = 0; i < args.Length; i++)
-            if (args[i] == value)
-                return true;
-        return false;
+        throw new InvalidOperationException("N# update argument summary kernel rejected the arguments.");
     }
 
     internal static List<Reference> FilterNuGetDependencies(
@@ -171,33 +150,25 @@ public static class UpdateCommand
     {
         if (targetPackage == null)
         {
-            return UpdateDependencyFilter.TryFilterAllNuGetDependencies(
+            if (UpdateDependencyFilter.TryFilterAllNuGetDependencies(
                 dependencies,
-                out var allNuGetDependencies)
-                ? allNuGetDependencies
-                : FilterNuGetDependenciesWithCSharp(dependencies, targetPackage);
+                out var allNuGetDependencies))
+            {
+                return allNuGetDependencies;
+            }
+
+            throw new InvalidOperationException("N# update dependency filter kernel rejected the dependencies.");
         }
 
-        return UpdateDependencyFilter.TryFilterTargetNuGetDependencies(
+        if (UpdateDependencyFilter.TryFilterTargetNuGetDependencies(
             dependencies,
             targetPackage,
-            out var filteredDependencies)
-            ? filteredDependencies
-            : FilterNuGetDependenciesWithCSharp(dependencies, targetPackage);
-    }
-
-    private static List<Reference> FilterNuGetDependenciesWithCSharp(
-        IEnumerable<Reference> dependencies,
-        string? targetPackage)
-    {
-        var nugetDeps = dependencies.Where(d => d.Nuget != null).ToList();
-        if (targetPackage != null)
+            out var filteredDependencies))
         {
-            nugetDeps = nugetDeps.Where(d =>
-                string.Equals(d.Nuget, targetPackage, StringComparison.OrdinalIgnoreCase)).ToList();
+            return filteredDependencies;
         }
 
-        return nugetDeps;
+        throw new InvalidOperationException("N# update target dependency filter kernel rejected the dependencies.");
     }
 
     static int Error(string message)
