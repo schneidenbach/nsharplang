@@ -2275,6 +2275,105 @@ func CliNewFailedMessage(message: string): string {
     return "Failed to create project: " + message
 }
 
+func CliNewProjectYamlText(projectName: string, template: string): string {
+    if template == "library" || template == "test" {
+        return "name: " + projectName + "\n"
+            + "version: 1.0.0\n"
+            + "backend: il\n"
+            + "outputType: library\n"
+            + "targetFramework: net10.0\n"
+            + "\n"
+            + "# Test framework: xunit (default) or nunit\n"
+            + "# testFramework: xunit\n"
+            + "\n"
+            + "language:\n"
+            + "  asyncDefaultType: ValueTask\n"
+    }
+
+    if template == "webapi" {
+        return "name: " + projectName + "\n"
+            + "version: 1.0.0\n"
+            + "entry: Program.nl\n"
+            + "backend: il\n"
+            + "outputType: exe\n"
+            + "targetFramework: net10.0\n"
+            + "sdk: Microsoft.NET.Sdk.Web\n"
+            + "\n"
+            + "dependencies:\n"
+            + "  - framework: Microsoft.AspNetCore.App\n"
+            + "  - nuget: Swashbuckle.AspNetCore\n"
+            + "    version: 7.2.0\n"
+            + "  - nuget: Microsoft.AspNetCore.OpenApi\n"
+            + "    version: 9.0.0\n"
+            + "\n"
+            + "language:\n"
+            + "  asyncDefaultType: ValueTask\n"
+    }
+
+    if template == "systems-cli" {
+        return "name: " + projectName + "\n"
+            + "version: 1.0.0\n"
+            + "entry: Program.nl\n"
+            + "backend: il\n"
+            + "outputType: exe\n"
+            + "targetFramework: net10.0\n"
+            + "\n"
+            + "language:\n"
+            + "  profile: systems\n"
+            + "  asyncDefaultType: ValueTask\n"
+            + "  systems:\n"
+            + "    mode: strict\n"
+            + "    unknownExternalCalls: warn\n"
+            + "    aotTarget: nativeaot\n"
+            + "    stackBudgetBytes: 4096\n"
+            + "    warmup:\n"
+            + "      - Warmup\n"
+    }
+
+    if template == "systems-lib" {
+        return "name: " + projectName + "\n"
+            + "version: 1.0.0\n"
+            + "backend: il\n"
+            + "outputType: library\n"
+            + "targetFramework: net10.0\n"
+            + "\n"
+            + "language:\n"
+            + "  profile: systems\n"
+            + "  asyncDefaultType: ValueTask\n"
+            + "  systems:\n"
+            + "    mode: strict\n"
+            + "    unknownExternalCalls: warn\n"
+            + "    aotTarget: nativeaot\n"
+            + "    stackBudgetBytes: 4096\n"
+            + "    warmup:\n"
+            + "      - Warmup\n"
+    }
+
+    return "name: " + projectName + "\n"
+        + "version: 1.0.0\n"
+        + "entry: Program.nl\n"
+        + "backend: il\n"
+        + "outputType: exe\n"
+        + "targetFramework: net10.0\n"
+        + "\n"
+        + "# Test framework: xunit (default) or nunit\n"
+        + "# testFramework: xunit\n"
+        + "\n"
+        + "# Add your dependencies here\n"
+        + "# dependencies:\n"
+        + "#   - nuget: Newtonsoft.Json\n"
+        + "#     version: 13.0.3\n"
+        + "\n"
+        + "language:\n"
+        + "  profile: default\n"
+        + "  asyncDefaultType: ValueTask\n"
+        + "\n"
+        + "# package:\n"
+        + "#   author: Your Name\n"
+        + "#   description: A short description\n"
+        + "#   license: MIT\n"
+}
+
 func CliNewTemplateKind(value: string): int {
     normalized := value.Trim()
 

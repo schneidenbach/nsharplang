@@ -312,6 +312,9 @@ internal static class NewCommandKernels
         return GetFailedMessageWithCSharp(message);
     }
 
+    internal static bool TryGetProjectYamlText(string projectName, string template, out string yaml)
+        => TryGetMessage(bindings => bindings.NewProjectYamlText(projectName, template), out yaml);
+
     private static bool TryGetMessage(Func<Bindings, string> getMessage, out string message)
     {
         message = string.Empty;
@@ -472,7 +475,10 @@ internal static class NewCommandKernels
                 "CliNewRunCommandMessage"),
             DogfoodKernelLoader.CreateDelegate<CliNewFailedMessage>(
                 programType,
-                "CliNewFailedMessage")));
+                "CliNewFailedMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliNewProjectYamlText>(
+                programType,
+                "CliNewProjectYamlText")));
 
     private delegate int CliFirstPositionalArgIndex(
         string[] args,
@@ -508,6 +514,7 @@ internal static class NewCommandKernels
     private delegate string CliNewTestCommandMessage();
     private delegate string CliNewRunCommandMessage();
     private delegate string CliNewFailedMessage(string message);
+    private delegate string CliNewProjectYamlText(string projectName, string template);
 
     private sealed record Bindings(
         CliFirstPositionalArgIndex FirstPositionalArgIndex,
@@ -529,7 +536,8 @@ internal static class NewCommandKernels
         CliNewBuildCommandMessage NewBuildCommandMessage,
         CliNewTestCommandMessage NewTestCommandMessage,
         CliNewRunCommandMessage NewRunCommandMessage,
-        CliNewFailedMessage NewFailedMessage);
+        CliNewFailedMessage NewFailedMessage,
+        CliNewProjectYamlText NewProjectYamlText);
 
     private static bool TryGetOptionalArg(string[] args, int index, out string? value)
     {

@@ -2424,6 +2424,31 @@ func Main() {
         Assert.Equal("  nlc test", NewCommandKernels.GetTestCommandMessage());
         Assert.Equal("  nlc run", NewCommandKernels.GetRunCommandMessage());
         Assert.Equal("Failed to create project: denied", NewCommandKernels.GetFailedMessage("denied"));
+
+        Assert.True(NewCommandKernels.TryGetProjectYamlText("MyApp", "console", out var consoleYaml));
+        Assert.Equal(ProjectFileParser.GenerateTemplate("MyApp"), consoleYaml);
+
+        Assert.True(NewCommandKernels.TryGetProjectYamlText("MyLib", "library", out var libraryYaml));
+        Assert.Contains("name: MyLib\n", libraryYaml);
+        Assert.Contains("outputType: library\n", libraryYaml);
+        Assert.Contains("language:\n  asyncDefaultType: ValueTask\n", libraryYaml);
+        Assert.DoesNotContain("entry: Program.nl", libraryYaml, StringComparison.Ordinal);
+
+        Assert.True(NewCommandKernels.TryGetProjectYamlText("MyApi", "webapi", out var webApiYaml));
+        Assert.Contains("sdk: Microsoft.NET.Sdk.Web\n", webApiYaml);
+        Assert.Contains("  - framework: Microsoft.AspNetCore.App\n", webApiYaml);
+        Assert.Contains("  - nuget: Swashbuckle.AspNetCore\n    version: 7.2.0\n", webApiYaml);
+
+        Assert.True(NewCommandKernels.TryGetProjectYamlText("PacketTool", "systems-cli", out var systemsCliYaml));
+        Assert.Contains("entry: Program.nl\n", systemsCliYaml);
+        Assert.Contains("outputType: exe\n", systemsCliYaml);
+        Assert.Contains("  profile: systems\n", systemsCliYaml);
+        Assert.Contains("    warmup:\n      - Warmup\n", systemsCliYaml);
+
+        Assert.True(NewCommandKernels.TryGetProjectYamlText("PacketCore", "systems-lib", out var systemsLibYaml));
+        Assert.Contains("outputType: library\n", systemsLibYaml);
+        Assert.Contains("  profile: systems\n", systemsLibYaml);
+        Assert.DoesNotContain("entry: Program.nl", systemsLibYaml, StringComparison.Ordinal);
     }
 
     [Fact]

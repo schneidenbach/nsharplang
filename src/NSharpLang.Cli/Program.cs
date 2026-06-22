@@ -941,6 +941,15 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
 
     static string GenerateProjectYaml(string projectName, string template)
     {
+        if (NewCommandKernels.TryGetProjectYamlText(projectName, template, out var yaml))
+            return yaml;
+
+        return GenerateProjectYamlWithCSharp(projectName, template);
+    }
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product new project.yml generation routes through NewCommandKernels.
+    static string GenerateProjectYamlWithCSharp(string projectName, string template)
+    {
         return template switch
         {
             "library" or "test" => $@"name: {projectName}

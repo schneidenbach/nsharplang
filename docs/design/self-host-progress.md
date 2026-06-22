@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-22 — `nlc new` project.yml generation moves into product N#
+
+`nlc new` no longer owns generated `project.yml` content in C#. The shipped `CliArguments.nl` dogfood kernel now
+shapes the console, library, test, webapi, systems-cli, and systems-lib project.yml bodies through
+`NewCommandKernels`; C# keeps directory/file IO, SDK support-file generation, and fallback/oracle text only. This is
+a Stage 6 `C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.NewCommandKernels_SummarizesArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_EligibleClusterCompiles"`;
+`./scripts/dev.sh CliArguments`.
+
 ## 2026-06-22 — Hover signatures move into product N#
 
 `CodeIntelligenceService.GetHoverInfo` no longer owns function signature or fallback `kind name[: type]`

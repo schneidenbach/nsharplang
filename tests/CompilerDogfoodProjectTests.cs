@@ -7213,6 +7213,7 @@ func outer(x: int): int {
         Assert.Contains("CliNewTestCommandMessage", methodNames!); // product new test command shaping.
         Assert.Contains("CliNewRunCommandMessage", methodNames!); // product new run command shaping.
         Assert.Contains("CliNewFailedMessage", methodNames!); // product new failure message shaping.
+        Assert.Contains("CliNewProjectYamlText", methodNames!); // product new project.yml content shaping.
         Assert.Contains("CliNewTemplateKind", methodNames!); // product new template normalization.
         Assert.Contains("CliNewEffectiveTemplateKind", methodNames!); // product new --systems template selection.
         Assert.Contains("CliNewTemplateSourceFileKindsInto", methodNames!); // product new template source manifest.
@@ -7491,6 +7492,11 @@ func outer(x: int): int {
             ("CliNewTemplateSourceFileKindsInto", new object[] { "systems-lib", new int[2] }),
             ("CliNewTemplateSourceFileKindsInto", new object[] { "unknown", new int[2] }),
             ("CliNewTemplateSourceFileKindsInto", new object[] { "test", new int[1] }),
+            ("CliNewProjectYamlText", new object[] { "MyApp", "console" }),
+            ("CliNewProjectYamlText", new object[] { "MyLib", "library" }),
+            ("CliNewProjectYamlText", new object[] { "MyApi", "webapi" }),
+            ("CliNewProjectYamlText", new object[] { "PacketTool", "systems-cli" }),
+            ("CliNewProjectYamlText", new object[] { "PacketCore", "systems-lib" }),
             ("CliAddPackageSpecInto", new object[] { "Serilog@3.1.0", "ignored", 1, new int[4] }),
             ("CliAddPackageSpecInto", new object[] { "Serilog", "3.1.0", 1, new int[4] }),
             ("CliAddPackageSpecInto", new object[] { "@scope@1.0", "2.0.0", 1, new int[4] }),
@@ -13053,8 +13059,8 @@ func outer(x: int): int {
         Assert.True(ok, $"Columnar backend declined the merged {productFiles.Length}-file product corpus.");
         using var loadScope = CollectibleAssemblyScope.Load(assembly!); // the merged IL is a valid, loadable assembly.
         Assert.NotNull(loadScope.Assembly);
-        Assert.True(methodNames!.Length >= 432,
-            $"Product dogfood corpus method coverage regressed: expected at least 432 emitted methods, found {methodNames.Length}.");
+        Assert.True(methodNames!.Length >= 433,
+            $"Product dogfood corpus method coverage regressed: expected at least 433 emitted methods, found {methodNames.Length}.");
         // Files eligible ONLY via cross-file resolution must contribute their public functions —
         // i.e. the merge actually emitted them (single-file each declines; see ColumnarCodegen_MultiFile_*).
         Assert.Contains("TokenizeColumnarSourceInto", methodNames!); // composed lexer metadata + parser-token compaction routing
