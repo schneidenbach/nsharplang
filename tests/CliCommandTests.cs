@@ -3714,6 +3714,56 @@ func Main() {
             "No project.yml found in current directory. Run 'nlc new <name>' to create a project.",
             PublishCommandKernels.GetMissingProjectFileMessage());
         Assert.Equal("Publish successful!", PublishCommandKernels.GetSuccessMessage());
+        var expectedHelpText = """
+N# Publish
+
+Usage: nlc publish [options]
+
+Package the project for distribution.
+
+Options:
+  --project <dir>         Project root directory (default: current directory)
+  --backend <mode>        Compilation backend: il
+  --configuration <cfg>   Build configuration (default: Release)
+  --output <dir>          Output directory for published files
+  --runtime <rid>         Current host runtime only; adds a framework-dependent launcher
+  --self-contained        Planned; currently exits with guidance
+  --aot                   Analysis-only: verify Native AOT safety and annotate public APIs
+  --help, -h              Show this help text
+
+Supported publish shapes:
+  - Portable framework-dependent: nlc publish --output ./dist
+  - Current-runtime launcher: nlc publish --runtime <current-rid>
+
+Native AOT (--aot):
+  Analysis-only this release. Fails the publish on any AOT blocker (reflection,
+  dynamic code, runtime generics, expression trees) and stamps public APIs with
+  [RequiresUnreferencedCode]/[RequiresDynamicCode]. It does NOT emit a native image yet.
+
+Unsupported today:
+  - Cross-runtime publishing, e.g. publishing linux-x64 from osx-arm64
+  - Self-contained apphost/runtime bundles
+  - Native AOT image generation
+
+Examples:
+  nlc publish
+  nlc publish --backend il --output ./dist
+  nlc publish --configuration Release
+  nlc publish --runtime <current-rid> --output ./dist
+  nlc publish --aot
+  nlc publish --output ./dist
+
+Exit codes:
+  0  Publish succeeded
+  1  Publish failed
+""";
+        var helpText = PublishCommandKernels.GetHelpText();
+        Assert.Equal(expectedHelpText, helpText);
+
+        var (helpExitCode, helpStdout, helpStderr) = CaptureConsole(() => ExecuteProgram("publish", "--help"));
+        Assert.Equal(0, helpExitCode);
+        Assert.Equal(helpText + Environment.NewLine, helpStdout);
+        Assert.True(string.IsNullOrWhiteSpace(helpStderr));
 
         Assert.Equal(
             "Debug",

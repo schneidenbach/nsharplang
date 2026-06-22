@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-22 — Publish help text moves into product N#
+
+`Program.PublishCommand` no longer owns the multi-line `nlc publish --help` body in C#. The shipped
+`CliPublishHelpText` dogfood kernel now shapes that help text through `PublishCommandKernels`; C# keeps
+console output, filesystem/runtime publishing boundaries, and fallback/oracle text only. This is a Stage 6
+`C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.PublishCommandKernels_NormalizesOptionsAndValidation|FullyQualifiedName~CliParityAuditTests.PublishCommand_HelpWinsBeforeValidation|FullyQualifiedName~CliParityAuditTests.PublishCommand_Help_StatesSupportedAndUnsupportedTargetShapes|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`;
+`./scripts/dev.sh PublishCommandKernels`.
+
 ## 2026-06-22 — Batch query validation messages move into product N#
 
 `BatchQueryRunner` no longer owns request-file, malformed-payload, duplicate-id, unsupported-command,

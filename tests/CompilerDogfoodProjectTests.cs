@@ -7081,6 +7081,7 @@ func outer(x: int): int {
         Assert.Contains("CliTestVerboseSkippedMessage", methodNames!); // product test verbose skipped line shaping.
         Assert.Contains("CliTestVerboseFailedMessage", methodNames!); // product test verbose failed line shaping.
         Assert.Contains("CliPublishValidationErrorMessage", methodNames!); // product publish validation message shaping.
+        Assert.Contains("CliPublishHelpText", methodNames!); // product publish help text shaping.
         Assert.Contains("CliPublishAotAnalysisOnlyNotice", methodNames!); // product publish AOT notice shaping.
         Assert.Contains("CliPublishSelfContainedUnsupportedMessage", methodNames!); // product publish unsupported-shape message shaping.
         Assert.Contains("CliPublishCrossRuntimeUnsupportedMessage", methodNames!); // product publish runtime message shaping.
@@ -16524,6 +16525,10 @@ class OtherZetaType {
                     "CliPublishValidationErrorMessage",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliPublishValidationErrorMessage.");
+            var cliPublishHelpText = programType.GetMethod(
+                    "CliPublishHelpText",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliPublishHelpText.");
             var cliPublishAotAnalysisOnlyNotice = programType.GetMethod(
                     "CliPublishAotAnalysisOnlyNotice",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -18424,6 +18429,7 @@ func main(customer: Customer, résumé: Profile) {
                 cliWatchChangeDetectedMessage);
             AssertCliPublishOptionsLikeProduction(cliPublishOptionsInto);
             AssertCliPublishValidationMessagesLikeProduction(cliPublishValidationErrorMessage);
+            AssertCliPublishHelpTextLikeProduction(cliPublishHelpText);
             AssertCliPublishUnsupportedMessagesLikeProduction(
                 cliPublishAotAnalysisOnlyNotice,
                 cliPublishSelfContainedUnsupportedMessage,
@@ -23574,6 +23580,12 @@ func main() {
                 new object[] { testCase.Code, testCase.Arg }) ?? "<null>");
             Assert.Equal(testCase.Expected, actual);
         }
+    }
+
+    private static void AssertCliPublishHelpTextLikeProduction(MethodInfo cliPublishHelpText)
+    {
+        var actual = (string)(cliPublishHelpText.Invoke(null, Array.Empty<object>()) ?? "<null>");
+        Assert.Equal(PublishCommandKernels.GetHelpText(), actual);
     }
 
     private static void AssertCliPublishUnsupportedMessagesLikeProduction(
