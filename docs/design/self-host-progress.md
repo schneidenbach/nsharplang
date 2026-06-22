@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-22 — C# project-reference build notices move into product N#
+
+`CompilationReferenceResolver` no longer owns the `Building C# project reference ...` notice in C#. The
+shipped `CliCSharpProjectReferenceBuildMessage` dogfood kernel now shapes that text through
+`CompilationReferenceResolverKernels`; C# keeps quiet-mode branching, process startup, and dotnet build IO only.
+This is a Stage 6 `C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.CompilationReferenceResolverKernels_ShapesCSharpProjectReferenceMessages|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`;
+`./scripts/dev.sh CompilationReferenceResolverKernels`.
+
 ## 2026-06-22 — Build timing breakdown moves into product N#
 
 `Program.Backends` no longer owns the `nlc build --timings` text banner in C#. The shipped
@@ -861,7 +872,7 @@ Focused evidence:
 
 `CompilationReferenceResolver` now detects `ref` output-path segments for built C# project references through
 `CompilationReferenceResolverKernels`, which binds the shipped `CliPathHasSegmentIgnoreCase` dogfood kernel in
-`CliArguments.nl`. Directory enumeration, timestamps, and process/file IO remain C# host-boundary work; the product
+`CliArguments.nl`. Directory enumeration, timestamps, process/file IO, and quiet-mode branching remain C# host-boundary work; the product
 decision to reject reference assemblies from project-reference output selection now lives in N#, with the previous
 `Split`/`OrdinalIgnoreCase` predicate isolated as fallback/oracle.
 

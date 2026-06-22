@@ -7092,6 +7092,10 @@ func CliPathHasSegmentIgnoreCase(path: string, separator: char, segment: string)
     return 0
 }
 
+func CliCSharpProjectReferenceBuildMessage(projectPath: string): string {
+    return "Building C# project reference " + projectPath
+}
+
 func CliPathSegmentEqualsIgnoreCase(path: string, start: int, end: int, segment: string): bool {
     length := end - start
     if length != segment.Length {

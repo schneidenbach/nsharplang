@@ -4252,6 +4252,14 @@ Exit codes:
     }
 
     [Fact]
+    public void CompilationReferenceResolverKernels_ShapesCSharpProjectReferenceMessages()
+    {
+        Assert.Equal(
+            "Building C# project reference /tmp/Demo/Demo.csproj",
+            CompilationReferenceResolverKernels.GetCSharpProjectReferenceBuildMessage("/tmp/Demo/Demo.csproj"));
+    }
+
+    [Fact]
     public void CompilationReferenceResolverKernels_NormalizesNuGetDependencyVersions()
     {
         AssertNormalized(null, null);

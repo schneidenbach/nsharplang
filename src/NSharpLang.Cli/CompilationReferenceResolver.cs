@@ -281,7 +281,8 @@ internal static class CompilationReferenceResolver
 
         if (!options.Quiet)
         {
-            Console.Error.WriteLine($"Building C# project reference {projectPath}");
+            Console.Error.WriteLine(
+                CompilationReferenceResolverKernels.GetCSharpProjectReferenceBuildMessage(projectPath));
         }
 
         var startInfo = new System.Diagnostics.ProcessStartInfo("dotnet")

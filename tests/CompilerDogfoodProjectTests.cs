@@ -7034,6 +7034,7 @@ func outer(x: int): int {
         Assert.Contains("CliLatestNuGetVersionIndex", methodNames!); // product resolver latest NuGet version selection.
         Assert.Contains("CliBestNuGetVersionIndex", methodNames!); // product resolver installed NuGet version selection.
         Assert.Contains("CliPathHasSegmentIgnoreCase", methodNames!); // product resolver C# project-reference output filtering.
+        Assert.Contains("CliCSharpProjectReferenceBuildMessage", methodNames!); // product resolver C# project-reference notice text shaping.
         Assert.Contains("CliGeneratedSourceBasePathLength", methodNames!); // product stale generated-output cleanup.
         Assert.Contains("CliShouldSkipGeneratedSourcePath", methodNames!); // product stale generated-output cleanup.
         Assert.Contains("CliGeneratedOutputBasePathLength", methodNames!); // product stale generated-output cleanup.
@@ -7382,6 +7383,7 @@ func outer(x: int): int {
             ("CliPathHasSegmentIgnoreCase", new object[] { "/tmp/bin/reference/App.dll", '/', "ref" }),
             ("CliPathHasSegmentIgnoreCase", new object[] { @"C:\tmp\ref\App.dll", '\\', "ref" }),
             ("CliPathHasSegmentIgnoreCase", new object[] { "lib/REF/App.dll", '/', "ref" }),
+            ("CliCSharpProjectReferenceBuildMessage", new object[] { "/tmp/Demo/Demo.csproj" }),
             ("CliGeneratedSourceBasePathLength", new object[] { "src/Program.nl" }),
             ("CliGeneratedSourceBasePathLength", new object[] { "src/Calculator.tests.nl" }),
             ("CliGeneratedSourceBasePathLength", new object[] { "src/Calculator.TESTS.NL" }),
@@ -17279,6 +17281,10 @@ class OtherZetaType {
                     "CliReferenceResolutionBestScoreChecksum",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliReferenceResolutionBestScoreChecksum.");
+            var cliCSharpProjectReferenceBuildMessage = programType.GetMethod(
+                    "CliCSharpProjectReferenceBuildMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliCSharpProjectReferenceBuildMessage.");
             var cliDocSymbolOrderCountingIndicesInto = programType.GetMethod(
                     "CliDocSymbolOrderCountingIndicesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -18646,6 +18652,11 @@ func main(customer: Customer, résumé: Profile) {
             AssertCliReferenceResolutionBestScoreSelectionLikeProduction(
                 cliReferenceResolutionBestScoreIndex,
                 cliReferenceResolutionBestScoreChecksum);
+            Assert.Equal(
+                "Building C# project reference /tmp/Demo/Demo.csproj",
+                (string)(cliCSharpProjectReferenceBuildMessage.Invoke(
+                    null,
+                    new object[] { "/tmp/Demo/Demo.csproj" }) ?? string.Empty));
             AssertCliDocSymbolOrderingLikeProduction(
                 cliDocSymbolOrderCountingIndicesInto,
                 cliDocSymbolOrderCountingChecksumInto);

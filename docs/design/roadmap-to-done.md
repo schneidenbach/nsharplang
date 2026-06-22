@@ -316,7 +316,7 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       `RestoreCommand` in `RestoreCommandKernels`; stale generated-output directory de-duplication,
       generated source-path pruning, generated-source base-path derivation, and generated-output base-path
       derivation now live beside `Program.CleanStaleGeneratedFiles` in `GeneratedOutputDirectoryDeduplicator`; native
-      compilation-reference filtering, C# project-reference output filtering, dependency-version normalization,
+      compilation-reference filtering, C# project-reference output filtering and build-notice text, dependency-version normalization,
       latest and installed NuGet version selection,
       shared-framework candidate selection, target-framework version parsing, and framework compatibility scoring now
       live beside `CompilationReferenceResolver` in `CompilationReferenceResolverKernels`, and NuGet/framework best-score
