@@ -193,143 +193,58 @@ internal static class NewCommandKernels
     }
 
     internal static string GetHelpText()
-    {
-        if (TryGetMessage(bindings => bindings.NewHelpText(), out var message))
-            return message;
-
-        return GetHelpTextWithCSharp();
-    }
+        => RequiredBindings.NewHelpText();
 
     internal static string GetUsageMessage()
-    {
-        if (TryGetMessage(bindings => bindings.NewUsageMessage(), out var message))
-            return message;
-
-        return GetUsageMessageWithCSharp();
-    }
+        => RequiredBindings.NewUsageMessage();
 
     internal static string GetInvalidTemplateMessage()
-    {
-        if (TryGetMessage(bindings => bindings.NewInvalidTemplateMessage(), out var message))
-            return message;
-
-        return GetInvalidTemplateMessageWithCSharp();
-    }
+        => RequiredBindings.NewInvalidTemplateMessage();
 
     internal static string GetDirectoryExistsMessage(string projectDir)
-    {
-        if (TryGetMessage(bindings => bindings.NewDirectoryExistsMessage(projectDir), out var message))
-            return message;
-
-        return GetDirectoryExistsMessageWithCSharp(projectDir);
-    }
+        => RequiredBindings.NewDirectoryExistsMessage(projectDir);
 
     internal static string GetCreatingProjectMessage(string template, string projectName)
-    {
-        if (TryGetMessage(bindings => bindings.NewCreatingProjectMessage(template, projectName), out var message))
-            return message;
-
-        return GetCreatingProjectMessageWithCSharp(template, projectName);
-    }
+        => RequiredBindings.NewCreatingProjectMessage(template, projectName);
 
     internal static string GetCreatedFileMessage(string projectName, string file)
-    {
-        if (TryGetMessage(bindings => bindings.NewCreatedFileMessage(projectName, file), out var message))
-            return message;
-
-        return GetCreatedFileMessageWithCSharp(projectName, file);
-    }
+        => RequiredBindings.NewCreatedFileMessage(projectName, file);
 
     internal static string GetProjectShapeMessage()
-    {
-        if (TryGetMessage(bindings => bindings.NewProjectShapeMessage(), out var message))
-            return message;
-
-        return GetProjectShapeMessageWithCSharp();
-    }
+        => RequiredBindings.NewProjectShapeMessage();
 
     internal static string GetNextStepsIntroMessage(string template)
-    {
-        if (TryGetMessage(bindings => bindings.NewNextStepsIntroMessage(template), out var message))
-            return message;
-
-        return GetNextStepsIntroMessageWithCSharp(template);
-    }
+        => RequiredBindings.NewNextStepsIntroMessage(template);
 
     internal static string GetCdCommandMessage(string projectName)
-    {
-        if (TryGetMessage(bindings => bindings.NewCdCommandMessage(projectName), out var message))
-            return message;
-
-        return GetCdCommandMessageWithCSharp(projectName);
-    }
+        => RequiredBindings.NewCdCommandMessage(projectName);
 
     internal static string GetSystemsReportCommandMessage()
-    {
-        if (TryGetMessage(bindings => bindings.NewSystemsReportCommandMessage(), out var message))
-            return message;
-
-        return GetSystemsReportCommandMessageWithCSharp();
-    }
+        => RequiredBindings.NewSystemsReportCommandMessage();
 
     internal static string GetSystemsBuildCommandMessage()
-    {
-        if (TryGetMessage(bindings => bindings.NewSystemsBuildCommandMessage(), out var message))
-            return message;
-
-        return GetSystemsBuildCommandMessageWithCSharp();
-    }
+        => RequiredBindings.NewSystemsBuildCommandMessage();
 
     internal static string GetBuildCommandMessage()
-    {
-        if (TryGetMessage(bindings => bindings.NewBuildCommandMessage(), out var message))
-            return message;
-
-        return GetBuildCommandMessageWithCSharp();
-    }
+        => RequiredBindings.NewBuildCommandMessage();
 
     internal static string GetTestCommandMessage()
-    {
-        if (TryGetMessage(bindings => bindings.NewTestCommandMessage(), out var message))
-            return message;
-
-        return GetTestCommandMessageWithCSharp();
-    }
+        => RequiredBindings.NewTestCommandMessage();
 
     internal static string GetRunCommandMessage()
-    {
-        if (TryGetMessage(bindings => bindings.NewRunCommandMessage(), out var message))
-            return message;
-
-        return GetRunCommandMessageWithCSharp();
-    }
+        => RequiredBindings.NewRunCommandMessage();
 
     internal static string GetFailedMessage(string message)
-    {
-        if (TryGetMessage(bindings => bindings.NewFailedMessage(message), out var result))
-            return result;
-
-        return GetFailedMessageWithCSharp(message);
-    }
+        => RequiredBindings.NewFailedMessage(message);
 
     internal static bool TryGetProjectYamlText(string projectName, string template, out string yaml)
         => TryGetMessage(bindings => bindings.NewProjectYamlText(projectName, template), out yaml);
 
     internal static string GetGlobalJsonText()
-    {
-        if (TryGetMessage(bindings => bindings.NewGlobalJsonText(), out var text))
-            return text;
-
-        return GetGlobalJsonTextWithCSharp();
-    }
+        => RequiredBindings.NewGlobalJsonText();
 
     internal static string GetNuGetConfigText(string feedValue)
-    {
-        if (TryGetMessage(bindings => bindings.NewNuGetConfigText(feedValue), out var text))
-            return text;
-
-        return GetNuGetConfigTextWithCSharp(feedValue);
-    }
+        => RequiredBindings.NewNuGetConfigText(feedValue);
 
     internal static bool TryGetTemplateSourceText(
         string template,
@@ -356,107 +271,6 @@ internal static class NewCommandKernels
             return false;
         }
     }
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product new command messages route through CliNew* kernels.
-    private static string GetHelpTextWithCSharp()
-        => "N# New Project\n"
-           + "\n"
-           + "Usage: nlc new <project-name> [--template <template>] [--systems]\n"
-           + "       nlc new systems-cli <project-name>\n"
-           + "       nlc new systems-lib <project-name>\n"
-           + "\n"
-           + "Create a new csproj-free N# project. Fresh projects are project.yml-first:\n"
-           + "`nlc build`, `nlc run`, and `nlc test` build directly from project.yml.\n"
-           + "Do not hand-author project build settings in .csproj.\n"
-           + "\n"
-           + "Options:\n"
-           + "  --template <template>  Project template: console, library, test, webapi, systems-cli, systems-lib (default: console)\n"
-           + "  --type <template>      Alias for --template\n"
-           + "  --systems              Enable the systems profile for console/library templates\n"
-           + "  --help, -h             Show this help text\n"
-           + "\n"
-           + "Examples:\n"
-           + "  nlc new MyApp\n"
-           + "  nlc new MyLib --template library\n"
-           + "  nlc new MyApi --template webapi\n"
-           + "  nlc new systems-cli PacketTool\n"
-           + "  nlc new PacketCore --template library --systems\n"
-           + "  nlc new lib PacketCore --systems\n"
-           + "  cd MyApp && nlc build\n"
-           + "\n"
-           + "Exit codes:\n"
-           + "  0  Project created successfully\n"
-           + "  1  Project creation failed";
-
-    private static string GetUsageMessageWithCSharp()
-        => "Usage: nlc new <project-name> [--template <template>]";
-
-    private static string GetInvalidTemplateMessageWithCSharp()
-        => "Invalid template. Expected one of: console, library, test, webapi, systems-cli, systems-lib.";
-
-    private static string GetDirectoryExistsMessageWithCSharp(string projectDir)
-        => $"Directory already exists: {projectDir}. Use a different name or remove the existing directory.";
-
-    private static string GetCreatingProjectMessageWithCSharp(string template, string projectName)
-        => $"Creating new {template} project: {projectName}";
-
-    private static string GetCreatedFileMessageWithCSharp(string projectName, string file)
-        => $"Created: {projectName}/{file}";
-
-    private static string GetProjectShapeMessageWithCSharp()
-        => "Project shape: csproj-free source tree; nlc builds directly from project.yml.";
-
-    private static string GetNextStepsIntroMessageWithCSharp(string template)
-        => template switch
-        {
-            "systems-cli" or "systems-lib" => "To check systems policy and inspect performance facts:",
-            "test" => "To build and test your project:",
-            "library" => "To build your project:",
-            _ => "To build and run your project:",
-        };
-
-    private static string GetCdCommandMessageWithCSharp(string projectName)
-        => $"  cd {projectName}";
-
-    private static string GetSystemsReportCommandMessageWithCSharp()
-        => "  nlc check --systems-report";
-
-    private static string GetSystemsBuildCommandMessageWithCSharp()
-        => "  nlc build --perf-report";
-
-    private static string GetBuildCommandMessageWithCSharp()
-        => "  nlc build";
-
-    private static string GetTestCommandMessageWithCSharp()
-        => "  nlc test";
-
-    private static string GetRunCommandMessageWithCSharp()
-        => "  nlc run";
-
-    private static string GetFailedMessageWithCSharp(string message)
-        => $"Failed to create project: {message}";
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product new SDK support-file content routes through CliNew* kernels.
-    private static string GetGlobalJsonTextWithCSharp()
-        => "{\n"
-           + "  \"sdk\": {\n"
-           + "    \"version\": \"10.0.100\",\n"
-           + "    \"rollForward\": \"latestFeature\"\n"
-           + "  },\n"
-           + "  \"msbuild-sdks\": {\n"
-           + "    \"NSharpLang.Sdk\": \"0.1.0\"\n"
-           + "  }\n"
-           + "}\n";
-
-    private static string GetNuGetConfigTextWithCSharp(string feedValue)
-        => "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
-           + "<configuration>\n"
-           + "  <packageSources>\n"
-           + "    <clear />\n"
-           + "    <add key=\"nuget.org\" value=\"https://api.nuget.org/v3/index.json\" />\n"
-           + $"    <add key=\"nsharp-local\" value=\"{System.Security.SecurityElement.Escape(feedValue)}\" />\n"
-           + "  </packageSources>\n"
-           + "</configuration>\n";
 
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
@@ -597,6 +411,9 @@ internal static class NewCommandKernels
         CliNewGlobalJsonText NewGlobalJsonText,
         CliNewNuGetConfigText NewNuGetConfigText,
         CliNewTemplateSourceText NewTemplateSourceText);
+
+    private static Bindings RequiredBindings
+        => s_bindings.Value ?? throw new InvalidOperationException("N# new command kernels are unavailable.");
 
     private static bool TryGetOptionalArg(string[] args, int index, out string? value)
     {

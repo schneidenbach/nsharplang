@@ -727,20 +727,11 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
     }
 
     internal static NewArgumentSummary GetNewArgumentSummary(string[] args)
-        => NewCommandKernels.TryGetArgumentSummary(args, out var summary)
-            ? summary
-            : GetNewArgumentSummaryWithCSharp(args);
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product new argument parsing routes through NewCommandKernels.
-    private static NewArgumentSummary GetNewArgumentSummaryWithCSharp(string[] args)
     {
-        var positional = GetPositionalArgsWithCSharp(args, "--template", "--type");
-        return new NewArgumentSummary(
-            GetFirstPositionalArgWithCSharp(args, NewProjectOptionsWithValues),
-            positional.Length >= 2 ? positional[1] : null,
-            GetOptionValue(args, "--template") ?? GetOptionValue(args, "--type"),
-            args.Contains("--systems"),
-            args.Contains("--help") || args.Contains("-h") || (args.Length > 0 && args[0] == "help"));
+        if (NewCommandKernels.TryGetArgumentSummary(args, out var summary))
+            return summary;
+
+        throw new InvalidOperationException("N# new argument summary kernel rejected the arguments.");
     }
 
     static string[] GetTemplateSourceFiles(string template)
@@ -754,21 +745,12 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
     }
 
     static NewTemplateSourceFileKind[] GetTemplateSourceFileKinds(string template)
-        => NewCommandKernels.TryGetTemplateSourceFileKinds(template, out var dogfoodKinds)
-            ? dogfoodKinds
-            : GetTemplateSourceFileKindsWithCSharp(template);
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product new-template source manifests route through NewCommandKernels.
-    static NewTemplateSourceFileKind[] GetTemplateSourceFileKindsWithCSharp(string template) => template switch
     {
-        "console" => new[] { NewTemplateSourceFileKind.Program },
-        "library" => new[] { NewTemplateSourceFileKind.Calculator },
-        "test" => new[] { NewTemplateSourceFileKind.Calculator, NewTemplateSourceFileKind.CalculatorTests },
-        "webapi" => new[] { NewTemplateSourceFileKind.Program, NewTemplateSourceFileKind.WebApiController },
-        "systems-cli" => new[] { NewTemplateSourceFileKind.Program, NewTemplateSourceFileKind.SystemsTests },
-        "systems-lib" => new[] { NewTemplateSourceFileKind.PacketCore, NewTemplateSourceFileKind.PacketCoreTests },
-        _ => Array.Empty<NewTemplateSourceFileKind>(),
-    };
+        if (NewCommandKernels.TryGetTemplateSourceFileKinds(template, out var dogfoodKinds))
+            return dogfoodKinds;
+
+        throw new InvalidOperationException("N# new template source manifest kernel rejected the template.");
+    }
 
     static string GetTemplateSourceFileName(NewTemplateSourceFileKind sourceFileKind)
         => sourceFileKind switch
@@ -785,47 +767,18 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
 
     static string? NormalizeProjectTemplate(string value)
     {
-        var templateKind = NewCommandKernels.TryNormalizeTemplate(value, out var dogfoodTemplateKind)
-            ? dogfoodTemplateKind
-            : NormalizeProjectTemplateWithCSharp(value);
+        if (!NewCommandKernels.TryNormalizeTemplate(value, out var templateKind))
+            throw new InvalidOperationException("N# new template normalization kernel rejected the template.");
 
         return GetProjectTemplateName(templateKind);
     }
 
     static string? ResolveProjectTemplate(string value, bool systems)
     {
-        var templateKind = NewCommandKernels.TryResolveTemplate(value, systems, out var dogfoodTemplateKind)
-            ? dogfoodTemplateKind
-            : ResolveProjectTemplateWithCSharp(value, systems);
+        if (!NewCommandKernels.TryResolveTemplate(value, systems, out var templateKind))
+            throw new InvalidOperationException("N# new template resolution kernel rejected the template.");
 
         return GetProjectTemplateName(templateKind);
-    }
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product new --systems effective-template selection routes through NewCommandKernels.
-    static NewProjectTemplateKind ResolveProjectTemplateWithCSharp(string value, bool systems)
-    {
-        var templateKind = NormalizeProjectTemplateWithCSharp(value);
-        if (systems && templateKind == NewProjectTemplateKind.Console)
-            return NewProjectTemplateKind.SystemsCli;
-        if (systems && templateKind == NewProjectTemplateKind.Library)
-            return NewProjectTemplateKind.SystemsLib;
-
-        return templateKind;
-    }
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product new-template normalization routes through NewCommandKernels.
-    static NewProjectTemplateKind NormalizeProjectTemplateWithCSharp(string value)
-    {
-        return value.Trim().ToLowerInvariant() switch
-        {
-            "console" or "exe" or "app" => NewProjectTemplateKind.Console,
-            "library" or "lib" => NewProjectTemplateKind.Library,
-            "test" or "tests" => NewProjectTemplateKind.Test,
-            "webapi" or "web-api" or "web" => NewProjectTemplateKind.WebApi,
-            "systems-cli" or "systems-console" or "systems" => NewProjectTemplateKind.SystemsCli,
-            "systems-lib" or "systems-library" => NewProjectTemplateKind.SystemsLib,
-            _ => NewProjectTemplateKind.Unknown,
-        };
     }
 
     static string? GetProjectTemplateName(NewProjectTemplateKind templateKind)
@@ -876,70 +829,7 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
         if (NewCommandKernels.TryGetProjectYamlText(projectName, template, out var yaml))
             return yaml;
 
-        return GenerateProjectYamlWithCSharp(projectName, template);
-    }
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product new project.yml generation routes through NewCommandKernels.
-    static string GenerateProjectYamlWithCSharp(string projectName, string template)
-    {
-        return template switch
-        {
-            "library" or "test" => $@"name: {projectName}
-version: 1.0.0
-backend: il
-outputType: library
-targetFramework: net10.0
-
-# Test framework: xunit (default) or nunit
-# testFramework: xunit
-
-language:
-  asyncDefaultType: ValueTask
-",
-            "webapi" => $@"name: {projectName}
-version: 1.0.0
-entry: Program.nl
-backend: il
-outputType: exe
-targetFramework: net10.0
-sdk: Microsoft.NET.Sdk.Web
-
-dependencies:
-  - framework: Microsoft.AspNetCore.App
-  - nuget: Swashbuckle.AspNetCore
-    version: 7.2.0
-  - nuget: Microsoft.AspNetCore.OpenApi
-    version: 9.0.0
-
-language:
-  asyncDefaultType: ValueTask
-",
-            "systems-cli" => GenerateSystemsProjectYaml(projectName, outputType: "exe", entry: "Program.nl"),
-            "systems-lib" => GenerateSystemsProjectYaml(projectName, outputType: "library", entry: null),
-            _ => ProjectFileParser.GenerateTemplate(projectName),
-        };
-    }
-
-    static string GenerateSystemsProjectYaml(string projectName, string outputType, string? entry)
-    {
-        var entryLine = entry == null ? "" : $"entry: {entry}\n";
-        return $@"name: {projectName}
-version: 1.0.0
-{entryLine}backend: il
-outputType: {outputType}
-targetFramework: net10.0
-
-language:
-  profile: systems
-  asyncDefaultType: ValueTask
-  systems:
-    mode: strict
-    unknownExternalCalls: warn
-    aotTarget: nativeaot
-    stackBudgetBytes: 4096
-    warmup:
-      - Warmup
-";
+        throw new InvalidOperationException("N# new project.yml kernel rejected the template.");
     }
 
     static string GetTemplateSourceText(string template, NewTemplateSourceFileKind sourceFileKind)
@@ -947,170 +837,8 @@ language:
         if (NewCommandKernels.TryGetTemplateSourceText(template, sourceFileKind, out var sourceText))
             return sourceText;
 
-        return GetTemplateSourceTextWithCSharp(template, sourceFileKind);
+        throw new InvalidOperationException("N# new source-template kernel rejected the template source kind.");
     }
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product new source-template content routes through NewCommandKernels.
-    static string GetTemplateSourceTextWithCSharp(string template, NewTemplateSourceFileKind sourceFileKind)
-        => sourceFileKind switch
-        {
-            NewTemplateSourceFileKind.Program => template switch
-            {
-                "webapi" => WebApiProgramSource,
-                "systems-cli" => SystemsCliSource,
-                _ => ConsoleProgramSource,
-            },
-            NewTemplateSourceFileKind.Calculator => CalculatorSource,
-            NewTemplateSourceFileKind.CalculatorTests => CalculatorTestsSource,
-            NewTemplateSourceFileKind.WebApiController => WebApiControllerSource,
-            NewTemplateSourceFileKind.SystemsTests => SystemsTestsSource,
-            NewTemplateSourceFileKind.PacketCore => SystemsLibrarySource,
-            NewTemplateSourceFileKind.PacketCoreTests => SystemsTestsSource,
-            _ => throw new ArgumentOutOfRangeException(nameof(sourceFileKind), sourceFileKind, "Unknown template source file kind."),
-        };
-
-    const string ConsoleProgramSource = @"func main() {
-    print ""Hello, N#!""
-}
-";
-
-    const string CalculatorSource = @"class Calculator {
-    static func Add(a: int, b: int): int {
-        return a + b
-    }
-
-    static func Subtract(a: int, b: int): int {
-        return a - b
-    }
-}
-";
-
-    const string CalculatorTestsSource = @"test ""adds two numbers"" {
-    result := Calculator.Add(2, 3)
-    assert result == 5
-}
-
-test ""subtracts two numbers"" {
-    result := Calculator.Subtract(7, 4)
-    assert result == 3
-}
-";
-
-    const string WebApiProgramSource = @"import Microsoft.AspNetCore.Builder
-import Microsoft.Extensions.DependencyInjection
-
-func main(args: string[]) {
-    builder := WebApplication.CreateBuilder(args)
-
-    builder.Services.AddControllers()
-    builder.Services.AddEndpointsApiExplorer()
-    builder.Services.AddSwaggerGen()
-
-    app := builder.Build()
-
-    app.UseSwagger()
-    app.UseSwaggerUI()
-    app.UseHttpsRedirection()
-    app.UseAuthorization()
-    app.MapControllers()
-
-    app.Run()
-}
-";
-
-    const string WebApiControllerSource = @"import Microsoft.AspNetCore.Mvc
-
-[ApiController]
-[Route(""api/weather"")]
-class WeatherController: ControllerBase {
-    [HttpGet]
-    func Get(): IActionResult {
-        data := [""Sunny"", ""Cloudy"", ""Rainy""]
-        return Ok(data)
-    }
-
-    [HttpGet(""{id}"")]
-    func GetById([FromRoute] id: int): IActionResult {
-        return Ok(id)
-    }
-
-    [HttpPost]
-    func Create([FromBody] request: CreateWeatherRequest): IActionResult {
-        return Ok(request)
-    }
-}
-
-class CreateWeatherRequest {
-    Summary: string
-    TemperatureC: int
-}
-";
-
-    const string SystemsCliSource = @"namespace SystemsTemplate
-
-import System
-import System.Buffers.Binary
-
-enum ParseError {
-    Short
-}
-
-[hot]
-func ParseLength(buf: ReadOnlySpan<byte>): Result<uint, ParseError> {
-    if buf.Length < 4 {
-        return Err(ParseError.Short)
-    }
-
-    return Ok(BinaryPrimitives.ReadUInt32LittleEndian(buf.Slice(0, 4)))
-}
-
-[boundary]
-func Run(): Result<int, ParseError> {
-    allow(alloc, reason: ""CLI startup allocates outside the hot parser"") {
-        print ""Systems N# template""
-    }
-    return Ok(0)
-}
-
-func Warmup(): void {
-}
-
-func main(): void {
-    _ := Run()
-}
-";
-
-    const string SystemsLibrarySource = @"namespace SystemsTemplate
-
-import System
-import System.Buffers.Binary
-
-enum ParseError {
-    Short
-}
-
-[hot]
-public func ParseLength(buf: ReadOnlySpan<byte>): Result<uint, ParseError> {
-    if buf.Length < 4 {
-        return Err(ParseError.Short)
-    }
-
-    return Ok(BinaryPrimitives.ReadUInt32LittleEndian(buf.Slice(0, 4)))
-}
-
-[boundary]
-public func AdaptPacket(bytes: byte[]): Result<uint, ParseError> {
-    return ParseLength(bytes.AsSpan())
-}
-
-public func Warmup(): void {
-}
-";
-
-    const string SystemsTestsSource = @"test ""systems smoke"" {
-    assert true
-}
-";
 
     static int TestCommand(string[] args)
     {
