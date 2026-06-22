@@ -86,8 +86,8 @@ partial class Program
             ProgramCommandKind.Export => Commands.ExportCommand.Execute(GetCommandArgs(args)),
             ProgramCommandKind.Help => ShowHelp(),
             ProgramCommandKind.Version => ShowVersion(),
-            ProgramCommandKind.Transpile => Error("The 'transpile' command has been removed. Use 'nlc export csharp' instead."),
-            _ => Error($"Unknown command: {GetCommandNameForError(args)}. Run 'nlc help' to see available commands.")
+            ProgramCommandKind.Transpile => Error(ProgramCommandKernels.GetTranspileRemovedMessage()),
+            _ => Error(ProgramCommandKernels.GetUnknownCommandMessage(GetCommandNameForError(args)))
         };
     }
 
@@ -1850,75 +1850,13 @@ public func Warmup(): void {
 
     static int ShowVersion()
     {
-        Console.WriteLine($"nlc {GetVersion()}");
+        Console.WriteLine(ProgramCommandKernels.GetVersionText(GetVersion()));
         return 0;
     }
 
     static int ShowHelp()
     {
-        Console.WriteLine($@"N# Compiler (nlc) {GetVersion()}
-
-Usage: nlc <command> [options]
-
-Build & Run:
-  build [file]         Compile a project or single .nl file (--release, --verbose)
-  run [file]           Build and run a project or single file
-  restore              Generate MSBuild compatibility config from project.yml
-  publish              Publish project for deployment
-  pack                 Create a NuGet package from project.yml metadata
-  clean                Remove build artifacts
-
-Analysis & Fix:
-  check                Fast type-check (JSON by default)
-  fix                  Auto-apply compiler suggestions
-  query <cmd>          Code intelligence for LLMs and terminals
-  daemon <cmd>         Background analysis daemon
-Code Quality:
-  format [files...]    Format .nl source files
-  lint [files...]      Run static analysis rules
-  test                 Run .tests.nl test suites (--filter, --verbose)
-
-Dependencies:
-  add <package>        Add a NuGet dependency to project.yml
-  tidy                 Identify and remove unused dependencies
-  remove <package>     Remove a dependency from project.yml
-  update [package]     Update dependencies to latest versions
-  tree                 Show dependency tree
-  audit                Check for known vulnerabilities
-
-Project:
-  new <name>           Create a new N# project
-  init                 Initialize N# in the current directory
-  export <target>      Export N# sources without changing the IL toolchain
-  watch <cmd>          Re-run check/build/test/lint/format on file changes
-  doc                  Generate HTML API documentation
-  env                  Show environment and toolchain info
-  doctor               Verify N# CLI, SDK/templates, LSP, and VS Code tooling
-  completion <shell>   Generate shell completion scripts
-Options:
-  --version, -V        Show nlc version
-  --text               Human-readable output for check/fix/query/lint
-  --json               Structured JSON output (default for check/fix/query/lint)
-  --help, -h           Show this help message
-
-Common Workflows:
-  nlc new MyApp && cd MyApp    Create and enter a new project
-  nlc build                    Compile the project
-  nlc run                      Build and run
-  nlc test                     Run tests
-  nlc add Serilog@3.1.0        Add a dependency
-  nlc check                    Fast feedback loop
-  nlc doctor                   Verify the installed toolchain
-  nlc fix && nlc check         Auto-fix then verify
-  nlc build --release          Release configuration/output layout
-  nlc export csharp --project . -o ./myapp-csharp
-                               Export C# for inspection
-  nlc format --check           CI formatting gate
-  nlc test --filter AddPerson  Run specific tests
-  nlc watch check              Re-check on every save
-  nlc publish -c Release       Publish for deployment
-
-Run 'nlc <command> --help' for command-specific options.");
+        Console.WriteLine(ProgramCommandKernels.GetHelpText(GetVersion()));
 
         return 0;
     }

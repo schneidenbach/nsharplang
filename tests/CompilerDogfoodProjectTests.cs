@@ -7003,6 +7003,10 @@ func outer(x: int): int {
         var (ok, _, _, methodNames) = RouteColumnarProgram(source);
         Assert.True(ok, "Columnar backend declined the real CliArguments.nl (expected full support).");
         Assert.Contains("CliProgramCommandKind", methodNames!); // product top-level command routing.
+        Assert.Contains("CliProgramVersionText", methodNames!); // product top-level version text shaping.
+        Assert.Contains("CliProgramHelpText", methodNames!); // product top-level help text shaping.
+        Assert.Contains("CliProgramTranspileRemovedMessage", methodNames!); // product top-level retired-command message shaping.
+        Assert.Contains("CliProgramUnknownCommandMessage", methodNames!); // product top-level unknown-command message shaping.
         Assert.Contains("CliTestDurationMilliseconds", methodNames!); // product test timeout parsing.
         Assert.Contains("CliSymbolNameContainsAsciiIgnoreCase", methodNames!); // IndexOf(string, StringComparison)
         Assert.Contains("CliExportCSharpFirstOperandChecksumInto", methodNames!); // char/int promotion
@@ -7344,6 +7348,13 @@ func outer(x: int): int {
         var sharedFrameworkRevisions = new[] { -1, -1, -1, -1, 1 };
 
         AssertColumnarProgramMatchesCSharp(source,
+            ("CliProgramCommandKind", new object[] { new[] { "help" } }),
+            ("CliProgramCommandKind", new object[] { new[] { "BUILD", "--help" } }),
+            ("CliProgramCommandKind", new object[] { new[] { "frobnicate" } }),
+            ("CliProgramVersionText", new object[] { "1.2.3" }),
+            ("CliProgramHelpText", new object[] { "1.2.3" }),
+            ("CliProgramTranspileRemovedMessage", Array.Empty<object>()),
+            ("CliProgramUnknownCommandMessage", new object[] { "frobnicate" }),
             ("CliSymbolNameContainsAsciiIgnoreCase", new object[] { "FooBarBaz", "barbaz" }),
             ("CliSymbolNameContainsAsciiIgnoreCase", new object[] { "FooBarBaz", "xyz" }),
             ("CliSymbolNameContainsAsciiIgnoreCase", new object[] { "abc", "ABC" }),

@@ -35,6 +35,36 @@ public class CliCommandTests
         Assert.True(ProgramCommandKernels.TryGetCommandKind(new[] { "-v" }, out var lowerShortVersion));
         Assert.Equal(ProgramCommandKind.Unknown, lowerShortVersion);
 
+        Assert.Equal("nlc 1.2.3", ProgramCommandKernels.GetVersionText("1.2.3"));
+        var helpText = ProgramCommandKernels.GetHelpText("1.2.3");
+        Assert.StartsWith("N# Compiler (nlc) 1.2.3\n\nUsage: nlc <command> [options]", helpText, StringComparison.Ordinal);
+        Assert.Contains("Build & Run:", helpText);
+        Assert.Contains("Common Workflows:", helpText);
+        Assert.DoesNotContain("convert", helpText);
+        Assert.DoesNotContain("transpile", helpText);
+        Assert.Equal(
+            "The 'transpile' command has been removed. Use 'nlc export csharp' instead.",
+            ProgramCommandKernels.GetTranspileRemovedMessage());
+        Assert.Equal(
+            "Unknown command: frobnicate. Run 'nlc help' to see available commands.",
+            ProgramCommandKernels.GetUnknownCommandMessage("frobnicate"));
+
+        var (helpExitCode, helpStdout, helpStderr) = CaptureConsole(() =>
+            Program.Execute(new[] { "help" }));
+        Assert.Equal(0, helpExitCode);
+        Assert.True(string.IsNullOrWhiteSpace(helpStderr));
+        var header = helpStdout.Split(Environment.NewLine)[0];
+        const string headerPrefix = "N# Compiler (nlc) ";
+        Assert.StartsWith(headerPrefix, header, StringComparison.Ordinal);
+        var version = header[headerPrefix.Length..];
+        Assert.Equal(ProgramCommandKernels.GetHelpText(version) + Environment.NewLine, helpStdout);
+
+        var (versionExitCode, versionStdout, versionStderr) = CaptureConsole(() =>
+            Program.Execute(new[] { "--version" }));
+        Assert.Equal(0, versionExitCode);
+        Assert.Equal(ProgramCommandKernels.GetVersionText(version) + Environment.NewLine, versionStdout);
+        Assert.True(string.IsNullOrWhiteSpace(versionStderr));
+
         var (buildExitCode, buildStdout, buildStderr) = CaptureConsole(() =>
             Program.Execute(new[] { "BUILD", "--help" }));
         Assert.Equal(0, buildExitCode);
@@ -44,7 +74,12 @@ public class CliCommandTests
         var (transpileExitCode, _, transpileStderr) = CaptureConsole(() =>
             Program.Execute(new[] { "TRANSPILE", "Program.nl" }));
         Assert.Equal(1, transpileExitCode);
-        Assert.Contains("The 'transpile' command has been removed", transpileStderr);
+        Assert.Contains(ProgramCommandKernels.GetTranspileRemovedMessage(), transpileStderr);
+
+        var (unknownExitCode, _, unknownStderr) = CaptureConsole(() =>
+            Program.Execute(new[] { "FROBNICATE" }));
+        Assert.Equal(1, unknownExitCode);
+        Assert.Contains(ProgramCommandKernels.GetUnknownCommandMessage("frobnicate"), unknownStderr);
     }
 
     [Fact]

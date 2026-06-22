@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-22 — Top-level CLI text moves into product N#
+
+`Program` no longer owns the top-level `nlc help` body, `--version` line, retired `transpile` diagnostic,
+or unknown-command guidance in C#. The shipped `CliProgram*` dogfood kernels now shape those strings through
+`ProgramCommandKernels`; C# keeps process entry, command dispatch, console writes, and fallback/oracle text only.
+This is a Stage 6 `C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.ProgramCommandKernels_SummarizesTopLevelCommands|FullyQualifiedName~CliParityAuditTests.Help_IncludesAllPublicCommands|FullyQualifiedName~CliParityAuditTests.Help_ShowsVersion_InHeader|FullyQualifiedName~CliParityAuditTests.Help_ShowsPerCommandHint|FullyQualifiedName~CliParityAuditTests.UnknownCommand_SuggestsHelp|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`;
+`./scripts/dev.sh ProgramCommandKernels`.
+
 ## 2026-06-22 — Publish help text moves into product N#
 
 `Program.PublishCommand` no longer owns the multi-line `nlc publish --help` body in C#. The shipped
