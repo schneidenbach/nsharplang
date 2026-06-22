@@ -29,6 +29,7 @@ public static class OutputFormatter
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = true,
+        MaxDepth = 256,
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
         Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) }

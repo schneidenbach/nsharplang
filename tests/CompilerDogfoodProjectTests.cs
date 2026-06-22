@@ -14569,7 +14569,7 @@ func outer(c: bool): int {
             var units = new[] { (file, parseResult.CompilationUnit!) };
             var json = OutputFormatter.AstToJson(units);
 
-            using (var doc = JsonDocument.Parse(json))
+            using (var doc = JsonDocument.Parse(json, new JsonDocumentOptions { MaxDepth = 256 }))
             {
                 Assert.Equal(1, doc.RootElement.GetProperty("schemaVersion").GetInt32());
                 Assert.Equal("query.ast", doc.RootElement.GetProperty("command").GetString());
