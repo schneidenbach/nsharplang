@@ -7214,6 +7214,7 @@ func outer(x: int): int {
         Assert.Contains("CliNewRunCommandMessage", methodNames!); // product new run command shaping.
         Assert.Contains("CliNewFailedMessage", methodNames!); // product new failure message shaping.
         Assert.Contains("CliNewProjectYamlText", methodNames!); // product new project.yml content shaping.
+        Assert.Contains("CliNewTemplateSourceText", methodNames!); // product new source-template content shaping.
         Assert.Contains("CliNewTemplateKind", methodNames!); // product new template normalization.
         Assert.Contains("CliNewEffectiveTemplateKind", methodNames!); // product new --systems template selection.
         Assert.Contains("CliNewTemplateSourceFileKindsInto", methodNames!); // product new template source manifest.
@@ -7497,6 +7498,14 @@ func outer(x: int): int {
             ("CliNewProjectYamlText", new object[] { "MyApi", "webapi" }),
             ("CliNewProjectYamlText", new object[] { "PacketTool", "systems-cli" }),
             ("CliNewProjectYamlText", new object[] { "PacketCore", "systems-lib" }),
+            ("CliNewTemplateSourceText", new object[] { "console", (int)NewTemplateSourceFileKind.Program }),
+            ("CliNewTemplateSourceText", new object[] { "library", (int)NewTemplateSourceFileKind.Calculator }),
+            ("CliNewTemplateSourceText", new object[] { "test", (int)NewTemplateSourceFileKind.CalculatorTests }),
+            ("CliNewTemplateSourceText", new object[] { "webapi", (int)NewTemplateSourceFileKind.Program }),
+            ("CliNewTemplateSourceText", new object[] { "webapi", (int)NewTemplateSourceFileKind.WebApiController }),
+            ("CliNewTemplateSourceText", new object[] { "systems-cli", (int)NewTemplateSourceFileKind.Program }),
+            ("CliNewTemplateSourceText", new object[] { "systems-lib", (int)NewTemplateSourceFileKind.PacketCore }),
+            ("CliNewTemplateSourceText", new object[] { "systems-lib", (int)NewTemplateSourceFileKind.PacketCoreTests }),
             ("CliAddPackageSpecInto", new object[] { "Serilog@3.1.0", "ignored", 1, new int[4] }),
             ("CliAddPackageSpecInto", new object[] { "Serilog", "3.1.0", 1, new int[4] }),
             ("CliAddPackageSpecInto", new object[] { "@scope@1.0", "2.0.0", 1, new int[4] }),
@@ -13059,8 +13068,8 @@ func outer(x: int): int {
         Assert.True(ok, $"Columnar backend declined the merged {productFiles.Length}-file product corpus.");
         using var loadScope = CollectibleAssemblyScope.Load(assembly!); // the merged IL is a valid, loadable assembly.
         Assert.NotNull(loadScope.Assembly);
-        Assert.True(methodNames!.Length >= 433,
-            $"Product dogfood corpus method coverage regressed: expected at least 433 emitted methods, found {methodNames.Length}.");
+        Assert.True(methodNames!.Length >= 434,
+            $"Product dogfood corpus method coverage regressed: expected at least 434 emitted methods, found {methodNames.Length}.");
         // Files eligible ONLY via cross-file resolution must contribute their public functions —
         // i.e. the merge actually emitted them (single-file each declines; see ColumnarCodegen_MultiFile_*).
         Assert.Contains("TokenizeColumnarSourceInto", methodNames!); // composed lexer metadata + parser-token compaction routing

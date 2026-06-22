@@ -2374,6 +2374,161 @@ func CliNewProjectYamlText(projectName: string, template: string): string {
         + "#   license: MIT\n"
 }
 
+func CliNewTemplateSourceText(template: string, sourceFileKind: int): string {
+    if sourceFileKind == 1 {
+        if template == "webapi" {
+            return "import Microsoft.AspNetCore.Builder\n"
+                + "import Microsoft.Extensions.DependencyInjection\n"
+                + "\n"
+                + "func main(args: string[]) {\n"
+                + "    builder := WebApplication.CreateBuilder(args)\n"
+                + "\n"
+                + "    builder.Services.AddControllers()\n"
+                + "    builder.Services.AddEndpointsApiExplorer()\n"
+                + "    builder.Services.AddSwaggerGen()\n"
+                + "\n"
+                + "    app := builder.Build()\n"
+                + "\n"
+                + "    app.UseSwagger()\n"
+                + "    app.UseSwaggerUI()\n"
+                + "    app.UseHttpsRedirection()\n"
+                + "    app.UseAuthorization()\n"
+                + "    app.MapControllers()\n"
+                + "\n"
+                + "    app.Run()\n"
+                + "}\n"
+        }
+
+        if template == "systems-cli" {
+            return "namespace SystemsTemplate\n"
+                + "\n"
+                + "import System\n"
+                + "import System.Buffers.Binary\n"
+                + "\n"
+                + "enum ParseError {\n"
+                + "    Short\n"
+                + "}\n"
+                + "\n"
+                + "[hot]\n"
+                + "func ParseLength(buf: ReadOnlySpan<byte>): Result<uint, ParseError> {\n"
+                + "    if buf.Length < 4 {\n"
+                + "        return Err(ParseError.Short)\n"
+                + "    }\n"
+                + "\n"
+                + "    return Ok(BinaryPrimitives.ReadUInt32LittleEndian(buf.Slice(0, 4)))\n"
+                + "}\n"
+                + "\n"
+                + "[boundary]\n"
+                + "func Run(): Result<int, ParseError> {\n"
+                + "    allow(alloc, reason: \"CLI startup allocates outside the hot parser\") {\n"
+                + "        print \"Systems N# template\"\n"
+                + "    }\n"
+                + "    return Ok(0)\n"
+                + "}\n"
+                + "\n"
+                + "func Warmup(): void {\n"
+                + "}\n"
+                + "\n"
+                + "func main(): void {\n"
+                + "    _ := Run()\n"
+                + "}\n"
+        }
+
+        return "func main() {\n"
+            + "    print \"Hello, N#!\"\n"
+            + "}\n"
+    }
+
+    if sourceFileKind == 2 {
+        return "class Calculator {\n"
+            + "    static func Add(a: int, b: int): int {\n"
+            + "        return a + b\n"
+            + "    }\n"
+            + "\n"
+            + "    static func Subtract(a: int, b: int): int {\n"
+            + "        return a - b\n"
+            + "    }\n"
+            + "}\n"
+    }
+
+    if sourceFileKind == 3 {
+        return "test \"adds two numbers\" {\n"
+            + "    result := Calculator.Add(2, 3)\n"
+            + "    assert result == 5\n"
+            + "}\n"
+            + "\n"
+            + "test \"subtracts two numbers\" {\n"
+            + "    result := Calculator.Subtract(7, 4)\n"
+            + "    assert result == 3\n"
+            + "}\n"
+    }
+
+    if sourceFileKind == 4 {
+        return "import Microsoft.AspNetCore.Mvc\n"
+            + "\n"
+            + "[ApiController]\n"
+            + "[Route(\"api/weather\")]\n"
+            + "class WeatherController: ControllerBase {\n"
+            + "    [HttpGet]\n"
+            + "    func Get(): IActionResult {\n"
+            + "        data := [\"Sunny\", \"Cloudy\", \"Rainy\"]\n"
+            + "        return Ok(data)\n"
+            + "    }\n"
+            + "\n"
+            + "    [HttpGet(\"{id}\")]\n"
+            + "    func GetById([FromRoute] id: int): IActionResult {\n"
+            + "        return Ok(id)\n"
+            + "    }\n"
+            + "\n"
+            + "    [HttpPost]\n"
+            + "    func Create([FromBody] request: CreateWeatherRequest): IActionResult {\n"
+            + "        return Ok(request)\n"
+            + "    }\n"
+            + "}\n"
+            + "\n"
+            + "class CreateWeatherRequest {\n"
+            + "    Summary: string\n"
+            + "    TemperatureC: int\n"
+            + "}\n"
+    }
+
+    if sourceFileKind == 5 || sourceFileKind == 7 {
+        return "test \"systems smoke\" {\n"
+            + "    assert true\n"
+            + "}\n"
+    }
+
+    if sourceFileKind == 6 {
+        return "namespace SystemsTemplate\n"
+            + "\n"
+            + "import System\n"
+            + "import System.Buffers.Binary\n"
+            + "\n"
+            + "enum ParseError {\n"
+            + "    Short\n"
+            + "}\n"
+            + "\n"
+            + "[hot]\n"
+            + "public func ParseLength(buf: ReadOnlySpan<byte>): Result<uint, ParseError> {\n"
+            + "    if buf.Length < 4 {\n"
+            + "        return Err(ParseError.Short)\n"
+            + "    }\n"
+            + "\n"
+            + "    return Ok(BinaryPrimitives.ReadUInt32LittleEndian(buf.Slice(0, 4)))\n"
+            + "}\n"
+            + "\n"
+            + "[boundary]\n"
+            + "public func AdaptPacket(bytes: byte[]): Result<uint, ParseError> {\n"
+            + "    return ParseLength(bytes.AsSpan())\n"
+            + "}\n"
+            + "\n"
+            + "public func Warmup(): void {\n"
+            + "}\n"
+    }
+
+    return ""
+}
+
 func CliNewTemplateKind(value: string): int {
     normalized := value.Trim()
 

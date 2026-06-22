@@ -2449,6 +2449,34 @@ func Main() {
         Assert.Contains("outputType: library\n", systemsLibYaml);
         Assert.Contains("  profile: systems\n", systemsLibYaml);
         Assert.DoesNotContain("entry: Program.nl", systemsLibYaml, StringComparison.Ordinal);
+
+        Assert.True(NewCommandKernels.TryGetTemplateSourceText("console", NewTemplateSourceFileKind.Program, out var consoleSource));
+        Assert.Equal("func main() {\n    print \"Hello, N#!\"\n}\n", consoleSource);
+
+        Assert.True(NewCommandKernels.TryGetTemplateSourceText("library", NewTemplateSourceFileKind.Calculator, out var calculatorSource));
+        Assert.Contains("class Calculator {\n", calculatorSource);
+        Assert.Contains("static func Add(a: int, b: int): int", calculatorSource);
+
+        Assert.True(NewCommandKernels.TryGetTemplateSourceText("test", NewTemplateSourceFileKind.CalculatorTests, out var calculatorTestsSource));
+        Assert.Contains("test \"adds two numbers\" {\n", calculatorTestsSource);
+        Assert.Contains("assert result == 3\n", calculatorTestsSource);
+
+        Assert.True(NewCommandKernels.TryGetTemplateSourceText("webapi", NewTemplateSourceFileKind.Program, out var webApiProgramSource));
+        Assert.Contains("WebApplication.CreateBuilder(args)", webApiProgramSource);
+        Assert.True(NewCommandKernels.TryGetTemplateSourceText("webapi", NewTemplateSourceFileKind.WebApiController, out var controllerSource));
+        Assert.Contains("[Route(\"api/weather\")]\n", controllerSource);
+        Assert.Contains("CreateWeatherRequest", controllerSource);
+
+        Assert.True(NewCommandKernels.TryGetTemplateSourceText("systems-cli", NewTemplateSourceFileKind.Program, out var systemsCliSource));
+        Assert.Contains("allow(alloc, reason: \"CLI startup allocates outside the hot parser\")", systemsCliSource);
+        Assert.Contains("func main(): void", systemsCliSource);
+
+        Assert.True(NewCommandKernels.TryGetTemplateSourceText("systems-lib", NewTemplateSourceFileKind.PacketCore, out var packetCoreSource));
+        Assert.Contains("public func AdaptPacket(bytes: byte[]): Result<uint, ParseError>", packetCoreSource);
+        Assert.DoesNotContain("func main", packetCoreSource, StringComparison.Ordinal);
+
+        Assert.True(NewCommandKernels.TryGetTemplateSourceText("systems-lib", NewTemplateSourceFileKind.PacketCoreTests, out var packetCoreTestsSource));
+        Assert.Equal("test \"systems smoke\" {\n    assert true\n}\n", packetCoreTestsSource);
     }
 
     [Fact]

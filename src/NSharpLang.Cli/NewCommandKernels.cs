@@ -315,6 +315,12 @@ internal static class NewCommandKernels
     internal static bool TryGetProjectYamlText(string projectName, string template, out string yaml)
         => TryGetMessage(bindings => bindings.NewProjectYamlText(projectName, template), out yaml);
 
+    internal static bool TryGetTemplateSourceText(
+        string template,
+        NewTemplateSourceFileKind sourceFileKind,
+        out string sourceText)
+        => TryGetMessage(bindings => bindings.NewTemplateSourceText(template, (int)sourceFileKind), out sourceText);
+
     private static bool TryGetMessage(Func<Bindings, string> getMessage, out string message)
     {
         message = string.Empty;
@@ -478,7 +484,10 @@ internal static class NewCommandKernels
                 "CliNewFailedMessage"),
             DogfoodKernelLoader.CreateDelegate<CliNewProjectYamlText>(
                 programType,
-                "CliNewProjectYamlText")));
+                "CliNewProjectYamlText"),
+            DogfoodKernelLoader.CreateDelegate<CliNewTemplateSourceText>(
+                programType,
+                "CliNewTemplateSourceText")));
 
     private delegate int CliFirstPositionalArgIndex(
         string[] args,
@@ -515,6 +524,7 @@ internal static class NewCommandKernels
     private delegate string CliNewRunCommandMessage();
     private delegate string CliNewFailedMessage(string message);
     private delegate string CliNewProjectYamlText(string projectName, string template);
+    private delegate string CliNewTemplateSourceText(string template, int sourceFileKind);
 
     private sealed record Bindings(
         CliFirstPositionalArgIndex FirstPositionalArgIndex,
@@ -537,7 +547,8 @@ internal static class NewCommandKernels
         CliNewTestCommandMessage NewTestCommandMessage,
         CliNewRunCommandMessage NewRunCommandMessage,
         CliNewFailedMessage NewFailedMessage,
-        CliNewProjectYamlText NewProjectYamlText);
+        CliNewProjectYamlText NewProjectYamlText,
+        CliNewTemplateSourceText NewTemplateSourceText);
 
     private static bool TryGetOptionalArg(string[] args, int index, out string? value)
     {

@@ -898,39 +898,13 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
         string template,
         NewTemplateSourceFileKind sourceFileKind)
     {
-        switch (sourceFileKind)
-        {
-            case NewTemplateSourceFileKind.Program:
-                var programSource = template switch
-                {
-                    "webapi" => WebApiProgramSource,
-                    "systems-cli" => SystemsCliSource,
-                    _ => ConsoleProgramSource,
-                };
-                File.WriteAllText(Path.Combine(projectDir, "Program.nl"), programSource);
-                return;
-            case NewTemplateSourceFileKind.Calculator:
-                File.WriteAllText(Path.Combine(projectDir, "Calculator.nl"), CalculatorSource);
-                return;
-            case NewTemplateSourceFileKind.CalculatorTests:
-                File.WriteAllText(Path.Combine(projectDir, "Calculator.tests.nl"), CalculatorTestsSource);
-                return;
-            case NewTemplateSourceFileKind.WebApiController:
-                Directory.CreateDirectory(Path.Combine(projectDir, "Controllers"));
-                File.WriteAllText(Path.Combine(projectDir, "Controllers", "WeatherController.nl"), WebApiControllerSource);
-                return;
-            case NewTemplateSourceFileKind.SystemsTests:
-                File.WriteAllText(Path.Combine(projectDir, "Systems.tests.nl"), SystemsTestsSource);
-                return;
-            case NewTemplateSourceFileKind.PacketCore:
-                File.WriteAllText(Path.Combine(projectDir, "PacketCore.nl"), SystemsLibrarySource);
-                return;
-            case NewTemplateSourceFileKind.PacketCoreTests:
-                File.WriteAllText(Path.Combine(projectDir, "PacketCore.tests.nl"), SystemsTestsSource);
-                return;
-            default:
-                throw new ArgumentOutOfRangeException(nameof(sourceFileKind), sourceFileKind, "Unknown template source file kind.");
-        }
+        var fileName = GetTemplateSourceFileName(sourceFileKind);
+        var path = Path.Combine(projectDir, fileName);
+        var directory = Path.GetDirectoryName(path);
+        if (!string.IsNullOrEmpty(directory))
+            Directory.CreateDirectory(directory);
+
+        File.WriteAllText(path, GetTemplateSourceText(template, sourceFileKind));
     }
 
     static void WriteSdkSupportFiles(string projectDir)
@@ -1009,6 +983,33 @@ language:
       - Warmup
 ";
     }
+
+    static string GetTemplateSourceText(string template, NewTemplateSourceFileKind sourceFileKind)
+    {
+        if (NewCommandKernels.TryGetTemplateSourceText(template, sourceFileKind, out var sourceText))
+            return sourceText;
+
+        return GetTemplateSourceTextWithCSharp(template, sourceFileKind);
+    }
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product new source-template content routes through NewCommandKernels.
+    static string GetTemplateSourceTextWithCSharp(string template, NewTemplateSourceFileKind sourceFileKind)
+        => sourceFileKind switch
+        {
+            NewTemplateSourceFileKind.Program => template switch
+            {
+                "webapi" => WebApiProgramSource,
+                "systems-cli" => SystemsCliSource,
+                _ => ConsoleProgramSource,
+            },
+            NewTemplateSourceFileKind.Calculator => CalculatorSource,
+            NewTemplateSourceFileKind.CalculatorTests => CalculatorTestsSource,
+            NewTemplateSourceFileKind.WebApiController => WebApiControllerSource,
+            NewTemplateSourceFileKind.SystemsTests => SystemsTestsSource,
+            NewTemplateSourceFileKind.PacketCore => SystemsLibrarySource,
+            NewTemplateSourceFileKind.PacketCoreTests => SystemsTestsSource,
+            _ => throw new ArgumentOutOfRangeException(nameof(sourceFileKind), sourceFileKind, "Unknown template source file kind."),
+        };
 
     const string GlobalJsonContent = @"{
   ""sdk"": {
