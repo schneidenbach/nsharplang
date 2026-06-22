@@ -204,72 +204,25 @@ public static class LintCommand
     }
 
     internal static LintOptionSummary GetOptionSummary(string[] args)
-        => LintCommandKernels.TryGetOptionSummary(args, out var summary)
-            ? summary
-            : GetOptionSummaryWithCSharp(args);
+    {
+        if (LintCommandKernels.TryGetOptionSummary(args, out var summary))
+            return summary;
+
+        throw new InvalidOperationException("N# lint option summary kernel rejected the arguments.");
+    }
 
     internal static LintOutputModeKind GetEffectiveOutputMode(LintOptionSummary options)
-        => LintCommandKernels.TryGetEffectiveOutputMode(options.UseText, options.UseJson, out var outputMode)
-            ? outputMode
-            : GetEffectiveOutputModeWithCSharp(options.UseText, options.UseJson);
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product lint option parsing routes through LintCommandKernels.
-    private static LintOptionSummary GetOptionSummaryWithCSharp(string[] args)
-        => new(
-            GetOptionValueWithCSharp(args, "--project"),
-            ContainsArgWithCSharp(args, "--text"),
-            ContainsArgWithCSharp(args, "--json"),
-            ContainsArgWithCSharp(args, "--help") || ContainsArgWithCSharp(args, "-h") || (args.Length > 0 && args[0] == "help"));
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product lint output mode selection routes through LintCommandKernels.
-    private static LintOutputModeKind GetEffectiveOutputModeWithCSharp(bool useText, bool useJson)
     {
-        if (useJson)
-            return LintOutputModeKind.Json;
+        if (LintCommandKernels.TryGetEffectiveOutputMode(options.UseText, options.UseJson, out var outputMode))
+            return outputMode;
 
-        if (useText)
-            return LintOutputModeKind.Text;
-
-        return LintOutputModeKind.Json;
-    }
-
-    private static string? GetOptionValueWithCSharp(string[] args, string flag)
-    {
-        for (int i = 0; i < args.Length - 1; i++)
-        {
-            if (args[i] == flag)
-                return args[i + 1];
-        }
-        return null;
-    }
-
-    private static bool ContainsArgWithCSharp(string[] args, string value)
-    {
-        for (var i = 0; i < args.Length; i++)
-            if (args[i] == value)
-                return true;
-        return false;
-    }
-
-    private static bool IsOptionValue(string[] args, string value, params string[] flags)
-    {
-        for (int i = 0; i < args.Length - 1; i++)
-        {
-            if (flags.Contains(args[i]) && args[i + 1] == value)
-                return true;
-        }
-        return false;
+        throw new InvalidOperationException("N# lint output mode kernel rejected the options.");
     }
 
     private static string[] GetPositionalFiles(string[] args)
-    {
-        return LintCommandKernels.TryGetFileArgs(args, out var files)
+        => LintCommandKernels.TryGetFileArgs(args, out var files)
             ? files
-            : args
-                .Where(a => !a.StartsWith("-", StringComparison.Ordinal) && a != "help")
-                .Where(a => !IsOptionValue(args, a, "--project"))
-                .ToArray();
-    }
+            : throw new InvalidOperationException("N# lint file argument kernel rejected the arguments.");
 
     private static string FormatElapsed(TimeSpan elapsed)
     {
