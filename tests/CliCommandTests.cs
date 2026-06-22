@@ -48,6 +48,7 @@ public class CliCommandTests
         Assert.Equal(
             "Unknown command: frobnicate. Run 'nlc help' to see available commands.",
             ProgramCommandKernels.GetUnknownCommandMessage("frobnicate"));
+        Assert.Equal("Error: boom", ProgramCommandKernels.GetErrorLine("boom"));
 
         var (helpExitCode, helpStdout, helpStderr) = CaptureConsole(() =>
             Program.Execute(new[] { "help" }));
@@ -74,12 +75,16 @@ public class CliCommandTests
         var (transpileExitCode, _, transpileStderr) = CaptureConsole(() =>
             Program.Execute(new[] { "TRANSPILE", "Program.nl" }));
         Assert.Equal(1, transpileExitCode);
-        Assert.Contains(ProgramCommandKernels.GetTranspileRemovedMessage(), transpileStderr);
+        Assert.Equal(
+            ProgramCommandKernels.GetErrorLine(ProgramCommandKernels.GetTranspileRemovedMessage()) + Environment.NewLine,
+            transpileStderr);
 
         var (unknownExitCode, _, unknownStderr) = CaptureConsole(() =>
             Program.Execute(new[] { "FROBNICATE" }));
         Assert.Equal(1, unknownExitCode);
-        Assert.Contains(ProgramCommandKernels.GetUnknownCommandMessage("frobnicate"), unknownStderr);
+        Assert.Equal(
+            ProgramCommandKernels.GetErrorLine(ProgramCommandKernels.GetUnknownCommandMessage("frobnicate")) + Environment.NewLine,
+            unknownStderr);
     }
 
     [Fact]

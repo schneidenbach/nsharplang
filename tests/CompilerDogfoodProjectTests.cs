@@ -7007,6 +7007,7 @@ func outer(x: int): int {
         Assert.Contains("CliProgramHelpText", methodNames!); // product top-level help text shaping.
         Assert.Contains("CliProgramTranspileRemovedMessage", methodNames!); // product top-level retired-command message shaping.
         Assert.Contains("CliProgramUnknownCommandMessage", methodNames!); // product top-level unknown-command message shaping.
+        Assert.Contains("CliProgramErrorLine", methodNames!); // product top-level stderr line shaping.
         Assert.Contains("CliTestDurationMilliseconds", methodNames!); // product test timeout parsing.
         Assert.Contains("CliSymbolNameContainsAsciiIgnoreCase", methodNames!); // IndexOf(string, StringComparison)
         Assert.Contains("CliExportCSharpFirstOperandChecksumInto", methodNames!); // char/int promotion
@@ -7355,6 +7356,7 @@ func outer(x: int): int {
             ("CliProgramHelpText", new object[] { "1.2.3" }),
             ("CliProgramTranspileRemovedMessage", Array.Empty<object>()),
             ("CliProgramUnknownCommandMessage", new object[] { "frobnicate" }),
+            ("CliProgramErrorLine", new object[] { "boom" }),
             ("CliSymbolNameContainsAsciiIgnoreCase", new object[] { "FooBarBaz", "barbaz" }),
             ("CliSymbolNameContainsAsciiIgnoreCase", new object[] { "FooBarBaz", "xyz" }),
             ("CliSymbolNameContainsAsciiIgnoreCase", new object[] { "abc", "ABC" }),

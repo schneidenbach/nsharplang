@@ -97,6 +97,14 @@ internal static class ProgramCommandKernels
         return GetUnknownCommandMessageWithCSharp(command);
     }
 
+    internal static string GetErrorLine(string message)
+    {
+        if (TryGetMessage(bindings => bindings.ProgramErrorLine(message), out var errorLine))
+            return errorLine;
+
+        return GetErrorLineWithCSharp(message);
+    }
+
     private static bool TryGetMessage(Func<Bindings, string> getMessage, out string message)
     {
         message = string.Empty;
@@ -192,6 +200,9 @@ internal static class ProgramCommandKernels
     private static string GetUnknownCommandMessageWithCSharp(string command)
         => $"Unknown command: {command}. Run 'nlc help' to see available commands.";
 
+    private static string GetErrorLineWithCSharp(string message)
+        => $"Error: {message}";
+
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
             DogfoodKernelLoader.CreateDelegate<CliProgramCommandKind>(
@@ -208,18 +219,23 @@ internal static class ProgramCommandKernels
                 "CliProgramTranspileRemovedMessage"),
             DogfoodKernelLoader.CreateDelegate<CliProgramUnknownCommandMessage>(
                 programType,
-                "CliProgramUnknownCommandMessage")));
+                "CliProgramUnknownCommandMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliProgramErrorLine>(
+                programType,
+                "CliProgramErrorLine")));
 
     private delegate int CliProgramCommandKind(string[] args);
     private delegate string CliProgramVersionText(string version);
     private delegate string CliProgramHelpText(string version);
     private delegate string CliProgramTranspileRemovedMessage();
     private delegate string CliProgramUnknownCommandMessage(string command);
+    private delegate string CliProgramErrorLine(string message);
 
     private sealed record Bindings(
         CliProgramCommandKind CommandKind,
         CliProgramVersionText ProgramVersionText,
         CliProgramHelpText ProgramHelpText,
         CliProgramTranspileRemovedMessage ProgramTranspileRemovedMessage,
-        CliProgramUnknownCommandMessage ProgramUnknownCommandMessage);
+        CliProgramUnknownCommandMessage ProgramUnknownCommandMessage,
+        CliProgramErrorLine ProgramErrorLine);
 }

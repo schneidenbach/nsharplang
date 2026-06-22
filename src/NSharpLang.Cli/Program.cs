@@ -1863,7 +1863,7 @@ public func Warmup(): void {
 
     static int Error(string message)
     {
-        Console.Error.WriteLine($"Error: {message}");
+        Console.Error.WriteLine(ProgramCommandKernels.GetErrorLine(message));
         return 1;
     }
 }

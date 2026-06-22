@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-22 — Top-level CLI error wrapper moves into product N#
+
+`Program.Error` no longer owns the shared `Error: ...` stderr line wrapper in C#. The shipped
+`CliProgramErrorLine` dogfood kernel now shapes that product error line through `ProgramCommandKernels`;
+C# keeps process entry, command dispatch, console writes, and fallback/oracle text only. This is a Stage 6
+`C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.ProgramCommandKernels_SummarizesTopLevelCommands|FullyQualifiedName~CliParityAuditTests.UnknownCommand_SuggestsHelp|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`;
+`./scripts/dev.sh ProgramCommandKernels`.
+
 ## 2026-06-22 — Top-level CLI text moves into product N#
 
 `Program` no longer owns the top-level `nlc help` body, `--version` line, retired `transpile` diagnostic,

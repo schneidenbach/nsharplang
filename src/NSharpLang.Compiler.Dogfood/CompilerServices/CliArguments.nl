@@ -255,6 +255,10 @@ func CliProgramUnknownCommandMessage(command: string): string {
     return "Unknown command: " + command + ". Run 'nlc help' to see available commands."
 }
 
+func CliProgramErrorLine(message: string): string {
+    return "Error: " + message
+}
+
 func CliProgramCommandKindCore(args: &CliArgumentTable): int {
     if args.Args.Length == 0 {
         return 29
