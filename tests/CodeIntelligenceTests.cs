@@ -1082,6 +1082,49 @@ public class CodeIntelligenceOutputTests
             text);
     }
 
+    [Fact]
+    public void HoverToText_FormatsSignatureDefinitionAndDocumentation()
+    {
+        var hover = new HoverResult(
+            "func Hi(): int",
+            "Returns a value.\nSecond line.",
+            "Program.nl",
+            "function");
+
+        var text = OutputFormatter.HoverToText(hover, "Program.nl", 2, 6);
+
+        Assert.Equal(
+            string.Join(Environment.NewLine,
+                "Hover Program.nl:2:6",
+                string.Empty,
+                "Signature:  func Hi(): int",
+                "Kind:       function",
+                "Defined in: Program.nl",
+                string.Empty,
+                "Documentation:",
+                "  Returns a value.",
+                "  Second line.",
+                string.Empty),
+            text);
+    }
+
+    [Fact]
+    public void HoverToText_OmitsOptionalLines()
+    {
+        var hover = new HoverResult("name: string", null, null, "variable");
+
+        var text = OutputFormatter.HoverToText(hover, "Program.nl", 11, 5);
+
+        Assert.Equal(
+            string.Join(Environment.NewLine,
+                "Hover Program.nl:11:5",
+                string.Empty,
+                "Signature:  name: string",
+                "Kind:       variable",
+                string.Empty),
+            text);
+    }
+
     // ── Model Record Tests ──────────────────────────────────────────────
 
     [Fact]

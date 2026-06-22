@@ -192,6 +192,30 @@ func QueryInspectReferencesOverflowLineText(remaining: int): string {
     return "  ... and " + remaining.ToString() + " more"
 }
 
+func QueryHoverHeaderText(fileName: string, line: int, column: int): string {
+    return "Hover " + fileName + ":" + line.ToString() + ":" + column.ToString()
+}
+
+func QueryHoverSignatureLineText(signature: string): string {
+    return "Signature:  " + signature
+}
+
+func QueryHoverKindLineText(kindText: string): string {
+    return "Kind:       " + kindText
+}
+
+func QueryHoverDefinedInLineText(definedIn: string): string {
+    return "Defined in: " + definedIn
+}
+
+func QueryHoverDocumentationHeaderText(): string {
+    return "Documentation:"
+}
+
+func QueryHoverDocumentationLineText(docLine: string): string {
+    return "  " + docLine
+}
+
 func QueryNoReferencesText(symbolName: string): string {
     return "No references found for '" + symbolName + "'."
 }

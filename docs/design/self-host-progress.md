@@ -11,6 +11,19 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-22 — Query hover text moves into product N#
+
+`OutputFormatter.HoverToText` no longer owns the visible `nlc query hover --text` header, signature, kind,
+defined-in, documentation header, or documentation body lines in C#. The shipped `OutputFormatterText.nl`
+dogfood kernel now shapes those hover-query lines through `OutputFormatterTextKernels`; C# keeps optional-line
+decisions, documentation splitting, CLR object access, StringBuilder assembly, and fallback/oracle rendering
+only. This is a Stage 6 `C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CodeIntelligenceOutputTests.HoverToText_FormatsSignatureDefinitionAndDocumentation|FullyQualifiedName~CodeIntelligenceOutputTests.HoverToText_OmitsOptionalLines|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_OutputFormatterText"`;
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`;
+`./scripts/dev.sh HoverToText`.
+
 ## 2026-06-22 — Query inspect text moves into product N#
 
 `OutputFormatter.InspectToText` no longer owns the visible `nlc query inspect --text` section header, symbol,

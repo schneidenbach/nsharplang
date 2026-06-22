@@ -7629,7 +7629,7 @@ func outer(x: int): int {
 
     // MILESTONE: OutputFormatterText.nl compiles end-to-end with no C# AST and owns shipped
     // `nlc query symbols --text`, `outline --text`, `type --text`, `completions --text`,
-    // `inspect --text`, `definition --text`, and `references --text` line shaping.
+    // `inspect --text`, `hover --text`, `definition --text`, and `references --text` line shaping.
     [Fact]
     public void ColumnarCodegen_CompilesRealDogfoodFile_OutputFormatterText()
     {
@@ -7660,6 +7660,12 @@ func outer(x: int): int {
         Assert.Contains("QueryInspectNoDefinitionText", methodNames!);
         Assert.Contains("QueryInspectReferencesHeaderText", methodNames!);
         Assert.Contains("QueryInspectReferencesOverflowLineText", methodNames!);
+        Assert.Contains("QueryHoverHeaderText", methodNames!);
+        Assert.Contains("QueryHoverSignatureLineText", methodNames!);
+        Assert.Contains("QueryHoverKindLineText", methodNames!);
+        Assert.Contains("QueryHoverDefinedInLineText", methodNames!);
+        Assert.Contains("QueryHoverDocumentationHeaderText", methodNames!);
+        Assert.Contains("QueryHoverDocumentationLineText", methodNames!);
         Assert.Contains("QueryNoReferencesText", methodNames!);
         Assert.Contains("QueryReferencesHeaderText", methodNames!);
         Assert.Contains("QueryReferenceLineText", methodNames!);
@@ -7707,6 +7713,12 @@ func outer(x: int): int {
             ("QueryInspectNoDefinitionText", Array.Empty<object>()),
             ("QueryInspectReferencesHeaderText", new object[] { 2, 1 }),
             ("QueryInspectReferencesOverflowLineText", new object[] { 3 }),
+            ("QueryHoverHeaderText", new object[] { "Program.nl", 2, 6 }),
+            ("QueryHoverSignatureLineText", new object[] { "func Hi(): int" }),
+            ("QueryHoverKindLineText", new object[] { "function" }),
+            ("QueryHoverDefinedInLineText", new object[] { "Program.nl" }),
+            ("QueryHoverDocumentationHeaderText", Array.Empty<object>()),
+            ("QueryHoverDocumentationLineText", new object[] { "Returns a value." }),
             ("QueryNoReferencesText", new object[] { "Person" }),
             ("QueryReferencesHeaderText", new object[] { "Person", 3 }),
             ("QueryReferenceLineText", new object[] { "Models.nl", 5, 0, 1, "  class Person {  ", 1 }),

@@ -514,6 +514,120 @@ internal static class OutputFormatterTextKernels
         return GetInspectReferencesOverflowLineTextWithCSharp(remaining);
     }
 
+    internal static string GetHoverHeaderText(string file, int line, int column)
+    {
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return GetHoverHeaderTextWithCSharp(file, line, column);
+
+        try
+        {
+            var text = bindings.QueryHoverHeaderText(file, line, column);
+            if (!string.IsNullOrEmpty(text))
+                return text;
+        }
+        catch
+        {
+        }
+
+        return GetHoverHeaderTextWithCSharp(file, line, column);
+    }
+
+    internal static string GetHoverSignatureLineText(string signature)
+    {
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return GetHoverSignatureLineTextWithCSharp(signature);
+
+        try
+        {
+            var text = bindings.QueryHoverSignatureLineText(signature);
+            if (!string.IsNullOrEmpty(text))
+                return text;
+        }
+        catch
+        {
+        }
+
+        return GetHoverSignatureLineTextWithCSharp(signature);
+    }
+
+    internal static string GetHoverKindLineText(string kind)
+    {
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return GetHoverKindLineTextWithCSharp(kind);
+
+        try
+        {
+            var text = bindings.QueryHoverKindLineText(kind);
+            if (!string.IsNullOrEmpty(text))
+                return text;
+        }
+        catch
+        {
+        }
+
+        return GetHoverKindLineTextWithCSharp(kind);
+    }
+
+    internal static string GetHoverDefinedInLineText(string definedIn)
+    {
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return GetHoverDefinedInLineTextWithCSharp(definedIn);
+
+        try
+        {
+            var text = bindings.QueryHoverDefinedInLineText(definedIn);
+            if (!string.IsNullOrEmpty(text))
+                return text;
+        }
+        catch
+        {
+        }
+
+        return GetHoverDefinedInLineTextWithCSharp(definedIn);
+    }
+
+    internal static string GetHoverDocumentationHeaderText()
+    {
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return GetHoverDocumentationHeaderTextWithCSharp();
+
+        try
+        {
+            var text = bindings.QueryHoverDocumentationHeaderText();
+            if (!string.IsNullOrEmpty(text))
+                return text;
+        }
+        catch
+        {
+        }
+
+        return GetHoverDocumentationHeaderTextWithCSharp();
+    }
+
+    internal static string GetHoverDocumentationLineText(string docLine)
+    {
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return GetHoverDocumentationLineTextWithCSharp(docLine);
+
+        try
+        {
+            var text = bindings.QueryHoverDocumentationLineText(docLine);
+            if (!string.IsNullOrEmpty(text))
+                return text;
+        }
+        catch
+        {
+        }
+
+        return GetHoverDocumentationLineTextWithCSharp(docLine);
+    }
+
     internal static string GetNoReferencesText(string symbolName)
     {
         var bindings = s_bindings.Value;
@@ -737,6 +851,24 @@ internal static class OutputFormatterTextKernels
             DogfoodKernelLoader.CreateDelegate<QueryInspectReferencesOverflowLineText>(
                 programType,
                 "QueryInspectReferencesOverflowLineText"),
+            DogfoodKernelLoader.CreateDelegate<QueryHoverHeaderText>(
+                programType,
+                "QueryHoverHeaderText"),
+            DogfoodKernelLoader.CreateDelegate<QueryHoverSignatureLineText>(
+                programType,
+                "QueryHoverSignatureLineText"),
+            DogfoodKernelLoader.CreateDelegate<QueryHoverKindLineText>(
+                programType,
+                "QueryHoverKindLineText"),
+            DogfoodKernelLoader.CreateDelegate<QueryHoverDefinedInLineText>(
+                programType,
+                "QueryHoverDefinedInLineText"),
+            DogfoodKernelLoader.CreateDelegate<QueryHoverDocumentationHeaderText>(
+                programType,
+                "QueryHoverDocumentationHeaderText"),
+            DogfoodKernelLoader.CreateDelegate<QueryHoverDocumentationLineText>(
+                programType,
+                "QueryHoverDocumentationLineText"),
             DogfoodKernelLoader.CreateDelegate<QueryNoReferencesText>(
                 programType,
                 "QueryNoReferencesText"),
@@ -839,6 +971,18 @@ internal static class OutputFormatterTextKernels
 
     private delegate string QueryInspectReferencesOverflowLineText(int remaining);
 
+    private delegate string QueryHoverHeaderText(string fileName, int line, int column);
+
+    private delegate string QueryHoverSignatureLineText(string signature);
+
+    private delegate string QueryHoverKindLineText(string kindText);
+
+    private delegate string QueryHoverDefinedInLineText(string definedIn);
+
+    private delegate string QueryHoverDocumentationHeaderText();
+
+    private delegate string QueryHoverDocumentationLineText(string docLine);
+
     private delegate string QueryNoReferencesText(string symbolName);
 
     private delegate string QueryReferencesHeaderText(string symbolName, int count);
@@ -894,6 +1038,12 @@ internal static class OutputFormatterTextKernels
         QueryInspectNoDefinitionText QueryInspectNoDefinitionText,
         QueryInspectReferencesHeaderText QueryInspectReferencesHeaderText,
         QueryInspectReferencesOverflowLineText QueryInspectReferencesOverflowLineText,
+        QueryHoverHeaderText QueryHoverHeaderText,
+        QueryHoverSignatureLineText QueryHoverSignatureLineText,
+        QueryHoverKindLineText QueryHoverKindLineText,
+        QueryHoverDefinedInLineText QueryHoverDefinedInLineText,
+        QueryHoverDocumentationHeaderText QueryHoverDocumentationHeaderText,
+        QueryHoverDocumentationLineText QueryHoverDocumentationLineText,
         QueryNoReferencesText QueryNoReferencesText,
         QueryReferencesHeaderText QueryReferencesHeaderText,
         QueryReferenceLineText QueryReferenceLineText,
@@ -1008,6 +1158,24 @@ internal static class OutputFormatterTextKernels
 
     private static string GetInspectReferencesOverflowLineTextWithCSharp(int remaining)
         => $"  ... and {remaining} more";
+
+    private static string GetHoverHeaderTextWithCSharp(string file, int line, int column)
+        => $"Hover {file}:{line}:{column}";
+
+    private static string GetHoverSignatureLineTextWithCSharp(string signature)
+        => $"Signature:  {signature}";
+
+    private static string GetHoverKindLineTextWithCSharp(string kind)
+        => $"Kind:       {kind}";
+
+    private static string GetHoverDefinedInLineTextWithCSharp(string definedIn)
+        => $"Defined in: {definedIn}";
+
+    private static string GetHoverDocumentationHeaderTextWithCSharp()
+        => "Documentation:";
+
+    private static string GetHoverDocumentationLineTextWithCSharp(string docLine)
+        => $"  {docLine}";
 
     private static string GetNoReferencesTextWithCSharp(string symbolName)
         => $"No references found for '{symbolName}'.";

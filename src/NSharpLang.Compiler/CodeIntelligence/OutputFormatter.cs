@@ -807,18 +807,18 @@ public static class OutputFormatter
     public static string HoverToText(HoverResult result, string file, int line, int col)
     {
         var sb = new StringBuilder();
-        sb.AppendLine($"Hover {file}:{line}:{col}");
+        sb.AppendLine(OutputFormatterTextKernels.GetHoverHeaderText(file, line, col));
         sb.AppendLine();
-        sb.AppendLine($"Signature:  {result.Signature}");
-        sb.AppendLine($"Kind:       {result.Kind}");
+        sb.AppendLine(OutputFormatterTextKernels.GetHoverSignatureLineText(result.Signature));
+        sb.AppendLine(OutputFormatterTextKernels.GetHoverKindLineText(result.Kind));
         if (result.DefinedIn != null)
-            sb.AppendLine($"Defined in: {result.DefinedIn}");
+            sb.AppendLine(OutputFormatterTextKernels.GetHoverDefinedInLineText(result.DefinedIn));
         if (!string.IsNullOrWhiteSpace(result.Documentation))
         {
             sb.AppendLine();
-            sb.AppendLine("Documentation:");
+            sb.AppendLine(OutputFormatterTextKernels.GetHoverDocumentationHeaderText());
             foreach (var docLine in result.Documentation.Split('\n'))
-                sb.AppendLine($"  {docLine}");
+                sb.AppendLine(OutputFormatterTextKernels.GetHoverDocumentationLineText(docLine));
         }
         return sb.ToString();
     }
