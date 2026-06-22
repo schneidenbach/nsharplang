@@ -70,67 +70,27 @@ public static class RemoveCommand
         => GetArgumentSummary(args).PackageOperand;
 
     internal static RemoveArgumentSummary GetArgumentSummary(string[] args)
-        => RemoveCommandKernels.TryGetArgumentSummary(args, out var summary)
-            ? summary
-            : GetArgumentSummaryWithCSharp(args);
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product remove argument parsing routes through RemoveCommandKernels.
-    private static RemoveArgumentSummary GetArgumentSummaryWithCSharp(string[] args)
-        => new(
-            GetPackageOperandWithCSharp(args),
-            ContainsArgWithCSharp(args, "--help") || ContainsArgWithCSharp(args, "-h") || (args.Length > 0 && args[0] == "help"));
-
-    private static string? GetPackageOperandWithCSharp(string[] args)
     {
-        for (var i = 0; i < args.Length; i++)
-        {
-            if (!args[i].StartsWith("-", StringComparison.Ordinal))
-                return args[i];
-        }
+        if (RemoveCommandKernels.TryGetArgumentSummary(args, out var summary))
+            return summary;
 
-        return null;
+        throw new InvalidOperationException("N# remove argument summary kernel rejected the arguments.");
     }
 
     internal static RemoveDependencyLineAction GetDependencyLineAction(string line, string packageName)
-        => RemoveCommandKernels.TryGetDependencyLineAction(line, packageName, out var action)
-            ? action
-            : GetDependencyLineActionWithCSharp(line, packageName);
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product remove dependency line matching routes through RemoveCommandKernels.
-    private static RemoveDependencyLineAction GetDependencyLineActionWithCSharp(string line, string packageName)
     {
-        var trimmed = line.Trim();
+        if (RemoveCommandKernels.TryGetDependencyLineAction(line, packageName, out var action))
+            return action;
 
-        if (trimmed.StartsWith("- ") &&
-            (trimmed.Contains(packageName + "@", StringComparison.OrdinalIgnoreCase) ||
-             trimmed.Equals($"- {packageName}", StringComparison.OrdinalIgnoreCase)))
-            return RemoveDependencyLineAction.RemoveSingleLine;
-
-        if ((trimmed.StartsWith("- nuget:", StringComparison.OrdinalIgnoreCase) ||
-             trimmed.StartsWith("- framework:", StringComparison.OrdinalIgnoreCase)) &&
-            trimmed.Contains(packageName, StringComparison.OrdinalIgnoreCase))
-            return RemoveDependencyLineAction.RemoveMappingBlock;
-
-        return RemoveDependencyLineAction.Keep;
+        throw new InvalidOperationException("N# remove dependency-line action kernel rejected the line.");
     }
 
     internal static bool ShouldStopDependencyContinuationLine(string line)
-        => RemoveCommandKernels.TryShouldStopDependencyContinuationLine(line, out var shouldStop)
-            ? shouldStop
-            : ShouldStopDependencyContinuationLineWithCSharp(line);
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product remove dependency continuation pruning routes through RemoveCommandKernels.
-    private static bool ShouldStopDependencyContinuationLineWithCSharp(string line)
-        => line.Length == 0 ||
-           line.TrimStart().StartsWith("- ") ||
-           (!line.StartsWith(" ") && !line.StartsWith("\t"));
-
-    private static bool ContainsArgWithCSharp(string[] args, string value)
     {
-        for (var i = 0; i < args.Length; i++)
-            if (args[i] == value)
-                return true;
-        return false;
+        if (RemoveCommandKernels.TryShouldStopDependencyContinuationLine(line, out var shouldStop))
+            return shouldStop;
+
+        throw new InvalidOperationException("N# remove dependency continuation kernel rejected the line.");
     }
 
     static int ShowHelp()

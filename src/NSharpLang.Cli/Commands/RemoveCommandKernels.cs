@@ -132,95 +132,19 @@ internal static class RemoveCommandKernels
     }
 
     internal static string GetHelpText()
-    {
-        if (TryGetMessage(bindings => bindings.RemoveHelpText(), out var message))
-            return message;
-
-        return GetHelpTextWithCSharp();
-    }
+        => RequiredBindings.RemoveHelpText();
 
     internal static string GetUsageMessage()
-    {
-        if (TryGetMessage(bindings => bindings.RemoveUsageMessage(), out var message))
-            return message;
-
-        return GetUsageMessageWithCSharp();
-    }
+        => RequiredBindings.RemoveUsageMessage();
 
     internal static string GetMissingProjectFileMessage()
-    {
-        if (TryGetMessage(bindings => bindings.RemoveMissingProjectFileMessage(), out var message))
-            return message;
-
-        return GetMissingProjectFileMessageWithCSharp();
-    }
+        => RequiredBindings.RemoveMissingProjectFileMessage();
 
     internal static string GetPackageNotFoundMessage(string packageName)
-    {
-        if (TryGetMessage(bindings => bindings.RemovePackageNotFoundMessage(packageName), out var message))
-            return message;
-
-        return GetPackageNotFoundMessageWithCSharp(packageName);
-    }
+        => RequiredBindings.RemovePackageNotFoundMessage(packageName);
 
     internal static string GetRemovedMessage(string packageName)
-    {
-        if (TryGetMessage(bindings => bindings.RemoveRemovedMessage(packageName), out var message))
-            return message;
-
-        return GetRemovedMessageWithCSharp(packageName);
-    }
-
-    private static bool TryGetMessage(Func<Bindings, string> getMessage, out string message)
-    {
-        message = string.Empty;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        try
-        {
-            message = getMessage(bindings);
-            return !string.IsNullOrEmpty(message);
-        }
-        catch
-        {
-            message = string.Empty;
-            return false;
-        }
-    }
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product remove command messages route through CliRemove*Message kernels.
-    private static string GetHelpTextWithCSharp()
-        => "N# Remove Dependency\n"
-           + "\n"
-           + "Usage: nlc remove <package>\n"
-           + "\n"
-           + "Remove a dependency from project.yml.\n"
-           + "\n"
-           + "Options:\n"
-           + "  --help, -h    Show this help text\n"
-           + "\n"
-           + "Examples:\n"
-           + "  nlc remove Newtonsoft.Json\n"
-           + "  nlc remove Microsoft.AspNetCore.App\n"
-           + "\n"
-           + "Exit codes:\n"
-           + "  0  Dependency removed successfully\n"
-           + "  1  Failed to remove dependency";
-
-    private static string GetUsageMessageWithCSharp()
-        => "Usage: nlc remove <package>";
-
-    private static string GetMissingProjectFileMessageWithCSharp()
-        => "No project.yml found.";
-
-    private static string GetPackageNotFoundMessageWithCSharp(string packageName)
-        => $"Package '{packageName}' not found in dependencies.";
-
-    private static string GetRemovedMessageWithCSharp(string packageName)
-        => $"Removed {packageName} from project.yml";
+        => RequiredBindings.RemoveRemovedMessage(packageName);
 
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
@@ -283,6 +207,9 @@ internal static class RemoveCommandKernels
         CliRemoveMissingProjectFileMessage RemoveMissingProjectFileMessage,
         CliRemovePackageNotFoundMessage RemovePackageNotFoundMessage,
         CliRemoveRemovedMessage RemoveRemovedMessage);
+
+    private static Bindings RequiredBindings
+        => s_bindings.Value ?? throw new InvalidOperationException("N# remove command kernels are unavailable.");
 
     private static bool TryGetOptionalArg(string[] args, int index, out string? value)
     {
