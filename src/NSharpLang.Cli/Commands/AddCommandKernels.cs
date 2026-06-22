@@ -257,161 +257,37 @@ internal static class AddCommandKernels
     }
 
     internal static string GetHelpText()
-    {
-        if (TryGetMessage(bindings => bindings.AddHelpText(), out var message))
-            return message;
-
-        return GetHelpTextWithCSharp();
-    }
+        => RequiredBindings.AddHelpText();
 
     internal static string GetUsageMessage()
-    {
-        if (TryGetMessage(bindings => bindings.AddUsageMessage(), out var message))
-            return message;
-
-        return GetUsageMessageWithCSharp();
-    }
+        => RequiredBindings.AddUsageMessage();
 
     internal static string GetMissingProjectFileMessage()
-    {
-        if (TryGetMessage(bindings => bindings.AddMissingProjectFileMessage(), out var message))
-            return message;
-
-        return GetMissingProjectFileMessageWithCSharp();
-    }
+        => RequiredBindings.AddMissingProjectFileMessage();
 
     internal static string GetResolvingLatestVersionMessage(string packageName)
-    {
-        if (TryGetMessage(bindings => bindings.AddResolvingLatestVersionMessage(packageName), out var message))
-            return message;
-
-        return GetResolvingLatestVersionMessageWithCSharp(packageName);
-    }
+        => RequiredBindings.AddResolvingLatestVersionMessage(packageName);
 
     internal static string GetPackageNotFoundMessage(string packageName)
-    {
-        if (TryGetMessage(bindings => bindings.AddPackageNotFoundMessage(packageName), out var message))
-            return message;
-
-        return GetPackageNotFoundMessageWithCSharp(packageName);
-    }
+        => RequiredBindings.AddPackageNotFoundMessage(packageName);
 
     internal static string GetDuplicatePackageMessage(string packageName)
-    {
-        if (TryGetMessage(bindings => bindings.AddDuplicatePackageMessage(packageName), out var message))
-            return message;
-
-        return GetDuplicatePackageMessageWithCSharp(packageName);
-    }
+        => RequiredBindings.AddDuplicatePackageMessage(packageName);
 
     internal static string GetDuplicateProjectReferenceMessage(string localPath)
-    {
-        if (TryGetMessage(bindings => bindings.AddDuplicateProjectReferenceMessage(localPath), out var message))
-            return message;
-
-        return GetDuplicateProjectReferenceMessageWithCSharp(localPath);
-    }
+        => RequiredBindings.AddDuplicateProjectReferenceMessage(localPath);
 
     internal static string GetFrameworkAddedMessage(string packageName)
-    {
-        if (TryGetMessage(bindings => bindings.AddFrameworkAddedMessage(packageName), out var message))
-            return message;
-
-        return GetFrameworkAddedMessageWithCSharp(packageName);
-    }
+        => RequiredBindings.AddFrameworkAddedMessage(packageName);
 
     internal static string GetPackageAddedMessage(string packageName, string version)
-    {
-        if (TryGetMessage(bindings => bindings.AddPackageAddedMessage(packageName, version), out var message))
-            return message;
-
-        return GetPackageAddedMessageWithCSharp(packageName, version);
-    }
+        => RequiredBindings.AddPackageAddedMessage(packageName, version);
 
     internal static string GetProjectReferenceAddedMessage(string localPath)
-    {
-        if (TryGetMessage(bindings => bindings.AddProjectReferenceAddedMessage(localPath), out var message))
-            return message;
+        => RequiredBindings.AddProjectReferenceAddedMessage(localPath);
 
-        return GetProjectReferenceAddedMessageWithCSharp(localPath);
-    }
-
-    private static bool TryGetMessage(Func<Bindings, string> getMessage, out string message)
-    {
-        message = string.Empty;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        try
-        {
-            message = getMessage(bindings);
-            return !string.IsNullOrEmpty(message);
-        }
-        catch
-        {
-            message = string.Empty;
-            return false;
-        }
-    }
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product add command messages route through CliAdd*Message kernels.
-    private static string GetHelpTextWithCSharp()
-        => "N# Add Dependency\n"
-           + "\n"
-           + "Usage: nlc add <package> [options]\n"
-           + "       nlc add <package>@<version>\n"
-           + "       nlc add --path <local-project>\n"
-           + "\n"
-           + "Add a NuGet package, framework reference, or local project reference to project.yml.\n"
-           + "If no version is specified, the latest version is resolved from NuGet.\n"
-           + "\n"
-           + "Options:\n"
-           + "  --version <ver>   Package version (alternative to @version syntax)\n"
-           + "  --prerelease      Allow prerelease versions when resolving latest\n"
-           + "  --framework       Add as a framework reference instead of NuGet package\n"
-           + "  --path <path>     Add a local project reference (path to project directory or .csproj)\n"
-           + "  --help, -h        Show this help text\n"
-           + "\n"
-           + "Examples:\n"
-           + "  nlc add Newtonsoft.Json\n"
-           + "  nlc add Serilog@3.1.0\n"
-           + "  nlc add Serilog --version 3.1.0\n"
-           + "  nlc add System.Text.Json --prerelease\n"
-           + "  nlc add Microsoft.AspNetCore.App --framework\n"
-           + "  nlc add --path ../MyLibrary\n"
-           + "\n"
-           + "Exit codes:\n"
-           + "  0  Dependency added successfully\n"
-           + "  1  Failed to add dependency";
-
-    private static string GetUsageMessageWithCSharp()
-        => "Usage: nlc add <package> [--version <ver>]\n       nlc add <package>@<version>";
-
-    private static string GetMissingProjectFileMessageWithCSharp()
-        => "No project.yml found. Run 'nlc new <name>' or 'nlc init' to create a project.";
-
-    private static string GetResolvingLatestVersionMessageWithCSharp(string packageName)
-        => $"Resolving latest version for {packageName}...";
-
-    private static string GetPackageNotFoundMessageWithCSharp(string packageName)
-        => $"Could not find package '{packageName}' on NuGet. Check the package name and try again.";
-
-    private static string GetDuplicatePackageMessageWithCSharp(string packageName)
-        => $"'{packageName}' is already in dependencies. Use 'nlc update' to change the version.";
-
-    private static string GetDuplicateProjectReferenceMessageWithCSharp(string localPath)
-        => $"Project reference '{localPath}' is already in dependencies.";
-
-    private static string GetFrameworkAddedMessageWithCSharp(string packageName)
-        => $"Added framework reference '{packageName}' to project.yml";
-
-    private static string GetPackageAddedMessageWithCSharp(string packageName, string version)
-        => $"Added {packageName}@{version} to project.yml";
-
-    private static string GetProjectReferenceAddedMessageWithCSharp(string localPath)
-        => $"Added project reference '{localPath}' to project.yml";
+    private static Bindings RequiredBindings
+        => s_bindings.Value ?? throw new InvalidOperationException("N# add command kernels are unavailable.");
 
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(

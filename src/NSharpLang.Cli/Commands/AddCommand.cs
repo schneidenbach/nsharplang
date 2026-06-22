@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Text.Json;
 using NSharpLang.Compiler;
 
@@ -9,8 +8,6 @@ namespace NSharpLang.Cli.Commands;
 
 public static class AddCommand
 {
-    private static readonly string[] PackageOptionsWithValues = { "--version", "--path" };
-
     public static int Execute(string[] args)
     {
         var arguments = GetArgumentSummary(args);
@@ -103,122 +100,43 @@ public static class AddCommand
         => GetArgumentSummary(args).PackageOperand;
 
     internal static AddArgumentSummary GetArgumentSummary(string[] args)
-        => AddCommandKernels.TryGetArgumentSummary(args, out var summary)
-            ? summary
-            : GetArgumentSummaryWithCSharp(args);
+    {
+        if (AddCommandKernels.TryGetArgumentSummary(args, out var summary))
+            return summary;
+
+        throw new InvalidOperationException("N# add argument parser kernel rejected the arguments.");
+    }
 
     internal static AddPackageSpec GetPackageSpec(string raw, string? explicitVersion)
-        => AddCommandKernels.TryGetPackageSpec(raw, explicitVersion, out var spec)
-            ? spec
-            : GetPackageSpecWithCSharp(raw, explicitVersion);
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product add package spec shaping routes through AddCommandKernels.
-    private static AddPackageSpec GetPackageSpecWithCSharp(string raw, string? explicitVersion)
     {
-        var atIndex = raw.IndexOf('@');
-        if (atIndex > 0)
-            return new AddPackageSpec(raw[..atIndex], raw[(atIndex + 1)..]);
+        if (AddCommandKernels.TryGetPackageSpec(raw, explicitVersion, out var spec))
+            return spec;
 
-        return new AddPackageSpec(raw, explicitVersion);
+        throw new InvalidOperationException("N# add package spec kernel rejected the package.");
     }
 
     internal static int GetDependencyInsertIndex(string[] lines)
-        => AddCommandKernels.TryGetDependencyInsertIndex(lines, out var insertIndex)
-            ? insertIndex
-            : GetDependencyInsertIndexWithCSharp(lines);
+    {
+        if (AddCommandKernels.TryGetDependencyInsertIndex(lines, out var insertIndex))
+            return insertIndex;
+
+        throw new InvalidOperationException("N# add dependency insertion kernel rejected the project file.");
+    }
 
     internal static bool PackageOrFrameworkDependencyExists(IReadOnlyList<Reference> dependencies, string packageName)
-        => AddCommandKernels.TryPackageOrFrameworkDependencyExists(dependencies, packageName, out var exists)
-            ? exists
-            : PackageOrFrameworkDependencyExistsWithCSharp(dependencies, packageName);
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product add duplicate package/framework checks route through AddCommandKernels.
-    private static bool PackageOrFrameworkDependencyExistsWithCSharp(
-        IReadOnlyList<Reference> dependencies,
-        string packageName)
     {
-        for (var i = 0; i < dependencies.Count; i++)
-        {
-            var dependency = dependencies[i];
-            if (string.Equals(dependency.Nuget, packageName, StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(dependency.Framework, packageName, StringComparison.OrdinalIgnoreCase))
-                return true;
-        }
+        if (AddCommandKernels.TryPackageOrFrameworkDependencyExists(dependencies, packageName, out var exists))
+            return exists;
 
-        return false;
+        throw new InvalidOperationException("N# add duplicate dependency kernel rejected the dependency table.");
     }
 
     internal static bool ProjectDependencyExists(IReadOnlyList<Reference> dependencies, string localPath)
-        => AddCommandKernels.TryProjectDependencyExists(dependencies, localPath, out var exists)
-            ? exists
-            : ProjectDependencyExistsWithCSharp(dependencies, localPath);
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product add duplicate project checks route through AddCommandKernels.
-    private static bool ProjectDependencyExistsWithCSharp(
-        IReadOnlyList<Reference> dependencies,
-        string localPath)
     {
-        for (var i = 0; i < dependencies.Count; i++)
-        {
-            if (string.Equals(dependencies[i].Project, localPath, StringComparison.OrdinalIgnoreCase))
-                return true;
-        }
+        if (AddCommandKernels.TryProjectDependencyExists(dependencies, localPath, out var exists))
+            return exists;
 
-        return false;
-    }
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product add dependency insertion planning routes through AddCommandKernels.
-    private static int GetDependencyInsertIndexWithCSharp(string[] lines)
-    {
-        var depIndex = Array.FindIndex(lines, l => l.TrimStart().StartsWith("dependencies:"));
-        if (depIndex < 0)
-            return -1;
-
-        var insertAt = depIndex + 1;
-        while (insertAt < lines.Length)
-        {
-            var line = lines[insertAt];
-            if (line.Length == 0 || (!line.StartsWith(" ") && !line.StartsWith("\t")))
-                break;
-            insertAt++;
-        }
-
-        return insertAt;
-    }
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product add argument parsing routes through AddCommandKernels.
-    private static AddArgumentSummary GetArgumentSummaryWithCSharp(string[] args)
-        => new(
-            GetOptionWithCSharp(args, "--version"),
-            GetOptionWithCSharp(args, "--path"),
-            GetPackageOperandWithCSharp(args),
-            ContainsArgWithCSharp(args, "--framework"),
-            ContainsArgWithCSharp(args, "--prerelease"),
-            ContainsArgWithCSharp(args, "--help") || ContainsArgWithCSharp(args, "-h") || (args.Length > 0 && args[0] == "help"));
-
-    private static string? GetPackageOperandWithCSharp(string[] args)
-    {
-        for (var i = 0; i < args.Length; i++)
-        {
-            if (PackageOptionsWithValues.Contains(args[i], StringComparer.Ordinal))
-            {
-                i++;
-                continue;
-            }
-
-            if (!args[i].StartsWith("-", StringComparison.Ordinal))
-                return args[i];
-        }
-
-        return null;
-    }
-
-    private static bool ContainsArgWithCSharp(string[] args, string value)
-    {
-        for (var i = 0; i < args.Length; i++)
-            if (args[i] == value)
-                return true;
-        return false;
+        throw new InvalidOperationException("N# add duplicate project dependency kernel rejected the dependency table.");
     }
 
     static int AddProjectReference(string projectYml, string localPath)
@@ -282,14 +200,6 @@ public static class AddCommand
             // Fall through to return null
         }
 
-        return null;
-    }
-
-    static string? GetOptionWithCSharp(string[] args, string flag)
-    {
-        for (var i = 0; i < args.Length - 1; i++)
-            if (args[i] == flag)
-                return args[i + 1];
         return null;
     }
 
