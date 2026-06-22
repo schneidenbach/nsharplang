@@ -4245,6 +4245,108 @@ func CliTidyOutputMode(useJson: int): int {
     return 2
 }
 
+func CliTidyHelpText(): string {
+    return "N# Tidy\n"
+        + "\n"
+        + "Usage: nlc tidy [options]\n"
+        + "\n"
+        + "Identify and optionally remove unused NuGet dependencies from project.yml.\n"
+        + "\n"
+        + "Each dependency is classified as:\n"
+        + "  used            — an import statement plausibly references the package namespace\n"
+        + "  possibly-unused — no import statement references the package namespace\n"
+        + "  unknown         — cannot determine usage (e.g. single-segment package names)\n"
+        + "\n"
+        + "The command is conservative: 'unknown' is reported rather than incorrectly\n"
+        + "flagging a dependency as unused.\n"
+        + "\n"
+        + "Options:\n"
+        + "  --project <dir>   Project directory (default: current directory)\n"
+        + "  --fix             Remove all possibly-unused dependencies from project.yml\n"
+        + "  --json            Emit structured JSON output\n"
+        + "  --help, -h        Show this help text\n"
+        + "\n"
+        + "JSON schema (schemaVersion 1):\n"
+        + "  { schemaVersion, command, ok, projectRoot,\n"
+        + "    dependencies: [{ name, version, status, reason }] }\n"
+        + "\n"
+        + "Examples:\n"
+        + "  nlc tidy                   Report unused dependencies\n"
+        + "  nlc tidy --fix             Remove possibly-unused dependencies\n"
+        + "  nlc tidy --json            Machine-readable output\n"
+        + "  nlc tidy --project ./lib   Analyse a different project\n"
+        + "\n"
+        + "Exit codes:\n"
+        + "  0  All dependencies in use (or tidy succeeded)\n"
+        + "  1  Error (missing project.yml, parse failure)"
+}
+
+func CliTidyMissingProjectFileJsonMessage(): string {
+    return "No project.yml found in the specified directory."
+}
+
+func CliTidyMissingProjectFileTextMessage(): string {
+    return "No project.yml found. Run 'nlc new <name>' or 'nlc init' to create a project."
+}
+
+func CliTidyParseFailedMessage(message: string): string {
+    return "Failed to parse project.yml: " + message
+}
+
+func CliTidyNothingToRemoveMessage(): string {
+    return "Nothing to remove."
+}
+
+func CliTidyRemovedDependenciesMessage(countText: string, count: int): string {
+    dependencyWord := "dependencies"
+    if count == 1 {
+        dependencyWord = "dependency"
+    }
+
+    return "Removed " + countText + " possibly-unused " + dependencyWord + "."
+}
+
+func CliTidyNoNuGetDependenciesMessage(projectRoot: string): string {
+    return "No NuGet dependencies found in " + projectRoot
+}
+
+func CliTidyTableHeader(packageLabel: string, statusLabel: string): string {
+    return "  " + packageLabel + "  " + statusLabel + "  Reason"
+}
+
+func CliTidyTableSeparator(packageSeparator: string, statusSeparator: string): string {
+    return "  " + packageSeparator + "  " + statusSeparator + "  ------"
+}
+
+func CliTidyPossiblyUnusedFoundMessage(countText: string, count: int): string {
+    dependencyWord := "dependencies"
+    if count == 1 {
+        dependencyWord = "dependency"
+    }
+
+    return countText + " possibly-unused " + dependencyWord + " found. Run 'nlc tidy --fix' to remove them."
+}
+
+func CliTidyAllDependenciesAccountedForMessage(unknownCountText: string): string {
+    return "All dependencies accounted for (" + unknownCountText + " could not be determined)."
+}
+
+func CliTidyAllDependenciesInUseMessage(): string {
+    return "All dependencies appear to be in use."
+}
+
+func CliTidyUnknownReasonMessage(): string {
+    return "Cannot determine namespace for single-segment package name; manual review required."
+}
+
+func CliTidyUsedReasonMessage(namespacePrefix: string): string {
+    return "Import statement references namespace matching '" + namespacePrefix + "'."
+}
+
+func CliTidyPossiblyUnusedReasonMessage(prefix1: string, prefix2: string): string {
+    return "No import statement found referencing '" + prefix1 + "' or '" + prefix2 + "'."
+}
+
 func CliTidyImportNamespaceSpanInto(line: string, resultSpan: int[]): int {
     if resultSpan.Length < 3 {
         return -1

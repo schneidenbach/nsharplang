@@ -7217,6 +7217,21 @@ func outer(x: int): int {
         Assert.Contains("CliUpdateFailedMessage", methodNames!); // product update failure message shaping.
         Assert.Contains("CliTidyOptionSummaryInto", methodNames!); // product tidy option parsing.
         Assert.Contains("CliTidyOutputMode", methodNames!); // product tidy output mode selection.
+        Assert.Contains("CliTidyHelpText", methodNames!); // product tidy help text shaping.
+        Assert.Contains("CliTidyMissingProjectFileJsonMessage", methodNames!); // product tidy JSON missing-project message shaping.
+        Assert.Contains("CliTidyMissingProjectFileTextMessage", methodNames!); // product tidy text missing-project message shaping.
+        Assert.Contains("CliTidyParseFailedMessage", methodNames!); // product tidy parse-failure message shaping.
+        Assert.Contains("CliTidyNothingToRemoveMessage", methodNames!); // product tidy fix status message shaping.
+        Assert.Contains("CliTidyRemovedDependenciesMessage", methodNames!); // product tidy fix count message shaping.
+        Assert.Contains("CliTidyNoNuGetDependenciesMessage", methodNames!); // product tidy no-dependencies message shaping.
+        Assert.Contains("CliTidyTableHeader", methodNames!); // product tidy text table header shaping.
+        Assert.Contains("CliTidyTableSeparator", methodNames!); // product tidy text table separator shaping.
+        Assert.Contains("CliTidyPossiblyUnusedFoundMessage", methodNames!); // product tidy possibly-unused summary shaping.
+        Assert.Contains("CliTidyAllDependenciesAccountedForMessage", methodNames!); // product tidy unknown summary shaping.
+        Assert.Contains("CliTidyAllDependenciesInUseMessage", methodNames!); // product tidy clean summary shaping.
+        Assert.Contains("CliTidyUnknownReasonMessage", methodNames!); // product tidy unknown reason shaping.
+        Assert.Contains("CliTidyUsedReasonMessage", methodNames!); // product tidy used reason shaping.
+        Assert.Contains("CliTidyPossiblyUnusedReasonMessage", methodNames!); // product tidy unused reason shaping.
         Assert.Contains("CliTidyImportNamespaceSpanInto", methodNames!); // product tidy import extraction.
         Assert.Contains("CliDocOptionSummaryInto", methodNames!); // product doc option parsing.
         Assert.Contains("CliDocOutputMode", methodNames!); // product doc output mode selection.
@@ -16436,6 +16451,66 @@ class OtherZetaType {
                     "CliTidyOutputMode",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTidyOutputMode.");
+            var cliTidyHelpText = programType.GetMethod(
+                    "CliTidyHelpText",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTidyHelpText.");
+            var cliTidyMissingProjectFileJsonMessage = programType.GetMethod(
+                    "CliTidyMissingProjectFileJsonMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTidyMissingProjectFileJsonMessage.");
+            var cliTidyMissingProjectFileTextMessage = programType.GetMethod(
+                    "CliTidyMissingProjectFileTextMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTidyMissingProjectFileTextMessage.");
+            var cliTidyParseFailedMessage = programType.GetMethod(
+                    "CliTidyParseFailedMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTidyParseFailedMessage.");
+            var cliTidyNothingToRemoveMessage = programType.GetMethod(
+                    "CliTidyNothingToRemoveMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTidyNothingToRemoveMessage.");
+            var cliTidyRemovedDependenciesMessage = programType.GetMethod(
+                    "CliTidyRemovedDependenciesMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTidyRemovedDependenciesMessage.");
+            var cliTidyNoNuGetDependenciesMessage = programType.GetMethod(
+                    "CliTidyNoNuGetDependenciesMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTidyNoNuGetDependenciesMessage.");
+            var cliTidyTableHeader = programType.GetMethod(
+                    "CliTidyTableHeader",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTidyTableHeader.");
+            var cliTidyTableSeparator = programType.GetMethod(
+                    "CliTidyTableSeparator",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTidyTableSeparator.");
+            var cliTidyPossiblyUnusedFoundMessage = programType.GetMethod(
+                    "CliTidyPossiblyUnusedFoundMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTidyPossiblyUnusedFoundMessage.");
+            var cliTidyAllDependenciesAccountedForMessage = programType.GetMethod(
+                    "CliTidyAllDependenciesAccountedForMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTidyAllDependenciesAccountedForMessage.");
+            var cliTidyAllDependenciesInUseMessage = programType.GetMethod(
+                    "CliTidyAllDependenciesInUseMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTidyAllDependenciesInUseMessage.");
+            var cliTidyUnknownReasonMessage = programType.GetMethod(
+                    "CliTidyUnknownReasonMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTidyUnknownReasonMessage.");
+            var cliTidyUsedReasonMessage = programType.GetMethod(
+                    "CliTidyUsedReasonMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTidyUsedReasonMessage.");
+            var cliTidyPossiblyUnusedReasonMessage = programType.GetMethod(
+                    "CliTidyPossiblyUnusedReasonMessage",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTidyPossiblyUnusedReasonMessage.");
             var cliDocOptionSummaryInto = programType.GetMethod(
                     "CliDocOptionSummaryInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -18022,6 +18097,22 @@ func main(customer: Customer, résumé: Profile) {
                 cliLintFailedMessage);
             AssertCliTidyOptionsLikeProduction(cliTidyOptionSummaryInto);
             AssertCliJsonFlagOutputModesLikeProduction(cliTidyOutputMode);
+            AssertCliTidyMessagesLikeProduction(
+                cliTidyHelpText,
+                cliTidyMissingProjectFileJsonMessage,
+                cliTidyMissingProjectFileTextMessage,
+                cliTidyParseFailedMessage,
+                cliTidyNothingToRemoveMessage,
+                cliTidyRemovedDependenciesMessage,
+                cliTidyNoNuGetDependenciesMessage,
+                cliTidyTableHeader,
+                cliTidyTableSeparator,
+                cliTidyPossiblyUnusedFoundMessage,
+                cliTidyAllDependenciesAccountedForMessage,
+                cliTidyAllDependenciesInUseMessage,
+                cliTidyUnknownReasonMessage,
+                cliTidyUsedReasonMessage,
+                cliTidyPossiblyUnusedReasonMessage);
             AssertCliDocOptionsLikeProduction(cliDocOptionSummaryInto);
             AssertCliJsonFlagOutputModesLikeProduction(cliDocOutputMode);
             AssertCliDocMessagesLikeProduction(
@@ -23706,6 +23797,82 @@ func main() {
         }
 
         return indices;
+    }
+
+    private static void AssertCliTidyMessagesLikeProduction(
+        MethodInfo cliTidyHelpText,
+        MethodInfo cliTidyMissingProjectFileJsonMessage,
+        MethodInfo cliTidyMissingProjectFileTextMessage,
+        MethodInfo cliTidyParseFailedMessage,
+        MethodInfo cliTidyNothingToRemoveMessage,
+        MethodInfo cliTidyRemovedDependenciesMessage,
+        MethodInfo cliTidyNoNuGetDependenciesMessage,
+        MethodInfo cliTidyTableHeader,
+        MethodInfo cliTidyTableSeparator,
+        MethodInfo cliTidyPossiblyUnusedFoundMessage,
+        MethodInfo cliTidyAllDependenciesAccountedForMessage,
+        MethodInfo cliTidyAllDependenciesInUseMessage,
+        MethodInfo cliTidyUnknownReasonMessage,
+        MethodInfo cliTidyUsedReasonMessage,
+        MethodInfo cliTidyPossiblyUnusedReasonMessage)
+    {
+        var helpText = (string)(cliTidyHelpText.Invoke(null, Array.Empty<object>()) ?? "<null>");
+        Assert.Contains("N# Tidy", helpText);
+        Assert.Contains("Usage: nlc tidy [options]", helpText);
+        Assert.Contains("schemaVersion 1", helpText);
+
+        Assert.Equal(
+            "No project.yml found in the specified directory.",
+            (string)(cliTidyMissingProjectFileJsonMessage.Invoke(null, Array.Empty<object>()) ?? "<null>"));
+        Assert.Equal(
+            "No project.yml found. Run 'nlc new <name>' or 'nlc init' to create a project.",
+            (string)(cliTidyMissingProjectFileTextMessage.Invoke(null, Array.Empty<object>()) ?? "<null>"));
+        Assert.Equal(
+            "Failed to parse project.yml: bad yaml",
+            (string)(cliTidyParseFailedMessage.Invoke(null, new object[] { "bad yaml" }) ?? "<null>"));
+        Assert.Equal(
+            "Nothing to remove.",
+            (string)(cliTidyNothingToRemoveMessage.Invoke(null, Array.Empty<object>()) ?? "<null>"));
+        Assert.Equal(
+            "Removed 1 possibly-unused dependency.",
+            (string)(cliTidyRemovedDependenciesMessage.Invoke(null, new object[] { "1", 1 }) ?? "<null>"));
+        Assert.Equal(
+            "Removed 2 possibly-unused dependencies.",
+            (string)(cliTidyRemovedDependenciesMessage.Invoke(null, new object[] { "2", 2 }) ?? "<null>"));
+        Assert.Equal(
+            "No NuGet dependencies found in /tmp/demo",
+            (string)(cliTidyNoNuGetDependenciesMessage.Invoke(null, new object[] { "/tmp/demo" }) ?? "<null>"));
+        Assert.Equal(
+            "  Package       Status           Reason",
+            (string)(cliTidyTableHeader.Invoke(
+                null,
+                new object[] { "Package     ", "Status         " }) ?? "<null>"));
+        Assert.Equal(
+            "  -------  ------  ------",
+            (string)(cliTidyTableSeparator.Invoke(null, new object[] { "-------", "------" }) ?? "<null>"));
+        Assert.Equal(
+            "1 possibly-unused dependency found. Run 'nlc tidy --fix' to remove them.",
+            (string)(cliTidyPossiblyUnusedFoundMessage.Invoke(null, new object[] { "1", 1 }) ?? "<null>"));
+        Assert.Equal(
+            "3 possibly-unused dependencies found. Run 'nlc tidy --fix' to remove them.",
+            (string)(cliTidyPossiblyUnusedFoundMessage.Invoke(null, new object[] { "3", 3 }) ?? "<null>"));
+        Assert.Equal(
+            "All dependencies accounted for (2 could not be determined).",
+            (string)(cliTidyAllDependenciesAccountedForMessage.Invoke(null, new object[] { "2" }) ?? "<null>"));
+        Assert.Equal(
+            "All dependencies appear to be in use.",
+            (string)(cliTidyAllDependenciesInUseMessage.Invoke(null, Array.Empty<object>()) ?? "<null>"));
+        Assert.Equal(
+            "Cannot determine namespace for single-segment package name; manual review required.",
+            (string)(cliTidyUnknownReasonMessage.Invoke(null, Array.Empty<object>()) ?? "<null>"));
+        Assert.Equal(
+            "Import statement references namespace matching 'Newtonsoft.Json'.",
+            (string)(cliTidyUsedReasonMessage.Invoke(null, new object[] { "Newtonsoft.Json" }) ?? "<null>"));
+        Assert.Equal(
+            "No import statement found referencing 'Serilog' or 'Serilog.Sinks'.",
+            (string)(cliTidyPossiblyUnusedReasonMessage.Invoke(
+                null,
+                new object[] { "Serilog", "Serilog.Sinks" }) ?? "<null>"));
     }
 
     private static void AssertCliDocOptionsLikeProduction(MethodInfo cliDocOptionSummaryInto)

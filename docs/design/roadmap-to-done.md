@@ -331,7 +331,8 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       `UpdateCommand` in `UpdateCommandKernels`; new argument summary, message shaping, template normalization, effective-template selection, and
       template source manifests now live beside `Program.NewCommand` in
       `NewCommandKernels`; tidy
-      option summary, output-mode selection, import extraction, classification, status summary, and fix filtering now live beside `TidyCommand`
+      option summary, output-mode selection, import extraction, classification, status summary, fix filtering, and
+      help/status/error message shaping now live beside `TidyCommand`
       in `TidyCommandKernels`;
       lint option summary, effective output-mode selection, help/status/error message shaping, and file-argument extraction now live beside
       `LintCommand` in `LintCommandKernels`; format

@@ -1468,6 +1468,8 @@ dependencies:
                 TidyCommand.Execute(new[] { "--project", tempDir }));
 
             Assert.Equal(1, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stdout));
+            Assert.Contains("No project.yml found. Run 'nlc new <name>' or 'nlc init' to create a project.", stderr);
         }
         finally
         {

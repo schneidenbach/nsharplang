@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using NSharpLang.Compiler;
 
 namespace NSharpLang.Cli.Commands;
@@ -396,6 +397,110 @@ internal static class TidyCommandKernels
         }
     }
 
+    internal static string GetHelpText()
+        => TryGetMessage(bindings => bindings.HelpText(), out var message)
+            ? message
+            : FallbackHelpText();
+
+    internal static string GetMissingProjectFileJsonMessage()
+        => TryGetMessage(bindings => bindings.MissingProjectFileJsonMessage(), out var message)
+            ? message
+            : FallbackMissingProjectFileJsonMessage();
+
+    internal static string GetMissingProjectFileTextMessage()
+        => TryGetMessage(bindings => bindings.MissingProjectFileTextMessage(), out var message)
+            ? message
+            : FallbackMissingProjectFileTextMessage();
+
+    internal static string GetParseFailedMessage(string message)
+        => TryGetMessage(bindings => bindings.ParseFailedMessage(message), out var result)
+            ? result
+            : FallbackParseFailedMessage(message);
+
+    internal static string GetNothingToRemoveMessage()
+        => TryGetMessage(bindings => bindings.NothingToRemoveMessage(), out var message)
+            ? message
+            : FallbackNothingToRemoveMessage();
+
+    internal static string GetRemovedDependenciesMessage(int count)
+    {
+        var countText = count.ToString(CultureInfo.InvariantCulture);
+        return TryGetMessage(bindings => bindings.RemovedDependenciesMessage(countText, count), out var message)
+            ? message
+            : FallbackRemovedDependenciesMessage(countText, count);
+    }
+
+    internal static string GetNoNuGetDependenciesMessage(string projectRoot)
+        => TryGetMessage(bindings => bindings.NoNuGetDependenciesMessage(projectRoot), out var message)
+            ? message
+            : FallbackNoNuGetDependenciesMessage(projectRoot);
+
+    internal static string GetTableHeader(string packageLabel, string statusLabel)
+        => TryGetMessage(bindings => bindings.TableHeader(packageLabel, statusLabel), out var message)
+            ? message
+            : FallbackTableHeader(packageLabel, statusLabel);
+
+    internal static string GetTableSeparator(string packageSeparator, string statusSeparator)
+        => TryGetMessage(bindings => bindings.TableSeparator(packageSeparator, statusSeparator), out var message)
+            ? message
+            : FallbackTableSeparator(packageSeparator, statusSeparator);
+
+    internal static string GetPossiblyUnusedFoundMessage(int count)
+    {
+        var countText = count.ToString(CultureInfo.InvariantCulture);
+        return TryGetMessage(bindings => bindings.PossiblyUnusedFoundMessage(countText, count), out var message)
+            ? message
+            : FallbackPossiblyUnusedFoundMessage(countText, count);
+    }
+
+    internal static string GetAllDependenciesAccountedForMessage(int unknownCount)
+    {
+        var unknownCountText = unknownCount.ToString(CultureInfo.InvariantCulture);
+        return TryGetMessage(bindings => bindings.AllDependenciesAccountedForMessage(unknownCountText), out var message)
+            ? message
+            : FallbackAllDependenciesAccountedForMessage(unknownCountText);
+    }
+
+    internal static string GetAllDependenciesInUseMessage()
+        => TryGetMessage(bindings => bindings.AllDependenciesInUseMessage(), out var message)
+            ? message
+            : FallbackAllDependenciesInUseMessage();
+
+    internal static string GetUnknownReasonMessage()
+        => TryGetMessage(bindings => bindings.UnknownReasonMessage(), out var message)
+            ? message
+            : FallbackUnknownReasonMessage();
+
+    internal static string GetUsedReasonMessage(string namespacePrefix)
+        => TryGetMessage(bindings => bindings.UsedReasonMessage(namespacePrefix), out var message)
+            ? message
+            : FallbackUsedReasonMessage(namespacePrefix);
+
+    internal static string GetPossiblyUnusedReasonMessage(string prefix1, string prefix2)
+        => TryGetMessage(bindings => bindings.PossiblyUnusedReasonMessage(prefix1, prefix2), out var message)
+            ? message
+            : FallbackPossiblyUnusedReasonMessage(prefix1, prefix2);
+
+    private static bool TryGetMessage(Func<Bindings, string> getMessage, out string message)
+    {
+        message = string.Empty;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        try
+        {
+            message = getMessage(bindings);
+            return !string.IsNullOrEmpty(message);
+        }
+        catch
+        {
+            message = string.Empty;
+            return false;
+        }
+    }
+
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
             DogfoodKernelLoader.CreateDelegate<DiagnosticSeverityFilterIndicesInto>(
@@ -418,7 +523,52 @@ internal static class TidyCommandKernels
                 "CliTidyOutputMode"),
             DogfoodKernelLoader.CreateDelegate<CliTidyImportNamespaceSpanInto>(
                 programType,
-                "CliTidyImportNamespaceSpanInto")));
+                "CliTidyImportNamespaceSpanInto"),
+            DogfoodKernelLoader.CreateDelegate<CliTidyHelpText>(
+                programType,
+                "CliTidyHelpText"),
+            DogfoodKernelLoader.CreateDelegate<CliTidyMissingProjectFileJsonMessage>(
+                programType,
+                "CliTidyMissingProjectFileJsonMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliTidyMissingProjectFileTextMessage>(
+                programType,
+                "CliTidyMissingProjectFileTextMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliTidyParseFailedMessage>(
+                programType,
+                "CliTidyParseFailedMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliTidyNothingToRemoveMessage>(
+                programType,
+                "CliTidyNothingToRemoveMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliTidyRemovedDependenciesMessage>(
+                programType,
+                "CliTidyRemovedDependenciesMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliTidyNoNuGetDependenciesMessage>(
+                programType,
+                "CliTidyNoNuGetDependenciesMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliTidyTableHeader>(
+                programType,
+                "CliTidyTableHeader"),
+            DogfoodKernelLoader.CreateDelegate<CliTidyTableSeparator>(
+                programType,
+                "CliTidyTableSeparator"),
+            DogfoodKernelLoader.CreateDelegate<CliTidyPossiblyUnusedFoundMessage>(
+                programType,
+                "CliTidyPossiblyUnusedFoundMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliTidyAllDependenciesAccountedForMessage>(
+                programType,
+                "CliTidyAllDependenciesAccountedForMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliTidyAllDependenciesInUseMessage>(
+                programType,
+                "CliTidyAllDependenciesInUseMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliTidyUnknownReasonMessage>(
+                programType,
+                "CliTidyUnknownReasonMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliTidyUsedReasonMessage>(
+                programType,
+                "CliTidyUsedReasonMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliTidyPossiblyUnusedReasonMessage>(
+                programType,
+                "CliTidyPossiblyUnusedReasonMessage")));
 
     private static int GetStatusRank(string status) =>
         status switch
@@ -469,6 +619,36 @@ internal static class TidyCommandKernels
         string line,
         int[] resultSpan);
 
+    private delegate string CliTidyHelpText();
+
+    private delegate string CliTidyMissingProjectFileJsonMessage();
+
+    private delegate string CliTidyMissingProjectFileTextMessage();
+
+    private delegate string CliTidyParseFailedMessage(string message);
+
+    private delegate string CliTidyNothingToRemoveMessage();
+
+    private delegate string CliTidyRemovedDependenciesMessage(string countText, int count);
+
+    private delegate string CliTidyNoNuGetDependenciesMessage(string projectRoot);
+
+    private delegate string CliTidyTableHeader(string packageLabel, string statusLabel);
+
+    private delegate string CliTidyTableSeparator(string packageSeparator, string statusSeparator);
+
+    private delegate string CliTidyPossiblyUnusedFoundMessage(string countText, int count);
+
+    private delegate string CliTidyAllDependenciesAccountedForMessage(string unknownCountText);
+
+    private delegate string CliTidyAllDependenciesInUseMessage();
+
+    private delegate string CliTidyUnknownReasonMessage();
+
+    private delegate string CliTidyUsedReasonMessage(string namespacePrefix);
+
+    private delegate string CliTidyPossiblyUnusedReasonMessage(string prefix1, string prefix2);
+
     private sealed record Bindings(
         DiagnosticSeverityFilterIndicesInto StatusFilter,
         CliTidyDependencyStatusSummaryInto StatusSummary,
@@ -476,7 +656,100 @@ internal static class TidyCommandKernels
         CliTidyRemovalLineKeepFlagsInto RemovalLineKeepFlags,
         CliTidyOptionSummaryInto OptionSummary,
         CliTidyOutputMode OutputMode,
-        CliTidyImportNamespaceSpanInto ImportNamespaceSpan);
+        CliTidyImportNamespaceSpanInto ImportNamespaceSpan,
+        CliTidyHelpText HelpText,
+        CliTidyMissingProjectFileJsonMessage MissingProjectFileJsonMessage,
+        CliTidyMissingProjectFileTextMessage MissingProjectFileTextMessage,
+        CliTidyParseFailedMessage ParseFailedMessage,
+        CliTidyNothingToRemoveMessage NothingToRemoveMessage,
+        CliTidyRemovedDependenciesMessage RemovedDependenciesMessage,
+        CliTidyNoNuGetDependenciesMessage NoNuGetDependenciesMessage,
+        CliTidyTableHeader TableHeader,
+        CliTidyTableSeparator TableSeparator,
+        CliTidyPossiblyUnusedFoundMessage PossiblyUnusedFoundMessage,
+        CliTidyAllDependenciesAccountedForMessage AllDependenciesAccountedForMessage,
+        CliTidyAllDependenciesInUseMessage AllDependenciesInUseMessage,
+        CliTidyUnknownReasonMessage UnknownReasonMessage,
+        CliTidyUsedReasonMessage UsedReasonMessage,
+        CliTidyPossiblyUnusedReasonMessage PossiblyUnusedReasonMessage);
+
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product tidy messages route through CliTidy* kernels.
+    private static string FallbackHelpText()
+        => "N# Tidy\n"
+           + "\n"
+           + "Usage: nlc tidy [options]\n"
+           + "\n"
+           + "Identify and optionally remove unused NuGet dependencies from project.yml.\n"
+           + "\n"
+           + "Each dependency is classified as:\n"
+           + "  used            — an import statement plausibly references the package namespace\n"
+           + "  possibly-unused — no import statement references the package namespace\n"
+           + "  unknown         — cannot determine usage (e.g. single-segment package names)\n"
+           + "\n"
+           + "The command is conservative: 'unknown' is reported rather than incorrectly\n"
+           + "flagging a dependency as unused.\n"
+           + "\n"
+           + "Options:\n"
+           + "  --project <dir>   Project directory (default: current directory)\n"
+           + "  --fix             Remove all possibly-unused dependencies from project.yml\n"
+           + "  --json            Emit structured JSON output\n"
+           + "  --help, -h        Show this help text\n"
+           + "\n"
+           + "JSON schema (schemaVersion 1):\n"
+           + "  { schemaVersion, command, ok, projectRoot,\n"
+           + "    dependencies: [{ name, version, status, reason }] }\n"
+           + "\n"
+           + "Examples:\n"
+           + "  nlc tidy                   Report unused dependencies\n"
+           + "  nlc tidy --fix             Remove possibly-unused dependencies\n"
+           + "  nlc tidy --json            Machine-readable output\n"
+           + "  nlc tidy --project ./lib   Analyse a different project\n"
+           + "\n"
+           + "Exit codes:\n"
+           + "  0  All dependencies in use (or tidy succeeded)\n"
+           + "  1  Error (missing project.yml, parse failure)";
+
+    private static string FallbackMissingProjectFileJsonMessage()
+        => "No project.yml found in the specified directory.";
+
+    private static string FallbackMissingProjectFileTextMessage()
+        => "No project.yml found. Run 'nlc new <name>' or 'nlc init' to create a project.";
+
+    private static string FallbackParseFailedMessage(string message)
+        => $"Failed to parse project.yml: {message}";
+
+    private static string FallbackNothingToRemoveMessage()
+        => "Nothing to remove.";
+
+    private static string FallbackRemovedDependenciesMessage(string countText, int count)
+        => $"Removed {countText} possibly-unused {(count == 1 ? "dependency" : "dependencies")}.";
+
+    private static string FallbackNoNuGetDependenciesMessage(string projectRoot)
+        => $"No NuGet dependencies found in {projectRoot}";
+
+    private static string FallbackTableHeader(string packageLabel, string statusLabel)
+        => $"  {packageLabel}  {statusLabel}  Reason";
+
+    private static string FallbackTableSeparator(string packageSeparator, string statusSeparator)
+        => $"  {packageSeparator}  {statusSeparator}  ------";
+
+    private static string FallbackPossiblyUnusedFoundMessage(string countText, int count)
+        => $"{countText} possibly-unused {(count == 1 ? "dependency" : "dependencies")} found. Run 'nlc tidy --fix' to remove them.";
+
+    private static string FallbackAllDependenciesAccountedForMessage(string unknownCountText)
+        => $"All dependencies accounted for ({unknownCountText} could not be determined).";
+
+    private static string FallbackAllDependenciesInUseMessage()
+        => "All dependencies appear to be in use.";
+
+    private static string FallbackUnknownReasonMessage()
+        => "Cannot determine namespace for single-segment package name; manual review required.";
+
+    private static string FallbackUsedReasonMessage(string namespacePrefix)
+        => $"Import statement references namespace matching '{namespacePrefix}'.";
+
+    private static string FallbackPossiblyUnusedReasonMessage(string prefix1, string prefix2)
+        => $"No import statement found referencing '{prefix1}' or '{prefix2}'.";
 
     private static bool TryGetOptionalArg(string[] args, int index, out string? value)
     {

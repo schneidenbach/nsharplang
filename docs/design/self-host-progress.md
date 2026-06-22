@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-22 — Tidy command messages move into product N#
+
+`TidyCommand` no longer owns help text, missing-project diagnostics, parse-failure wrappers, fix-result status
+messages, text-table header/separator lines, dependency summary lines, or dependency reason strings in C#. The
+shipped `CliTidy*` dogfood kernels now shape those strings through `TidyCommandKernels`; C# keeps filesystem
+probing, project.yml parsing/writing, JSON envelope materialization, and table-width padding only.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.TidyCommandKernels_SummarizesOptions|FullyQualifiedName~CliCommandTests.TidyCommandKernels_ShapesMessages|FullyQualifiedName~CliCommandTests.TidyCommandKernels_SelectsAndClassifiesDependencies|FullyQualifiedName~CliCommandTests.TidyCommandKernels_FiltersRemovalLines|FullyQualifiedName~CliParityAuditTests.TidyCommand_Help_ShowsUsage|FullyQualifiedName~CliParityAuditTests.TidyCommand_NoProjectYml_Fails|FullyQualifiedName~CliParityAuditTests.TidyCommand_JsonNoProjectYml_UsesErrorEnvelope|FullyQualifiedName~CliParityAuditTests.TidyCommand_Text_ClassifiesDependencyUsage|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`;
+`./scripts/dev.sh TidyCommandKernels`.
+
 ## 2026-06-22 — Export command messages move into product N#
 
 `ExportCommand` no longer owns target/help text, C# target help text, input validation diagnostics, export failure

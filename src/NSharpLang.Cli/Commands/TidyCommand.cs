@@ -36,12 +36,12 @@ public static class TidyCommand
                     schemaVersion = 1,
                     command = "tidy",
                     ok = false,
-                    error = new { message = "No project.yml found in the specified directory." }
+                    error = new { message = TidyCommandKernels.GetMissingProjectFileJsonMessage() }
                 });
             }
             else
             {
-                Console.Error.WriteLine("Error: No project.yml found. Run 'nlc new <name>' or 'nlc init' to create a project.");
+                Console.Error.WriteLine($"Error: {TidyCommandKernels.GetMissingProjectFileTextMessage()}");
             }
             return 1;
         }
@@ -60,12 +60,12 @@ public static class TidyCommand
                     schemaVersion = 1,
                     command = "tidy",
                     ok = false,
-                    error = new { message = $"Failed to parse project.yml: {ex.Message}" }
+                    error = new { message = TidyCommandKernels.GetParseFailedMessage(ex.Message) }
                 });
             }
             else
             {
-                Console.Error.WriteLine($"Error: Failed to parse project.yml: {ex.Message}");
+                Console.Error.WriteLine($"Error: {TidyCommandKernels.GetParseFailedMessage(ex.Message)}");
             }
             return 1;
         }
@@ -111,13 +111,13 @@ public static class TidyCommand
                 : results.Where(r => r.Status == "possibly-unused").ToList();
             if (toRemove.Count == 0)
             {
-                if (outputMode == TidyOutputModeKind.Text) Console.WriteLine("Nothing to remove.");
+                if (outputMode == TidyOutputModeKind.Text) Console.WriteLine(TidyCommandKernels.GetNothingToRemoveMessage());
             }
             else
             {
                 RemoveDependencies(projectYml, toRemove.Select(r => r.Name).ToList());
                 if (outputMode == TidyOutputModeKind.Text)
-                    Console.WriteLine($"Removed {toRemove.Count} possibly-unused {(toRemove.Count == 1 ? "dependency" : "dependencies")}.");
+                    Console.WriteLine(TidyCommandKernels.GetRemovedDependenciesMessage(toRemove.Count));
             }
         }
 
@@ -176,7 +176,7 @@ public static class TidyCommand
         {
             // Single-segment package (e.g. "Polly") — cannot determine namespace safely
             return new DependencyStatus(packageName, version, "unknown",
-                "Cannot determine namespace for single-segment package name; manual review required.");
+                TidyCommandKernels.GetUnknownReasonMessage());
         }
 
         // Candidate namespace prefixes: first segment ("Newtonsoft") and first two ("Newtonsoft.Json")
@@ -191,10 +191,10 @@ public static class TidyCommand
 
         if (matched)
             return new DependencyStatus(packageName, version, "used",
-                $"Import statement references namespace matching '{prefix2}'.");
+                TidyCommandKernels.GetUsedReasonMessage(prefix2));
 
         return new DependencyStatus(packageName, version, "possibly-unused",
-            $"No import statement found referencing '{prefix1}' or '{prefix2}'.");
+            TidyCommandKernels.GetPossiblyUnusedReasonMessage(prefix1, prefix2));
     }
 
     private static List<DependencyStatus> ClassifyDependencies(
@@ -255,7 +255,7 @@ public static class TidyCommand
         if (statusRank == 3 && firstDot < 0)
         {
             return new DependencyStatus(packageName, version, "unknown",
-                "Cannot determine namespace for single-segment package name; manual review required.");
+                TidyCommandKernels.GetUnknownReasonMessage());
         }
 
         if (firstDot <= 0)
@@ -270,9 +270,9 @@ public static class TidyCommand
         return statusRank switch
         {
             2 => new DependencyStatus(packageName, version, "used",
-                $"Import statement references namespace matching '{prefix2}'."),
+                TidyCommandKernels.GetUsedReasonMessage(prefix2)),
             1 => new DependencyStatus(packageName, version, "possibly-unused",
-                $"No import statement found referencing '{prefix1}' or '{prefix2}'."),
+                TidyCommandKernels.GetPossiblyUnusedReasonMessage(prefix1, prefix2)),
             _ => null
         };
     }
@@ -344,15 +344,15 @@ public static class TidyCommand
     {
         if (results.Count == 0)
         {
-            Console.WriteLine($"No NuGet dependencies found in {projectRoot}");
+            Console.WriteLine(TidyCommandKernels.GetNoNuGetDependenciesMessage(projectRoot));
             return;
         }
 
         var nameWidth = Math.Max(results.Max(r => r.Name.Length), 12);
         var statusWidth = 15;
 
-        Console.WriteLine($"  {"Package".PadRight(nameWidth)}  {"Status".PadRight(statusWidth)}  Reason");
-        Console.WriteLine($"  {new string('-', nameWidth)}  {new string('-', statusWidth)}  ------");
+        Console.WriteLine(TidyCommandKernels.GetTableHeader("Package".PadRight(nameWidth), "Status".PadRight(statusWidth)));
+        Console.WriteLine(TidyCommandKernels.GetTableSeparator(new string('-', nameWidth), new string('-', statusWidth)));
 
         foreach (var r in results)
         {
@@ -364,11 +364,11 @@ public static class TidyCommand
 
         Console.WriteLine();
         if (possiblyUnused > 0)
-            Console.WriteLine($"{possiblyUnused} possibly-unused {(possiblyUnused == 1 ? "dependency" : "dependencies")} found. Run 'nlc tidy --fix' to remove them.");
+            Console.WriteLine(TidyCommandKernels.GetPossiblyUnusedFoundMessage(possiblyUnused));
         else if (unknown > 0)
-            Console.WriteLine($"All dependencies accounted for ({unknown} could not be determined).");
+            Console.WriteLine(TidyCommandKernels.GetAllDependenciesAccountedForMessage(unknown));
         else
-            Console.WriteLine("All dependencies appear to be in use.");
+            Console.WriteLine(TidyCommandKernels.GetAllDependenciesInUseMessage());
     }
 
     private static void WriteJson(object value)
@@ -443,39 +443,7 @@ public static class TidyCommand
 
     private static int ShowHelp()
     {
-        Console.WriteLine(@"N# Tidy
-
-Usage: nlc tidy [options]
-
-Identify and optionally remove unused NuGet dependencies from project.yml.
-
-Each dependency is classified as:
-  used            — an import statement plausibly references the package namespace
-  possibly-unused — no import statement references the package namespace
-  unknown         — cannot determine usage (e.g. single-segment package names)
-
-The command is conservative: 'unknown' is reported rather than incorrectly
-flagging a dependency as unused.
-
-Options:
-  --project <dir>   Project directory (default: current directory)
-  --fix             Remove all possibly-unused dependencies from project.yml
-  --json            Emit structured JSON output
-  --help, -h        Show this help text
-
-JSON schema (schemaVersion 1):
-  { schemaVersion, command, ok, projectRoot,
-    dependencies: [{ name, version, status, reason }] }
-
-Examples:
-  nlc tidy                   Report unused dependencies
-  nlc tidy --fix             Remove possibly-unused dependencies
-  nlc tidy --json            Machine-readable output
-  nlc tidy --project ./lib   Analyse a different project
-
-Exit codes:
-  0  All dependencies in use (or tidy succeeded)
-  1  Error (missing project.yml, parse failure)");
+        Console.WriteLine(TidyCommandKernels.GetHelpText());
 
         return 0;
     }

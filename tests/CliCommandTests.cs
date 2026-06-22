@@ -4404,6 +4404,68 @@ dependencies:
     }
 
     [Fact]
+    public void TidyCommandKernels_ShapesMessages()
+    {
+        var helpText = TidyCommandKernels.GetHelpText();
+        Assert.Contains("N# Tidy", helpText);
+        Assert.Contains("Usage: nlc tidy [options]", helpText);
+        Assert.Contains("schemaVersion 1", helpText);
+
+        Assert.Equal(
+            "No project.yml found in the specified directory.",
+            TidyCommandKernels.GetMissingProjectFileJsonMessage());
+        Assert.Equal(
+            "No project.yml found. Run 'nlc new <name>' or 'nlc init' to create a project.",
+            TidyCommandKernels.GetMissingProjectFileTextMessage());
+        Assert.Equal(
+            "Failed to parse project.yml: bad yaml",
+            TidyCommandKernels.GetParseFailedMessage("bad yaml"));
+        Assert.Equal("Nothing to remove.", TidyCommandKernels.GetNothingToRemoveMessage());
+        Assert.Equal(
+            "Removed 1 possibly-unused dependency.",
+            TidyCommandKernels.GetRemovedDependenciesMessage(1));
+        Assert.Equal(
+            "Removed 2 possibly-unused dependencies.",
+            TidyCommandKernels.GetRemovedDependenciesMessage(2));
+        Assert.Equal(
+            "No NuGet dependencies found in /tmp/demo",
+            TidyCommandKernels.GetNoNuGetDependenciesMessage("/tmp/demo"));
+        Assert.Equal(
+            "  Package       Status           Reason",
+            TidyCommandKernels.GetTableHeader("Package     ", "Status         "));
+        Assert.Equal(
+            "  -------  ------  ------",
+            TidyCommandKernels.GetTableSeparator("-------", "------"));
+        Assert.Equal(
+            "1 possibly-unused dependency found. Run 'nlc tidy --fix' to remove them.",
+            TidyCommandKernels.GetPossiblyUnusedFoundMessage(1));
+        Assert.Equal(
+            "3 possibly-unused dependencies found. Run 'nlc tidy --fix' to remove them.",
+            TidyCommandKernels.GetPossiblyUnusedFoundMessage(3));
+        Assert.Equal(
+            "All dependencies accounted for (2 could not be determined).",
+            TidyCommandKernels.GetAllDependenciesAccountedForMessage(2));
+        Assert.Equal(
+            "All dependencies appear to be in use.",
+            TidyCommandKernels.GetAllDependenciesInUseMessage());
+        Assert.Equal(
+            "Cannot determine namespace for single-segment package name; manual review required.",
+            TidyCommandKernels.GetUnknownReasonMessage());
+        Assert.Equal(
+            "Import statement references namespace matching 'Newtonsoft.Json'.",
+            TidyCommandKernels.GetUsedReasonMessage("Newtonsoft.Json"));
+        Assert.Equal(
+            "No import statement found referencing 'Serilog' or 'Serilog.Sinks'.",
+            TidyCommandKernels.GetPossiblyUnusedReasonMessage("Serilog", "Serilog.Sinks"));
+
+        var (exitCode, stdout, stderr) = CaptureConsole(() =>
+            TidyCommand.Execute(new[] { "--help" }));
+        Assert.Equal(0, exitCode);
+        Assert.Contains("N# Tidy", stdout);
+        Assert.True(string.IsNullOrWhiteSpace(stderr));
+    }
+
+    [Fact]
     public void TidyCommandKernels_SelectsAndClassifiesDependencies()
     {
         var dependencies = new[]
