@@ -1251,7 +1251,10 @@ dependencies:
                 PackCommand.Execute(new[] { "--project", tempDir }));
 
             Assert.Equal(1, exitCode);
-            Assert.Contains("project.yml", stderr);
+            Assert.True(string.IsNullOrWhiteSpace(stdout));
+            Assert.Equal(
+                ProgramCommandKernels.GetErrorLine(PackCommandKernels.GetMissingProjectFileTextMessage()) + Environment.NewLine,
+                stderr);
         }
         finally
         {

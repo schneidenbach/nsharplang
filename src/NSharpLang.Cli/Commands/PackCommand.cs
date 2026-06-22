@@ -3,6 +3,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Text;
 using System.Text.Json;
+using NSharpLang.Cli;
 using NSharpLang.Compiler;
 
 namespace NSharpLang.Cli.Commands;
@@ -36,7 +37,7 @@ public static class PackCommand
             }
             else
             {
-                Console.Error.WriteLine(PackCommandKernels.GetMissingProjectFileTextMessage());
+                WriteTextError(PackCommandKernels.GetMissingProjectFileTextMessage());
             }
             return 1;
         }
@@ -51,7 +52,7 @@ public static class PackCommand
             if (outputMode == PackOutputModeKind.Json)
                 WriteErrorJson(PackCommandKernels.GetParseFailedJsonMessage(ex.Message));
             else
-                Console.Error.WriteLine(PackCommandKernels.GetParseFailedTextMessage(ex.Message));
+                WriteTextError(PackCommandKernels.GetParseFailedTextMessage(ex.Message));
             return 1;
         }
 
@@ -76,7 +77,7 @@ public static class PackCommand
                 if (outputMode == PackOutputModeKind.Json)
                     WriteErrorJson(PackCommandKernels.GetMissingVersionJsonMessage());
                 else
-                    Console.Error.WriteLine(PackCommandKernels.GetMissingVersionTextMessage());
+                    WriteTextError(PackCommandKernels.GetMissingVersionTextMessage());
                 return 1;
             }
 
@@ -92,7 +93,7 @@ public static class PackCommand
                 if (outputMode == PackOutputModeKind.Json)
                     WriteErrorJson(PackCommandKernels.GetBuildFailedJsonMessage());
                 else
-                    Console.Error.WriteLine(PackCommandKernels.GetBuildFailedTextMessage());
+                    WriteTextError(PackCommandKernels.GetBuildFailedTextMessage());
                 return 1;
             }
 
@@ -136,12 +137,15 @@ public static class PackCommand
             if (outputMode == PackOutputModeKind.Json)
                 WriteErrorJson(PackCommandKernels.GetFailedJsonMessage(ex.Message));
             else
-                Console.Error.WriteLine(PackCommandKernels.GetFailedTextMessage(ex.Message));
+                WriteTextError(PackCommandKernels.GetFailedTextMessage(ex.Message));
             return 1;
         }
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private static void WriteTextError(string message)
+        => Console.Error.WriteLine(ProgramCommandKernels.GetErrorLine(message));
 
     static void CreateNuGetPackage(
         string projectRoot,

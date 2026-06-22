@@ -23856,13 +23856,13 @@ func main() {
             "No project.yml found. Run 'nlc new <name>' to create a project.",
             (string)(cliPackMissingProjectFileJsonMessage.Invoke(null, Array.Empty<object>()) ?? string.Empty));
         Assert.Equal(
-            "Error: No project.yml found in current directory.\nRun 'nlc new <name>' to create a project.",
+            "No project.yml found in current directory.\nRun 'nlc new <name>' to create a project.",
             (string)(cliPackMissingProjectFileTextMessage.Invoke(null, Array.Empty<object>()) ?? string.Empty));
         Assert.Equal(
             "Failed to parse project.yml: bad yaml",
             (string)(cliPackParseFailedJsonMessage.Invoke(null, new object[] { "bad yaml" }) ?? string.Empty));
         Assert.Equal(
-            "Error: Failed to parse project.yml: bad yaml",
+            "Failed to parse project.yml: bad yaml",
             (string)(cliPackParseFailedTextMessage.Invoke(null, new object[] { "bad yaml" }) ?? string.Empty));
         Assert.Equal(
             "Packing Demo 1.2.3...",
@@ -23877,13 +23877,13 @@ func main() {
             "Package version is required. Set version in project.yml or pass --version.",
             (string)(cliPackMissingVersionJsonMessage.Invoke(null, Array.Empty<object>()) ?? string.Empty));
         Assert.Equal(
-            "Error: Package version is required. Set version in project.yml or pass --version.",
+            "Package version is required. Set version in project.yml or pass --version.",
             (string)(cliPackMissingVersionTextMessage.Invoke(null, Array.Empty<object>()) ?? string.Empty));
         Assert.Equal(
             "Pack build failed.",
             (string)(cliPackBuildFailedJsonMessage.Invoke(null, Array.Empty<object>()) ?? string.Empty));
         Assert.Equal(
-            "Error: Pack build failed.",
+            "Pack build failed.",
             (string)(cliPackBuildFailedTextMessage.Invoke(null, Array.Empty<object>()) ?? string.Empty));
         Assert.Equal(
             "Pack successful!",
@@ -23895,7 +23895,7 @@ func main() {
             "Pack failed: zip exploded",
             (string)(cliPackFailedJsonMessage.Invoke(null, new object[] { "zip exploded" }) ?? string.Empty));
         Assert.Equal(
-            "Error: Pack failed: zip exploded",
+            "Pack failed: zip exploded",
             (string)(cliPackFailedTextMessage.Invoke(null, new object[] { "zip exploded" }) ?? string.Empty));
     }
 

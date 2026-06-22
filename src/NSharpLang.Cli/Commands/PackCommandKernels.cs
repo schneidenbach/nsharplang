@@ -309,13 +309,13 @@ internal static class PackCommandKernels
         => "No project.yml found. Run 'nlc new <name>' to create a project.";
 
     private static string GetMissingProjectFileTextMessageWithCSharp()
-        => "Error: No project.yml found in current directory.\nRun 'nlc new <name>' to create a project.";
+        => "No project.yml found in current directory.\nRun 'nlc new <name>' to create a project.";
 
     private static string GetParseFailedJsonMessageWithCSharp(string message)
         => $"Failed to parse project.yml: {message}";
 
     private static string GetParseFailedTextMessageWithCSharp(string message)
-        => $"Error: Failed to parse project.yml: {message}";
+        => $"Failed to parse project.yml: {message}";
 
     private static string GetStartMessageWithCSharp(string name, string? version)
         => $"Packing {name} {version ?? "(no version)"}...";
@@ -324,13 +324,13 @@ internal static class PackCommandKernels
         => "Package version is required. Set version in project.yml or pass --version.";
 
     private static string GetMissingVersionTextMessageWithCSharp()
-        => "Error: Package version is required. Set version in project.yml or pass --version.";
+        => "Package version is required. Set version in project.yml or pass --version.";
 
     private static string GetBuildFailedJsonMessageWithCSharp()
         => "Pack build failed.";
 
     private static string GetBuildFailedTextMessageWithCSharp()
-        => "Error: Pack build failed.";
+        => "Pack build failed.";
 
     private static string GetSuccessMessageWithCSharp()
         => "Pack successful!";
@@ -342,7 +342,7 @@ internal static class PackCommandKernels
         => $"Pack failed: {message}";
 
     private static string GetFailedTextMessageWithCSharp(string message)
-        => $"Error: Pack failed: {message}";
+        => $"Pack failed: {message}";
 
     private static bool TryGetOptionalArg(string[] args, int index, out string? value)
     {

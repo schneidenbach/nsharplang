@@ -4016,7 +4016,7 @@ func CliPackMissingProjectFileJsonMessage(): string {
 }
 
 func CliPackMissingProjectFileTextMessage(): string {
-    return "Error: No project.yml found in current directory.\nRun 'nlc new <name>' to create a project."
+    return "No project.yml found in current directory.\nRun 'nlc new <name>' to create a project."
 }
 
 func CliPackParseFailedJsonMessage(message: string): string {
@@ -4024,7 +4024,7 @@ func CliPackParseFailedJsonMessage(message: string): string {
 }
 
 func CliPackParseFailedTextMessage(message: string): string {
-    return "Error: Failed to parse project.yml: " + message
+    return "Failed to parse project.yml: " + message
 }
 
 func CliPackStartMessage(name: string, hasVersion: int, version: string): string {
@@ -4041,7 +4041,7 @@ func CliPackMissingVersionJsonMessage(): string {
 }
 
 func CliPackMissingVersionTextMessage(): string {
-    return "Error: Package version is required. Set version in project.yml or pass --version."
+    return "Package version is required. Set version in project.yml or pass --version."
 }
 
 func CliPackBuildFailedJsonMessage(): string {
@@ -4049,7 +4049,7 @@ func CliPackBuildFailedJsonMessage(): string {
 }
 
 func CliPackBuildFailedTextMessage(): string {
-    return "Error: Pack build failed."
+    return "Pack build failed."
 }
 
 func CliPackSuccessMessage(): string {
@@ -4065,7 +4065,7 @@ func CliPackFailedJsonMessage(message: string): string {
 }
 
 func CliPackFailedTextMessage(message: string): string {
-    return "Error: Pack failed: " + message
+    return "Pack failed: " + message
 }
 
 func CliLintOptionSummaryInto(args: string[], resultIndices: int[]): int {

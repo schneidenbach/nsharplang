@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-22 — Pack error wrapper reuses product N#
+
+`PackCommand` no longer gets text-mode error messages from pack-specific kernels with the shared
+`Error: ...` prefix baked in. The shipped `CliPack*TextMessage` kernels now shape the pack diagnostic body,
+and `PackCommand` applies the shared `CliProgramErrorLine` dogfood kernel through `ProgramCommandKernels` at
+the text stderr boundary. C# keeps text/JSON mode selection, package IO, build invocation, and console writes.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.PackCommandKernels_SummarizesOptions|FullyQualifiedName~CliParityAuditTests.PackCommand_NoProjectYml_Fails|FullyQualifiedName~CliParityAuditTests.PackCommand_NoProjectYml_JsonOutput_ReturnsErrorEnvelope|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_ParityCorpusCompilesWithZeroDeclines"`;
+`./scripts/dev.sh PackCommandKernels`.
+
 ## 2026-06-22 — Query error wrapper reuses product N#
 
 `QueryCommand` no longer routes shared `Error: ...` stderr line shaping through a query-specific dogfood
