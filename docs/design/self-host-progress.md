@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-22 — `nlc init` file content moves into product N#
+
+`nlc init` no longer owns generated `project.yml`, minimal SDK `.csproj`, or starter `Program.nl` content in C#.
+The shipped `CliArguments.nl` dogfood kernel now shapes those files through `InitCommandKernels`; C# keeps
+current-directory/name defaults, existence checks, file IO, restore invocation, and fallback/oracle text only. This
+is a Stage 6 `C#-surface-shrink` product-route slice.
+
+Focused evidence:
+`dotnet test tests/Tests.csproj --no-restore --filter "FullyQualifiedName~CliCommandTests.InitCommandKernels_SummarizesOptions|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_CompilesRealDogfoodFile_CliArguments|FullyQualifiedName~CompilerDogfoodProjectTests.ColumnarCodegen_MultiFile_EligibleClusterCompiles"`;
+`./scripts/dev.sh CliArguments`.
+
 ## 2026-06-22 — `nlc new` SDK support files move into product N#
 
 `nlc new` no longer owns generated `global.json` or `NuGet.config` text in C#. The shipped `CliArguments.nl`

@@ -7359,6 +7359,9 @@ func outer(x: int): int {
         Assert.Contains("CliInitCreatedFileMessage", methodNames!); // product init created-file message shaping.
         Assert.Contains("CliInitSuccessMessage", methodNames!); // product init success message shaping.
         Assert.Contains("CliInitFailedMessage", methodNames!); // product init failure message shaping.
+        Assert.Contains("CliInitProjectYamlText", methodNames!); // product init project.yml content shaping.
+        Assert.Contains("CliInitCsprojText", methodNames!); // product init minimal SDK project content shaping.
+        Assert.Contains("CliInitProgramSourceText", methodNames!); // product init starter source content shaping.
         Assert.Contains("CliRestoreOptionSummaryInto", methodNames!); // product restore option parsing.
         Assert.Contains("CliRestoreHelpText", methodNames!); // product restore help text shaping.
         Assert.Contains("CliRestoreMissingProjectFileMessage", methodNames!); // product restore missing-project message shaping.
@@ -7512,6 +7515,10 @@ func outer(x: int): int {
             ("CliNewTemplateSourceText", new object[] { "systems-cli", (int)NewTemplateSourceFileKind.Program }),
             ("CliNewTemplateSourceText", new object[] { "systems-lib", (int)NewTemplateSourceFileKind.PacketCore }),
             ("CliNewTemplateSourceText", new object[] { "systems-lib", (int)NewTemplateSourceFileKind.PacketCoreTests }),
+            ("CliInitProjectYamlText", new object[] { "DemoApp", "exe" }),
+            ("CliInitProjectYamlText", new object[] { "DemoLib", "library" }),
+            ("CliInitCsprojText", Array.Empty<object>()),
+            ("CliInitProgramSourceText", Array.Empty<object>()),
             ("CliAddPackageSpecInto", new object[] { "Serilog@3.1.0", "ignored", 1, new int[4] }),
             ("CliAddPackageSpecInto", new object[] { "Serilog", "3.1.0", 1, new int[4] }),
             ("CliAddPackageSpecInto", new object[] { "@scope@1.0", "2.0.0", 1, new int[4] }),
@@ -13074,8 +13081,8 @@ func outer(x: int): int {
         Assert.True(ok, $"Columnar backend declined the merged {productFiles.Length}-file product corpus.");
         using var loadScope = CollectibleAssemblyScope.Load(assembly!); // the merged IL is a valid, loadable assembly.
         Assert.NotNull(loadScope.Assembly);
-        Assert.True(methodNames!.Length >= 437,
-            $"Product dogfood corpus method coverage regressed: expected at least 437 emitted methods, found {methodNames.Length}.");
+        Assert.True(methodNames!.Length >= 440,
+            $"Product dogfood corpus method coverage regressed: expected at least 440 emitted methods, found {methodNames.Length}.");
         // Files eligible ONLY via cross-file resolution must contribute their public functions —
         // i.e. the merge actually emitted them (single-file each declines; see ColumnarCodegen_MultiFile_*).
         Assert.Contains("TokenizeColumnarSourceInto", methodNames!); // composed lexer metadata + parser-token compaction routing
@@ -17627,6 +17634,18 @@ class OtherZetaType {
                     "CliInitFailedMessage",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliInitFailedMessage.");
+            var cliInitProjectYamlText = programType.GetMethod(
+                    "CliInitProjectYamlText",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliInitProjectYamlText.");
+            var cliInitCsprojText = programType.GetMethod(
+                    "CliInitCsprojText",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliInitCsprojText.");
+            var cliInitProgramSourceText = programType.GetMethod(
+                    "CliInitProgramSourceText",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliInitProgramSourceText.");
             var cliRestoreOptionSummaryInto = programType.GetMethod(
                     "CliRestoreOptionSummaryInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -19083,7 +19102,10 @@ func main(customer: Customer, résumé: Profile) {
                 cliInitProjectFileExistsMessage,
                 cliInitCreatedFileMessage,
                 cliInitSuccessMessage,
-                cliInitFailedMessage);
+                cliInitFailedMessage,
+                cliInitProjectYamlText,
+                cliInitCsprojText,
+                cliInitProgramSourceText);
             AssertCliRestoreOptionsLikeProduction(cliRestoreOptionSummaryInto);
             AssertCliRestoreMessagesLikeProduction(
                 cliRestoreHelpText,
@@ -25854,7 +25876,10 @@ func main() {
         MethodInfo cliInitProjectFileExistsMessage,
         MethodInfo cliInitCreatedFileMessage,
         MethodInfo cliInitSuccessMessage,
-        MethodInfo cliInitFailedMessage)
+        MethodInfo cliInitFailedMessage,
+        MethodInfo cliInitProjectYamlText,
+        MethodInfo cliInitCsprojText,
+        MethodInfo cliInitProgramSourceText)
     {
         var help = (string)(cliInitHelpText.Invoke(null, Array.Empty<object>()) ?? "<null>");
         Assert.Contains("N# Init", help);
@@ -25875,6 +25900,20 @@ func main() {
 
         var failed = (string)(cliInitFailedMessage.Invoke(null, new object[] { "denied" }) ?? "<null>");
         Assert.Equal("Init failed: denied", failed);
+
+        var exeYaml = (string)(cliInitProjectYamlText.Invoke(null, new object[] { "DemoApp", "exe" }) ?? "<null>");
+        Assert.Equal(ProjectFileParser.GenerateTemplate("DemoApp"), exeYaml);
+
+        var libraryYaml = (string)(cliInitProjectYamlText.Invoke(null, new object[] { "DemoLib", "library" }) ?? "<null>");
+        Assert.Contains("name: DemoLib\n", libraryYaml);
+        Assert.Contains("outputType: library\n", libraryYaml);
+        Assert.DoesNotContain("entry: Program.nl", libraryYaml, StringComparison.Ordinal);
+
+        var csprojText = (string)(cliInitCsprojText.Invoke(null, Array.Empty<object>()) ?? "<null>");
+        Assert.Equal("<Project Sdk=\"NSharpLang.Sdk\" />\n", csprojText);
+
+        var programSource = (string)(cliInitProgramSourceText.Invoke(null, Array.Empty<object>()) ?? "<null>");
+        Assert.Equal("func main() {\n    print \"Hello, N#!\"\n}", programSource);
     }
 
     private static int[] CreateExpectedCliInitOptions(string[] args)

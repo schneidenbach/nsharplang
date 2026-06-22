@@ -3660,6 +3660,49 @@ func CliInitFailedMessage(message: string): string {
     return "Init failed: " + message
 }
 
+func CliInitProjectYamlText(projectName: string, projectType: string): string {
+    entryLine := "entry: Program.nl\n"
+    outputType := "exe"
+    if projectType == "library" {
+        entryLine = ""
+        outputType = "library"
+    }
+
+    return "name: " + projectName + "\n"
+        + "version: 1.0.0\n"
+        + entryLine
+        + "backend: il\n"
+        + "outputType: " + outputType + "\n"
+        + "targetFramework: net10.0\n"
+        + "\n"
+        + "# Test framework: xunit (default) or nunit\n"
+        + "# testFramework: xunit\n"
+        + "\n"
+        + "# Add your dependencies here\n"
+        + "# dependencies:\n"
+        + "#   - nuget: Newtonsoft.Json\n"
+        + "#     version: 13.0.3\n"
+        + "\n"
+        + "language:\n"
+        + "  profile: default\n"
+        + "  asyncDefaultType: ValueTask\n"
+        + "\n"
+        + "# package:\n"
+        + "#   author: Your Name\n"
+        + "#   description: A short description\n"
+        + "#   license: MIT\n"
+}
+
+func CliInitCsprojText(): string {
+    return "<Project Sdk=\"NSharpLang.Sdk\" />\n"
+}
+
+func CliInitProgramSourceText(): string {
+    return "func main() {\n"
+        + "    print \"Hello, N#!\"\n"
+        + "}"
+}
+
 func CliRestoreOptionSummaryInto(args: string[], resultIndices: int[]): int {
     arguments := new CliArgumentTable { Args: args }
     results := new CliIndexResultTable { Indices: resultIndices }

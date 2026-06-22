@@ -1,4 +1,6 @@
 using System;
+using System.Linq;
+using NSharpLang.Compiler;
 
 namespace NSharpLang.Cli.Commands;
 
@@ -99,6 +101,30 @@ internal static class InitCommandKernels
         return GetFailedMessageWithCSharp(message);
     }
 
+    internal static string GetProjectYamlText(string projectName, string projectType)
+    {
+        if (TryGetMessage(bindings => bindings.InitProjectYamlText(projectName, projectType), out var text))
+            return text;
+
+        return GetProjectYamlTextWithCSharp(projectName, projectType);
+    }
+
+    internal static string GetCsprojText()
+    {
+        if (TryGetMessage(bindings => bindings.InitCsprojText(), out var text))
+            return text;
+
+        return GetCsprojTextWithCSharp();
+    }
+
+    internal static string GetProgramSourceText()
+    {
+        if (TryGetMessage(bindings => bindings.InitProgramSourceText(), out var text))
+            return text;
+
+        return GetProgramSourceTextWithCSharp();
+    }
+
     private static bool TryGetMessage(Func<Bindings, string> getMessage, out string message)
     {
         message = string.Empty;
@@ -158,6 +184,26 @@ internal static class InitCommandKernels
     private static string GetFailedMessageWithCSharp(string message)
         => $"Init failed: {message}";
 
+    // Stage 6 C#-surface-shrink: fallback/oracle only; product init file content routes through CliInit* kernels.
+    private static string GetProjectYamlTextWithCSharp(string projectName, string projectType)
+    {
+        var template = ProjectFileParser.GenerateTemplate(projectName);
+        if (projectType == "library")
+        {
+            template = template.Replace("outputType: exe", "outputType: library");
+            template = string.Join("\n", template.Split('\n')
+                .Where(line => !line.TrimStart().StartsWith("entry:", StringComparison.Ordinal)));
+        }
+
+        return template;
+    }
+
+    private static string GetCsprojTextWithCSharp()
+        => "<Project Sdk=\"NSharpLang.Sdk\" />\n";
+
+    private static string GetProgramSourceTextWithCSharp()
+        => "func main() {\n    print \"Hello, N#!\"\n}";
+
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
             DogfoodKernelLoader.CreateDelegate<CliInitOptionSummaryInto>(
@@ -180,7 +226,16 @@ internal static class InitCommandKernels
                 "CliInitSuccessMessage"),
             DogfoodKernelLoader.CreateDelegate<CliInitFailedMessage>(
                 programType,
-                "CliInitFailedMessage")));
+                "CliInitFailedMessage"),
+            DogfoodKernelLoader.CreateDelegate<CliInitProjectYamlText>(
+                programType,
+                "CliInitProjectYamlText"),
+            DogfoodKernelLoader.CreateDelegate<CliInitCsprojText>(
+                programType,
+                "CliInitCsprojText"),
+            DogfoodKernelLoader.CreateDelegate<CliInitProgramSourceText>(
+                programType,
+                "CliInitProgramSourceText")));
 
     private delegate int CliInitOptionSummaryInto(
         string[] args,
@@ -192,6 +247,9 @@ internal static class InitCommandKernels
     private delegate string CliInitCreatedFileMessage(string sourceFile);
     private delegate string CliInitSuccessMessage();
     private delegate string CliInitFailedMessage(string message);
+    private delegate string CliInitProjectYamlText(string projectName, string projectType);
+    private delegate string CliInitCsprojText();
+    private delegate string CliInitProgramSourceText();
 
     private sealed record Bindings(
         CliInitOptionSummaryInto OptionSummary,
@@ -200,7 +258,10 @@ internal static class InitCommandKernels
         CliInitProjectFileExistsMessage InitProjectFileExistsMessage,
         CliInitCreatedFileMessage InitCreatedFileMessage,
         CliInitSuccessMessage InitSuccessMessage,
-        CliInitFailedMessage InitFailedMessage);
+        CliInitFailedMessage InitFailedMessage,
+        CliInitProjectYamlText InitProjectYamlText,
+        CliInitCsprojText InitCsprojText,
+        CliInitProgramSourceText InitProgramSourceText);
 
     private static bool TryGetOptionalArg(string[] args, int index, out string? value)
     {

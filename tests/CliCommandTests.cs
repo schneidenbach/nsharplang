@@ -984,6 +984,21 @@ func Main() {
             "N# project initialized. Run 'nlc build' to compile.",
             InitCommandKernels.GetSuccessMessage());
         Assert.Equal("Init failed: denied", InitCommandKernels.GetFailedMessage("denied"));
+
+        var exeYaml = InitCommandKernels.GetProjectYamlText("DemoApp", "exe");
+        Assert.Equal(ProjectFileParser.GenerateTemplate("DemoApp"), exeYaml);
+        Assert.Contains("entry: Program.nl\n", exeYaml);
+        Assert.Contains("outputType: exe\n", exeYaml);
+
+        var libraryYaml = InitCommandKernels.GetProjectYamlText("DemoLib", "library");
+        Assert.Contains("name: DemoLib\n", libraryYaml);
+        Assert.Contains("outputType: library\n", libraryYaml);
+        Assert.DoesNotContain("entry: Program.nl", libraryYaml, StringComparison.Ordinal);
+        Assert.Contains("# Add your dependencies here\n", libraryYaml);
+        Assert.Contains("  profile: default\n", libraryYaml);
+
+        Assert.Equal("<Project Sdk=\"NSharpLang.Sdk\" />\n", InitCommandKernels.GetCsprojText());
+        Assert.Equal("func main() {\n    print \"Hello, N#!\"\n}", InitCommandKernels.GetProgramSourceText());
     }
 
     [Fact]

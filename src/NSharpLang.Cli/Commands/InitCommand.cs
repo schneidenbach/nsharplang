@@ -1,7 +1,5 @@
 using System;
 using System.IO;
-using System.Linq;
-using NSharpLang.Compiler;
 
 namespace NSharpLang.Cli.Commands;
 
@@ -27,31 +25,21 @@ public static class InitCommand
 
         try
         {
-            // Generate project.yml
-            var template = ProjectFileParser.GenerateTemplate(name);
-            if (type == "library")
-            {
-                template = template.Replace("outputType: exe", "outputType: library");
-                // Remove entry point line — libraries don't have one
-                template = string.Join("\n", template.Split('\n')
-                    .Where(line => !line.TrimStart().StartsWith("entry:")));
-            }
+            var template = InitCommandKernels.GetProjectYamlText(name, type);
             File.WriteAllText(projectYml, template);
             Console.WriteLine(InitCommandKernels.GetCreatedFileMessage("project.yml"));
 
-            // Generate minimal .csproj
             var csprojPath = Path.Combine(projectRoot, $"{name}.csproj");
             if (!File.Exists(csprojPath))
             {
-                File.WriteAllText(csprojPath, "<Project Sdk=\"NSharpLang.Sdk\" />\n");
+                File.WriteAllText(csprojPath, InitCommandKernels.GetCsprojText());
                 Console.WriteLine(InitCommandKernels.GetCreatedFileMessage($"{name}.csproj"));
             }
 
-            // Generate starter Program.nl if exe and no .nl files exist
-            if (type == "exe" && !Directory.GetFiles(projectRoot, "*.nl").Any())
+            if (type == "exe" && Directory.GetFiles(projectRoot, "*.nl").Length == 0)
             {
                 var programPath = Path.Combine(projectRoot, "Program.nl");
-                File.WriteAllText(programPath, "func main() {\n    print \"Hello, N#!\"\n}");
+                File.WriteAllText(programPath, InitCommandKernels.GetProgramSourceText());
                 Console.WriteLine(InitCommandKernels.GetCreatedFileMessage("Program.nl"));
             }
 
