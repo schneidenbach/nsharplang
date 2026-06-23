@@ -390,61 +390,27 @@ public static class TidyCommand
     // ── Helpers ───────────────────────────────────────────────────────────
 
     internal static TidyOptionSummary GetOptionSummary(string[] args)
-        => TidyCommandKernels.TryGetOptionSummary(args, out var summary)
-            ? summary
-            : GetOptionSummaryWithCSharp(args);
+    {
+        if (TidyCommandKernels.TryGetOptionSummary(args, out var summary))
+            return summary;
+
+        throw new InvalidOperationException("N# tidy option summary kernel rejected the arguments.");
+    }
 
     internal static TidyOutputModeKind GetOutputMode(bool json)
-        => TidyCommandKernels.TryGetOutputMode(json, out var outputMode)
-            ? outputMode
-            : GetOutputModeWithCSharp(json);
+    {
+        if (TidyCommandKernels.TryGetOutputMode(json, out var outputMode))
+            return outputMode;
+
+        throw new InvalidOperationException("N# tidy output mode kernel rejected the value.");
+    }
 
     internal static string? GetImportedNamespace(string line)
-        => TidyCommandKernels.TryGetImportedNamespace(line, out var importedNamespace)
-            ? importedNamespace
-            : GetImportedNamespaceWithCSharp(line);
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product tidy import extraction routes through TidyCommandKernels.
-    private static string? GetImportedNamespaceWithCSharp(string line)
     {
-        var trimmed = line.TrimStart();
-        if (!trimmed.StartsWith("import ", StringComparison.Ordinal))
-            return null;
+        if (TidyCommandKernels.TryGetImportedNamespace(line, out var importedNamespace))
+            return importedNamespace;
 
-        // import <namespace>  or  import <namespace>.<type>
-        var importValue = trimmed["import ".Length..].Trim();
-
-        // Remove trailing semicolons, braces etc. — keep the dotted identifier
-        var clean = new string(importValue.TakeWhile(c => char.IsLetterOrDigit(c) || c == '.' || c == '_').ToArray());
-        return clean.Length > 0 ? clean : null;
-    }
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product tidy option parsing routes through TidyCommandKernels.
-    private static TidyOptionSummary GetOptionSummaryWithCSharp(string[] args)
-        => new(
-            GetOptionValueWithCSharp(args, "--project"),
-            ContainsArgWithCSharp(args, "--fix"),
-            ContainsArgWithCSharp(args, "--json"),
-            ContainsArgWithCSharp(args, "--help") || ContainsArgWithCSharp(args, "-h") || (args.Length > 0 && args[0] == "help"));
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product tidy output mode selection routes through TidyCommandKernels.
-    private static TidyOutputModeKind GetOutputModeWithCSharp(bool json)
-        => json ? TidyOutputModeKind.Json : TidyOutputModeKind.Text;
-
-    private static string? GetOptionValueWithCSharp(string[] args, string flag)
-    {
-        for (var i = 0; i < args.Length - 1; i++)
-            if (args[i] == flag)
-                return args[i + 1];
-        return null;
-    }
-
-    private static bool ContainsArgWithCSharp(string[] args, string value)
-    {
-        for (var i = 0; i < args.Length; i++)
-            if (args[i] == value)
-                return true;
-        return false;
+        throw new InvalidOperationException("N# tidy import namespace kernel rejected the line.");
     }
 
     private static int ShowHelp()
