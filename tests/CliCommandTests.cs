@@ -21,19 +21,19 @@ public class CliCommandTests
     public void ProgramCommandKernels_SummarizesTopLevelCommands()
     {
         var empty = ProgramCommandKernels.GetCommandKind(Array.Empty<string>());
-        Assert.Equal(ProgramCommandKind.Help, empty);
+        Assert.Equal(29, empty);
 
         var build = ProgramCommandKernels.GetCommandKind(new[] { "BUILD", "--help" });
-        Assert.Equal(ProgramCommandKind.Build, build);
+        Assert.Equal(1, build);
 
         var longVersion = ProgramCommandKernels.GetCommandKind(new[] { "--VERSION" });
-        Assert.Equal(ProgramCommandKind.Version, longVersion);
+        Assert.Equal(30, longVersion);
 
         var shortVersion = ProgramCommandKernels.GetCommandKind(new[] { "-V" });
-        Assert.Equal(ProgramCommandKind.Version, shortVersion);
+        Assert.Equal(30, shortVersion);
 
         var lowerShortVersion = ProgramCommandKernels.GetCommandKind(new[] { "-v" });
-        Assert.Equal(ProgramCommandKind.Unknown, lowerShortVersion);
+        Assert.Equal(0, lowerShortVersion);
 
         Assert.Equal("nlc 1.2.3", ProgramCommandKernels.GetVersionText("1.2.3"));
         var helpText = ProgramCommandKernels.GetHelpText("1.2.3");

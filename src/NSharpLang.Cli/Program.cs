@@ -52,13 +52,13 @@ partial class Program
     {
         var commandKind = ProgramCommandKernels.GetCommandKind(args);
 
-        if (commandKind == ProgramCommandKind.Help)
+        if (commandKind == 29)
         {
             Console.WriteLine(ProgramCommandKernels.GetHelpText(GetVersion()));
             return 0;
         }
 
-        if (commandKind == ProgramCommandKind.Version)
+        if (commandKind == 30)
         {
             Console.WriteLine(ProgramCommandKernels.GetVersionText(GetVersion()));
             return 0;
@@ -66,34 +66,34 @@ partial class Program
 
         return commandKind switch
         {
-            ProgramCommandKind.Build => BuildCommand(GetCommandArgs(args)),
-            ProgramCommandKind.Run => RunCommand(GetCommandArgs(args)),
-            ProgramCommandKind.Publish => PublishCommand(GetCommandArgs(args)),
-            ProgramCommandKind.New => NewCommand(GetCommandArgs(args)),
-            ProgramCommandKind.Test => TestCommand(GetCommandArgs(args)),
-            ProgramCommandKind.Format => FormatCommand(GetCommandArgs(args)),
-            ProgramCommandKind.Lint => Commands.LintCommand.Execute(GetCommandArgs(args)),
-            ProgramCommandKind.Restore => RestoreCommand.Execute(GetCommandArgs(args)),
-            ProgramCommandKind.Clean => CleanCommand.Execute(GetCommandArgs(args)),
-            ProgramCommandKind.Watch => WatchCommand.Execute(GetCommandArgs(args)),
-            ProgramCommandKind.Doc => DocCommand.Execute(GetCommandArgs(args)),
-            ProgramCommandKind.Completion => CompletionCommand.Execute(GetCommandArgs(args)),
-            ProgramCommandKind.Check => Commands.CheckCommand.Execute(GetCommandArgs(args)),
-            ProgramCommandKind.Fix => FixCommand.Execute(GetCommandArgs(args)),
-            ProgramCommandKind.Query => QueryCommand.Execute(GetCommandArgs(args)),
-            ProgramCommandKind.Daemon => DaemonCommand.Execute(GetCommandArgs(args)),
-            ProgramCommandKind.Add => AddCommand.Execute(GetCommandArgs(args)),
-            ProgramCommandKind.Tidy => TidyCommand.Execute(GetCommandArgs(args)),
-            ProgramCommandKind.Remove => RemoveCommand.Execute(GetCommandArgs(args)),
-            ProgramCommandKind.Update => UpdateCommand.Execute(GetCommandArgs(args)),
-            ProgramCommandKind.Init => InitCommand.Execute(GetCommandArgs(args)),
-            ProgramCommandKind.Env => EnvCommand.Execute(GetCommandArgs(args)),
-            ProgramCommandKind.Doctor => DoctorCommand.Execute(GetCommandArgs(args)),
-            ProgramCommandKind.Tree => TreeCommand.Execute(GetCommandArgs(args)),
-            ProgramCommandKind.Audit => AuditCommand.Execute(GetCommandArgs(args)),
-            ProgramCommandKind.Pack => PackCommand.Execute(GetCommandArgs(args)),
-            ProgramCommandKind.Export => Commands.ExportCommand.Execute(GetCommandArgs(args)),
-            ProgramCommandKind.Transpile => Error(ProgramCommandKernels.GetTranspileRemovedMessage()),
+            1 => BuildCommand(GetCommandArgs(args)),
+            2 => RunCommand(GetCommandArgs(args)),
+            3 => PublishCommand(GetCommandArgs(args)),
+            4 => NewCommand(GetCommandArgs(args)),
+            5 => TestCommand(GetCommandArgs(args)),
+            6 => FormatCommand(GetCommandArgs(args)),
+            7 => Commands.LintCommand.Execute(GetCommandArgs(args)),
+            8 => RestoreCommand.Execute(GetCommandArgs(args)),
+            9 => CleanCommand.Execute(GetCommandArgs(args)),
+            10 => WatchCommand.Execute(GetCommandArgs(args)),
+            11 => DocCommand.Execute(GetCommandArgs(args)),
+            12 => CompletionCommand.Execute(GetCommandArgs(args)),
+            13 => Commands.CheckCommand.Execute(GetCommandArgs(args)),
+            14 => FixCommand.Execute(GetCommandArgs(args)),
+            15 => QueryCommand.Execute(GetCommandArgs(args)),
+            16 => DaemonCommand.Execute(GetCommandArgs(args)),
+            17 => AddCommand.Execute(GetCommandArgs(args)),
+            18 => TidyCommand.Execute(GetCommandArgs(args)),
+            19 => RemoveCommand.Execute(GetCommandArgs(args)),
+            20 => UpdateCommand.Execute(GetCommandArgs(args)),
+            21 => InitCommand.Execute(GetCommandArgs(args)),
+            22 => EnvCommand.Execute(GetCommandArgs(args)),
+            23 => DoctorCommand.Execute(GetCommandArgs(args)),
+            24 => TreeCommand.Execute(GetCommandArgs(args)),
+            25 => AuditCommand.Execute(GetCommandArgs(args)),
+            26 => PackCommand.Execute(GetCommandArgs(args)),
+            27 => Commands.ExportCommand.Execute(GetCommandArgs(args)),
+            31 => Error(ProgramCommandKernels.GetTranspileRemovedMessage()),
             _ => Error(ProgramCommandKernels.GetUnknownCommandMessage(
                 args.Length == 0 ? string.Empty : args[0].ToLower()))
         };
