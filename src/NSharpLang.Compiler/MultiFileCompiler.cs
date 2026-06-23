@@ -1040,8 +1040,9 @@ public class MultiFileCompiler
             return false;
 
         var isDogfoodAssembly = string.Equals(assemblyName, "NSharpLang.Compiler.Dogfood", StringComparison.Ordinal);
+        var isDogfoodProject = string.Equals(_config?.Name, "NSharpLang.Compiler.Dogfood", StringComparison.Ordinal);
         var usesDogfoodProductSources = _sourceFiles.Any(IsDogfoodProductSourceFile);
-        if (!isDogfoodAssembly && !usesDogfoodProductSources)
+        if (!isDogfoodAssembly && !isDogfoodProject && !usesDogfoodProductSources)
             return false;
 
         // Clean bootstrap still needs the C# compiler to produce the first dogfood assembly.
