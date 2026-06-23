@@ -41,7 +41,6 @@ public class WriteCompilationStub : Task
             var sourceFiles = Sources
                 .Select(source => source.ItemSpec)
                 .Where(File.Exists)
-                .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToArray();
             var stubSource = CompilationStubEmitter.Generate(config, sourceFiles);
             File.WriteAllText(outputFile, stubSource);
