@@ -62,146 +62,31 @@ internal static class DaemonCommandKernels
     }
 
     internal static string GetHelpText()
-    {
-        if (TryGetMessage(bindings => bindings.DaemonHelpText(), out var message))
-            return message;
-
-        return GetHelpTextWithCSharp();
-    }
+        => RequiredBindings.DaemonHelpText();
 
     internal static string GetAlreadyRunningMessage()
-    {
-        if (TryGetMessage(bindings => bindings.DaemonAlreadyRunningMessage(), out var message))
-            return message;
-
-        return GetAlreadyRunningMessageWithCSharp();
-    }
+        => RequiredBindings.DaemonAlreadyRunningMessage();
 
     internal static string GetStartingMessage(string projectDir)
-    {
-        if (TryGetMessage(bindings => bindings.DaemonStartingMessage(projectDir), out var message))
-            return message;
-
-        return GetStartingMessageWithCSharp(projectDir);
-    }
+        => RequiredBindings.DaemonStartingMessage(projectDir);
 
     internal static string GetStartedMessage()
-    {
-        if (TryGetMessage(bindings => bindings.DaemonStartedMessage(), out var message))
-            return message;
-
-        return GetStartedMessageWithCSharp();
-    }
+        => RequiredBindings.DaemonStartedMessage();
 
     internal static string GetStartFailedMessage()
-    {
-        if (TryGetMessage(bindings => bindings.DaemonStartFailedMessage(), out var message))
-            return message;
-
-        return GetStartFailedMessageWithCSharp();
-    }
+        => RequiredBindings.DaemonStartFailedMessage();
 
     internal static string GetNoDaemonRunningMessage()
-    {
-        if (TryGetMessage(bindings => bindings.DaemonNoDaemonRunningMessage(), out var message))
-            return message;
-
-        return GetNoDaemonRunningMessageWithCSharp();
-    }
+        => RequiredBindings.DaemonNoDaemonRunningMessage();
 
     internal static string GetStoppedMessage()
-    {
-        if (TryGetMessage(bindings => bindings.DaemonStoppedMessage(), out var message))
-            return message;
-
-        return GetStoppedMessageWithCSharp();
-    }
+        => RequiredBindings.DaemonStoppedMessage();
 
     internal static string GetStopFailedMessage()
-    {
-        if (TryGetMessage(bindings => bindings.DaemonStopFailedMessage(), out var message))
-            return message;
-
-        return GetStopFailedMessageWithCSharp();
-    }
+        => RequiredBindings.DaemonStopFailedMessage();
 
     internal static string GetStatusNotRespondingMessage()
-    {
-        if (TryGetMessage(bindings => bindings.DaemonStatusNotRespondingMessage(), out var message))
-            return message;
-
-        return GetStatusNotRespondingMessageWithCSharp();
-    }
-
-    private static bool TryGetMessage(Func<Bindings, string> getMessage, out string message)
-    {
-        message = string.Empty;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        try
-        {
-            message = getMessage(bindings);
-            return !string.IsNullOrEmpty(message);
-        }
-        catch
-        {
-            message = string.Empty;
-            return false;
-        }
-    }
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product daemon command messages route through CliDaemon* kernels.
-    private static string GetHelpTextWithCSharp()
-        => "N# Analysis Daemon\n"
-           + "\n"
-           + "Usage: nlc daemon <command> [options]\n"
-           + "\n"
-           + "Commands:\n"
-           + "  start     Start the daemon for the current project\n"
-           + "  stop      Stop the running daemon\n"
-           + "  status    Show daemon status (PID, uptime, cached files)\n"
-           + "\n"
-           + "Options:\n"
-           + "  --project <dir>   Project root directory (default: current directory)\n"
-           + "\n"
-           + "The daemon caches project analysis and can serve JSON `nlc query` requests\n"
-           + "via Unix domain socket for faster repeated response times.\n"
-           + "\n"
-           + "- `nlc query` reuses the daemon only when one is already running\n"
-           + "- Auto-exits after 30 minutes of inactivity\n"
-           + "- Watches .nl, project.yml, and .editorconfig for changes and invalidates cache\n"
-           + "- Socket: {projectRoot}/.nlc/daemon.sock\n"
-           + "\n"
-           + "Exit codes:\n"
-           + "  0  Command succeeded\n"
-           + "  1  Command failed (e.g., daemon failed to start or stop)";
-
-    private static string GetAlreadyRunningMessageWithCSharp()
-        => "Daemon is already running.";
-
-    private static string GetStartingMessageWithCSharp(string projectDir)
-        => $"Starting daemon for {projectDir}...";
-
-    private static string GetStartedMessageWithCSharp()
-        => "Daemon started.";
-
-    private static string GetStartFailedMessageWithCSharp()
-        => "Failed to start daemon.";
-
-    private static string GetNoDaemonRunningMessageWithCSharp()
-        => "No daemon running.";
-
-    private static string GetStoppedMessageWithCSharp()
-        => "Daemon stopped.";
-
-    private static string GetStopFailedMessageWithCSharp()
-        => "Failed to stop daemon.";
-
-    private static string GetStatusNotRespondingMessageWithCSharp()
-        => "Daemon is running but not responding to status queries.";
+        => RequiredBindings.DaemonStatusNotRespondingMessage();
 
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
@@ -258,6 +143,9 @@ internal static class DaemonCommandKernels
         CliDaemonStoppedMessage DaemonStoppedMessage,
         CliDaemonStopFailedMessage DaemonStopFailedMessage,
         CliDaemonStatusNotRespondingMessage DaemonStatusNotRespondingMessage);
+
+    private static Bindings RequiredBindings
+        => s_bindings.Value ?? throw new InvalidOperationException("N# daemon command kernels are unavailable.");
 
     private static bool TryGetOptionalArg(string[] args, int index, out string? value)
     {

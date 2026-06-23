@@ -94,52 +94,15 @@ public static class DaemonCommand
     }
 
     internal static DaemonOptionSummary GetOptionSummary(string[] args)
-        => DaemonCommandKernels.TryGetOptionSummary(args, out var summary)
-            ? summary
-            : GetOptionSummaryWithCSharp(args);
+    {
+        if (DaemonCommandKernels.TryGetOptionSummary(args, out var summary))
+            return summary;
+
+        throw new InvalidOperationException("N# daemon option summary kernel rejected the arguments.");
+    }
 
     private static string GetProjectDir(DaemonOptionSummary options)
         => options.ProjectOption ?? Directory.GetCurrentDirectory();
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product daemon option parsing routes through DaemonCommandKernels.
-    private static DaemonOptionSummary GetOptionSummaryWithCSharp(string[] args)
-    {
-        if (args.Length == 0)
-            return new DaemonOptionSummary(DaemonSubcommandKind.Unknown, GetProjectOptionWithCSharp(args), ShowHelp: true);
-
-        var subcommandKind = args[0].ToLower() switch
-        {
-            "start" => DaemonSubcommandKind.Start,
-            "stop" => DaemonSubcommandKind.Stop,
-            "status" => DaemonSubcommandKind.Status,
-            "run" => DaemonSubcommandKind.Run,
-            _ => DaemonSubcommandKind.Unknown
-        };
-
-        return new DaemonOptionSummary(
-            subcommandKind,
-            GetProjectOptionWithCSharp(args),
-            args[0] is "help" or "--help" or "-h" || ContainsArgWithCSharp(args, "--help") || ContainsArgWithCSharp(args, "-h"));
-    }
-
-    private static string? GetProjectOptionWithCSharp(string[] args)
-    {
-        for (int i = 0; i < args.Length - 1; i++)
-        {
-            if (args[i] == "--project")
-                return args[i + 1];
-        }
-
-        return null;
-    }
-
-    private static bool ContainsArgWithCSharp(string[] args, string value)
-    {
-        for (var i = 0; i < args.Length; i++)
-            if (args[i] == value)
-                return true;
-        return false;
-    }
 
     private static int ShowDaemonHelp()
     {
