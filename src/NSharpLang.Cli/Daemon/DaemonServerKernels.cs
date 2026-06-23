@@ -10,32 +10,15 @@ internal static class DaemonServerKernels
 
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
 
-    internal static bool TryParsePosition(string position, out int line, out int column)
+    internal static void ParsePosition(string position, out int line, out int column)
     {
-        line = 0;
-        column = 0;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
         var result = t_positionResult ??= new int[2];
-        try
-        {
-            var code = bindings.ParsePosition(position, result);
-            if (code != 0)
-                return false;
+        var code = RequiredBindings.ParsePosition(position, result);
+        if (code != 0)
+            throw new InvalidOperationException("N# daemon position parser kernel rejected the position.");
 
-            line = result[0];
-            column = result[1];
-            return true;
-        }
-        catch
-        {
-            line = 0;
-            column = 0;
-            return false;
-        }
+        line = result[0];
+        column = result[1];
     }
 
     internal static string GetUnknownMethodMessage(string method)

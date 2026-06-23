@@ -999,20 +999,10 @@ public static class QueryCommand
         => QueryCommandKernels.GetTopLevelOptionSummary(args);
 
     private static bool TryParsePosition(string posStr, out int line, out int col)
-    {
-        if (QueryCommandKernels.TryParsePosition(posStr, out var parsed, out line, out col))
-            return parsed;
-
-        throw new InvalidOperationException("N# query position parser kernel rejected the position.");
-    }
+        => QueryCommandKernels.ParsePosition(posStr, out line, out col);
 
     private static bool TryParsePositiveInt(string value, out int parsed)
-    {
-        if (QueryCommandKernels.TryParsePositiveInt(value, out var parsedByKernel, out parsed))
-            return parsedByKernel;
-
-        throw new InvalidOperationException("N# query positive-int parser kernel rejected the value.");
-    }
+        => QueryCommandKernels.ParsePositiveInt(value, out parsed);
 
     internal static QueryInspectOutputModeKind GetInspectOutputMode(bool useText, bool inspectCompact)
         => QueryCommandKernels.GetInspectOutputMode(useText, inspectCompact);

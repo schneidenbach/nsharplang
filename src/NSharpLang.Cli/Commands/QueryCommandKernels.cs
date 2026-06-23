@@ -175,63 +175,27 @@ internal static class QueryCommandKernels
             remainingArgs);
     }
 
-    internal static bool TryParsePosition(string position, out bool parsed, out int line, out int column)
+    internal static bool ParsePosition(string position, out int line, out int column)
     {
-        parsed = false;
-        line = 0;
-        column = 0;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
         var result = t_positionResult ??= new int[2];
-        try
-        {
-            var code = bindings.TryParsePosition(position, result);
-            if (code is not 0 and not 1)
-                return false;
+        var code = RequiredBindings.TryParsePosition(position, result);
+        if (code is not 0 and not 1)
+            throw new InvalidOperationException("N# query position parser kernel rejected the position.");
 
-            parsed = code == 1;
-            line = result[0];
-            column = result[1];
-            return true;
-        }
-        catch
-        {
-            parsed = false;
-            line = 0;
-            column = 0;
-            return false;
-        }
+        line = result[0];
+        column = result[1];
+        return code == 1;
     }
 
-    internal static bool TryParsePositiveInt(string value, out bool parsed, out int result)
+    internal static bool ParsePositiveInt(string value, out int result)
     {
-        parsed = false;
-        result = 0;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
         var resultArray = t_positiveIntResult ??= new int[1];
-        try
-        {
-            var code = bindings.TryParsePositiveInt(value, resultArray);
-            if (code is not 0 and not 1)
-                return false;
+        var code = RequiredBindings.TryParsePositiveInt(value, resultArray);
+        if (code is not 0 and not 1)
+            throw new InvalidOperationException("N# query positive-int parser kernel rejected the value.");
 
-            parsed = code == 1;
-            result = resultArray[0];
-            return true;
-        }
-        catch
-        {
-            parsed = false;
-            result = 0;
-            return false;
-        }
+        result = resultArray[0];
+        return code == 1;
     }
 
     internal static QueryInspectOutputModeKind GetInspectOutputMode(
@@ -296,38 +260,19 @@ internal static class QueryCommandKernels
 
     internal static bool TryParseSymbolKind(string value, out SymbolKind kind)
     {
-        if (TryParseSymbolKindWithDogfood(value, out var parsed, out kind))
-            return parsed;
-
-        throw new InvalidOperationException("N# query symbol-kind parser kernel rejected the value.");
-    }
-
-    private static bool TryParseSymbolKindWithDogfood(string value, out bool parsed, out SymbolKind kind)
-    {
-        parsed = false;
-        kind = default;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
         var resultArray = t_symbolKindResult ??= new int[1];
-        try
-        {
-            var code = bindings.TryParseSymbolKind(value, resultArray);
-            if (code is not 0 and not 1)
-                return false;
+        var code = RequiredBindings.TryParseSymbolKind(value, resultArray);
+        if (code is not 0 and not 1)
+            throw new InvalidOperationException("N# query symbol-kind parser kernel rejected the value.");
 
-            parsed = code == 1;
+        if (code == 1)
+        {
             kind = (SymbolKind)resultArray[0];
             return true;
         }
-        catch
-        {
-            parsed = false;
-            kind = default;
-            return false;
-        }
+
+        kind = default;
+        return false;
     }
 
     internal static string GetHelpText(string commandLines)

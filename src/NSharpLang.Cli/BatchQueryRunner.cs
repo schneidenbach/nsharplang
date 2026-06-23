@@ -514,12 +514,7 @@ internal static class BatchQueryRunner
     }
 
     private static bool TryParsePosition(string position, out int line, out int column)
-    {
-        if (QueryCommandKernels.TryParsePosition(position, out var parsed, out line, out column))
-            return parsed;
-
-        throw new InvalidOperationException("N# query position parser kernel rejected the position.");
-    }
+        => QueryCommandKernels.ParsePosition(position, out line, out column);
 
     private static string InvalidRequest(string command, string message, string? projectRoot, BatchQueryRequest request)
         => OutputFormatter.ErrorToJson(command, message, projectRoot, "invalidRequest", Normalize(request));

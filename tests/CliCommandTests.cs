@@ -2138,34 +2138,32 @@ func Main() {
     }
 
     [Fact]
-    public void QueryCommandKernels_ParsePositionsLikeCSharpFallback()
+    public void QueryCommandKernels_ParsePositions()
     {
         var cases = new[]
         {
-            "1:1",
-            "42:17",
-            " 42 : 17 ",
-            "+64:+10",
-            "-1:5",
-            "2147483647:2147483647",
-            "-2147483648:-2147483648",
-            "0:0",
-            "12:",
-            ":34",
-            "12:abc",
-            "abc:12",
-            "12:34:56",
-            "2147483648:1",
-            "1:-2147483649",
-            "1_000:2",
-            "7 :\t8"
+            ("1:1", true, 1, 1),
+            ("42:17", true, 42, 17),
+            (" 42 : 17 ", true, 42, 17),
+            ("+64:+10", true, 64, 10),
+            ("-1:5", true, -1, 5),
+            ("2147483647:2147483647", true, 2147483647, 2147483647),
+            ("-2147483648:-2147483648", true, -2147483648, -2147483648),
+            ("0:0", true, 0, 0),
+            ("12:", false, 12, 0),
+            (":34", false, 0, 0),
+            ("12:abc", false, 12, 0),
+            ("abc:12", false, 0, 0),
+            ("12:34:56", false, 0, 0),
+            ("2147483648:1", false, 0, 0),
+            ("1:-2147483649", false, 1, 0),
+            ("1_000:2", false, 0, 0),
+            ("7 :\t8", true, 7, 8)
         };
 
-        foreach (var input in cases)
+        foreach (var (input, expectedParsed, expectedLine, expectedColumn) in cases)
         {
-            var expectedParsed = TryParsePositionWithCSharpFallback(input, out var expectedLine, out var expectedColumn);
-
-            Assert.True(QueryCommandKernels.TryParsePosition(input, out var parsed, out var line, out var column));
+            var parsed = QueryCommandKernels.ParsePosition(input, out var line, out var column);
             Assert.Equal(expectedParsed, parsed);
             Assert.Equal(expectedLine, line);
             Assert.Equal(expectedColumn, column);
@@ -2173,58 +2171,54 @@ func Main() {
     }
 
     [Fact]
-    public void QueryCommandKernels_ParsePositiveIntsLikeCSharpFallback()
+    public void QueryCommandKernels_ParsePositiveInts()
     {
         var cases = new[]
         {
-            "1",
-            "25",
-            " 25 ",
-            "+64",
-            "0",
-            "-1",
-            "2147483647",
-            "-2147483648",
-            "2147483648",
-            "-2147483649",
-            "1_000",
-            "",
-            "   ",
-            "12.5"
+            ("1", true, 1),
+            ("25", true, 25),
+            (" 25 ", true, 25),
+            ("+64", true, 64),
+            ("0", false, 0),
+            ("-1", false, 0),
+            ("2147483647", true, 2147483647),
+            ("-2147483648", false, 0),
+            ("2147483648", false, 0),
+            ("-2147483649", false, 0),
+            ("1_000", false, 0),
+            ("", false, 0),
+            ("   ", false, 0),
+            ("12.5", false, 0)
         };
 
-        foreach (var input in cases)
+        foreach (var (input, expectedParsed, expectedValue) in cases)
         {
-            var expectedParsed = TryParsePositiveIntWithCSharpFallback(input, out var expectedValue);
-
-            Assert.True(QueryCommandKernels.TryParsePositiveInt(input, out var parsed, out var value));
+            var parsed = QueryCommandKernels.ParsePositiveInt(input, out var value);
             Assert.Equal(expectedParsed, parsed);
             Assert.Equal(expectedValue, value);
         }
     }
 
     [Fact]
-    public void QueryCommandKernels_ParseSymbolKindsLikeCSharpFallback()
+    public void QueryCommandKernels_ParseSymbolKinds()
     {
-        var cases = new[]
+        (string Input, bool ExpectedParsed, SymbolKind ExpectedKind)[] cases =
         {
-            "Function",
-            "function",
-            " TypeAlias ",
-            "EnumMember",
-            "15",
-            "-1",
-            "999",
-            "Function, Class",
-            "not-a-kind",
-            "",
-            "   "
+            ("Function", true, SymbolKind.Function),
+            ("function", true, SymbolKind.Function),
+            (" TypeAlias ", true, SymbolKind.TypeAlias),
+            ("EnumMember", true, SymbolKind.EnumMember),
+            ("15", true, SymbolKind.Test),
+            ("-1", true, (SymbolKind)(-1)),
+            ("999", true, (SymbolKind)999),
+            ("Function, Class", true, SymbolKind.Class),
+            ("not-a-kind", false, default),
+            ("", false, default),
+            ("   ", false, default)
         };
 
-        foreach (var input in cases)
+        foreach (var (input, expectedParsed, expectedKind) in cases)
         {
-            var expectedParsed = Enum.TryParse<SymbolKind>(input, ignoreCase: true, out var expectedKind);
-
             var parsed = QueryCommandKernels.TryParseSymbolKind(input, out var kind);
             Assert.Equal(expectedParsed, parsed);
             Assert.Equal(expectedKind, kind);
@@ -6664,26 +6658,6 @@ func Main() {
     }
 
     private static string NormalizePath(string path) => path.Replace('\\', '/');
-
-    private static bool TryParsePositionWithCSharpFallback(string position, out int line, out int column)
-    {
-        line = 0;
-        column = 0;
-        var parts = position.Split(':');
-        if (parts.Length != 2)
-            return false;
-
-        return int.TryParse(parts[0], out line) && int.TryParse(parts[1], out column);
-    }
-
-    private static bool TryParsePositiveIntWithCSharpFallback(string value, out int parsed)
-    {
-        if (int.TryParse(value, out parsed) && parsed > 0)
-            return true;
-
-        parsed = 0;
-        return false;
-    }
 
     private sealed record ExportReferenceValue(string Name, string Version);
 

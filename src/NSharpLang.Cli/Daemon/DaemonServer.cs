@@ -325,10 +325,7 @@ public class DaemonServer
         if (posStr == null)
             return;
 
-        if (DaemonServerKernels.TryParsePosition(posStr, out line, out col))
-            return;
-
-        throw new InvalidOperationException("N# daemon position parser kernel rejected the position.");
+        DaemonServerKernels.ParsePosition(posStr, out line, out col);
     }
 
     // ── Query Handlers ──────────────────────────────────────────────────
