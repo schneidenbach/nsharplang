@@ -3625,7 +3625,7 @@ func Main() {
             "Program.nl"
         };
 
-        Assert.True(BuildCommandKernels.TryGetOptionSummary(args, out var summary));
+        var summary = BuildCommandKernels.GetOptionSummary(args);
         Assert.Equal("dist", summary.OutputDir);
         Assert.Equal("il", summary.BackendOption);
         Assert.Equal("samples/demo", summary.ProjectOption);
@@ -3636,14 +3636,10 @@ func Main() {
         Assert.True(summary.Aot);
         Assert.False(summary.ShowHelp);
 
-        Assert.True(BuildCommandKernels.TryGetOptionSummary(
-            new[] { "help", "--release" },
-            out var firstArgHelp));
+        var firstArgHelp = BuildCommandKernels.GetOptionSummary(new[] { "help", "--release" });
         Assert.True(firstArgHelp.ShowHelp);
 
-        Assert.True(BuildCommandKernels.TryGetOptionSummary(
-            new[] { "--output", "--help" },
-            out var helpAsMissingValue));
+        var helpAsMissingValue = BuildCommandKernels.GetOptionSummary(new[] { "--output", "--help" });
         Assert.Equal("--help", helpAsMissingValue.OutputDir);
         Assert.True(helpAsMissingValue.ShowHelp);
 
@@ -3720,21 +3716,15 @@ func Main() {
     [Fact]
     public void RunCommandKernels_SummarizesOptions()
     {
-        Assert.True(RunCommandKernels.TryGetOptionSummary(
-            Array.Empty<string>(),
-            out var empty));
+        var empty = RunCommandKernels.GetOptionSummary(Array.Empty<string>());
         Assert.Null(empty.BackendOption);
         Assert.False(empty.ShowHelp);
 
-        Assert.True(RunCommandKernels.TryGetOptionSummary(
-            new[] { "--backend", "il", "Program.nl" },
-            out var backend));
+        var backend = RunCommandKernels.GetOptionSummary(new[] { "--backend", "il", "Program.nl" });
         Assert.Equal("il", backend.BackendOption);
         Assert.False(backend.ShowHelp);
 
-        Assert.True(RunCommandKernels.TryGetOptionSummary(
-            new[] { "help" },
-            out var help));
+        var help = RunCommandKernels.GetOptionSummary(new[] { "help" });
         Assert.True(help.ShowHelp);
 
         var permissive = Program.GetRunOptionSummary(new[] { "--backend", "--help" });
@@ -4540,9 +4530,7 @@ Exit codes:
     [Fact]
     public void FormatCommandKernels_SummarizesOptions()
     {
-        Assert.True(FormatCommandKernels.TryGetOptionSummary(
-            Array.Empty<string>(),
-            out var empty));
+        var empty = FormatCommandKernels.GetOptionSummary(Array.Empty<string>());
         Assert.Null(empty.ProjectOption);
         Assert.False(empty.VerifyOnly);
         Assert.False(empty.DiffOnly);
@@ -4550,7 +4538,7 @@ Exit codes:
         Assert.False(empty.ShowHelp);
 
         var args = new[] { "--project", "samples/demo", "--check", "--diff", "--stdin", "-h" };
-        Assert.True(FormatCommandKernels.TryGetOptionSummary(args, out var summary));
+        var summary = FormatCommandKernels.GetOptionSummary(args);
         Assert.Equal("samples/demo", summary.ProjectOption);
         Assert.True(summary.VerifyOnly);
         Assert.True(summary.DiffOnly);
@@ -5065,7 +5053,7 @@ dependencies:
             "--no-cache"
         };
 
-        Assert.True(TestCommandKernels.TryGetOptionSummary(args, out var summary));
+        var summary = TestCommandKernels.GetOptionSummary(args);
         Assert.Equal("samples/demo", summary.ProjectOption);
         Assert.Equal("il", summary.BackendOption);
         Assert.Equal("Adds", summary.Filter);
@@ -5077,15 +5065,11 @@ dependencies:
         Assert.True(summary.NoCache);
         Assert.False(summary.ShowHelp);
 
-        Assert.True(TestCommandKernels.TryGetOptionSummary(
-            new[] { "help", "--json" },
-            out var firstArgHelp));
+        var firstArgHelp = TestCommandKernels.GetOptionSummary(new[] { "help", "--json" });
         Assert.True(firstArgHelp.ShowHelp);
         Assert.True(firstArgHelp.JsonOutput);
 
-        Assert.True(TestCommandKernels.TryGetOptionSummary(
-            new[] { "--project", "--help" },
-            out var helpAsProjectValue));
+        var helpAsProjectValue = TestCommandKernels.GetOptionSummary(new[] { "--project", "--help" });
         Assert.Equal("--help", helpAsProjectValue.ProjectOption);
         Assert.True(helpAsProjectValue.ShowHelp);
 

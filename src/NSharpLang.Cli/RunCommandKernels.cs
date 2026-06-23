@@ -13,37 +13,16 @@ internal static class RunCommandKernels
 
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
 
-    internal static bool TryGetOptionSummary(string[] args, out RunOptionSummary summary)
+    internal static RunOptionSummary GetOptionSummary(string[] args)
     {
-        summary = default;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
         var resultIndices = t_optionSummaryIndices ??= new int[2];
-        try
-        {
-            var code = bindings.RunOptionSummary(args, resultIndices);
-            if (code != 0)
-                return false;
+        var code = RequiredBindings.RunOptionSummary(args, resultIndices);
+        if (code != 0 || !TryGetOptionalArg(args, resultIndices[0], out var backendOption))
+            throw new InvalidOperationException("N# run option summary kernel rejected the arguments.");
 
-            if (!TryGetOptionalArg(args, resultIndices[0], out var backendOption))
-            {
-                summary = default;
-                return false;
-            }
-
-            summary = new RunOptionSummary(
-                backendOption,
-                resultIndices[1] != 0);
-            return true;
-        }
-        catch
-        {
-            summary = default;
-            return false;
-        }
+        return new RunOptionSummary(
+            backendOption,
+            resultIndices[1] != 0);
     }
 
     internal static bool TryGetSourceOperand(string[] args, out string? operand)

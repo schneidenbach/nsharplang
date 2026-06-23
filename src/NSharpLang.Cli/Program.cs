@@ -1070,20 +1070,10 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
     private readonly record struct BuildOperandSummary(int Count, string? FirstOperand);
 
     static BuildOptionSummary GetBuildOptionSummary(string[] args)
-    {
-        if (BuildCommandKernels.TryGetOptionSummary(args, out var summary))
-            return summary;
-
-        throw new InvalidOperationException("N# build option summary kernel rejected the arguments.");
-    }
+        => BuildCommandKernels.GetOptionSummary(args);
 
     static TestOptionSummary GetTestOptionSummary(string[] args)
-    {
-        if (TestCommandKernels.TryGetOptionSummary(args, out var summary))
-            return summary;
-
-        throw new InvalidOperationException("N# test option summary kernel rejected the arguments.");
-    }
+        => TestCommandKernels.GetOptionSummary(args);
 
     internal static TestOutputModeKind GetTestOutputMode(bool json)
         => TestCommandKernels.GetOutputMode(json);
@@ -1109,20 +1099,10 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
     }
 
     internal static RunOptionSummary GetRunOptionSummary(string[] args)
-    {
-        if (RunCommandKernels.TryGetOptionSummary(args, out var summary))
-            return summary;
-
-        throw new InvalidOperationException("N# run option summary kernel rejected the arguments.");
-    }
+        => RunCommandKernels.GetOptionSummary(args);
 
     internal static FormatOptionSummary GetFormatOptionSummary(string[] args)
-    {
-        if (FormatCommandKernels.TryGetOptionSummary(args, out var summary))
-            return summary;
-
-        throw new InvalidOperationException("N# format option summary kernel rejected the arguments.");
-    }
+        => FormatCommandKernels.GetOptionSummary(args);
 
     static int? ParseDurationToMs(string duration)
         => TestCommandKernels.GetDurationMilliseconds(duration);

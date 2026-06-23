@@ -58,46 +58,28 @@ internal static class BuildCommandKernels
         }
     }
 
-    internal static bool TryGetOptionSummary(string[] args, out BuildOptionSummary summary)
+    internal static BuildOptionSummary GetOptionSummary(string[] args)
     {
-        summary = default;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
         var resultIndices = t_optionResultIndices ??= new int[9];
-        try
+        var code = RequiredBindings.BuildOptionSummary(args, resultIndices);
+        if (code != 0
+            || !TryGetOptionalArg(args, resultIndices[0], out var output)
+            || !TryGetOptionalArg(args, resultIndices[1], out var backend)
+            || !TryGetOptionalArg(args, resultIndices[2], out var project))
         {
-            var code = bindings.BuildOptionSummary(args, resultIndices);
-            if (code != 0)
-                return false;
-
-            if (!TryGetOptionalArg(args, resultIndices[0], out var output)
-                || !TryGetOptionalArg(args, resultIndices[1], out var backend)
-                || !TryGetOptionalArg(args, resultIndices[2], out var project))
-            {
-                summary = default;
-                return false;
-            }
-
-            summary = new BuildOptionSummary(
-                output,
-                backend,
-                project,
-                resultIndices[3] != 0,
-                resultIndices[4] != 0,
-                resultIndices[5] != 0,
-                resultIndices[6] != 0,
-                resultIndices[7] != 0,
-                resultIndices[8] != 0);
-            return true;
+            throw new InvalidOperationException("N# build option summary kernel rejected the arguments.");
         }
-        catch
-        {
-            summary = default;
-            return false;
-        }
+
+        return new BuildOptionSummary(
+            output,
+            backend,
+            project,
+            resultIndices[3] != 0,
+            resultIndices[4] != 0,
+            resultIndices[5] != 0,
+            resultIndices[6] != 0,
+            resultIndices[7] != 0,
+            resultIndices[8] != 0);
     }
 
     internal static string GetHelpText()

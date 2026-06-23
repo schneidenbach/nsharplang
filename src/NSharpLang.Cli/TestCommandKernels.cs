@@ -71,49 +71,31 @@ internal static class TestCommandKernels
         }
     }
 
-    internal static bool TryGetOptionSummary(string[] args, out TestOptionSummary summary)
+    internal static TestOptionSummary GetOptionSummary(string[] args)
     {
-        summary = default;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
         var resultIndices = t_optionResultIndices ??= new int[10];
-        try
+        var code = RequiredBindings.TestOptionSummary(args, resultIndices);
+        if (code != 0
+            || !TryGetOptionalArg(args, resultIndices[0], out var project)
+            || !TryGetOptionalArg(args, resultIndices[1], out var filter)
+            || !TryGetOptionalArg(args, resultIndices[2], out var timeout)
+            || !TryGetOptionalArg(args, resultIndices[3], out var backend))
         {
-            var code = bindings.TestOptionSummary(args, resultIndices);
-            if (code != 0)
-                return false;
-
-            if (!TryGetOptionalArg(args, resultIndices[0], out var project)
-                || !TryGetOptionalArg(args, resultIndices[1], out var filter)
-                || !TryGetOptionalArg(args, resultIndices[2], out var timeout)
-                || !TryGetOptionalArg(args, resultIndices[3], out var backend))
-            {
-                summary = default;
-                return false;
-            }
-
-            var coverageReport = resultIndices[6] != 0;
-            summary = new TestOptionSummary(
-                project,
-                backend,
-                filter,
-                timeout,
-                resultIndices[4] != 0,
-                resultIndices[5] != 0,
-                coverageReport,
-                resultIndices[7] != 0 || coverageReport,
-                resultIndices[8] != 0,
-                resultIndices[9] != 0);
-            return true;
+            throw new InvalidOperationException("N# test option summary kernel rejected the arguments.");
         }
-        catch
-        {
-            summary = default;
-            return false;
-        }
+
+        var coverageReport = resultIndices[6] != 0;
+        return new TestOptionSummary(
+            project,
+            backend,
+            filter,
+            timeout,
+            resultIndices[4] != 0,
+            resultIndices[5] != 0,
+            coverageReport,
+            resultIndices[7] != 0 || coverageReport,
+            resultIndices[8] != 0,
+            resultIndices[9] != 0);
     }
 
     internal static TestOutputModeKind GetOutputMode(bool json)
