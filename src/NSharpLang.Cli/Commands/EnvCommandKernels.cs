@@ -6,28 +6,6 @@ internal readonly record struct EnvOptionSummary(
     bool Json,
     bool ShowHelp);
 
-internal enum EnvOutputModeKind
-{
-    Json = 1,
-    Text = 2
-}
-
-internal enum EnvTextLineKind
-{
-    NlcVersion = 1,
-    DotnetVersion = 2,
-    Runtime = 3,
-    Os = 4,
-    Arch = 5,
-    NugetCache = 6,
-    NsharpBin = 7,
-    NsharpPackages = 8,
-    Project = 9,
-    Target = 10,
-    OutputType = 11,
-    Sdk = 12
-}
-
 internal static class EnvCommandKernels
 {
     [ThreadStatic]
@@ -47,20 +25,14 @@ internal static class EnvCommandKernels
             resultIndices[1] != 0);
     }
 
-    internal static EnvOutputModeKind GetOutputMode(bool json)
-    {
-        var code = RequiredBindings.OutputMode(json ? 1 : 0);
-        if (code is < 1 or > 2)
-            throw new InvalidOperationException("N# env output-mode kernel rejected the options.");
-
-        return (EnvOutputModeKind)code;
-    }
+    internal static int GetOutputMode(bool json)
+        => RequiredBindings.OutputMode(json ? 1 : 0);
 
     internal static string GetHelpText()
         => RequiredBindings.EnvHelpText();
 
-    internal static string GetTextLine(EnvTextLineKind kind, string value)
-        => RequiredBindings.EnvTextLine((int)kind, value);
+    internal static string GetTextLine(int kind, string value)
+        => RequiredBindings.EnvTextLine(kind, value);
 
     private static Bindings RequiredBindings
         => s_bindings.Value ?? throw new InvalidOperationException("N# env command kernels are unavailable.");

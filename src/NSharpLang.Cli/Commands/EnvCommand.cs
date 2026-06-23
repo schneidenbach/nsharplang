@@ -52,7 +52,7 @@ public static class EnvCommand
             }
         }
 
-        if (outputMode == EnvOutputModeKind.Json)
+        if (outputMode == 1)
         {
             using var stream = new MemoryStream();
             using var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true });
@@ -83,22 +83,22 @@ public static class EnvCommand
         }
         else
         {
-            Console.WriteLine(EnvCommandKernels.GetTextLine(EnvTextLineKind.NlcVersion, nlcVersion));
-            Console.WriteLine(EnvCommandKernels.GetTextLine(EnvTextLineKind.DotnetVersion, dotnetVersion));
-            Console.WriteLine(EnvCommandKernels.GetTextLine(EnvTextLineKind.Runtime, runtime));
-            Console.WriteLine(EnvCommandKernels.GetTextLine(EnvTextLineKind.Os, os));
-            Console.WriteLine(EnvCommandKernels.GetTextLine(EnvTextLineKind.Arch, arch));
-            Console.WriteLine(EnvCommandKernels.GetTextLine(EnvTextLineKind.NugetCache, nugetCachePath));
-            Console.WriteLine(EnvCommandKernels.GetTextLine(EnvTextLineKind.NsharpBin, nsharpBinPath));
-            Console.WriteLine(EnvCommandKernels.GetTextLine(EnvTextLineKind.NsharpPackages, nsharpPackageCachePath));
+            Console.WriteLine(EnvCommandKernels.GetTextLine(1, nlcVersion));
+            Console.WriteLine(EnvCommandKernels.GetTextLine(2, dotnetVersion));
+            Console.WriteLine(EnvCommandKernels.GetTextLine(3, runtime));
+            Console.WriteLine(EnvCommandKernels.GetTextLine(4, os));
+            Console.WriteLine(EnvCommandKernels.GetTextLine(5, arch));
+            Console.WriteLine(EnvCommandKernels.GetTextLine(6, nugetCachePath));
+            Console.WriteLine(EnvCommandKernels.GetTextLine(7, nsharpBinPath));
+            Console.WriteLine(EnvCommandKernels.GetTextLine(8, nsharpPackageCachePath));
 
             if (projectName != null)
             {
                 Console.WriteLine();
-                Console.WriteLine(EnvCommandKernels.GetTextLine(EnvTextLineKind.Project, projectName));
-                Console.WriteLine(EnvCommandKernels.GetTextLine(EnvTextLineKind.Target, targetFramework ?? string.Empty));
-                Console.WriteLine(EnvCommandKernels.GetTextLine(EnvTextLineKind.OutputType, outputType ?? string.Empty));
-                Console.WriteLine(EnvCommandKernels.GetTextLine(EnvTextLineKind.Sdk, sdk ?? string.Empty));
+                Console.WriteLine(EnvCommandKernels.GetTextLine(9, projectName));
+                Console.WriteLine(EnvCommandKernels.GetTextLine(10, targetFramework ?? string.Empty));
+                Console.WriteLine(EnvCommandKernels.GetTextLine(11, outputType ?? string.Empty));
+                Console.WriteLine(EnvCommandKernels.GetTextLine(12, sdk ?? string.Empty));
             }
         }
 
