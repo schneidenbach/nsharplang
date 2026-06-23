@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Text;
 
 namespace NSharpLang.Cli;
@@ -15,8 +14,6 @@ internal static class UnifiedDiff
     }
 
     internal readonly record struct DiffLine(DiffKind Kind, string Text, int OldLine, int NewLine);
-    private readonly record struct Hunk(IReadOnlyList<DiffLine> Lines, int OldStart, int OldCount, int NewStart, int NewCount);
-
     internal sealed class HunkRanges
     {
         internal static readonly HunkRanges Empty = new();
@@ -41,16 +38,10 @@ internal static class UnifiedDiff
         sb.AppendLine(UnifiedDiffTextKernels.GetBeforeHeaderText(beforeLabel));
         sb.AppendLine(UnifiedDiffTextKernels.GetAfterHeaderText(afterLabel));
 
-        if (UnifiedDiffHunkRangeBuilder.TryBuild(diffLines, contextLines, out var ranges))
-        {
-            AppendHunks(sb, diffLines, ranges);
-            return sb.ToString();
-        }
+        if (!UnifiedDiffHunkRangeBuilder.TryBuild(diffLines, contextLines, out var ranges))
+            throw new InvalidOperationException("N# unified diff hunk range kernel rejected the diff lines.");
 
-        foreach (var hunk in BuildHunks(diffLines, contextLines))
-        {
-            AppendHunk(sb, hunk);
-        }
+        AppendHunks(sb, diffLines, ranges);
 
         return sb.ToString();
     }
@@ -110,57 +101,6 @@ internal static class UnifiedDiff
         return result;
     }
 
-    private static List<Hunk> BuildHunks(IReadOnlyList<DiffLine> lines, int contextLines)
-    {
-        var changedIndices = lines
-            .Select((line, index) => (line, index))
-            .Where(item => item.line.Kind != DiffKind.Equal)
-            .Select(item => item.index)
-            .ToArray();
-
-        if (changedIndices.Length == 0)
-            return new List<Hunk>();
-
-        var ranges = new List<(int Start, int End)>();
-        var rangeStart = Math.Max(0, changedIndices[0] - contextLines);
-        var rangeEnd = Math.Min(lines.Count - 1, changedIndices[0] + contextLines);
-
-        foreach (var changedIndex in changedIndices.Skip(1))
-        {
-            var nextStart = Math.Max(0, changedIndex - contextLines);
-            var nextEnd = Math.Min(lines.Count - 1, changedIndex + contextLines);
-
-            if (nextStart <= rangeEnd + 1)
-            {
-                rangeEnd = Math.Max(rangeEnd, nextEnd);
-                continue;
-            }
-
-            ranges.Add((rangeStart, rangeEnd));
-            rangeStart = nextStart;
-            rangeEnd = nextEnd;
-        }
-
-        ranges.Add((rangeStart, rangeEnd));
-
-        return ranges
-            .Select(range =>
-            {
-                var slice = lines.Skip(range.Start).Take(range.End - range.Start + 1).ToArray();
-                var oldStart = slice.FirstOrDefault(line => line.OldLine > 0).OldLine;
-                var newStart = slice.FirstOrDefault(line => line.NewLine > 0).NewLine;
-                if (oldStart == 0)
-                    oldStart = 1;
-                if (newStart == 0)
-                    newStart = 1;
-
-                var oldCount = slice.Count(line => line.Kind != DiffKind.Added);
-                var newCount = slice.Count(line => line.Kind != DiffKind.Removed);
-                return new Hunk(slice, oldStart, oldCount, newStart, newCount);
-            })
-            .ToList();
-    }
-
     private static void AppendHunks(
         StringBuilder sb,
         IReadOnlyList<DiffLine> lines,
@@ -180,19 +120,6 @@ internal static class UnifiedDiff
             {
                 AppendLine(sb, lines[lineIndex]);
             }
-        }
-    }
-
-    private static void AppendHunk(StringBuilder sb, Hunk hunk)
-    {
-        sb.AppendLine(UnifiedDiffTextKernels.GetHunkHeaderText(
-            hunk.OldStart,
-            hunk.OldCount,
-            hunk.NewStart,
-            hunk.NewCount));
-        foreach (var line in hunk.Lines)
-        {
-            AppendLine(sb, line);
         }
     }
 
