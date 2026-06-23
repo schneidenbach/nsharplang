@@ -258,21 +258,14 @@ internal static class QueryCommandKernels
         };
     }
 
-    internal static bool TryParseSymbolKind(string value, out SymbolKind kind)
+    internal static SymbolKind? ParseSymbolKind(string value)
     {
         var resultArray = t_symbolKindResult ??= new int[1];
-        var code = RequiredBindings.TryParseSymbolKind(value, resultArray);
+        var code = RequiredBindings.ParseSymbolKind(value, resultArray);
         if (code is not 0 and not 1)
             throw new InvalidOperationException("N# query symbol-kind parser kernel rejected the value.");
 
-        if (code == 1)
-        {
-            kind = (SymbolKind)resultArray[0];
-            return true;
-        }
-
-        kind = default;
-        return false;
+        return code == 1 ? (SymbolKind)resultArray[0] : null;
     }
 
     internal static string GetHelpText(string commandLines)
@@ -577,7 +570,7 @@ internal static class QueryCommandKernels
         CliQueryJsonOnlyOutputMode QueryJsonOnlyOutputMode,
         CliQueryTextJsonOutputMode QueryTextJsonOutputMode,
         CliQueryShouldUseDaemon QueryShouldUseDaemon,
-        CliQuerySymbolKindInto TryParseSymbolKind,
+        CliQuerySymbolKindInto ParseSymbolKind,
         CliQueryHelpText QueryHelpText,
         CliQueryDescriptionWithAliases QueryDescriptionWithAliases,
         CliQueryUnknownSubcommandMessage QueryUnknownSubcommandMessage,

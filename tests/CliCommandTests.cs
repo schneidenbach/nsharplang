@@ -2208,9 +2208,9 @@ func Main() {
 
         foreach (var (input, expectedParsed, expectedKind) in cases)
         {
-            var parsed = QueryCommandKernels.TryParseSymbolKind(input, out var kind);
-            Assert.Equal(expectedParsed, parsed);
-            Assert.Equal(expectedKind, kind);
+            var kind = QueryCommandKernels.ParseSymbolKind(input);
+            Assert.Equal(expectedParsed, kind.HasValue);
+            Assert.Equal(expectedKind, kind.GetValueOrDefault());
         }
     }
 

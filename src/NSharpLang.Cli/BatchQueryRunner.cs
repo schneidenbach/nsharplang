@@ -216,11 +216,8 @@ internal static class BatchQueryRunner
         CodeIntelligenceService service)
     {
         SymbolKind? kindFilter = null;
-        if (!string.IsNullOrWhiteSpace(request.Kind) &&
-            QueryCommandKernels.TryParseSymbolKind(request.Kind, out var parsedKind))
-        {
-            kindFilter = parsedKind;
-        }
+        if (!string.IsNullOrWhiteSpace(request.Kind))
+            kindFilter = QueryCommandKernels.ParseSymbolKind(request.Kind);
 
         var snapshot = getSnapshot();
         var results = service.GetSymbols(snapshot, request.File, kindFilter);

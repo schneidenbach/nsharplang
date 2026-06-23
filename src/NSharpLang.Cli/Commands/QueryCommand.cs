@@ -67,10 +67,8 @@ public static class QueryCommand
         var commandSummary = GetCommandOptionSummary(args);
         SymbolKind? kindFilter = null;
         var kindArg = summary.Kind;
-        if (kindArg != null && QueryCommandKernels.TryParseSymbolKind(kindArg, out var parsed))
-        {
-            kindFilter = parsed;
-        }
+        if (kindArg != null)
+            kindFilter = QueryCommandKernels.ParseSymbolKind(kindArg);
 
         var fileFilter = summary.File ?? options.File;
         var filterPattern = commandSummary.Filter;
