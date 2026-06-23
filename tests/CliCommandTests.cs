@@ -3051,21 +3051,17 @@ func Main() {
             "il"
         };
 
-        Assert.True(WatchCommandKernels.TryGetForwardedArgs(args, out var forwardedArgs));
+        var forwardedArgs = WatchCommandKernels.GetForwardedArgs(args);
         Assert.Equal(new[] { "--filter", "AddPerson", "--json", "--coverage", "--backend", "il" }, forwardedArgs);
     }
 
     [Fact]
     public void WatchCommandKernels_SummarizesTargets()
     {
-        Assert.True(WatchCommandKernels.TryGetTargetSummary(
-            new[] { "BUILD", "--max-runs", "1" },
-            out var build));
+        var build = WatchCommandKernels.GetTargetSummary(new[] { "BUILD", "--max-runs", "1" });
         Assert.Equal(WatchTargetKind.Build, build.TargetKind);
 
-        Assert.True(WatchCommandKernels.TryGetTargetSummary(
-            new[] { "serve", "--max-runs", "1" },
-            out var unknown));
+        var unknown = WatchCommandKernels.GetTargetSummary(new[] { "serve", "--max-runs", "1" });
         Assert.Equal(WatchTargetKind.Unknown, unknown.TargetKind);
         Assert.Equal("check", WatchCommandKernels.GetTargetCommandName(WatchTargetKind.Check));
         Assert.Equal("build", WatchCommandKernels.GetTargetCommandName(WatchTargetKind.Build));
@@ -3158,58 +3154,54 @@ func Main() {
     }
 
     [Fact]
-    public void WatchCommandKernels_ParsePositiveIntsLikeCSharpFallback()
+    public void WatchCommandKernels_ParsePositiveIntsWithNSharpKernel()
     {
         var cases = new[]
         {
-            "1",
-            " 25 ",
-            "+3",
-            "0",
-            "-1",
-            "2147483647",
-            "2147483648",
-            "1_000",
-            string.Empty,
-            "   "
+            ("1", 1),
+            (" 25 ", 25),
+            ("+3", 3),
+            ("0", 0),
+            ("-1", 0),
+            ("2147483647", 2147483647),
+            ("2147483648", 0),
+            ("1_000", 0),
+            (string.Empty, 0),
+            ("   ", 0)
         };
 
-        foreach (var value in cases)
+        foreach (var (value, expected) in cases)
         {
-            var expected = ParseWatchPositiveIntWithCSharpFallback(value);
-
-            Assert.True(WatchCommandKernels.TryParsePositiveInt(value, out var actual));
+            var actual = WatchCommandKernels.ParsePositiveInt(value);
             Assert.Equal(expected, actual);
         }
     }
 
     [Fact]
-    public void WatchCommandKernels_ClassifiesChangedPathsLikeCSharpFallback()
+    public void WatchCommandKernels_ClassifiesChangedPathsWithNSharpKernel()
     {
         var cases = new[]
         {
-            "Program.nl",
-            "Program.NL",
-            "src/Program.nl",
-            "src\\Program.nl",
-            "project.yml",
-            "PROJECT.YML",
-            "src/project.yml",
-            ".editorconfig",
-            "src/.editorconfig",
-            "src/project.yml.bak",
-            "src/.nl",
-            ".nl",
-            "src/Program.cs",
-            "src/nested/",
-            string.Empty
+            ("Program.nl", true),
+            ("Program.NL", true),
+            ("src/Program.nl", true),
+            ("src\\Program.nl", true),
+            ("project.yml", true),
+            ("PROJECT.YML", true),
+            ("src/project.yml", true),
+            (".editorconfig", true),
+            ("src/.editorconfig", true),
+            ("src/project.yml.bak", false),
+            ("src/.nl", true),
+            (".nl", true),
+            ("src/Program.cs", false),
+            ("src/nested/", false),
+            (string.Empty, false)
         };
 
-        foreach (var path in cases)
+        foreach (var (path, expected) in cases)
         {
-            var expected = ShouldWatchWithCSharpEquivalent(path);
-
-            Assert.True(WatchCommandKernels.TryShouldTriggerForChangedPath(path, out var dogfood));
+            var dogfood = WatchCommandKernels.ShouldTriggerForChangedPath(path);
             Assert.Equal(expected, dogfood);
             Assert.Equal(expected, WatchCommand.ShouldWatch(path));
         }
@@ -6742,22 +6734,6 @@ func Main() {
         }
 
         return defaultDepth;
-    }
-
-    private static int ParseWatchPositiveIntWithCSharpFallback(string value)
-        => int.TryParse(value, out var parsed) && parsed > 0 ? parsed : 0;
-
-    private static bool ShouldWatchWithCSharpEquivalent(string path)
-    {
-        var fileName = Path.GetFileName(path);
-        if (fileName.Equals("project.yml", StringComparison.OrdinalIgnoreCase) ||
-            fileName.Equals(".editorconfig", StringComparison.OrdinalIgnoreCase))
-        {
-            return true;
-        }
-
-        var extension = Path.GetExtension(path);
-        return extension.Equals(".nl", StringComparison.OrdinalIgnoreCase);
     }
 
     private sealed record ExportReferenceValue(string Name, string Version);

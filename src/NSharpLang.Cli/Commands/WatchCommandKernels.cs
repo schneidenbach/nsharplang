@@ -33,33 +33,18 @@ internal static class WatchCommandKernels
 
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
 
-    internal static bool TryGetTargetSummary(string[] args, out WatchTargetSummary summary)
+    internal static WatchTargetSummary GetTargetSummary(string[] args)
     {
-        summary = default;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
         var resultIndices = t_targetSummaryIndices ??= new int[1];
-        try
-        {
-            var code = bindings.TargetSummary(args, resultIndices);
-            if (code != 0)
-                return false;
+        var code = RequiredBindings.TargetSummary(args, resultIndices);
+        if (code != 0)
+            throw new InvalidOperationException("N# watch target summary kernel rejected the arguments.");
 
-            var targetKindValue = resultIndices[0];
-            if (targetKindValue < 0 || targetKindValue > 5)
-                return false;
+        var targetKindValue = resultIndices[0];
+        if (targetKindValue < 0 || targetKindValue > 5)
+            throw new InvalidOperationException("N# watch target summary kernel rejected the arguments.");
 
-            summary = new WatchTargetSummary((WatchTargetKind)targetKindValue);
-            return true;
-        }
-        catch
-        {
-            summary = default;
-            return false;
-        }
+        return new WatchTargetSummary((WatchTargetKind)targetKindValue);
     }
 
     internal static WatchOptionSummary GetOptionSummary(string[] args)
@@ -81,14 +66,8 @@ internal static class WatchCommandKernels
             resultIndices[3] != 0);
     }
 
-    internal static bool TryGetForwardedArgs(string[] args, out string[] forwardedArgs)
+    internal static string[] GetForwardedArgs(string[] args)
     {
-        forwardedArgs = Array.Empty<string>();
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
         var resultIndices = t_resultIndices;
         if (resultIndices == null || resultIndices.Length < args.Length)
         {
@@ -96,57 +75,31 @@ internal static class WatchCommandKernels
             t_resultIndices = resultIndices;
         }
 
-        try
+        var count = RequiredBindings.WatchForwardedArgIndices(args, resultIndices);
+        if (count < 0 || count > args.Length)
+            throw new InvalidOperationException("N# watch forwarded-argument kernel rejected the arguments.");
+
+        var forwardedArgs = new string[count];
+        for (var i = 0; i < count; i++)
         {
-            var count = bindings.WatchForwardedArgIndices(args, resultIndices);
-            if (count < 0 || count > args.Length)
-                return false;
+            var sourceIndex = resultIndices[i];
+            if (sourceIndex <= 0 || sourceIndex >= args.Length)
+                throw new InvalidOperationException("N# watch forwarded-argument kernel rejected the arguments.");
 
-            forwardedArgs = new string[count];
-            for (var i = 0; i < count; i++)
-            {
-                var sourceIndex = resultIndices[i];
-                if (sourceIndex <= 0 || sourceIndex >= args.Length)
-                {
-                    forwardedArgs = Array.Empty<string>();
-                    return false;
-                }
-
-                forwardedArgs[i] = args[sourceIndex];
-            }
-
-            return true;
+            forwardedArgs[i] = args[sourceIndex];
         }
-        catch
-        {
-            forwardedArgs = Array.Empty<string>();
-            return false;
-        }
+
+        return forwardedArgs;
     }
 
-    internal static bool TryParsePositiveInt(string value, out int parsed)
+    internal static int ParsePositiveInt(string value)
     {
-        parsed = 0;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
         var result = t_positiveIntResult ??= new int[1];
-        try
-        {
-            var code = bindings.PositiveInt(value, result);
-            if (code < 0)
-                return false;
+        var code = RequiredBindings.PositiveInt(value, result);
+        if (code is not 0 and not 1)
+            throw new InvalidOperationException("N# watch positive-integer kernel rejected the value.");
 
-            parsed = result[0];
-            return true;
-        }
-        catch
-        {
-            parsed = 0;
-            return false;
-        }
+        return result[0];
     }
 
     internal static string GetTargetCommandName(WatchTargetKind targetKind)
@@ -250,33 +203,16 @@ internal static class WatchCommandKernels
     private static Bindings RequiredBindings
         => s_bindings.Value ?? throw new InvalidOperationException("N# watch command kernels are unavailable.");
 
-    internal static bool TryShouldTriggerForChangedPath(string path, out bool shouldTrigger)
+    internal static bool ShouldTriggerForChangedPath(string path)
     {
-        shouldTrigger = false;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
+        var code = RequiredBindings.WatchShouldTriggerForChangedPath(path);
+        if (code == 0)
             return false;
 
-        try
-        {
-            var code = bindings.WatchShouldTriggerForChangedPath(path);
-            if (code == 0)
-                return true;
+        if (code == 1)
+            return true;
 
-            if (code == 1)
-            {
-                shouldTrigger = true;
-                return true;
-            }
-
-            return false;
-        }
-        catch
-        {
-            shouldTrigger = false;
-            return false;
-        }
+        throw new InvalidOperationException("N# watch changed-path kernel rejected the path.");
     }
 
     private static bool TryGetOptionalArg(string[] args, int index, out string? value)

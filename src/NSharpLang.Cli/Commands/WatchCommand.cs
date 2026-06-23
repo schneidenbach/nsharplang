@@ -135,38 +135,25 @@ public static class WatchCommand
         => WatchCommandKernels.GetOptionSummary(args);
 
     internal static WatchTargetSummary GetTargetSummary(string[] args)
-    {
-        if (WatchCommandKernels.TryGetTargetSummary(args, out var summary))
-            return summary;
-
-        throw new InvalidOperationException("N# watch target summary kernel rejected the arguments.");
-    }
+        => WatchCommandKernels.GetTargetSummary(args);
 
     private static string[] GetForwardedArgs(string[] args)
-        => WatchCommandKernels.TryGetForwardedArgs(args, out var forwardedArgs)
-            ? forwardedArgs
-            : throw new InvalidOperationException("N# watch forwarded-argument kernel rejected the arguments.");
+        => WatchCommandKernels.GetForwardedArgs(args);
 
     internal static bool ShouldWatch(string path)
-        => WatchCommandKernels.TryShouldTriggerForChangedPath(path, out var shouldWatch)
-            ? shouldWatch
-            : throw new InvalidOperationException("N# watch changed-path kernel rejected the path.");
+        => WatchCommandKernels.ShouldTriggerForChangedPath(path);
 
     private static int? ParsePositiveInt(string? value, int? defaultValue, string flag)
     {
         if (string.IsNullOrWhiteSpace(value))
             return defaultValue;
 
-        if (WatchCommandKernels.TryParsePositiveInt(value, out var parsedFromKernel))
-        {
-            if (parsedFromKernel > 0)
-                return parsedFromKernel;
+        var parsedFromKernel = WatchCommandKernels.ParsePositiveInt(value);
+        if (parsedFromKernel > 0)
+            return parsedFromKernel;
 
-            Error(WatchCommandKernels.GetPositiveIntExpectedMessage(flag));
-            return null;
-        }
-
-        throw new InvalidOperationException("N# watch positive-integer kernel rejected the value.");
+        Error(WatchCommandKernels.GetPositiveIntExpectedMessage(flag));
+        return null;
     }
 
     private static string GetWatchedCommandName(WatchTargetKind targetKind)
