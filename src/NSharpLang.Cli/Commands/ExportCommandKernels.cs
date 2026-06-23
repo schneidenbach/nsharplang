@@ -9,14 +9,8 @@ internal readonly record struct ExportCSharpOptionSummary(
     string? OutputOption,
     bool ShowHelp);
 
-internal enum ExportTargetKind
-{
-    Unknown = 0,
-    CSharp = 1
-}
-
 internal readonly record struct ExportTargetSummary(
-    ExportTargetKind TargetKind,
+    bool IsCSharpTarget,
     bool ShowHelp);
 
 internal static class ExportCommandKernels
@@ -41,12 +35,12 @@ internal static class ExportCommandKernels
         if (code != 0)
             throw new InvalidOperationException("N# export target parser kernel rejected the arguments.");
 
-        var targetKindValue = resultIndices[0];
-        if (targetKindValue is not 0 and not 1)
+        var targetKind = resultIndices[0];
+        if (targetKind is not 0 and not 1)
             throw new InvalidOperationException("N# export target parser kernel rejected the arguments.");
 
         return new ExportTargetSummary(
-            (ExportTargetKind)targetKindValue,
+            targetKind == 1,
             resultIndices[1] != 0);
     }
 

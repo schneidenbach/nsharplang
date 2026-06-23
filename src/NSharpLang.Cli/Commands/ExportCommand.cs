@@ -20,11 +20,9 @@ public static class ExportCommand
             return 0;
         }
 
-        return targetSummary.TargetKind switch
-        {
-            ExportTargetKind.CSharp => ExportCSharp(args.Skip(1).ToArray()),
-            _ => Error(ExportCommandKernels.GetUnknownTargetMessage(args[0]))
-        };
+        return targetSummary.IsCSharpTarget
+            ? ExportCSharp(args.Skip(1).ToArray())
+            : Error(ExportCommandKernels.GetUnknownTargetMessage(args[0]));
     }
 
     private static int ExportCSharp(string[] args)

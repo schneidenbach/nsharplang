@@ -3084,15 +3084,15 @@ func Main() {
     public void ExportCommandKernels_SummarizesTargets()
     {
         var empty = ExportCommandKernels.GetTargetSummary(Array.Empty<string>());
-        Assert.Equal(ExportTargetKind.Unknown, empty.TargetKind);
+        Assert.False(empty.IsCSharpTarget);
         Assert.True(empty.ShowHelp);
 
         var csharp = ExportCommandKernels.GetTargetSummary(new[] { "CSHARP", "--help" });
-        Assert.Equal(ExportTargetKind.CSharp, csharp.TargetKind);
+        Assert.True(csharp.IsCSharpTarget);
         Assert.False(csharp.ShowHelp);
 
         var unknown = ExportCommandKernels.GetTargetSummary(new[] { "python", "--help" });
-        Assert.Equal(ExportTargetKind.Unknown, unknown.TargetKind);
+        Assert.False(unknown.IsCSharpTarget);
         Assert.False(unknown.ShowHelp);
 
         var (helpExitCode, helpStdout, helpStderr) = CaptureConsole(() =>
