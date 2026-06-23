@@ -64,7 +64,7 @@ func Greeting(): string {
     }
 
     [Fact]
-    public void MultiFileCompiler_ExperimentalSoaFallsBackToIlWhenColumnarRouteDeclines()
+    public void MultiFileCompiler_ExperimentalSoaDoesNotFallbackToIlWhenColumnarRouteDeclines()
     {
         var tempDir = CreateTempDir();
         using var experimentalSoa = SetEnvironmentVariable("NSHARP_EXPERIMENTAL_SOA", "1");
@@ -100,12 +100,11 @@ func main() {
             var outputPath = Path.Combine(outputDir, "SoaFallbackProject.dll");
             var result = compiler.CompileToIlAssembly("SoaFallbackProject", outputPath);
 
-            Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors.Select(error => error.Message)));
-            CompilationArtifacts.WriteRuntimeConfig(config, outputPath);
-
-            var runResult = DotnetRunner.Run($"\"{outputPath}\"", workingDirectory: tempDir);
-            Assert.Equal(0, runResult.ExitCode);
-            Assert.Contains("17", runResult.Stdout);
+            Assert.False(result.Success);
+            Assert.Null(result.OutputAssemblyPath);
+            Assert.False(File.Exists(outputPath));
+            Assert.Contains(result.Errors, error =>
+                error.Message.Contains("Columnar SoA emission is required", StringComparison.Ordinal));
         }
         finally
         {

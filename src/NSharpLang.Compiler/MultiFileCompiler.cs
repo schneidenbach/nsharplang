@@ -976,6 +976,10 @@ public class MultiFileCompiler
                 {
                     AddRequiredColumnarAotEmissionError(assemblyName);
                 }
+                else if (RequiresColumnarSoaEmission())
+                {
+                    AddRequiredColumnarSoaEmissionError(assemblyName);
+                }
                 else
                 {
                     var mergedCompilationUnit = CreateMergedCompilationUnit();
@@ -1017,7 +1021,7 @@ public class MultiFileCompiler
     {
         if (_sourceFiles.Count == 0)
             return false;
-        if (SoaFeature.IsEnabled && _compilationUnits.Values.Any(unit => ContainsSoaRecordDeclaration(unit.Declarations)))
+        if (RequiresColumnarSoaEmission())
             return false;
 
         var sources = new List<string>(_sourceFiles.Count);
@@ -1037,6 +1041,9 @@ public class MultiFileCompiler
         File.WriteAllBytes(outputPath, assembly);
         return true;
     }
+
+    private bool RequiresColumnarSoaEmission()
+        => SoaFeature.IsEnabled && _compilationUnits.Values.Any(unit => ContainsSoaRecordDeclaration(unit.Declarations));
 
     private bool RequiresColumnarDogfoodEmission(string assemblyName)
     {
@@ -1089,6 +1096,20 @@ public class MultiFileCompiler
         {
             HumanExplanation = "AOT builds are not allowed to fall back to the C# ILCompiler after AOT analysis passes.",
             Suggestion = "Port the rejected source shape to the columnar backend, or build without --aot while the compiler surface converges."
+        });
+    }
+
+    private void AddRequiredColumnarSoaEmissionError(string assemblyName)
+    {
+        _allErrors.Add(new CompilerError(
+            ErrorCode.InvalidSyntax,
+            $"Columnar SoA emission is required for '{assemblyName}', but the columnar backend declined.",
+            0,
+            0,
+            ErrorSeverity.Error)
+        {
+            HumanExplanation = "Experimental SoA records are the compiler table migration path and are not allowed to fall back to the C# ILCompiler.",
+            Suggestion = "Port the rejected table shape to the columnar backend, or disable NSHARP_EXPERIMENTAL_SOA for builds that still require the old ILCompiler."
         });
     }
 
