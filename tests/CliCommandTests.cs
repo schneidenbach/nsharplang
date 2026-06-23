@@ -4083,9 +4083,7 @@ Exit codes:
             "../models/models.csproj"
         };
 
-        Assert.True(RestoreCommandKernels.TryDeduplicateProjectReferences(
-            projectReferences,
-            out var dogfoodReferences));
+        var dogfoodReferences = RestoreCommandKernels.DeduplicateProjectReferences(projectReferences);
         Assert.Equal(new[]
         {
             "../Shared/Shared.csproj",
@@ -4107,10 +4105,9 @@ Exit codes:
             new Reference { Framework = "Microsoft.AspNetCore.App" }
         };
 
-        Assert.True(RestoreCommandKernels.TryFilterReferencesByType(
+        var projectReferences = RestoreCommandKernels.FilterReferencesByType(
             references,
-            ReferenceType.Project,
-            out var projectReferences));
+            ReferenceType.Project);
         Assert.Equal(
             new[] { "../Shared/project.yml", "../Models/project.yml" },
             projectReferences.Select(reference => reference.Project).ToArray());

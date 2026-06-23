@@ -134,24 +134,10 @@ public static class RestoreCommand
         => RestoreCommandKernels.GetOptionSummary(args);
 
     internal static string[] DeduplicateProjectReferences(IReadOnlyList<string> projectReferences)
-    {
-        if (RestoreCommandKernels.TryDeduplicateProjectReferences(
-                projectReferences,
-                out var dogfoodProjectReferences))
-        {
-            return dogfoodProjectReferences;
-        }
-
-        throw new InvalidOperationException("N# restore project-reference deduplication kernel rejected the references.");
-    }
+        => RestoreCommandKernels.DeduplicateProjectReferences(projectReferences);
 
     private static List<Reference> FilterReferencesByType(
         IReadOnlyList<Reference> references,
         ReferenceType referenceType)
-    {
-        if (RestoreCommandKernels.TryFilterReferencesByType(references, referenceType, out var dogfoodReferences))
-            return dogfoodReferences;
-
-        throw new InvalidOperationException("N# restore reference filter kernel rejected the references.");
-    }
+        => RestoreCommandKernels.FilterReferencesByType(references, referenceType);
 }

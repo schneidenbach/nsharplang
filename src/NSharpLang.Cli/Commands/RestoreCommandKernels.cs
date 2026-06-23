@@ -27,16 +27,9 @@ internal static class RestoreCommandKernels
         return new RestoreOptionSummary(resultIndices[0] != 0);
     }
 
-    internal static bool TryDeduplicateProjectReferences(
-        IReadOnlyList<string> projectReferences,
-        out string[] deduplicatedReferences)
+    internal static string[] DeduplicateProjectReferences(IReadOnlyList<string> projectReferences)
     {
-        deduplicatedReferences = Array.Empty<string>();
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
+        var bindings = RequiredBindings;
         var referenceCount = projectReferences.Count;
         var scratch = t_stableDistinctScratch ??= new StableDistinctScratch();
         scratch.EnsureCapacity(referenceCount);
@@ -64,30 +57,19 @@ internal static class RestoreCommandKernels
                 scratch.ResultIndices);
 
             if (resultCount < 0 || resultCount > referenceCount || resultCount > scratch.ResultIndices.Length)
-            {
-                deduplicatedReferences = Array.Empty<string>();
-                return false;
-            }
+                throw new InvalidOperationException("N# restore project-reference deduplication kernel rejected the references.");
 
-            deduplicatedReferences = new string[resultCount];
+            var deduplicatedReferences = new string[resultCount];
             for (var i = 0; i < resultCount; i++)
             {
                 var sourceIndex = scratch.ResultIndices[i];
                 if (sourceIndex < 0 || sourceIndex >= referenceCount)
-                {
-                    deduplicatedReferences = Array.Empty<string>();
-                    return false;
-                }
+                    throw new InvalidOperationException("N# restore project-reference deduplication kernel returned an invalid source index.");
 
                 deduplicatedReferences[i] = projectReferences[sourceIndex];
             }
 
-            return true;
-        }
-        catch
-        {
-            deduplicatedReferences = Array.Empty<string>();
-            return false;
+            return deduplicatedReferences;
         }
         finally
         {
@@ -95,65 +77,49 @@ internal static class RestoreCommandKernels
         }
     }
 
-    internal static bool TryFilterReferencesByType(
+    internal static List<Reference> FilterReferencesByType(
         IReadOnlyList<Reference> references,
-        ReferenceType targetType,
-        out List<Reference> filteredReferences)
+        ReferenceType targetType)
     {
-        filteredReferences = new List<Reference>();
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
+        var bindings = RequiredBindings;
         var referenceCount = references.Count;
         var targetTypeRank = GetReferenceTypeRank(targetType);
         if (targetTypeRank <= 0)
-            return false;
+            throw new InvalidOperationException("N# restore reference filter kernel received an unsupported reference type.");
 
         var scratch = t_referenceTypeFilterScratch ??= new ReferenceTypeFilterScratch();
         scratch.EnsureCapacity(referenceCount);
 
-        try
+        for (var i = 0; i < referenceCount; i++)
+            scratch.TypeRanks[i] = GetReferenceTypeRank(references[i].Type);
+
+        var filteredCount = bindings.ReferenceTypeFilterIndices(
+            scratch.TypeRanks,
+            targetTypeRank,
+            scratch.ResultIndices);
+
+        if (filteredCount < 0 || filteredCount > referenceCount || filteredCount > scratch.ResultIndices.Length)
+            throw new InvalidOperationException("N# restore reference filter kernel rejected the references.");
+
+        var filteredReferences = new List<Reference>(filteredCount);
+        for (var i = 0; i < filteredCount; i++)
         {
-            for (var i = 0; i < referenceCount; i++)
-                scratch.TypeRanks[i] = GetReferenceTypeRank(references[i].Type);
-
-            var filteredCount = bindings.ReferenceTypeFilterIndices(
-                scratch.TypeRanks,
-                targetTypeRank,
-                scratch.ResultIndices);
-
-            if (filteredCount < 0 || filteredCount > referenceCount || filteredCount > scratch.ResultIndices.Length)
-                return false;
-
-            filteredReferences = new List<Reference>(filteredCount);
-            for (var i = 0; i < filteredCount; i++)
+            var sourceIndex = scratch.ResultIndices[i];
+            if (sourceIndex < 0 || sourceIndex >= referenceCount)
             {
-                var sourceIndex = scratch.ResultIndices[i];
-                if (sourceIndex < 0 || sourceIndex >= referenceCount)
-                {
-                    filteredReferences = new List<Reference>();
-                    return false;
-                }
-
-                var reference = references[sourceIndex];
-                if (reference.Type != targetType)
-                {
-                    filteredReferences = new List<Reference>();
-                    return false;
-                }
-
-                filteredReferences.Add(reference);
+                throw new InvalidOperationException("N# restore reference filter kernel returned an invalid source index.");
             }
 
-            return true;
+            var reference = references[sourceIndex];
+            if (reference.Type != targetType)
+            {
+                throw new InvalidOperationException("N# restore reference filter kernel returned a mismatched reference.");
+            }
+
+            filteredReferences.Add(reference);
         }
-        catch
-        {
-            filteredReferences = new List<Reference>();
-            return false;
-        }
+
+        return filteredReferences;
     }
 
     internal static string GetHelpText()
