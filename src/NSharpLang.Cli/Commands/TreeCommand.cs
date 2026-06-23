@@ -220,12 +220,7 @@ public static class TreeCommand
         if (TreeDependencyDeduplicator.TryDeduplicate(dependencyArray, out var orderedDependencies))
             return orderedDependencies;
 
-        return dependencyArray
-            .GroupBy(dependency => (dependency.Kind, dependency.Name), dependency => dependency, new TreeDependencyKeyComparer())
-            .Select(group => group.First())
-            .OrderBy(dependency => dependency.Kind, StringComparer.Ordinal)
-            .ThenBy(dependency => dependency.Name, StringComparer.OrdinalIgnoreCase)
-            .ToArray();
+        throw new InvalidOperationException("N# tree dependency deduplication kernel rejected the dependencies.");
     }
 
     internal static string FormatTargetFrameworks(IReadOnlyList<string> targetFrameworks)
@@ -237,7 +232,7 @@ public static class TreeCommand
                 targetFrameworks,
                 out var dogfoodFrameworks)
             ? dogfoodFrameworks
-            : targetFrameworks.Distinct(StringComparer.OrdinalIgnoreCase);
+            : throw new InvalidOperationException("N# tree target-framework deduplication kernel rejected the frameworks.");
 
         return string.Join(",", distinctFrameworks);
     }
@@ -375,19 +370,4 @@ public static class TreeCommand
 
     private sealed record TreeSummary(int Direct, int Transitive, int Total);
 
-    private sealed class TreeDependencyKeyComparer : IEqualityComparer<(string Kind, string Name)>
-    {
-        public bool Equals((string Kind, string Name) x, (string Kind, string Name) y)
-        {
-            return string.Equals(x.Kind, y.Kind, StringComparison.Ordinal)
-                && string.Equals(x.Name, y.Name, StringComparison.OrdinalIgnoreCase);
-        }
-
-        public int GetHashCode((string Kind, string Name) obj)
-        {
-            return HashCode.Combine(
-                StringComparer.Ordinal.GetHashCode(obj.Kind),
-                StringComparer.OrdinalIgnoreCase.GetHashCode(obj.Name));
-        }
-    }
 }
