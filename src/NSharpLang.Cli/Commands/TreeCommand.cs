@@ -303,12 +303,7 @@ public static class TreeCommand
     }
 
     internal static TreeOutputModeKind GetOutputMode(bool json)
-    {
-        if (TreeCommandKernels.TryGetOutputMode(json, out var outputMode))
-            return outputMode;
-
-        throw new InvalidOperationException("N# tree output-mode kernel rejected the options.");
-    }
+        => TreeCommandKernels.GetOutputMode(json);
 
     private static string GetProjectRoot(TreeOptionSummary options)
         => Path.GetFullPath(options.ProjectOption ?? Directory.GetCurrentDirectory());

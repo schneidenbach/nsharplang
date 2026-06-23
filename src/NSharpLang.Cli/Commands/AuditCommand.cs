@@ -163,12 +163,7 @@ public static class AuditCommand
     }
 
     internal static AuditOutputModeKind GetOutputMode(bool json)
-    {
-        if (AuditCommandKernels.TryGetOutputMode(json, out var outputMode))
-            return outputMode;
-
-        throw new InvalidOperationException("N# audit output mode kernel rejected the value.");
-    }
+        => AuditCommandKernels.GetOutputMode(json);
 
     private static string GetProjectRoot(AuditOptionSummary options)
         => Path.GetFullPath(options.ProjectOption ?? Directory.GetCurrentDirectory());

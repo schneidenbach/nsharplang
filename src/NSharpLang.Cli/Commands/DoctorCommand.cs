@@ -200,12 +200,7 @@ public static class DoctorCommand
     }
 
     internal static DoctorOutputModeKind GetOutputMode(bool json)
-    {
-        if (DoctorCommandKernels.TryGetOutputMode(json, out var outputMode))
-            return outputMode;
-
-        throw new InvalidOperationException("N# doctor output-mode kernel rejected the options.");
-    }
+        => DoctorCommandKernels.GetOutputMode(json);
 
     private static int ShowHelp()
     {

@@ -85,28 +85,13 @@ internal static class TreeCommandKernels
         }
     }
 
-    internal static bool TryGetOutputMode(bool json, out TreeOutputModeKind outputMode)
+    internal static TreeOutputModeKind GetOutputMode(bool json)
     {
-        outputMode = default;
+        var code = RequiredBindings.OutputMode(json ? 1 : 0);
+        if (code is < 1 or > 2)
+            throw new InvalidOperationException("N# tree output-mode kernel rejected the options.");
 
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        try
-        {
-            var code = bindings.OutputMode(json ? 1 : 0);
-            if (code is < 1 or > 2)
-                return false;
-
-            outputMode = (TreeOutputModeKind)code;
-            return true;
-        }
-        catch
-        {
-            outputMode = default;
-            return false;
-        }
+        return (TreeOutputModeKind)code;
     }
 
     internal static string GetHelpText()

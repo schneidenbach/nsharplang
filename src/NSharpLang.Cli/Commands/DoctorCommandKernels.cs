@@ -50,28 +50,13 @@ internal static class DoctorCommandKernels
         }
     }
 
-    internal static bool TryGetOutputMode(bool json, out DoctorOutputModeKind outputMode)
+    internal static DoctorOutputModeKind GetOutputMode(bool json)
     {
-        outputMode = default;
+        var code = RequiredBindings.OutputMode(json ? 1 : 0);
+        if (code is < 1 or > 2)
+            throw new InvalidOperationException("N# doctor output-mode kernel rejected the options.");
 
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        try
-        {
-            var code = bindings.OutputMode(json ? 1 : 0);
-            if (code is < 1 or > 2)
-                return false;
-
-            outputMode = (DoctorOutputModeKind)code;
-            return true;
-        }
-        catch
-        {
-            outputMode = default;
-            return false;
-        }
+        return (DoctorOutputModeKind)code;
     }
 
     internal static string GetHelpText()

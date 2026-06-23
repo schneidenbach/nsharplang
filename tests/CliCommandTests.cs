@@ -311,11 +311,11 @@ func Main() {
 
         Assert.True(TreeCommand.GetOptionSummary(new[] { "help" }).ShowHelp);
 
-        Assert.True(TreeCommandKernels.TryGetOutputMode(json: false, out var textMode));
+        var textMode = TreeCommandKernels.GetOutputMode(json: false);
         Assert.Equal(TreeOutputModeKind.Text, textMode);
         Assert.Equal(TreeOutputModeKind.Text, TreeCommand.GetOutputMode(json: false));
 
-        Assert.True(TreeCommandKernels.TryGetOutputMode(json: true, out var jsonMode));
+        var jsonMode = TreeCommandKernels.GetOutputMode(json: true);
         Assert.Equal(TreeOutputModeKind.Json, jsonMode);
         Assert.Equal(TreeOutputModeKind.Json, TreeCommand.GetOutputMode(json: true));
 
@@ -687,11 +687,11 @@ func Main() {
         Assert.True(EnvCommand.GetOptionSummary(new[] { "ignored", "-h" }).ShowHelp);
         Assert.True(EnvCommand.GetOptionSummary(new[] { "--json" }).Json);
 
-        Assert.True(EnvCommandKernels.TryGetOutputMode(json: false, out var textMode));
+        var textMode = EnvCommandKernels.GetOutputMode(json: false);
         Assert.Equal(EnvOutputModeKind.Text, textMode);
         Assert.Equal(EnvOutputModeKind.Text, EnvCommand.GetOutputMode(json: false));
 
-        Assert.True(EnvCommandKernels.TryGetOutputMode(json: true, out var jsonMode));
+        var jsonMode = EnvCommandKernels.GetOutputMode(json: true);
         Assert.Equal(EnvOutputModeKind.Json, jsonMode);
         Assert.Equal(EnvOutputModeKind.Json, EnvCommand.GetOutputMode(json: true));
 
@@ -771,11 +771,11 @@ func Main() {
         Assert.True(DoctorCommand.GetOptionSummary(new[] { "ignored", "-h" }).ShowHelp);
         Assert.True(DoctorCommand.GetOptionSummary(new[] { "--json" }).Json);
 
-        Assert.True(DoctorCommandKernels.TryGetOutputMode(json: false, out var textMode));
+        var textMode = DoctorCommandKernels.GetOutputMode(json: false);
         Assert.Equal(DoctorOutputModeKind.Text, textMode);
         Assert.Equal(DoctorOutputModeKind.Text, DoctorCommand.GetOutputMode(json: false));
 
-        Assert.True(DoctorCommandKernels.TryGetOutputMode(json: true, out var jsonMode));
+        var jsonMode = DoctorCommandKernels.GetOutputMode(json: true);
         Assert.Equal(DoctorOutputModeKind.Json, jsonMode);
         Assert.Equal(DoctorOutputModeKind.Json, DoctorCommand.GetOutputMode(json: true));
 
@@ -845,11 +845,11 @@ func Main() {
         Assert.True(AuditCommand.GetOptionSummary(new[] { "help" }).ShowHelp);
         Assert.True(AuditCommand.GetOptionSummary(new[] { "ignored", "-h" }).ShowHelp);
 
-        Assert.True(AuditCommandKernels.TryGetOutputMode(json: false, out var textMode));
+        var textMode = AuditCommandKernels.GetOutputMode(json: false);
         Assert.Equal(AuditOutputModeKind.Text, textMode);
         Assert.Equal(AuditOutputModeKind.Text, AuditCommand.GetOutputMode(json: false));
 
-        Assert.True(AuditCommandKernels.TryGetOutputMode(json: true, out var jsonMode));
+        var jsonMode = AuditCommandKernels.GetOutputMode(json: true);
         Assert.Equal(AuditOutputModeKind.Json, jsonMode);
         Assert.Equal(AuditOutputModeKind.Json, AuditCommand.GetOutputMode(json: true));
 
@@ -5269,11 +5269,11 @@ dependencies:
         Assert.True(DocCommand.GetOptionSummary(new[] { "help" }).ShowHelp);
         Assert.True(DocCommand.GetOptionSummary(new[] { "ignored", "-h" }).ShowHelp);
 
-        Assert.True(DocCommandKernels.TryGetOutputMode(json: false, out var textMode));
+        var textMode = DocCommandKernels.GetOutputMode(json: false);
         Assert.Equal(DocOutputModeKind.Text, textMode);
         Assert.Equal(DocOutputModeKind.Text, DocCommand.GetOutputMode(json: false));
 
-        Assert.True(DocCommandKernels.TryGetOutputMode(json: true, out var jsonMode));
+        var jsonMode = DocCommandKernels.GetOutputMode(json: true);
         Assert.Equal(DocOutputModeKind.Json, jsonMode);
         Assert.Equal(DocOutputModeKind.Json, DocCommand.GetOutputMode(json: true));
 

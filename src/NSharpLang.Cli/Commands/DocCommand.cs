@@ -116,12 +116,7 @@ public static class DocCommand
     }
 
     internal static DocOutputModeKind GetOutputMode(bool json)
-    {
-        if (DocCommandKernels.TryGetOutputMode(json, out var outputMode))
-            return outputMode;
-
-        throw new InvalidOperationException("N# doc output-mode kernel rejected the options.");
-    }
+        => DocCommandKernels.GetOutputMode(json);
 
     private static bool TryOpen(string path, out string? error)
     {

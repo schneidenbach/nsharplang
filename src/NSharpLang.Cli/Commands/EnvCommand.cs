@@ -124,12 +124,7 @@ public static class EnvCommand
     }
 
     internal static EnvOutputModeKind GetOutputMode(bool json)
-    {
-        if (EnvCommandKernels.TryGetOutputMode(json, out var outputMode))
-            return outputMode;
-
-        throw new InvalidOperationException("N# env output-mode kernel rejected the options.");
-    }
+        => EnvCommandKernels.GetOutputMode(json);
 
     static int ShowHelp()
     {

@@ -64,28 +64,13 @@ internal static class DocCommandKernels
         }
     }
 
-    internal static bool TryGetOutputMode(bool json, out DocOutputModeKind outputMode)
+    internal static DocOutputModeKind GetOutputMode(bool json)
     {
-        outputMode = default;
+        var code = RequiredBindings.OutputMode(json ? 1 : 0);
+        if (code is < 1 or > 2)
+            throw new InvalidOperationException("N# doc output-mode kernel rejected the options.");
 
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        try
-        {
-            var code = bindings.OutputMode(json ? 1 : 0);
-            if (code is < 1 or > 2)
-                return false;
-
-            outputMode = (DocOutputModeKind)code;
-            return true;
-        }
-        catch
-        {
-            outputMode = default;
-            return false;
-        }
+        return (DocOutputModeKind)code;
     }
 
     internal static bool TryOrderSymbolsForGeneration(

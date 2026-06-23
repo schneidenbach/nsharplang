@@ -62,28 +62,13 @@ internal static class EnvCommandKernels
         }
     }
 
-    internal static bool TryGetOutputMode(bool json, out EnvOutputModeKind outputMode)
+    internal static EnvOutputModeKind GetOutputMode(bool json)
     {
-        outputMode = default;
+        var code = RequiredBindings.OutputMode(json ? 1 : 0);
+        if (code is < 1 or > 2)
+            throw new InvalidOperationException("N# env output-mode kernel rejected the options.");
 
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        try
-        {
-            var code = bindings.OutputMode(json ? 1 : 0);
-            if (code is < 1 or > 2)
-                return false;
-
-            outputMode = (EnvOutputModeKind)code;
-            return true;
-        }
-        catch
-        {
-            outputMode = default;
-            return false;
-        }
+        return (EnvOutputModeKind)code;
     }
 
     internal static string GetHelpText()
