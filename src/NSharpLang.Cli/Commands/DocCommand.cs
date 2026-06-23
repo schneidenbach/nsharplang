@@ -165,7 +165,14 @@ internal static class ProjectDocGenerator
         Directory.CreateDirectory(symbolDir);
 
         var pages = new List<DocPage>();
-        var slugs = CreateSlugs(orderedSymbols);
+        var rawSlugs = new string[orderedSymbols.Count];
+        for (var i = 0; i < orderedSymbols.Count; i++)
+        {
+            var symbol = orderedSymbols[i];
+            rawSlugs[i] = $"{symbol.Kind}-{symbol.Name}-{Path.GetFileNameWithoutExtension(symbol.File)}";
+        }
+
+        var slugs = DocCommandKernels.CreateSlugs(rawSlugs);
 
         for (var i = 0; i < orderedSymbols.Count; i++)
         {
@@ -226,7 +233,10 @@ internal static class ProjectDocGenerator
 
     private static string RenderSymbolPage(SymbolResult symbol, string projectRoot)
     {
-        var members = OrderMembersForGeneration(symbol.Members)
+        var orderedMembers = symbol.Members is { Length: > 0 }
+            ? DocCommandKernels.OrderMembersForGeneration(symbol.Members)
+            : Enumerable.Empty<SymbolResult>();
+        var members = orderedMembers
             .Select(member => $"<li><code>{WebUtility.HtmlEncode(FormatSignature(member))}</code></li>")
             .ToArray();
 
@@ -258,14 +268,6 @@ internal static class ProjectDocGenerator
 </header>
 {membersSection}
 """);
-    }
-
-    private static List<SymbolResult> OrderMembersForGeneration(SymbolResult[]? members)
-    {
-        if (members == null || members.Length == 0)
-            return new List<SymbolResult>();
-
-        return DocCommandKernels.OrderMembersForGeneration(members);
     }
 
     private static string WrapHtml(string title, string body) => $$$"""
@@ -369,18 +371,6 @@ internal static class ProjectDocGenerator
             parameter.Type,
             parameter.HasDefault,
             parameter.DefaultValue ?? string.Empty);
-
-    private static string[] CreateSlugs(IReadOnlyList<SymbolResult> symbols)
-    {
-        var rawSlugs = new string[symbols.Count];
-        for (var i = 0; i < symbols.Count; i++)
-            rawSlugs[i] = CreateRawSlug(symbols[i]);
-
-        return DocCommandKernels.CreateSlugs(rawSlugs);
-    }
-
-    private static string CreateRawSlug(SymbolResult symbol)
-        => $"{symbol.Kind}-{symbol.Name}-{Path.GetFileNameWithoutExtension(symbol.File)}";
 
     private static string NormalizePath(string path) => path.Replace('\\', '/');
 }
