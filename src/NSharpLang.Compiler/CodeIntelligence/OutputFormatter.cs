@@ -1033,37 +1033,10 @@ public static class OutputFormatter
     private static List<DiagnosticCluster> BuildDiagnosticClusters(List<DiagnosticResult> results)
     {
         var classified = BuildClassifiedDiagnostics(results);
-        if (TryBuildDiagnosticClustersFromDogfoodGroups(classified, out var clusters))
-            return clusters;
+        if (!TryBuildDiagnosticClustersFromDogfoodGroups(classified, out var clusters))
+            throw new InvalidOperationException("N# diagnostic cluster grouping kernel rejected the diagnostics.");
 
-        return classified.Items
-            .GroupBy(item => new
-            {
-                item.Diagnostic.Severity,
-                item.Diagnostic.Code,
-                item.Traits.Category,
-                item.Traits.SourceConstruct,
-                item.Traits.Recipe,
-                item.Traits.Risk,
-                item.Traits.MessagePattern
-            })
-            .Select(group =>
-            {
-                var ordered = group
-                    .Select(item => item.Diagnostic)
-                    .OrderBy(d => d.Line)
-                    .ThenBy(d => d.Column)
-                    .ThenBy(d => d.File, StringComparer.OrdinalIgnoreCase)
-                    .ToList();
-                var traits = group.First().Traits;
-
-                return CreateDiagnosticCluster(ordered, traits);
-            })
-            .OrderByDescending(cluster => cluster.Count)
-            .ThenBy(cluster => cluster.RootLocation.File, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(cluster => cluster.RootLocation.Line)
-            .ThenBy(cluster => cluster.RootLocation.Column)
-            .ToList();
+        return clusters;
     }
 
     private static bool TryBuildDiagnosticClustersFromDogfoodGroups(
@@ -1131,15 +1104,8 @@ public static class OutputFormatter
         DiagnosticClusterTraits traits)
     {
         var root = ordered[0];
-        var files = OutputFormatterReferenceFileKernels.TryBuildDiagnosticClusterFiles(
-            ordered,
-            out var dogfoodFiles)
-                ? dogfoodFiles
-                : ordered
-                    .Select(d => d.File)
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .OrderBy(file => file, StringComparer.OrdinalIgnoreCase)
-                    .ToArray();
+        if (!OutputFormatterReferenceFileKernels.TryBuildDiagnosticClusterFiles(ordered, out var files))
+            throw new InvalidOperationException("N# diagnostic cluster file kernel rejected the diagnostics.");
 
         return new DiagnosticCluster(
             Id: CreateClusterId(root.Code, root.Severity, traits.Category, traits.SourceConstruct, traits.Recipe, traits.MessagePattern),
@@ -1170,56 +1136,35 @@ public static class OutputFormatter
                 string.IsNullOrWhiteSpace(d.Suggestion) ? null : d.Suggestion.Trim())).ToArray());
     }
 
-    private static int CompareDiagnosticClusterRoots(DiagnosticResult left, DiagnosticResult right)
-    {
-        var line = left.Line.CompareTo(right.Line);
-        if (line != 0)
-            return line;
-
-        var column = left.Column.CompareTo(right.Column);
-        if (column != 0)
-            return column;
-
-        return StringComparer.OrdinalIgnoreCase.Compare(left.File, right.File);
-    }
-
     private static ClassifiedDiagnosticSet BuildClassifiedDiagnostics(List<DiagnosticResult> results)
     {
         var classified = new List<ClassifiedDiagnostic>(results.Count);
         var diagnostics = new DiagnosticResult[results.Count];
-        if (OutputFormatterDiagnosticClusterKernels.TryClassifyDiagnosticClusterTraits(
-                results,
-                out var categories,
-                out var sourceConstructs))
+        if (!OutputFormatterDiagnosticClusterKernels.TryClassifyDiagnosticClusterTraits(
+            results,
+            out var categories,
+            out var sourceConstructs))
         {
-            var messagePatterns = new string[results.Count];
-            for (var i = 0; i < results.Count; i++)
-            {
-                var diagnostic = results[i];
-                var messagePattern = NormalizeMessagePattern(diagnostic.Message ?? string.Empty);
-                var normalized = Normalize(diagnostic);
-                messagePatterns[i] = messagePattern;
-                diagnostics[i] = normalized;
-                classified.Add(new ClassifiedDiagnostic(
-                    normalized,
-                    CreateDiagnosticClusterTraits(
-                        categories[i],
-                        sourceConstructs[i],
-                        messagePattern)));
-            }
-
-            return new ClassifiedDiagnosticSet(classified, diagnostics, categories, sourceConstructs, messagePatterns);
+            throw new InvalidOperationException("N# diagnostic cluster trait kernel rejected the diagnostics.");
         }
 
+        var messagePatterns = new string[results.Count];
         for (var i = 0; i < results.Count; i++)
         {
             var diagnostic = results[i];
+            var messagePattern = NormalizeMessagePattern(diagnostic.Message ?? string.Empty);
             var normalized = Normalize(diagnostic);
+            messagePatterns[i] = messagePattern;
             diagnostics[i] = normalized;
-            classified.Add(new ClassifiedDiagnostic(normalized, ClassifyDiagnostic(diagnostic)));
+            classified.Add(new ClassifiedDiagnostic(
+                normalized,
+                CreateDiagnosticClusterTraits(
+                    categories[i],
+                    sourceConstructs[i],
+                    messagePattern)));
         }
 
-        return new ClassifiedDiagnosticSet(classified, diagnostics, null, null, null);
+        return new ClassifiedDiagnosticSet(classified, diagnostics, categories, sourceConstructs, messagePatterns);
     }
 
     private static DiagnosticClusterTraits CreateDiagnosticClusterTraits(
@@ -1358,198 +1303,6 @@ public static class OutputFormatter
             sb.AppendLine($"  ... {clusters.Count - 10} more cluster{(clusters.Count - 10 == 1 ? "" : "s")} omitted; use --json for the full AI-consumable cluster list.");
         }
         sb.AppendLine();
-    }
-
-    private static DiagnosticClusterTraits ClassifyDiagnostic(DiagnosticResult diagnostic)
-    {
-        var message = diagnostic.Message ?? string.Empty;
-        var snippet = diagnostic.SourceSnippet ?? string.Empty;
-        var code = diagnostic.Code ?? string.Empty;
-        var messageLower = message.ToLowerInvariant();
-        var snippetLower = snippet.ToLowerInvariant();
-
-        if (code == "NL102" || messageLower.Contains("expected token") || messageLower.Contains("missing"))
-        {
-            var construct = InferSourceConstruct(snippetLower);
-            var shape = messageLower.Contains(";", StringComparison.Ordinal) || messageLower.Contains("semicolon", StringComparison.Ordinal)
-                ? "syntax-missing-terminator"
-                : "syntax-missing-delimiter";
-            var recipe = shape == "syntax-missing-terminator"
-                ? "syntax:statement-boundary"
-                : "syntax:delimiter-balancing";
-            return new DiagnosticClusterTraits(
-                shape,
-                construct,
-                recipe,
-                "high",
-                NormalizeMessagePattern(message),
-                new[]
-                {
-                    "Fix the earliest statement-boundary parse error first; later syntax diagnostics are often cascades.",
-                    "Inspect the refactor or code-generation path that emitted this construct and add a delimiter/terminator regression test."
-                });
-        }
-
-        if (code == "NL703" || messageLower.Contains("circular import"))
-        {
-            return new DiagnosticClusterTraits(
-                "import-cycle",
-                "import",
-                "architecture:extract-shared-module-or-invert-dependency",
-                "high",
-                NormalizeMessagePattern(message),
-                new[]
-                {
-                    "Break the cycle at the reported import path by moving shared declarations into a third file/package or inverting one dependency.",
-                    "Rerun `nlc check` after removing the cycle; unused-import warnings in the same files may be cascades."
-                });
-        }
-
-        if (code == "NL301" || code == "NL412" || messageLower.Contains("undefined variable") || messageLower.Contains("undefined symbol"))
-        {
-            return new DiagnosticClusterTraits(
-                "identifier-resolution",
-                InferSourceConstruct(snippetLower),
-                "symbols:missing-import-or-qualification",
-                "medium",
-                NormalizeMessagePattern(message),
-                new[]
-                {
-                    "Resolve the first missing identifier by adding the import/qualification or correcting the declaration name.",
-                    "Rerun diagnostics after the root symbol is resolved; dependent member/type errors may disappear."
-                });
-        }
-
-        if (code == "NL201" || code == "NL302" || messageLower.Contains("type not found") || messageLower.Contains("undefined type") || messageLower.Contains("cannot resolve type"))
-        {
-            return new DiagnosticClusterTraits(
-                "type-resolution",
-                InferSourceConstruct(snippetLower),
-                "types:resolve-type-or-import",
-                "medium",
-                NormalizeMessagePattern(message),
-                new[]
-                {
-                    "Resolve the type/import at the earliest root location before chasing downstream uses.",
-                    "Check whether the source construct needs full qualification or a project reference."
-                });
-        }
-
-        if (code == "NL202" || messageLower.Contains("type mismatch"))
-        {
-            return new DiagnosticClusterTraits(
-                "type-mismatch",
-                InferSourceConstruct(snippetLower),
-                "refactor:signature-or-expression-shape",
-                "medium",
-                NormalizeMessagePattern(message),
-                new[]
-                {
-                    "Compare the expected and actual types at the root example and update the refactor recipe that changed the expression/signature shape.",
-                    "Prefer fixing the producer expression over adding casts to each cascaded consumer."
-                });
-        }
-
-        if (code == "NL303" || messageLower.Contains("member") || messageLower.Contains("method"))
-        {
-            return new DiagnosticClusterTraits(
-                "member-resolution",
-                InferSourceConstruct(snippetLower),
-                "members:api-rename-or-extension-import",
-                "medium",
-                NormalizeMessagePattern(message),
-                new[]
-                {
-                    "Verify the API/member name for the root receiver before fixing repeated call sites.",
-                    "Check whether an extension-method import or receiver type conversion was dropped."
-                });
-        }
-
-        return new DiagnosticClusterTraits(
-            "diagnostic-message-shape",
-            InferSourceConstruct(snippetLower),
-            "manual-triage:inspect-root-diagnostic",
-            "low",
-            NormalizeMessagePattern(message),
-            new[]
-            {
-                "Start at the root example and decide whether this is a source, refactor, or compiler diagnostic issue.",
-                "After fixing the root cause, rerun diagnostics and compare the remaining cluster counts."
-            });
-    }
-
-    private static string InferSourceConstruct(string sourceSnippetLower)
-    {
-        var snippet = sourceSnippetLower.TrimStart();
-        if (snippet.StartsWith("let ", StringComparison.Ordinal) || snippet.Contains(" := ", StringComparison.Ordinal) || snippet.Contains(":=", StringComparison.Ordinal))
-            return "variable-declaration";
-        var declarationSnippet = StripLeadingDeclarationModifiers(snippet);
-        if (declarationSnippet.StartsWith("func ", StringComparison.Ordinal) || declarationSnippet.StartsWith("func* ", StringComparison.Ordinal))
-            return "function-declaration";
-        if (snippet.StartsWith("class ", StringComparison.Ordinal))
-            return "class-declaration";
-        if (snippet.StartsWith("interface ", StringComparison.Ordinal))
-            return "interface-declaration";
-        if (snippet.StartsWith("import ", StringComparison.Ordinal) || snippet.StartsWith("using ", StringComparison.Ordinal))
-            return "import";
-        if (snippet.StartsWith("return ", StringComparison.Ordinal))
-            return "return-statement";
-        if (snippet.StartsWith("if ", StringComparison.Ordinal) || snippet.StartsWith("for ", StringComparison.Ordinal) || snippet.StartsWith("while ", StringComparison.Ordinal) || snippet.StartsWith("match ", StringComparison.Ordinal))
-            return "control-flow";
-        if (snippet.Contains("(", StringComparison.Ordinal) && snippet.Contains(")", StringComparison.Ordinal))
-            return "call-or-construction";
-        return "unknown-construct";
-    }
-
-    private static string StripLeadingDeclarationModifiers(string snippet)
-    {
-        while (true)
-        {
-            var trimmed = snippet.TrimStart();
-            if (trimmed.StartsWith("async ", StringComparison.Ordinal))
-            {
-                snippet = trimmed["async ".Length..];
-                continue;
-            }
-
-            if (trimmed.StartsWith("static ", StringComparison.Ordinal))
-            {
-                snippet = trimmed["static ".Length..];
-                continue;
-            }
-
-            if (trimmed.StartsWith("override ", StringComparison.Ordinal))
-            {
-                snippet = trimmed["override ".Length..];
-                continue;
-            }
-
-            if (trimmed.StartsWith("public ", StringComparison.Ordinal))
-            {
-                snippet = trimmed["public ".Length..];
-                continue;
-            }
-
-            if (trimmed.StartsWith("private ", StringComparison.Ordinal))
-            {
-                snippet = trimmed["private ".Length..];
-                continue;
-            }
-
-            if (trimmed.StartsWith("protected ", StringComparison.Ordinal))
-            {
-                snippet = trimmed["protected ".Length..];
-                continue;
-            }
-
-            if (trimmed.StartsWith("internal ", StringComparison.Ordinal))
-            {
-                snippet = trimmed["internal ".Length..];
-                continue;
-            }
-
-            return trimmed;
-        }
     }
 
     private static string NormalizeMessagePattern(string message)
