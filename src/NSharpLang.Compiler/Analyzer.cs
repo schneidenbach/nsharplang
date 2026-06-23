@@ -22107,6 +22107,9 @@ public class Analyzer : IDisposable
 
     private static int FindIdentifierNameColumn(string? sourceText, string name, int line, int fallbackColumn)
     {
+        if (sourceText == null)
+            return fallbackColumn;
+
         if (CodeIntelligenceSourceTextKernels.TryFindIdentifierNameColumn(
             sourceText,
             name,
@@ -22117,50 +22120,8 @@ public class Analyzer : IDisposable
             return dogfoodColumn;
         }
 
-        if (string.IsNullOrWhiteSpace(sourceText) || line <= 0)
-            return fallbackColumn;
-
-        var lines = sourceText.Split('\n');
-        if (line > lines.Length)
-            return fallbackColumn;
-
-        var lineText = lines[line - 1].TrimEnd('\r');
-        if (lineText.Length == 0)
-            return fallbackColumn;
-
-        var start = Math.Clamp(fallbackColumn - 1, 0, lineText.Length);
-        var index = FindWholeIdentifier(lineText, name, start);
-        if (index < 0)
-        {
-            index = FindWholeIdentifier(lineText, name, 0);
-        }
-
-        return index >= 0 ? index + 1 : fallbackColumn;
+        return fallbackColumn;
     }
-
-    private static int FindWholeIdentifier(string line, string name, int startIndex)
-    {
-        var searchStart = Math.Clamp(startIndex, 0, line.Length);
-        while (searchStart <= line.Length)
-        {
-            var index = line.IndexOf(name, searchStart, StringComparison.Ordinal);
-            if (index < 0)
-                return -1;
-
-            var before = index > 0 ? line[index - 1] : '\0';
-            var afterIndex = index + name.Length;
-            var after = afterIndex < line.Length ? line[afterIndex] : '\0';
-            if (!IsIdentifierCharacter(before) && !IsIdentifierCharacter(after))
-                return index;
-
-            searchStart = index + Math.Max(1, name.Length);
-        }
-
-        return -1;
-    }
-
-    private static bool IsIdentifierCharacter(char value)
-        => char.IsLetterOrDigit(value) || value == '_';
 
     private static (int Line, int Column) GetParameterDeclarationPosition(
         Parameter parameter,
