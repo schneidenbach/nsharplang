@@ -15491,10 +15491,9 @@ func main(): int {
             typeof(IEnumerable<string>),
             typeof(IDictionary<string, int>)
         };
-        Assert.True(ILTypeTableSelector.TryDeduplicateFirstTypeKeys(
+        var deduplicatedTypes = ILTypeTableSelector.DeduplicateFirstTypeKeys(
             types,
-            static type => type.FullName ?? type.Name,
-            out var deduplicatedTypes));
+            static type => type.FullName ?? type.Name);
 
         Assert.Equal(new[]
         {

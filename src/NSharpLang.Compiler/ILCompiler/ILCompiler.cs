@@ -9148,15 +9148,9 @@ public partial class ILCompiler
             }
         }
 
-        return ILTypeTableSelector.TryDeduplicateFirstTypeKeys(
+        return ILTypeTableSelector.DeduplicateFirstTypeKeys(
             expandedInterfaces,
-            GetTypeKey,
-            out var dogfoodInterfaces)
-            ? dogfoodInterfaces
-            : expandedInterfaces
-                .GroupBy(GetTypeKey, StringComparer.Ordinal)
-                .Select(group => group.First())
-                .ToList();
+            GetTypeKey);
     }
 
     private Type ResolveRequiredRuntimeType(string fullName)

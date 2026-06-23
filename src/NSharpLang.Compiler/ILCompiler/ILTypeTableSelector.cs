@@ -17,18 +17,15 @@ internal static class ILTypeTableSelector
     [ThreadStatic]
     private static TypeCreationOrderScratch? t_typeCreationOrderScratch;
 
-    internal static bool TryDeduplicateFirstTypeKeys(
+    internal static List<Type> DeduplicateFirstTypeKeys(
         IReadOnlyList<Type> types,
-        Func<Type, string> getTypeKey,
-        out List<Type> deduplicatedTypes)
+        Func<Type, string> getTypeKey)
     {
-        deduplicatedTypes = [];
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
         var typeCount = types.Count;
+        if (typeCount == 0)
+            return [];
+
+        var bindings = RequiredBindings;
         var scratch = t_firstDistinctTypeKeyScratch ??= new FirstDistinctTypeKeyScratch();
         scratch.EnsureCapacity(typeCount);
 
@@ -47,31 +44,19 @@ internal static class ILTypeTableSelector
                 scratch.ResultIndices);
 
             if (deduplicatedCount < 0 || deduplicatedCount > typeCount || deduplicatedCount > scratch.ResultIndices.Length)
-            {
-                deduplicatedTypes = [];
-                return false;
-            }
+                throw new InvalidOperationException("N# IL type table first-key deduplication kernel rejected the type table.");
 
             var result = new List<Type>(deduplicatedCount);
             for (var i = 0; i < deduplicatedCount; i++)
             {
                 var sourceIndex = scratch.ResultIndices[i];
                 if (sourceIndex < 0 || sourceIndex >= typeCount)
-                {
-                    deduplicatedTypes = [];
-                    return false;
-                }
+                    throw new InvalidOperationException("N# IL type table first-key deduplication kernel rejected the type table.");
 
                 result.Add(types[sourceIndex]);
             }
 
-            deduplicatedTypes = result;
-            return true;
-        }
-        catch
-        {
-            deduplicatedTypes = [];
-            return false;
+            return result;
         }
         finally
         {
@@ -257,6 +242,9 @@ internal static class ILTypeTableSelector
             DogfoodKernelLoader.CreateDelegate<TypeCreationOrderIndicesInto>(
                 programType,
                 "TypeCreationOrderIndicesInto")));
+
+    private static Bindings RequiredBindings
+        => s_bindings.Value ?? throw new InvalidOperationException("N# IL type table selector kernels are unavailable.");
 
     private delegate int FirstDistinctRankIndicesInto(
         int[] ranks,
