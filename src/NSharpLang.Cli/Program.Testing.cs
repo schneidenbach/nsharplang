@@ -374,21 +374,7 @@ partial class Program
             return matches;
         }
 
-        return MatchesTestFilterWithCSharp(filter, displayName, testCase.DisplayName, fullyQualifiedName);
-    }
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product nlc test filter matching routes through TestCommandKernels.
-    private static bool MatchesTestFilterWithCSharp(
-        string filter,
-        string displayName,
-        string alternateDisplayName,
-        string fullyQualifiedName)
-    {
-        return filter.Split('|', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Any(part =>
-                displayName.Contains(part, StringComparison.OrdinalIgnoreCase)
-                || alternateDisplayName.Contains(part, StringComparison.OrdinalIgnoreCase)
-                || fullyQualifiedName.Contains(part, StringComparison.OrdinalIgnoreCase));
+        throw new InvalidOperationException("N# test filter kernel rejected the filter.");
     }
 
     private static NativeTestRun RunReflectionTests(
@@ -613,7 +599,7 @@ partial class Program
             return matches;
         }
 
-        return MatchesTestFilterWithCSharp(filter, testCase.DisplayName, string.Empty, testCase.FullyQualifiedName);
+        throw new InvalidOperationException("N# test filter kernel rejected the filter.");
     }
 
     private static bool IsLifecycleMethod(MethodInfo method)
