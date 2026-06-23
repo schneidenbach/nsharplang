@@ -974,19 +974,13 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
     static bool ShouldSkipDiscoveredDirectory(string directory)
     {
         var name = Path.GetFileName(directory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
-        if (FormatCommandKernels.TryShouldSkipDiscoveredDirectoryName(name, out var shouldSkip))
-            return shouldSkip;
-
-        throw new InvalidOperationException("N# format directory pruning kernel rejected the directory name.");
+        return FormatCommandKernels.ShouldSkipDiscoveredDirectoryName(name);
     }
 
     static bool ShouldFormatDiscoveredFile(string projectRoot, string file)
     {
         var relativePath = NormalizePath(Path.GetRelativePath(projectRoot, file));
-        if (FormatCommandKernels.TryShouldFormatDiscoveredPath(relativePath, out var shouldFormat))
-            return shouldFormat;
-
-        throw new InvalidOperationException("N# format discovery path kernel rejected the path.");
+        return FormatCommandKernels.ShouldFormatDiscoveredPath(relativePath);
     }
 
     /// <summary>

@@ -4443,7 +4443,7 @@ Exit codes:
     [InlineData("src/Contest.nl", true)]
     public void FormatCommandKernels_SelectsDiscoveredPaths(string relativePath, bool expected)
     {
-        Assert.True(FormatCommandKernels.TryShouldFormatDiscoveredPath(relativePath, out var shouldFormat));
+        var shouldFormat = FormatCommandKernels.ShouldFormatDiscoveredPath(relativePath);
         Assert.Equal(expected, shouldFormat);
     }
 
@@ -4458,7 +4458,7 @@ Exit codes:
     [InlineData("src", false)]
     public void FormatCommandKernels_SelectsDiscoveredDirectorySkips(string directoryName, bool expected)
     {
-        Assert.True(FormatCommandKernels.TryShouldSkipDiscoveredDirectoryName(directoryName, out var shouldSkip));
+        var shouldSkip = FormatCommandKernels.ShouldSkipDiscoveredDirectoryName(directoryName);
         Assert.Equal(expected, shouldSkip);
     }
 

@@ -77,52 +77,22 @@ internal static class FormatCommandKernels
     internal static string GetParseErrorsMessage(string relativePath, string messages)
         => RequiredBindings.ParseErrorsMessage(relativePath, messages);
 
-    internal static bool TryShouldFormatDiscoveredPath(string relativePath, out bool shouldFormat)
+    internal static bool ShouldFormatDiscoveredPath(string relativePath)
     {
-        shouldFormat = false;
+        var result = RequiredBindings.ShouldFormatDiscoveredPath(relativePath);
+        if (result is not 0 and not 1)
+            throw new InvalidOperationException("N# format discovery path kernel rejected the path.");
 
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        try
-        {
-            var result = bindings.ShouldFormatDiscoveredPath(relativePath);
-            if (result is not 0 and not 1)
-                return false;
-
-            shouldFormat = result == 1;
-            return true;
-        }
-        catch
-        {
-            shouldFormat = false;
-            return false;
-        }
+        return result == 1;
     }
 
-    internal static bool TryShouldSkipDiscoveredDirectoryName(string directoryName, out bool shouldSkip)
+    internal static bool ShouldSkipDiscoveredDirectoryName(string directoryName)
     {
-        shouldSkip = false;
+        var result = RequiredBindings.ShouldSkipDiscoveredDirectoryName(directoryName);
+        if (result is not 0 and not 1)
+            throw new InvalidOperationException("N# format directory pruning kernel rejected the directory name.");
 
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        try
-        {
-            var result = bindings.ShouldSkipDiscoveredDirectoryName(directoryName);
-            if (result is not 0 and not 1)
-                return false;
-
-            shouldSkip = result == 1;
-            return true;
-        }
-        catch
-        {
-            shouldSkip = false;
-            return false;
-        }
+        return result == 1;
     }
 
     private static Bindings? LoadBindings()
