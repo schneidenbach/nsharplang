@@ -22050,7 +22050,7 @@ func main() {
             DaemonServerKernels.GetSemanticReferencesUnavailableMessage(),
             (string)(cliDaemonSemanticReferencesUnavailableMessage.Invoke(null, Array.Empty<object>()) ?? string.Empty));
         Assert.Equal(
-            DaemonServerKernels.GetListeningMessage("/tmp/daemon.sock", "1234"),
+            DaemonServerKernels.GetListeningMessage("/tmp/daemon.sock", 1234),
             (string)(cliDaemonListeningMessage.Invoke(null, new object[] { "/tmp/daemon.sock", "1234" }) ?? string.Empty));
         Assert.Equal(
             DaemonServerKernels.GetProjectMessage("/tmp/project"),
@@ -22071,7 +22071,7 @@ func main() {
             DaemonServerKernels.GetLoadingProjectMessage(),
             (string)(cliDaemonLoadingProjectMessage.Invoke(null, Array.Empty<object>()) ?? string.Empty));
         Assert.Equal(
-            DaemonServerKernels.GetProjectLoadedMessage("42", "3"),
+            DaemonServerKernels.GetProjectLoadedMessage(42, 3),
             (string)(cliDaemonProjectLoadedMessage.Invoke(null, new object[] { "42", "3" }) ?? string.Empty));
         Assert.Equal(
             DaemonServerKernels.GetProjectLoadFailedTraceMessage("bad yaml"),

@@ -43,19 +43,13 @@ internal static class DaemonServerKernels
         => RequiredBindings.FileAndPosRequiredMessage();
 
     internal static string GetNoSymbolAtPositionMessage(string file, int line, int column)
-        => GetNoSymbolAtPositionMessage(file, ToInvariantText(line), ToInvariantText(column));
-
-    internal static string GetNoSymbolAtPositionMessage(string file, string lineText, string columnText)
-        => RequiredBindings.NoSymbolAtPositionMessage(file, lineText, columnText);
+        => RequiredBindings.NoSymbolAtPositionMessage(file, ToInvariantText(line), ToInvariantText(column));
 
     internal static string GetSemanticReferencesUnavailableMessage()
         => RequiredBindings.SemanticReferencesUnavailableMessage();
 
     internal static string GetListeningMessage(string socketPath, int processId)
-        => GetListeningMessage(socketPath, ToInvariantText(processId));
-
-    internal static string GetListeningMessage(string socketPath, string processIdText)
-        => RequiredBindings.ListeningMessage(socketPath, processIdText);
+        => RequiredBindings.ListeningMessage(socketPath, ToInvariantText(processId));
 
     internal static string GetProjectMessage(string projectRoot)
         => RequiredBindings.ProjectMessage(projectRoot);
@@ -76,12 +70,9 @@ internal static class DaemonServerKernels
         => RequiredBindings.LoadingProjectMessage();
 
     internal static string GetProjectLoadedMessage(long elapsedMilliseconds, int fileCount)
-        => GetProjectLoadedMessage(
+        => RequiredBindings.ProjectLoadedMessage(
             elapsedMilliseconds.ToString(CultureInfo.InvariantCulture),
             ToInvariantText(fileCount));
-
-    internal static string GetProjectLoadedMessage(string elapsedMillisecondsText, string fileCountText)
-        => RequiredBindings.ProjectLoadedMessage(elapsedMillisecondsText, fileCountText);
 
     internal static string GetProjectLoadFailedTraceMessage(string messageText)
         => RequiredBindings.ProjectLoadFailedTraceMessage(messageText);

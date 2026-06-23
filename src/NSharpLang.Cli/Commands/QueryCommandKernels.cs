@@ -278,28 +278,16 @@ internal static class QueryCommandKernels
         => GetMessage(bindings => bindings.QueryInvalidPositionMessage(position));
 
     internal static string GetNoSymbolAtPositionMessage(string file, int line, int column)
-        => GetNoSymbolAtPositionMessage(file, ToInvariantText(line), ToInvariantText(column));
-
-    internal static string GetNoSymbolAtPositionMessage(string file, string lineText, string columnText)
-        => GetMessage(bindings => bindings.QueryNoSymbolAtPositionMessage(file, lineText, columnText));
+        => GetMessage(bindings => bindings.QueryNoSymbolAtPositionMessage(file, ToInvariantText(line), ToInvariantText(column)));
 
     internal static string GetNoTypeInformationAtPositionMessage(string file, int line, int column)
-        => GetNoTypeInformationAtPositionMessage(file, ToInvariantText(line), ToInvariantText(column));
-
-    internal static string GetNoTypeInformationAtPositionMessage(string file, string lineText, string columnText)
-        => GetMessage(bindings => bindings.QueryNoTypeInformationAtPositionMessage(file, lineText, columnText));
+        => GetMessage(bindings => bindings.QueryNoTypeInformationAtPositionMessage(file, ToInvariantText(line), ToInvariantText(column)));
 
     internal static string GetNoDefinitionAtPositionMessage(string file, int line, int column)
-        => GetNoDefinitionAtPositionMessage(file, ToInvariantText(line), ToInvariantText(column));
-
-    internal static string GetNoDefinitionAtPositionMessage(string file, string lineText, string columnText)
-        => GetMessage(bindings => bindings.QueryNoDefinitionAtPositionMessage(file, lineText, columnText));
+        => GetMessage(bindings => bindings.QueryNoDefinitionAtPositionMessage(file, ToInvariantText(line), ToInvariantText(column)));
 
     internal static string GetNoInterfaceAtPositionMessage(string file, int line, int column)
-        => GetNoInterfaceAtPositionMessage(file, ToInvariantText(line), ToInvariantText(column));
-
-    internal static string GetNoInterfaceAtPositionMessage(string file, string lineText, string columnText)
-        => GetMessage(bindings => bindings.QueryNoInterfaceAtPositionMessage(file, lineText, columnText));
+        => GetMessage(bindings => bindings.QueryNoInterfaceAtPositionMessage(file, ToInvariantText(line), ToInvariantText(column)));
 
     internal static string GetPerformanceJsonOnlyMessage()
         => GetMessage(bindings => bindings.QueryPerformanceJsonOnlyMessage());

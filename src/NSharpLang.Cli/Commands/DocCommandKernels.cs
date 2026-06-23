@@ -100,13 +100,10 @@ internal static class DocCommandKernels
         => RequiredBindings.OpenFailedWithDetailMessage(indexPath, exceptionMessage);
 
     internal static string GetLocationText(string relativePath, int line, int column)
-        => GetLocationText(
+        => RequiredBindings.LocationText(
             relativePath,
             line.ToString(CultureInfo.InvariantCulture),
             column.ToString(CultureInfo.InvariantCulture));
-
-    internal static string GetLocationText(string relativePath, string lineText, string columnText)
-        => RequiredBindings.LocationText(relativePath, lineText, columnText);
 
     internal static string GetParameterText(string name, string typeName, bool hasDefault, string defaultValue)
         => RequiredBindings.ParameterText(name, typeName, hasDefault ? 1 : 0, defaultValue);
