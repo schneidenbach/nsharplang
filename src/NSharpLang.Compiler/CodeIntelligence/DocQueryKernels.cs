@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 
 namespace NSharpLang.Compiler.CodeIntelligence;
 
@@ -16,19 +15,13 @@ internal static class DocQueryKernels
     [ThreadStatic]
     private static StableDistinctTypeScratch? t_stableDistinctTypeScratch;
 
-    internal static bool TryDeduplicateStableStringsOrdinalIgnoreCase(
-        IReadOnlyList<string> values,
-        out string[] deduplicatedValues)
+    internal static string[] DeduplicateStableStringsOrdinalIgnoreCase(IReadOnlyList<string> values)
     {
-        deduplicatedValues = Array.Empty<string>();
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
+        var bindings = RequiredBindings;
 
         var valueCount = values.Count;
         if (valueCount == 0)
-            return true;
+            return Array.Empty<string>();
 
         var scratch = t_stableDistinctStringScratch ??= new StableDistinctStringScratch();
         scratch.EnsureCapacity(valueCount);
@@ -40,10 +33,7 @@ internal static class DocQueryKernels
             {
                 var value = values[i];
                 if (value == null)
-                {
-                    deduplicatedValues = Array.Empty<string>();
-                    return false;
-                }
+                    throw new InvalidOperationException("N# doc query string deduplication kernel rejected a null value.");
 
                 if (!scratch.RanksByValue.TryGetValue(value, out var rank))
                 {
@@ -62,31 +52,19 @@ internal static class DocQueryKernels
                 scratch.ResultIndices);
 
             if (resultCount < 0 || resultCount > valueCount || resultCount > scratch.ResultIndices.Length)
-            {
-                deduplicatedValues = Array.Empty<string>();
-                return false;
-            }
+                throw new InvalidOperationException("N# doc query string deduplication kernel returned an invalid result count.");
 
             var result = new string[resultCount];
             for (var i = 0; i < resultCount; i++)
             {
                 var sourceIndex = scratch.ResultIndices[i];
                 if (sourceIndex < 0 || sourceIndex >= valueCount)
-                {
-                    deduplicatedValues = Array.Empty<string>();
-                    return false;
-                }
+                    throw new InvalidOperationException("N# doc query string deduplication kernel returned an invalid value index.");
 
                 result[i] = values[sourceIndex];
             }
 
-            deduplicatedValues = result;
-            return true;
-        }
-        catch
-        {
-            deduplicatedValues = Array.Empty<string>();
-            return false;
+            return result;
         }
         finally
         {
@@ -94,19 +72,13 @@ internal static class DocQueryKernels
         }
     }
 
-    internal static bool TryDeduplicateStableTypes(
-        IReadOnlyList<Type> values,
-        out Type[] deduplicatedValues)
+    internal static Type[] DeduplicateStableTypes(IReadOnlyList<Type> values)
     {
-        deduplicatedValues = Array.Empty<Type>();
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
+        var bindings = RequiredBindings;
 
         var valueCount = values.Count;
         if (valueCount == 0)
-            return true;
+            return Array.Empty<Type>();
 
         var scratch = t_stableDistinctTypeScratch ??= new StableDistinctTypeScratch();
         scratch.EnsureCapacity(valueCount);
@@ -118,10 +90,7 @@ internal static class DocQueryKernels
             {
                 var value = values[i];
                 if (value == null)
-                {
-                    deduplicatedValues = Array.Empty<Type>();
-                    return false;
-                }
+                    throw new InvalidOperationException("N# doc query type deduplication kernel rejected a null value.");
 
                 if (!scratch.RanksByValue.TryGetValue(value, out var rank))
                 {
@@ -140,31 +109,19 @@ internal static class DocQueryKernels
                 scratch.ResultIndices);
 
             if (resultCount < 0 || resultCount > valueCount || resultCount > scratch.ResultIndices.Length)
-            {
-                deduplicatedValues = Array.Empty<Type>();
-                return false;
-            }
+                throw new InvalidOperationException("N# doc query type deduplication kernel returned an invalid result count.");
 
             var result = new Type[resultCount];
             for (var i = 0; i < resultCount; i++)
             {
                 var sourceIndex = scratch.ResultIndices[i];
                 if (sourceIndex < 0 || sourceIndex >= valueCount)
-                {
-                    deduplicatedValues = Array.Empty<Type>();
-                    return false;
-                }
+                    throw new InvalidOperationException("N# doc query type deduplication kernel returned an invalid type index.");
 
                 result[i] = values[sourceIndex];
             }
 
-            deduplicatedValues = result;
-            return true;
-        }
-        catch
-        {
-            deduplicatedValues = Array.Empty<Type>();
-            return false;
+            return result;
         }
         finally
         {
@@ -172,21 +129,16 @@ internal static class DocQueryKernels
         }
     }
 
-    internal static bool TrySelectBestDocType(
+    internal static Type? SelectBestDocType(
         string query,
         Type[] candidates,
-        Func<string, Type, int> scoreTypeMatch,
-        out Type? selected)
+        Func<string, Type, int> scoreTypeMatch)
     {
-        selected = null;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
+        var bindings = RequiredBindings;
 
         var candidateCount = candidates.Length;
         if (candidateCount == 0)
-            return true;
+            return null;
 
         var scratch = t_docQueryBestTypeScratch ??= new DocQueryBestTypeScratch();
         scratch.EnsureCapacity(candidateCount);
@@ -198,7 +150,7 @@ internal static class DocQueryKernels
                 var candidate = candidates[i];
                 var fullName = candidate.FullName;
                 if (fullName == null)
-                    return false;
+                    throw new InvalidOperationException("N# doc query best-type selector kernel rejected a candidate without a full name.");
 
                 scratch.Scores[i] = scoreTypeMatch(query, candidate);
                 scratch.NamespaceLengths[i] = candidate.Namespace?.Length ?? int.MaxValue;
@@ -212,15 +164,9 @@ internal static class DocQueryKernels
                 candidateCount);
 
             if (bestIndex < 0 || bestIndex >= candidateCount)
-                return false;
+                throw new InvalidOperationException("N# doc query best-type selector kernel returned an invalid type index.");
 
-            selected = candidates[bestIndex];
-            return true;
-        }
-        catch
-        {
-            selected = null;
-            return false;
+            return candidates[bestIndex];
         }
         finally
         {
@@ -228,19 +174,13 @@ internal static class DocQueryKernels
         }
     }
 
-    internal static bool TryOrderDocMembers(
-        IReadOnlyList<DocMemberResult> members,
-        out DocMemberResult[] orderedMembers)
+    internal static DocMemberResult[] OrderDocMembers(IReadOnlyList<DocMemberResult> members)
     {
-        orderedMembers = Array.Empty<DocMemberResult>();
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
+        var bindings = RequiredBindings;
 
         var memberCount = members.Count;
         if (memberCount == 0)
-            return true;
+            return Array.Empty<DocMemberResult>();
 
         var scratch = t_docQueryMemberOrderScratch ??= new DocQueryMemberOrderScratch();
         scratch.EnsureCapacity(memberCount);
@@ -259,7 +199,7 @@ internal static class DocQueryKernels
                 var member = members[i];
                 var kindRank = GetDocMemberKindRank(member.Kind);
                 if (kindRank == 0)
-                    return false;
+                    throw new InvalidOperationException("N# doc query member ordering kernel rejected a member kind.");
 
                 scratch.KindRanks[i] = kindRank;
                 scratch.NameRanks[i] = scratch.GetNameRank(member.Name);
@@ -276,27 +216,19 @@ internal static class DocQueryKernels
                 scratch.ResultIndices);
 
             if (orderedCount != memberCount)
-                return false;
+                throw new InvalidOperationException("N# doc query member ordering kernel returned an invalid result count.");
 
-            orderedMembers = new DocMemberResult[memberCount];
+            var orderedMembers = new DocMemberResult[memberCount];
             for (var i = 0; i < memberCount; i++)
             {
                 var sourceIndex = scratch.ResultIndices[i];
                 if (sourceIndex < 0 || sourceIndex >= memberCount)
-                {
-                    orderedMembers = Array.Empty<DocMemberResult>();
-                    return false;
-                }
+                    throw new InvalidOperationException("N# doc query member ordering kernel returned an invalid member index.");
 
                 orderedMembers[i] = members[sourceIndex];
             }
 
-            return true;
-        }
-        catch
-        {
-            orderedMembers = Array.Empty<DocMemberResult>();
-            return false;
+            return orderedMembers;
         }
         finally
         {
@@ -327,6 +259,10 @@ internal static class DocQueryKernels
             "property" => 6,
             _ => 0
         };
+
+    private static Bindings RequiredBindings =>
+        s_bindings.Value
+        ?? throw new InvalidOperationException("N# doc query kernels are unavailable.");
 
     private delegate int StableDistinctRankIndicesInto(
         int[] valueRanks,

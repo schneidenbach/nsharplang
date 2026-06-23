@@ -15116,7 +15116,7 @@ func documented(): int {
             "Custom.Library"
         };
 
-        Assert.True(DocQueryKernels.TryDeduplicateStableStringsOrdinalIgnoreCase(names, out var deduplicated));
+        var deduplicated = DocQueryKernels.DeduplicateStableStringsOrdinalIgnoreCase(names);
         Assert.Equal(
             new[] { "System.Console", "System.Text.Json", "Custom.Library" },
             deduplicated);
@@ -15134,7 +15134,7 @@ func documented(): int {
             typeof(int)
         };
 
-        Assert.True(DocQueryKernels.TryDeduplicateStableTypes(types, out var deduplicated));
+        var deduplicated = DocQueryKernels.DeduplicateStableTypes(types);
         Assert.Equal(
             new[] { typeof(string), typeof(int), typeof(Console) },
             deduplicated);
@@ -15150,11 +15150,10 @@ func documented(): int {
             typeof(Console)
         };
 
-        Assert.True(DocQueryKernels.TrySelectBestDocType(
+        var selected = DocQueryKernels.SelectBestDocType(
             "sample",
             candidates,
-            static (_, _) => 100,
-            out var selected));
+            static (_, _) => 100);
         Assert.Equal(typeof(Console), selected);
     }
 
@@ -15174,7 +15173,7 @@ func documented(): int {
             new DocMemberResult("Add", "method", "void", null, null)
         };
 
-        Assert.True(DocQueryKernels.TryOrderDocMembers(members, out var ordered));
+        var ordered = DocQueryKernels.OrderDocMembers(members);
         Assert.Equal(
             members
                 .OrderBy(member => member.Kind)

@@ -492,10 +492,7 @@ public class DocQuery
                 GetEventSummary(evt), null));
         }
 
-        if (!DocQueryKernels.TryOrderDocMembers(results, out var dogfoodMembers))
-            throw new InvalidOperationException("N# doc member ordering kernel rejected the members.");
-
-        return dogfoodMembers;
+        return DocQueryKernels.OrderDocMembers(results);
     }
 
     private string[] GetBaseTypes(Type type)
@@ -681,25 +678,12 @@ public class DocQuery
     {
         var candidateList = candidates as IReadOnlyList<Type> ?? candidates.ToArray();
         var distinctCandidates = DeduplicateTypeCandidates(candidateList);
-        if (DocQueryKernels.TrySelectBestDocType(
-            query,
-            distinctCandidates,
-            ScoreTypeMatch,
-            out var dogfoodType))
-        {
-            return dogfoodType;
-        }
-
-        throw new InvalidOperationException("N# doc query best-type selector kernel rejected the candidates.");
+        return DocQueryKernels.SelectBestDocType(query, distinctCandidates, ScoreTypeMatch);
     }
 
     private static Type[] DeduplicateTypeCandidates(IReadOnlyList<Type> candidates)
     {
-        return DocQueryKernels.TryDeduplicateStableTypes(
-            candidates,
-            out var dogfoodCandidates)
-            ? dogfoodCandidates
-            : throw new InvalidOperationException("N# doc query type deduplication kernel rejected the candidates.");
+        return DocQueryKernels.DeduplicateStableTypes(candidates);
     }
 
     private static int ScoreTypeMatch(string query, Type type)
@@ -897,11 +881,7 @@ public class DocQuery
 
     private static string[] DeduplicateReferencePackAssemblyNames(IReadOnlyList<string> names)
     {
-        return DocQueryKernels.TryDeduplicateStableStringsOrdinalIgnoreCase(
-            names,
-            out var dogfoodNames)
-            ? dogfoodNames
-            : throw new InvalidOperationException("N# doc query assembly-name deduplication kernel rejected the names.");
+        return DocQueryKernels.DeduplicateStableStringsOrdinalIgnoreCase(names);
     }
 
     private IEnumerable<string> GetReferencePackDirectories()
@@ -956,9 +936,7 @@ public class DocQuery
             }
         }
 
-        _referencePackDirectories = DocQueryKernels.TryDeduplicateStableStringsOrdinalIgnoreCase(directories, out var dogfoodDirectories)
-            ? dogfoodDirectories.ToList()
-            : throw new InvalidOperationException("N# doc query reference-pack directory deduplication kernel rejected the directories.");
+        _referencePackDirectories = DocQueryKernels.DeduplicateStableStringsOrdinalIgnoreCase(directories).ToList();
 
         return _referencePackDirectories;
     }
