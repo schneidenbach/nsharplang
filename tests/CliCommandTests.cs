@@ -961,7 +961,7 @@ func Main() {
             symbols.Add(MakeDocSymbol("Alpha" + kind, kind));
         }
 
-        var actual = ProjectDocGenerator.OrderSymbolsForGeneration(symbols);
+        var actual = DocCommandKernels.OrderSymbolsForGeneration(symbols);
 
         var expected = symbols
             .Where(symbol => symbol.Kind is not SymbolKind.Variable and not SymbolKind.Parameter)
@@ -2436,20 +2436,11 @@ func Main() {
         Assert.True(dogfoodSummary.SystemsReport);
         Assert.False(dogfoodSummary.ShowHelp);
 
-        var summary = CheckCommand.GetArgumentSummary(args);
-        Assert.Null(summary.ProjectOption);
-        Assert.Equal("il", summary.BackendOption);
-        Assert.Equal("samples/demo", summary.PositionalProject);
-        Assert.True(summary.UseText);
-        Assert.True(summary.Aot);
-        Assert.True(summary.SystemsReport);
-        Assert.False(summary.ShowHelp);
-
-        var permissiveValue = CheckCommand.GetArgumentSummary(new[] { "--project", "--backend", "il" });
+        var permissiveValue = CheckCommandKernels.GetArgumentSummary(new[] { "--project", "--backend", "il" });
         Assert.Equal("--backend", permissiveValue.ProjectOption);
         Assert.Equal("il", permissiveValue.BackendOption);
 
-        Assert.True(CheckCommand.GetArgumentSummary(new[] { "help" }).ShowHelp);
+        Assert.True(CheckCommandKernels.GetArgumentSummary(new[] { "help" }).ShowHelp);
 
         var helpText = CheckCommandKernels.GetHelpText();
         Assert.Contains("N# Type Check", helpText);
@@ -2499,19 +2490,6 @@ func Main() {
 
         var invalidMode = CheckCommandKernels.GetEffectiveOutputMode(true, true);
         Assert.Equal(CheckOutputModeKind.InvalidSystemsReportText, invalidMode);
-
-        Assert.Equal(
-            CheckOutputModeKind.Json,
-            CheckCommand.GetEffectiveOutputMode(new CheckArgumentSummary(null, null, null, UseText: false, Aot: false, SystemsReport: false, ShowHelp: false)));
-        Assert.Equal(
-            CheckOutputModeKind.Text,
-            CheckCommand.GetEffectiveOutputMode(new CheckArgumentSummary(null, null, null, UseText: true, Aot: false, SystemsReport: false, ShowHelp: false)));
-        Assert.Equal(
-            CheckOutputModeKind.SystemsReportJson,
-            CheckCommand.GetEffectiveOutputMode(new CheckArgumentSummary(null, null, null, UseText: false, Aot: false, SystemsReport: true, ShowHelp: false)));
-        Assert.Equal(
-            CheckOutputModeKind.InvalidSystemsReportText,
-            CheckCommand.GetEffectiveOutputMode(new CheckArgumentSummary(null, null, null, UseText: true, Aot: false, SystemsReport: true, ShowHelp: false)));
     }
 
     [Fact]
@@ -2853,17 +2831,11 @@ func Main() {
         Assert.True(dogfoodSummary.UseJson);
         Assert.True(dogfoodSummary.ShowHelp);
 
-        var summary = LintCommand.GetOptionSummary(args);
-        Assert.Equal("src", summary.ProjectOption);
-        Assert.True(summary.UseText);
-        Assert.True(summary.UseJson);
-        Assert.True(summary.ShowHelp);
-
-        var permissiveValue = LintCommand.GetOptionSummary(new[] { "--project", "--json" });
+        var permissiveValue = LintCommandKernels.GetOptionSummary(new[] { "--project", "--json" });
         Assert.Equal("--json", permissiveValue.ProjectOption);
         Assert.True(permissiveValue.UseJson);
 
-        Assert.True(LintCommand.GetOptionSummary(new[] { "help" }).ShowHelp);
+        Assert.True(LintCommandKernels.GetOptionSummary(new[] { "help" }).ShowHelp);
 
         var helpText = LintCommandKernels.GetHelpText();
         Assert.Contains("N# Lint", helpText);
@@ -2926,16 +2898,6 @@ func Main() {
 
         var jsonWins = LintCommandKernels.GetEffectiveOutputMode(true, true);
         Assert.Equal(LintOutputModeKind.Json, jsonWins);
-
-        Assert.Equal(
-            LintOutputModeKind.Json,
-            LintCommand.GetEffectiveOutputMode(new LintOptionSummary(null, UseText: false, UseJson: false, ShowHelp: false)));
-        Assert.Equal(
-            LintOutputModeKind.Text,
-            LintCommand.GetEffectiveOutputMode(new LintOptionSummary(null, UseText: true, UseJson: false, ShowHelp: false)));
-        Assert.Equal(
-            LintOutputModeKind.Json,
-            LintCommand.GetEffectiveOutputMode(new LintOptionSummary(null, UseText: true, UseJson: true, ShowHelp: false)));
     }
 
     [Fact]
@@ -3779,29 +3741,18 @@ Exit codes:
         Assert.True(dogfoodSummary.JsonOutput);
         Assert.False(dogfoodSummary.ShowHelp);
 
-        var summary = PackCommand.GetOptionSummary(args);
-        Assert.Equal("samples/demo", summary.ProjectOption);
-        Assert.Equal("dist", summary.OutputDir);
-        Assert.Equal("2.0.0-beta.1", summary.VersionOverride);
-        Assert.Equal("Release", summary.Configuration);
-        Assert.True(summary.IncludeSymbols);
-        Assert.True(summary.JsonOutput);
-        Assert.False(summary.ShowHelp);
-
-        var permissiveValue = PackCommand.GetOptionSummary(new[] { "--project", "--json" });
+        var permissiveValue = PackCommandKernels.GetOptionSummary(new[] { "--project", "--json" });
         Assert.Equal("--json", permissiveValue.ProjectOption);
         Assert.True(permissiveValue.JsonOutput);
 
-        Assert.True(PackCommand.GetOptionSummary(new[] { "help" }).ShowHelp);
-        Assert.True(PackCommand.GetOptionSummary(new[] { "ignored", "-h" }).ShowHelp);
+        Assert.True(PackCommandKernels.GetOptionSummary(new[] { "help" }).ShowHelp);
+        Assert.True(PackCommandKernels.GetOptionSummary(new[] { "ignored", "-h" }).ShowHelp);
 
         var textMode = PackCommandKernels.GetOutputMode(json: false);
         Assert.Equal(PackOutputModeKind.Text, textMode);
-        Assert.Equal(PackOutputModeKind.Text, PackCommand.GetOutputMode(json: false));
 
         var jsonMode = PackCommandKernels.GetOutputMode(json: true);
         Assert.Equal(PackOutputModeKind.Json, jsonMode);
-        Assert.Equal(PackOutputModeKind.Json, PackCommand.GetOutputMode(json: true));
 
         var helpText = PackCommandKernels.GetHelpText();
         Assert.Contains("N# Pack", helpText);
@@ -3894,11 +3845,6 @@ Exit codes:
 
         var blankProject = PackCommandKernels.GetEffectiveVersionSource(null, " ");
         Assert.Equal(PackVersionSourceKind.Missing, blankProject);
-
-        Assert.Equal(PackVersionSourceKind.Override, PackCommand.GetEffectiveVersionSource("2.0.0", "1.0.0"));
-        Assert.Equal(PackVersionSourceKind.Missing, PackCommand.GetEffectiveVersionSource(" ", "1.0.0"));
-        Assert.Equal(PackVersionSourceKind.Project, PackCommand.GetEffectiveVersionSource(null, "1.0.0"));
-        Assert.Equal(PackVersionSourceKind.Missing, PackCommand.GetEffectiveVersionSource(null, null));
     }
 
     [Fact]
@@ -4632,38 +4578,30 @@ dependencies:
         Assert.True(dogfoodSummary.Json);
         Assert.False(dogfoodSummary.ShowHelp);
 
-        var summary = TidyCommand.GetOptionSummary(args);
-        Assert.Equal("samples/demo", summary.ProjectOption);
-        Assert.True(summary.Fix);
-        Assert.True(summary.Json);
-        Assert.False(summary.ShowHelp);
-
-        var permissiveValue = TidyCommand.GetOptionSummary(new[] { "--project", "--json" });
+        var permissiveValue = TidyCommandKernels.GetOptionSummary(new[] { "--project", "--json" });
         Assert.Equal("--json", permissiveValue.ProjectOption);
         Assert.True(permissiveValue.Json);
 
-        Assert.True(TidyCommand.GetOptionSummary(new[] { "help" }).ShowHelp);
-        Assert.True(TidyCommand.GetOptionSummary(new[] { "ignored", "-h" }).ShowHelp);
+        Assert.True(TidyCommandKernels.GetOptionSummary(new[] { "help" }).ShowHelp);
+        Assert.True(TidyCommandKernels.GetOptionSummary(new[] { "ignored", "-h" }).ShowHelp);
 
         var textMode = TidyCommandKernels.GetOutputMode(json: false);
         Assert.Equal(TidyOutputModeKind.Text, textMode);
-        Assert.Equal(TidyOutputModeKind.Text, TidyCommand.GetOutputMode(json: false));
 
         var jsonMode = TidyCommandKernels.GetOutputMode(json: true);
         Assert.Equal(TidyOutputModeKind.Json, jsonMode);
-        Assert.Equal(TidyOutputModeKind.Json, TidyCommand.GetOutputMode(json: true));
 
         var importedNamespace = TidyCommandKernels.GetImportedNamespace(
             "  import  Newtonsoft.Json.Linq // trailing comment");
         Assert.Equal("Newtonsoft.Json.Linq", importedNamespace);
-        Assert.Equal("System.Text", TidyCommand.GetImportedNamespace("\timport System.Text;"));
+        Assert.Equal("System.Text", TidyCommandKernels.GetImportedNamespace("\timport System.Text;"));
 
         var tabAfterKeyword = TidyCommandKernels.GetImportedNamespace(
             "import\tSystem.Text");
         Assert.Null(tabAfterKeyword);
-        Assert.Null(TidyCommand.GetImportedNamespace("print \"import System.Text\""));
-        Assert.Null(TidyCommand.GetImportedNamespace("import ;"));
-        Assert.Equal("Résumé.Json", TidyCommand.GetImportedNamespace("import Résumé.Json"));
+        Assert.Null(TidyCommandKernels.GetImportedNamespace("print \"import System.Text\""));
+        Assert.Null(TidyCommandKernels.GetImportedNamespace("import ;"));
+        Assert.Equal("Résumé.Json", TidyCommandKernels.GetImportedNamespace("import Résumé.Json"));
     }
 
     [Fact]
@@ -4994,29 +4932,20 @@ dependencies:
         Assert.True(dogfoodSummary.Open);
         Assert.False(dogfoodSummary.ShowHelp);
 
-        var summary = DocCommand.GetOptionSummary(args);
-        Assert.Equal("samples/demo", summary.ProjectOption);
-        Assert.Equal("docs/api", summary.OutputOption);
-        Assert.True(summary.Json);
-        Assert.True(summary.Open);
-        Assert.False(summary.ShowHelp);
-
-        var permissiveValue = DocCommand.GetOptionSummary(new[] { "--project", "--json", "--output", "--open" });
+        var permissiveValue = DocCommandKernels.GetOptionSummary(new[] { "--project", "--json", "--output", "--open" });
         Assert.Equal("--json", permissiveValue.ProjectOption);
         Assert.Equal("--open", permissiveValue.OutputOption);
         Assert.True(permissiveValue.Json);
         Assert.True(permissiveValue.Open);
 
-        Assert.True(DocCommand.GetOptionSummary(new[] { "help" }).ShowHelp);
-        Assert.True(DocCommand.GetOptionSummary(new[] { "ignored", "-h" }).ShowHelp);
+        Assert.True(DocCommandKernels.GetOptionSummary(new[] { "help" }).ShowHelp);
+        Assert.True(DocCommandKernels.GetOptionSummary(new[] { "ignored", "-h" }).ShowHelp);
 
         var textMode = DocCommandKernels.GetOutputMode(json: false);
         Assert.Equal(DocOutputModeKind.Text, textMode);
-        Assert.Equal(DocOutputModeKind.Text, DocCommand.GetOutputMode(json: false));
 
         var jsonMode = DocCommandKernels.GetOutputMode(json: true);
         Assert.Equal(DocOutputModeKind.Json, jsonMode);
-        Assert.Equal(DocOutputModeKind.Json, DocCommand.GetOutputMode(json: true));
 
         var helpText = DocCommandKernels.GetHelpText();
         Assert.Contains("N# API Documentation", helpText);

@@ -16,7 +16,7 @@ public static class PackCommand
 {
     public static int Execute(string[] args)
     {
-        var options = GetOptionSummary(args);
+        var options = PackCommandKernels.GetOptionSummary(args);
         if (options.ShowHelp)
             return ShowHelp();
 
@@ -25,7 +25,7 @@ public static class PackCommand
         var versionOverride = options.VersionOverride;
         var configuration = options.Configuration;
         var includeSymbols = options.IncludeSymbols;
-        var outputMode = GetOutputMode(options.JsonOutput);
+        var outputMode = PackCommandKernels.GetOutputMode(options.JsonOutput);
 
         // Locate project.yml
         var projectYmlPath = Path.Combine(projectRoot, "project.yml");
@@ -65,7 +65,7 @@ public static class PackCommand
         try
         {
             var projectName = CompilationReferenceResolver.GetProjectAssemblyName(projectRoot, config);
-            var versionSource = GetEffectiveVersionSource(versionOverride, config.Version);
+            var versionSource = PackCommandKernels.GetEffectiveVersionSource(versionOverride, config.Version);
             var effectiveVersion = versionSource switch
             {
                 PackVersionSourceKind.Override => versionOverride,
@@ -219,15 +219,6 @@ public static class PackCommand
         using var writer = new StreamWriter(entry.Open(), Encoding.UTF8);
         writer.Write(contents);
     }
-
-    internal static PackOptionSummary GetOptionSummary(string[] args)
-        => PackCommandKernels.GetOptionSummary(args);
-
-    internal static PackVersionSourceKind GetEffectiveVersionSource(string? versionOverride, string? projectVersion)
-        => PackCommandKernels.GetEffectiveVersionSource(versionOverride, projectVersion);
-
-    internal static PackOutputModeKind GetOutputMode(bool json)
-        => PackCommandKernels.GetOutputMode(json);
 
     static void WriteJson(Action<Utf8JsonWriter> write)
     {

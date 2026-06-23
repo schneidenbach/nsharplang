@@ -13,11 +13,11 @@ public static class CheckCommand
 {
     public static int Execute(string[] args)
     {
-        var arguments = GetArgumentSummary(args);
+        var arguments = CheckCommandKernels.GetArgumentSummary(args);
         if (arguments.ShowHelp)
             return ShowHelp();
 
-        var outputMode = GetEffectiveOutputMode(arguments);
+        var outputMode = CheckCommandKernels.GetEffectiveOutputMode(arguments.UseText, arguments.SystemsReport);
         var useText = outputMode is CheckOutputModeKind.Text or CheckOutputModeKind.InvalidSystemsReportText;
         var aot = arguments.Aot;
         var projectDir = GetProjectDir(arguments);
@@ -189,12 +189,6 @@ public static class CheckCommand
 
         return 0;
     }
-
-    internal static CheckArgumentSummary GetArgumentSummary(string[] args)
-        => CheckCommandKernels.GetArgumentSummary(args);
-
-    internal static CheckOutputModeKind GetEffectiveOutputMode(CheckArgumentSummary arguments)
-        => CheckCommandKernels.GetEffectiveOutputMode(arguments.UseText, arguments.SystemsReport);
 
     private static string GetProjectDir(CheckArgumentSummary arguments)
     {

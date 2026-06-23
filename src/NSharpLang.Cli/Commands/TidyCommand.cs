@@ -19,13 +19,13 @@ public static class TidyCommand
 {
     public static int Execute(string[] args)
     {
-        var options = GetOptionSummary(args);
+        var options = TidyCommandKernels.GetOptionSummary(args);
         if (options.ShowHelp)
             return ShowHelp();
 
         var projectRoot = options.ProjectOption ?? Directory.GetCurrentDirectory();
         var fix = options.Fix;
-        var outputMode = GetOutputMode(options.Json);
+        var outputMode = TidyCommandKernels.GetOutputMode(options.Json);
 
         var projectYml = Path.Combine(projectRoot, "project.yml");
         if (!File.Exists(projectYml))
@@ -142,7 +142,7 @@ public static class TidyCommand
             {
                 foreach (var line in File.ReadLines(file))
                 {
-                    var importedNamespace = GetImportedNamespace(line);
+                    var importedNamespace = TidyCommandKernels.GetImportedNamespace(line);
                     if (importedNamespace != null)
                         namespaces.Add(importedNamespace);
                 }
@@ -283,15 +283,6 @@ public static class TidyCommand
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────
-
-    internal static TidyOptionSummary GetOptionSummary(string[] args)
-        => TidyCommandKernels.GetOptionSummary(args);
-
-    internal static TidyOutputModeKind GetOutputMode(bool json)
-        => TidyCommandKernels.GetOutputMode(json);
-
-    internal static string? GetImportedNamespace(string line)
-        => TidyCommandKernels.GetImportedNamespace(line);
 
     private static int ShowHelp()
     {

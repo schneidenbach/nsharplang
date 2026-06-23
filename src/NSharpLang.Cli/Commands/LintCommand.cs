@@ -11,14 +11,14 @@ public static class LintCommand
 {
     public static int Execute(string[] args)
     {
-        var options = GetOptionSummary(args);
+        var options = LintCommandKernels.GetOptionSummary(args);
         if (options.ShowHelp)
             return ShowHelp();
 
-        var useJson = GetEffectiveOutputMode(options) == LintOutputModeKind.Json;
+        var useJson = LintCommandKernels.GetEffectiveOutputMode(options.UseText, options.UseJson) == LintOutputModeKind.Json;
         var projectRoot = Path.GetFullPath(options.ProjectOption ?? Directory.GetCurrentDirectory());
 
-        var positionalFiles = GetPositionalFiles(args);
+        var positionalFiles = LintCommandKernels.GetFileArgs(args);
 
         if (!Directory.Exists(projectRoot))
             return EmitError(useJson, LintCommandKernels.GetProjectDirectoryNotFoundMessage(projectRoot), projectRoot);
@@ -202,15 +202,6 @@ public static class LintCommand
 
         return 1;
     }
-
-    internal static LintOptionSummary GetOptionSummary(string[] args)
-        => LintCommandKernels.GetOptionSummary(args);
-
-    internal static LintOutputModeKind GetEffectiveOutputMode(LintOptionSummary options)
-        => LintCommandKernels.GetEffectiveOutputMode(options.UseText, options.UseJson);
-
-    private static string[] GetPositionalFiles(string[] args)
-        => LintCommandKernels.GetFileArgs(args);
 
     private static string FormatElapsed(TimeSpan elapsed)
     {

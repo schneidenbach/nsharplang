@@ -22,11 +22,11 @@ public static class DocCommand
 
     public static int Execute(string[] args)
     {
-        var options = GetOptionSummary(args);
+        var options = DocCommandKernels.GetOptionSummary(args);
         if (options.ShowHelp)
             return ShowHelp();
 
-        var outputMode = GetOutputMode(options.Json);
+        var outputMode = DocCommandKernels.GetOutputMode(options.Json);
         var openAfterGenerate = options.Open;
         var projectRoot = options.ProjectOption ?? Directory.GetCurrentDirectory();
         var outputDir = options.OutputOption ?? Path.Combine(projectRoot, "nsharp", "docs");
@@ -107,12 +107,6 @@ public static class DocCommand
         return 1;
     }
 
-    internal static DocOptionSummary GetOptionSummary(string[] args)
-        => DocCommandKernels.GetOptionSummary(args);
-
-    internal static DocOutputModeKind GetOutputMode(bool json)
-        => DocCommandKernels.GetOutputMode(json);
-
     private static bool TryOpen(string path, out string? error)
     {
         error = null;
@@ -161,7 +155,7 @@ internal static class ProjectDocGenerator
 {
     public static DocManifest Generate(string projectRoot, string outputDir, IReadOnlyList<SymbolResult> symbols)
     {
-        var orderedSymbols = OrderSymbolsForGeneration(symbols);
+        var orderedSymbols = DocCommandKernels.OrderSymbolsForGeneration(symbols);
 
         if (Directory.Exists(outputDir))
             Directory.Delete(outputDir, recursive: true);
@@ -191,9 +185,6 @@ internal static class ProjectDocGenerator
             pages.Count,
             pages);
     }
-
-    internal static List<SymbolResult> OrderSymbolsForGeneration(IReadOnlyList<SymbolResult> symbols)
-        => DocCommandKernels.OrderSymbolsForGeneration(symbols);
 
     private static string RenderIndexPage(IReadOnlyList<SymbolResult> symbols, IReadOnlyList<DocPage> pages, string projectRoot)
     {
