@@ -13473,24 +13473,16 @@ func outer(x: int): int {
             $"Corpus coverage regressed: {totalCompiling} files compile, expected >= {expectedCompiling.Length}.");
     }
 
-    // STAGE 5 ROUTING: by default (or with NSHARP_COLUMNAR_BACKEND=1), the PRODUCTION compile path
-    // (MultiFileCompiler.CompileToIlAssembly) emits an eligible program via the standalone columnar backend
-    // instead of the C# ILCompiler. Proven by: (1) the emitted IL DIFFERS from the C# path (so the flag really
-    // re-routed the backend), and (2) the columnar-emitted assembly runs IDENTICALLY to the C# one (so the
-    // routed output is correct). Set NSHARP_COLUMNAR_BACKEND=0 to force the C# path for A/B checks.
+    // STAGE 5 ROUTING: the production compile path emits an eligible program through the standalone
+    // columnar backend by default.
     [Fact]
     public void Stage5_ColumnarBackend_RoutesEligibleProgramThroughProduction()
     {
         var source = "func add(a: int, b: int): int {\n    return a + b\n}\n\n" +
                      "func fib(n: int): int {\n    if n < 2 {\n        return n\n    }\n    return fib(n - 1) + fib(n - 2)\n}\n";
-        var csharp = CompileViaProduction(source, columnarBackend: false);
-        var columnar = CompileViaProduction(source, columnarBackend: true);
+        var columnar = CompileViaProduction(source);
 
-        // The flag actually changed the backend: the emitted assemblies differ (columnar IL vs C# IL).
-        Assert.NotEqual(Convert.ToBase64String(csharp), Convert.ToBase64String(columnar));
-        // ...and the columnar assembly, produced through the production path, runs identically to the C# one.
-        Assert.Equal(InvokeFromAssemblyBytes(csharp, "add", 2, 3), InvokeFromAssemblyBytes(columnar, "add", 2, 3));
-        Assert.Equal(InvokeFromAssemblyBytes(csharp, "fib", 10), InvokeFromAssemblyBytes(columnar, "fib", 10));
+        Assert.Equal(5, InvokeFromAssemblyBytes(columnar, "add", 2, 3));
         Assert.Equal(55, InvokeFromAssemblyBytes(columnar, "fib", 10));
     }
 
@@ -13498,44 +13490,34 @@ func outer(x: int): int {
     public void Stage5_ColumnarBackend_RoutesEligibleProgramByDefault()
     {
         var source = "func add(a: int, b: int): int {\n    return a + b\n}\n";
-        var csharp = CompileViaProduction(source, columnarBackend: false);
-        var defaultBackend = CompileViaProductionDefault(source);
+        var defaultBackend = CompileViaProduction(source);
 
-        Assert.NotEqual(Convert.ToBase64String(csharp), Convert.ToBase64String(defaultBackend));
-        Assert.Equal(InvokeFromAssemblyBytes(csharp, "add", 4, 8), InvokeFromAssemblyBytes(defaultBackend, "add", 4, 8));
         Assert.Equal(12, InvokeFromAssemblyBytes(defaultBackend, "add", 4, 8));
     }
 
-    // STAGE 5 MULTI-FILE ROUTING: a MULTI-FILE program (a public function in one file called from another) routes
-    // through the columnar backend's multi-file merge in production when the flag is set. Proves: (1) the emitted
-    // IL differs from the C# path (the flag re-routed the backend), and (2) the CROSS-FILE call resolves + runs
-    // identically to the C# multi-file build (so the merge binds declarations across files like the C# binder).
+    // STAGE 5 MULTI-FILE ROUTING: a MULTI-FILE program (a public function in one file called from another)
+    // routes through the columnar backend's multi-file merge in production.
     [Fact]
     public void Stage5_ColumnarBackend_RoutesEligibleMultiFileProgramThroughProduction()
     {
         var fileA = "func ComputeA(n: int): int {\n    return HelperB(n) + 1\n}\n";
         var fileB = "func HelperB(n: int): int {\n    return n * 2\n}\n";
         var files = new[] { ("A.nl", fileA), ("B.nl", fileB) };
-        var csharp = CompileMultiFileViaProduction(files, columnarBackend: false);
-        var columnar = CompileMultiFileViaProduction(files, columnarBackend: true);
+        var columnar = CompileMultiFileViaProduction(files);
 
-        // The flag actually changed the backend: the emitted assemblies differ (columnar merge IL vs C# IL).
-        Assert.NotEqual(Convert.ToBase64String(csharp), Convert.ToBase64String(columnar));
-        // ...and the cross-file call (ComputeA -> HelperB) resolves + runs identically through the columnar merge.
-        Assert.Equal(InvokeFromAssemblyBytes(csharp, "ComputeA", 5), InvokeFromAssemblyBytes(columnar, "ComputeA", 5));
         Assert.Equal(11, InvokeFromAssemblyBytes(columnar, "ComputeA", 5)); // HelperB(5)=10, +1 = 11
-        Assert.Equal(InvokeFromAssemblyBytes(csharp, "HelperB", 7), InvokeFromAssemblyBytes(columnar, "HelperB", 7));
+        Assert.Equal(14, InvokeFromAssemblyBytes(columnar, "HelperB", 7));
     }
 
     [Fact]
     public void Stage5_ColumnarBackend_FallsBackToCSharpForIneligibleProgram()
     {
         // Non-array foreach is outside the current columnar subset -> it declines -> the production path falls
-        // back to the C# ILCompiler even with the flag on (the build still succeeds and runs).
+        // back to the C# ILCompiler (the build still succeeds and runs).
         var source = "func countChars(s: string): int {\n    n := 0\n    foreach c in s {\n        n = n + 1\n    }\n    return n\n}\n";
         Assert.False(RouteColumnarProgram(source).Ok);
 
-        var columnar = CompileViaProduction(source, columnarBackend: true);
+        var columnar = CompileViaProduction(source);
         Assert.NotEmpty(columnar);
         Assert.Equal(4, InvokeFromAssemblyBytes(columnar, "countChars", "test"));
         Assert.Equal(0, InvokeFromAssemblyBytes(columnar, "countChars", ""));
@@ -13557,15 +13539,13 @@ func outer(x: int): int {
         Assert.True(RouteColumnarProgram(functionNamedTest).Ok);
     }
 
-    // Compile `source` as a single-file library through the production MultiFileCompiler path, optionally with
-    // the columnar backend flag set (tightly scoped + restored), and return the emitted assembly bytes.
-    private static byte[] CompileViaProduction(string source, bool columnarBackend)
+    // Compile `source` as a single-file library through the production MultiFileCompiler path.
+    private static byte[] CompileViaProduction(string source)
     {
         var projectRoot = Path.Combine(Path.GetTempPath(), $"nsharp-stage5-{Guid.NewGuid():N}");
         Directory.CreateDirectory(projectRoot);
         var programPath = Path.Combine(projectRoot, "Program.nl");
         var outputPath = Path.Combine(projectRoot, "bin", "Stage5.dll");
-        var previous = Environment.GetEnvironmentVariable("NSHARP_COLUMNAR_BACKEND");
         try
         {
             File.WriteAllText(programPath, source);
@@ -13573,7 +13553,6 @@ func outer(x: int): int {
             config.OutputType = "library";
             config.TargetFramework = "net10.0";
 
-            Environment.SetEnvironmentVariable("NSHARP_COLUMNAR_BACKEND", columnarBackend ? "1" : "0");
             var compiler = new MultiFileCompiler(new[] { programPath }, projectRoot, config);
             var result = compiler.CompileToIlAssembly("Stage5", outputPath);
             Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors.Select(e => $"{e.DiagnosticId}: {e.Message}")));
@@ -13581,47 +13560,17 @@ func outer(x: int): int {
         }
         finally
         {
-            Environment.SetEnvironmentVariable("NSHARP_COLUMNAR_BACKEND", previous);
-            if (Directory.Exists(projectRoot)) Directory.Delete(projectRoot, recursive: true);
-        }
-    }
-
-    private static byte[] CompileViaProductionDefault(string source)
-    {
-        var projectRoot = Path.Combine(Path.GetTempPath(), $"nsharp-stage5-default-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(projectRoot);
-        var programPath = Path.Combine(projectRoot, "Program.nl");
-        var outputPath = Path.Combine(projectRoot, "bin", "Stage5.dll");
-        var previous = Environment.GetEnvironmentVariable("NSHARP_COLUMNAR_BACKEND");
-        try
-        {
-            File.WriteAllText(programPath, source);
-            var config = ProjectFileParser.CreateDefault("Stage5");
-            config.OutputType = "library";
-            config.TargetFramework = "net10.0";
-
-            Environment.SetEnvironmentVariable("NSHARP_COLUMNAR_BACKEND", null);
-            var compiler = new MultiFileCompiler(new[] { programPath }, projectRoot, config);
-            var result = compiler.CompileToIlAssembly("Stage5", outputPath);
-            Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors.Select(e => $"{e.DiagnosticId}: {e.Message}")));
-            return File.ReadAllBytes(result.OutputAssemblyPath!);
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable("NSHARP_COLUMNAR_BACKEND", previous);
             if (Directory.Exists(projectRoot)) Directory.Delete(projectRoot, recursive: true);
         }
     }
 
     // Compile multiple `files` (name + source) as ONE multi-file library through the production MultiFileCompiler
-    // path, optionally with the columnar backend flag set (tightly scoped + restored), and return the emitted
-    // assembly bytes. Mirrors CompileViaProduction but writes several .nl files into one project.
-    private static byte[] CompileMultiFileViaProduction((string Name, string Source)[] files, bool columnarBackend)
+    // path. Mirrors CompileViaProduction but writes several .nl files into one project.
+    private static byte[] CompileMultiFileViaProduction((string Name, string Source)[] files)
     {
         var projectRoot = Path.Combine(Path.GetTempPath(), $"nsharp-stage5mf-{Guid.NewGuid():N}");
         Directory.CreateDirectory(projectRoot);
         var outputPath = Path.Combine(projectRoot, "bin", "Stage5.dll");
-        var previous = Environment.GetEnvironmentVariable("NSHARP_COLUMNAR_BACKEND");
         try
         {
             var paths = new List<string>();
@@ -13635,7 +13584,6 @@ func outer(x: int): int {
             config.OutputType = "library";
             config.TargetFramework = "net10.0";
 
-            Environment.SetEnvironmentVariable("NSHARP_COLUMNAR_BACKEND", columnarBackend ? "1" : "0");
             var compiler = new MultiFileCompiler(paths.ToArray(), projectRoot, config);
             var result = compiler.CompileToIlAssembly("Stage5", outputPath);
             Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors.Select(e => $"{e.DiagnosticId}: {e.Message}")));
@@ -13643,7 +13591,6 @@ func outer(x: int): int {
         }
         finally
         {
-            Environment.SetEnvironmentVariable("NSHARP_COLUMNAR_BACKEND", previous);
             if (Directory.Exists(projectRoot)) Directory.Delete(projectRoot, recursive: true);
         }
     }
