@@ -148,12 +148,9 @@ internal static class BatchQueryRunner
             items.Add(new BatchQueryItemResult(i, request, ok, response));
         }
 
-        var successCount = BatchQueryKernels.TryCountResultSuccesses(
-            okWords,
-            items.Count,
-            out var dogfoodSuccessCount)
-            ? dogfoodSuccessCount
-            : items.Count(item => item.Ok);
+        if (!BatchQueryKernels.TryCountResultSuccesses(okWords, items.Count, out var successCount))
+            throw new InvalidOperationException("N# batch success-count kernel rejected the results.");
+
         var failureCount = items.Count - successCount;
         var envelope = new
         {
