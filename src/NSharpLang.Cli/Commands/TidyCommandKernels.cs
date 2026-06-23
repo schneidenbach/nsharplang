@@ -386,154 +386,69 @@ internal static class TidyCommandKernels
     }
 
     internal static string GetHelpText()
-    {
-        if (TryGetMessage(bindings => bindings.HelpText(), out var message))
-            return message;
-
-        throw new InvalidOperationException("N# tidy help text kernel rejected the values.");
-    }
+        => GetMessage(bindings => bindings.HelpText());
 
     internal static string GetMissingProjectFileJsonMessage()
-    {
-        if (TryGetMessage(bindings => bindings.MissingProjectFileJsonMessage(), out var message))
-            return message;
-
-        throw new InvalidOperationException("N# tidy missing-project JSON message kernel rejected the values.");
-    }
+        => GetMessage(bindings => bindings.MissingProjectFileJsonMessage());
 
     internal static string GetMissingProjectFileTextMessage()
-    {
-        if (TryGetMessage(bindings => bindings.MissingProjectFileTextMessage(), out var message))
-            return message;
-
-        throw new InvalidOperationException("N# tidy missing-project text message kernel rejected the values.");
-    }
+        => GetMessage(bindings => bindings.MissingProjectFileTextMessage());
 
     internal static string GetParseFailedMessage(string message)
-    {
-        if (TryGetMessage(bindings => bindings.ParseFailedMessage(message), out var result))
-            return result;
-
-        throw new InvalidOperationException("N# tidy parse-failed message kernel rejected the values.");
-    }
+        => GetMessage(bindings => bindings.ParseFailedMessage(message));
 
     internal static string GetNothingToRemoveMessage()
-    {
-        if (TryGetMessage(bindings => bindings.NothingToRemoveMessage(), out var message))
-            return message;
-
-        throw new InvalidOperationException("N# tidy nothing-to-remove message kernel rejected the values.");
-    }
+        => GetMessage(bindings => bindings.NothingToRemoveMessage());
 
     internal static string GetRemovedDependenciesMessage(int count)
     {
         var countText = count.ToString(CultureInfo.InvariantCulture);
-        if (TryGetMessage(bindings => bindings.RemovedDependenciesMessage(countText, count), out var message))
-            return message;
-
-        throw new InvalidOperationException("N# tidy removed-dependencies message kernel rejected the values.");
+        return GetMessage(bindings => bindings.RemovedDependenciesMessage(countText, count));
     }
 
     internal static string GetNoNuGetDependenciesMessage(string projectRoot)
-    {
-        if (TryGetMessage(bindings => bindings.NoNuGetDependenciesMessage(projectRoot), out var message))
-            return message;
-
-        throw new InvalidOperationException("N# tidy no-NuGet-dependencies message kernel rejected the values.");
-    }
+        => GetMessage(bindings => bindings.NoNuGetDependenciesMessage(projectRoot));
 
     internal static string GetTableHeader(string packageLabel, string statusLabel)
-    {
-        if (TryGetMessage(bindings => bindings.TableHeader(packageLabel, statusLabel), out var message))
-            return message;
-
-        throw new InvalidOperationException("N# tidy table-header kernel rejected the values.");
-    }
+        => GetMessage(bindings => bindings.TableHeader(packageLabel, statusLabel));
 
     internal static string GetTableSeparator(string packageSeparator, string statusSeparator)
-    {
-        if (TryGetMessage(bindings => bindings.TableSeparator(packageSeparator, statusSeparator), out var message))
-            return message;
-
-        throw new InvalidOperationException("N# tidy table-separator kernel rejected the values.");
-    }
+        => GetMessage(bindings => bindings.TableSeparator(packageSeparator, statusSeparator));
 
     internal static string GetTableRow(string packageLabel, string statusLabel, string reason)
-    {
-        if (TryGetMessage(bindings => bindings.TableRow(packageLabel, statusLabel, reason), out var message))
-            return message;
-
-        throw new InvalidOperationException("N# tidy table-row kernel rejected the values.");
-    }
+        => GetMessage(bindings => bindings.TableRow(packageLabel, statusLabel, reason));
 
     internal static string GetPossiblyUnusedFoundMessage(int count)
     {
         var countText = count.ToString(CultureInfo.InvariantCulture);
-        if (TryGetMessage(bindings => bindings.PossiblyUnusedFoundMessage(countText, count), out var message))
-            return message;
-
-        throw new InvalidOperationException("N# tidy possibly-unused-found message kernel rejected the values.");
+        return GetMessage(bindings => bindings.PossiblyUnusedFoundMessage(countText, count));
     }
 
     internal static string GetAllDependenciesAccountedForMessage(int unknownCount)
     {
         var unknownCountText = unknownCount.ToString(CultureInfo.InvariantCulture);
-        if (TryGetMessage(bindings => bindings.AllDependenciesAccountedForMessage(unknownCountText), out var message))
-            return message;
-
-        throw new InvalidOperationException("N# tidy accounted-for message kernel rejected the values.");
+        return GetMessage(bindings => bindings.AllDependenciesAccountedForMessage(unknownCountText));
     }
 
     internal static string GetAllDependenciesInUseMessage()
-    {
-        if (TryGetMessage(bindings => bindings.AllDependenciesInUseMessage(), out var message))
-            return message;
-
-        throw new InvalidOperationException("N# tidy all-dependencies-in-use message kernel rejected the values.");
-    }
+        => GetMessage(bindings => bindings.AllDependenciesInUseMessage());
 
     internal static string GetUnknownReasonMessage()
-    {
-        if (TryGetMessage(bindings => bindings.UnknownReasonMessage(), out var message))
-            return message;
-
-        throw new InvalidOperationException("N# tidy unknown-reason message kernel rejected the values.");
-    }
+        => GetMessage(bindings => bindings.UnknownReasonMessage());
 
     internal static string GetUsedReasonMessage(string namespacePrefix)
-    {
-        if (TryGetMessage(bindings => bindings.UsedReasonMessage(namespacePrefix), out var message))
-            return message;
-
-        throw new InvalidOperationException("N# tidy used-reason message kernel rejected the values.");
-    }
+        => GetMessage(bindings => bindings.UsedReasonMessage(namespacePrefix));
 
     internal static string GetPossiblyUnusedReasonMessage(string prefix1, string prefix2)
+        => GetMessage(bindings => bindings.PossiblyUnusedReasonMessage(prefix1, prefix2));
+
+    private static string GetMessage(Func<Bindings, string> getMessage)
     {
-        if (TryGetMessage(bindings => bindings.PossiblyUnusedReasonMessage(prefix1, prefix2), out var message))
-            return message;
-
-        throw new InvalidOperationException("N# tidy possibly-unused-reason message kernel rejected the values.");
-    }
-
-    private static bool TryGetMessage(Func<Bindings, string> getMessage, out string message)
-    {
-        message = string.Empty;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        try
-        {
-            message = getMessage(bindings);
-            return !string.IsNullOrEmpty(message);
-        }
-        catch
-        {
-            message = string.Empty;
-            return false;
-        }
+        var bindings = s_bindings.Value ?? throw new InvalidOperationException("N# tidy message kernels are unavailable.");
+        var message = getMessage(bindings);
+        return !string.IsNullOrEmpty(message)
+            ? message
+            : throw new InvalidOperationException("N# tidy message kernel returned empty output.");
     }
 
     private static Bindings? LoadBindings()
