@@ -24,19 +24,10 @@ internal static class ColumnarCompiler
         if (!ColumnarProgramInputBuilder.TryBuild(source, out var program))
             return false;
 
-        // Columnar emit is a best-effort, DECLINE-on-failure backend: it must never throw a hard
-        // error the authoritative C# fallback would not. Parity tests assert accepted programs do
-        // not decline, so this catch does not hide routed-surface regressions.
-        try
-        {
-            if (!ColumnarIlEmitter.TryEmitColumnarAssembly(assemblyName, typeName, program, out assembly))
-                return false;
-        }
-        catch
-        {
-            assembly = Array.Empty<byte>();
+        // A modeled program may still decline through TryEmitColumnarAssembly returning false. Unexpected
+        // emitter faults must surface; converting them to a decline re-enables the C# codegen fallback.
+        if (!ColumnarIlEmitter.TryEmitColumnarAssembly(assemblyName, typeName, program, out assembly))
             return false;
-        }
 
         emittedTypeName = typeName;
         methodNames = new string[program.Functions.Count];

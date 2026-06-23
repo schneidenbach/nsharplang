@@ -13524,6 +13524,18 @@ func outer(x: int): int {
     }
 
     [Fact]
+    public void ColumnarCompiler_DoesNotConvertEmitterExceptionsToDeclines()
+    {
+        // Emitter faults are not unsupported-source declines. If this returns false, production can silently
+        // fall back to the C# ILCompiler and keep old codegen ownership alive.
+        var source = "func f(): int {\n    return 1\n}\n";
+
+        var thrown = Assert.Throws<TargetInvocationException>(() =>
+            RouteColumnarProgram(source, assemblyName: "ColumnarFaultProbe", typeName: string.Empty));
+        Assert.NotNull(thrown.InnerException);
+    }
+
+    [Fact]
     public void Stage5_DogfoodAssembly_DoesNotFallbackToCSharpWhenColumnarDeclines()
     {
         // The same unsupported foreach still compiles for ordinary user code through the temporary C# fallback.
@@ -13967,7 +13979,10 @@ func outer(x: int): int {
         return result;
     }
 
-    private static (bool Ok, byte[]? Assembly, string? TypeName, string[]? MethodNames) RouteColumnarProgram(string source)
+    private static (bool Ok, byte[]? Assembly, string? TypeName, string[]? MethodNames) RouteColumnarProgram(
+        string source,
+        string assemblyName = "ColumnarProgram",
+        string typeName = "ColumnarProgram")
     {
         var compilerType = typeof(Parser).Assembly.GetType("NSharpLang.Compiler.Columnar.ColumnarCompiler")
             ?? throw new InvalidOperationException("Columnar compiler type was not emitted.");
@@ -13982,7 +13997,7 @@ func outer(x: int): int {
                 typeof(string[]).MakeByRefType(),
             })
             ?? throw new InvalidOperationException("Columnar compiler did not emit TryEmitProgram.");
-        var args = new object?[] { source, "ColumnarProgram", "ColumnarProgram", null, null, null };
+        var args = new object?[] { source, assemblyName, typeName, null, null, null };
         var ok = (bool)(method.Invoke(null, args) ?? false);
         return (ok, (byte[]?)args[3], (string?)args[4], (string[]?)args[5]);
     }
