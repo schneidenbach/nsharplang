@@ -19,16 +19,8 @@ internal static class OutputFormatterDiagnosticKernels
     [ThreadStatic]
     private static DiagnosticSeverityFilterScratch? t_diagnosticSeverityFilterScratch;
 
-    internal static bool TrySummarizeDiagnosticSeverities(
-        IReadOnlyList<DiagnosticResult> diagnostics,
-        out DiagnosticSummary summary)
+    internal static DiagnosticSummary SummarizeDiagnosticSeverities(IReadOnlyList<DiagnosticResult> diagnostics)
     {
-        summary = new DiagnosticSummary(0, 0, 0);
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
         var count = diagnostics.Count;
         var scratch = t_diagnosticSummaryScratch ??= new DiagnosticSummaryScratch();
         scratch.EnsureCapacity(count);
@@ -40,20 +32,14 @@ internal static class OutputFormatterDiagnosticKernels
                 scratch.Severities[i] = diagnostics[i].Severity ?? string.Empty;
             }
 
-            var summarized = bindings.DiagnosticSeveritySummary(scratch.Severities, count, scratch.Counts);
+            var summarized = RequiredBindings.DiagnosticSeveritySummary(scratch.Severities, count, scratch.Counts);
             if (summarized != count)
-                return false;
+                throw new InvalidOperationException("N# diagnostic severity summary kernel rejected the diagnostics.");
 
-            summary = new DiagnosticSummary(
+            return new DiagnosticSummary(
                 scratch.Counts[0],
                 scratch.Counts[1],
                 scratch.Counts[2]);
-            return true;
-        }
-        catch
-        {
-            summary = new DiagnosticSummary(0, 0, 0);
-            return false;
         }
         finally
         {
@@ -64,19 +50,10 @@ internal static class OutputFormatterDiagnosticKernels
         }
     }
 
-    internal static bool TryFilterDiagnosticSeverities(
+    internal static (int[] ResultIndices, int Count) FilterDiagnosticSeverities(
         IReadOnlyList<DiagnosticResult> diagnostics,
-        string targetSeverity,
-        out int[] resultIndices,
-        out int count)
+        string targetSeverity)
     {
-        resultIndices = Array.Empty<int>();
-        count = 0;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
         var diagnosticCount = diagnostics.Count;
         var scratch = t_diagnosticSeverityFilterScratch ??= new DiagnosticSeverityFilterScratch();
         scratch.EnsureCapacity(diagnosticCount);
@@ -84,25 +61,15 @@ internal static class OutputFormatterDiagnosticKernels
         try
         {
             var targetRank = scratch.BuildRanks(diagnostics, targetSeverity);
-            count = bindings.DiagnosticSeverityFilter(
+            var count = RequiredBindings.DiagnosticSeverityFilter(
                 scratch.SeverityRanks,
                 targetRank,
                 scratch.ResultIndices);
 
             if (count < 0 || count > diagnosticCount)
-            {
-                count = 0;
-                return false;
-            }
+                throw new InvalidOperationException("N# diagnostic severity filter kernel rejected the diagnostics.");
 
-            resultIndices = scratch.ResultIndices;
-            return true;
-        }
-        catch
-        {
-            resultIndices = Array.Empty<int>();
-            count = 0;
-            return false;
+            return (scratch.ResultIndices, count);
         }
         finally
         {

@@ -129,37 +129,27 @@ public static class OutputFormatter
         };
 
     public static DiagnosticSummary SummarizeDiagnostics(IReadOnlyList<DiagnosticResult> results)
-    {
-        if (OutputFormatterDiagnosticKernels.TrySummarizeDiagnosticSeverities(results, out var summary))
-            return summary;
-
-        throw new InvalidOperationException("N# diagnostic severity summary kernel rejected the diagnostics.");
-    }
+        => OutputFormatterDiagnosticKernels.SummarizeDiagnosticSeverities(results);
 
     public static List<DiagnosticResult> FilterDiagnosticsBySeverity(
         IReadOnlyList<DiagnosticResult> diagnostics,
         string severity)
     {
-        if (OutputFormatterDiagnosticKernels.TryFilterDiagnosticSeverities(
+        var (resultIndices, resultCount) = OutputFormatterDiagnosticKernels.FilterDiagnosticSeverities(
             diagnostics,
-            severity,
-            out var resultIndices,
-            out var resultCount))
+            severity);
+
+        var results = new List<DiagnosticResult>(resultCount);
+        for (var i = 0; i < resultCount; i++)
         {
-            var results = new List<DiagnosticResult>(resultCount);
-            for (var i = 0; i < resultCount; i++)
-            {
-                var diagnosticIndex = resultIndices[i];
-                if (diagnosticIndex < 0 || diagnosticIndex >= diagnostics.Count)
-                    throw new InvalidOperationException("N# diagnostic severity filter kernel returned an invalid index.");
+            var diagnosticIndex = resultIndices[i];
+            if (diagnosticIndex < 0 || diagnosticIndex >= diagnostics.Count)
+                throw new InvalidOperationException("N# diagnostic severity filter kernel returned an invalid index.");
 
-                results.Add(diagnostics[diagnosticIndex]);
-            }
-
-            return results;
+            results.Add(diagnostics[diagnosticIndex]);
         }
 
-        throw new InvalidOperationException("N# diagnostic severity filter kernel rejected the diagnostics.");
+        return results;
     }
 
     public static List<DiagnosticResult> DeduplicateAndSortDiagnostics(IReadOnlyList<DiagnosticResult> diagnostics)

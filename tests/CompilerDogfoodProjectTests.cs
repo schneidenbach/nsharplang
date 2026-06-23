@@ -15089,16 +15089,14 @@ func documented(): int {
         Assert.Null(unknownName);
 
         var severityDiagnostics = BuildDiagnosticSeveritySummaryDiagnostics();
-        Assert.True(OutputFormatterDiagnosticKernels.TrySummarizeDiagnosticSeverities(severityDiagnostics, out var summary));
+        var summary = OutputFormatterDiagnosticKernels.SummarizeDiagnosticSeverities(severityDiagnostics);
         Assert.Equal(2, summary.Errors);
         Assert.Equal(1, summary.Warnings);
         Assert.Equal(2, summary.Info);
 
-        Assert.True(OutputFormatterDiagnosticKernels.TryFilterDiagnosticSeverities(
+        var (severityFilterIndices, severityFilterCount) = OutputFormatterDiagnosticKernels.FilterDiagnosticSeverities(
             severityDiagnostics,
-            "ERROR",
-            out var severityFilterIndices,
-            out var severityFilterCount));
+            "ERROR");
         Assert.Equal(new[] { 0, 5 }, severityFilterIndices.Take(severityFilterCount).ToArray());
 
         var shadowDiagnostics = BuildDiagnosticShadowSuppressionDiagnostics();
