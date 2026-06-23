@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 
 namespace NSharpLang.Compiler.CodeIntelligence;
 
@@ -13,22 +12,13 @@ internal static class CodeIntelligenceResultKernels
     [ThreadStatic]
     private static ReferenceDeduplicationScratch? t_referenceDeduplicationScratch;
 
-    internal static bool TrySuppressLintShadowingDiagnostics(
+    internal static (int[] ResultIndices, int Count) SuppressLintShadowingDiagnostics(
         IReadOnlyList<DiagnosticResult> diagnostics,
-        IReadOnlyList<string> shadowedFiles,
-        out int[] resultIndices,
-        out int count)
+        IReadOnlyList<string> shadowedFiles)
     {
-        resultIndices = Array.Empty<int>();
-        count = 0;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
         var diagnosticCount = diagnostics.Count;
         if (diagnosticCount == 0)
-            return true;
+            return (Array.Empty<int>(), 0);
 
         var scratch = t_diagnosticShadowSuppressionScratch ??= new DiagnosticShadowSuppressionScratch();
         scratch.EnsureCapacity(diagnosticCount, shadowedFiles.Count);
@@ -67,7 +57,7 @@ internal static class CodeIntelligenceResultKernels
                 }
             }
 
-            count = bindings.DiagnosticShadowSuppression(
+            var count = RequiredBindings.DiagnosticShadowSuppression(
                 scratch.CodeIds,
                 scratch.FileRanks,
                 targetCodeId,
@@ -75,19 +65,9 @@ internal static class CodeIntelligenceResultKernels
                 scratch.ResultIndices);
 
             if (count < 0 || count > diagnosticCount)
-            {
-                count = 0;
-                return false;
-            }
+                throw new InvalidOperationException("N# lint shadow suppression kernel rejected the diagnostics.");
 
-            resultIndices = scratch.ResultIndices;
-            return true;
-        }
-        catch
-        {
-            resultIndices = Array.Empty<int>();
-            count = 0;
-            return false;
+            return (scratch.ResultIndices, count);
         }
         finally
         {
@@ -96,21 +76,12 @@ internal static class CodeIntelligenceResultKernels
         }
     }
 
-    internal static bool TryDeduplicateDiagnostics(
-        IReadOnlyList<DiagnosticResult> diagnostics,
-        out int[] resultIndices,
-        out int count)
+    internal static (int[] ResultIndices, int Count) DeduplicateDiagnostics(
+        IReadOnlyList<DiagnosticResult> diagnostics)
     {
-        resultIndices = Array.Empty<int>();
-        count = 0;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
         var diagnosticCount = diagnostics.Count;
         if (diagnosticCount == 0)
-            return true;
+            return (Array.Empty<int>(), 0);
 
         var scratch = t_diagnosticDeduplicationScratch ??= new DiagnosticDeduplicationScratch();
         scratch.EnsureCapacity(diagnosticCount);
@@ -135,7 +106,7 @@ internal static class CodeIntelligenceResultKernels
                 scratch.FileRanks[i] = scratch.GetFileRank(scratch.Files[i]);
             }
 
-            count = bindings.DiagnosticDeduplicateCompact(
+            var count = RequiredBindings.DiagnosticDeduplicateCompact(
                 scratch.CodeIds,
                 scratch.FileRanks,
                 scratch.LineNumbers,
@@ -145,19 +116,9 @@ internal static class CodeIntelligenceResultKernels
                 scratch.ResultIndices);
 
             if (count < 0 || count > diagnosticCount)
-            {
-                count = 0;
-                return false;
-            }
+                throw new InvalidOperationException("N# diagnostic deduplication kernel rejected the diagnostics.");
 
-            resultIndices = scratch.ResultIndices;
-            return true;
-        }
-        catch
-        {
-            resultIndices = Array.Empty<int>();
-            count = 0;
-            return false;
+            return (scratch.ResultIndices, count);
         }
         finally
         {
@@ -166,21 +127,12 @@ internal static class CodeIntelligenceResultKernels
         }
     }
 
-    internal static bool TryDeduplicateDiagnosticsPreservingOrder(
-        IReadOnlyList<DiagnosticResult> diagnostics,
-        out int[] resultIndices,
-        out int count)
+    internal static (int[] ResultIndices, int Count) DeduplicateDiagnosticsPreservingOrder(
+        IReadOnlyList<DiagnosticResult> diagnostics)
     {
-        resultIndices = Array.Empty<int>();
-        count = 0;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
         var diagnosticCount = diagnostics.Count;
         if (diagnosticCount == 0)
-            return true;
+            return (Array.Empty<int>(), 0);
 
         var scratch = t_diagnosticDeduplicationScratch ??= new DiagnosticDeduplicationScratch();
         scratch.EnsureCapacity(diagnosticCount);
@@ -198,7 +150,7 @@ internal static class CodeIntelligenceResultKernels
                 scratch.MessageIds[i] = scratch.GetMessageId(diagnostic.Message);
             }
 
-            count = bindings.DiagnosticDeduplicateStable(
+            var count = RequiredBindings.DiagnosticDeduplicateStable(
                 scratch.CodeIds,
                 scratch.FileRanks,
                 scratch.LineNumbers,
@@ -208,19 +160,9 @@ internal static class CodeIntelligenceResultKernels
                 scratch.ResultIndices);
 
             if (count < 0 || count > diagnosticCount)
-            {
-                count = 0;
-                return false;
-            }
+                throw new InvalidOperationException("N# diagnostic deduplication kernel rejected the diagnostics.");
 
-            resultIndices = scratch.ResultIndices;
-            return true;
-        }
-        catch
-        {
-            resultIndices = Array.Empty<int>();
-            count = 0;
-            return false;
+            return (scratch.ResultIndices, count);
         }
         finally
         {
@@ -228,21 +170,12 @@ internal static class CodeIntelligenceResultKernels
         }
     }
 
-    internal static bool TryDeduplicateReferences(
-        IReadOnlyList<ReferenceResult> references,
-        out int[] resultIndices,
-        out int count)
+    internal static (int[] ResultIndices, int Count) DeduplicateReferences(
+        IReadOnlyList<ReferenceResult> references)
     {
-        resultIndices = Array.Empty<int>();
-        count = 0;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
         var referenceCount = references.Count;
         if (referenceCount == 0)
-            return true;
+            return (Array.Empty<int>(), 0);
 
         var scratch = t_referenceDeduplicationScratch ??= new ReferenceDeduplicationScratch();
         scratch.EnsureCapacity(referenceCount);
@@ -265,7 +198,7 @@ internal static class CodeIntelligenceResultKernels
                 scratch.FileRanks[i] = scratch.GetFileRank(scratch.Files[i]);
             }
 
-            count = bindings.ReferenceDeduplicateCompact(
+            var count = RequiredBindings.ReferenceDeduplicateCompact(
                 scratch.FileRanks,
                 scratch.LineNumbers,
                 scratch.Columns,
@@ -273,19 +206,9 @@ internal static class CodeIntelligenceResultKernels
                 scratch.ResultIndices);
 
             if (count < 0 || count > referenceCount)
-            {
-                count = 0;
-                return false;
-            }
+                throw new InvalidOperationException("N# reference deduplication kernel rejected the references.");
 
-            resultIndices = scratch.ResultIndices;
-            return true;
-        }
-        catch
-        {
-            resultIndices = Array.Empty<int>();
-            count = 0;
-            return false;
+            return (scratch.ResultIndices, count);
         }
         finally
         {
@@ -337,6 +260,9 @@ internal static class CodeIntelligenceResultKernels
         DiagnosticDeduplicateCompactInto DiagnosticDeduplicateCompact,
         DiagnosticDeduplicateCompactInto DiagnosticDeduplicateStable,
         ReferenceDeduplicateCompactInto ReferenceDeduplicateCompact);
+
+    private static Bindings RequiredBindings
+        => s_bindings.Value ?? throw new InvalidOperationException("N# code intelligence result kernels are unavailable.");
 
     private sealed class DiagnosticShadowSuppressionScratch
     {

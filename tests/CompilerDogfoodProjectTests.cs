@@ -14940,17 +14940,13 @@ func documented(): int {
                 Message = "Undefined variable 'value'"
             }
         };
-        Assert.True(CodeIntelligenceResultKernels.TryDeduplicateDiagnostics(
-            deduplicationDiagnostics,
-            out var deduplicationIndices,
-            out var deduplicationCount));
+        var (deduplicationIndices, deduplicationCount) =
+            CodeIntelligenceResultKernels.DeduplicateDiagnostics(deduplicationDiagnostics);
         Assert.Equal(3, deduplicationCount);
         Assert.Equal(new[] { 3, 1, 0 }, deduplicationIndices.Take(3));
 
-        Assert.True(CodeIntelligenceResultKernels.TryDeduplicateDiagnosticsPreservingOrder(
-            deduplicationDiagnostics,
-            out var stableDeduplicationIndices,
-            out var stableDeduplicationCount));
+        var (stableDeduplicationIndices, stableDeduplicationCount) =
+            CodeIntelligenceResultKernels.DeduplicateDiagnosticsPreservingOrder(deduplicationDiagnostics);
         Assert.Equal(3, stableDeduplicationCount);
         Assert.Equal(new[] { 0, 1, 3 }, stableDeduplicationIndices.Take(3));
 
@@ -14962,10 +14958,8 @@ func documented(): int {
             new("A.nl", 2, 1, 5, "earlier column sorts first", IsDefinition: false),
             new("A.nl", 2, 3, 5, "duplicate A reference", IsDefinition: false)
         };
-        Assert.True(CodeIntelligenceResultKernels.TryDeduplicateReferences(
-            references,
-            out var referenceDeduplicationIndices,
-            out var referenceDeduplicationCount));
+        var (referenceDeduplicationIndices, referenceDeduplicationCount) =
+            CodeIntelligenceResultKernels.DeduplicateReferences(references);
         Assert.Equal(3, referenceDeduplicationCount);
         Assert.Equal(new[] { 3, 1, 0 }, referenceDeduplicationIndices.Take(3));
 
@@ -15101,11 +15095,8 @@ func documented(): int {
 
         var shadowDiagnostics = BuildDiagnosticShadowSuppressionDiagnostics();
         var shadowedFiles = new[] { "SRC/a.nl", "src/c.nl", "src/c.nl" };
-        Assert.True(CodeIntelligenceResultKernels.TrySuppressLintShadowingDiagnostics(
-            shadowDiagnostics,
-            shadowedFiles,
-            out var shadowIndices,
-            out var shadowCount));
+        var (shadowIndices, shadowCount) =
+            CodeIntelligenceResultKernels.SuppressLintShadowingDiagnostics(shadowDiagnostics, shadowedFiles);
         var expectedShadowIndices = ExpectedDiagnosticShadowSuppressionIndices(shadowDiagnostics, shadowedFiles);
         Assert.Equal(expectedShadowIndices, shadowIndices.Take(shadowCount).ToArray());
 

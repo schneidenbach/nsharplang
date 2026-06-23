@@ -302,26 +302,20 @@ public class CodeIntelligenceService
         List<DiagnosticResult> lintDiagnostics,
         IReadOnlyList<string> filesWithCompilerShadowingErrors)
     {
-        if (CodeIntelligenceResultKernels.TrySuppressLintShadowingDiagnostics(
-                lintDiagnostics,
-                filesWithCompilerShadowingErrors,
-                out var resultIndices,
-                out var resultCount))
+        var (resultIndices, resultCount) = CodeIntelligenceResultKernels.SuppressLintShadowingDiagnostics(
+            lintDiagnostics,
+            filesWithCompilerShadowingErrors);
+        var filtered = new List<DiagnosticResult>(resultCount);
+        for (var i = 0; i < resultCount; i++)
         {
-            var filtered = new List<DiagnosticResult>(resultCount);
-            for (var i = 0; i < resultCount; i++)
-            {
-                var diagnosticIndex = resultIndices[i];
-                if (diagnosticIndex < 0 || diagnosticIndex >= lintDiagnostics.Count)
-                    throw new InvalidOperationException("N# lint shadow suppression kernel returned an invalid index.");
+            var diagnosticIndex = resultIndices[i];
+            if (diagnosticIndex < 0 || diagnosticIndex >= lintDiagnostics.Count)
+                throw new InvalidOperationException("N# lint shadow suppression kernel returned an invalid index.");
 
-                filtered.Add(lintDiagnostics[diagnosticIndex]);
-            }
-
-            return filtered;
+            filtered.Add(lintDiagnostics[diagnosticIndex]);
         }
 
-        throw new InvalidOperationException("N# lint shadow suppression kernel rejected the diagnostics.");
+        return filtered;
     }
 
     public static DiagnosticResult ToDiagnosticResult(
@@ -430,25 +424,18 @@ public class CodeIntelligenceService
 
     private static List<DiagnosticResult> DeduplicateDiagnostics(List<DiagnosticResult> diagnostics)
     {
-        if (CodeIntelligenceResultKernels.TryDeduplicateDiagnosticsPreservingOrder(
-                diagnostics,
-                out var resultIndices,
-                out var resultCount))
+        var (resultIndices, resultCount) = CodeIntelligenceResultKernels.DeduplicateDiagnosticsPreservingOrder(diagnostics);
+        var deduplicated = new List<DiagnosticResult>(resultCount);
+        for (var i = 0; i < resultCount; i++)
         {
-            var deduplicated = new List<DiagnosticResult>(resultCount);
-            for (var i = 0; i < resultCount; i++)
-            {
-                var diagnosticIndex = resultIndices[i];
-                if (diagnosticIndex < 0 || diagnosticIndex >= diagnostics.Count)
-                    throw new InvalidOperationException("N# diagnostic deduplication kernel returned an invalid index.");
+            var diagnosticIndex = resultIndices[i];
+            if (diagnosticIndex < 0 || diagnosticIndex >= diagnostics.Count)
+                throw new InvalidOperationException("N# diagnostic deduplication kernel returned an invalid index.");
 
-                deduplicated.Add(diagnostics[diagnosticIndex]);
-            }
-
-            return deduplicated;
+            deduplicated.Add(diagnostics[diagnosticIndex]);
         }
 
-        throw new InvalidOperationException("N# diagnostic deduplication kernel rejected the diagnostics.");
+        return deduplicated;
     }
 
     // ── Navigation Queries ──────────────────────────────────────────────
@@ -633,25 +620,18 @@ public class CodeIntelligenceService
 
     private static List<ReferenceResult> DeduplicateAndSortReferenceResults(IReadOnlyList<ReferenceResult> results)
     {
-        if (CodeIntelligenceResultKernels.TryDeduplicateReferences(
-                results,
-                out var resultIndices,
-                out var resultCount))
+        var (resultIndices, resultCount) = CodeIntelligenceResultKernels.DeduplicateReferences(results);
+        var deduplicated = new List<ReferenceResult>(resultCount);
+        for (var i = 0; i < resultCount; i++)
         {
-            var deduplicated = new List<ReferenceResult>(resultCount);
-            for (var i = 0; i < resultCount; i++)
-            {
-                var referenceIndex = resultIndices[i];
-                if (referenceIndex < 0 || referenceIndex >= results.Count)
-                    throw new InvalidOperationException("N# reference deduplication kernel returned an invalid index.");
+            var referenceIndex = resultIndices[i];
+            if (referenceIndex < 0 || referenceIndex >= results.Count)
+                throw new InvalidOperationException("N# reference deduplication kernel returned an invalid index.");
 
-                deduplicated.Add(results[referenceIndex]);
-            }
-
-            return deduplicated;
+            deduplicated.Add(results[referenceIndex]);
         }
 
-        throw new InvalidOperationException("N# reference deduplication kernel rejected the references.");
+        return deduplicated;
     }
 
     // ── Hover Query ─────────────────────────────────────────────────────

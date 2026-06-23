@@ -154,25 +154,18 @@ public static class OutputFormatter
 
     public static List<DiagnosticResult> DeduplicateAndSortDiagnostics(IReadOnlyList<DiagnosticResult> diagnostics)
     {
-        if (CodeIntelligenceResultKernels.TryDeduplicateDiagnostics(
-            diagnostics,
-            out var resultIndices,
-            out var resultCount))
+        var (resultIndices, resultCount) = CodeIntelligenceResultKernels.DeduplicateDiagnostics(diagnostics);
+        var results = new List<DiagnosticResult>(resultCount);
+        for (var i = 0; i < resultCount; i++)
         {
-            var results = new List<DiagnosticResult>(resultCount);
-            for (var i = 0; i < resultCount; i++)
-            {
-                var diagnosticIndex = resultIndices[i];
-                if (diagnosticIndex < 0 || diagnosticIndex >= diagnostics.Count)
-                    throw new InvalidOperationException("N# diagnostic deduplication kernel returned an invalid index.");
+            var diagnosticIndex = resultIndices[i];
+            if (diagnosticIndex < 0 || diagnosticIndex >= diagnostics.Count)
+                throw new InvalidOperationException("N# diagnostic deduplication kernel returned an invalid index.");
 
-                results.Add(diagnostics[diagnosticIndex]);
-            }
-
-            return results;
+            results.Add(diagnostics[diagnosticIndex]);
         }
 
-        throw new InvalidOperationException("N# diagnostic deduplication kernel rejected the diagnostics.");
+        return results;
     }
 
     // ── JSON Output ────────────────────────────────────────────────────
