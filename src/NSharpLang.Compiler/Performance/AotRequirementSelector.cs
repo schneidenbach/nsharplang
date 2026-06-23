@@ -1,26 +1,18 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 
 namespace NSharpLang.Compiler.Performance;
 
 internal static class AotRequirementSelector
 {
-
     [ThreadStatic]
     private static Scratch? t_scratch;
 
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
 
-    internal static bool TryBuildRequirements(
-        IReadOnlyList<AotBlocker> blockers,
-        out AotRequirements requirements)
+    internal static AotRequirements BuildRequirements(IReadOnlyList<AotBlocker> blockers)
     {
-        requirements = AotRequirements.Empty;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
+        var bindings = RequiredBindings;
 
         var blockerCount = blockers.Count;
         var scratch = t_scratch ??= new Scratch();
@@ -72,7 +64,7 @@ internal static class AotRequirementSelector
                 scratch.ResultConstructRanks);
 
             if (groupCount < 0 || groupCount > scratch.UniqueDeclarationCount)
-                return false;
+                throw new InvalidOperationException("N# AOT requirement selector kernel returned an invalid group count.");
 
             var map = new Dictionary<string, AotRequirements.Annotation>(
                 groupCount,
@@ -81,7 +73,7 @@ internal static class AotRequirementSelector
             {
                 var declarationRank = scratch.ResultDeclarationRanks[groupIndex];
                 if (declarationRank <= 0 || declarationRank > scratch.UniqueDeclarationCount)
-                    return false;
+                    throw new InvalidOperationException("N# AOT requirement selector kernel returned an invalid declaration rank.");
 
                 var constructStart = scratch.ResultConstructStarts[groupIndex];
                 var constructCount = scratch.ResultConstructCounts[groupIndex];
@@ -89,7 +81,7 @@ internal static class AotRequirementSelector
                     || constructCount < 0
                     || constructStart > scratch.ResultConstructRanks.Length - constructCount)
                 {
-                    return false;
+                    throw new InvalidOperationException("N# AOT requirement selector kernel returned an invalid construct range.");
                 }
 
                 var constructs = new string[constructCount];
@@ -97,7 +89,7 @@ internal static class AotRequirementSelector
                 {
                     var constructRank = scratch.ResultConstructRanks[constructStart + offset];
                     if (constructRank <= 0 || constructRank > scratch.UniqueConstructCount)
-                        return false;
+                        throw new InvalidOperationException("N# AOT requirement selector kernel returned an invalid construct rank.");
 
                     constructs[offset] = scratch.UniqueConstructs[constructRank - 1];
                 }
@@ -109,13 +101,7 @@ internal static class AotRequirementSelector
                     AotRequirements.CreateAnnotationMessage(constructs));
             }
 
-            requirements = AotRequirements.FromMap(map);
-            return true;
-        }
-        catch
-        {
-            requirements = AotRequirements.Empty;
-            return false;
+            return AotRequirements.FromMap(map);
         }
         finally
         {
@@ -137,6 +123,10 @@ internal static class AotRequirementSelector
             AotSafetyKind.ExpressionTreeRequired => 3,
             _ => 0
         };
+
+    private static Bindings RequiredBindings =>
+        s_bindings.Value
+        ?? throw new InvalidOperationException("N# AOT requirement selector kernel is unavailable.");
 
     private delegate int AotRequirementGroupsInto(
         int[] declarationRanks,

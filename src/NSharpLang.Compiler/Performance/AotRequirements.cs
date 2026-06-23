@@ -55,10 +55,7 @@ public sealed class AotRequirements
         if (blockerList.Count == 0)
             return Empty;
 
-        if (AotRequirementSelector.TryBuildRequirements(blockerList, out var dogfoodRequirements))
-            return dogfoodRequirements;
-
-        throw new InvalidOperationException("N# AOT requirement selector kernels are required.");
+        return AotRequirementSelector.BuildRequirements(blockerList);
     }
 
     internal static string CreateAnnotationMessage(IEnumerable<string> constructs) =>
