@@ -15851,6 +15851,11 @@ class OtherZetaType {
             typeof(DateTime),
             typeof(string)
         }, orderedTypes);
+
+        Assert.Throws<InvalidOperationException>(() => ILTypeTableSelector.TryOrderTypesByDescendingKeyDotCount(
+            types,
+            _ => throw new InvalidOperationException("type key extraction failed"),
+            out _));
     }
 
     [Fact]

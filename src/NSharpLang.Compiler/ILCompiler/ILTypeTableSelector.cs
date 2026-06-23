@@ -217,11 +217,6 @@ internal static class ILTypeTableSelector
             orderedTypes = result;
             return true;
         }
-        catch
-        {
-            orderedTypes = [];
-            return false;
-        }
         finally
         {
             scratch.ClearValues();
