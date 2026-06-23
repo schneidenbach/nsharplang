@@ -82,96 +82,58 @@ internal static class QueryCommandKernels
 
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
 
-    internal static bool TryGetDaemonParameterSummary(string[] args, out QueryDaemonParameterSummary summary)
+    internal static QueryDaemonParameterSummary GetDaemonParameterSummary(string[] args)
     {
-        summary = default;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
         var resultIndices = t_resultIndices ??= new int[7];
-        try
-        {
-            var code = bindings.QueryDaemonParameterSummary(args, resultIndices);
-            if (code != 0)
-                return false;
+        var code = RequiredBindings.QueryDaemonParameterSummary(args, resultIndices);
+        if (code != 0)
+            throw new InvalidOperationException("N# query daemon parameter kernel rejected the arguments.");
 
-            if (!TryGetOptionalArg(args, resultIndices[0], out var file)
-                || !TryGetOptionalArg(args, resultIndices[1], out var pos)
-                || !TryGetOptionalArg(args, resultIndices[2], out var name)
-                || !TryGetOptionalArg(args, resultIndices[3], out var kind)
-                || !TryGetOptionalArg(args, resultIndices[4], out var severity))
-            {
-                summary = default;
-                return false;
-            }
-
-            summary = new QueryDaemonParameterSummary(
-                file,
-                pos,
-                name,
-                kind,
-                severity,
-                resultIndices[5] != 0,
-                resultIndices[6] != 0);
-            return true;
-        }
-        catch
+        if (!TryGetOptionalArg(args, resultIndices[0], out var file)
+            || !TryGetOptionalArg(args, resultIndices[1], out var pos)
+            || !TryGetOptionalArg(args, resultIndices[2], out var name)
+            || !TryGetOptionalArg(args, resultIndices[3], out var kind)
+            || !TryGetOptionalArg(args, resultIndices[4], out var severity))
         {
-            summary = default;
-            return false;
+            throw new InvalidOperationException("N# query daemon parameter kernel rejected the arguments.");
         }
+
+        return new QueryDaemonParameterSummary(
+            file,
+            pos,
+            name,
+            kind,
+            severity,
+            resultIndices[5] != 0,
+            resultIndices[6] != 0);
     }
 
-    internal static bool TryGetCommandOptionSummary(string[] args, out QueryCommandOptionSummary summary)
+    internal static QueryCommandOptionSummary GetCommandOptionSummary(string[] args)
     {
-        summary = default;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
         var resultIndices = t_commandOptionIndices ??= new int[5];
-        try
-        {
-            var code = bindings.QueryCommandOptionSummary(args, resultIndices);
-            if (code != 0)
-                return false;
+        var code = RequiredBindings.QueryCommandOptionSummary(args, resultIndices);
+        if (code != 0)
+            throw new InvalidOperationException("N# query command option kernel rejected the arguments.");
 
-            if (!TryGetOptionalArg(args, resultIndices[0], out var filter)
-                || !TryGetOptionalArg(args, resultIndices[1], out var function)
-                || !TryGetOptionalArg(args, resultIndices[2], out var limit)
-                || !TryGetOptionalArg(args, resultIndices[3], out var requests)
-                || !TryGetOptionalArg(args, resultIndices[4], out var leadingOperand))
-            {
-                summary = default;
-                return false;
-            }
-
-            summary = new QueryCommandOptionSummary(
-                filter,
-                function,
-                limit,
-                requests,
-                leadingOperand);
-            return true;
-        }
-        catch
+        if (!TryGetOptionalArg(args, resultIndices[0], out var filter)
+            || !TryGetOptionalArg(args, resultIndices[1], out var function)
+            || !TryGetOptionalArg(args, resultIndices[2], out var limit)
+            || !TryGetOptionalArg(args, resultIndices[3], out var requests)
+            || !TryGetOptionalArg(args, resultIndices[4], out var leadingOperand))
         {
-            summary = default;
-            return false;
+            throw new InvalidOperationException("N# query command option kernel rejected the arguments.");
         }
+
+        return new QueryCommandOptionSummary(
+            filter,
+            function,
+            limit,
+            requests,
+            leadingOperand);
     }
 
-    internal static bool TryGetTopLevelOptionSummary(string[] args, out QueryTopLevelOptionSummary summary)
+    internal static QueryTopLevelOptionSummary GetTopLevelOptionSummary(string[] args)
     {
-        summary = default;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
         var resultIndices = t_topLevelOptionIndices ??= new int[7];
         var remainingIndices = t_topLevelRemainingIndices;
         if (remainingIndices == null || remainingIndices.Length < args.Length)
@@ -180,50 +142,37 @@ internal static class QueryCommandKernels
             t_topLevelRemainingIndices = remainingIndices;
         }
 
-        try
+        var remainingCount = RequiredBindings.QueryTopLevelOptionSummary(args, resultIndices, remainingIndices);
+        if (remainingCount < 0 || remainingCount > args.Length)
+            throw new InvalidOperationException("N# query top-level option kernel rejected the arguments.");
+
+        if (!TryGetOptionalArg(args, resultIndices[0], out var subcommand)
+            || !TryGetOptionalArg(args, resultIndices[1], out var projectDir)
+            || !TryGetOptionalArg(args, resultIndices[2], out var file)
+            || !TryGetOptionalArg(args, resultIndices[3], out var pos))
         {
-            var remainingCount = bindings.QueryTopLevelOptionSummary(args, resultIndices, remainingIndices);
-            if (remainingCount < 0 || remainingCount > args.Length)
-                return false;
-
-            if (!TryGetOptionalArg(args, resultIndices[0], out var subcommand)
-                || !TryGetOptionalArg(args, resultIndices[1], out var projectDir)
-                || !TryGetOptionalArg(args, resultIndices[2], out var file)
-                || !TryGetOptionalArg(args, resultIndices[3], out var pos))
-            {
-                summary = default;
-                return false;
-            }
-
-            var remainingArgs = new string[remainingCount];
-            for (var i = 0; i < remainingCount; i++)
-            {
-                var index = remainingIndices[i];
-                if (index < 0 || index >= args.Length)
-                {
-                    summary = default;
-                    return false;
-                }
-
-                remainingArgs[i] = args[index];
-            }
-
-            summary = new QueryTopLevelOptionSummary(
-                subcommand,
-                projectDir,
-                file,
-                pos,
-                resultIndices[4] != 0,
-                resultIndices[5] != 0,
-                resultIndices[6] != 0,
-                remainingArgs);
-            return true;
+            throw new InvalidOperationException("N# query top-level option kernel rejected the arguments.");
         }
-        catch
+
+        var remainingArgs = new string[remainingCount];
+        for (var i = 0; i < remainingCount; i++)
         {
-            summary = default;
-            return false;
+            var index = remainingIndices[i];
+            if (index < 0 || index >= args.Length)
+                throw new InvalidOperationException("N# query top-level option kernel rejected the arguments.");
+
+            remainingArgs[i] = args[index];
         }
+
+        return new QueryTopLevelOptionSummary(
+            subcommand,
+            projectDir,
+            file,
+            pos,
+            resultIndices[4] != 0,
+            resultIndices[5] != 0,
+            resultIndices[6] != 0,
+            remainingArgs);
     }
 
     internal static bool TryParsePosition(string position, out bool parsed, out int line, out int column)

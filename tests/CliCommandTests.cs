@@ -1927,7 +1927,7 @@ func Main() {
             "--clusters"
         };
 
-        Assert.True(QueryCommandKernels.TryGetDaemonParameterSummary(args, out var dogfoodSummary));
+        var dogfoodSummary = QueryCommandKernels.GetDaemonParameterSummary(args);
         Assert.Equal("Program.nl", dogfoodSummary.File);
         Assert.Equal("12:4", dogfoodSummary.Pos);
         Assert.Equal("Main", dogfoodSummary.Name);
@@ -1966,7 +1966,7 @@ func Main() {
             "batch.json"
         };
 
-        Assert.True(QueryCommandKernels.TryGetCommandOptionSummary(args, out var dogfoodSummary));
+        var dogfoodSummary = QueryCommandKernels.GetCommandOptionSummary(args);
         Assert.Equal("*Service", dogfoodSummary.Filter);
         Assert.Equal("Main", dogfoodSummary.Function);
         Assert.Equal("25", dogfoodSummary.Limit);
@@ -2011,7 +2011,7 @@ func Main() {
             "other"
         };
 
-        Assert.True(QueryCommandKernels.TryGetTopLevelOptionSummary(args, out var dogfoodSummary));
+        var dogfoodSummary = QueryCommandKernels.GetTopLevelOptionSummary(args);
         Assert.Equal("symbols", dogfoodSummary.Subcommand);
         Assert.Equal("other", dogfoodSummary.ProjectDir);
         Assert.Equal("Program.nl", dogfoodSummary.File);

@@ -996,12 +996,7 @@ public static class QueryCommand
     }
 
     internal static QueryTopLevelOptionSummary GetTopLevelOptionSummary(string[] args)
-    {
-        if (QueryCommandKernels.TryGetTopLevelOptionSummary(args, out var summary))
-            return summary;
-
-        throw new InvalidOperationException("N# query top-level option kernel rejected the arguments.");
-    }
+        => QueryCommandKernels.GetTopLevelOptionSummary(args);
 
     private static bool TryParsePosition(string posStr, out int line, out int col)
     {
@@ -1123,20 +1118,10 @@ public static class QueryCommand
     }
 
     internal static QueryDaemonParameterSummary GetDaemonParameterSummary(string[] args)
-    {
-        if (QueryCommandKernels.TryGetDaemonParameterSummary(args, out var summary))
-            return summary;
-
-        throw new InvalidOperationException("N# query daemon parameter kernel rejected the arguments.");
-    }
+        => QueryCommandKernels.GetDaemonParameterSummary(args);
 
     internal static QueryCommandOptionSummary GetCommandOptionSummary(string[] args)
-    {
-        if (QueryCommandKernels.TryGetCommandOptionSummary(args, out var summary))
-            return summary;
-
-        throw new InvalidOperationException("N# query command option kernel rejected the arguments.");
-    }
+        => QueryCommandKernels.GetCommandOptionSummary(args);
 
     private static bool TryExecuteViaDaemon(QueryOptions options, string method,
         Dictionary<string, object?> parameters, out int exitCode)
