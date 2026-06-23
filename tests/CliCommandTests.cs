@@ -3207,55 +3207,44 @@ func Main() {
         Assert.True(RemoveCommand.GetArgumentSummary(new[] { "help" }).ShowHelp);
         Assert.Equal("help", RemoveCommand.GetArgumentSummary(new[] { "help" }).PackageOperand);
 
-        Assert.True(RemoveCommandKernels.TryGetDependencyLineAction(
+        var shorthandVersion = RemoveCommandKernels.GetDependencyLineAction(
             "- Newtonsoft.Json@13.0.3",
-            "Newtonsoft.Json",
-            out var shorthandVersion));
+            "Newtonsoft.Json");
         Assert.Equal(RemoveDependencyLineAction.RemoveSingleLine, shorthandVersion);
 
-        Assert.True(RemoveCommandKernels.TryGetDependencyLineAction(
+        var shorthandPackage = RemoveCommandKernels.GetDependencyLineAction(
             "  - serilog",
-            "Serilog",
-            out var shorthandPackage));
+            "Serilog");
         Assert.Equal(RemoveDependencyLineAction.RemoveSingleLine, shorthandPackage);
 
-        Assert.True(RemoveCommandKernels.TryGetDependencyLineAction(
+        var nugetMapping = RemoveCommandKernels.GetDependencyLineAction(
             "- nuget: YamlDotNet",
-            "YamlDotNet",
-            out var nugetMapping));
+            "YamlDotNet");
         Assert.Equal(RemoveDependencyLineAction.RemoveMappingBlock, nugetMapping);
 
-        Assert.True(RemoveCommandKernels.TryGetDependencyLineAction(
+        var frameworkMapping = RemoveCommandKernels.GetDependencyLineAction(
             "- framework: Microsoft.AspNetCore.App",
-            "Microsoft.AspNetCore.App",
-            out var frameworkMapping));
+            "Microsoft.AspNetCore.App");
         Assert.Equal(RemoveDependencyLineAction.RemoveMappingBlock, frameworkMapping);
 
-        Assert.True(RemoveCommandKernels.TryGetDependencyLineAction(
+        var keep = RemoveCommandKernels.GetDependencyLineAction(
             "- package: Other",
-            "Serilog",
-            out var keep));
+            "Serilog");
         Assert.Equal(RemoveDependencyLineAction.Keep, keep);
 
-        Assert.True(RemoveCommandKernels.TryShouldStopDependencyContinuationLine(
-            "    version: 1.0.0",
-            out var stopIndented));
+        var stopIndented = RemoveCommandKernels.ShouldStopDependencyContinuationLine("    version: 1.0.0");
         Assert.False(stopIndented);
 
-        Assert.True(RemoveCommandKernels.TryShouldStopDependencyContinuationLine(
-            "- nuget: Other",
-            out var stopNextItem));
+        var stopNextItem = RemoveCommandKernels.ShouldStopDependencyContinuationLine("- nuget: Other");
         Assert.True(stopNextItem);
 
-        Assert.True(RemoveCommandKernels.TryShouldStopDependencyContinuationLine(
-            "dependencies:",
-            out var stopTopLevel));
+        var stopTopLevel = RemoveCommandKernels.ShouldStopDependencyContinuationLine("dependencies:");
         Assert.True(stopTopLevel);
 
         Assert.Equal(
             RemoveDependencyLineAction.RemoveMappingBlock,
-            RemoveCommand.GetDependencyLineAction(" - nuget: YamlDotNet", "YamlDotNet"));
-        Assert.False(RemoveCommand.ShouldStopDependencyContinuationLine("  version: 1.0.0"));
+            RemoveCommandKernels.GetDependencyLineAction(" - nuget: YamlDotNet", "YamlDotNet"));
+        Assert.False(RemoveCommandKernels.ShouldStopDependencyContinuationLine("  version: 1.0.0"));
 
         var helpText = RemoveCommandKernels.GetHelpText();
         Assert.Equal("Usage: nlc remove <package>", RemoveCommandKernels.GetUsageMessage());

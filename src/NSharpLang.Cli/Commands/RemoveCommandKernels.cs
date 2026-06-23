@@ -32,55 +32,24 @@ internal static class RemoveCommandKernels
             resultIndices[1] != 0);
     }
 
-    internal static bool TryGetDependencyLineAction(
+    internal static RemoveDependencyLineAction GetDependencyLineAction(
         string line,
-        string packageName,
-        out RemoveDependencyLineAction action)
+        string packageName)
     {
-        action = RemoveDependencyLineAction.Keep;
+        var result = RequiredBindings.RemoveDependencyLineAction(line, packageName);
+        if (result is < 0 or > 2)
+            throw new InvalidOperationException("N# remove dependency-line action kernel rejected the line.");
 
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        try
-        {
-            var result = bindings.RemoveDependencyLineAction(line, packageName);
-            if (result is < 0 or > 2)
-                return false;
-
-            action = (RemoveDependencyLineAction)result;
-            return true;
-        }
-        catch
-        {
-            action = RemoveDependencyLineAction.Keep;
-            return false;
-        }
+        return (RemoveDependencyLineAction)result;
     }
 
-    internal static bool TryShouldStopDependencyContinuationLine(string line, out bool shouldStop)
+    internal static bool ShouldStopDependencyContinuationLine(string line)
     {
-        shouldStop = false;
+        var result = RequiredBindings.RemoveShouldStopDependencyContinuationLine(line);
+        if (result is not 0 and not 1)
+            throw new InvalidOperationException("N# remove dependency continuation kernel rejected the line.");
 
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        try
-        {
-            var result = bindings.RemoveShouldStopDependencyContinuationLine(line);
-            if (result is not 0 and not 1)
-                return false;
-
-            shouldStop = result == 1;
-            return true;
-        }
-        catch
-        {
-            shouldStop = false;
-            return false;
-        }
+        return result == 1;
     }
 
     internal static string GetHelpText()

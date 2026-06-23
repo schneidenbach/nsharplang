@@ -28,7 +28,7 @@ public static class RemoveCommand
         // Find and remove the dependency (text-based to preserve comments)
         for (var i = 0; i < lines.Count; i++)
         {
-            var action = GetDependencyLineAction(lines[i], packageName);
+            var action = RemoveCommandKernels.GetDependencyLineAction(lines[i], packageName);
             if (action == RemoveDependencyLineAction.RemoveSingleLine)
             {
                 lines.RemoveAt(i);
@@ -42,7 +42,7 @@ public static class RemoveCommand
                 // Remove continuation lines (version:, etc.)
                 while (i < lines.Count)
                 {
-                    if (ShouldStopDependencyContinuationLine(lines[i]))
+                    if (RemoveCommandKernels.ShouldStopDependencyContinuationLine(lines[i]))
                         break;
                     lines.RemoveAt(i);
                 }
@@ -65,22 +65,6 @@ public static class RemoveCommand
 
     internal static RemoveArgumentSummary GetArgumentSummary(string[] args)
         => RemoveCommandKernels.GetArgumentSummary(args);
-
-    internal static RemoveDependencyLineAction GetDependencyLineAction(string line, string packageName)
-    {
-        if (RemoveCommandKernels.TryGetDependencyLineAction(line, packageName, out var action))
-            return action;
-
-        throw new InvalidOperationException("N# remove dependency-line action kernel rejected the line.");
-    }
-
-    internal static bool ShouldStopDependencyContinuationLine(string line)
-    {
-        if (RemoveCommandKernels.TryShouldStopDependencyContinuationLine(line, out var shouldStop))
-            return shouldStop;
-
-        throw new InvalidOperationException("N# remove dependency continuation kernel rejected the line.");
-    }
 
     static int ShowHelp()
     {
