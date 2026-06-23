@@ -66,7 +66,7 @@ internal static class OutputFormatterDiagnosticClusterKernels
                 scratch.CategoryIds[i] = category;
                 scratch.SourceConstructIds[i] = sourceConstructIds[i];
                 scratch.RecipeIds[i] = category;
-                scratch.RiskIds[i] = GetRiskId(category);
+                scratch.RiskIds[i] = category;
                 scratch.MessagePatternIds[i] = scratch.GetMessagePatternId(messagePatterns[i] ?? string.Empty);
                 scratch.Files[i] = diagnostic.File ?? string.Empty;
                 scratch.Lines[i] = diagnostic.Line;
@@ -143,13 +143,6 @@ internal static class OutputFormatterDiagnosticClusterKernels
 
     private static Bindings RequiredBindings
         => s_bindings.Value ?? throw new InvalidOperationException("N# diagnostic cluster kernels are unavailable.");
-
-    private static int GetRiskId(int category) => category switch
-    {
-        0 or 1 or 2 => 1,
-        3 or 4 or 5 or 6 => 2,
-        _ => 3
-    };
 
     private delegate int DiagnosticClusterTraitsInto(
         string[] codes,
