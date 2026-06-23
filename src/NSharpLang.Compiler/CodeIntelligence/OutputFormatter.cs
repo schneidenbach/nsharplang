@@ -1010,9 +1010,9 @@ public static class OutputFormatter
     private sealed record ClassifiedDiagnosticSet(
         List<ClassifiedDiagnostic> Items,
         DiagnosticResult[] Diagnostics,
-        int[]? CategoryIds,
-        int[]? SourceConstructIds,
-        string[]? MessagePatterns);
+        int[] CategoryIds,
+        int[] SourceConstructIds,
+        string[] MessagePatterns);
 
     private sealed record DiagnosticClusterTraits(
         string Category,
@@ -1025,39 +1025,24 @@ public static class OutputFormatter
     private static List<DiagnosticCluster> BuildDiagnosticClusters(List<DiagnosticResult> results)
     {
         var classified = BuildClassifiedDiagnostics(results);
-        if (!TryBuildDiagnosticClustersFromDogfoodGroups(classified, out var clusters))
-            throw new InvalidOperationException("N# diagnostic cluster grouping kernel rejected the diagnostics.");
-
-        return clusters;
+        return BuildDiagnosticClustersFromDogfoodGroups(classified);
     }
 
-    private static bool TryBuildDiagnosticClustersFromDogfoodGroups(
-        ClassifiedDiagnosticSet classified,
-        out List<DiagnosticCluster> clusters)
+    private static List<DiagnosticCluster> BuildDiagnosticClustersFromDogfoodGroups(ClassifiedDiagnosticSet classified)
     {
-        clusters = new List<DiagnosticCluster>();
+        var grouping = OutputFormatterDiagnosticClusterKernels.GroupDiagnosticClusters(
+            classified.Diagnostics,
+            classified.CategoryIds,
+            classified.SourceConstructIds,
+            classified.MessagePatterns);
 
-        if (classified.CategoryIds == null
-            || classified.SourceConstructIds == null
-            || classified.MessagePatterns == null
-            || !OutputFormatterDiagnosticClusterKernels.TryGroupDiagnosticClusters(
-                classified.Diagnostics,
-                classified.CategoryIds,
-                classified.SourceConstructIds,
-                classified.MessagePatterns,
-                out var grouping)
-            || grouping == null)
-        {
-            return false;
-        }
-
-        clusters.Capacity = grouping.GroupCount;
+        var clusters = new List<DiagnosticCluster>(grouping.GroupCount);
         var ordered = new List<DiagnosticResult>();
         for (var groupIndex = 0; groupIndex < grouping.GroupCount; groupIndex++)
         {
             var rootIndex = grouping.RootIndices[groupIndex];
             if (rootIndex < 0 || rootIndex >= classified.Items.Count)
-                return false;
+                throw new InvalidOperationException("N# diagnostic cluster grouping kernel returned an invalid root index.");
 
             var memberStart = grouping.MemberStarts[groupIndex];
             var memberCount = grouping.Counts[groupIndex];
@@ -1065,7 +1050,7 @@ public static class OutputFormatter
                 || memberCount < 0
                 || memberStart > grouping.MemberIndices.Length - memberCount)
             {
-                return false;
+                throw new InvalidOperationException("N# diagnostic cluster grouping kernel returned an invalid member range.");
             }
 
             ordered.Clear();
@@ -1073,22 +1058,22 @@ public static class OutputFormatter
             {
                 var diagnosticIndex = grouping.MemberIndices[memberStart + memberOffset];
                 if (diagnosticIndex < 0 || diagnosticIndex >= classified.Items.Count)
-                    return false;
+                    throw new InvalidOperationException("N# diagnostic cluster grouping kernel returned an invalid diagnostic index.");
 
                 ordered.Add(classified.Items[diagnosticIndex].Diagnostic);
             }
 
             if (ordered.Count != memberCount)
-                return false;
+                throw new InvalidOperationException("N# diagnostic cluster grouping kernel returned incomplete members.");
 
             if (memberCount > 0 && grouping.MemberIndices[memberStart] != rootIndex)
-                return false;
+                throw new InvalidOperationException("N# diagnostic cluster grouping kernel returned a non-root first member.");
 
             var traits = classified.Items[rootIndex].Traits;
             clusters.Add(CreateDiagnosticCluster(ordered, traits));
         }
 
-        return true;
+        return clusters;
     }
 
     private static DiagnosticCluster CreateDiagnosticCluster(
@@ -1131,13 +1116,8 @@ public static class OutputFormatter
     {
         var classified = new List<ClassifiedDiagnostic>(results.Count);
         var diagnostics = new DiagnosticResult[results.Count];
-        if (!OutputFormatterDiagnosticClusterKernels.TryClassifyDiagnosticClusterTraits(
-            results,
-            out var categories,
-            out var sourceConstructs))
-        {
-            throw new InvalidOperationException("N# diagnostic cluster trait kernel rejected the diagnostics.");
-        }
+        var (categories, sourceConstructs) =
+            OutputFormatterDiagnosticClusterKernels.ClassifyDiagnosticClusterTraits(results);
 
         var messagePatterns = new string[results.Count];
         for (var i = 0; i < results.Count; i++)

@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 
 namespace NSharpLang.Compiler.CodeIntelligence;
 
@@ -10,73 +9,46 @@ internal static class OutputFormatterDiagnosticClusterKernels
     [ThreadStatic]
     private static DiagnosticClusterGroupingScratch? t_diagnosticClusterGroupingScratch;
 
-    internal static bool TryClassifyDiagnosticClusterTraits(
-        IReadOnlyList<DiagnosticResult> diagnostics,
-        out int[] categories,
-        out int[] sourceConstructs)
+    internal static (int[] Categories, int[] SourceConstructs) ClassifyDiagnosticClusterTraits(
+        IReadOnlyList<DiagnosticResult> diagnostics)
     {
-        categories = Array.Empty<int>();
-        sourceConstructs = Array.Empty<int>();
+        var count = diagnostics.Count;
+        var codes = new string[count];
+        var messages = new string[count];
+        var snippets = new string[count];
+        var categories = new int[count];
+        var sourceConstructs = new int[count];
 
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        try
+        for (var i = 0; i < count; i++)
         {
-            var count = diagnostics.Count;
-            var codes = new string[count];
-            var messages = new string[count];
-            var snippets = new string[count];
-            categories = new int[count];
-            sourceConstructs = new int[count];
-
-            for (var i = 0; i < count; i++)
-            {
-                var diagnostic = diagnostics[i];
-                codes[i] = diagnostic.Code ?? string.Empty;
-                messages[i] = diagnostic.Message ?? string.Empty;
-                snippets[i] = diagnostic.SourceSnippet ?? string.Empty;
-            }
-
-            var classified = bindings.DiagnosticClusterTraits(
-                codes,
-                messages,
-                snippets,
-                categories,
-                sourceConstructs);
-
-            if (classified == count)
-                return true;
-
-            categories = Array.Empty<int>();
-            sourceConstructs = Array.Empty<int>();
-            return false;
+            var diagnostic = diagnostics[i];
+            codes[i] = diagnostic.Code ?? string.Empty;
+            messages[i] = diagnostic.Message ?? string.Empty;
+            snippets[i] = diagnostic.SourceSnippet ?? string.Empty;
         }
-        catch
-        {
-            categories = Array.Empty<int>();
-            sourceConstructs = Array.Empty<int>();
-            return false;
-        }
+
+        var classified = RequiredBindings.DiagnosticClusterTraits(
+            codes,
+            messages,
+            snippets,
+            categories,
+            sourceConstructs);
+
+        if (classified != count)
+            throw new InvalidOperationException("N# diagnostic cluster trait kernel rejected the diagnostics.");
+
+        return (categories, sourceConstructs);
     }
 
-    internal static bool TryGroupDiagnosticClusters(
+    internal static DiagnosticClusterGrouping GroupDiagnosticClusters(
         IReadOnlyList<DiagnosticResult> diagnostics,
         int[] categoryIds,
         int[] sourceConstructIds,
-        string[] messagePatterns,
-        out DiagnosticClusterGrouping? grouping)
+        string[] messagePatterns)
     {
-        grouping = null;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
         var count = diagnostics.Count;
         if (categoryIds.Length < count || sourceConstructIds.Length < count || messagePatterns.Length < count)
-            return false;
+            throw new InvalidOperationException("N# diagnostic cluster grouping kernel received incomplete classification inputs.");
 
         var scratch = t_diagnosticClusterGroupingScratch ??= new DiagnosticClusterGroupingScratch();
         scratch.EnsureCapacity(count);
@@ -101,7 +73,7 @@ internal static class OutputFormatterDiagnosticClusterKernels
                 scratch.Columns[i] = diagnostic.Column;
             }
 
-            var groupCount = bindings.DiagnosticClusterCompactGroups(
+            var groupCount = RequiredBindings.DiagnosticClusterCompactGroups(
                 scratch.CodeIds,
                 scratch.SeverityIds,
                 scratch.CategoryIds,
@@ -118,9 +90,9 @@ internal static class OutputFormatterDiagnosticClusterKernels
                 scratch.Counts);
 
             if (groupCount < 0 || groupCount > count)
-                return false;
+                throw new InvalidOperationException("N# diagnostic cluster grouping kernel rejected the diagnostics.");
 
-            var memberTotal = bindings.DiagnosticClusterCompactGroupMembers(
+            var memberTotal = RequiredBindings.DiagnosticClusterCompactGroupMembers(
                 scratch.CodeIds,
                 scratch.SeverityIds,
                 scratch.CategoryIds,
@@ -141,20 +113,14 @@ internal static class OutputFormatterDiagnosticClusterKernels
                 scratch.MemberIndices);
 
             if (memberTotal != count)
-                return false;
+                throw new InvalidOperationException("N# diagnostic cluster grouping kernel returned incomplete members.");
 
-            grouping = new DiagnosticClusterGrouping(
+            return new DiagnosticClusterGrouping(
                 groupCount,
                 scratch.RootIndices,
                 scratch.Counts,
                 scratch.MemberStarts,
                 scratch.MemberIndices);
-            return true;
-        }
-        catch
-        {
-            grouping = null;
-            return false;
         }
         finally
         {
@@ -174,6 +140,9 @@ internal static class OutputFormatterDiagnosticClusterKernels
             DogfoodKernelLoader.CreateDelegate<DiagnosticClusterCompactGroupMembersInto>(
                 programType,
                 "DiagnosticClusterCompactGroupMembersInto")));
+
+    private static Bindings RequiredBindings
+        => s_bindings.Value ?? throw new InvalidOperationException("N# diagnostic cluster kernels are unavailable.");
 
     private static int GetRiskId(int category) => category switch
     {

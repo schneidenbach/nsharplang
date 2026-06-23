@@ -14860,10 +14860,8 @@ func documented(): int {
         Assert.Null(noVariableName);
 
         var diagnostics = BuildDiagnosticClusterTraitDiagnostics();
-        Assert.True(OutputFormatterDiagnosticClusterKernels.TryClassifyDiagnosticClusterTraits(
-            diagnostics,
-            out var categories,
-            out var sourceConstructs));
+        var (categories, sourceConstructs) =
+            OutputFormatterDiagnosticClusterKernels.ClassifyDiagnosticClusterTraits(diagnostics);
         Assert.Equal(new[] { 1, 0, 2, 3, 4, 5, 6, 7 }, categories);
         Assert.Equal(new[] { 1, 0, 4, 0, 2, 5, 7, 8 }, sourceConstructs);
 
@@ -14891,13 +14889,11 @@ func documented(): int {
                 Message = "Undefined variable 'value'"
             }
         };
-        Assert.True(OutputFormatterDiagnosticClusterKernels.TryGroupDiagnosticClusters(
+        var grouping = OutputFormatterDiagnosticClusterKernels.GroupDiagnosticClusters(
             groupingDiagnostics,
             new[] { 1, 1, 3 },
             new[] { 0, 0, 0 },
-            new[] { "Expected token {value}", "Expected token {value}", "Undefined variable {value}" },
-            out var grouping));
-        Assert.NotNull(grouping);
+            new[] { "Expected token {value}", "Expected token {value}", "Undefined variable {value}" });
         Assert.Equal(2, grouping.GroupCount);
         Assert.Equal(new[] { 1, 2 }, grouping.RootIndices.Take(2));
         Assert.Equal(new[] { 2, 1 }, grouping.Counts.Take(2));
