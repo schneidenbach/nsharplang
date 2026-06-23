@@ -226,36 +226,6 @@ internal static class AddCommandKernels
         }
     }
 
-    internal static bool TryGetPackageOperand(
-        string[] args,
-        string[] optionsWithValues,
-        out string? package)
-    {
-        package = null;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        try
-        {
-            var index = bindings.FirstPositionalArgIndex(args, optionsWithValues);
-            if (index == -1)
-                return true;
-
-            if (index < 0 || index >= args.Length)
-                return false;
-
-            package = args[index];
-            return true;
-        }
-        catch
-        {
-            package = null;
-            return false;
-        }
-    }
-
     internal static string GetHelpText()
         => RequiredBindings.AddHelpText();
 
@@ -291,9 +261,6 @@ internal static class AddCommandKernels
 
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(
-            DogfoodKernelLoader.CreateDelegate<CliFirstPositionalArgIndex>(
-                programType,
-                "CliFirstPositionalArgIndex"),
             DogfoodKernelLoader.CreateDelegate<CliAddArgumentSummaryInto>(
                 programType,
                 "CliAddArgumentSummaryInto"),
@@ -340,10 +307,6 @@ internal static class AddCommandKernels
                 programType,
                 "CliAddProjectReferenceAddedMessage")));
 
-    private delegate int CliFirstPositionalArgIndex(
-        string[] args,
-        string[] optionsWithValues);
-
     private delegate int CliAddArgumentSummaryInto(
         string[] args,
         int[] resultIndices);
@@ -383,7 +346,6 @@ internal static class AddCommandKernels
     private delegate string CliAddProjectReferenceAddedMessage(string localPath);
 
     private sealed record Bindings(
-        CliFirstPositionalArgIndex FirstPositionalArgIndex,
         CliAddArgumentSummaryInto AddArgumentSummary,
         CliAddPackageSpecInto AddPackageSpec,
         CliAddDependencyInsertIndex AddDependencyInsertIndex,
