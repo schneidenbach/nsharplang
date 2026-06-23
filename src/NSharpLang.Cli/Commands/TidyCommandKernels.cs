@@ -398,93 +398,135 @@ internal static class TidyCommandKernels
     }
 
     internal static string GetHelpText()
-        => TryGetMessage(bindings => bindings.HelpText(), out var message)
-            ? message
-            : FallbackHelpText();
+    {
+        if (TryGetMessage(bindings => bindings.HelpText(), out var message))
+            return message;
+
+        throw new InvalidOperationException("N# tidy help text kernel rejected the values.");
+    }
 
     internal static string GetMissingProjectFileJsonMessage()
-        => TryGetMessage(bindings => bindings.MissingProjectFileJsonMessage(), out var message)
-            ? message
-            : FallbackMissingProjectFileJsonMessage();
+    {
+        if (TryGetMessage(bindings => bindings.MissingProjectFileJsonMessage(), out var message))
+            return message;
+
+        throw new InvalidOperationException("N# tidy missing-project JSON message kernel rejected the values.");
+    }
 
     internal static string GetMissingProjectFileTextMessage()
-        => TryGetMessage(bindings => bindings.MissingProjectFileTextMessage(), out var message)
-            ? message
-            : FallbackMissingProjectFileTextMessage();
+    {
+        if (TryGetMessage(bindings => bindings.MissingProjectFileTextMessage(), out var message))
+            return message;
+
+        throw new InvalidOperationException("N# tidy missing-project text message kernel rejected the values.");
+    }
 
     internal static string GetParseFailedMessage(string message)
-        => TryGetMessage(bindings => bindings.ParseFailedMessage(message), out var result)
-            ? result
-            : FallbackParseFailedMessage(message);
+    {
+        if (TryGetMessage(bindings => bindings.ParseFailedMessage(message), out var result))
+            return result;
+
+        throw new InvalidOperationException("N# tidy parse-failed message kernel rejected the values.");
+    }
 
     internal static string GetNothingToRemoveMessage()
-        => TryGetMessage(bindings => bindings.NothingToRemoveMessage(), out var message)
-            ? message
-            : FallbackNothingToRemoveMessage();
+    {
+        if (TryGetMessage(bindings => bindings.NothingToRemoveMessage(), out var message))
+            return message;
+
+        throw new InvalidOperationException("N# tidy nothing-to-remove message kernel rejected the values.");
+    }
 
     internal static string GetRemovedDependenciesMessage(int count)
     {
         var countText = count.ToString(CultureInfo.InvariantCulture);
-        return TryGetMessage(bindings => bindings.RemovedDependenciesMessage(countText, count), out var message)
-            ? message
-            : FallbackRemovedDependenciesMessage(countText, count);
+        if (TryGetMessage(bindings => bindings.RemovedDependenciesMessage(countText, count), out var message))
+            return message;
+
+        throw new InvalidOperationException("N# tidy removed-dependencies message kernel rejected the values.");
     }
 
     internal static string GetNoNuGetDependenciesMessage(string projectRoot)
-        => TryGetMessage(bindings => bindings.NoNuGetDependenciesMessage(projectRoot), out var message)
-            ? message
-            : FallbackNoNuGetDependenciesMessage(projectRoot);
+    {
+        if (TryGetMessage(bindings => bindings.NoNuGetDependenciesMessage(projectRoot), out var message))
+            return message;
+
+        throw new InvalidOperationException("N# tidy no-NuGet-dependencies message kernel rejected the values.");
+    }
 
     internal static string GetTableHeader(string packageLabel, string statusLabel)
-        => TryGetMessage(bindings => bindings.TableHeader(packageLabel, statusLabel), out var message)
-            ? message
-            : FallbackTableHeader(packageLabel, statusLabel);
+    {
+        if (TryGetMessage(bindings => bindings.TableHeader(packageLabel, statusLabel), out var message))
+            return message;
+
+        throw new InvalidOperationException("N# tidy table-header kernel rejected the values.");
+    }
 
     internal static string GetTableSeparator(string packageSeparator, string statusSeparator)
-        => TryGetMessage(bindings => bindings.TableSeparator(packageSeparator, statusSeparator), out var message)
-            ? message
-            : FallbackTableSeparator(packageSeparator, statusSeparator);
+    {
+        if (TryGetMessage(bindings => bindings.TableSeparator(packageSeparator, statusSeparator), out var message))
+            return message;
+
+        throw new InvalidOperationException("N# tidy table-separator kernel rejected the values.");
+    }
 
     internal static string GetTableRow(string packageLabel, string statusLabel, string reason)
-        => TryGetMessage(bindings => bindings.TableRow(packageLabel, statusLabel, reason), out var message)
-            ? message
-            : FallbackTableRow(packageLabel, statusLabel, reason);
+    {
+        if (TryGetMessage(bindings => bindings.TableRow(packageLabel, statusLabel, reason), out var message))
+            return message;
+
+        throw new InvalidOperationException("N# tidy table-row kernel rejected the values.");
+    }
 
     internal static string GetPossiblyUnusedFoundMessage(int count)
     {
         var countText = count.ToString(CultureInfo.InvariantCulture);
-        return TryGetMessage(bindings => bindings.PossiblyUnusedFoundMessage(countText, count), out var message)
-            ? message
-            : FallbackPossiblyUnusedFoundMessage(countText, count);
+        if (TryGetMessage(bindings => bindings.PossiblyUnusedFoundMessage(countText, count), out var message))
+            return message;
+
+        throw new InvalidOperationException("N# tidy possibly-unused-found message kernel rejected the values.");
     }
 
     internal static string GetAllDependenciesAccountedForMessage(int unknownCount)
     {
         var unknownCountText = unknownCount.ToString(CultureInfo.InvariantCulture);
-        return TryGetMessage(bindings => bindings.AllDependenciesAccountedForMessage(unknownCountText), out var message)
-            ? message
-            : FallbackAllDependenciesAccountedForMessage(unknownCountText);
+        if (TryGetMessage(bindings => bindings.AllDependenciesAccountedForMessage(unknownCountText), out var message))
+            return message;
+
+        throw new InvalidOperationException("N# tidy accounted-for message kernel rejected the values.");
     }
 
     internal static string GetAllDependenciesInUseMessage()
-        => TryGetMessage(bindings => bindings.AllDependenciesInUseMessage(), out var message)
-            ? message
-            : FallbackAllDependenciesInUseMessage();
+    {
+        if (TryGetMessage(bindings => bindings.AllDependenciesInUseMessage(), out var message))
+            return message;
+
+        throw new InvalidOperationException("N# tidy all-dependencies-in-use message kernel rejected the values.");
+    }
 
     internal static string GetUnknownReasonMessage()
-        => TryGetMessage(bindings => bindings.UnknownReasonMessage(), out var message)
-            ? message
-            : FallbackUnknownReasonMessage();
+    {
+        if (TryGetMessage(bindings => bindings.UnknownReasonMessage(), out var message))
+            return message;
+
+        throw new InvalidOperationException("N# tidy unknown-reason message kernel rejected the values.");
+    }
 
     internal static string GetUsedReasonMessage(string namespacePrefix)
-        => TryGetMessage(bindings => bindings.UsedReasonMessage(namespacePrefix), out var message)
-            ? message
-            : FallbackUsedReasonMessage(namespacePrefix);
+    {
+        if (TryGetMessage(bindings => bindings.UsedReasonMessage(namespacePrefix), out var message))
+            return message;
+
+        throw new InvalidOperationException("N# tidy used-reason message kernel rejected the values.");
+    }
 
     internal static string GetPossiblyUnusedReasonMessage(string prefix1, string prefix2)
-        => TryGetMessage(bindings => bindings.PossiblyUnusedReasonMessage(prefix1, prefix2), out var message)
-            ? message
-            : FallbackPossiblyUnusedReasonMessage(prefix1, prefix2);
+    {
+        if (TryGetMessage(bindings => bindings.PossiblyUnusedReasonMessage(prefix1, prefix2), out var message))
+            return message;
+
+        throw new InvalidOperationException("N# tidy possibly-unused-reason message kernel rejected the values.");
+    }
 
     private static bool TryGetMessage(Func<Bindings, string> getMessage, out string message)
     {
@@ -683,87 +725,6 @@ internal static class TidyCommandKernels
         CliTidyUnknownReasonMessage UnknownReasonMessage,
         CliTidyUsedReasonMessage UsedReasonMessage,
         CliTidyPossiblyUnusedReasonMessage PossiblyUnusedReasonMessage);
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product tidy messages and table rendering route through CliTidy* kernels.
-    private static string FallbackHelpText()
-        => "N# Tidy\n"
-           + "\n"
-           + "Usage: nlc tidy [options]\n"
-           + "\n"
-           + "Identify and optionally remove unused NuGet dependencies from project.yml.\n"
-           + "\n"
-           + "Each dependency is classified as:\n"
-           + "  used            — an import statement plausibly references the package namespace\n"
-           + "  possibly-unused — no import statement references the package namespace\n"
-           + "  unknown         — cannot determine usage (e.g. single-segment package names)\n"
-           + "\n"
-           + "The command is conservative: 'unknown' is reported rather than incorrectly\n"
-           + "flagging a dependency as unused.\n"
-           + "\n"
-           + "Options:\n"
-           + "  --project <dir>   Project directory (default: current directory)\n"
-           + "  --fix             Remove all possibly-unused dependencies from project.yml\n"
-           + "  --json            Emit structured JSON output\n"
-           + "  --help, -h        Show this help text\n"
-           + "\n"
-           + "JSON schema (schemaVersion 1):\n"
-           + "  { schemaVersion, command, ok, projectRoot,\n"
-           + "    dependencies: [{ name, version, status, reason }] }\n"
-           + "\n"
-           + "Examples:\n"
-           + "  nlc tidy                   Report unused dependencies\n"
-           + "  nlc tidy --fix             Remove possibly-unused dependencies\n"
-           + "  nlc tidy --json            Machine-readable output\n"
-           + "  nlc tidy --project ./lib   Analyse a different project\n"
-           + "\n"
-           + "Exit codes:\n"
-           + "  0  All dependencies in use (or tidy succeeded)\n"
-           + "  1  Error (missing project.yml, parse failure)";
-
-    private static string FallbackMissingProjectFileJsonMessage()
-        => "No project.yml found in the specified directory.";
-
-    private static string FallbackMissingProjectFileTextMessage()
-        => "No project.yml found. Run 'nlc new <name>' or 'nlc init' to create a project.";
-
-    private static string FallbackParseFailedMessage(string message)
-        => $"Failed to parse project.yml: {message}";
-
-    private static string FallbackNothingToRemoveMessage()
-        => "Nothing to remove.";
-
-    private static string FallbackRemovedDependenciesMessage(string countText, int count)
-        => $"Removed {countText} possibly-unused {(count == 1 ? "dependency" : "dependencies")}.";
-
-    private static string FallbackNoNuGetDependenciesMessage(string projectRoot)
-        => $"No NuGet dependencies found in {projectRoot}";
-
-    private static string FallbackTableHeader(string packageLabel, string statusLabel)
-        => $"  {packageLabel}  {statusLabel}  Reason";
-
-    private static string FallbackTableSeparator(string packageSeparator, string statusSeparator)
-        => $"  {packageSeparator}  {statusSeparator}  ------";
-
-    private static string FallbackTableRow(string packageLabel, string statusLabel, string reason)
-        => $"  {packageLabel}  {statusLabel}  {reason}";
-
-    private static string FallbackPossiblyUnusedFoundMessage(string countText, int count)
-        => $"{countText} possibly-unused {(count == 1 ? "dependency" : "dependencies")} found. Run 'nlc tidy --fix' to remove them.";
-
-    private static string FallbackAllDependenciesAccountedForMessage(string unknownCountText)
-        => $"All dependencies accounted for ({unknownCountText} could not be determined).";
-
-    private static string FallbackAllDependenciesInUseMessage()
-        => "All dependencies appear to be in use.";
-
-    private static string FallbackUnknownReasonMessage()
-        => "Cannot determine namespace for single-segment package name; manual review required.";
-
-    private static string FallbackUsedReasonMessage(string namespacePrefix)
-        => $"Import statement references namespace matching '{namespacePrefix}'.";
-
-    private static string FallbackPossiblyUnusedReasonMessage(string prefix1, string prefix2)
-        => $"No import statement found referencing '{prefix1}' or '{prefix2}'.";
 
     private static bool TryGetOptionalArg(string[] args, int index, out string? value)
     {
