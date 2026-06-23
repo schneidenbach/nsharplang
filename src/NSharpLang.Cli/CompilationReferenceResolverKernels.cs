@@ -160,31 +160,6 @@ internal static class CompilationReferenceResolverKernels
         }
     }
 
-    internal static bool TryCompareNuGetVersions(string x, string y, out int compare)
-    {
-        compare = 0;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        var result = t_nuGetVersionCompareResult ??= new int[9];
-        try
-        {
-            var code = bindings.NuGetVersionCompare(x, y, result);
-            if (code != 1)
-                return false;
-
-            compare = result[0];
-            return compare is >= -1 and <= 1;
-        }
-        catch
-        {
-            compare = 0;
-            return false;
-        }
-    }
-
     internal static bool TryGetFrameworkCompatibilityScore(string? assetFramework, string targetFramework, out int score)
     {
         score = -1;
@@ -394,9 +369,6 @@ internal static class CompilationReferenceResolverKernels
             DogfoodKernelLoader.CreateDelegate<CliTargetFrameworkVersionInto>(
                 programType,
                 "CliTargetFrameworkVersionInto"),
-            DogfoodKernelLoader.CreateDelegate<CliNuGetVersionCompareInto>(
-                programType,
-                "CliNuGetVersionCompareInto"),
             DogfoodKernelLoader.CreateDelegate<CliFrameworkCompatibilityScoreInto>(
                 programType,
                 "CliFrameworkCompatibilityScoreInto"),
@@ -428,8 +400,6 @@ internal static class CompilationReferenceResolverKernels
 
     private delegate int CliTargetFrameworkVersionInto(string targetFramework, int[] result);
 
-    private delegate int CliNuGetVersionCompareInto(string x, string y, int[] result);
-
     private delegate int CliFrameworkCompatibilityScoreInto(
         string assetFramework,
         string targetFramework,
@@ -458,7 +428,6 @@ internal static class CompilationReferenceResolverKernels
         CliReferenceTypeFilterIndicesInto ReferenceTypeFilterIndices,
         CliReferenceResolutionBestScoreIndex ReferenceResolutionBestScoreIndex,
         CliTargetFrameworkVersionInto TargetFrameworkVersion,
-        CliNuGetVersionCompareInto NuGetVersionCompare,
         CliFrameworkCompatibilityScoreInto FrameworkCompatibilityScore,
         CliNuGetDependencyVersionRangeInto NuGetDependencyVersionRange,
         CliSharedFrameworkCandidateIndex SharedFrameworkCandidateIndex,

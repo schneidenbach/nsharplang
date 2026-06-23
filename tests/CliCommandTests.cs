@@ -4398,29 +4398,6 @@ Exit codes:
     }
 
     [Fact]
-    public void CompilationReferenceResolverKernels_CompareNuGetVersions()
-    {
-        AssertCompared("13.0.3", "12.0.0", 1);
-        AssertCompared("1.2", "1.2.1", -1);
-        AssertCompared("2", "1.9.9", 1);
-        AssertCompared("10.0.0-preview.1", "9.9.9", 1);
-        AssertCompared("1.2.3", "1.2.3.0", -1);
-        AssertCompared("1.2.0", "1.2", 0);
-        AssertDeclined("1.2.3.4.5");
-        AssertDeclined("1..2");
-        AssertDeclined("2147483648.0.0");
-
-        static void AssertCompared(string left, string right, int expectedSign)
-        {
-            Assert.True(CompilationReferenceResolverKernels.TryCompareNuGetVersions(left, right, out var compare));
-            Assert.Equal(expectedSign, Math.Sign(compare));
-        }
-
-        static void AssertDeclined(string value)
-            => Assert.False(CompilationReferenceResolverKernels.TryCompareNuGetVersions(value, "1.0.0", out _));
-    }
-
-    [Fact]
     public void CompilationReferenceResolverKernels_SelectsLatestNuGetVersion()
     {
         AssertSelected(new[] { "1.0.0", "1.1.0-beta", "1.1.0" }, 2);
