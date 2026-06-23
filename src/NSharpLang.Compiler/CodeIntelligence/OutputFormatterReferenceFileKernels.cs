@@ -23,9 +23,6 @@ internal static class OutputFormatterReferenceFileKernels
             return false;
 
         var referenceCount = references.Count;
-        if (referenceCount == 0)
-            return true;
-
         var scratch = t_inspectSummaryReferenceFileScratch ??= new ReferenceFileSummaryScratch();
         scratch.EnsureCapacity(referenceCount);
 
@@ -92,9 +89,6 @@ internal static class OutputFormatterReferenceFileKernels
             return false;
 
         var diagnosticCount = diagnostics.Count;
-        if (diagnosticCount == 0)
-            return true;
-
         var scratch = t_diagnosticClusterFileSummaryScratch ??=
             new ReferenceFileSummaryScratch(StringComparer.OrdinalIgnoreCase, StringComparer.OrdinalIgnoreCase);
         scratch.EnsureCapacity(diagnosticCount);

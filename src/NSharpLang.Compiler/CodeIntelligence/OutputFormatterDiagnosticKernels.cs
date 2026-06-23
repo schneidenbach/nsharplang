@@ -78,9 +78,6 @@ internal static class OutputFormatterDiagnosticKernels
             return false;
 
         var diagnosticCount = diagnostics.Count;
-        if (diagnosticCount == 0)
-            return true;
-
         var scratch = t_diagnosticSeverityFilterScratch ??= new DiagnosticSeverityFilterScratch();
         scratch.EnsureCapacity(diagnosticCount);
 
