@@ -15,22 +15,24 @@ internal static class FormatterConfigKernels
 
         var bindings = s_bindings.Value;
         if (bindings == null)
-            return false;
+            throw new InvalidOperationException("N# formatter config integer parser kernel is unavailable.");
 
         var result = t_intResult ??= new int[1];
         try
         {
             var code = bindings.TryParseInt(value, result);
-            if (code != 1)
+            if (code == 0)
                 return false;
+            if (code != 1)
+                throw new InvalidOperationException("N# formatter config integer parser kernel rejected the result buffer.");
 
             parsed = result[0];
             return true;
         }
-        catch
+        catch (Exception ex)
         {
             parsed = 0;
-            return false;
+            throw new InvalidOperationException("N# formatter config integer parser kernel failed.", ex);
         }
     }
 

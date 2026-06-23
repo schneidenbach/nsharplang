@@ -64,24 +64,13 @@ public class FormatterConfig
         if (FormatterConfigKernels.TryParseInt(value, out var parsed))
             return parsed;
 
-        return ParseRequiredIntWithCSharp(value);
+        throw new FormatException();
     }
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product formatter .editorconfig int parsing routes through FormatterConfigKernels.
-    private static int ParseRequiredIntWithCSharp(string value)
-        => int.Parse(value);
 
     private static bool TryParseOptionalInt(string value, out int parsed)
     {
-        if (FormatterConfigKernels.TryParseInt(value, out parsed))
-            return true;
-
-        return TryParseOptionalIntWithCSharp(value, out parsed);
+        return FormatterConfigKernels.TryParseInt(value, out parsed);
     }
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product formatter .editorconfig int parsing routes through FormatterConfigKernels.
-    private static bool TryParseOptionalIntWithCSharp(string value, out int parsed)
-        => int.TryParse(value, out parsed);
 
     private static string? FindEditorConfig(string dir)
     {
