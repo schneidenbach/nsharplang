@@ -3493,7 +3493,7 @@ func Main() {
             "--define"
         };
 
-        Assert.True(DefineArgumentKernels.TryExtract(args, out var extraction));
+        var extraction = DefineArgumentKernels.Extract(args);
         Assert.Equal(new[] { "FEATURE", "EXTRA", "TRACE", "LAST" }, extraction.Defines);
         Assert.Equal(new[] { "--backend", "il", "Program.nl" }, extraction.RemainingArgs);
     }

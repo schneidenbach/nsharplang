@@ -992,13 +992,9 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
     /// </summary>
     static List<string> ExtractDefineFlags(ref string[] args)
     {
-        if (DefineArgumentKernels.TryExtract(args, out var extraction))
-        {
-            args = extraction.RemainingArgs;
-            return extraction.Defines.ToList();
-        }
-
-        throw new InvalidOperationException("N# define argument extraction kernel rejected the arguments.");
+        var extraction = DefineArgumentKernels.Extract(args);
+        args = extraction.RemainingArgs;
+        return extraction.Defines.ToList();
     }
 
     static string[] GetPositionalArgs(string[] args, params string[] optionsWithValues)

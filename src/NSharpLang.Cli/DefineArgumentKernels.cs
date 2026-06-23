@@ -13,65 +13,51 @@ internal static class DefineArgumentKernels
 
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
 
-    internal static bool TryExtract(string[] args, out DefineArgumentExtraction extraction)
+    internal static DefineArgumentExtraction Extract(string[] args)
     {
-        extraction = default;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
+        var bindings = RequiredBindings;
         var scratch = t_scratch ??= new Scratch();
         scratch.EnsureCapacity(args);
 
-        try
+        var code = bindings.DefineExtraction(
+            args,
+            scratch.DefineSymbols,
+            scratch.RemainingIndices,
+            scratch.ResultCounts);
+        if (code != 0)
+            throw new InvalidOperationException("N# define argument extraction kernel rejected the arguments.");
+
+        var defineCount = scratch.ResultCounts[0];
+        var remainingCount = scratch.ResultCounts[1];
+        if (defineCount < 0 ||
+            defineCount > scratch.DefineSymbols.Length ||
+            remainingCount < 0 ||
+            remainingCount > args.Length)
         {
-            var code = bindings.DefineExtraction(
-                args,
-                scratch.DefineSymbols,
-                scratch.RemainingIndices,
-                scratch.ResultCounts);
-            if (code != 0)
-                return false;
-
-            var defineCount = scratch.ResultCounts[0];
-            var remainingCount = scratch.ResultCounts[1];
-            if (defineCount < 0 ||
-                defineCount > scratch.DefineSymbols.Length ||
-                remainingCount < 0 ||
-                remainingCount > args.Length)
-            {
-                return false;
-            }
-
-            var defines = new string[defineCount];
-            for (var i = 0; i < defineCount; i++)
-            {
-                var symbol = scratch.DefineSymbols[i];
-                if (string.IsNullOrWhiteSpace(symbol))
-                    return false;
-
-                defines[i] = symbol;
-            }
-
-            var remainingArgs = new string[remainingCount];
-            for (var i = 0; i < remainingCount; i++)
-            {
-                var sourceIndex = scratch.RemainingIndices[i];
-                if (sourceIndex < 0 || sourceIndex >= args.Length)
-                    return false;
-
-                remainingArgs[i] = args[sourceIndex];
-            }
-
-            extraction = new DefineArgumentExtraction(defines, remainingArgs);
-            return true;
+            throw new InvalidOperationException("N# define argument extraction kernel returned invalid counts.");
         }
-        catch
+
+        var defines = new string[defineCount];
+        for (var i = 0; i < defineCount; i++)
         {
-            extraction = default;
-            return false;
+            var symbol = scratch.DefineSymbols[i];
+            if (string.IsNullOrWhiteSpace(symbol))
+                throw new InvalidOperationException("N# define argument extraction kernel returned an empty symbol.");
+
+            defines[i] = symbol;
         }
+
+        var remainingArgs = new string[remainingCount];
+        for (var i = 0; i < remainingCount; i++)
+        {
+            var sourceIndex = scratch.RemainingIndices[i];
+            if (sourceIndex < 0 || sourceIndex >= args.Length)
+                throw new InvalidOperationException("N# define argument extraction kernel returned an invalid argument index.");
+
+            remainingArgs[i] = args[sourceIndex];
+        }
+
+        return new DefineArgumentExtraction(defines, remainingArgs);
     }
 
     private static Bindings? LoadBindings()
@@ -79,6 +65,10 @@ internal static class DefineArgumentKernels
             DogfoodKernelLoader.CreateDelegate<CliDefineExtractionInto>(
                 programType,
                 "CliDefineExtractionInto")));
+
+    private static Bindings RequiredBindings
+        => s_bindings.Value
+            ?? throw new InvalidOperationException("N# define argument extraction kernels are unavailable.");
 
     private delegate int CliDefineExtractionInto(
         string[] args,
