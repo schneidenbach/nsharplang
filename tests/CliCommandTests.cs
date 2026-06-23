@@ -2439,16 +2439,16 @@ func Main() {
     public void CheckCommandKernels_SelectsEffectiveOutputMode()
     {
         var defaultMode = CheckCommandKernels.GetEffectiveOutputMode(false, false);
-        Assert.Equal(CheckOutputModeKind.Json, defaultMode);
+        Assert.Equal(1, defaultMode);
 
         var textMode = CheckCommandKernels.GetEffectiveOutputMode(true, false);
-        Assert.Equal(CheckOutputModeKind.Text, textMode);
+        Assert.Equal(2, textMode);
 
         var systemsReportMode = CheckCommandKernels.GetEffectiveOutputMode(false, true);
-        Assert.Equal(CheckOutputModeKind.SystemsReportJson, systemsReportMode);
+        Assert.Equal(3, systemsReportMode);
 
         var invalidMode = CheckCommandKernels.GetEffectiveOutputMode(true, true);
-        Assert.Equal(CheckOutputModeKind.InvalidSystemsReportText, invalidMode);
+        Assert.Equal(-1, invalidMode);
     }
 
     [Fact]

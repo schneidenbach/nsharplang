@@ -12,14 +12,6 @@ internal readonly record struct CheckArgumentSummary(
     bool SystemsReport,
     bool ShowHelp);
 
-internal enum CheckOutputModeKind
-{
-    InvalidSystemsReportText = -1,
-    Json = 1,
-    Text = 2,
-    SystemsReportJson = 3
-}
-
 internal static class CheckCommandKernels
 {
     [ThreadStatic]
@@ -47,16 +39,10 @@ internal static class CheckCommandKernels
             resultIndices[6] != 0);
     }
 
-    internal static CheckOutputModeKind GetEffectiveOutputMode(
+    internal static int GetEffectiveOutputMode(
         bool useText,
         bool systemsReport)
-    {
-        var result = RequiredBindings.CheckEffectiveOutputMode(useText ? 1 : 0, systemsReport ? 1 : 0);
-        if (result != -1 && result != 1 && result != 2 && result != 3)
-            throw new InvalidOperationException("N# check output-mode kernel rejected the options.");
-
-        return (CheckOutputModeKind)result;
-    }
+        => RequiredBindings.CheckEffectiveOutputMode(useText ? 1 : 0, systemsReport ? 1 : 0);
 
     internal static string GetHelpText()
         => RequiredBindings.HelpText();

@@ -21,7 +21,7 @@ public static class CheckCommand
         }
 
         var outputMode = CheckCommandKernels.GetEffectiveOutputMode(arguments.UseText, arguments.SystemsReport);
-        var useText = outputMode is CheckOutputModeKind.Text or CheckOutputModeKind.InvalidSystemsReportText;
+        var useText = outputMode is 2 or -1;
         var aot = arguments.Aot;
         var projectDir = !string.IsNullOrWhiteSpace(arguments.ProjectOption)
             ? Path.GetFullPath(arguments.ProjectOption)
@@ -80,7 +80,7 @@ public static class CheckCommand
                 }
             }
 
-            if (outputMode == CheckOutputModeKind.InvalidSystemsReportText)
+            if (outputMode == -1)
             {
                 return EmitError(useText, CheckCommandKernels.GetSystemsReportTextUnavailableMessage(), projectDir);
             }
@@ -100,7 +100,7 @@ public static class CheckCommand
                     Console.Error.WriteLine(CheckCommandKernels.GetCheckedInMessage(FormatElapsed(sw.Elapsed)));
                 }
             }
-            else if (outputMode == CheckOutputModeKind.SystemsReportJson)
+            else if (outputMode == 3)
             {
                 Console.Write(OutputFormatter.CheckSystemsReportToJson(
                     diagnostics,
