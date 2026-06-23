@@ -9,64 +9,48 @@ internal static class PublishCommandKernels
 
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
 
-    internal static bool TryGetArgumentSummary(string[] args, out PublishArgumentSummary summary)
+    internal static PublishArgumentSummary GetArgumentSummary(string[] args)
     {
-        summary = default;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
+        var bindings = RequiredBindings;
         var resultIndices = t_resultIndices ??= new int[9];
-        try
+        var code = bindings.PublishOptionsInto(args, resultIndices);
+        if (code < 0 || code > 4)
+            throw new InvalidOperationException("N# publish argument summary kernel rejected the arguments.");
+
+        var validationError = GetValidationError(args, code, resultIndices[7]);
+        if (validationError != null)
         {
-            var code = bindings.PublishOptionsInto(args, resultIndices);
-            if (code < 0 || code > 4)
-                return false;
-
-            var validationError = GetValidationError(args, code, resultIndices[7]);
-            if (validationError != null)
-            {
-                summary = new PublishArgumentSummary(
-                    validationError,
-                    null,
-                    null,
-                    "Release",
-                    null,
-                    null,
-                    false,
-                    false,
-                    resultIndices[8] != 0);
-                return true;
-            }
-
-            if (!TryGetOptionalArg(args, resultIndices[0], out var projectOption)
-                || !TryGetOptionalArg(args, resultIndices[1], out var backendOption)
-                || !TryGetOptionalArg(args, resultIndices[2], out var configuration)
-                || !TryGetOptionalArg(args, resultIndices[3], out var output)
-                || !TryGetOptionalArg(args, resultIndices[4], out var runtime))
-            {
-                summary = default;
-                return false;
-            }
-
-            summary = new PublishArgumentSummary(
+            return new PublishArgumentSummary(
+                validationError,
                 null,
-                projectOption,
-                backendOption,
-                configuration ?? "Release",
-                output,
-                runtime,
-                resultIndices[5] != 0,
-                resultIndices[6] != 0,
+                null,
+                "Release",
+                null,
+                null,
+                false,
+                false,
                 resultIndices[8] != 0);
-            return true;
         }
-        catch
+
+        if (!TryGetOptionalArg(args, resultIndices[0], out var projectOption)
+            || !TryGetOptionalArg(args, resultIndices[1], out var backendOption)
+            || !TryGetOptionalArg(args, resultIndices[2], out var configuration)
+            || !TryGetOptionalArg(args, resultIndices[3], out var output)
+            || !TryGetOptionalArg(args, resultIndices[4], out var runtime))
         {
-            summary = default;
-            return false;
+            throw new InvalidOperationException("N# publish argument summary kernel rejected the arguments.");
         }
+
+        return new PublishArgumentSummary(
+            null,
+            projectOption,
+            backendOption,
+            configuration ?? "Release",
+            output,
+            runtime,
+            resultIndices[5] != 0,
+            resultIndices[6] != 0,
+            resultIndices[8] != 0);
     }
 
     private static string? GetValidationError(string[] args, int code, int errorArgIndex)

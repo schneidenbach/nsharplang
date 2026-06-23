@@ -545,12 +545,7 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
     }
 
     internal static PublishArgumentSummary GetPublishArgumentSummary(string[] args)
-    {
-        if (PublishCommandKernels.TryGetArgumentSummary(args, out var summary))
-            return summary;
-
-        throw new InvalidOperationException("N# publish argument summary kernel rejected the arguments.");
-    }
+        => PublishCommandKernels.GetArgumentSummary(args);
 
     static int NewCommand(string[] args)
     {

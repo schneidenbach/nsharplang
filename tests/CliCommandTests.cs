@@ -3796,9 +3796,7 @@ func Main() {
     [Fact]
     public void PublishCommandKernels_NormalizesOptionsAndValidation()
     {
-        Assert.True(PublishCommandKernels.TryGetArgumentSummary(
-            Array.Empty<string>(),
-            out var defaultSummary));
+        var defaultSummary = PublishCommandKernels.GetArgumentSummary(Array.Empty<string>());
         Assert.Null(defaultSummary.ValidationError);
         Assert.Null(defaultSummary.ProjectOption);
         Assert.Null(defaultSummary.BackendOption);
@@ -3823,7 +3821,7 @@ func Main() {
             "-r", "ignored-runtime"
         };
 
-        Assert.True(PublishCommandKernels.TryGetArgumentSummary(args, out var dogfoodSummary));
+        var dogfoodSummary = PublishCommandKernels.GetArgumentSummary(args);
         Assert.Null(dogfoodSummary.ValidationError);
         Assert.Equal("samples/demo", dogfoodSummary.ProjectOption);
         Assert.Equal("il", dogfoodSummary.BackendOption);
