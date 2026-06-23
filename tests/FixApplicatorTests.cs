@@ -17,9 +17,7 @@ public class FixApplicatorTests
         // the test process; prove that through the dogfood route itself instead of a side-channel
         // availability probe.
         var edits = new[] { new TextEdit(1, 0, 1, 1, "x") };
-        Assert.True(
-            FixApplicatorTextEditOrderer.TryOrderTextEdits(edits, out var ordered),
-            "The N# dogfood compiler-services DLL must be loaded in the test run so dogfood paths are exercised.");
+        var ordered = FixApplicatorTextEditOrderer.OrderTextEdits(edits);
         Assert.Equal(edits, ordered);
     }
 
@@ -61,9 +59,7 @@ public class FixApplicatorTests
                 .Select(item => item.edit)
                 .ToList();
 
-            Assert.True(
-                FixApplicatorTextEditOrderer.TryOrderTextEdits(edits, out var dogfoodOrdered),
-                $"dogfood ordering should be available (seed {seed})");
+            var dogfoodOrdered = FixApplicatorTextEditOrderer.OrderTextEdits(edits);
             Assert.Equal(expected, dogfoodOrdered);
         }
     }

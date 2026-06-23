@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using NSharpLang.Compiler.Ast;
 
@@ -12,19 +11,11 @@ internal static class FixApplicatorTextEditOrderer
     [ThreadStatic]
     private static TextEditOrderingScratch? t_textEditOrderingScratch;
 
-    internal static bool TryOrderTextEdits(
-        IReadOnlyCollection<TextEdit> edits,
-        out List<TextEdit> sortedEdits)
+    internal static List<TextEdit> OrderTextEdits(IReadOnlyCollection<TextEdit> edits)
     {
-        sortedEdits = [];
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
         var count = edits.Count;
         if (count == 0)
-            return true;
+            return [];
 
         var editArray = edits as TextEdit[] ?? edits.ToArray();
         var scratch = t_textEditOrderingScratch ??= new TextEditOrderingScratch();
@@ -43,7 +34,7 @@ internal static class FixApplicatorTextEditOrderer
                 TextEditOrderingPosition.End,
                 scratch.EndPositionRanks);
 
-            var orderedCount = bindings.TextEditOrderIndices(
+            var orderedCount = RequiredBindings.TextEditOrderIndices(
                 scratch.StartPositionRanks,
                 scratch.EndPositionRanks,
                 startPositionRankCount,
@@ -54,33 +45,28 @@ internal static class FixApplicatorTextEditOrderer
                 scratch.ResultIndices);
 
             if (orderedCount != count)
-                return false;
+                throw new InvalidOperationException("N# text edit ordering kernel rejected the edits.");
 
-            sortedEdits = new List<TextEdit>(count);
+            var sortedEdits = new List<TextEdit>(count);
             for (var i = 0; i < count; i++)
             {
                 var sourceIndex = scratch.ResultIndices[i];
                 if (sourceIndex < 0 || sourceIndex >= count)
-                {
-                    sortedEdits = [];
-                    return false;
-                }
+                    throw new InvalidOperationException("N# text edit ordering kernel returned an invalid edit index.");
 
                 sortedEdits.Add(editArray[sourceIndex]);
             }
 
-            return true;
-        }
-        catch
-        {
-            sortedEdits = [];
-            return false;
+            return sortedEdits;
         }
         finally
         {
             scratch.Reset();
         }
     }
+
+    private static Bindings RequiredBindings
+        => s_bindings.Value ?? throw new InvalidOperationException("N# text edit ordering kernel is unavailable.");
 
     private static Bindings? LoadBindings()
         => DogfoodKernelLoader.TryCreateBindings(programType => new Bindings(

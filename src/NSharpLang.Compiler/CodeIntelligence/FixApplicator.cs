@@ -48,8 +48,7 @@ public static class FixApplicator
         // Sort edits bottom-to-top, right-to-left so applying them doesn't shift earlier positions.
         // Same-position zero-width inserts are applied in reverse input order so the final text
         // preserves the caller's input order.
-        if (!FixApplicatorTextEditOrderer.TryOrderTextEdits(edits, out var sortedEdits))
-            throw new InvalidOperationException("N# text edit ordering kernel rejected the edits.");
+        var sortedEdits = FixApplicatorTextEditOrderer.OrderTextEdits(edits);
 
         foreach (var edit in sortedEdits)
         {
