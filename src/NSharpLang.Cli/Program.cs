@@ -309,7 +309,7 @@ partial class Program
                 nsharpDirCandidates,
                 out var dogfoodNsharpDirs)
             ? dogfoodNsharpDirs
-            : nsharpDirCandidates.Distinct(StringComparer.Ordinal);
+            : throw new InvalidOperationException("N# generated output directory deduplication kernel rejected the directories.");
         foreach (var nsharpDir in nsharpDirs)
         {
             if (!Directory.Exists(nsharpDir))
@@ -330,44 +330,27 @@ partial class Program
     }
 
     static int GetGeneratedSourceBasePathLength(string relativeSourcePath)
-        => GeneratedOutputDirectoryDeduplicator.TryGetSourceBasePathLength(relativeSourcePath, out var basePathLength)
-            ? basePathLength
-            : GetGeneratedSourceBasePathLengthWithCSharp(relativeSourcePath);
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product stale-generated source base-path derivation routes through GeneratedOutputDirectoryDeduplicator.
-    static int GetGeneratedSourceBasePathLengthWithCSharp(string relativeSourcePath)
     {
-        if (relativeSourcePath.EndsWith(".tests.nl", StringComparison.OrdinalIgnoreCase))
-            return relativeSourcePath.Length - ".tests.nl".Length;
+        if (GeneratedOutputDirectoryDeduplicator.TryGetSourceBasePathLength(relativeSourcePath, out var basePathLength))
+            return basePathLength;
 
-        if (relativeSourcePath.EndsWith(".nl", StringComparison.OrdinalIgnoreCase))
-            return relativeSourcePath.Length - ".nl".Length;
-
-        return -1;
+        throw new InvalidOperationException("N# generated source base-path length kernel rejected the path.");
     }
 
     static bool ShouldSkipGeneratedSourcePath(string relativeSourcePath)
-        => GeneratedOutputDirectoryDeduplicator.TryShouldSkipSourcePath(relativeSourcePath, out var shouldSkip)
-            ? shouldSkip
-            : ShouldSkipGeneratedSourcePathWithCSharp(relativeSourcePath);
+    {
+        if (GeneratedOutputDirectoryDeduplicator.TryShouldSkipSourcePath(relativeSourcePath, out var shouldSkip))
+            return shouldSkip;
 
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product stale-generated source path pruning routes through GeneratedOutputDirectoryDeduplicator.
-    static bool ShouldSkipGeneratedSourcePathWithCSharp(string relativeSourcePath)
-        => relativeSourcePath.StartsWith("obj" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) ||
-           relativeSourcePath.StartsWith("bin" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+        throw new InvalidOperationException("N# generated source skip kernel rejected the path.");
+    }
 
     static int GetGeneratedOutputBasePathLength(string relativeGeneratedPath)
-        => GeneratedOutputDirectoryDeduplicator.TryGetGeneratedOutputBasePathLength(relativeGeneratedPath, out var basePathLength)
-            ? basePathLength
-            : GetGeneratedOutputBasePathLengthWithCSharp(relativeGeneratedPath);
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product stale-generated output base-path derivation routes through GeneratedOutputDirectoryDeduplicator.
-    static int GetGeneratedOutputBasePathLengthWithCSharp(string relativeGeneratedPath)
     {
-        if (relativeGeneratedPath.EndsWith(".g.cs", StringComparison.OrdinalIgnoreCase))
-            return relativeGeneratedPath.Length - ".g.cs".Length;
+        if (GeneratedOutputDirectoryDeduplicator.TryGetGeneratedOutputBasePathLength(relativeGeneratedPath, out var basePathLength))
+            return basePathLength;
 
-        return -1;
+        throw new InvalidOperationException("N# generated output base-path length kernel rejected the path.");
     }
 
     static string FindRepoRoot(string startPath)
