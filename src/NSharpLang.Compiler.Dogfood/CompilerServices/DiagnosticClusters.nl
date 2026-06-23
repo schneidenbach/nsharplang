@@ -336,10 +336,6 @@ func DiagnosticSeverityFilterIndicesCore(
     severityRanks: &DiagnosticSeverityRankTable,
     targetRank: int,
     output: &DiagnosticIndexOutputTable): int {
-    if targetRank <= 0 {
-        return 0
-    }
-
     matchCount := 0
     length := severityRanks.Ranks.Length
     i := 0

@@ -360,10 +360,6 @@ func DiagnosticSeverityFilterChecksumInto(
     severityRanks: int[],
     targetRank: int,
     resultIndices: int[]): int {
-    if targetRank <= 0 {
-        return 0
-    }
-
     length := severityRanks.Length
     if resultIndices.Length < length {
         matchCount := DiagnosticSeverityFilterIndicesInto(severityRanks, targetRank, resultIndices)

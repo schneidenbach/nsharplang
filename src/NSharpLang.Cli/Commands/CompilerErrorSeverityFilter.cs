@@ -15,8 +15,8 @@ internal static class CompilerErrorSeverityFilter
         IReadOnlyList<CompilerError> errors,
         ErrorSeverity severity)
     {
-        var targetRank = GetSeverityRank(severity);
-        if (targetRank == 0)
+        var targetSeverityId = (int)severity;
+        if (targetSeverityId < 0 || targetSeverityId > (int)ErrorSeverity.Error)
             throw new InvalidOperationException("N# diagnostic severity filter kernel rejected the severity.");
 
         var errorCount = errors.Count;
@@ -25,12 +25,12 @@ internal static class CompilerErrorSeverityFilter
 
         for (var i = 0; i < errorCount; i++)
         {
-            scratch.SeverityRanks[i] = GetSeverityRank(errors[i].Severity);
+            scratch.SeverityRanks[i] = (int)errors[i].Severity;
         }
 
         var filteredCount = RequiredBindings.DiagnosticSeverityFilter(
             scratch.SeverityRanks,
-            targetRank,
+            targetSeverityId,
             scratch.ResultIndices);
 
         if (filteredCount < 0 || filteredCount > errorCount || filteredCount > scratch.ResultIndices.Length)
@@ -54,14 +54,6 @@ internal static class CompilerErrorSeverityFilter
             DogfoodKernelLoader.CreateDelegate<DiagnosticSeverityFilterIndicesInto>(
                 programType,
                 "DiagnosticSeverityFilterIndicesInto")));
-
-    private static int GetSeverityRank(ErrorSeverity severity) =>
-        severity switch
-        {
-            ErrorSeverity.Error => 1,
-            ErrorSeverity.Warning => 2,
-            _ => 0
-        };
 
     private delegate int DiagnosticSeverityFilterIndicesInto(
         int[] severityRanks,
