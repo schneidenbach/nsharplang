@@ -215,127 +215,60 @@ internal static class FixCommandKernels
     }
 
     internal static string GetHelpText()
-    {
-        if (TryGetMessage(bindings => bindings.HelpText(), out var message))
-            return message;
-
-        throw new InvalidOperationException("N# fix help text kernel rejected the values.");
-    }
+        => GetMessage(bindings => bindings.HelpText());
 
     internal static string GetProjectDirectoryNotFoundMessage(string projectDir)
-    {
-        if (TryGetMessage(bindings => bindings.ProjectDirectoryNotFoundMessage(projectDir), out var message))
-            return message;
-
-        throw new InvalidOperationException("N# fix missing-project message kernel rejected the values.");
-    }
+        => GetMessage(bindings => bindings.ProjectDirectoryNotFoundMessage(projectDir));
 
     internal static string GetFileNotFoundMessage(string filePath)
-    {
-        if (TryGetMessage(bindings => bindings.FileNotFoundMessage(filePath), out var message))
-            return message;
-
-        throw new InvalidOperationException("N# fix missing-file message kernel rejected the values.");
-    }
+        => GetMessage(bindings => bindings.FileNotFoundMessage(filePath));
 
     internal static string GetNoFilesFoundMessage()
-    {
-        if (TryGetMessage(bindings => bindings.NoFilesFoundMessage(), out var message))
-            return message;
-
-        throw new InvalidOperationException("N# fix no-files message kernel rejected the values.");
-    }
+        => GetMessage(bindings => bindings.NoFilesFoundMessage());
 
     internal static string GetFailedMessage(string message)
-    {
-        if (TryGetMessage(bindings => bindings.FailedMessage(message), out var result))
-            return result;
-
-        throw new InvalidOperationException("N# fix failed-message kernel rejected the values.");
-    }
+        => GetMessage(bindings => bindings.FailedMessage(message));
 
     internal static string GetNothingToFixMessage()
-    {
-        if (TryGetMessage(bindings => bindings.NothingToFixMessage(), out var message))
-            return message;
-
-        throw new InvalidOperationException("N# fix nothing-to-fix message kernel rejected the values.");
-    }
+        => GetMessage(bindings => bindings.NothingToFixMessage());
 
     internal static string GetAppliedHeader(int appliedCount, int filesModified, bool dryRun)
     {
         var appliedCountText = appliedCount.ToString(CultureInfo.InvariantCulture);
         var filesModifiedText = filesModified.ToString(CultureInfo.InvariantCulture);
-        return TryGetMessage(
-            bindings => bindings.AppliedHeader(
+        return GetMessage(bindings => bindings.AppliedHeader(
                 appliedCountText,
                 appliedCount,
                 filesModifiedText,
                 filesModified,
-                dryRun ? 1 : 0),
-            out var message)
-            ? message
-            : throw new InvalidOperationException("N# fix applied-header kernel rejected the values.");
+                dryRun ? 1 : 0));
     }
 
     internal static string GetAppliedFileHeader(string filePath)
-    {
-        if (TryGetMessage(bindings => bindings.AppliedFileHeader(filePath), out var message))
-            return message;
-
-        throw new InvalidOperationException("N# fix applied-file-header kernel rejected the values.");
-    }
+        => GetMessage(bindings => bindings.AppliedFileHeader(filePath));
 
     internal static string GetEntryLine(string diagnosticCode, string title)
-    {
-        if (TryGetMessage(bindings => bindings.EntryLine(diagnosticCode, title), out var message))
-            return message;
-
-        throw new InvalidOperationException("N# fix entry-line kernel rejected the values.");
-    }
+        => GetMessage(bindings => bindings.EntryLine(diagnosticCode, title));
 
     internal static string GetSkippedHeader(int skippedCount)
     {
         var skippedCountText = skippedCount.ToString(CultureInfo.InvariantCulture);
-        return TryGetMessage(bindings => bindings.SkippedHeader(skippedCountText, skippedCount), out var message)
-            ? message
-            : throw new InvalidOperationException("N# fix skipped-header kernel rejected the values.");
+        return GetMessage(bindings => bindings.SkippedHeader(skippedCountText, skippedCount));
     }
 
     internal static string GetSkippedReason(string safety)
-    {
-        if (TryGetMessage(bindings => bindings.SkippedReason(safety), out var message))
-            return message;
-
-        throw new InvalidOperationException("N# fix skipped-reason kernel rejected the values.");
-    }
+        => GetMessage(bindings => bindings.SkippedReason(safety));
 
     internal static string GetSkippedLine(string diagnosticCode, string title, string reason)
+        => GetMessage(bindings => bindings.SkippedLine(diagnosticCode, title, reason));
+
+    private static string GetMessage(Func<Bindings, string> getMessage)
     {
-        if (TryGetMessage(bindings => bindings.SkippedLine(diagnosticCode, title, reason), out var message))
-            return message;
-
-        throw new InvalidOperationException("N# fix skipped-line kernel rejected the values.");
-    }
-
-    private static bool TryGetMessage(Func<Bindings, string> getMessage, out string message)
-    {
-        message = string.Empty;
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
-        try
-        {
-            message = getMessage(bindings);
-            return !string.IsNullOrEmpty(message);
-        }
-        catch
-        {
-            message = string.Empty;
-            return false;
-        }
+        var bindings = s_bindings.Value ?? throw new InvalidOperationException("N# fix message kernels are unavailable.");
+        var message = getMessage(bindings);
+        return !string.IsNullOrEmpty(message)
+            ? message
+            : throw new InvalidOperationException("N# fix message kernel returned empty output.");
     }
 
     private static Bindings? LoadBindings()
