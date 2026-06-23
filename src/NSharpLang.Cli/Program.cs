@@ -767,7 +767,7 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
                 var message = TestCommandKernels.GetInvalidTimeoutMessage(testOptions.Timeout);
                 if (outputMode == TestOutputModeKind.Json)
                 {
-                    OutputNativeTestJson(projectRoot, false, Array.Empty<NativeTestResult>(), message);
+                    OutputNativeTestJson(projectRoot, false, Array.Empty<NativeTestResult>(), message, summary: NativeTestSummary.EmptyFailure);
                     return 1;
                 }
 
@@ -785,7 +785,7 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
                 var message = TestCommandKernels.GetCoverageUnsupportedMessage();
                 if (outputMode == TestOutputModeKind.Json)
                 {
-                    OutputNativeTestJson(projectRoot, false, Array.Empty<NativeTestResult>(), message);
+                    OutputNativeTestJson(projectRoot, false, Array.Empty<NativeTestResult>(), message, summary: NativeTestSummary.EmptyFailure);
                     return 1;
                 }
 
@@ -799,7 +799,7 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
             {
                 if (outputMode == TestOutputModeKind.Json)
                 {
-                    OutputNativeTestJson(projectRoot, true, Array.Empty<NativeTestResult>());
+                    OutputNativeTestJson(projectRoot, true, Array.Empty<NativeTestResult>(), summary: new NativeTestSummary(true, 0, 0, 0, 0));
                     return 0;
                 }
                 Console.WriteLine(TestCommandKernels.GetNoTestFilesMessage());
@@ -827,7 +827,7 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
         {
             if (outputMode == TestOutputModeKind.Text)
                 Console.WriteLine(TestCommandKernels.GetFailedElapsedMessage(FormatElapsed(sw.Elapsed)));
-            if (outputMode == TestOutputModeKind.Json) { OutputNativeTestJson(projectRoot, false, Array.Empty<NativeTestResult>(), ex.Message); return 1; }
+            if (outputMode == TestOutputModeKind.Json) { OutputNativeTestJson(projectRoot, false, Array.Empty<NativeTestResult>(), ex.Message, summary: NativeTestSummary.EmptyFailure); return 1; }
             return Error(TestCommandKernels.GetFailedMessage(ex.Message));
         }
     }

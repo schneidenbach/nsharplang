@@ -43,7 +43,10 @@ partial class Program
         int Total,
         int Passed,
         int Failed,
-        int Skipped);
+        int Skipped)
+    {
+        public static NativeTestSummary EmptyFailure { get; } = new(false, 0, 0, 0, 0);
+    }
 
     private sealed class NativeTestLoadContext(string assemblyDirectory)
         : AssemblyLoadContext(nameof(NativeTestLoadContext), isCollectible: true)
@@ -79,7 +82,7 @@ partial class Program
             var message = TestCommandKernels.GetMissingProjectFileMessage();
             if (outputMode == TestOutputModeKind.Json)
             {
-                OutputNativeTestJson(projectRoot, false, Array.Empty<NativeTestResult>(), message);
+                OutputNativeTestJson(projectRoot, false, Array.Empty<NativeTestResult>(), message, summary: NativeTestSummary.EmptyFailure);
                 return 1;
             }
 
@@ -91,7 +94,7 @@ partial class Program
             var message = TestCommandKernels.GetCoverageUnsupportedMessage();
             if (outputMode == TestOutputModeKind.Json)
             {
-                OutputNativeTestJson(projectRoot, false, Array.Empty<NativeTestResult>(), message);
+                OutputNativeTestJson(projectRoot, false, Array.Empty<NativeTestResult>(), message, summary: NativeTestSummary.EmptyFailure);
                 return 1;
             }
 
@@ -120,7 +123,7 @@ partial class Program
                 var message = TestCommandKernels.GetBuildFailedMessage();
                 if (outputMode == TestOutputModeKind.Json)
                 {
-                    OutputNativeTestJson(projectRoot, false, Array.Empty<NativeTestResult>(), message);
+                    OutputNativeTestJson(projectRoot, false, Array.Empty<NativeTestResult>(), message, summary: NativeTestSummary.EmptyFailure);
                     return 1;
                 }
 
@@ -158,7 +161,7 @@ partial class Program
 
             if (outputMode == TestOutputModeKind.Json)
             {
-                OutputNativeTestJson(projectRoot, false, Array.Empty<NativeTestResult>(), ex.Message);
+                OutputNativeTestJson(projectRoot, false, Array.Empty<NativeTestResult>(), ex.Message, summary: NativeTestSummary.EmptyFailure);
                 return 1;
             }
 
@@ -712,16 +715,7 @@ partial class Program
                 dogfoodSummary.Skipped);
         }
 
-        return SummarizeNativeTestResults(testRun.Results);
-    }
-
-    private static NativeTestSummary SummarizeNativeTestResults(IReadOnlyList<NativeTestResult> testResults)
-    {
-        var ok = testResults.All(result => result.Outcome is "passed" or "skipped");
-        var passed = testResults.Count(result => result.Outcome == "passed");
-        var failed = testResults.Count(result => result.Outcome == "failed");
-        var skipped = testResults.Count(result => result.Outcome == "skipped");
-        return new NativeTestSummary(ok, testResults.Count, passed, failed, skipped);
+        throw new InvalidOperationException("N# test outcome summary kernel rejected the native test results.");
     }
 
     private static int GetNativeTestOutcomeRank(string outcome) =>
@@ -740,7 +734,7 @@ partial class Program
         string? errorMessage = null,
         NativeTestSummary? summary = null)
     {
-        var summaryValue = summary ?? SummarizeNativeTestResults(testResults);
+        var summaryValue = summary ?? throw new InvalidOperationException("N# test JSON output requires an N# outcome summary.");
 
         var envelope = new
         {
