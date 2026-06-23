@@ -20904,11 +20904,6 @@ public class Analyzer : IDisposable
         return modifier == Ast.ParameterModifier.Params ? Ast.ParameterModifier.None : modifier;
     }
 
-    private bool IsDelegateSignatureAssignableWithoutConversion(TypeInfo target, TypeInfo source)
-    {
-        return TryGetDelegateSignatureConversionScore(target, source, out _);
-    }
-
     private bool TryGetDelegateSignatureConversionScore(TypeInfo target, TypeInfo source, out int score)
     {
         score = 0;
@@ -24150,43 +24145,6 @@ public class Analyzer : IDisposable
 
         var suggester = new SmartSuggester(candidates.Distinct(StringComparer.Ordinal).ToList());
         return suggester.SuggestSimilarNames(typo);
-    }
-
-    /// <summary>
-    /// Find similar type names in current scope
-    /// </summary>
-    private List<string> FindSimilarTypeNames(string typo)
-    {
-        var candidates = new List<string>();
-
-        // Collect all type names from all scopes
-        foreach (var scope in _scopes)
-        {
-            candidates.AddRange(scope.Types.Keys);
-        }
-
-        // Add common external types
-        candidates.AddRange(new[] {
-            "Console", "String", "Int32", "Boolean", "Double", "DateTime",
-            "List", "Dictionary", "Task", "Guid", "TimeSpan"
-        });
-
-        // Use SmartSuggester to find similar names
-        var suggester = new SmartSuggester(candidates);
-        return suggester.SuggestSimilarNames(typo);
-    }
-
-    /// <summary>
-    /// Get all variable names currently in scope
-    /// </summary>
-    private List<string> GetAllVariablesInScope()
-    {
-        var variables = new List<string>();
-        foreach (var scope in _scopes)
-        {
-            variables.AddRange(scope.Symbols.Keys);
-        }
-        return variables;
     }
 
     /// <summary>

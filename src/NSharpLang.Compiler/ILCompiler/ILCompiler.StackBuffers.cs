@@ -186,29 +186,6 @@ public partial class ILCompiler
         EmitLoadIndirect(storage.ElementType);
     }
 
-    /// <summary>
-    /// Emits a bounds-checked store of <paramref name="valueEmitter"/> into <c>buffer[index]</c>
-    /// for a promoted stack buffer. Evaluation order matches array semantics: index first (with
-    /// bounds check), then the value, then the store. The destination byref is only computed after
-    /// the value is on the stack, so it is never held across the value's evaluation.
-    /// </summary>
-    private void EmitPromotedBufferIndexStore(PromotedStackBufferStorage storage, Expression index, Action valueEmitter)
-    {
-        if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
-
-        var indexLocal = EvaluateIndexWithBoundsCheck(storage, index);
-
-        // Evaluate the value into a temp so the destination byref is computed last and held only
-        // momentarily across the single stind.
-        var valueLocal = _currentIL.DeclareLocal(storage.ElementType);
-        valueEmitter();
-        _currentIL.Emit(OpCodes.Stloc, valueLocal);
-
-        EmitPromotedBufferElementAddress(storage, indexLocal);
-        _currentIL.Emit(OpCodes.Ldloc, valueLocal);
-        EmitStoreIndirect(storage.ElementType);
-    }
-
     /// <summary>Emits the constant <c>Length</c> of a promoted stack buffer.</summary>
     private void EmitPromotedBufferLength(PromotedStackBufferStorage storage)
     {

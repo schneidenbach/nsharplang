@@ -1705,35 +1705,6 @@ public class CodeIntelligenceService
         };
     }
 
-    private DefinitionResult? FindDeclarationInUnit(CompilationUnit cu, string name, string file)
-    {
-        foreach (var decl in cu.Declarations)
-        {
-            var declName = GetDeclarationName(decl);
-            if (declName == name)
-            {
-                var kind = GetDeclarationKind(decl);
-                return new DefinitionResult(name, kind, file, decl.Line, decl.Column, name.Length);
-            }
-
-            // Search inside type members
-            var members = GetDeclarationMembers(decl);
-            if (members != null)
-            {
-                foreach (var member in members)
-                {
-                    var memberName = GetDeclarationName(member);
-                    if (memberName == name)
-                    {
-                        var kind = GetDeclarationKind(member);
-                        return new DefinitionResult(name, kind, file, member.Line, member.Column, name.Length);
-                    }
-                }
-            }
-        }
-        return null;
-    }
-
     private void FindAllDeclarationsInUnit(CompilationUnit cu, string name, string file, List<DefinitionResult> results)
     {
         foreach (var decl in cu.Declarations)
