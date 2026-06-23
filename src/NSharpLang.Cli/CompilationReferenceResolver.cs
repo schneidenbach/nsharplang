@@ -141,7 +141,7 @@ internal static class CompilationReferenceResolver
             }
         }
 
-        foreach (var projectReference in FilterReferencesByType(config.Dependencies, ReferenceType.Project))
+        foreach (var projectReference in CompilationReferenceResolverKernels.FilterReferencesByType(config.Dependencies, ReferenceType.Project))
         {
             if (!options.BuildProjectReferences)
             {
@@ -381,7 +381,7 @@ internal static class CompilationReferenceResolver
 
     private static IEnumerable<Reference> EnumerateNuGetReferences(ProjectConfig config, ReferenceResolutionOptions options)
     {
-        foreach (var reference in FilterReferencesByType(config.Dependencies, ReferenceType.NuGet))
+        foreach (var reference in CompilationReferenceResolverKernels.FilterReferencesByType(config.Dependencies, ReferenceType.NuGet))
         {
             yield return reference;
         }
@@ -391,7 +391,7 @@ internal static class CompilationReferenceResolver
             yield break;
         }
 
-        foreach (var reference in FilterReferencesByType(config.TestDependencies, ReferenceType.NuGet))
+        foreach (var reference in CompilationReferenceResolverKernels.FilterReferencesByType(config.TestDependencies, ReferenceType.NuGet))
         {
             yield return reference;
         }
@@ -446,7 +446,7 @@ internal static class CompilationReferenceResolver
             frameworkNames.Add("Microsoft.AspNetCore.App");
         }
 
-        foreach (var reference in FilterReferencesByType(config.Dependencies, ReferenceType.Framework))
+        foreach (var reference in CompilationReferenceResolverKernels.FilterReferencesByType(config.Dependencies, ReferenceType.Framework))
         {
             frameworkNames.Add(reference.Framework!);
         }
@@ -727,11 +727,6 @@ internal static class CompilationReferenceResolver
             config.Dependencies.Add(new Reference { Dll = fullPath });
         }
     }
-
-    private static List<Reference> FilterReferencesByType(
-        IReadOnlyList<Reference> references,
-        ReferenceType referenceType)
-        => CompilationReferenceResolverKernels.FilterReferencesByType(references, referenceType);
 
     private static string GetGlobalPackagesFolder()
     {

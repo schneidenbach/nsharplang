@@ -106,7 +106,7 @@ internal static class BatchQueryRunner
             });
         }
 
-        var duplicateIds = FindDuplicateRequestIds(requests);
+        var duplicateIds = BatchQueryKernels.FindDuplicateRequestIds(requests);
 
         if (duplicateIds.Length > 0)
         {
@@ -115,9 +115,6 @@ internal static class BatchQueryRunner
 
         return requests;
     }
-
-    private static string[] FindDuplicateRequestIds(IReadOnlyList<BatchQueryRequest> requests)
-        => BatchQueryKernels.FindDuplicateRequestIds(requests);
 
     public static BatchQueryExecutionResult Execute(
         IReadOnlyList<BatchQueryRequest> requests,

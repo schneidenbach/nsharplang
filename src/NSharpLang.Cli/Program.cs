@@ -597,16 +597,13 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
 
     static string[] GetTemplateSourceFiles(string template)
     {
-        var sourceFileKinds = GetTemplateSourceFileKinds(template);
+        var sourceFileKinds = NewCommandKernels.GetTemplateSourceFileKinds(template);
         var sourceFiles = new string[sourceFileKinds.Length];
         for (var i = 0; i < sourceFileKinds.Length; i++)
             sourceFiles[i] = GetTemplateSourceFileName(sourceFileKinds[i]);
 
         return sourceFiles;
     }
-
-    static NewTemplateSourceFileKind[] GetTemplateSourceFileKinds(string template)
-        => NewCommandKernels.GetTemplateSourceFileKinds(template);
 
     static string GetTemplateSourceFileName(NewTemplateSourceFileKind sourceFileKind)
         => sourceFileKind switch
@@ -641,10 +638,10 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
 
     static void WriteCanonicalProject(string projectDir, string projectName, string template)
     {
-        File.WriteAllText(Path.Combine(projectDir, "project.yml"), GenerateProjectYaml(projectName, template));
+        File.WriteAllText(Path.Combine(projectDir, "project.yml"), NewCommandKernels.GetProjectYamlText(projectName, template));
         WriteSdkSupportFiles(projectDir);
 
-        foreach (var sourceFileKind in GetTemplateSourceFileKinds(template))
+        foreach (var sourceFileKind in NewCommandKernels.GetTemplateSourceFileKinds(template))
             WriteTemplateSourceFile(projectDir, template, sourceFileKind);
     }
 
@@ -659,7 +656,7 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
         if (!string.IsNullOrEmpty(directory))
             Directory.CreateDirectory(directory);
 
-        File.WriteAllText(path, GetTemplateSourceText(template, sourceFileKind));
+        File.WriteAllText(path, NewCommandKernels.GetTemplateSourceText(template, sourceFileKind));
     }
 
     static void WriteSdkSupportFiles(string projectDir)
@@ -669,12 +666,6 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
             Path.Combine(projectDir, "NuGet.config"),
             NewCommandKernels.GetNuGetConfigText(NSharpInstallRoot.ProjectFeedValue()));
     }
-
-    static string GenerateProjectYaml(string projectName, string template)
-        => NewCommandKernels.GetProjectYamlText(projectName, template);
-
-    static string GetTemplateSourceText(string template, NewTemplateSourceFileKind sourceFileKind)
-        => NewCommandKernels.GetTemplateSourceText(template, sourceFileKind);
 
     static int TestCommand(string[] args)
     {
