@@ -130,12 +130,10 @@ public class CodeIntelligenceService
 
     private static List<SymbolResult> FilterSymbolsByKind(List<SymbolResult> symbols, SymbolKind kind)
     {
-        if (CodeIntelligenceSymbolKernels.TryFilterSymbolsByKind(symbols, kind, out var filteredSymbols))
-        {
-            return filteredSymbols;
-        }
+        if (!CodeIntelligenceSymbolKernels.TryFilterSymbolsByKind(symbols, kind, out var filteredSymbols))
+            throw new InvalidOperationException("N# symbol kind filter kernel rejected the symbols.");
 
-        return symbols.Where(s => s.Kind == kind).ToList();
+        return filteredSymbols;
     }
 
     /// <summary>
