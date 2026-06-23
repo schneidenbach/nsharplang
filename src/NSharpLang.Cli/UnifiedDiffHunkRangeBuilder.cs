@@ -10,73 +10,61 @@ internal static class UnifiedDiffHunkRangeBuilder
 
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
 
-    internal static bool TryBuild(
+    internal static UnifiedDiff.HunkRanges Build(
         IReadOnlyList<UnifiedDiff.DiffLine> lines,
-        int contextLines,
-        out UnifiedDiff.HunkRanges ranges)
+        int contextLines)
     {
-        ranges = UnifiedDiff.HunkRanges.Empty;
+        if (contextLines < 0)
+            throw new ArgumentOutOfRangeException(nameof(contextLines), "Context line count must be non-negative.");
 
-        var bindings = s_bindings.Value;
-        if (bindings == null || contextLines < 0)
-            return false;
-
+        var bindings = RequiredBindings;
         var lineCount = lines.Count;
         var scratch = t_scratch ??= new Scratch();
         scratch.EnsureCapacity(lineCount);
 
-        try
+        for (var i = 0; i < lineCount; i++)
         {
-            for (var i = 0; i < lineCount; i++)
-            {
-                var line = lines[i];
-                scratch.KindIds[i] = (int)line.Kind;
-                scratch.OldLines[i] = line.OldLine;
-                scratch.NewLines[i] = line.NewLine;
-            }
-
-            var hunkCount = bindings.HunkRanges(
-                scratch.KindIds,
-                scratch.OldLines,
-                scratch.NewLines,
-                contextLines,
-                scratch.Ranges.Starts,
-                scratch.Ranges.Lengths,
-                scratch.Ranges.OldStarts,
-                scratch.Ranges.OldCounts,
-                scratch.Ranges.NewStarts,
-                scratch.Ranges.NewCounts);
-
-            if (hunkCount < 0 || hunkCount > lineCount)
-                return false;
-
-            for (var hunkIndex = 0; hunkIndex < hunkCount; hunkIndex++)
-            {
-                var start = scratch.Ranges.Starts[hunkIndex];
-                var length = scratch.Ranges.Lengths[hunkIndex];
-                if (start < 0 ||
-                    length <= 0 ||
-                    start + length > lineCount ||
-                    scratch.Ranges.OldStarts[hunkIndex] <= 0 ||
-                    scratch.Ranges.NewStarts[hunkIndex] <= 0 ||
-                    scratch.Ranges.OldCounts[hunkIndex] < 0 ||
-                    scratch.Ranges.NewCounts[hunkIndex] < 0 ||
-                    scratch.Ranges.OldCounts[hunkIndex] > length ||
-                    scratch.Ranges.NewCounts[hunkIndex] > length)
-                {
-                    return false;
-                }
-            }
-
-            scratch.Ranges.Count = hunkCount;
-            ranges = scratch.Ranges;
-            return true;
+            var line = lines[i];
+            scratch.KindIds[i] = (int)line.Kind;
+            scratch.OldLines[i] = line.OldLine;
+            scratch.NewLines[i] = line.NewLine;
         }
-        catch
+
+        var hunkCount = bindings.HunkRanges(
+            scratch.KindIds,
+            scratch.OldLines,
+            scratch.NewLines,
+            contextLines,
+            scratch.Ranges.Starts,
+            scratch.Ranges.Lengths,
+            scratch.Ranges.OldStarts,
+            scratch.Ranges.OldCounts,
+            scratch.Ranges.NewStarts,
+            scratch.Ranges.NewCounts);
+
+        if (hunkCount < 0 || hunkCount > lineCount)
+            throw new InvalidOperationException("N# unified diff hunk range kernel returned an invalid hunk count.");
+
+        for (var hunkIndex = 0; hunkIndex < hunkCount; hunkIndex++)
         {
-            ranges = UnifiedDiff.HunkRanges.Empty;
-            return false;
+            var start = scratch.Ranges.Starts[hunkIndex];
+            var length = scratch.Ranges.Lengths[hunkIndex];
+            if (start < 0 ||
+                length <= 0 ||
+                start + length > lineCount ||
+                scratch.Ranges.OldStarts[hunkIndex] <= 0 ||
+                scratch.Ranges.NewStarts[hunkIndex] <= 0 ||
+                scratch.Ranges.OldCounts[hunkIndex] < 0 ||
+                scratch.Ranges.NewCounts[hunkIndex] < 0 ||
+                scratch.Ranges.OldCounts[hunkIndex] > length ||
+                scratch.Ranges.NewCounts[hunkIndex] > length)
+            {
+                throw new InvalidOperationException("N# unified diff hunk range kernel returned an invalid hunk range.");
+            }
         }
+
+        scratch.Ranges.Count = hunkCount;
+        return scratch.Ranges;
     }
 
     private static Bindings? LoadBindings()
@@ -84,6 +72,10 @@ internal static class UnifiedDiffHunkRangeBuilder
             DogfoodKernelLoader.CreateDelegate<CliUnifiedDiffHunkRangesInto>(
                 programType,
                 "CliUnifiedDiffHunkRangesInto")));
+
+    private static Bindings RequiredBindings
+        => s_bindings.Value
+            ?? throw new InvalidOperationException("N# unified diff hunk range kernels are unavailable.");
 
     private delegate int CliUnifiedDiffHunkRangesInto(
         int[] kindIds,

@@ -38,9 +38,7 @@ internal static class UnifiedDiff
         sb.AppendLine(UnifiedDiffTextKernels.GetBeforeHeaderText(beforeLabel));
         sb.AppendLine(UnifiedDiffTextKernels.GetAfterHeaderText(afterLabel));
 
-        if (!UnifiedDiffHunkRangeBuilder.TryBuild(diffLines, contextLines, out var ranges))
-            throw new InvalidOperationException("N# unified diff hunk range kernel rejected the diff lines.");
-
+        var ranges = UnifiedDiffHunkRangeBuilder.Build(diffLines, contextLines);
         AppendHunks(sb, diffLines, ranges);
 
         return sb.ToString();
