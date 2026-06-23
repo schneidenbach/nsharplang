@@ -2907,7 +2907,7 @@ func Main() {
     [Fact]
     public void LintCommandKernels_SelectsFileArgsAfterProjectValueExclusion()
     {
-        Assert.True(LintCommandKernels.TryGetFileArgs(Array.Empty<string>(), out var empty));
+        var empty = LintCommandKernels.GetFileArgs(Array.Empty<string>());
         Assert.Empty(empty);
 
         var args = new[]
@@ -2925,7 +2925,7 @@ func Main() {
             "tests"
         };
 
-        Assert.True(LintCommandKernels.TryGetFileArgs(args, out var files));
+        var files = LintCommandKernels.GetFileArgs(args);
         Assert.Equal(new[] { "Program.nl", "Other.nl" }, files);
     }
 

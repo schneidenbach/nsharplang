@@ -40,47 +40,30 @@ internal static class LintCommandKernels
             resultIndices[3] != 0);
     }
 
-    internal static bool TryGetFileArgs(string[] args, out string[] files)
+    internal static string[] GetFileArgs(string[] args)
     {
-        files = Array.Empty<string>();
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
         var scratch = t_scratch ??= new Scratch();
         scratch.EnsureCapacity(args.Length);
 
-        try
+        var count = RequiredBindings.LintFileArgIndices(
+            args,
+            scratch.ProjectValueIndices,
+            scratch.ResultIndices);
+
+        if (count < 0 || count > args.Length)
+            throw new InvalidOperationException("N# lint file argument kernel rejected the arguments.");
+
+        var files = new string[count];
+        for (var i = 0; i < count; i++)
         {
-            var count = bindings.LintFileArgIndices(
-                args,
-                scratch.ProjectValueIndices,
-                scratch.ResultIndices);
+            var sourceIndex = scratch.ResultIndices[i];
+            if (sourceIndex < 0 || sourceIndex >= args.Length)
+                throw new InvalidOperationException("N# lint file argument kernel rejected the arguments.");
 
-            if (count < 0 || count > args.Length)
-                return false;
-
-            files = new string[count];
-            for (var i = 0; i < count; i++)
-            {
-                var sourceIndex = scratch.ResultIndices[i];
-                if (sourceIndex < 0 || sourceIndex >= args.Length)
-                {
-                    files = Array.Empty<string>();
-                    return false;
-                }
-
-                files[i] = args[sourceIndex];
-            }
-
-            return true;
+            files[i] = args[sourceIndex];
         }
-        catch
-        {
-            files = Array.Empty<string>();
-            return false;
-        }
+
+        return files;
     }
 
     internal static LintOutputModeKind GetEffectiveOutputMode(

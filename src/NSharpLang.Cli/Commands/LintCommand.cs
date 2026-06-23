@@ -210,9 +210,7 @@ public static class LintCommand
         => LintCommandKernels.GetEffectiveOutputMode(options.UseText, options.UseJson);
 
     private static string[] GetPositionalFiles(string[] args)
-        => LintCommandKernels.TryGetFileArgs(args, out var files)
-            ? files
-            : throw new InvalidOperationException("N# lint file argument kernel rejected the arguments.");
+        => LintCommandKernels.GetFileArgs(args);
 
     private static string FormatElapsed(TimeSpan elapsed)
     {
