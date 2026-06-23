@@ -18,7 +18,7 @@ public static class LintCommand
             return 0;
         }
 
-        var useJson = LintCommandKernels.GetEffectiveOutputMode(options.UseText, options.UseJson) == LintOutputModeKind.Json;
+        var useJson = LintCommandKernels.GetEffectiveOutputMode(options.UseText, options.UseJson) == 1;
         var projectRoot = Path.GetFullPath(options.ProjectOption ?? Directory.GetCurrentDirectory());
 
         var positionalFiles = LintCommandKernels.GetFileArgs(args);

@@ -2814,16 +2814,16 @@ func Main() {
     public void LintCommandKernels_SelectsEffectiveOutputMode()
     {
         var defaultMode = LintCommandKernels.GetEffectiveOutputMode(false, false);
-        Assert.Equal(LintOutputModeKind.Json, defaultMode);
+        Assert.Equal(1, defaultMode);
 
         var explicitJson = LintCommandKernels.GetEffectiveOutputMode(false, true);
-        Assert.Equal(LintOutputModeKind.Json, explicitJson);
+        Assert.Equal(1, explicitJson);
 
         var explicitText = LintCommandKernels.GetEffectiveOutputMode(true, false);
-        Assert.Equal(LintOutputModeKind.Text, explicitText);
+        Assert.Equal(2, explicitText);
 
         var jsonWins = LintCommandKernels.GetEffectiveOutputMode(true, true);
-        Assert.Equal(LintOutputModeKind.Json, jsonWins);
+        Assert.Equal(1, jsonWins);
     }
 
     [Fact]

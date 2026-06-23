@@ -10,12 +10,6 @@ internal readonly record struct LintOptionSummary(
     bool UseJson,
     bool ShowHelp);
 
-internal enum LintOutputModeKind
-{
-    Json = 1,
-    Text = 2
-}
-
 internal static class LintCommandKernels
 {
     [ThreadStatic]
@@ -67,16 +61,10 @@ internal static class LintCommandKernels
         return files;
     }
 
-    internal static LintOutputModeKind GetEffectiveOutputMode(
+    internal static int GetEffectiveOutputMode(
         bool useText,
         bool useJson)
-    {
-        var result = RequiredBindings.LintEffectiveOutputMode(useText ? 1 : 0, useJson ? 1 : 0);
-        if (result is < 1 or > 2)
-            throw new InvalidOperationException("N# lint output mode kernel rejected the options.");
-
-        return (LintOutputModeKind)result;
-    }
+        => RequiredBindings.LintEffectiveOutputMode(useText ? 1 : 0, useJson ? 1 : 0);
 
     internal static string GetHelpText()
         => RequiredBindings.HelpText();
