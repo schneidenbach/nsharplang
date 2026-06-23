@@ -1024,73 +1024,7 @@ public static class QueryCommand
         if (QueryCommandKernels.TryGetTopLevelOptionSummary(args, out var summary))
             return summary;
 
-        return GetTopLevelOptionSummaryWithCSharp(args);
-    }
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product query top-level option parsing routes through QueryCommandKernels.
-    private static QueryTopLevelOptionSummary GetTopLevelOptionSummaryWithCSharp(string[] args)
-    {
-        string? projectDir = null;
-        string? file = null;
-        string? pos = null;
-        var useText = false;
-        var noDaemon = false;
-        var inspectCompact = false;
-
-        var subcommand = args.Length > 0 ? args[0] : null;
-        var remaining = new List<string>();
-
-        for (int i = 1; i < args.Length; i++)
-        {
-            switch (args[i])
-            {
-                case "--project" when i + 1 < args.Length:
-                    projectDir = args[++i];
-                    break;
-                case "--file" when i + 1 < args.Length:
-                    file = args[++i];
-                    break;
-                case "--pos" when i + 1 < args.Length:
-                    pos = args[++i];
-                    break;
-                case "--text":
-                    useText = true;
-                    break;
-                case "--json":
-                    useText = false;
-                    break;
-                case "--no-daemon":
-                    noDaemon = true;
-                    break;
-                case "--summary":
-                case "--compact":
-                    inspectCompact = true;
-                    break;
-                default:
-                    remaining.Add(args[i]);
-                    break;
-            }
-        }
-
-        return new QueryTopLevelOptionSummary(
-            subcommand,
-            projectDir,
-            file,
-            pos,
-            useText,
-            noDaemon,
-            inspectCompact,
-            remaining.ToArray());
-    }
-
-    private static string? GetOption(string[] args, string flag)
-    {
-        for (int i = 0; i < args.Length - 1; i++)
-        {
-            if (args[i] == flag)
-                return args[i + 1];
-        }
-        return null;
+        throw new InvalidOperationException("N# query top-level option kernel rejected the arguments.");
     }
 
     private static bool TryParsePosition(string posStr, out int line, out int col)
@@ -1114,22 +1048,7 @@ public static class QueryCommand
         if (QueryCommandKernels.TryGetInspectOutputMode(useText, inspectCompact, out var mode))
             return mode;
 
-        return GetInspectOutputModeWithCSharp(useText, inspectCompact);
-    }
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product query inspect output-mode selection routes through QueryCommandKernels.
-    private static QueryInspectOutputModeKind GetInspectOutputModeWithCSharp(bool useText, bool inspectCompact)
-    {
-        if (useText && inspectCompact)
-            return QueryInspectOutputModeKind.InvalidCompactText;
-
-        if (inspectCompact)
-            return QueryInspectOutputModeKind.CompactJson;
-
-        if (useText)
-            return QueryInspectOutputModeKind.Text;
-
-        return QueryInspectOutputModeKind.Json;
+        throw new InvalidOperationException("N# query inspect output-mode kernel rejected the values.");
     }
 
     internal static QueryDiagnosticsOutputModeKind GetDiagnosticsOutputMode(bool useText, bool clusters)
@@ -1137,19 +1056,7 @@ public static class QueryCommand
         if (QueryCommandKernels.TryGetDiagnosticsOutputMode(useText, clusters, out var mode))
             return mode;
 
-        return GetDiagnosticsOutputModeWithCSharp(useText, clusters);
-    }
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product query diagnostics output-mode selection routes through QueryCommandKernels.
-    private static QueryDiagnosticsOutputModeKind GetDiagnosticsOutputModeWithCSharp(bool useText, bool clusters)
-    {
-        if (clusters)
-            return QueryDiagnosticsOutputModeKind.ClustersJson;
-
-        if (useText)
-            return QueryDiagnosticsOutputModeKind.Text;
-
-        return QueryDiagnosticsOutputModeKind.Json;
+        throw new InvalidOperationException("N# query diagnostics output-mode kernel rejected the values.");
     }
 
     internal static QueryJsonOnlyOutputModeKind GetJsonOnlyOutputMode(bool useText)
@@ -1157,24 +1064,16 @@ public static class QueryCommand
         if (QueryCommandKernels.TryGetJsonOnlyOutputMode(useText, out var mode))
             return mode;
 
-        return GetJsonOnlyOutputModeWithCSharp(useText);
+        throw new InvalidOperationException("N# query JSON-only output-mode kernel rejected the value.");
     }
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product JSON-only query output-mode validation routes through QueryCommandKernels.
-    private static QueryJsonOnlyOutputModeKind GetJsonOnlyOutputModeWithCSharp(bool useText)
-        => useText ? QueryJsonOnlyOutputModeKind.TextUnsupported : QueryJsonOnlyOutputModeKind.Json;
 
     internal static QueryTextJsonOutputModeKind GetTextJsonOutputMode(bool useText)
     {
         if (QueryCommandKernels.TryGetTextJsonOutputMode(useText, out var mode))
             return mode;
 
-        return GetTextJsonOutputModeWithCSharp(useText);
+        throw new InvalidOperationException("N# query text/json output-mode kernel rejected the value.");
     }
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product query text/json output-mode selection routes through QueryCommandKernels.
-    private static QueryTextJsonOutputModeKind GetTextJsonOutputModeWithCSharp(bool useText)
-        => useText ? QueryTextJsonOutputModeKind.Text : QueryTextJsonOutputModeKind.Json;
 
     private static ProjectSnapshot? LoadProjectOrFail(QueryOptions options)
     {
@@ -1272,7 +1171,7 @@ public static class QueryCommand
         if (QueryCommandKernels.TryGetDaemonParameterSummary(args, out var summary))
             return summary;
 
-        return GetDaemonParameterSummaryWithCSharp(args);
+        throw new InvalidOperationException("N# query daemon parameter kernel rejected the arguments.");
     }
 
     internal static QueryCommandOptionSummary GetCommandOptionSummary(string[] args)
@@ -1280,28 +1179,8 @@ public static class QueryCommand
         if (QueryCommandKernels.TryGetCommandOptionSummary(args, out var summary))
             return summary;
 
-        return GetCommandOptionSummaryWithCSharp(args);
+        throw new InvalidOperationException("N# query command option kernel rejected the arguments.");
     }
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; query daemon parameter parsing routes through QueryCommandKernels.
-    private static QueryDaemonParameterSummary GetDaemonParameterSummaryWithCSharp(string[] args)
-        => new(
-            GetOption(args, "--file"),
-            GetOption(args, "--pos"),
-            GetOption(args, "--name"),
-            GetOption(args, "--kind"),
-            GetOption(args, "--severity"),
-            args.Contains("--include-keywords"),
-            args.Contains("--clusters"));
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; query command-option parsing routes through QueryCommandKernels.
-    private static QueryCommandOptionSummary GetCommandOptionSummaryWithCSharp(string[] args)
-        => new(
-            GetOption(args, "--filter"),
-            GetOption(args, "--function"),
-            GetOption(args, "--limit"),
-            GetOption(args, "--requests"),
-            args.Length > 0 && !args[0].StartsWith("--", StringComparison.Ordinal) ? args[0] : null);
 
     private static bool TryExecuteViaDaemon(QueryOptions options, string method,
         Dictionary<string, object?> parameters, out int exitCode)
@@ -1342,12 +1221,8 @@ public static class QueryCommand
         if (QueryCommandKernels.TryShouldUseDaemon(useText, noDaemon, out var shouldUse))
             return shouldUse;
 
-        return ShouldTryExecuteViaDaemonWithCSharp(useText, noDaemon);
+        throw new InvalidOperationException("N# query daemon routing kernel rejected the values.");
     }
-
-    // Stage 6 C#-surface-shrink: fallback/oracle only; product query daemon routing policy routes through QueryCommandKernels.
-    private static bool ShouldTryExecuteViaDaemonWithCSharp(bool useText, bool noDaemon)
-        => !useText && !noDaemon;
 
     private static int GetJsonExitCode(string json)
     {
