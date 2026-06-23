@@ -607,33 +607,18 @@ public class CompletionEngine
 
     private static void AddMethodCompletionItems(MethodInfo[] methods, List<CompletionItem> items)
     {
-        if (CompletionEngineKernels.TryGroupReflectionMethodsByName(methods, out var grouping)
-            && grouping != null)
+        if (!CompletionEngineKernels.TryGroupReflectionMethodsByName(methods, out var grouping)
+            || grouping == null)
+            throw new InvalidOperationException("N# completion method grouping kernel rejected the methods.");
+
+        for (var groupIndex = 0; groupIndex < grouping.GroupCount; groupIndex++)
         {
-            for (var groupIndex = 0; groupIndex < grouping.GroupCount; groupIndex++)
-            {
-                AddMethodCompletionItem(
-                    methods[grouping.FirstIndices[groupIndex]],
-                    grouping.Counts[groupIndex],
-                    items);
-            }
-
-            return;
-        }
-
-        var methodGroups = methods
-            .Where(IsIncludedCompletionMethod)
-            .GroupBy(static method => method.Name)
-            .ToList();
-
-        foreach (var group in methodGroups)
-        {
-            AddMethodCompletionItem(group.First(), group.Count(), items);
+            AddMethodCompletionItem(
+                methods[grouping.FirstIndices[groupIndex]],
+                grouping.Counts[groupIndex],
+                items);
         }
     }
-
-    private static bool IsIncludedCompletionMethod(MethodInfo method) =>
-        !method.IsSpecialName && method.DeclaringType?.FullName != "System.Object";
 
     private static void AddMethodCompletionItem(MethodInfo method, int overloads, List<CompletionItem> items)
     {
@@ -1427,13 +1412,8 @@ public class CompletionEngine
         List<CompletionItem> items,
         Dictionary<string, List<CompletionItem>> completions)
     {
-        if (CompletionEngineKernels.TryAddGroupedCompletionItemsByKind(items, completions))
-            return;
-
-        foreach (var group in items.GroupBy(m => m.Kind))
-        {
-            completions[PluralizeCompletionKind(group.Key)] = group.ToList();
-        }
+        if (!CompletionEngineKernels.TryAddGroupedCompletionItemsByKind(items, completions))
+            throw new InvalidOperationException("N# completion item grouping kernel rejected the items.");
     }
 
     internal static string PluralizeCompletionKind(string kind) => kind switch
