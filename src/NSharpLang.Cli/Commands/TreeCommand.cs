@@ -38,7 +38,7 @@ public static class TreeCommand
         {
             var report = BuildReport(projectRoot, maxDepth);
 
-            if (outputMode == TreeOutputModeKind.Json)
+            if (outputMode == 1)
             {
                 Console.WriteLine(JsonSerializer.Serialize(report, JsonOptions));
             }
@@ -276,9 +276,9 @@ public static class TreeCommand
     static string FormatDependency(TreeDependency dependency)
         => TreeCommandKernels.GetDependencyText(dependency.Name, dependency.Version, dependency.Kind);
 
-    static int Error(string message, TreeOutputModeKind outputMode = TreeOutputModeKind.Text, string? projectRoot = null)
+    static int Error(string message, int outputMode = 2, string? projectRoot = null)
     {
-        if (outputMode == TreeOutputModeKind.Json)
+        if (outputMode == 1)
         {
             Console.Write(OutputFormatter.ErrorToJson("tree", message, projectRoot));
         }

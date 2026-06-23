@@ -8,12 +8,6 @@ internal readonly record struct TreeOptionSummary(
     bool Json,
     bool ShowHelp);
 
-internal enum TreeOutputModeKind
-{
-    Json = 1,
-    Text = 2
-}
-
 internal static class TreeCommandKernels
 {
     [ThreadStatic]
@@ -50,14 +44,8 @@ internal static class TreeCommandKernels
         return result[0];
     }
 
-    internal static TreeOutputModeKind GetOutputMode(bool json)
-    {
-        var code = RequiredBindings.OutputMode(json ? 1 : 0);
-        if (code is < 1 or > 2)
-            throw new InvalidOperationException("N# tree output-mode kernel rejected the options.");
-
-        return (TreeOutputModeKind)code;
-    }
+    internal static int GetOutputMode(bool json)
+        => RequiredBindings.OutputMode(json ? 1 : 0);
 
     internal static string GetHelpText()
         => RequiredBindings.TreeHelpText();

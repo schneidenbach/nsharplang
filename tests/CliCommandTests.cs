@@ -306,10 +306,10 @@ func Main() {
         Assert.True(TreeCommandKernels.GetOptionSummary(new[] { "help" }).ShowHelp);
 
         var textMode = TreeCommandKernels.GetOutputMode(json: false);
-        Assert.Equal(TreeOutputModeKind.Text, textMode);
+        Assert.Equal(2, textMode);
 
         var jsonMode = TreeCommandKernels.GetOutputMode(json: true);
-        Assert.Equal(TreeOutputModeKind.Json, jsonMode);
+        Assert.Equal(1, jsonMode);
 
         var helpText = TreeCommandKernels.GetHelpText();
         Assert.Contains("N# Dependency Tree", helpText);
