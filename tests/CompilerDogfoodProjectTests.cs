@@ -15110,10 +15110,9 @@ func documented(): int {
         Assert.Equal(expectedShadowIndices, shadowIndices.Take(shadowCount).ToArray());
 
         var symbols = BuildSymbolKindFilterSymbols();
-        Assert.True(CodeIntelligenceSymbolKernels.TryFilterSymbolsByKind(
+        var filteredSymbols = CodeIntelligenceSymbolKernels.FilterSymbolsByKind(
             symbols,
-            SymbolKind.Function,
-            out var filteredSymbols));
+            SymbolKind.Function);
         Assert.Equal(
             symbols.Where(symbol => symbol.Kind == SymbolKind.Function).Select(symbol => symbol.Name),
             filteredSymbols.Select(symbol => symbol.Name));

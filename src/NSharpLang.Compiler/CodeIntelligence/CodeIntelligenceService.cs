@@ -129,12 +129,7 @@ public class CodeIntelligenceService
     }
 
     private static List<SymbolResult> FilterSymbolsByKind(List<SymbolResult> symbols, SymbolKind kind)
-    {
-        if (!CodeIntelligenceSymbolKernels.TryFilterSymbolsByKind(symbols, kind, out var filteredSymbols))
-            throw new InvalidOperationException("N# symbol kind filter kernel rejected the symbols.");
-
-        return filteredSymbols;
-    }
+        => CodeIntelligenceSymbolKernels.FilterSymbolsByKind(symbols, kind);
 
     /// <summary>
     /// Get the structural outline of a single file.

@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 
 namespace NSharpLang.Compiler.CodeIntelligence;
 
@@ -10,63 +9,41 @@ internal static class CodeIntelligenceSymbolKernels
     [ThreadStatic]
     private static SymbolKindFilterScratch? t_symbolKindFilterScratch;
 
-    internal static bool TryFilterSymbolsByKind(
+    internal static List<SymbolResult> FilterSymbolsByKind(
         IReadOnlyList<SymbolResult> symbols,
-        SymbolKind targetKind,
-        out List<SymbolResult> filteredSymbols)
+        SymbolKind targetKind)
     {
-        filteredSymbols = [];
-
-        var bindings = s_bindings.Value;
-        if (bindings == null)
-            return false;
-
         var symbolCount = symbols.Count;
         if (symbolCount == 0)
-            return true;
+            return [];
 
         var scratch = t_symbolKindFilterScratch ??= new SymbolKindFilterScratch();
         scratch.EnsureCapacity(symbolCount);
 
-        try
+        for (var i = 0; i < symbolCount; i++)
         {
-            for (var i = 0; i < symbolCount; i++)
-            {
-                scratch.KindIds[i] = (int)symbols[i].Kind;
-            }
-
-            var filteredCount = bindings.SymbolKindFilter(
-                scratch.KindIds,
-                (int)targetKind,
-                scratch.ResultIndices);
-
-            if (filteredCount < 0 || filteredCount > symbolCount)
-            {
-                filteredSymbols = [];
-                return false;
-            }
-
-            var results = new List<SymbolResult>(filteredCount);
-            for (var i = 0; i < filteredCount; i++)
-            {
-                var sourceIndex = scratch.ResultIndices[i];
-                if (sourceIndex < 0 || sourceIndex >= symbolCount)
-                {
-                    filteredSymbols = [];
-                    return false;
-                }
-
-                results.Add(symbols[sourceIndex]);
-            }
-
-            filteredSymbols = results;
-            return true;
+            scratch.KindIds[i] = (int)symbols[i].Kind;
         }
-        catch
+
+        var filteredCount = RequiredBindings.SymbolKindFilter(
+            scratch.KindIds,
+            (int)targetKind,
+            scratch.ResultIndices);
+
+        if (filteredCount < 0 || filteredCount > symbolCount)
+            throw new InvalidOperationException("N# symbol kind filter kernel rejected the symbols.");
+
+        var results = new List<SymbolResult>(filteredCount);
+        for (var i = 0; i < filteredCount; i++)
         {
-            filteredSymbols = [];
-            return false;
+            var sourceIndex = scratch.ResultIndices[i];
+            if (sourceIndex < 0 || sourceIndex >= symbolCount)
+                throw new InvalidOperationException("N# symbol kind filter kernel returned an invalid index.");
+
+            results.Add(symbols[sourceIndex]);
         }
+
+        return results;
     }
 
     private static Bindings? LoadBindings()
@@ -81,6 +58,9 @@ internal static class CodeIntelligenceSymbolKernels
         int[] resultIndices);
 
     private sealed record Bindings(SymbolKindFilterIndicesInto SymbolKindFilter);
+
+    private static Bindings RequiredBindings
+        => s_bindings.Value ?? throw new InvalidOperationException("N# symbol kind filter kernel is unavailable.");
 
     private sealed class SymbolKindFilterScratch
     {
