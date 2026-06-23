@@ -36,6 +36,15 @@ public class CompilerDogfoodProjectTests
         Assert.Equal(136, (int)TokenType.Newline);
     }
 
+    [Fact]
+    public void DogfoodKernelLoader_DoesNotConvertBindingFailuresToUnavailableKernels()
+    {
+        Assert.NotNull(DogfoodKernelLoader.TryGetProgramType());
+
+        Assert.Throws<InvalidOperationException>(() =>
+            DogfoodKernelLoader.TryCreateBindings<object>(_ => throw new InvalidOperationException("binding failure")));
+    }
+
     // Dogfood the C# parser + the `nlc query ast` serializer (OutputFormatter.AstToJson) over every
     // real .nl file in examples/ and the dogfood kernels: parsing must not crash, must yield a
     // CompilationUnit, and the AST JSON must be valid, carry the stable envelope, and be deterministic

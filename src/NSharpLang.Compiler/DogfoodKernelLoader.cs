@@ -28,15 +28,8 @@ internal static class DogfoodKernelLoader
     internal static TBindings? TryCreateBindings<TBindings>(Func<Type, TBindings> createBindings)
         where TBindings : class
     {
-        try
-        {
-            var programType = TryGetProgramType();
-            return programType == null ? null : createBindings(programType);
-        }
-        catch
-        {
-            return null;
-        }
+        var programType = TryGetProgramType();
+        return programType == null ? null : createBindings(programType);
     }
 
     private static Assembly? TryLoadDogfoodAssembly()
